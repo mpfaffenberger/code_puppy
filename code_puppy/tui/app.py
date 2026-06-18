@@ -309,6 +309,13 @@ class CooperApp(App):
         margin: 0 1 0 0;
         height: 1;
     }
+    /* Streamed thinking content: dim prose, slight indent, gap below. */
+    #log > Static.thinking-content {
+        color: $text-muted;
+        padding: 0 1;
+        margin-bottom: 1;
+        height: auto;
+    }
     """
 
     BINDINGS = [
@@ -372,6 +379,15 @@ class CooperApp(App):
         # write them in fewer, larger chunks.
         self._pending_deltas: list[str] = []
         self._delta_handle = None
+        # Streaming thinking state. ThinkingPart deltas are batched the same
+        # way as text deltas and rendered into a dim Static widget. Cleared by
+        # _stop_thinking_stream; indices track which parts are thinking so
+        # deltas route correctly without inspecting delta_type again.
+        self._thinking_part_indices: set[int] = set()
+        self._thinking_widget: Static | None = None
+        self._thinking_text_acc: str = ""
+        self._thinking_pending_deltas: list[str] = []
+        self._thinking_delta_handle = None
         # Animated thinking spinner (mirrors the classic ConsoleSpinner).
         self._spinner_timer = None
         self._spinner_frame = 0
@@ -1118,15 +1134,55 @@ class CooperApp(App):
     # Live token streaming (Phase 2 polish)                                #
     # ------------------------------------------------------------------ #
     def _on_stream_event(self, event_type, event_data, agent_session_id=None):
-        """Stream response text deltas as inline formatted markdown, live.
+        """Stream response text and thinking deltas live into the log.
 
-        Runs on the app's event loop (the stream callback fires there). Only
-        TEXT parts stream; thinking/tool deltas are ignored. Deltas are queued
-        onto the single render pipeline so they're serialized with bus/legacy
-        output (one mounter, no concurrent-mount races).
+        Runs on the app's event loop (the stream callback fires there).
+        Thinking parts stream into a dim Static widget; text parts stream into
+        a MarkdownWidget. Tool deltas are ignored. All items are queued onto
+        the single render pipeline so they're serialized with bus/legacy output
+        (one mounter, no concurrent-mount races).
         """
         try:
             index = event_data.get("index")
+
+            # ---- Thinking parts (handled before the text-only path) ------
+            if (
+                event_type == "part_start"
+                and event_data.get("part_type") == "ThinkingPart"
+            ):
+                from code_puppy.config import (
+                    get_output_level,
+                    get_suppress_thinking_messages,
+                )
+
+                if get_output_level() != "high" and get_suppress_thinking_messages():
+                    return
+                self._thinking_part_indices.add(index)
+                self.enqueue_render(("thinking_start",))
+                # ThinkingPart.content may already carry opening text.
+                part = event_data.get("part")
+                initial = getattr(part, "content", None)
+                if initial:
+                    self.enqueue_render(("thinking_delta", initial))
+                return
+
+            if (
+                event_type == "part_delta"
+                and event_data.get("delta_type") == "ThinkingPartDelta"
+            ):
+                if index in self._thinking_part_indices:
+                    delta = event_data.get("delta")
+                    chunk = getattr(delta, "content_delta", None)
+                    if chunk:
+                        self.enqueue_render(("thinking_delta", chunk))
+                return
+
+            if event_type == "part_end" and index in self._thinking_part_indices:
+                self._thinking_part_indices.discard(index)
+                self.enqueue_render(("thinking_end",))
+                return
+
+            # ---- Text parts (original path) ------------------------------
             content = None
             if event_type == "part_start":
                 # A new TextPart may already carry its opening text in the
@@ -1193,6 +1249,12 @@ class CooperApp(App):
                     await self._stream_delta(item[1])
                 elif kind == "end":
                     await self._stop_stream()
+                elif kind == "thinking_start":
+                    await self._start_thinking_stream()
+                elif kind == "thinking_delta":
+                    await self._thinking_stream_delta(item[1])
+                elif kind == "thinking_end":
+                    await self._stop_thinking_stream()
             except Exception:
                 # Never let one bad item kill the render loop.
                 pass
@@ -1282,6 +1344,132 @@ class CooperApp(App):
         still in the pipeline; the actual stop happens in the render loop.
         """
         self.enqueue_render(("end",))
+
+    # ------------------------------------------------------------------ #
+    # Thinking stream (ThinkingPart deltas → dim Static widget)           #
+    # ------------------------------------------------------------------ #
+
+    async def _start_thinking_stream(self) -> None:
+        """Mount the THINKING banner + an empty content widget into the log.
+
+        If a text stream is currently active (e.g. a second ThinkingPart
+        arriving mid-turn after a tool call), the stream is finalised first
+        so the thinking banner always mounts AFTER the preceding response
+        text. Each think→respond cycle gets its own Markdown widget and the
+        ordering in the scrollback matches the real event order.
+        """
+        # --- Close any active text stream before mounting the banner. ------
+        # Without this, the second (and later) THINKING banners mount at the
+        # absolute bottom -- after the already-streaming response -- because
+        # _md_stream is still open from the previous text segment.
+        if self._md_stream is not None:
+            # Drain buffered text deltas into the live stream first so no
+            # characters are lost when we stop it.
+            if self._pending_deltas:
+                if self._delta_handle is not None:
+                    try:
+                        self._delta_handle.stop()
+                    except Exception:
+                        pass
+                    self._delta_handle = None
+                chunk = "".join(self._pending_deltas)
+                self._pending_deltas.clear()
+                self._stream_text += chunk
+                try:
+                    await self._md_stream.write(chunk)
+                except Exception:
+                    pass
+            # Lossless rebuild then stop -- mirrors _stop_stream.
+            if self._md_widget is not None and self._stream_text:
+                try:
+                    await self._md_widget.update(self._stream_text)
+                except Exception:
+                    pass
+            try:
+                await self._md_stream.stop()
+            except Exception:
+                pass
+            # Per-segment state reset; widgets stay in the DOM as history.
+            self._md_stream = None
+            self._md_widget = None
+            self._response_anchor = None
+            self._stream_text = ""
+            self._stream_last_index = None
+
+        # --- Mount the banner + empty content widget at the bottom. --------
+        self._flush_output()
+        from code_puppy.config import get_banner_color
+
+        log = self.query_one("#log", VerticalScroll)
+        thinking_color = get_banner_color("thinking")
+        banner_text = Text.from_markup(
+            f"[bold white on {thinking_color}] THINKING "
+            f"[/bold white on {thinking_color}] [dim]\u26a1[/dim]"
+        )
+        banner = Static(banner_text, markup=False)
+        banner._cp_renderable = banner_text
+        await log.mount(banner)
+        content_widget = Static("", classes="thinking-content")
+        content_widget._cp_renderable = ""
+        self._thinking_widget = content_widget
+        self._thinking_text_acc = ""
+        await log.mount(content_widget)
+
+    async def _thinking_stream_delta(self, content: str) -> None:
+        """Buffer a thinking text chunk and schedule a batched widget update."""
+        if not content:
+            return
+        self._thinking_pending_deltas.append(content)
+        self._schedule_thinking_flush()
+
+    def _schedule_thinking_flush(self) -> None:
+        """Arm the thinking-delta flush timer (no-op if already armed)."""
+        if self._thinking_delta_handle is None:
+            self._thinking_delta_handle = self.set_timer(
+                self._DELTA_INTERVAL, self._flush_thinking_deltas
+            )
+
+    async def _flush_thinking_deltas(self) -> None:
+        """Write all buffered thinking deltas to the Static widget."""
+        self._thinking_delta_handle = None
+        if not self._thinking_pending_deltas or self._thinking_widget is None:
+            return
+        chunk = "".join(self._thinking_pending_deltas)
+        self._thinking_pending_deltas.clear()
+        self._thinking_text_acc += chunk
+        try:
+            self._thinking_widget.update(Text(self._thinking_text_acc, style="dim"))
+        except Exception:
+            pass
+
+    async def _stop_thinking_stream(self) -> None:
+        """Finalise the thinking widget with a lossless rebuild and clean up.
+
+        Mirrors ``_stop_stream``: cancels any pending timer, drains buffered
+        deltas, does a final authoritative update, then clears all state
+        (the widget itself stays in the scrollback as history).
+        """
+        if self._thinking_delta_handle is not None:
+            try:
+                self._thinking_delta_handle.stop()
+            except Exception:
+                pass
+            self._thinking_delta_handle = None
+        # Drain any deltas that didn't make it through the timer.
+        if self._thinking_pending_deltas:
+            self._thinking_text_acc += "".join(self._thinking_pending_deltas)
+            self._thinking_pending_deltas.clear()
+        # Lossless final update.
+        if self._thinking_widget is not None and self._thinking_text_acc:
+            try:
+                final = Text(self._thinking_text_acc, style="dim")
+                self._thinking_widget.update(final)
+                self._thinking_widget._cp_renderable = final
+            except Exception:
+                pass
+        # Widget stays in scrollback; clear refs only.
+        self._thinking_widget = None
+        self._thinking_text_acc = ""
 
     def _set_busy(self, busy: bool) -> None:
         """Toggle the working state: disable input + reflect status."""
