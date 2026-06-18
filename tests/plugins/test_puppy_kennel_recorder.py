@@ -41,8 +41,16 @@ def kennel_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         wings as wings_mod,
     )
 
-    for mod in (cfg, schema_mod, state_mod, wings_mod, kennel_mod,
-                packer_mod, recorder_mod, retriever_mod):
+    for mod in (
+        cfg,
+        schema_mod,
+        state_mod,
+        wings_mod,
+        kennel_mod,
+        packer_mod,
+        recorder_mod,
+        retriever_mod,
+    ):
         importlib.reload(mod)
 
     kennel_mod.initialize()
@@ -66,8 +74,16 @@ def kennel_root_no_strip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
         wings as wings_mod,
     )
 
-    for mod in (cfg, schema_mod, state_mod, wings_mod, kennel_mod,
-                packer_mod, recorder_mod, retriever_mod):
+    for mod in (
+        cfg,
+        schema_mod,
+        state_mod,
+        wings_mod,
+        kennel_mod,
+        packer_mod,
+        recorder_mod,
+        retriever_mod,
+    ):
         importlib.reload(mod)
 
     kennel_mod.initialize()
@@ -236,25 +252,27 @@ def test_eval_token_savings() -> None:
     from code_puppy.plugins.puppy_kennel.recorder import _strip_noise
 
     # Simulate a realistic Code Puppy response: ~40% emote lines
-    noisy_response = "\n".join([
-        "*wags tail excitedly*",
-        "Here's the fix for the auth middleware:",
-        "",
-        "```python",
-        "def verify_token(token: str) -> bool:",
-        "    *wags tail*",  # inside fence — should be preserved
-        "    return jwt.decode(token, SECRET)",
-        "```",
-        "",
-        "*zooms around the codebase*",
-        "I've updated `auth.py` to use the new JWT library.",
-        "*woof woof*",
-        "The old `verify_token` was missing the algorithm parameter.",
-        "*spins in excitement*",
-        "Tests are all passing now.",
-        "*happy puppy noises*",
-        "You might also want to update the refresh token handler.",
-    ])
+    noisy_response = "\n".join(
+        [
+            "*wags tail excitedly*",
+            "Here's the fix for the auth middleware:",
+            "",
+            "```python",
+            "def verify_token(token: str) -> bool:",
+            "    *wags tail*",  # inside fence — should be preserved
+            "    return jwt.decode(token, SECRET)",
+            "```",
+            "",
+            "*zooms around the codebase*",
+            "I've updated `auth.py` to use the new JWT library.",
+            "*woof woof*",
+            "The old `verify_token` was missing the algorithm parameter.",
+            "*spins in excitement*",
+            "Tests are all passing now.",
+            "*happy puppy noises*",
+            "You might also want to update the refresh token handler.",
+        ]
+    )
 
     clean = _strip_noise(noisy_response)
 
@@ -266,6 +284,7 @@ def test_eval_token_savings() -> None:
     # Use token_ratio_learner for token estimates (falls back to default ratio)
     try:
         from code_puppy.plugins.token_ratio_learner.ratios import count_tokens
+
         before_tokens = count_tokens(noisy_response)
         after_tokens = count_tokens(clean)
         saved_tokens = before_tokens - after_tokens
@@ -279,10 +298,12 @@ def test_eval_token_savings() -> None:
     drawers_before = budget_tokens // max(before_tokens, 1)
     drawers_after = budget_tokens // max(after_tokens, 1)
 
-    print(f"\n--- Token Savings Eval ---")
+    print("\n--- Token Savings Eval ---")
     print(f"  Before : {before_chars} chars  (~{before_tokens} tokens)")
     print(f"  After  : {after_chars} chars  (~{after_tokens} tokens)")
-    print(f"  Saved  : {saved_chars} chars  (~{saved_tokens} tokens)  [{reduction_pct:.1f}% reduction]")
+    print(
+        f"  Saved  : {saved_chars} chars  (~{saved_tokens} tokens)  [{reduction_pct:.1f}% reduction]"
+    )
     print(f"  Packer budget (1500 tok): {drawers_before} → {drawers_after} drawers fit")
 
     # At least 15% char reduction on a response with ~40% emote lines
@@ -308,7 +329,6 @@ def test_eval_packer_budget_utilisation(kennel_root: Path) -> None:
     """
     from code_puppy.plugins.puppy_kennel import kennel, packer, wings
 
-    pure_emote = "*wags tail*\n*zooms*\n*woof*"
     real_content = "We switched from RSA to ECDSA for JWT signing. " * 10
 
     repo_w = wings.repo_wing()
@@ -330,7 +350,7 @@ def test_eval_packer_budget_utilisation(kennel_root: Path) -> None:
     signal_hits = block.count("ECDSA") if block else 0
     noise_hits = block.count("*wags tail excitedly*") if block else 0
 
-    print(f"\n--- Packer Budget Utilisation Eval ---")
+    print("\n--- Packer Budget Utilisation Eval ---")
     print(f"  Drawers written : {noisy_count} noisy + 3 signal")
     print(f"  Signal hits in recall block : {signal_hits}")
     print(f"  Noise hits in recall block  : {noise_hits}")
@@ -349,18 +369,21 @@ def test_eval_packer_budget_utilisation(kennel_root: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("size_label,char_count", [
-    ("small  (500 chars)", 500),
-    ("medium (5000 chars)", 5_000),
-    ("large  (32000 chars)", 32_000),
-])
+@pytest.mark.parametrize(
+    "size_label,char_count",
+    [
+        ("small  (500 chars)", 500),
+        ("medium (5000 chars)", 5_000),
+        ("large  (32000 chars)", 32_000),
+    ],
+)
 def test_eval_strip_noise_latency(size_label: str, char_count: int) -> None:
     """Quantitative: _strip_noise must complete in under 5ms for any drawer size."""
     from code_puppy.plugins.puppy_kennel.recorder import _strip_noise
 
     # Build a response of the target size: alternating emote and content lines
     lines = []
-    while sum(len(l) + 1 for l in lines) < char_count:
+    while sum(len(line) + 1 for line in lines) < char_count:
         lines.append("*wags tail excitedly*")
         lines.append("Refactored the authentication module to use ECDSA.")
     text = "\n".join(lines)[:char_count]
