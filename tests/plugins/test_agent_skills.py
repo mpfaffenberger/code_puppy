@@ -255,6 +255,7 @@ class TestSkillDiscovery:
         assert len(skills) == 0
         assert "Skill path is not a directory" in caplog.text
 
+    @pytest.mark.plugin_skills
     def test_discover_skills_includes_plugin_registered_skills(
         self, tmp_path, monkeypatch
     ):
@@ -362,6 +363,7 @@ class TestSkillDiscovery:
         assert len(shared_skills) == 1
         assert shared_skills[0].path == local_skill
 
+    @pytest.mark.plugin_skills
     def test_refresh_skill_cache_prunes_stale_plugin_cache(self, tmp_path, monkeypatch):
         from code_puppy.plugins.agent_skills import discovery as discovery_module
 
