@@ -168,7 +168,7 @@ async def _invoke_agent_impl(
                 )
 
             # Create a temporary agent instance to avoid interfering with current agent state
-            instructions = agent_config.get_full_system_prompt()
+            sections = agent_config.get_prompt_sections()
 
             # Add AGENTS.md content to subagents.
             # ``load_puppy_rules`` lives on the builder module since the
@@ -177,7 +177,11 @@ async def _invoke_agent_impl(
 
             puppy_rules = load_puppy_rules()
             if puppy_rules:
-                instructions += f"\n\n{puppy_rules}"
+                sections = type(sections)(
+                    static=f"{sections.static.rstrip()}\n\n{puppy_rules}",
+                    dynamic=sections.dynamic,
+                )
+            instructions = sections.render()
 
             # NOTE: ``load_prompt`` fragments (file-permission handling, kennel
             # memory, ...) are already baked into ``get_full_system_prompt``

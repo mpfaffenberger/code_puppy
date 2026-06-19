@@ -425,10 +425,15 @@ def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
         has_extended_thinking_active,
     )
 
-    instructions = agent.get_full_system_prompt()
+    sections = agent.get_prompt_sections()
     puppy_rules = load_puppy_rules()
     if puppy_rules:
-        instructions += f"\n{puppy_rules}"
+        sections = type(sections)(
+            static=f"{sections.static.rstrip()}\n{puppy_rules}",
+            dynamic=sections.dynamic,
+        )
+
+    instructions = sections.render()
 
     if has_extended_thinking_active(resolved_model_name):
         instructions += EXTENDED_THINKING_PROMPT_NOTE

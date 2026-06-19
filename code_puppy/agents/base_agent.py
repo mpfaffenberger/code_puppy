@@ -13,6 +13,7 @@ belongs in one of the helpers above (or a new one).
 
 from __future__ import annotations
 
+import os
 import uuid
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
@@ -38,6 +39,7 @@ from code_puppy.config import (
     get_protected_token_count,
 )
 from code_puppy.model_factory import ModelFactory
+from code_puppy.prompt_composition import PromptSections
 
 # Backward-compat alias: existing tests import this name directly.
 should_retry_streaming_exception = should_retry_streaming
@@ -77,6 +79,8 @@ class BaseAgent(ABC):
         self._mcp_servers: List[Any] = []
         self.cur_model: Optional[pydantic_ai.models.Model] = None
         self.pydantic_agent: Any = None
+        self._dynamic_prompt_cache: Optional[str] = None
+        self._dynamic_prompt_cwd: Optional[str] = None
         # Cached probe agent used to count tool overhead before the real
         # pydantic agent has been built. Keyed implicitly by ``_last_model_name``
         # so model swaps invalidate it via ``_probe_model_name``.
@@ -157,6 +161,31 @@ class BaseAgent(ABC):
             "such as claiming task ownership or coordination with other agents."
         )
 
+    def invalidate_dynamic_prompt(self) -> None:
+        """Invalidate volatile prompt context after a context-changing event."""
+        self._dynamic_prompt_cache = None
+        self._dynamic_prompt_cwd = None
+
+    def get_prompt_sections(self) -> PromptSections:
+        """Return a cache-stable authored prefix and cached runtime suffix.
+
+        Runtime fragments are recomputed when explicitly invalidated or when
+        the working directory changes. This keeps provider prompt-cache
+        prefixes stable across ordinary turns.
+        """
+        from code_puppy import callbacks
+
+        cwd = os.getcwd()
+        if self._dynamic_prompt_cache is None or self._dynamic_prompt_cwd != cwd:
+            fragments = callbacks.on_load_prompt()
+            fragments.append(self.get_identity_prompt())
+            self._dynamic_prompt_cache = "\n".join(fragments)
+            self._dynamic_prompt_cwd = cwd
+        return PromptSections(
+            static=self.get_system_prompt(),
+            dynamic=self._dynamic_prompt_cache,
+        )
+
     def get_full_system_prompt(self) -> str:
         """Assemble the runtime system prompt.
 
@@ -169,13 +198,7 @@ class BaseAgent(ABC):
         fresh every run and never get persisted into static agent definitions
         (e.g. when an agent is cloned to JSON). See ``clone_agent``.
         """
-        from code_puppy import callbacks
-
-        prompt = self.get_system_prompt()
-        prompt_additions = callbacks.on_load_prompt()
-        if prompt_additions:
-            prompt += "\n" + "\n".join(prompt_additions)
-        return prompt + self.get_identity_prompt()
+        return self.get_prompt_sections().render()
 
     # ---- Message history (plain dict-level access) ------------------------
     def get_message_history(self) -> List[Any]:
@@ -187,6 +210,7 @@ class BaseAgent(ABC):
     def clear_message_history(self) -> None:
         self._message_history = []
         self._compacted_message_hashes.clear()
+        self.invalidate_dynamic_prompt()
 
     def append_to_message_history(self, message: Any) -> None:
         self._message_history.append(message)

@@ -252,10 +252,14 @@ def _should_prepend_system_prompt(agent: Any, prompt: str) -> str:
     if agent._message_history:
         return prompt
 
-    system_prompt = agent.get_full_system_prompt()
+    sections = agent.get_prompt_sections()
     rules = load_puppy_rules()
     if rules:
-        system_prompt += f"\n{rules}"
+        sections = type(sections)(
+            static=f"{sections.static.rstrip()}\n{rules}",
+            dynamic=sections.dynamic,
+        )
+    system_prompt = sections.render()
 
     prepared = prepare_prompt_for_model(
         model_name=agent.get_model_name(),
