@@ -631,7 +631,7 @@ def run_shell_command_streaming(
                             line = process.stdout.readline()
                             if not line:  # EOF
                                 break
-                            line = line.rstrip("\n")
+                            line = line.rstrip("\r\n")
                             line = _truncate_line(line)
                             stdout_lines.append(line)
                             if not silent:
@@ -645,6 +645,12 @@ def run_shell_command_streaming(
                                     remaining = process.stdout.read()
                                     if remaining:
                                         for line in remaining.split("\n"):
+                                            # Normalize trailing CR/LF to match
+                                            # the main readline path; otherwise
+                                            # Windows CRLF leaves a stray \r that
+                                            # can re-trigger the renderer's redraw
+                                            # bypass.
+                                            line = line.rstrip("\r\n")
                                             line = _truncate_line(line)
                                             stdout_lines.append(line)
                                             if not silent:
@@ -667,7 +673,7 @@ def run_shell_command_streaming(
                         line = process.stdout.readline()
                         if not line:  # EOF
                             break
-                        line = line.rstrip("\n")
+                        line = line.rstrip("\r\n")
                         line = _truncate_line(line)
                         stdout_lines.append(line)
                         if not silent:
@@ -700,7 +706,7 @@ def run_shell_command_streaming(
                             line = process.stderr.readline()
                             if not line:  # EOF
                                 break
-                            line = line.rstrip("\n")
+                            line = line.rstrip("\r\n")
                             line = _truncate_line(line)
                             stderr_lines.append(line)
                             if not silent:
@@ -714,6 +720,12 @@ def run_shell_command_streaming(
                                     remaining = process.stderr.read()
                                     if remaining:
                                         for line in remaining.split("\n"):
+                                            # Normalize trailing CR/LF to match
+                                            # the main readline path; otherwise
+                                            # Windows CRLF leaves a stray \r that
+                                            # can re-trigger the renderer's redraw
+                                            # bypass.
+                                            line = line.rstrip("\r\n")
                                             line = _truncate_line(line)
                                             stderr_lines.append(line)
                                             if not silent:
@@ -735,7 +747,7 @@ def run_shell_command_streaming(
                         line = process.stderr.readline()
                         if not line:  # EOF
                             break
-                        line = line.rstrip("\n")
+                        line = line.rstrip("\r\n")
                         line = _truncate_line(line)
                         stderr_lines.append(line)
                         if not silent:

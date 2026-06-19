@@ -919,15 +919,24 @@ class RichConsoleRenderer:
 
         from rich.text import Text
 
-        # Check if line contains carriage return (progress bar style output)
-        if "\r" in msg.line:
+        # Strip trailing CRLF first. On Windows, subprocess output ends in
+        # CRLF; a lone trailing CR must NOT be mistaken for an interior
+        # progress-bar redraw, or the line is routed through the raw stdout
+        # bypass below and leaks literal ANSI when the console has not
+        # enabled VT processing (the Windows ANSI-leak bug).
+        line = msg.line.rstrip("\r\n")
+
+        # Only an *interior* carriage return signals a progress-bar redraw
+        # (e.g. uv/pip download bars).
+        if "\r" in line:
             # Bypass Rich entirely - write directly to stdout so terminal interprets \r
             # Apply dim styling manually via ANSI codes
-            sys.stdout.write(f"\033[2m{msg.line}\033[0m")
+            sys.stdout.write(f"\r\033[2m{line}\033[0m")
             sys.stdout.flush()
         else:
-            # Normal line: use Rich for nice formatting
-            text = Text.from_ansi(msg.line)
+            # Normal line: let Rich own terminal/VT detection so rendering is
+            # deterministic across platforms and sessions.
+            text = Text.from_ansi(line)
             self._console.print(text, style="dim")
 
     def _render_shell_output(self, msg: ShellOutputMessage) -> None:
