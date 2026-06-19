@@ -516,6 +516,44 @@ class TestMakeHistoryProcessor:
                     "empty ThinkingPart should have been stripped"
                 )
 
+    def test_preserves_empty_thinking_with_signature(self):
+        """ThinkingParts with encrypted reasoning state must NOT be stripped.
+
+        GPT-5 on the Responses API returns reasoning items with empty content
+        but non-empty ``signature`` / ``id`` (the encrypted reasoning payload).
+        These must round-trip back to the API or the paired ``msg_...`` item
+        in the next turn errors with "provided without its required
+        'reasoning' item".
+        """
+        agent = _FakeAgent()
+        processor = make_history_processor(agent)
+
+        reasoning_msg = ModelResponse(
+            parts=[
+                ThinkingPart(
+                    content="",
+                    id="rs_abc123",
+                    signature="encrypted-blob",
+                    provider_name="openai",
+                ),
+                TextPart(content="hi", id="msg_abc123"),
+            ]
+        )
+        msgs = [_sys_msg(), _user_msg("q"), reasoning_msg, _user_msg("q2")]
+        result = processor(msgs)
+
+        # The reasoning ThinkingPart must survive — dropping it would orphan
+        # the paired TextPart(id="msg_...") on the next API request.
+        thinking_found = False
+        for msg in result:
+            for p in msg.parts:
+                if isinstance(p, ThinkingPart) and p.id == "rs_abc123":
+                    thinking_found = True
+                    assert p.signature == "encrypted-blob"
+        assert thinking_found, (
+            "ThinkingPart with signature must be preserved for Responses API"
+        )
+
     def test_triggers_compaction_over_threshold(self):
         """When over threshold, the processor must call compact() and shrink history."""
         agent = _FakeAgent(model_max=5_000, overhead=100)
