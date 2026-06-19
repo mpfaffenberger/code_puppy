@@ -219,6 +219,10 @@ def discover_skills(directories: Optional[List[Path]] = None) -> List[SkillInfo]
             if d.resolve() not in seen:
                 directories.append(d)
 
+    from code_puppy.project_trust import filter_untrusted_project_paths
+
+    directories = [Path(path) for path in filter_untrusted_project_paths(directories)]
+
     discovered_skills: List[SkillInfo] = []
     seen_skill_names: set[str] = set()
 

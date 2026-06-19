@@ -631,6 +631,10 @@ class TestLoadPluginCallbacks:
                 return_value=project_dir,
             ),
             patch(
+                "code_puppy.project_trust.ensure_project_trusted",
+                return_value=True,
+            ),
+            patch(
                 "code_puppy.plugins._load_project_plugins",
                 return_value=["project_plugin"],
             ) as mock_project,
