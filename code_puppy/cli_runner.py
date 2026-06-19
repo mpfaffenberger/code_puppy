@@ -11,6 +11,7 @@ apply_all_patches()
 import argparse
 import asyncio
 import os
+import signal
 import sys
 import traceback
 from pathlib import Path
@@ -429,6 +430,32 @@ async def main():
         await callbacks.on_shutdown()
 
 
+def _interactive_sigint_guard(_sig, _frame):
+    """Baseline SIGINT handler for the interactive REPL.
+
+    Ctrl+C in Code Puppy is a *cancel* gesture, never a *quit* gesture
+    (Ctrl+D quits). During an agent run or a shell command the runtime
+    installs its own SIGINT handler that turns Ctrl+C into a task cancel /
+    shell kill, saving and later restoring whatever handler was in place.
+
+    Between those windows -- and, critically, during the brief unwind after a
+    run is cancelled but before the next handler is installed -- the handler
+    would otherwise be Python's default, which raises ``KeyboardInterrupt``.
+    A second fast Ctrl+C landing in that gap bubbles all the way up to
+    ``main_entry`` and exits the whole process. That is the
+    ``Ctrl+C Ctrl+C too fast`` crash.
+
+    Installing this no-op-ish guard for the lifetime of the REPL means the
+    saved/restored ``original`` handler is always benign: a stray Ctrl+C in
+    any gap is swallowed instead of killing the process. The per-run and
+    per-shell handlers still own cancellation while they're active.
+    """
+    # Nothing is running that owns cancellation (otherwise their handler would
+    # be installed instead of this one). Swallow the signal so a fast repeat
+    # tap can't escape to main_entry and exit the process.
+    return
+
+
 async def interactive_mode(message_renderer, initial_command: str = None) -> None:
     """Run the agent in interactive mode."""
     from code_puppy.command_line.command_handler import handle_command
@@ -618,6 +645,21 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     # Track the current agent task for cancellation on quit
     current_agent_task = None
+
+    # Install a session-wide baseline SIGINT guard for the lifetime of the
+    # REPL. Ctrl+C is a *cancel* gesture here (Ctrl+D quits), and the per-run
+    # / per-shell handlers own cancellation while they're active, saving and
+    # restoring whatever handler preceded them. Without this baseline, the
+    # restored handler in the gap between those windows is Python's default,
+    # which raises KeyboardInterrupt -- so a fast Ctrl+C double-tap can slip
+    # through the unwind after the first cancel and exit the whole process.
+    # We deliberately do NOT restore the previous handler: when this loop
+    # exits the program is shutting down, so SIGINT ownership for the REPL's
+    # whole life belongs here. Best effort -- signal.signal is main-thread only.
+    try:
+        signal.signal(signal.SIGINT, _interactive_sigint_guard)
+    except (ValueError, OSError):
+        pass
 
     while True:
         from code_puppy.agents.agent_manager import get_current_agent
@@ -881,6 +923,20 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     0.1
                 )  # Brief pause to ensure all messages are rendered
 
+            except KeyboardInterrupt:
+                # Defense-in-depth: even with the session SIGINT guard, a
+                # bare KeyboardInterrupt during the unwind of a fast Ctrl+C
+                # double-tap must NOT escape to main_entry (that exits the
+                # whole process). Treat it as a turn cancel and keep the REPL
+                # alive -- Ctrl+D is the only way out.
+                if current_agent_task is not None and not current_agent_task.done():
+                    current_agent_task.cancel()
+                from code_puppy.callbacks import on_interactive_turn_cancel
+                from code_puppy.messaging import emit_warning
+
+                await on_interactive_turn_cancel(task, reason="Ctrl+C")
+                emit_warning("\nCancelled")
+                continue
             except Exception as e:
                 turn_error = e
                 _render_turn_exception(e)
