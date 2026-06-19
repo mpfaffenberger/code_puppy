@@ -7,9 +7,11 @@ import time
 import traceback
 
 from code_puppy import __version__ as current_version
+from code_puppy.config import DATA_DIR
 from code_puppy.messaging import emit_error, emit_info
 
-from .config import DBOS_DATABASE_URL
+from .config import _DEFAULT_SQLITE_FILE, DBOS_DATABASE_URL
+from .startup_lock import enable_sqlite_wal, interprocess_lock
 
 # Module-level flag flipped True only after a successful DBOS.launch().
 # Other plugin modules (e.g. wrapper.py, runtime.py) MUST check this before
@@ -52,8 +54,20 @@ def on_startup() -> None:
     }
     try:
         emit_info(f"Initializing DBOS with database at: {DBOS_DATABASE_URL}")
-        DBOS(config=dbos_config)
-        DBOS.launch()
+        # Multiple instances (e.g. several Zellij panes) share one SQLite
+        # system database. DBOS.launch() runs schema migration + recovery,
+        # which take SQLite's single-writer lock. Without serialization the
+        # racers collide on the lock and all-but-one fail to launch. We:
+        #   1) flip the DB to WAL mode (persistent) so concurrent access is
+        #      far less likely to block once initialized, and
+        #   2) hold a cross-process file lock so launch/migration runs one
+        #      process at a time. Late starters wait instead of crashing.
+        if DBOS_DATABASE_URL.startswith("sqlite"):
+            enable_sqlite_wal(_DEFAULT_SQLITE_FILE)
+        launch_lock = os.path.join(DATA_DIR, "dbos_store.launch.lock")
+        with interprocess_lock(launch_lock, timeout=60.0):
+            DBOS(config=dbos_config)
+            DBOS.launch()
         _LAUNCHED = True
     except Exception as e:
         emit_error(
