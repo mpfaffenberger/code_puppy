@@ -1,0 +1,1 @@
+"""Session tree navigation plugin."""
