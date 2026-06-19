@@ -1011,6 +1011,7 @@ class TestAgentsDirectories:
         agents_dir = tmp_path / ".code_puppy" / "agents"
         agents_dir.mkdir(parents=True)
         monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("CODE_PUPPY_TRUST_PROJECT", "true")
         assert cp_config.get_project_agents_directory() is not None
 
     def test_get_project_agents_directory_not_exists(self, tmp_path, monkeypatch):

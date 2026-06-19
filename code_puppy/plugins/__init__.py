@@ -417,6 +417,17 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
     # Pre-scan project plugin names so we can skip user plugins that the
     # project tier will supersede (project wins, matching agents dedup).
     project_plugins_dir = get_project_plugins_directory()
+    if project_plugins_dir is not None:
+        from code_puppy.project_trust import ensure_project_trusted
+
+        project_root = project_plugins_dir.parent.parent
+        if not ensure_project_trusted(project_root):
+            logger.warning(
+                "Skipping untrusted project plugins from %s. "
+                "Use /trust project and restart to enable them.",
+                project_plugins_dir,
+            )
+            project_plugins_dir = None
     project_plugin_names = (
         _scan_plugin_names(project_plugins_dir)
         if project_plugins_dir is not None

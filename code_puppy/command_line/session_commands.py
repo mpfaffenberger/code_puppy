@@ -152,6 +152,7 @@ def handle_compact_command(command: str) -> bool:
             return True
 
         agent.set_message_history(compacted)
+        agent.invalidate_dynamic_prompt()
 
         current_agent = get_current_agent()
         after_tokens = sum(
