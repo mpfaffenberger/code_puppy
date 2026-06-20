@@ -90,6 +90,21 @@ uv pip install "code-puppy[durable]"
 Then toggle it from inside the app via `/dbos on` (and restart). Use `/dbos status`
 to check, `/dbos off` to disable.
 
+#### Optional: desktop browser automation
+
+Playwright-backed browser tools are optional because Playwright does not publish
+Android-compatible Python wheels. Install the `browser` extra on supported
+desktop platforms when you want those tools:
+
+```bash
+pip install "code-puppy[browser]"
+# or
+uv pip install "code-puppy[browser]"
+```
+
+On Android/Termux, use Android-native browser/CDP workflows instead. For file
+search there, install the system `rg` command (`pkg install ripgrep`) if needed.
+
 ## Changelog (By Kittylog!)
 
 [📋 View the full changelog on Kittylog](https://kittylog.app/c/mpfaffenberger/code_puppy)

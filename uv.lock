@@ -311,7 +311,6 @@ dependencies = [
     { name = "mcp" },
     { name = "openai" },
     { name = "pillow" },
-    { name = "playwright" },
     { name = "prompt-toolkit" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
@@ -320,7 +319,7 @@ dependencies = [
     { name = "rapidfuzz" },
     { name = "requests" },
     { name = "rich" },
-    { name = "ripgrep" },
+    { name = "ripgrep", marker = "sys_platform != 'android'" },
     { name = "termflow-md" },
     { name = "typer" },
 ]
@@ -328,6 +327,9 @@ dependencies = [
 [package.optional-dependencies]
 bedrock = [
     { name = "boto3" },
+]
+browser = [
+    { name = "playwright", marker = "sys_platform != 'android'" },
 ]
 durable = [
     { name = "dbos" },
@@ -354,7 +356,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.9.4" },
     { name = "openai", specifier = ">=1.99.1" },
     { name = "pillow", specifier = ">=10.0.0" },
-    { name = "playwright", specifier = ">=1.40.0" },
+    { name = "playwright", marker = "sys_platform != 'android' and extra == 'browser'", specifier = ">=1.40.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pydantic", specifier = ">=2.4.0" },
     { name = "pydantic-ai-slim", extras = ["openai", "anthropic", "mcp"], specifier = "==1.56.0" },
@@ -363,11 +365,11 @@ requires-dist = [
     { name = "rapidfuzz", specifier = ">=3.13.0" },
     { name = "requests", specifier = ">=2.28.0" },
     { name = "rich", specifier = ">=13.4.2" },
-    { name = "ripgrep", specifier = "==14.1.0" },
+    { name = "ripgrep", marker = "sys_platform != 'android'", specifier = "==14.1.0" },
     { name = "termflow-md", specifier = ">=0.1.11" },
     { name = "typer", specifier = ">=0.12.0" },
 ]
-provides-extras = ["bedrock", "durable"]
+provides-extras = ["bedrock", "browser", "durable"]
 
 [package.metadata.requires-dev]
 dev = [

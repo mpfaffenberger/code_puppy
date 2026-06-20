@@ -29,7 +29,7 @@ jobs:
         run: uv venv
 
       - name: Install dependencies
-        run: uv pip install -e .
+        run: uv pip install -e '.[browser]'
 
       - name: Install pexpect for integration tests
         run: uv pip install pexpect>=4.9.0
