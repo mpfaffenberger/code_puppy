@@ -52,6 +52,54 @@ from code_puppy.version_checker import default_version_mismatch_behavior
 plugins.load_plugin_callbacks()
 
 
+async def _run_transport_mode(args: argparse.Namespace) -> bool:
+    """Run server/RPC/JSON modes before terminal renderers are initialized."""
+    if not (args.serve or args.rpc or args.output == "json"):
+        return False
+    if args.output == "json" and not args.prompt:
+        raise SystemExit("--output json requires --prompt")
+
+    ensure_config_exists()
+    from code_puppy.config import load_api_keys_to_environment, set_model_name
+
+    if args.model:
+        set_model_name(args.model.strip())
+    load_api_keys_to_environment()
+    await callbacks.on_startup()
+    try:
+        if args.serve:
+            import uvicorn
+
+            from code_puppy.server import create_app
+
+            config = uvicorn.Config(
+                create_app(), host=args.host, port=args.port, log_level="info"
+            )
+            await uvicorn.Server(config).serve()
+            return True
+        if args.rpc:
+            from code_puppy.rpc import RPCServer
+
+            await RPCServer().serve()
+            return True
+
+        from code_puppy.server.session_manager import SessionManager
+
+        manager = SessionManager()
+        try:
+            record = await manager.create_session(args.agent)
+            task = await manager.submit(record.id, args.prompt)
+            await task
+            await asyncio.sleep(0)
+            for event in record.events:
+                print(event.model_dump_json())
+        finally:
+            manager.close()
+        return True
+    finally:
+        await callbacks.on_shutdown()
+
+
 def _resume_session_from_path(raw_path: str) -> None:
     """Restore agent message history from a saved .pkl session file.
 
@@ -145,9 +193,32 @@ async def main():
         help="Resume a saved session from a .pkl file (e.g. ~/.mist/contexts/foo.pkl)",
     )
     parser.add_argument(
+        "--serve", action="store_true", help="Run the headless HTTP/SSE server"
+    )
+    parser.add_argument(
+        "--host", default="127.0.0.1", help="Server bind address (default: 127.0.0.1)"
+    )
+    parser.add_argument(
+        "--port", type=int, default=4096, help="Server port (default: 4096)"
+    )
+    parser.add_argument(
+        "--rpc",
+        action="store_true",
+        help="Run newline-delimited JSON RPC on stdin/stdout",
+    )
+    parser.add_argument(
+        "--output",
+        choices=("rich", "json"),
+        default="rich",
+        help="Output format for prompt mode",
+    )
+    parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
     args = parser.parse_args()
+
+    if await _run_transport_mode(args):
+        return
 
     from code_puppy.messaging import (
         RichConsoleRenderer,
