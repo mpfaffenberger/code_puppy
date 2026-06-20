@@ -51,6 +51,21 @@ Code Puppy is an AI-powered code generation agent, designed to understand progra
 uvx code-puppy -i
 ````
 
+## Lean bootstrap planning
+
+If you need to decide installation policy before attaching optional capabilities,
+use the lightweight bootstrap planner instead of treating `uvx code-puppy` as a
+universal installer:
+
+```bash
+uvx --from code-puppy code-puppy-bootstrap plan --profile auto --json
+```
+
+That bootstrap path stays stdlib-only, inspects the environment, and emits a
+profile-driven install/reattach plan so Android/Termux deployments can keep
+optional browser/image/fuzzy/search/provider dependencies detached until the
+real target environment is known.
+
 ## Installation
 
 ### UV (Recommended)
@@ -62,6 +77,8 @@ uvx code-puppy -i
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 uvx code-puppy
+# or inspect a lean install plan first
+uvx --from code-puppy code-puppy-bootstrap plan --profile auto --json
 ```
 
 #### Windows

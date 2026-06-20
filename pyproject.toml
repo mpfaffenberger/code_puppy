@@ -63,6 +63,7 @@ HomePage = "https://github.com/mpfaffenberger/code_puppy"
 [project.scripts]
 code-puppy = "code_puppy.main:main_entry"
 pup = "code_puppy.main:main_entry"
+code-puppy-bootstrap = "code_puppy.bootstrap:main"
 
 [tool.logfire]
 ignore_no_config = true
