@@ -76,6 +76,12 @@ uv pip install "mist-agent[durable]"
 Then toggle it from inside the app via `/dbos on` (and restart). Use `/dbos status`
 to check, `/dbos off` to disable.
 
+### Standalone releases
+
+Tagged releases build no-Python-toolchain executables for Linux x64, macOS x64/arm64,
+and Windows x64. Release assets also include an AppImage and generated Homebrew/Scoop
+manifests. The `uvx` and `pip` installation paths remain supported.
+
 ### Migrating from Code Puppy
 
 Mist uses `~/.mist/` for user configuration and `.mist/` for project-local
@@ -86,6 +92,42 @@ aliases, and existing Python plugins may continue importing `code_puppy` during
 the compatibility period.
 
 ## Usage
+
+### Headless server, SDK, and structured output
+
+Start the authenticated local server (HTTP API, SSE events, and web client):
+
+```bash
+mist --serve                         # http://127.0.0.1:4096
+cat ~/.mist/server.json             # bearer token for API clients
+mist -p "review this repository" --output json
+mist --rpc                          # JSON-RPC 2.0, one object per line
+```
+
+The server owns independent durable sessions, so clients can disconnect and replay
+events with `Last-Event-ID`. It binds to loopback by default. Supplying `--host
+0.0.0.0` does not disable bearer authentication.
+
+```python
+from code_puppy.sdk import AgentClient
+
+async with AgentClient("http://127.0.0.1:4096", token) as client:
+    session = await client.session()
+    async for event in session.submit("Run the focused tests"):
+        print(event.type, event.data)
+```
+
+Use `/share` for a redacted local HTML export, or `/share --upload URL` to explicitly
+send the redacted bundle to an HTTPS endpoint you control.
+
+### Safety modes
+
+- `/mode plan` makes file mutations unavailable and requires approval for every shell
+  command; `/mode build` restores the normal policy. Tab toggles mode on an empty prompt.
+- `injection_probe=heuristic|model|off` controls untrusted tool-output annotations.
+- `sandbox_backend=none|auto|bubblewrap|sandbox-exec|container` selects shell containment.
+- `shell_safe_prefixes` configures the small command-prefix auto-allowlist.
+- `/trust domain|remote|org|bucket|service VALUE` extends the existing project trust scope.
 
 ### Adding Models from models.dev 🆕
 
