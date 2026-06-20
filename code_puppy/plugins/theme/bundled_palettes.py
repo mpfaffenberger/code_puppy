@@ -294,3 +294,27 @@ BUBBLEGUM_PINK = {
         "#fff8fb",
     ],
 }
+
+# Warm autumn palette: Cinnamon / Pumpkin / Butterscotch / Milky Tan / Creamsicle.
+CINNAMON = {
+    "bg": "#221606",
+    "fg": "#ffecd1",
+    "ansi": [
+        "#3a2a12",  # 0 black  (warm brown-black)
+        "#d47007",  # 1 red    -> pumpkin
+        "#df9241",  # 2 green  -> butterscotch
+        "#e0b067",  # 3 yellow -> warm gold
+        "#7d4e00",  # 4 blue   -> cinnamon
+        "#c4a59d",  # 5 magenta-> milky tan
+        "#e8a35a",  # 6 cyan   -> warm amber
+        "#ffecd1",  # 7 white  -> creamsicle
+        "#5d4324",  # 8 br black
+        "#e8852a",  # 9 br red
+        "#f0a85e",  # 10 br green
+        "#f4c98a",  # 11 br yellow
+        "#9a6510",  # 12 br blue
+        "#d8b8b0",  # 13 br magenta
+        "#f2bd7e",  # 14 br cyan
+        "#fff5e6",  # 15 br white
+    ],
+}
