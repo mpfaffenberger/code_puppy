@@ -181,8 +181,17 @@ def _iter_plugin_skill_registrations() -> Iterable[tuple[str, str, dict[str, Any
 
 
 def _collect_plugin_skills() -> List[SkillInfo]:
-    if _PLUGIN_SKILLS_CACHE_DIR.exists():
-        shutil.rmtree(_PLUGIN_SKILLS_CACHE_DIR, ignore_errors=True)
+    """Materialize plugin-provided skills into the shared cache directory.
+
+    This function may run concurrently when multiple agent invocations trigger
+    skill discovery at the same time. Deleting the shared cache root on every
+    call creates a race where one invocation removes directories while another
+    is creating or reading them, which commonly blows up on Windows as
+    ``FileExistsError`` or ``FileNotFoundError``.
+
+    Keep the shared root stable and rely on deterministic per-skill overwrites
+    instead of deleting the whole cache tree on each discovery run.
+    """
     _PLUGIN_SKILLS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     plugin_skills: List[SkillInfo] = []
