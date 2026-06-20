@@ -20,13 +20,40 @@ def _register_start(agent):
     ) -> BackgroundTaskRecord:
         """Start a managed shell or subagent task and return immediately."""
         if request.kind is BackgroundTaskKind.SHELL:
+            from code_puppy.callbacks import on_run_shell_command
             from code_puppy.permissions import authorize_shell_command
 
+            callback_results = await on_run_shell_command(
+                context,
+                request.command or "",
+                request.cwd,
+                request.timeout_seconds or 60,
+            )
+            requires_approval = False
+            sandbox_fallback = False
+            for result in callback_results:
+                if not isinstance(result, dict):
+                    continue
+                if result.get("blocked"):
+                    raise PermissionError(
+                        result.get(
+                            "error_message", "Background command blocked by policy"
+                        )
+                    )
+                requires_approval = requires_approval or bool(
+                    result.get("requires_approval")
+                )
+                sandbox_fallback = sandbox_fallback or bool(
+                    result.get("sandbox_fallback")
+                )
             approved, _ = await authorize_shell_command(
-                request.command or "", request.cwd
+                request.command or "",
+                request.cwd,
+                force_prompt=requires_approval,
             )
             if not approved:
                 raise PermissionError("Background command denied by permission policy")
+            request.metadata["_sandbox_fallback_approved"] = sandbox_fallback
         return get_background_manager().start(request, context)
 
 

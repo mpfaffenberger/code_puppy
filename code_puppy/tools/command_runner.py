@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import ctypes
 import os
 import select
@@ -928,20 +929,37 @@ async def run_shell_command(
     from code_puppy.callbacks import on_run_shell_command
 
     callback_results = await on_run_shell_command(context, command, cwd, timeout)
+    requires_approval = False
+    sandbox_fallback_requested = False
+    approval_granted = False
 
     # Check if any callback blocked the command
     # Callbacks can return None (allow) or a dict with blocked=True (reject)
     for result in callback_results:
         if result and isinstance(result, dict) and result.get("blocked"):
+            block_reason = result.get(
+                "error_message", "Command blocked by safety check"
+            )
+            try:
+                from code_puppy.safety.denials import record_denied_action
+
+                await record_denied_action(block_reason)
+            except Exception:
+                pass
             return ShellCommandOutput(
                 success=False,
                 command=command,
-                error=result.get("error_message", "Command blocked by safety check"),
+                error=block_reason,
                 user_feedback=result.get("reasoning", ""),
                 stdout=None,
                 stderr=None,
                 exit_code=None,
                 execution_time=None,
+            )
+        if result and isinstance(result, dict) and result.get("requires_approval"):
+            requires_approval = True
+            sandbox_fallback_requested = sandbox_fallback_requested or bool(
+                result.get("sandbox_fallback")
             )
 
     from code_puppy.permissions import (
@@ -949,9 +967,17 @@ async def run_shell_command(
         has_explicit_permission_mode,
     )
 
-    if has_explicit_permission_mode():
-        approved, permission_feedback = await authorize_shell_command(command, cwd)
+    if requires_approval or has_explicit_permission_mode():
+        approved, permission_feedback = await authorize_shell_command(
+            command, cwd, force_prompt=requires_approval
+        )
         if not approved:
+            try:
+                from code_puppy.safety.denials import record_denied_action
+
+                await record_denied_action("Shell command denied by permission policy")
+            except Exception:
+                pass
             return ShellCommandOutput(
                 success=False,
                 command=command,
@@ -962,6 +988,14 @@ async def run_shell_command(
                 exit_code=None,
                 execution_time=None,
             )
+        approval_granted = True
+
+    try:
+        from code_puppy.safety.denials import record_allowed_action
+
+        record_allowed_action()
+    except Exception:
+        pass
 
     # Handle legacy detached background execution after core permission gating.
     if background:
@@ -975,26 +1009,35 @@ async def run_shell_command(
         log_file_path = log_file.name
 
         try:
+            from code_puppy.sandbox import prepare_shell_command
+
+            prepared = prepare_shell_command(
+                command,
+                cwd,
+                allow_unsandboxed_fallback=(
+                    sandbox_fallback_requested and approval_granted
+                ),
+            )
             # Platform-specific process detachment
             if sys.platform.startswith("win"):
                 creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
                 process = subprocess.Popen(
-                    command,
-                    shell=True,
+                    prepared.argv,
+                    shell=False,
                     stdout=log_file,
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL,
-                    cwd=cwd,
+                    cwd=prepared.cwd,
                     creationflags=creationflags,
                 )
             else:
                 process = subprocess.Popen(
-                    command,
-                    shell=True,
+                    prepared.argv,
+                    shell=False,
                     stdout=log_file,
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL,
-                    cwd=cwd,
+                    cwd=prepared.cwd,
                     start_new_session=True,  # Fully detach on POSIX
                 )
 
@@ -1070,6 +1113,7 @@ async def run_shell_command(
     # and NOT running as a sub-agent (sub-agents run without user interaction)
     if (
         not has_explicit_permission_mode()
+        and not approval_granted
         and not yolo_mode
         and not running_as_subagent
         and sys.stdin.isatty()
@@ -1137,6 +1181,7 @@ async def run_shell_command(
         timeout=timeout,
         group_id=group_id,
         silent=running_as_subagent,
+        allow_unsandboxed_fallback=(sandbox_fallback_requested and approval_granted),
     )
 
 
@@ -1146,6 +1191,7 @@ async def _execute_shell_command(
     timeout: int,
     group_id: str,
     silent: bool = False,
+    allow_unsandboxed_fallback: bool = False,
 ) -> ShellCommandOutput:
     """Internal helper to execute a shell command.
 
@@ -1178,7 +1224,14 @@ async def _execute_shell_command(
     # This is reference-counted: listener starts on first command, stops on last
     _acquire_keyboard_context()
     try:
-        return await _run_command_inner(command, cwd, timeout, group_id, silent=silent)
+        return await _run_command_inner(
+            command,
+            cwd,
+            timeout,
+            group_id,
+            silent=silent,
+            allow_unsandboxed_fallback=allow_unsandboxed_fallback,
+        )
     finally:
         _release_keyboard_context()
         resume_all_spinners()
@@ -1190,6 +1243,7 @@ def _run_command_sync(
     timeout: int,
     group_id: str,
     silent: bool = False,
+    allow_unsandboxed_fallback: bool = False,
 ) -> ShellCommandOutput:
     """Synchronous command execution - runs in thread pool."""
     creationflags = 0
@@ -1204,12 +1258,19 @@ def _run_command_sync(
 
     import io
 
-    process = subprocess.Popen(
+    from code_puppy.sandbox import prepare_shell_command
+
+    prepared = prepare_shell_command(
         command,
-        shell=True,
+        cwd,
+        allow_unsandboxed_fallback=allow_unsandboxed_fallback,
+    )
+    process = subprocess.Popen(
+        prepared.argv,
+        shell=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        cwd=cwd,
+        cwd=prepared.cwd,
         bufsize=0,  # Unbuffered for real-time output
         preexec_fn=preexec_fn,
         creationflags=creationflags,
@@ -1238,15 +1299,26 @@ async def _run_command_inner(
     timeout: int,
     group_id: str,
     silent: bool = False,
+    allow_unsandboxed_fallback: bool = False,
 ) -> ShellCommandOutput:
     """Inner command execution logic - runs blocking code in thread pool."""
     loop = asyncio.get_running_loop()
     try:
         # Run the blocking shell command in a thread pool to avoid blocking the event loop
         # This allows multiple sub-agents to run shell commands in parallel
+        context = contextvars.copy_context()
         return await loop.run_in_executor(
             _SHELL_EXECUTOR,
-            partial(_run_command_sync, command, cwd, timeout, group_id, silent),
+            partial(
+                context.run,
+                _run_command_sync,
+                command,
+                cwd,
+                timeout,
+                group_id,
+                silent,
+                allow_unsandboxed_fallback,
+            ),
         )
     except Exception as e:
         if not silent:
