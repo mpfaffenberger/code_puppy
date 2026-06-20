@@ -99,6 +99,13 @@ def build_payload() -> Dict[str, Any]:
         "tokens_per_second": _tokens_per_second(),
     }
 
+    try:
+        from code_puppy.plugins.agent_modes.state import get_agent_mode
+
+        payload["mode"] = get_agent_mode().value
+    except Exception:
+        pass
+
     agent = _agent_block()
     if agent:
         payload["agent"] = agent

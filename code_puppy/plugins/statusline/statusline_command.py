@@ -35,6 +35,7 @@ input=$(cat)
 
 mist_name=$(printf '%s' "$input" | jq -r '.mist_name // "mist"')
 model=$(printf '%s' "$input" | jq -r '.model.display_name // "model"')
+mode=$(printf '%s' "$input" | jq -r '.mode // "build"' | tr '[:lower:]' '[:upper:]')
 dir=$(printf '%s' "$input" | jq -r '.workspace.current_dir // .cwd // ""')
 branch=$(printf '%s' "$input" | jq -r '.workspace.git_branch // empty')
 ind=$(printf '%s' "$input" | jq -r '.context_window.indicator // ""')
@@ -43,7 +44,7 @@ tps=$(printf '%s' "$input" | jq -r '.tokens_per_second // 0')
 
 line="\\033[1m🌫️ $mist_name\\033[0m"
 [ -n "$ind" ] && line="$line $ind"
-line="$line \\033[36m[$model]\\033[0m \\033[2m$(basename "$dir")\\033[0m"
+line="$line \\033[36m[$model]\\033[0m \\033[34m[$mode]\\033[0m \\033[2m$(basename "$dir")\\033[0m"
 [ -n "$branch" ] && line="$line \\033[35m($branch)\\033[0m"
 line="$line \\033[33m${pct}%ctx\\033[0m"
 # Show t/s only while generating.

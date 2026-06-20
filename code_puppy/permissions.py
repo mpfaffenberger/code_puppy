@@ -53,9 +53,9 @@ def authorize_file_operation(path: str, operation: str) -> bool:
 
 
 async def authorize_shell_command(
-    command: str, cwd: str | None = None
+    command: str, cwd: str | None = None, *, force_prompt: bool = False
 ) -> tuple[bool, str | None]:
-    if get_permission_mode() is PermissionMode.AUTO:
+    if not force_prompt and get_permission_mode() is PermissionMode.AUTO:
         return True, None
 
     from code_puppy.tools.common import get_user_approval_async
