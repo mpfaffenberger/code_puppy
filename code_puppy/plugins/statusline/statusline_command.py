@@ -42,7 +42,7 @@ ind=$(printf '%s' "$input" | jq -r '.context_window.indicator // ""')
 pct=$(printf '%s' "$input" | jq -r '.context_window.used_percentage // 0')
 tps=$(printf '%s' "$input" | jq -r '.tokens_per_second // 0')
 
-line="\\033[1m🌫️ $mist_name\\033[0m"
+line="\\033[1m🫧 $mist_name\\033[0m"
 [ -n "$ind" ] && line="$line $ind"
 line="$line \\033[36m[$model]\\033[0m \\033[34m[$mode]\\033[0m \\033[2m$(basename "$dir")\\033[0m"
 [ -n "$branch" ] && line="$line \\033[35m($branch)\\033[0m"

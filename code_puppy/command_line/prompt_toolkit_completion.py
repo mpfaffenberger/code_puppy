@@ -583,7 +583,7 @@ def get_prompt_with_active_model(base: str = ">>> "):
         cwd_display = cwd
     return FormattedText(
         [
-            ("bold", "🌫️ "),
+            ("bold", "🫧 "),
             ("class:mist", f"{mist_name}"),
             ("", " "),
             ("class:agent", f"[{_normalize_emoji_spacing(agent_display)}] "),

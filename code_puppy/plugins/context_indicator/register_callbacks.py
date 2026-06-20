@@ -67,7 +67,7 @@ def _inject_indicator(formatted_text):
 
     try:
         parts = list(formatted_text)
-        # Insert after the leading "🌫️ " tuple (index 0) so the badge sits
+        # Insert after the leading "🫧 " tuple (index 0) so the badge sits
         # right next to the puppy. Fall back to prepend if shape changed.
         insert_at = 1 if parts else 0
         parts.insert(insert_at, _build_indicator_tuple(usage))
@@ -223,7 +223,7 @@ def _format_usage_report(usage: ContextUsage) -> str:
 def _handle_context_command(command: str) -> bool:
     usage = get_current_usage()
     if usage is None:
-        _emit_info("🌫️ No context info yet — load an agent and send a message first.")
+        _emit_info("🫧 No context info yet — load an agent and send a message first.")
         return True
     _emit_info(_format_usage_report(usage))
     return True

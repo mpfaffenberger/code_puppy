@@ -78,7 +78,7 @@ def _pull_model(model_tag: str) -> bool:
 
     Returns True on success, False on failure.
     """
-    emit_info(f"🌫️ Pulling {model_tag} via ollama …")
+    emit_info(f"🫧 Pulling {model_tag} via ollama …")
     try:
         result = subprocess.run(
             ["ollama", "pull", model_tag],

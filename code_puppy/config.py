@@ -321,7 +321,7 @@ def ensure_config_exists():
         # Note: Using sys.stdout here for initial setup before messaging system is available
         import sys
 
-        sys.stdout.write("🌫️ Let's get Mist ready!\n")
+        sys.stdout.write("🫧 Let's get Mist ready!\n")
         sys.stdout.flush()
         for key in missing:
             if key == "mist_name":
@@ -1939,7 +1939,7 @@ def auto_save_session_if_enabled() -> bool:
             pass
 
         emit_info(
-            f"🌫️ Auto-saved session: {metadata.message_count} messages "
+            f"💨 Auto-saved session: {metadata.message_count} messages "
             f"({metadata.total_tokens} tokens){stats_suffix}"
         )
 

@@ -234,7 +234,7 @@ class StatusDisplay:
 
         # Create a highly visible status text
         return Text.assemble(
-            Text(f"⏳ {rate_text} 🌫️", style="bold cyan"),
+            Text(f"⏳ {rate_text} 💨", style="bold cyan"),
             Text(f" {message}", style="yellow"),
         )
 

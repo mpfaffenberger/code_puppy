@@ -55,7 +55,7 @@ BANNER_SAMPLE_CONTENT = {
     "agent_reasoning": "Current reasoning:\nI need to refactor this function...",
     "invoke_agent": "code-reviewer (New session)\nSession: review-auth-abc123",
     "subagent_response": "code-reviewer\nThe code looks good overall...",
-    "list_agents": "- mist: Mist 🌫️\n- planning-agent: Planning Agent",
+    "list_agents": "- mist: Mist 🫧\n- planning-agent: Planning Agent",
     "universal_constructor": "action=create tool_name=api.weather\n✅ Created successfully",
     "terminal_tool": "$ chromium --headless\nBrowser terminal session started",
     "llm_judge": "🎯 Verdict: Complete ✅\nGoal verified — all tests pass.",

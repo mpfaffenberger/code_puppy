@@ -13,15 +13,15 @@ class SpinnerBase(ABC):
 
     # Shared spinner frames across implementations
     FRAMES = [
-        "(🌫️    ) ",
-        "( 🌫️   ) ",
-        "(  🌫️  ) ",
-        "(   🌫️ ) ",
-        "(    🌫️) ",
-        "(   🌫️ ) ",
-        "(  🌫️  ) ",
-        "( 🌫️   ) ",
-        "(🌫️    ) ",
+        "(💨    ) ",
+        "( 💨   ) ",
+        "(  💨  ) ",
+        "(   💨 ) ",
+        "(    💨) ",
+        "(   💨 ) ",
+        "(  💨  ) ",
+        "( 💨   ) ",
+        "(💨    ) ",
     ]
     mist_name = get_mist_name()
 

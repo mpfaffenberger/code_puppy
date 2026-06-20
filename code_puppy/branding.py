@@ -1,7 +1,7 @@
 """Canonical product branding and compatibility names for Mist."""
 
 PRODUCT_NAME = "Mist"
-PRODUCT_EMOJI = "🌫️"
+PRODUCT_EMOJI = "🫧"
 PRODUCT_TAGLINE = "A contextual, adaptive, and reliable AI coding agent"
 
 DISTRIBUTION_NAME = "mist-agent"

@@ -44,7 +44,7 @@ def _handle_custom_command(command: str, name: str):
     if name == "ask":
         parts = command.split(maxsplit=1)
         prompt = parts[1] if len(parts) == 2 else "Tell me a concise coding tip"
-        emit_info(f"🌫️ Mist is sending prompt: {prompt}")
+        emit_info(f"🫧 Mist is sending prompt: {prompt}")
         # Forward to the agent when possible; otherwise degrade gracefully
         # to display-only so the user at least sees the echoed prompt.
         if MarkdownCommandResult is not None:
