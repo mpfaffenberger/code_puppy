@@ -429,6 +429,14 @@ def get_config_keys():
         "frontend_emitter_max_recent_events",
         "frontend_emitter_queue_size",
         "permission_mode",
+        "agent_mode",
+        "injection_probe",
+        "shell_safe_prefixes",
+        "denial_consecutive_threshold",
+        "denial_total_threshold",
+        "sandbox_backend",
+        "sandbox_container_runtime",
+        "sandbox_container_image",
     ]
     # 'enable_dbos' is reserved for the dbos_durable_exec plugin and is read
     # via the generic get_value API; intentionally not in default_keys.

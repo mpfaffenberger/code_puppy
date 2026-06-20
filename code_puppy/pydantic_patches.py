@@ -392,9 +392,22 @@ def patch_tool_call_callbacks() -> None:
                             )
                         block_msg = f"🚫 Hook blocked this tool call: {clean_reason}"
                         emit_warning(block_msg)
-                        return f"ERROR: {block_msg}\n\nThe hook policy prevented this tool from running. Please inform the user and do not retry this specific command."
+                        try:
+                            from code_puppy.safety.denials import record_denied_action
+
+                            await record_denied_action(clean_reason)
+                        except Exception:
+                            pass
+                        return f"ERROR: {block_msg}\n\nThe policy prevented this action. Find a safer path and do not immediately repeat the same denied call."
             except Exception:
                 pass  # other errors don't block tool execution
+
+            try:
+                from code_puppy.safety.denials import record_allowed_action
+
+                record_allowed_action()
+            except Exception:
+                pass
 
             # Persist pre_tool_call mutations back onto call.args so the
             # downstream tool dispatch (and the conversation history) sees
@@ -426,7 +439,6 @@ def patch_tool_call_callbacks() -> None:
                         result = prefix + result
                     else:
                         result = prefix + str(result)
-                return result
             except Exception as exc:
                 error = exc
                 raise
@@ -436,11 +448,16 @@ def patch_tool_call_callbacks() -> None:
                 try:
                     from code_puppy import callbacks
 
-                    await callbacks.on_post_tool_call(
+                    post_results = await callbacks.on_post_tool_call(
                         tool_name, tool_args, final_result, duration_ms
                     )
+                    if error is None:
+                        result = callbacks.apply_tool_result_replacements(
+                            result, post_results
+                        )
                 except Exception:
                     pass  # never block tool execution
+            return result
 
         ToolManager.get_tool_def = _patched_get_tool_def
         ToolManager.handle_call = _patched_handle_call

@@ -21,6 +21,19 @@ __all__ = [
 
 def iter_curated_settings():
     """Yield ``(category, setting)`` pairs for every curated setting."""
-    for category in SETTINGS_CATEGORIES:
+    categories = list(SETTINGS_CATEGORIES)
+    try:
+        from code_puppy.callbacks import on_register_settings
+
+        for result in on_register_settings():
+            if isinstance(result, SettingsCategory):
+                categories.append(result)
+            elif isinstance(result, (list, tuple)):
+                categories.extend(
+                    item for item in result if isinstance(item, SettingsCategory)
+                )
+    except Exception:
+        pass
+    for category in categories:
         for setting in category.settings:
             yield category, setting

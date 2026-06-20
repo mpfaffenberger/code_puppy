@@ -659,6 +659,14 @@ async def get_input_with_combined_completion(
     # Add custom key bindings and multiline toggle
     bindings = KeyBindings()
 
+    # Optional prompt bindings are supplied by plugins through this seam.
+    try:
+        from code_puppy.callbacks import on_register_keybindings
+
+        on_register_keybindings(bindings)
+    except Exception:
+        pass
+
     # Multiline mode state
     multiline = {"enabled": False}
 
