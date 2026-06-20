@@ -11,7 +11,7 @@ CHATGPT_OAUTH_CONFIG: Dict[str, Any] = {
     "token_url": "https://auth.openai.com/oauth/token",
     # API endpoints - Codex uses chatgpt.com backend, not api.openai.com
     "api_base_url": "https://chatgpt.com/backend-api/codex",
-    # OAuth client configuration for Code Puppy
+    # OAuth client configuration for Mist
     "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
     "scope": "openid profile email offline_access",
     # Callback handling (we host a localhost callback to capture the redirect)
@@ -39,7 +39,7 @@ def get_token_storage_path() -> Path:
 
 
 def get_config_dir() -> Path:
-    """Get the Code Puppy configuration directory (uses XDG_CONFIG_HOME)."""
+    """Get the Mist configuration directory (uses XDG_CONFIG_HOME)."""
     config_dir = Path(config.CONFIG_DIR)
     config_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     return config_dir

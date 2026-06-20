@@ -61,7 +61,7 @@ def _build_stdin_payload(event_data: EventData) -> bytes:
             return "<unserializable>"
 
     payload = {
-        "session_id": event_data.context.get("session_id", "codepuppy-session"),
+        "session_id": event_data.context.get("session_id", "mist-session"),
         "hook_event_name": event_data.event_type,
         "tool_name": event_data.tool_name,
         "tool_input": _make_serializable(event_data.tool_args),

@@ -42,14 +42,14 @@ def test_search_drawers_multi_dedupes_same_content(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import kennel, recorder, wings
 
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         session_id="s1",
         success=True,
         response_text="Distinctive verbatim text about porcupines.",
     )
     repo_w = wings.repo_wing()
-    agent_w = wings.agent_wing("code-puppy")
+    agent_w = wings.agent_wing("mist")
     # Echo the same content into the agent wing via the storage layer,
     # mimicking what an explicit ``kennel_remember(wing="agent")`` would do.
     agent_wing_id = kennel.ensure_wing(agent_w)
@@ -59,7 +59,7 @@ def test_search_drawers_multi_dedupes_same_content(kennel_root: Path) -> None:
         content="Distinctive verbatim text about porcupines.",
         role="note",
         session_id="s1",
-        metadata={"agent": "code-puppy"},
+        metadata={"agent": "mist"},
     )
     # Sanity: same content now lives in both wings.
     assert kennel.count_drawers() == 2
@@ -109,7 +109,7 @@ class _FakeAgent:
         return fn
 
 
-def _make_context(agent_name: str = "code-puppy") -> Any:
+def _make_context(agent_name: str = "mist") -> Any:
     return SimpleNamespace(agent_name=agent_name, deps=None)
 
 
@@ -117,7 +117,7 @@ def test_kennel_recall_returns_hits(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import recorder, tools
 
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         session_id="s1",
         success=True,
@@ -150,7 +150,7 @@ def test_kennel_recall_scope_repo_only(kennel_root: Path) -> None:
 
     # Autosaved content lives in the repo wing now (no dual-write).
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         session_id="s1",
         success=True,
@@ -216,7 +216,7 @@ def test_kennel_wings_with_data(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import commands, recorder
 
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text="Some wisdom.",
@@ -246,7 +246,7 @@ def test_kennel_search_with_hits(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import commands, recorder
 
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text="Octopi have nine brains, technically.",

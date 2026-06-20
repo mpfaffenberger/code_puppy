@@ -1,4 +1,4 @@
-"""Register puppy_kennel with Code Puppy's callback system.
+"""Register puppy_kennel with Mist's callback system.
 
 Hooks wired:
 * ``load_prompt``         -> passive recall block in the system prompt

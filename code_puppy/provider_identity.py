@@ -1,7 +1,7 @@
 """Provider identity helpers for pydantic-ai compatibility boundaries.
 
 pydantic-ai uses ``provider.name`` as the compatibility boundary for replaying
-provider-specific thinking / provider_details. Code Puppy can route multiple
+provider-specific thinking / provider_details. Mist can route multiple
 semantically different vendors through the same underlying provider classes,
 so we need stable, distinct runtime identities.
 """

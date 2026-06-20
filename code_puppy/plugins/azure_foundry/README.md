@@ -1,6 +1,6 @@
-# Azure AI Foundry Plugin for Code Puppy
+# Azure AI Foundry Plugin for Mist
 
-This plugin enables Code Puppy to use Anthropic Claude models hosted on
+This plugin enables Mist to use Anthropic Claude models hosted on
 Microsoft Azure AI Foundry with Azure AD (Entra ID) authentication.
 
 ## Overview
@@ -24,7 +24,7 @@ Deployment names are user-configurable during setup.
 1. **Azure subscription** with access to Azure AI Foundry
 2. **Azure CLI** installed and authenticated (`az login`)
 3. **Claude model deployments** provisioned in your Azure AI Foundry resource
-4. **Python packages**: `azure-identity>=1.15.0` (installed with Code Puppy)
+4. **Python packages**: `azure-identity>=1.15.0` (installed with Mist)
 
 ## Quick Start
 
@@ -66,7 +66,7 @@ The wizard will guide you through configuring your model deployments.
 
 ### Model Configuration
 
-Models are stored in `~/.code_puppy/extra_models.json`:
+Models are stored in `~/.mist/extra_models.json`:
 
 ```json
 {
@@ -176,7 +176,7 @@ Configured Models (3):
    Anthropic Messages API (not OpenAI format)
 
 4. **Integration**: Wraps the client in pydantic-ai's `AnthropicModel` for
-   seamless integration with Code Puppy's agent system
+   seamless integration with Mist's agent system
 
 ## Troubleshooting
 
@@ -227,7 +227,7 @@ code_puppy/plugins/azure_foundry/
 
 ## Contributing
 
-This plugin follows Code Puppy's plugin architecture. Key callbacks:
+This plugin follows Mist's plugin architecture. Key callbacks:
 
 - `register_model_type`: Registers `azure_foundry` type handler
 - `custom_command`: Handles `/foundry-*` slash commands
@@ -235,4 +235,4 @@ This plugin follows Code Puppy's plugin architecture. Key callbacks:
 
 ## License
 
-Same as Code Puppy (see repository LICENSE file).
+Same as Mist (see repository LICENSE file).

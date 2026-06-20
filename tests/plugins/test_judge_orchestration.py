@@ -23,7 +23,7 @@ def isolated_judges():
             yield path
 
 
-def _fake_agent(name: str = "code-puppy", history: list | None = None):
+def _fake_agent(name: str = "mist", history: list | None = None):
     agent = MagicMock()
     agent.name = name
     agent.get_message_history = MagicMock(return_value=history or [])

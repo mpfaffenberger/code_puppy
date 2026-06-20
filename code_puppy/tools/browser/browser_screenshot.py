@@ -17,9 +17,7 @@ from code_puppy.tools.common import generate_group_id
 
 from .browser_manager import get_session_browser_manager
 
-_TEMP_SCREENSHOT_ROOT = Path(
-    mkdtemp(prefix="code_puppy_screenshots_", dir=gettempdir())
-)
+_TEMP_SCREENSHOT_ROOT = Path(mkdtemp(prefix="mist_screenshots_", dir=gettempdir()))
 
 
 def _build_screenshot_path(timestamp: str) -> Path:

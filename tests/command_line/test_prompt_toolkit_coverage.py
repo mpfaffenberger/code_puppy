@@ -99,7 +99,7 @@ class TestSetCompleter:
         with (
             patch(
                 "code_puppy.command_line.prompt_toolkit_completion.get_config_keys",
-                return_value=["debug", "model", "yolo_mode", "puppy_token"],
+                return_value=["debug", "model", "yolo_mode", "mist_token"],
             ),
             patch(
                 "code_puppy.command_line.prompt_toolkit_completion.get_value",
@@ -108,10 +108,10 @@ class TestSetCompleter:
         ):
             completions = list(c.get_completions(self._make_doc("/set "), None))
             texts = [c.text for c in completions]
-            # model and puppy_token excluded
+            # model and mist_token excluded
             assert any("debug" in t for t in texts)
             assert not any("model" in t for t in texts)
-            assert not any("puppy_token" in t for t in texts)
+            assert not any("mist_token" in t for t in texts)
 
     def test_filters_by_prefix(self):
         from code_puppy.command_line.prompt_toolkit_completion import SetCompleter
@@ -416,7 +416,7 @@ class TestGetPromptWithActiveModel:
                 return_value=mock_agent,
             ),
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.get_puppy_name",
+                "code_puppy.command_line.prompt_toolkit_completion.get_mist_name",
                 return_value="Biscuit",
             ),
             patch(
@@ -442,7 +442,7 @@ class TestGetPromptWithActiveModel:
                 return_value=mock_agent,
             ),
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.get_puppy_name",
+                "code_puppy.command_line.prompt_toolkit_completion.get_mist_name",
                 return_value="Biscuit",
             ),
             patch(
@@ -470,7 +470,7 @@ class TestGetPromptWithActiveModel:
                 return_value=mock_agent,
             ),
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.get_puppy_name",
+                "code_puppy.command_line.prompt_toolkit_completion.get_mist_name",
                 return_value="Biscuit",
             ),
             patch(
@@ -493,7 +493,7 @@ class TestGetPromptWithActiveModel:
                 return_value=None,
             ),
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.get_puppy_name",
+                "code_puppy.command_line.prompt_toolkit_completion.get_mist_name",
                 return_value="Biscuit",
             ),
             patch(
@@ -503,7 +503,7 @@ class TestGetPromptWithActiveModel:
         ):
             result = get_prompt_with_active_model()
             text = "".join(t[1] for t in result)
-            assert "code-puppy" in text
+            assert "mist" in text
             # With no model configured the statusline surfaces [None] so the
             # user immediately sees they need to /add_model.
             assert "[None]" in text
@@ -523,7 +523,7 @@ class TestGetPromptWithActiveModel:
                 return_value=mock_agent,
             ),
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.get_puppy_name",
+                "code_puppy.command_line.prompt_toolkit_completion.get_mist_name",
                 return_value="B",
             ),
             patch(

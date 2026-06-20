@@ -92,7 +92,7 @@ class TestFileOperationsExtended:
     def test_read_file_encoding_utf8(self, tmp_path):
         """Test reading UTF-8 encoded files with special characters."""
         test_file = tmp_path / "unicode.txt"
-        content = "Hello 世界! 🐾 é ñ ü"
+        content = "Hello 世界! 🌫️ é ñ ü"
         test_file.write_text(content, encoding="utf-8")
 
         result = _read_file(None, str(test_file))

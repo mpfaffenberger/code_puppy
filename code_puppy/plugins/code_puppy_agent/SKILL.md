@@ -1,23 +1,23 @@
 ---
-name: code-puppy-agent
-description: Deep reference on Code Puppy's internal architecture — agents, tools, plugins, models, MCP, sessions, and how to extend it correctly.
+name: mist-agent
+description: Deep reference on Mist's internal architecture — agents, tools, plugins, models, MCP, sessions, and how to extend it correctly.
 version: "1.0"
-author: code-puppy
+author: mist
 tags:
-  - code-puppy
+  - mist
   - architecture
   - internals
   - plugins
   - reference
 ---
 
-# Code Puppy — Architecture & Internals
+# Mist — Architecture & Internals
 
 This skill is a **self-awareness document**. When activated it teaches the
-LLM how Code Puppy is structured under the hood so it can navigate the
+LLM how Mist is structured under the hood so it can navigate the
 codebase, debug issues, and extend the product without guessing.
 
-> **Philosophy:** Code Puppy is plugin-first. Nearly all new functionality
+> **Philosophy:** Mist is plugin-first. Nearly all new functionality
 > should be a plugin under `code_puppy/plugins/` that hooks into core via
 > `code_puppy/callbacks.py`. Don't edit `code_puppy/command_line/` or core
 > agent files unless a hook genuinely doesn't exist.
@@ -64,7 +64,7 @@ All agents inherit from `BaseAgent` (ABC). Key interface:
 
 | Member | Purpose |
 |--------|---------|
-| `name` (abstract property) | Stable machine identifier, e.g. `"code-puppy"` |
+| `name` (abstract property) | Stable machine identifier, e.g. `"mist"` |
 | `display_name` (abstract property) | Human name with emoji |
 | `description` (abstract property) | One-line summary |
 | `get_system_prompt()` (abstract) | The authored system prompt (identity is appended separately at runtime) |
@@ -85,8 +85,8 @@ All agents inherit from `BaseAgent` (ABC). Key interface:
 `BaseAgent` subclass (excluding `JSONAgent` itself) in a non-underscore
 module gets registered.
 
-**JSON agents** — `JSONAgent` loads from `~/.code_puppy/agents/*.json`
-(user) and `<CWD>/.code_puppy/agents/*.json` (project). Project overrides
+**JSON agents** — `JSONAgent` loads from `~/.mist/agents/*.json`
+(user) and `<CWD>/.mist/agents/*.json` (project). Project overrides
 user on name collision. Required fields: `name`, `description`,
 `system_prompt`, `tools`. Optional: `display_name`, `user_prompt`,
 `tools_config`, `model`, `mcp_servers`.
@@ -191,8 +191,8 @@ needed.
 | Tier | Location | Load order |
 |------|----------|------------|
 | **Builtin** | `code_puppy/plugins/<name>/register_callbacks.py` | 1st |
-| **User** | `~/.code_puppy/plugins/<name>/register_callbacks.py` | 2nd |
-| **Project** | `<CWD>/.code_puppy/plugins/<name>/register_callbacks.py` | 3rd (highest precedence) |
+| **User** | `~/.mist/plugins/<name>/register_callbacks.py` | 2nd |
+| **Project** | `<CWD>/.mist/plugins/<name>/register_callbacks.py` | 3rd (highest precedence) |
 
 Each plugin is a directory containing `register_callbacks.py`. The loader
 auto-discovers it. Project plugins shadow user plugins on name collision.
@@ -203,7 +203,7 @@ auto-discovers it. Project plugins shadow user plugins on name collision.
 (`callbacks.py`) stores functions per phase and fires them at the right
 time. All hooks accept sync or async functions.
 
-**Most important hooks for extending Code Puppy:**
+**Most important hooks for extending Mist:**
 
 | Hook | When | Return value |
 |------|------|-------------|
@@ -256,7 +256,7 @@ Azure, and custom OpenAI/Anthropic/Gemini-compatible endpoints.
 Models are defined in three places (merged at runtime):
 
 1. **Built-in defaults** — hardcoded in the factory
-2. **`~/.code_puppy/extra_models.json`** — user-defined custom models
+2. **`~/.mist/extra_models.json`** — user-defined custom models
 3. **Plugin injection** — `load_models_config` callback returns a dict
 
 Example `extra_models.json`:
@@ -300,7 +300,7 @@ The global model is set via `/model` and stored in config.
 
 ### 6.1 MCP Manager (`mcp_/manager.py`)
 
-Code Puppy manages external MCP (Model Context Protocol) servers that
+Mist manages external MCP (Model Context Protocol) servers that
 provide additional tools to agents. Key components:
 
 - **Registry** (`mcp_/registry.py`) — server definitions (stdio/SSE/streamable-http)
@@ -378,8 +378,8 @@ the skill is activated.
 ### 8.2 Skill discovery (`plugins/agent_skills/discovery.py`)
 
 Scans these directories (first-discovered wins on name collision):
-1. `~/.code_puppy/skills/`
-2. `<CWD>/.code_puppy/skills/`
+1. `~/.mist/skills/`
+2. `<CWD>/.mist/skills/`
 3. `<CWD>/skills/`
 4. Plugin-registered skills (via `register_skills` callback)
 
@@ -425,8 +425,8 @@ appends rules and runs the per-model patcher.
 `_assemble_instructions()` then appends:
 
 ```
-4. AGENTS.md puppy_rules  (global ~/.code_puppy/AGENTS.md, then project
-   <CWD>/.code_puppy/AGENTS.md, then ./AGENTS.md fallback — concatenated,
+4. AGENTS.md puppy_rules  (global ~/.mist/AGENTS.md, then project
+   <CWD>/.mist/AGENTS.md, then ./AGENTS.md fallback — concatenated,
    not first-wins)
 5. Extended-thinking note  (only if active for the resolved model)
 6. Per-model patches       (get_model_system_prompt callbacks, via
@@ -445,21 +445,21 @@ paths, and baked-in session IDs from leaking into cloned agents.
 
 ## 10. Configuration System (`config.py`)
 
-All settings live in `~/.code_puppy/puppy.cfg` (INI format) managed via:
+All settings live in `~/.mist/mist.cfg` (INI format) managed via:
 - `get_value(key)` / `set_value(key, value)`
 - `/set <key> <value>` slash command
 
 Key directories:
-- **Config root**: `~/.code_puppy/`
-- **State/sessions**: `~/.code_puppy/state/` (or platform cache dir)
-- **Cache**: `~/.code_puppy/cache/`
-- **Agents**: `~/.code_puppy/agents/`
-- **Skills**: `~/.code_puppy/skills/`
-- **Plugins**: `~/.code_puppy/plugins/`
-- **Extra models**: `~/.code_puppy/extra_models.json`
+- **Config root**: `~/.mist/`
+- **State/sessions**: `~/.mist/state/` (or platform cache dir)
+- **Cache**: `~/.mist/cache/`
+- **Agents**: `~/.mist/agents/`
+- **Skills**: `~/.mist/skills/`
+- **Plugins**: `~/.mist/plugins/`
+- **Extra models**: `~/.mist/extra_models.json`
 
-AGENTS.md rules files are loaded from `~/.code_puppy/AGENTS.md` (global),
-`<CWD>/.code_puppy/AGENTS.md` (project), and `./AGENTS.md` (fallback).
+AGENTS.md rules files are loaded from `~/.mist/AGENTS.md` (global),
+`<CWD>/.mist/AGENTS.md` (project), and `./AGENTS.md` (fallback).
 
 ---
 
@@ -511,7 +511,7 @@ my_plugin/
 └── README.md                # optional: documentation
 ```
 
-### 12.3 Zen of Code Puppy
+### 12.3 Zen of Mist
 
 - Simple is better than complex.
 - Flat is better than nested.
@@ -550,4 +550,4 @@ Activate this skill when you need to:
 - **Create a new plugin** and need to know which hooks to use
 - **Debug** an agent, tool, model, or MCP issue
 - **Navigate the codebase** and need to find the right file
-- **Extend Code Puppy** with custom tools, agents, skills, or commands
+- **Extend Mist** with custom tools, agents, skills, or commands

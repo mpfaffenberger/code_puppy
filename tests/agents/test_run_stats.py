@@ -500,10 +500,10 @@ class TestHighModeToolResult:
 
         result = AgentInvokeOutput(
             response="big response" * 100,
-            agent_name="code-puppy",
+            agent_name="mist",
         )
         out = self._capture("invoke_agent_with_model", result)
-        assert "code-puppy" in out
+        assert "mist" in out
         assert "OK" in out
         assert "1,200 chars" in out
         # Raw body must not leak

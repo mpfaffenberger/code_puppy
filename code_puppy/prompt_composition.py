@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-DYNAMIC_PROMPT_BOUNDARY = "<!-- code-puppy:dynamic-context -->"
+DYNAMIC_PROMPT_BOUNDARY = "<!-- mist:dynamic-context -->"
 
 
 @dataclass(frozen=True)

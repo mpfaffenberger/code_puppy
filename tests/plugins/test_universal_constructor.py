@@ -52,8 +52,8 @@ class TestInit:
         assert isinstance(USER_UC_DIR, Path)
 
     def test_user_uc_dir_under_code_puppy(self):
-        """Test that USER_UC_DIR is under .code_puppy."""
-        assert ".code_puppy" in str(USER_UC_DIR)
+        """Test that USER_UC_DIR is under .mist."""
+        assert ".mist" in str(USER_UC_DIR)
         assert "universal_constructor" in str(USER_UC_DIR)
 
     def test_user_uc_dir_in_home(self):

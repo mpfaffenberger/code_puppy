@@ -1,4 +1,4 @@
-"""Ask User Question tool for code-puppy.
+"""Ask User Question tool for mist.
 
 This tool allows agents to ask users interactive multiple-choice questions
 through a terminal TUI interface. Uses prompt_toolkit for the split-panel

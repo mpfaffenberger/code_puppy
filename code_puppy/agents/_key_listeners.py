@@ -191,9 +191,7 @@ def spawn_key_listener(
         except Exception:
             emit_warning("Key listener stopped unexpectedly; press Ctrl+C to cancel.")
 
-    thread = threading.Thread(
-        target=listener, name="code-puppy-key-listener", daemon=True
-    )
+    thread = threading.Thread(target=listener, name="mist-key-listener", daemon=True)
     thread.start()
     return KeyListenerHandle(
         thread=thread,

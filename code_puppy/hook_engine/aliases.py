@@ -1,11 +1,11 @@
 """
-Tool name alias registry — maps each AI provider's tool names to code_puppy's
+Tool name alias registry — maps each AI provider's tool names to Mist's
 internal tool names, enabling hooks written for any provider to fire correctly.
 
 Structure
 ---------
 Each provider block defines a dict[str, str] mapping:
-    "<Provider tool name>" -> "<code_puppy internal tool name>"
+    "<Provider tool name>" -> "<Mist internal tool name>"
 
 The mapping is bidirectional at lookup time: a hook matcher that names *either*
 the provider tool OR the internal tool will match the same event.
@@ -145,7 +145,7 @@ def get_aliases(tool_name: str) -> FrozenSet[str]:
 
 def resolve_internal_name(provider_tool_name: str) -> Optional[str]:
     """
-    Return the code_puppy internal tool name for a given provider tool name,
+    Return the Mist internal tool name for a given provider tool name,
     or None if the name is not a known provider alias.
     """
     for provider_aliases in PROVIDER_ALIASES.values():

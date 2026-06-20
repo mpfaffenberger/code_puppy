@@ -1,4 +1,4 @@
-"""Frontend emitter plugin for Code Puppy.
+"""Frontend emitter plugin for Mist.
 
 This plugin provides event emission capabilities for frontend integration,
 allowing WebSocket handlers to subscribe to real-time events from the

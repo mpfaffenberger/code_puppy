@@ -210,7 +210,7 @@ class TestJSONAgentDiscovery:
             monkeypatch.setattr(
                 "code_puppy.config.get_user_agents_directory", lambda: temp_dir
             )
-            # Change to temp directory to avoid finding project .code_puppy
+            # Change to temp directory to avoid finding project .mist
             monkeypatch.chdir(temp_dir)
 
             # Create valid JSON agent
@@ -266,7 +266,7 @@ class TestJSONAgentDiscovery:
             "code_puppy.config.get_user_agents_directory",
             lambda: "/nonexistent/directory",
         )
-        # Change to temp directory to avoid finding project .code_puppy
+        # Change to temp directory to avoid finding project .mist
         monkeypatch.chdir(tmp_path)
         agents = discover_json_agents()
         assert agents == {}
@@ -276,8 +276,7 @@ class TestJSONAgentDiscovery:
         user_dir = get_user_agents_directory()
 
         assert isinstance(user_dir, str)
-        # Should contain code_puppy (either legacy .code_puppy or XDG code_puppy)
-        assert "code_puppy" in user_dir
+        assert Path(user_dir).parent.name in {".mist", "mist"}
         assert "agents" in user_dir
 
         # Directory should be created
@@ -286,7 +285,7 @@ class TestJSONAgentDiscovery:
 
     def test_user_agents_directory_windows(self, monkeypatch):
         """Test user agents directory cross-platform consistency."""
-        mock_agents_dir = "/fake/home/.code_puppy/agents"
+        mock_agents_dir = "/fake/home/.mist/agents"
 
         # Override the AGENTS_DIR constant directly
         monkeypatch.setattr("code_puppy.config.AGENTS_DIR", mock_agents_dir)
@@ -299,7 +298,7 @@ class TestJSONAgentDiscovery:
 
     def test_user_agents_directory_macos(self, monkeypatch):
         """Test user agents directory on macOS."""
-        mock_agents_dir = "/fake/home/.code_puppy/agents"
+        mock_agents_dir = "/fake/home/.mist/agents"
 
         # Override the AGENTS_DIR constant directly
         monkeypatch.setattr("code_puppy.config.AGENTS_DIR", mock_agents_dir)

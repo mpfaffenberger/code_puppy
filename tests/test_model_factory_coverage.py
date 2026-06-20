@@ -1197,9 +1197,7 @@ class TestCerebrasModel:
                     # Check that the 3rd party header was added
                     call_args = mock_create_client.call_args
                     headers = call_args[1]["headers"]
-                    assert (
-                        headers.get("X-Cerebras-3rd-Party-Integration") == "code-puppy"
-                    )
+                    assert headers.get("X-Cerebras-3rd-Party-Integration") == "mist"
 
     def test_cerebras_model_missing_api_key(self):
         """Test cerebras model with missing API key."""
@@ -1244,10 +1242,7 @@ class TestCerebrasModel:
                         # Verify 3rd party header was added
                         call_args = mock_create_client.call_args
                         headers = call_args[1]["headers"]
-                        assert (
-                            headers.get("X-Cerebras-3rd-Party-Integration")
-                            == "code-puppy"
-                        )
+                        assert headers.get("X-Cerebras-3rd-Party-Integration") == "mist"
 
 
 class TestOpenAICodexModels:

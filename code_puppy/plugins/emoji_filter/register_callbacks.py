@@ -14,7 +14,7 @@ Three points of contact, all gated by ``config.is_enabled()``:
    deliberately untouched.
 
 3. ``custom_command`` / ``custom_command_help`` — a tiny ``/emoji-filter``
-   slash command so the user can flip the switch without editing puppy.cfg.
+   slash command so the user can flip the switch without editing mist.cfg.
 
 Failures here must never crash the app: every patch site is wrapped.
 """

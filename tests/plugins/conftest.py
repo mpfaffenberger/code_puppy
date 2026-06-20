@@ -10,7 +10,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _isolate_plugin_skills(request, monkeypatch):
-    """Prevent built-in plugin skills (e.g. code-puppy-agent) from leaking
+    """Prevent built-in plugin skills (e.g. mist-agent) from leaking
     into skill-discovery tests that assert exact filesystem-only counts.
 
     Tests that *want* the real plugin-skill collector to run mark themselves

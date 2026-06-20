@@ -32,11 +32,13 @@ def get_default_skill_directories() -> List[Path]:
     """Return default directories to scan for skills.
 
     Returns:
-        - ~/.code_puppy/skills (user skills)
-        - ./.code_puppy/skills (project config skills)
+        - ~/.mist/skills (user skills)
+        - ./.mist/skills (project config skills)
         - ./skills (project skills)
     """
     return [
+        Path.home() / ".mist" / "skills",
+        Path.cwd() / ".mist" / "skills",
         Path.home() / ".code_puppy" / "skills",
         Path.cwd() / ".code_puppy" / "skills",
         Path.cwd() / "skills",

@@ -11,7 +11,7 @@ _commands_loaded: bool = False  # Sentinel to track if commands have been loaded
 
 # Directories to scan for commands (in priority order - later directories override earlier)
 _COMMAND_DIRECTORIES = [
-    "~/.code-puppy/commands",  # Global commands (all projects)
+    "~/.mist/commands",  # Global commands (all projects)
     ".claude/commands",
     ".github/prompts",
     ".agents/commands",

@@ -24,7 +24,7 @@ def _flatten(fragments) -> str:
 
 def test_sanitize_strips_emojis_and_combiners():
     # Emojis (category So) and combining marks are removed; ASCII survives.
-    assert _sanitize("hello 🐶 world") == "hello world"
+    assert _sanitize("hello 🌫️ world") == "hello world"
     assert "a" in _sanitize("café")  # ASCII letters preserved
 
 

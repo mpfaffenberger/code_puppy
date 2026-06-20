@@ -7,7 +7,7 @@ UX:
                          bubblegum-pink, mocha, latte, tokyo-night,
                          deep-black, solarized-light, github-light,
                          rose-pine-dawn, surprise, default)
-  /theme reset         → restore Code Puppy defaults (alias of /theme default)
+  /theme reset         → restore Mist defaults (alias of /theme default)
   /theme show          → show current banner → color mapping
 
 The 13th option (🎲 Surprise Me) re-rolls a random palette every time.

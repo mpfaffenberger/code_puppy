@@ -1,6 +1,6 @@
-# Puppy Kennel
+# Mist Memory
 
-Local-first memory for Code Puppy. Inspired by [MemKennel](https://github.com/MemKennel/memkennel)'s
+Local-first memory for Mist. Inspired by [MemKennel](https://github.com/MemKennel/memkennel)'s
 wings → rooms → drawers model, but backed by **SQLite + FTS5** instead of
 ChromaDB. No daemon, no API key, no cloud, multi-process safe via WAL mode.
 
@@ -11,7 +11,7 @@ We looked. Hard. The summary:
 - **MemKennel** — Beautiful concepts, but ChromaDB's embedded `PersistentClient`
   is not safe across multiple processes hitting the same kennel. Upstream issues
   #1581, #948, #1646 are all flavors of "we need a daemon to make this work."
-  We run 20 puppies sometimes. A daemon is not in the cards.
+  We run 20 agents sometimes. A daemon is not in the cards.
 - **Mem0** — Open issue #4892: "concurrent AsyncMemory writes corrupt Qdrant
   HNSW index." Same disease. Also requires an LLM API key just to *store*
   memories, and phones home to PostHog by default. No thanks.
@@ -30,12 +30,12 @@ Three wing namespaces, all in one shared kennel:
 | Wing | Example | Purpose |
 |---|---|---|
 | `repo:<path>` | `repo:/Users/mike/code/foo` | Project memory, shared across agents |
-| `agent:<name>` | `agent:code-puppy` | Per-agent diary, private by convention |
+| `agent:<name>` | `agent:mist` | Per-agent diary, private by convention |
 | `user:default` | `user:default` | Cross-cutting user preferences |
 
 Privacy is by convention, not encryption. If you need cryptographic
 isolation for a sensitive-data agent, run that agent with
-`PUPPY_KENNEL_ROOT` pointed at a private directory.
+`MIST_MEMORY_ROOT` pointed at a private directory.
 
 ## What it does today
 
@@ -76,7 +76,7 @@ budget. Three priority classes, no LLM, no embeddings:
 | **P1** Project Decisions | `repo:<cwd>` wing, `role='note'` | ~30% | Sticky writes from `kennel_remember` — highest signal-to-token ratio |
 | **P2** Recent Context | `repo:<cwd>` wing, `role='assistant'` | remainder | Orientation, freshness |
 
-Drawers below `PUPPY_KENNEL_MIN_DRAWER_CHARS` (default 80) are skipped
+Drawers below `MIST_MEMORY_MIN_DRAWER_CHARS` (default 80) are skipped
 as noise. Token estimation uses the well-known 1-token ≈ 4-chars
 heuristic — accurate to ±20%, zero deps.
 
@@ -84,10 +84,10 @@ heuristic — accurate to ±20%, zero deps.
 
 | Env var | Default | Effect |
 |---|---|---|
-| `PUPPY_KENNEL_PROMPT_BUDGET` | `1500` | Total token budget for the block |
-| `PUPPY_KENNEL_USER_PREFS_QUOTA` | `0.30` | P0 fraction |
-| `PUPPY_KENNEL_STICKY_QUOTA` | `0.30` | P1 fraction |
-| `PUPPY_KENNEL_MIN_DRAWER_CHARS` | `80` | Noise filter |
+| `MIST_MEMORY_PROMPT_BUDGET` | `1500` | Total token budget for the block |
+| `MIST_MEMORY_USER_PREFS_QUOTA` | `0.30` | P0 fraction |
+| `MIST_MEMORY_STICKY_QUOTA` | `0.30` | P1 fraction |
+| `MIST_MEMORY_MIN_DRAWER_CHARS` | `80` | Noise filter |
 
 **Phase 2 — active tooling:**
 
@@ -129,7 +129,7 @@ The plugin is **enabled by default**. Flip it with the slash commands:
 - ``/kennel disable`` (or ``/kennel off``) — turn memory off
 - ``/kennel enable`` (or ``/kennel on``) — turn memory back on
 
-State is persisted to ``puppy.cfg`` under ``kennel_enabled`` and read on
+State is persisted to ``mist.cfg`` under ``kennel_enabled`` and read on
 every callback, so the toggle is live — no restart needed, and the
 front end can read or write the same value.
 
@@ -160,11 +160,10 @@ front end can read or write the same value.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `PUPPY_KENNEL_ROOT` | `~/.code_puppy/kennel` | Where the SQLite file lives |
-| `PUPPY_KENNEL_PASSIVE_LIMIT` | `5` | Drawers surfaced in passive recall |
-| `PUPPY_KENNEL_MAX_DRAWER_CHARS` | `32000` | Cap on stored drawer size |
+| `MIST_MEMORY_ROOT` | `~/.mist/kennel` | Where the SQLite file lives |
+| `MIST_MEMORY_MAX_DRAWER_CHARS` | `32000` | Cap on stored drawer size |
 
-## puppy.cfg keys
+## mist.cfg keys
 
 | Key | Default | Effect |
 |---|---|---|
@@ -172,7 +171,7 @@ front end can read or write the same value.
 
 ## How tools reach the agent
 
-Code Puppy agents expose a hardcoded ``get_available_tools()`` list. To get
+Mist agents expose a hardcoded ``get_available_tools()`` list. To get
 plugin tools onto that list without editing every agent, this plugin uses
 the ``register_agent_tools`` hook — a small piece of core architecture
 added alongside this plugin specifically to avoid that pattern.

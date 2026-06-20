@@ -2,13 +2,13 @@
 Hook Creator MCP Prompt
 
 Simple MCP prompt that injects hook creation documentation/instructions
-before user prompts for creating Code Puppy hooks.
+before user prompts for creating Mist hooks.
 """
 
 HOOK_CREATION_PROMPT = """
-# Creating Hooks in Code Puppy
+# Creating Hooks in Mist
 
-You are helping a user create hooks for Code Puppy. Code Puppy has two hook systems:
+You are helping a user create hooks for Mist. Mist has two hook systems:
 
 ## System 1: Lifecycle Callbacks (Python)
 Register Python functions that run at specific phases:
@@ -32,7 +32,7 @@ register_callback("startup", _on_startup)
 ```
 
 ## System 2: Event-Based Hooks (Shell/JSON)
-Configure shell commands responding to Code Puppy events in `.claude/settings.json`:
+Configure shell commands responding to Mist events in `.claude/settings.json`:
 - `PreToolUse` - Before a tool executes (can block with exit code 2)
 - `PostToolUse` - After a tool succeeds
 - `SessionStart` - Session begins/resumes

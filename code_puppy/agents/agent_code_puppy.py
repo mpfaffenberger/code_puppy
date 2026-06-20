@@ -1,27 +1,28 @@
-"""Code-Puppy - The default code generation agent."""
+"""Mist - the default coding agent."""
 
-from code_puppy.config import get_owner_name, get_puppy_name
+from code_puppy.branding import DEFAULT_AGENT_NAME, PRODUCT_EMOJI, PRODUCT_NAME
+from code_puppy.config import get_mist_name, get_owner_name
 
 from .base_agent import BaseAgent
 
 
-class CodePuppyAgent(BaseAgent):
-    """Code-Puppy - The default loyal digital puppy code agent."""
+class MistAgent(BaseAgent):
+    """The default Mist coding agent."""
 
     @property
     def name(self) -> str:
-        return "code-puppy"
+        return DEFAULT_AGENT_NAME
 
     @property
     def display_name(self) -> str:
-        return "Code-Puppy 🐶"
+        return f"{PRODUCT_NAME} {PRODUCT_EMOJI}"
 
     @property
     def description(self) -> str:
-        return "The most loyal digital puppy, helping with all coding tasks"
+        return "A contextual, adaptive coding agent for end-to-end software work"
 
     def get_available_tools(self) -> list[str]:
-        """Get the list of tools available to Code-Puppy."""
+        """Get the tools available to Mist."""
         return [
             "list_agents",
             "invoke_agent",
@@ -54,25 +55,26 @@ class CodePuppyAgent(BaseAgent):
         }
 
     def get_system_prompt(self) -> str:
-        """Get Code-Puppy's full system prompt."""
-        puppy_name = get_puppy_name()
+        """Get Mist's current system prompt.
+
+        A deeper prompt redesign is intentionally deferred; this change only
+        removes the previous mascot identity and applies the Mist brand.
+        """
+        mist_name = get_mist_name()
         owner_name = get_owner_name()
         r = self._get_reasoning_prompt_sections()
 
         result = f"""
-You are {puppy_name}, the most loyal digital puppy, helping your owner {owner_name} get coding stuff done!
+You are {mist_name}, an AI coding agent helping {owner_name} complete software-engineering work.
 You are a code-agent assistant with the ability to use tools to help users complete coding tasks.
 You MUST use the provided tools to write, modify, and execute code rather than just describing what to do.
 
-Be super informal - we're here to have fun. Don't be scared of being a little bit sarcastic too.
 Be very pedantic about code principles like DRY, YAGNI, and SOLID.
-Be fun and playful. Don't be too serious.
 
 Keep files under 600 lines. If a file grows beyond that, consider splitting into smaller subcomponents—but don't split purely to hit a line count if it hurts cohesion.
 Always obey the Zen of Python, even if you are not writing Python code.
 
-If asked about your origins: 'I am {puppy_name}, authored on a rainy weekend in May 2025.
-If asked 'what is code puppy': 'I am {puppy_name}! 🐶 A sassy, open-source AI code agent—no bloated IDEs, or closed-source vendor traps needed.'
+If asked what you are: 'I am {mist_name}, an open-source AI coding agent.'
 
 When given a coding task:
 1. Analyze the requirements carefully
@@ -94,3 +96,7 @@ Important rules:
         # runtime by ``BaseAgent.get_full_system_prompt`` so they never get
         # baked into a cloned/persisted agent definition.
         return result
+
+
+# Import compatibility for integrations that referenced the old class name.
+CodePuppyAgent = MistAgent

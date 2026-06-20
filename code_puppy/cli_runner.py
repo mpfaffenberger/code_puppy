@@ -1,4 +1,4 @@
-"""CLI runner for Code Puppy.
+"""CLI runner for Mist.
 
 Contains the main application logic, interactive mode, and entry point.
 """
@@ -19,6 +19,7 @@ from rich.console import Console
 
 from code_puppy import __version__, callbacks, plugins
 from code_puppy.agents import get_current_agent
+from code_puppy.branding import DEFAULT_AGENT_NAME, PRODUCT_EMOJI, PRODUCT_NAME
 from code_puppy.command_line.attachments import parse_prompt_attachments
 from code_puppy.command_line.clipboard import get_clipboard_manager
 from code_puppy.config import (
@@ -103,8 +104,8 @@ def _resume_session_from_path(raw_path: str) -> None:
 
 
 async def main():
-    """Main async entry point for Code Puppy CLI."""
-    parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
+    """Main async entry point for the Mist CLI."""
+    parser = argparse.ArgumentParser(description="Mist - AI coding agent")
     parser.add_argument(
         "--version",
         "-v",
@@ -128,7 +129,7 @@ async def main():
         "--agent",
         "-a",
         type=str,
-        help="Specify which agent to use (e.g., --agent code-puppy)",
+        help=f"Specify which agent to use (e.g., --agent {DEFAULT_AGENT_NAME})",
     )
     parser.add_argument(
         "--model",
@@ -141,7 +142,7 @@ async def main():
         "-r",
         type=str,
         metavar="PATH",
-        help="Resume a saved session from a .pkl file (e.g. ~/.code_puppy/contexts/foo.pkl)",
+        help="Resume a saved session from a .pkl file (e.g. ~/.mist/contexts/foo.pkl)",
     )
     parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
@@ -171,15 +172,15 @@ async def main():
     initialize_command_history_file()
     from code_puppy.messaging import emit_error, emit_system_message
 
-    # Show the awesome Code Puppy logo when entering interactive mode
+    # Show the Mist wordmark when entering interactive mode.
     # This happens when: no -p flag (prompt-only mode) is used
-    # The logo should appear for both `code-puppy` and `code-puppy -i`
+    # The logo should appear for both `mist` and `mist -i`.
     if not args.prompt:
         try:
             import pyfiglet
 
             intro_lines = pyfiglet.figlet_format(
-                "CODE PUPPY", font="ansi_shadow"
+                PRODUCT_NAME.upper(), font="ansi_shadow"
             ).split("\n")
 
             # Simple blue to green gradient (top to bottom)
@@ -199,7 +200,7 @@ async def main():
             # Print directly to console to avoid the 'dim' style from emit_system_message
             display_console.print("\n".join(lines))
         except ImportError:
-            emit_system_message("🐶 Code Puppy is Loading...")
+            emit_system_message(f"{PRODUCT_EMOJI} {PRODUCT_NAME} is loading...")
 
         # Truecolor warning moved to interactive_mode() so it prints LAST
         # after all the help stuff - max visibility for the ugly red box!
@@ -288,7 +289,7 @@ async def main():
     except ImportError:
         pass  # uvx_detection module not available, ignore
 
-    # Load API keys from puppy.cfg into environment variables
+    # Load API keys from mist.cfg into environment variables
     from code_puppy.config import load_api_keys_to_environment
 
     load_api_keys_to_environment()
@@ -496,7 +497,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
                 get_message_bus().emit(response_msg)
 
-                emit_success("🐶 Continuing in Interactive Mode")
+                emit_success(f"{PRODUCT_EMOJI} Continuing in interactive mode")
                 emit_system_message(
                     "Your command and response are preserved in the conversation history."
                 )
@@ -714,7 +715,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         )
 
                         # Allow environment variable override for tests
-                        if os.getenv("CODE_PUPPY_NO_TUI") == "1":
+                        if (
+                            os.getenv("MIST_NO_TUI", os.getenv("CODE_PUPPY_NO_TUI", ""))
+                            == "1"
+                        ):
                             use_interactive_picker = False
 
                         if use_interactive_picker:
@@ -1109,7 +1113,7 @@ def _force_utf8_stdio():
     """Ensure stdout/stderr can encode non-ASCII output (e.g. emoji prompts).
 
     On Windows the console often defaults to a legacy code page (e.g. cp1252),
-    so writing UTF-8 characters such as the "🐾" onboarding banner raises
+    so writing UTF-8 characters such as the "🌫️" onboarding banner raises
     UnicodeEncodeError and crashes the very first run. Reconfigure the streams
     to UTF-8 where the runtime supports it; no-op otherwise.
     """

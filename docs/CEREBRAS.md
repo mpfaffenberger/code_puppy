@@ -1,8 +1,8 @@
-# 🐶 How to Use Code Puppy in cerebras most effective 
+# 🌫️ How to Use Mist in cerebras most effective
 
 ### 1. First Startup & The "Enter" Quirk
-After installation, run `code-puppy` in your terminal.
-1.  **Name your agent:** Enter any name (e.g., `PuppyBot`).
+After installation, run `mist` in your terminal.
+1.  **Name your agent:** Enter any name (e.g., `Mist`).
 2.  **The Blank Enter:** Once the tool starts, **hit `Enter` one time** on the blank line.
     *   *Note: The tool often fails to recognize commands like `/set` until this first blank enter is registered.*
 
@@ -26,7 +26,7 @@ Copy and paste these commands one by one to set up your keys, authentication, an
 *(Note: You can pin different reviewers depending on your language needs, e.g., java-reviewer)*
 
 ### 3. Restart
-**Close and restart** Code Puppy. This ensures all configurations and pinned models are loaded correctly.
+**Close and restart** Mist. This ensures all configurations and pinned models are loaded correctly.
 
 ### 4. Running the Planning Agent
 To start a task, always switch to the planning agent first. It will plan, verify with you, and then drive the other agents.
@@ -41,6 +41,6 @@ Copy and paste the prompt below to ensure the agent implements features, reviews
 ```markdown
 Your task is to implement "REQUIREMENTS.MD".
 
-For that use code-puppy to implement. Use python-reviewer to verify the implementation. If there are errors give the feedback to code_puppy to fix. Repeat until the reviewer has no more "urgent" fixes, maximum 3 times.
+For that use Mist to implement. Use python-reviewer to verify the implementation. If there are errors give the feedback to Mist to fix. Repeat until the reviewer has no more "urgent" fixes, maximum 3 times.
 
 During development never execute the backend. Only verify with compiling!

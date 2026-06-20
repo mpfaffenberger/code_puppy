@@ -1,7 +1,8 @@
-"""Version checking utilities for Code Puppy."""
+"""Version checking utilities for Mist."""
 
 import httpx
 
+from code_puppy.branding import DISTRIBUTION_NAME
 from code_puppy.messaging import emit_info, emit_success, emit_warning, get_message_bus
 from code_puppy.messaging.messages import VersionCheckMessage
 
@@ -59,7 +60,7 @@ def default_version_mismatch_behavior(current_version):
         current_version = "0.0.0-unknown"
         emit_warning("Could not detect current version, using fallback")
 
-    latest_version = fetch_latest_version("code-puppy")
+    latest_version = fetch_latest_version(DISTRIBUTION_NAME)
 
     update_available = bool(
         latest_version and version_is_newer(latest_version, current_version)
@@ -78,5 +79,5 @@ def default_version_mismatch_behavior(current_version):
 
     if update_available:
         emit_info(f"Latest version: {latest_version}")
-        emit_warning(f"A new version of code puppy is available: {latest_version}")
+        emit_warning(f"A new version of Mist is available: {latest_version}")
         emit_success("Please consider updating!")

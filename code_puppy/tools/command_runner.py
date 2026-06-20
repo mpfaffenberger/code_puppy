@@ -388,7 +388,7 @@ def _tear_down_live_panels() -> None:
     """Hide the spinner's Live region (and the sub-agent status panel it hosts).
 
     Mirrors what the steer flow does via ``pause_all_spinners()``: the
-    sub-agent status panel is rendered INSIDE the puppy spinner's Rich Live,
+    sub-agent status panel is rendered inside the Mist spinner's Rich Live,
     which repaints ~20x/sec. Without tearing it down first, the cancel banner
     prints once and the very next Live frame paints the panel right back over
     it -- which is exactly why a single Ctrl+C *looked* like it did nothing and
@@ -1078,10 +1078,10 @@ async def run_shell_command(
         # parallel prompts internally so the 2nd, 3rd, 4th... destructive
         # commands queue up cleanly instead of vanishing.
 
-        # Get puppy name for personalized messages
-        from code_puppy.config import get_puppy_name
+        # Get the configured agent name for personalized messages.
+        from code_puppy.config import get_mist_name
 
-        puppy_name = get_puppy_name().title()
+        mist_name = get_mist_name().title()
 
         # Build panel content
         panel_content = Text()
@@ -1101,7 +1101,7 @@ async def run_shell_command(
             content=panel_content,
             preview=None,
             border_style="dim white",
-            puppy_name=puppy_name,
+            mist_name=mist_name,
         )
 
         if not confirmed:

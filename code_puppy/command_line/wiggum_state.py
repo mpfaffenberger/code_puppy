@@ -1,7 +1,7 @@
 """Backward-compatible shim for the Wiggum plugin state.
 
 Wiggum is a plugin now. This module stays only so older imports/tests don't
-faceplant like a puppy on hardwood.
+fail while the rest of the command interface is importing.
 """
 
 from __future__ import annotations

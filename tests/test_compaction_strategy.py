@@ -27,7 +27,7 @@ def test_set_compaction_strategy_truncation():
     with tempfile.TemporaryDirectory() as temp_dir:
         try:
             code_puppy.config.CONFIG_DIR = temp_dir
-            code_puppy.config.CONFIG_FILE = os.path.join(temp_dir, "puppy.cfg")
+            code_puppy.config.CONFIG_FILE = os.path.join(temp_dir, "mist.cfg")
 
             config = configparser.ConfigParser()
             config[DEFAULT_SECTION] = {}
@@ -53,7 +53,7 @@ def test_set_compaction_strategy_summarization():
     with tempfile.TemporaryDirectory() as temp_dir:
         try:
             code_puppy.config.CONFIG_DIR = temp_dir
-            code_puppy.config.CONFIG_FILE = os.path.join(temp_dir, "puppy.cfg")
+            code_puppy.config.CONFIG_FILE = os.path.join(temp_dir, "mist.cfg")
 
             config = configparser.ConfigParser()
             config[DEFAULT_SECTION] = {}
@@ -79,7 +79,7 @@ def test_set_compaction_strategy_invalid():
     with tempfile.TemporaryDirectory() as temp_dir:
         try:
             code_puppy.config.CONFIG_DIR = temp_dir
-            code_puppy.config.CONFIG_FILE = os.path.join(temp_dir, "puppy.cfg")
+            code_puppy.config.CONFIG_FILE = os.path.join(temp_dir, "mist.cfg")
 
             config = configparser.ConfigParser()
             config[DEFAULT_SECTION] = {}

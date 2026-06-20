@@ -2,7 +2,7 @@
 Configuration loader for Claude Code hooks.
 
 Loads and merges hooks from multiple locations:
-1. ~/.code_puppy/hooks.json (global level) - always loaded if exists
+1. ~/.mist/hooks.json (global level) - always loaded if exists
 2. .claude/settings.json (project-level) - merged with global
 
 Both configurations are loaded and merged so that hooks from both levels
@@ -18,7 +18,7 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 PROJECT_HOOKS_FILE = ".claude/settings.json"
-GLOBAL_HOOKS_FILE = os.path.expanduser("~/.code_puppy/hooks.json")
+GLOBAL_HOOKS_FILE = os.path.expanduser("~/.mist/hooks.json")
 
 
 def _deep_merge_hooks(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
@@ -66,7 +66,7 @@ def load_hooks_config() -> Optional[Dict[str, Any]]:
     Load and merge hooks configuration from available sources.
 
     Priority order:
-    1. ~/.code_puppy/hooks.json (global level) - always loaded if exists
+    1. ~/.mist/hooks.json (global level) - always loaded if exists
     2. .claude/settings.json (project-level) - merged with global
 
     Returns:

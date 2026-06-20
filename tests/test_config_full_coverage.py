@@ -21,12 +21,12 @@ class TestGetXdgDir:
     def test_returns_xdg_path_when_env_set(self, monkeypatch):
         monkeypatch.setenv("XDG_CONFIG_HOME", "/custom/config")
         result = cp_config._get_xdg_dir("XDG_CONFIG_HOME", ".config")
-        assert result == "/custom/config/code_puppy"
+        assert result == "/custom/config/mist"
 
     def test_returns_legacy_path_when_env_not_set(self, monkeypatch):
         monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
         result = cp_config._get_xdg_dir("XDG_CONFIG_HOME", ".config")
-        assert result == os.path.join(os.path.expanduser("~"), ".code_puppy")
+        assert result == os.path.join(os.path.expanduser("~"), ".mist")
 
 
 # ---------------------------------------------------------------------------
@@ -923,26 +923,31 @@ class TestAutosaveSession:
 class TestEnsureConfigExists:
     def test_creates_dirs_and_prompts(self, monkeypatch, tmp_path):
         cfg_dir = str(tmp_path / "config")
-        cfg_file = os.path.join(cfg_dir, "puppy.cfg")
+        cfg_file = os.path.join(cfg_dir, "mist.cfg")
         monkeypatch.setattr(cp_config, "CONFIG_DIR", cfg_dir)
         monkeypatch.setattr(cp_config, "CONFIG_FILE", cfg_file)
         monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path / "data"))
         monkeypatch.setattr(cp_config, "CACHE_DIR", str(tmp_path / "cache"))
         monkeypatch.setattr(cp_config, "STATE_DIR", str(tmp_path / "state"))
+        monkeypatch.setattr(cp_config, "SKILLS_DIR", str(tmp_path / "data" / "skills"))
+        monkeypatch.setattr(cp_config, "_LEGACY_CONFIG_DIR", str(tmp_path / "legacy"))
+        monkeypatch.setattr(cp_config, "_LEGACY_DATA_DIR", str(tmp_path / "legacy"))
+        monkeypatch.setattr(cp_config, "_LEGACY_CACHE_DIR", str(tmp_path / "legacy"))
+        monkeypatch.setattr(cp_config, "_LEGACY_STATE_DIR", str(tmp_path / "legacy"))
 
         inputs = iter(["TestPup", "TestOwner"])
         monkeypatch.setattr("builtins.input", lambda _: next(inputs))
 
         config = cp_config.ensure_config_exists()
-        assert config["puppy"]["puppy_name"] == "TestPup"
-        assert config["puppy"]["owner_name"] == "TestOwner"
+        assert config["mist"]["mist_name"] == "TestPup"
+        assert config["mist"]["owner_name"] == "TestOwner"
         assert os.path.exists(cfg_file)
 
     def test_existing_config_no_prompt(self, tmp_path, monkeypatch):
         cfg_dir = str(tmp_path)
-        cfg_file = os.path.join(cfg_dir, "puppy.cfg")
+        cfg_file = os.path.join(cfg_dir, "mist.cfg")
         cp = configparser.ConfigParser()
-        cp["puppy"] = {"puppy_name": "Buddy", "owner_name": "Alice"}
+        cp["mist"] = {"mist_name": "Buddy", "owner_name": "Alice"}
         with open(cfg_file, "w") as f:
             cp.write(f)
 
@@ -951,9 +956,14 @@ class TestEnsureConfigExists:
         monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path / "data"))
         monkeypatch.setattr(cp_config, "CACHE_DIR", str(tmp_path / "cache"))
         monkeypatch.setattr(cp_config, "STATE_DIR", str(tmp_path / "state"))
+        monkeypatch.setattr(cp_config, "SKILLS_DIR", str(tmp_path / "data" / "skills"))
+        monkeypatch.setattr(cp_config, "_LEGACY_CONFIG_DIR", str(tmp_path / "legacy"))
+        monkeypatch.setattr(cp_config, "_LEGACY_DATA_DIR", str(tmp_path / "legacy"))
+        monkeypatch.setattr(cp_config, "_LEGACY_CACHE_DIR", str(tmp_path / "legacy"))
+        monkeypatch.setattr(cp_config, "_LEGACY_STATE_DIR", str(tmp_path / "legacy"))
 
         config = cp_config.ensure_config_exists()
-        assert config["puppy"]["puppy_name"] == "Buddy"
+        assert config["mist"]["mist_name"] == "Buddy"
 
 
 # ---------------------------------------------------------------------------
@@ -986,7 +996,7 @@ class TestCommandHistory:
         state_dir = str(tmp_path / "state")
         os.makedirs(state_dir, exist_ok=True)
         hist_file = os.path.join(state_dir, "history.txt")
-        old_file = os.path.join(str(tmp_path), ".code_puppy_history.txt")
+        old_file = os.path.join(str(tmp_path), ".mist_history.txt")
         with open(old_file, "w") as f:
             f.write("old history")
 
@@ -1008,7 +1018,7 @@ class TestAgentsDirectories:
         assert os.path.isdir(d)
 
     def test_get_project_agents_directory_exists(self, tmp_path, monkeypatch):
-        agents_dir = tmp_path / ".code_puppy" / "agents"
+        agents_dir = tmp_path / ".mist" / "agents"
         agents_dir.mkdir(parents=True)
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("CODE_PUPPY_TRUST_PROJECT", "true")
@@ -1024,7 +1034,7 @@ class TestAgentsDirectories:
 # ---------------------------------------------------------------------------
 class TestDefaultAgent:
     def test_default(self):
-        assert cp_config.get_default_agent() == "code-puppy"
+        assert cp_config.get_default_agent() == "mist"
 
     def test_set_and_get(self):
         cp_config.set_default_agent("custom-agent")

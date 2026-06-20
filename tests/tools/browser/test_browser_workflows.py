@@ -535,7 +535,7 @@ class TestReadWorkflow(BrowserWorkflowsBaseTest):
         """Test reading workflow with unicode content."""
         mock_get_dir.return_value = temp_workflows_dir
 
-        unicode_content = "# Unicode Workflow\n\n😀 🐶 🍕 Café Résumé"
+        unicode_content = "# Unicode Workflow\n\n😀 🌫️ 🍕 Café Résumé"
 
         workflow_file = temp_workflows_dir / "unicode.md"
         workflow_file.write_text(unicode_content, encoding="utf-8")

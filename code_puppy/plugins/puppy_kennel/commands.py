@@ -45,7 +45,7 @@ def _reload_current_agent() -> None:
 
 _COMMAND = "kennel"
 _HELP_LINES: tuple[tuple[str, str], ...] = (
-    ("kennel", "Puppy Kennel — local memory: search, stats, wings"),
+    ("kennel", "Mist Memory — local memory: search, stats, wings"),
 )
 
 
@@ -73,7 +73,7 @@ def _cmd_stats() -> bool:
     wings = kennel.list_wings()
     db_size = DB_PATH.stat().st_size if DB_PATH.exists() else 0
     state = "enabled" if is_enabled() else "DISABLED"
-    emit_info(f"Puppy Kennel at `{DB_PATH}`")
+    emit_info(f"Mist Memory at `{DB_PATH}`")
     emit_info(f"  state   : {state}")
     emit_info(f"  drawers : {total}")
     emit_info(f"  wings   : {len(wings)}")
@@ -83,17 +83,17 @@ def _cmd_stats() -> bool:
 
 def _cmd_status() -> bool:
     if is_enabled():
-        emit_success("Puppy Kennel memory is ENABLED.")
+        emit_success("Mist Memory memory is ENABLED.")
     else:
         emit_warning(
-            "Puppy Kennel memory is DISABLED. Run /kennel enable to turn it on."
+            "Mist Memory memory is DISABLED. Run /kennel enable to turn it on."
         )
     return True
 
 
 def _cmd_enable() -> bool:
     if is_enabled():
-        emit_info("Puppy Kennel memory is already enabled.")
+        emit_info("Mist Memory memory is already enabled.")
         return True
     try:
         set_enabled(True)
@@ -101,13 +101,13 @@ def _cmd_enable() -> bool:
         emit_warning(f"Could not persist enabled state: {exc!r}")
         return True
     _reload_current_agent()
-    emit_success("Puppy Kennel memory ENABLED. New runs will be recorded and recalled.")
+    emit_success("Mist Memory memory ENABLED. New runs will be recorded and recalled.")
     return True
 
 
 def _cmd_disable() -> bool:
     if not is_enabled():
-        emit_info("Puppy Kennel memory is already disabled.")
+        emit_info("Mist Memory memory is already disabled.")
         return True
     try:
         set_enabled(False)
@@ -116,7 +116,7 @@ def _cmd_disable() -> bool:
         return True
     _reload_current_agent()
     emit_success(
-        "Puppy Kennel memory DISABLED. Existing drawers remain on disk; "
+        "Mist Memory memory DISABLED. Existing drawers remain on disk; "
         "recording and recall are paused. Run /kennel enable to resume."
     )
     return True
@@ -138,7 +138,7 @@ def _cmd_search(query: str) -> bool:
     if not query.strip():
         emit_warning("Usage: /kennel search <your query>")
         return True
-    wings = default_recall_scope("code-puppy", detect_cwd())
+    wings = default_recall_scope("mist", detect_cwd())
     hits = kennel.search_drawers_multi(query, wing_names=wings, limit=5)
     if not hits:
         emit_warning(f"No hits for '{query}' in scope {wings}")
@@ -152,7 +152,7 @@ def _cmd_search(query: str) -> bool:
 
 
 def _cmd_help() -> bool:
-    emit_info("Puppy Kennel commands:")
+    emit_info("Mist Memory commands:")
     emit_info("  /kennel                 - stats + recent activity")
     emit_info("  /kennel search <query>  - FTS5 search across default scope")
     emit_info("  /kennel wings           - list wings with drawer counts")

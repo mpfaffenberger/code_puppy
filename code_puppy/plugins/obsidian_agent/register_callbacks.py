@@ -6,7 +6,7 @@ from .agent_obsidian import ObsidianAgent
 
 
 def register_agents() -> list[dict[str, object]]:
-    """Register the Obsidian Agent with Code Puppy's agent catalog."""
+    """Register the Obsidian Agent with Mist's agent catalog."""
     return [{"name": "obsidian-agent", "class": ObsidianAgent}]
 
 

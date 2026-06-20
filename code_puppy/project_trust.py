@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 
 _LOCK = threading.RLock()
-_ENV_OVERRIDE = "CODE_PUPPY_TRUST_PROJECT"
+_ENV_OVERRIDES = ("MIST_TRUST_PROJECT", "CODE_PUPPY_TRUST_PROJECT")
 
 
 def _trust_file() -> Path:
@@ -52,7 +52,14 @@ def set_project_trusted(
 
 
 def get_project_trust(project_dir: Path | str | None = None) -> bool | None:
-    override = os.getenv(_ENV_OVERRIDE, "").strip().lower()
+    override = (
+        next(
+            (os.getenv(name, "") for name in _ENV_OVERRIDES if os.getenv(name)),
+            "",
+        )
+        .strip()
+        .lower()
+    )
     if override in {"1", "true", "yes", "on"}:
         return True
     if override in {"0", "false", "no", "off"}:
@@ -78,7 +85,7 @@ def ensure_project_trusted(
         return False
 
     sys.stderr.write(
-        "\nProject-local Code Puppy plugins execute Python during startup.\n"
+        "\nProject-local Mist plugins execute Python during startup.\n"
         f"Trust this project? {key}\nType 'yes' to trust: "
     )
     sys.stderr.flush()

@@ -27,7 +27,7 @@ class TestHandleHelpCommand:
 
     def test_help_command_with_emoji_content(self):
         """Test help command displays content with emoji and formatting."""
-        mock_help_text = "🐕 Commands:\n• /help - Show help\n• /exit - Exit"
+        mock_help_text = "🌫️ Commands:\n• /help - Show help\n• /exit - Exit"
 
         with patch(
             "code_puppy.command_line.core_commands.get_commands_help",
@@ -264,7 +264,7 @@ class TestHandleToolsCommand:
 
     def test_tools_command_with_unicode_content(self):
         """Test tools command handles unicode content properly."""
-        unicode_content = "# 工具\n\n- 工具 1: 描述\n- 工具 2: 描述 🐕"
+        unicode_content = "# 工具\n\n- 工具 1: 描述\n- 工具 2: 描述 🌫️"
 
         with patch(
             "code_puppy.command_line.core_commands.tools_content", unicode_content

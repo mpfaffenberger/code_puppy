@@ -380,7 +380,7 @@ def on_load_prompt():
 
     The documented hook contract is ``() -> str | None`` where ``None`` means
     "skip me, I have nothing to contribute this turn." Filtering here keeps
-    every callsite (agent_code_puppy, agent_planning, agent_tools, ...) free
+    every callsite (default agent, planning agent, agent tools, ...) free
     of the same defensive list comprehension.
     """
     results = _trigger_callbacks_sync("load_prompt")

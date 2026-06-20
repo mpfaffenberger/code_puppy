@@ -1,11 +1,11 @@
 # Claude Code OAuth Plugin Setup Guide
 
-This guide walks you through using the Claude Code OAuth plugin inside Code Puppy.
+This guide walks you through using the Claude Code OAuth plugin inside Mist.
 
 ## Quick Start
 
 1. Ensure the plugin files live under `code_puppy/plugins/claude_code_oauth/`
-2. Restart Code Puppy so it loads the plugin
+2. Restart Mist so it loads the plugin
 3. Run `/claude-code-auth` and follow the prompts
 
 ## Why No Client Registration?
@@ -21,7 +21,7 @@ Anthropic exposes a shared **public client** (`claude-cli`) for command-line too
 2. Your browser opens the Claude OAuth consent flow at `https://claude.ai/oauth/authorize`
 3. Sign in (or pick an account) and approve the "Claude CLI" access request
 4. The browser closes automatically after the redirect is captured
-5. Tokens are stored locally at `~/.code_puppy/claude_code_oauth.json`
+5. Tokens are stored locally at `~/.mist/claude_code_oauth.json`
 6. Available Claude Code models are fetched and added to `extra_models.json`
 
 ## Commands Recap
@@ -55,7 +55,7 @@ Change these only if Anthropic updates their endpoints or scopes.
 
 ## After Authentication
 
-- Models appear in `~/.code_puppy/extra_models.json` with the `claude-code-` prefix
+- Models appear in `~/.mist/extra_models.json` with the `claude-code-` prefix
 - The environment variable `CLAUDE_CODE_ACCESS_TOKEN` is used by those models
 - `/claude-code-status` shows token expiry when the API provides it
 
@@ -69,7 +69,7 @@ Change these only if Anthropic updates their endpoints or scopes.
 ## Files Created
 
 ```
-~/.code_puppy/
+~/.mist/
 ├── claude_code_oauth.json   # OAuth tokens (0600 permissions)
 └── extra_models.json        # Extended model registry
 ```
@@ -90,4 +90,4 @@ It verifies imports, configuration values, and filesystem expectations without h
 - PKCE protects the flow even without a client secret
 - HTTPS endpoints are enforced for all requests
 
-Enjoy hacking with Claude Code straight from Code Puppy! 🐶💻
+Enjoy hacking with Claude Code straight from Mist! 🌫️💻

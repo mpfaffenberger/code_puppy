@@ -3,7 +3,7 @@
 Persists which MCP servers each agent should see, and whether those servers
 should auto-start when the agent is invoked.
 
-Storage: ``$XDG_CONFIG_HOME/code_puppy/mcp_agent_bindings.json``
+Storage: ``$XDG_CONFIG_HOME/mist/mcp_agent_bindings.json``
 
 Schema::
 

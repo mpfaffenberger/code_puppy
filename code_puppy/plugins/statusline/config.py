@@ -1,4 +1,4 @@
-"""Configuration for the statusline plugin (persisted in puppy.cfg)."""
+"""Configuration for the statusline plugin (persisted in mist.cfg)."""
 
 from __future__ import annotations
 

@@ -473,7 +473,7 @@ class TestDisplayNonStreamedResult:
         mock_console.width = 80
 
         # Call with unicode content
-        content = "Hello 世界 🐶 Привет عالم"
+        content = "Hello 世界 🌫️ Привет عالم"
         display_non_streamed_result(content=content, console=mock_console)
 
         # Verify parse_line was called with unicode content

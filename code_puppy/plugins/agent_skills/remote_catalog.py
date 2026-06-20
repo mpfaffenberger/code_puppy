@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 SKILLS_JSON_URL = "https://www.llmspec.dev/skills/skills.json"
 
-_CACHE_DIR = Path.home() / ".code_puppy" / "cache"
+_CACHE_DIR = Path.home() / ".mist" / "cache"
 _CACHE_PATH = _CACHE_DIR / "skills_catalog.json"
 _CACHE_TTL_SECONDS = 30 * 60
 
@@ -135,7 +135,7 @@ def _fetch_remote_json(url: str) -> Optional[dict[str, Any]]:
 
     headers = {
         "Accept": "application/json",
-        "User-Agent": "code-puppy/remote-catalog",
+        "User-Agent": "mist/remote-catalog",
     }
 
     try:
@@ -263,7 +263,7 @@ def fetch_remote_catalog(force_refresh: bool = False) -> Optional[RemoteCatalogD
     """Fetch the remote skills catalog with caching and offline fallback.
 
     Cache behavior:
-    - Cache file: ~/.code_puppy/cache/skills_catalog.json
+    - Cache file: ~/.mist/cache/skills_catalog.json
     - TTL: 30 minutes (based on file mtime)
     - Offline fallback: if network fetch fails, use cache if present (even if expired)
 

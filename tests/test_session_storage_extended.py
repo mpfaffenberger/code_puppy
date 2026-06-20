@@ -263,7 +263,7 @@ class TestSessionStorageExtended:
     ):
         """Test handling unicode and special characters."""
         unicode_history = [
-            "Hello 🐕",  # Dog emoji
+            "Hello 🌫️",  # Dog emoji
             "Café crème",  # Accented characters
             "Привет мир",  # Cyrillic
             "🎉 Emoji test",  # More emojis

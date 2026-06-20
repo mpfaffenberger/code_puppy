@@ -278,7 +278,7 @@ LANGUAGE_SAMPLES = {
 +    "name": "my-awesome-app",
 +    "version": "2.0.0",
 +    "description": "An awesome application",
-+    "author": "Code Puppy",
++    "author": "Mist",
 +    "license": "MIT"
  }""",
     ),

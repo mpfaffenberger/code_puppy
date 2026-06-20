@@ -43,7 +43,7 @@ def on_startup() -> None:
         "DBOS_APP_VERSION", f"{current_version}-{int(time.time() * 1000)}"
     )
     dbos_config: DBOSConfig = {
-        "name": "dbos-code-puppy",
+        "name": "dbos-mist",
         "system_database_url": DBOS_DATABASE_URL,
         "run_admin_server": False,
         "conductor_key": os.environ.get("DBOS_CONDUCTOR_KEY"),

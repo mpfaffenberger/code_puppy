@@ -160,14 +160,14 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         if path == "/success":
             success_html = oauth_success_html(
                 "ChatGPT",
-                "You can now close this window and return to Code Puppy.",
+                "You can now close this window and return to Mist.",
             )
             self._send_html(success_html)
             self._shutdown_after_delay(2.0)
             return
 
         if path != "/auth/callback":
-            self._send_failure(404, "Callback endpoint not found for the puppy parade.")
+            self._send_failure(404, "OAuth callback endpoint not found.")
             self._shutdown()
             return
 
@@ -176,7 +176,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
         code = params.get("code", [None])[0]
         if not code:
-            self._send_failure(400, "Missing auth code — the token treat rolled away.")
+            self._send_failure(400, "Missing authorization code.")
             self._shutdown()
             return
 
@@ -202,15 +202,13 @@ class _CallbackHandler(BaseHTTPRequestHandler):
             # Redirect to the success URL returned by exchange_code
             self._send_redirect(success_url)
         else:
-            self._send_failure(
-                500, "Unable to persist auth file — a puppy probably chewed it."
-            )
+            self._send_failure(500, "Unable to persist the authentication file.")
             self._shutdown()
         self._shutdown_after_delay(2.0)
 
     def do_POST(self) -> None:  # noqa: N802
         self._send_failure(
-            404, "POST not supported — the pups only fetch GET requests."
+            404, "POST is not supported by this OAuth callback endpoint."
         )
         self._shutdown()
 

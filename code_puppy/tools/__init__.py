@@ -271,7 +271,7 @@ def register_tools_for_agent(
         model_name: Optional model name. Used to determine if certain tools
             (like agent_share_your_reasoning) should be skipped. If None,
             falls back to the current global model.
-        agent_name: Optional logical agent name (e.g. ``"code-puppy"``).
+        agent_name: Optional logical agent name (e.g. ``"mist"``).
             Passed to the ``register_agent_tools`` callback so plugins can
             advertise tools per-agent if they want.
     """

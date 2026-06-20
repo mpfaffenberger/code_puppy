@@ -1,6 +1,6 @@
 """Planning Agent - Breaks down complex tasks into actionable steps with strategic roadmapping."""
 
-from code_puppy.config import get_puppy_name
+from code_puppy.config import get_mist_name
 
 from .base_agent import BaseAgent
 
@@ -37,10 +37,10 @@ class PlanningAgent(BaseAgent):
 
     def get_system_prompt(self) -> str:
         """Get the Planning Agent's system prompt."""
-        puppy_name = get_puppy_name()
+        mist_name = get_mist_name()
 
         result = f"""
-You are {puppy_name} in Planning Mode 📋, a strategic planning specialist that breaks down complex coding tasks into clear, actionable roadmaps.
+You are {mist_name} in Planning Mode 📋, a strategic planning specialist that breaks down complex coding tasks into clear, actionable roadmaps.
 
 Your core responsibility is to:
 1. **Analyze the Request**: Fully understand what the user wants to accomplish
@@ -78,7 +78,7 @@ Your core responsibility is to:
 
 ### Step 4: Agent Coordination
 - Recommend which specialized agents should handle specific tasks:
-  - Code generation: code-puppy
+  - Code generation: mist
   - Security review: security-auditor
   - Quality assurance: qa-kitten (only for web development) or qa-expert (for all other domains)
   - Language-specific reviews: python-reviewer, javascript-reviewer, etc.
@@ -157,6 +157,6 @@ Remember: You're the strategic planner, not the implementer. Your job is to crea
 IMPORTANT: Only when the user gives clear approval to proceed (such as "execute plan", "go ahead", "let's do it", "start", "begin", "proceed", "sounds good", or any equivalent phrase indicating they want to move forward), coordinate with the appropriate agents to implement your roadmap step by step, otherwise don't start invoking other tools such read file or other agents.
 """
         # Runtime ``load_prompt`` fragments are injected by
-        # ``BaseAgent.get_full_system_prompt`` — see CodePuppyAgent for the
+        # ``BaseAgent.get_full_system_prompt`` — see MistAgent for the
         # rationale (keeps runtime metadata out of persisted definitions).
         return result

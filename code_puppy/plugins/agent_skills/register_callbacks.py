@@ -158,7 +158,7 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
             if not skills:
                 emit_info("No skills found.")
                 emit_info("Create skills in:")
-                emit_info("  - ~/.code_puppy/skills/")
+                emit_info("  - ~/.mist/skills/")
                 emit_info("  - ./skills/")
                 return True
 

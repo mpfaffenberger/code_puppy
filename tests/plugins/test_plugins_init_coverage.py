@@ -2,7 +2,7 @@
 
 Tests cover plugin loading functions including:
 - Built-in plugin loading with various edge cases
-- User plugin loading from ~/.code_puppy/plugins/
+- User plugin loading from ~/.mist/plugins/
 - Error handling paths
 - Idempotent loading behavior
 """
@@ -29,7 +29,7 @@ class TestGetUserPluginsDir:
         """Test that function returns the USER_PLUGINS_DIR constant."""
         result = get_user_plugins_dir()
         assert result == USER_PLUGINS_DIR
-        assert result == Path.home() / ".code_puppy" / "plugins"
+        assert result == Path.home() / ".mist" / "plugins"
 
 
 class TestEnsureUserPluginsDir:
@@ -37,7 +37,7 @@ class TestEnsureUserPluginsDir:
 
     def test_creates_directory_if_not_exists(self, tmp_path):
         """Test that directory is created if it doesn't exist."""
-        test_dir = tmp_path / ".code_puppy" / "plugins"
+        test_dir = tmp_path / ".mist" / "plugins"
         assert not test_dir.exists()
 
         with patch.object(plugins_module, "USER_PLUGINS_DIR", test_dir):
@@ -48,7 +48,7 @@ class TestEnsureUserPluginsDir:
 
     def test_returns_existing_directory(self, tmp_path):
         """Test that existing directory is returned without error."""
-        test_dir = tmp_path / ".code_puppy" / "plugins"
+        test_dir = tmp_path / ".mist" / "plugins"
         test_dir.mkdir(parents=True)
         assert test_dir.exists()
 
@@ -615,7 +615,7 @@ class TestLoadPluginCallbacks:
         original_loaded = plugins_module._PLUGINS_LOADED
         plugins_module._PLUGINS_LOADED = False
 
-        project_dir = tmp_path / ".code_puppy" / "plugins"
+        project_dir = tmp_path / ".mist" / "plugins"
         project_dir.mkdir(parents=True)
 
         with (

@@ -15,8 +15,8 @@ def get_skill_directories() -> List[str]:
 
     Returns:
         List of skill directory paths from configuration.
-        Reads from puppy.cfg [puppy] section under 'skill_directories' key.
-        Default: ['~/.code_puppy/skills', './.code_puppy/skills', './skills']
+        Reads from ``mist.cfg`` under the ``skill_directories`` key.
+        Default: ['~/.mist/skills', './.mist/skills', './skills']
 
     The directories are stored as a JSON list in the config.
     """
@@ -34,10 +34,18 @@ def get_skill_directories() -> List[str]:
             logger.error(f"Failed to parse skill_directories config: {e}")
 
     # Fallback to defaults
-    home_skills = str(Path.home() / ".code_puppy" / "skills")
-    project_config_skills = str(Path.cwd() / ".code_puppy" / "skills")
+    home_skills = str(Path.home() / ".mist" / "skills")
+    project_config_skills = str(Path.cwd() / ".mist" / "skills")
+    legacy_home_skills = str(Path.home() / ".code_puppy" / "skills")
+    legacy_project_skills = str(Path.cwd() / ".code_puppy" / "skills")
     local_skills = str(Path.cwd() / "skills")
-    return [home_skills, project_config_skills, local_skills]
+    return [
+        home_skills,
+        project_config_skills,
+        legacy_home_skills,
+        legacy_project_skills,
+        local_skills,
+    ]
 
 
 def add_skill_directory(path: str) -> bool:

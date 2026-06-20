@@ -750,7 +750,7 @@ class TestEdgeCasesAndErrorHandling:
     async def test_unicode_in_choices_and_titles(self):
         """Test handling of unicode characters in choices and titles."""
         choices = ["Option 世界", "Choice émojis 🎨", "Sélection"]
-        title = "标题 Title 🐕"
+        title = "标题 Title 🌫️"
 
         with patch("code_puppy.command_line.diff_menu.Application") as mock_app:
             mock_instance = MagicMock()

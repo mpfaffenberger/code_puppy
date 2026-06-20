@@ -5,7 +5,7 @@ Toggles persistent silencing of the "MCP server registered in mcp_servers.json
 but not bound to agent" warning emitted by
 :func:`code_puppy.mcp_.manager._warn_unbound_servers`.
 
-State is persisted in ``puppy.cfg`` under ``mcp_unbound_warning_silenced`` so
+State is persisted in ``mist.cfg`` under ``mcp_unbound_warning_silenced`` so
 the silence survives restarts.
 """
 
@@ -60,7 +60,7 @@ class _ToggleSilenceCommand(MCPCommandBase):
                     Text.from_markup(
                         "[green]\u2713[/green] Unbound-MCP-server warning "
                         "[bold]silenced forever[/bold] (persisted in "
-                        "puppy.cfg). Run [cyan]/mcp unsilence-warning[/cyan] "
+                        "mist.cfg). Run [cyan]/mcp unsilence-warning[/cyan] "
                         "to restore it."
                     ),
                     message_group=group_id,

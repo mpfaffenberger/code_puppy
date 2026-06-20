@@ -56,7 +56,7 @@ class TestAgentStateBasics:
         """Test creating AgentState with all fields specified."""
         state = AgentState(
             session_id="sess-456",
-            agent_name="code-puppy",
+            agent_name="mist",
             model_name="claude-3-opus",
             status="running",
             tool_call_count=5,

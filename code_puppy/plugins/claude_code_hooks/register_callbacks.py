@@ -1,11 +1,11 @@
 """
 Register callbacks for Claude Code hooks plugin.
 
-Integrates the hook engine with code_puppy's callback system.
+Integrates the hook engine with Mist's callback system.
 
-This bridge maps Claude Code hook events to code_puppy lifecycle callbacks:
+This bridge maps Claude Code hook events to Mist lifecycle callbacks:
 
-    Claude Code event   →  code_puppy callback
+    Claude Code event   →  Mist callback
     -----------------   →  -------------------
     PreToolUse          →  pre_tool_call
     PostToolUse         →  post_tool_call
@@ -33,7 +33,7 @@ _SUBAGENT_NAMES = frozenset(
     {
         "pack_leader",
         "bloodhound",
-        "code-puppy",
+        "mist",
         "code_puppy",
         "retriever",
         "shepherd",
@@ -177,7 +177,7 @@ register_callback("post_tool_call", on_post_tool_call_hook)
 
 
 async def on_startup_hook() -> None:
-    """Startup callback — fires SessionStart hooks when code_puppy boots.
+    """Startup callback — fires SessionStart hooks when Mist boots.
 
     Captures stdout into ``_pending_session_context`` so the first user prompt
     can be augmented with the SessionStart "additional context" (project

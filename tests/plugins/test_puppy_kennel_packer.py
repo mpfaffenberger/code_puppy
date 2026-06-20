@@ -64,13 +64,13 @@ def test_short_drawers_are_skipped_as_noise(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import packer, recorder
 
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text="ok",  # 2 chars - pure noise
     )
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text="thanks!",  # 7 chars - still noise
@@ -82,14 +82,14 @@ def test_pack_renders_with_one_long_assistant_drawer(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import packer, recorder
 
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text=_long("We picked SQLite over Chroma because ", 250),
     )
     block = packer.pack()
     assert block is not None
-    assert "Puppy Kennel - Memory" in block
+    assert "Mist Memory - Memory" in block
     assert "Recent Context" in block
     assert "SQLite over Chroma" in block
 
@@ -136,7 +136,7 @@ def test_assistant_responses_land_in_p2(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import packer, recorder
 
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text=_long("Just an autosaved assistant response here ", 200),
@@ -164,7 +164,7 @@ def test_all_three_tiers_render_in_order(kennel_root: Path) -> None:
         role="note",
     )
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text=_long("ASSISTANT_RESPONSE_MARKER did the thing ", 200),
@@ -192,7 +192,7 @@ def test_budget_constrains_output_size(kennel_root: Path) -> None:
 
     for i in range(30):
         recorder.record_run_end(
-            agent_name="code-puppy",
+            agent_name="mist",
             model_name="m",
             session_id=f"s{i:02d}",
             success=True,
@@ -212,7 +212,7 @@ def test_single_huge_drawer_gets_truncated_not_dropped(kennel_root: Path) -> Non
     # paths. 50k chars does both.
     huge = _long("UNIQUE_MARKER ", 50_000)
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text=huge,
@@ -274,7 +274,7 @@ def test_drawer_with_embedded_newlines_renders_one_line(kennel_root: Path) -> No
     from code_puppy.plugins.puppy_kennel import packer, recorder
 
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text=(

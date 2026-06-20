@@ -1,4 +1,4 @@
-"""Main entry point for Code Puppy CLI.
+"""Main entry point for the Mist CLI.
 
 This module re-exports the main_entry function from cli_runner for backwards compatibility.
 All the actual logic lives in cli_runner.py.

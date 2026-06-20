@@ -128,7 +128,7 @@ def _block_command(command: str, match: Any) -> Dict[str, Any]:
         f"  {match.description}\n\n"
         f"Force pushing rewrites remote history and can destroy others' work.\n"
         f"If you *really* need to force push, use the exact command directly\n"
-        f"in your terminal (outside code puppy) after double-checking the target branch."
+        f"in your terminal (outside Mist) after double-checking the target branch."
     )
 
     emit_warning(error_message)

@@ -26,7 +26,7 @@ class StderrFileCapture:
     """
     Captures stderr to a persistent log file and optionally monitors it.
 
-    Logs are written to ~/.code_puppy/mcp_logs/<server_name>.log
+    Logs are written to ~/.mist/mcp_logs/<server_name>.log
     """
 
     def __init__(

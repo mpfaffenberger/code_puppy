@@ -441,11 +441,11 @@ SURPRISE = {
     "terminal_palette": None,  # randomized at apply time
 }
 
-# The 14th option: restore Code Puppy defaults (banners + content).
+# The 14th option: restore Mist defaults (banners + content).
 DEFAULT = {
     "icon": "🔄",
     "label": "Restore Defaults",
-    "blurb": "back to Code Puppy factory colors",
+    "blurb": "back to Mist factory colors",
     "colors": None,
     "content_styles": None,  # handled specially
     "color_remap": None,  # handled specially (empty)
@@ -492,7 +492,7 @@ def colors_for(theme_name: str, rng: random.Random | None = None) -> dict[str, s
 
     For curated themes, cycles through the theme palette deterministically.
     For ``surprise``, samples randomly from the full PALETTE.
-    For ``default``, returns the Code Puppy factory banner colors.
+    For ``default``, returns the Mist factory banner colors.
     """
     if theme_name not in MENU_BY_NAME:
         raise KeyError(f"Unknown theme: {theme_name!r}")

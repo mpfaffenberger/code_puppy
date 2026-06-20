@@ -32,7 +32,7 @@ class TestExampleCustomCommand:
         entries = self._get_help()()
         assert len(entries) == 2
         names = [e[0] for e in entries]
-        assert "woof" in names
+        assert "ask" in names
         assert "echo" in names
 
     def test_empty_name_returns_none(self):
@@ -41,36 +41,36 @@ class TestExampleCustomCommand:
     def test_unknown_command_returns_none(self):
         assert self._get_handler()("unknown", "unknown") is None
 
-    def test_woof_no_args(self):
+    def test_ask_no_args(self):
         from code_puppy.plugins.customizable_commands.register_callbacks import (
             MarkdownCommandResult,
         )
 
-        result = self._get_handler()("woof", "woof")
+        result = self._get_handler()("ask", "ask")
         assert isinstance(result, MarkdownCommandResult)
-        assert result.content == "Tell me a dog fact"
+        assert result.content == "Tell me a concise coding tip"
 
-    def test_woof_with_text(self):
+    def test_ask_with_text(self):
         from code_puppy.plugins.customizable_commands.register_callbacks import (
             MarkdownCommandResult,
         )
 
-        result = self._get_handler()("woof hello world", "woof")
+        result = self._get_handler()("ask hello world", "ask")
         assert isinstance(result, MarkdownCommandResult)
         assert result.content == "hello world"
 
-    def test_woof_falls_back_to_string_when_markdown_result_unavailable(
+    def test_ask_falls_back_to_string_when_markdown_result_unavailable(
         self, monkeypatch
     ):
-        """If the sibling ``customizable_commands`` plugin is absent, ``/woof``
+        """If the sibling ``customizable_commands`` plugin is absent, ``/ask``
         should degrade gracefully to a bare-string (display-only) return
         rather than break the plugin.
         """
         from code_puppy.plugins.example_custom_command import register_callbacks
 
         monkeypatch.setattr(register_callbacks, "MarkdownCommandResult", None)
-        result = register_callbacks._handle_custom_command("woof", "woof")
-        assert result == "Tell me a dog fact"
+        result = register_callbacks._handle_custom_command("ask", "ask")
+        assert result == "Tell me a concise coding tip"
 
     def test_echo_no_args(self):
         result = self._get_handler()("echo", "echo")

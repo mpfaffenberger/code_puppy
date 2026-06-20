@@ -10,11 +10,11 @@ class TestProjectAgentIntegration:
     """Integration tests that use real CWD changes instead of mocking."""
 
     def test_discover_project_agent_via_cwd(self, tmp_path, monkeypatch):
-        """Test that changing to a directory with .code_puppy discovers agents."""
-        # Create project structure: project/.code_puppy/agents/
+        """Test that changing to a directory with .mist discovers agents."""
+        # Create project structure: project/.mist/agents/
         project_dir = tmp_path / "myproject"
         project_dir.mkdir()
-        agents_dir = project_dir / ".code_puppy" / "agents"
+        agents_dir = project_dir / ".mist" / "agents"
         agents_dir.mkdir(parents=True)
 
         # Create agent file
@@ -50,7 +50,7 @@ class TestProjectAgentIntegration:
         # Create project with agent
         project_dir = tmp_path / "myproject"
         project_dir.mkdir()
-        agents_dir = project_dir / ".code_puppy" / "agents"
+        agents_dir = project_dir / ".mist" / "agents"
         agents_dir.mkdir(parents=True)
 
         agent_config = {
@@ -62,7 +62,7 @@ class TestProjectAgentIntegration:
         agent_file = agents_dir / "project-agent.json"
         agent_file.write_text(json.dumps(agent_config))
 
-        # Create different directory without .code_puppy
+        # Create different directory without .mist
         other_dir = tmp_path / "otherdir"
         other_dir.mkdir()
 
@@ -86,7 +86,7 @@ class TestProjectAgentIntegration:
         # Create project with agent
         project_dir = tmp_path / "myproject"
         project_dir.mkdir()
-        project_agents_dir = project_dir / ".code_puppy" / "agents"
+        project_agents_dir = project_dir / ".mist" / "agents"
         project_agents_dir.mkdir(parents=True)
 
         project_config = {
@@ -125,11 +125,11 @@ class TestProjectAgentIntegration:
         assert agents["shared-name"] == str(project_file)
 
     def test_nested_project_discovery(self, tmp_path, monkeypatch):
-        """Test that .code_puppy is found from nested subdirectories."""
-        # Create project/.code_puppy/agents/
+        """Test that .mist is found from nested subdirectories."""
+        # Create project/.mist/agents/
         project_dir = tmp_path / "myproject"
         project_dir.mkdir()
-        agents_dir = project_dir / ".code_puppy" / "agents"
+        agents_dir = project_dir / ".mist" / "agents"
         agents_dir.mkdir(parents=True)
 
         agent_config = {
@@ -158,7 +158,7 @@ class TestProjectAgentIntegration:
             agents = discover_json_agents()
 
         # NOTE: Current implementation uses os.getcwd(), so it should NOT find
-        # the agent from nested directories (would need to walk up to find .code_puppy)
+        # the agent from nested directories (would need to walk up to find .mist)
         # This test documents current behavior - may need updating if we add
         # parent directory searching later
         assert "nested-agent" not in agents

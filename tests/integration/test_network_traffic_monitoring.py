@@ -1,6 +1,6 @@
 """Integration test to capture and report all network traffic during message processing.
 
-This test uses a custom HTTP/HTTPS proxy to monitor all requests made by code-puppy
+This test uses a custom HTTP/HTTPS proxy to monitor all requests made by mist
 when processing a simple message. The goal is to identify all external domains contacted
 so we can build proper assertions and understand the dependency chain.
 """
@@ -296,7 +296,7 @@ def test_network_traffic_on_simple_message(
     This test:
     1. Starts a logging proxy server
     2. Configures httpx to use the proxy
-    3. Spawns code-puppy in interactive mode
+    3. Spawns mist in interactive mode
     4. Sends a simple "hi" message
     5. Captures all network calls
     6. Generates a detailed report
@@ -314,7 +314,7 @@ def test_network_traffic_on_simple_message(
 
     try:
         proxy_url = proxy.get_proxy_url()
-        print(f"\n🐶 Proxy started at {proxy_url}")
+        print(f"\n🌫️ Proxy started at {proxy_url}")
 
         # Add proxy settings to environment
         test_env = integration_env.copy()
@@ -331,7 +331,7 @@ def test_network_traffic_on_simple_message(
         cli_harness.wait_for_ready(result)
 
         # Send a simple message
-        print("\n🐶 Sending 'hi' message...")
+        print("\n🌫️ Sending 'hi' message...")
         result.sendline("hi\r")
 
         # Wait for response (with generous timeout for LLM response)
@@ -387,7 +387,7 @@ def test_network_traffic_on_simple_message(
     }
 
     # Let's see what domains we're talking to!
-    print("\n🐶 Woof! I sniffed out these domains:")
+    print("\n🌫️ Woof! I sniffed out these domains:")
     for domain, count in sorted(
         proxy.report.domains_contacted.items(), key=lambda x: x[1], reverse=True
     ):

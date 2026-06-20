@@ -335,7 +335,7 @@ def func3():
     def test_unicode_content_handling(self, tmp_path):
         """Test handling of Unicode characters in file content."""
         test_file = tmp_path / "unicode.py"
-        unicode_content = "# 测试文件\nprint('Hello 世界! 🌍')\nemoji = 🐕"
+        unicode_content = "# 测试文件\nprint('Hello 世界! 🌍')\nemoji = 🌫️"
         test_file.write_text(unicode_content, encoding="utf-8")
 
         payload = ReplacementsPayload(
@@ -352,7 +352,7 @@ def func3():
         content = test_file.read_text(encoding="utf-8")
         assert "Hello Python! 🐍" in content
         assert "# 测试文件" in content  # Should remain
-        assert "emoji = 🐕" in content  # Should remain
+        assert "emoji = 🌫️" in content  # Should remain
 
     def test_empty_file_handling(self, tmp_path):
         """Test handling of empty files."""

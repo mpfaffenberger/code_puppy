@@ -1,7 +1,7 @@
 """Tests for code_puppy.tools.tools_content.
 
 This module tests the tools_content string constant that provides
-user-facing documentation about Code Puppy's available tools.
+user-facing documentation about Mist's available tools.
 """
 
 # Import directly from the module file to avoid heavy dependencies in __init__.py
@@ -129,9 +129,9 @@ class TestToolsContentPrinciples:
 class TestToolsContentFormatting:
     """Test that tools_content has proper formatting and emojis."""
 
-    def test_contains_dog_emoji(self):
-        """Test that the content contains dog emoji (brand consistency)."""
-        assert "🐶" in tools_content, "Expected dog emoji 🐶 for brand consistency"
+    def test_contains_mist_emoji(self):
+        """Test that the content contains the Mist symbol."""
+        assert "🌫️" in tools_content, "Expected 🌫️ for Mist brand consistency"
 
     def test_contains_markdown_headers(self):
         """Test that content uses markdown-style headers."""

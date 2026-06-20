@@ -156,7 +156,7 @@ def build_foundry_model_config(
     foundry_resource: str | None = None,
     context_length: int | None = None,
 ) -> dict[str, Any]:
-    """Build a Code Puppy model configuration for an Azure Foundry deployment.
+    """Build a Mist model configuration for an Azure Foundry deployment.
 
     Args:
         deployment_name: The deployment name in Azure Foundry.
@@ -255,7 +255,7 @@ _GPT5_SUPPORTED_SETTINGS = [
 def get_foundry_openai_supported_settings(model_name: str) -> list[str]:
     """Return supported settings for an Azure Foundry OpenAI model.
 
-    Later GPT-5-family models support Code Puppy's reasoning/summary/verbosity
+    Later GPT-5-family models support Mist's reasoning/summary/verbosity
     controls in addition to the baseline temperature setting.
     """
     supported_settings = ["temperature"]

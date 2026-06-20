@@ -660,10 +660,10 @@ class TestEdgeCases:
         """Test printing Unicode characters."""
         mock_queue = Mock(spec=MessageQueue)
         console = QueueConsole(queue=mock_queue)
-        console.print("🐕 Woof! 你好")
+        console.print("🌫️ Woof! 你好")
         mock_queue.emit_simple.assert_called_once()
         args, _ = mock_queue.emit_simple.call_args
-        assert "🐕" in str(args[1]) or "Woof" in str(args[1])
+        assert "🌫️" in str(args[1]) or "Woof" in str(args[1])
 
     def test_print_very_long_string(self):
         """Test printing very long strings."""

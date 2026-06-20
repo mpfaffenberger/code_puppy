@@ -824,7 +824,7 @@ class ModelFactory:
                 )
                 return None
             # Add Cerebras 3rd party integration header
-            headers["X-Cerebras-3rd-Party-Integration"] = "code-puppy"
+            headers["X-Cerebras-3rd-Party-Integration"] = "mist"
             # Pass "cerebras" so RetryingAsyncClient knows to ignore Cerebras's
             # absurdly aggressive Retry-After headers (they send 60s!)
             # Note: model_config["name"] is the model's internal name, not the provider

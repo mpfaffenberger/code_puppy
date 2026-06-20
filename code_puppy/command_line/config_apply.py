@@ -35,14 +35,14 @@ class ApplyResult:
 
 
 def _restart_notice(label: str) -> str:
-    return f"{label} changed. Please restart Code Puppy for this change to take effect."
+    return f"{label} changed. Please restart Mist for this change to take effect."
 
 
 def invalidate_post_write_caches(key: str) -> None:
     """Invalidate any in-memory caches whose source-of-truth just changed.
 
     Some config getters cache resolved values per-process to avoid
-    re-reading puppy.cfg + validating registries on every call. After a
+    re-reading mist.cfg + validating registries on every call. After a
     write (set OR reset) those caches need explicit invalidation, or
     subsequent reads return the stale pre-write value until the process
     restarts -- which is exactly how users discover this kind of bug.
@@ -66,7 +66,7 @@ def apply_setting(
     *,
     reload_agent: bool = True,
 ) -> ApplyResult:
-    """Persist ``key`` -> ``value`` to ``puppy.cfg`` with validation.
+    """Persist ``key`` -> ``value`` to ``mist.cfg`` with validation.
 
     Parameters
     ----------

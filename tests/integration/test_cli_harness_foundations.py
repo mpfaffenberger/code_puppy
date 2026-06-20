@@ -13,7 +13,7 @@ def test_harness_bootstrap_write_config(
 ) -> None:
     """Config file should exist and contain expected values after bootstrap."""
     result = cli_harness.spawn(args=["--version"], env=integration_env)
-    cfg_path = result.temp_home / ".config" / "code_puppy" / "puppy.cfg"
+    cfg_path = result.temp_home / ".config" / "code_puppy" / "mist.cfg"
     assert cfg_path.exists(), f"Config not written to {cfg_path}"
     cfg_text = cfg_path.read_text(encoding="utf-8")
     assert "IntegrationPup" in cfg_text

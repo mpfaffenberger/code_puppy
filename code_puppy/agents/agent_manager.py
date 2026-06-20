@@ -14,6 +14,7 @@ from pydantic_ai.messages import ModelMessage
 
 from code_puppy.agents.base_agent import BaseAgent
 from code_puppy.agents.json_agent import JSONAgent, discover_json_agents
+from code_puppy.branding import DEFAULT_AGENT_NAME, LEGACY_AGENT_NAME
 from code_puppy.callbacks import on_agent_reload, on_register_agents
 from code_puppy.messaging import emit_success, emit_warning
 from code_puppy.tools.common import atomic_write_text
@@ -383,7 +384,7 @@ def get_current_agent_name() -> str:
 
     Returns:
         The name of the current agent for this session.
-        Priority: session agent > config default > 'code-puppy'.
+        Priority: session agent > config default > ``mist``.
     """
     _ensure_session_cache_loaded()
     session_id = get_terminal_session_id()
@@ -469,10 +470,13 @@ def load_agent(agent_name: str) -> BaseAgent:
     message_group_id = str(uuid.uuid4())
     _discover_agents(message_group_id=message_group_id)
 
+    if agent_name == LEGACY_AGENT_NAME:
+        agent_name = DEFAULT_AGENT_NAME
+
     if agent_name not in _AGENT_REGISTRY:
-        # Fallback to code-puppy if agent not found
-        if "code-puppy" in _AGENT_REGISTRY:
-            agent_name = "code-puppy"
+        # Fall back to the primary Mist agent if the requested profile vanished.
+        if DEFAULT_AGENT_NAME in _AGENT_REGISTRY:
+            agent_name = DEFAULT_AGENT_NAME
         else:
             raise ValueError(
                 f"Agent '{agent_name}' not found and no fallback available"

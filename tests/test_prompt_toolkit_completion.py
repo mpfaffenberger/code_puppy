@@ -196,30 +196,30 @@ def test_set_completer_excludes_model_key(monkeypatch):
     assert completions[0].text == "api_key = test_value"
 
 
-def test_set_completer_excludes_puppy_token(monkeypatch):
-    # Ensure 'puppy_token' is a config key but SetCompleter doesn't offer it
+def test_set_completer_excludes_mist_token(monkeypatch):
+    # Ensure 'mist_token' is a config key but SetCompleter doesn't offer it
     monkeypatch.setattr(
         "code_puppy.command_line.prompt_toolkit_completion.get_config_keys",
-        lambda: ["puppy_token", "user_name", "temp_dir"],
+        lambda: ["mist_token", "user_name", "temp_dir"],
     )
     monkeypatch.setattr(
         "code_puppy.command_line.prompt_toolkit_completion.get_value",
-        lambda key: "sensitive_token_value" if key == "puppy_token" else "normal_value",
+        lambda key: "sensitive_token_value" if key == "mist_token" else "normal_value",
     )
     completer = SetCompleter()
 
-    # Test with full "puppy_token" typed
-    doc = Document(text="/set puppy_token", cursor_position=len("/set puppy_token"))
+    # Test with full "mist_token" typed
+    doc = Document(text="/set mist_token", cursor_position=len("/set mist_token"))
     completions = list(completer.get_completions(doc, None))
     assert completions == [], (
-        "SetCompleter should not complete for 'puppy_token' key directly"
+        "SetCompleter should not complete for 'mist_token' key directly"
     )
 
-    # Test with partial "puppy" that would match "puppy_token"
+    # Test with partial "puppy" that would match "mist_token"
     doc = Document(text="/set puppy", cursor_position=len("/set puppy"))
     completions = list(completer.get_completions(doc, None))
     assert completions == [], (
-        "SetCompleter should not complete for 'puppy_token' key even partially"
+        "SetCompleter should not complete for 'mist_token' key even partially"
     )
 
     # Ensure other keys are still completed

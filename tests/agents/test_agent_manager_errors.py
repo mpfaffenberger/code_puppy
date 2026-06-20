@@ -74,18 +74,18 @@ class TestAgentManagerErrors:
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
     def test_load_agent_fallback_behavior(self, mock_discover):
-        """Test load_agent fallback to code-puppy when requested agent not found."""
+        """Test load_agent fallback to mist when requested agent not found."""
         mock_discover.return_value = None
 
-        # Mock registry with only code-puppy available
+        # Mock registry with only mist available
         mock_agent_class = MagicMock(spec=BaseAgent)
-        mock_agent_class.return_value.name = "code-puppy"
+        mock_agent_class.return_value.name = "mist"
 
         with patch(
             "code_puppy.agents.agent_manager._AGENT_REGISTRY",
-            {"code-puppy": mock_agent_class},
+            {"mist": mock_agent_class},
         ):
-            # Should fallback to code-puppy instead of raising error
+            # Should fallback to mist instead of raising error
             result = load_agent("nonexistent-agent")
             assert result is not None
             mock_agent_class.assert_called_once()
@@ -135,16 +135,16 @@ class TestAgentManagerErrors:
         """Test set_current_agent with nonexistent agent name."""
         mock_discover.return_value = None
 
-        # Mock registry with only code-puppy available
+        # Mock registry with only mist available
         mock_agent_class = MagicMock(spec=BaseAgent)
-        mock_agent_class.return_value.name = "code-puppy"
+        mock_agent_class.return_value.name = "mist"
         mock_agent_class.return_value.get_message_history.return_value = []
         mock_agent_class.return_value.set_message_history.return_value = None
         mock_agent_class.return_value.id = "test-id"
 
         with patch(
             "code_puppy.agents.agent_manager._AGENT_REGISTRY",
-            {"code-puppy": mock_agent_class},
+            {"mist": mock_agent_class},
         ):
             with patch(
                 "code_puppy.agents.agent_manager.get_current_agent"
@@ -170,7 +170,7 @@ class TestAgentManagerErrors:
     def test_load_agent_unicode_characters(self, mock_discover):
         """Test load_agent with unicode characters in agent name."""
         mock_discover.return_value = None
-        unicode_name = "🐶-测试-🐕"  # Unicode characters
+        unicode_name = "🌫️-测试-🌫️"  # Unicode characters
 
         with patch("code_puppy.agents.agent_manager._AGENT_REGISTRY", {}):
             with pytest.raises(ValueError, match=f"Agent '{unicode_name}' not found"):
@@ -181,18 +181,18 @@ class TestAgentManagerErrors:
         """Test that agent names are case sensitive."""
         mock_discover.return_value = None
         mock_agent_class = MagicMock(spec=BaseAgent)
-        mock_agent_class.return_value.name = "Code-Puppy"
+        mock_agent_class.return_value.name = "Mist"
 
         with patch(
             "code_puppy.agents.agent_manager._AGENT_REGISTRY",
-            {"Code-Puppy": mock_agent_class},
+            {"Mist": mock_agent_class},
         ):
             # Different case should not match
-            with pytest.raises(ValueError, match="Agent 'code-puppy' not found"):
-                load_agent("code-puppy")
+            with pytest.raises(ValueError, match="Agent 'mist' not found"):
+                load_agent("mist")
 
             # Exact case should work
-            result = load_agent("Code-Puppy")
+            result = load_agent("Mist")
             assert result is not None
             mock_agent_class.assert_called_once()
 

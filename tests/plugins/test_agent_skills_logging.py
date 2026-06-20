@@ -36,7 +36,7 @@ def test_parse_skill_metadata_invalid_content_is_quiet(tmp_path, caplog):
     """Invalid skill metadata is an expected skip, not terminal confetti."""
     skill_dir = tmp_path / "invalid-skill"
     skill_dir.mkdir()
-    (skill_dir / "SKILL.md").write_text("## Overview\nNot Code Puppy metadata.\n")
+    (skill_dir / "SKILL.md").write_text("## Overview\nNot Mist metadata.\n")
 
     with caplog.at_level(logging.WARNING):
         metadata = parse_skill_metadata(skill_dir)
@@ -52,7 +52,7 @@ def test_prompt_section_skips_invalid_skill_metadata_quietly(
     skills_root = tmp_path / "skills"
     skill_dir = skills_root / "concord"
     skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text("## Overview\nNot Code Puppy metadata.\n")
+    (skill_dir / "SKILL.md").write_text("## Overview\nNot Mist metadata.\n")
 
     callbacks, snapshot, was_imported = _snapshot_callbacks()
     try:

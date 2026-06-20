@@ -1,8 +1,4 @@
-"""
-Entry point for running code-puppy as a module.
-
-This allows the package to be run with: python -m code_puppy
-"""
+"""Legacy ``python -m code_puppy`` entry point for Mist."""
 
 from code_puppy.main import main_entry
 

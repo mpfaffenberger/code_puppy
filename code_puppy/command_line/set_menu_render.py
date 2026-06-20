@@ -77,7 +77,7 @@ def render_left_panel(
     total_pages = total_pages_fn(len(entries), page_size)
     start_idx, end_idx = page_bounds(page, len(entries), page_size)
 
-    lines.append(("bold cyan", " Puppy Config Settings"))
+    lines.append(("bold cyan", " Mist Config Settings"))
     lines.append(("fg:ansibrightblack", f"  (Page {page + 1}/{max(total_pages, 1)})"))
     if in_search_mode:
         lines.append(("fg:ansiyellow", f"  Searching: '{search_buffer}'"))

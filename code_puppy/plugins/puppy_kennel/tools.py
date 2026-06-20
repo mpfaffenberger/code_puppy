@@ -160,7 +160,7 @@ def register_kennel_recall(agent: Any) -> None:
         top_k: int = 5,
         scope: str = "default",
     ) -> KennelRecallOutput:
-        """Search the Puppy Kennel for relevant past drawers (verbatim memories).
+        """Search the Mist Memory for relevant past drawers (verbatim memories).
 
         The kennel stores prior agent responses scoped by wing:
         * ``repo:<path>``  — project memory shared across agents in that repo
@@ -235,7 +235,7 @@ def register_kennel_remember(agent: Any) -> None:
         wing: str = "repo",
         room: str = "notes",
     ) -> KennelRememberOutput:
-        """Save a verbatim note to the Puppy Kennel.
+        """Save a verbatim note to the Mist Memory.
 
         Use this when the user says "remember that..." or when you learn
         something durable that future sessions should know about. Writes

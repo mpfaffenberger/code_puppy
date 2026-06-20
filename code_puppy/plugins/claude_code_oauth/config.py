@@ -44,7 +44,7 @@ def get_token_storage_path() -> Path:
 
 
 def get_config_dir() -> Path:
-    """Get the Code Puppy configuration directory (uses XDG_CONFIG_HOME)."""
+    """Get the Mist configuration directory (uses XDG_CONFIG_HOME)."""
     config_dir = Path(config.CONFIG_DIR)
     config_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     return config_dir

@@ -1,4 +1,4 @@
-"""Command handlers for Code Puppy - SESSION commands.
+"""Command handlers for Mist - SESSION commands.
 
 This module contains @register_command decorated handlers that are automatically
 discovered by the command registry system.

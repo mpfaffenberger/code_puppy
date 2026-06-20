@@ -15,7 +15,7 @@ COPILOT_AUTH_CONFIG: Dict[str, Any] = {
     "ghe_token_url_template": "https://{host}/api/v3/copilot_internal/v2/token",
     # OpenAI-compatible Copilot chat API (default; overridden per-host at runtime)
     "api_base_url": "https://api.githubcopilot.com",
-    # Model prefix in Code Puppy
+    # Model prefix in Mist
     "prefix": "copilot-",
     "default_context_length": 128000,
     # Headers expected by the Copilot API

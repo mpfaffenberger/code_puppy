@@ -24,7 +24,7 @@ import pytest
 def kennel_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # ``PUPPY_KENNEL_ROOT`` now ONLY controls where the SQLite DB lives;
     # it has nothing to do with the on/off toggle, which lives in
-    # puppy.cfg (isolated to a temp file by the root tests/conftest.py).
+    # mist.cfg (isolated to a temp file by the root tests/conftest.py).
     root = tmp_path / "kennel"
     monkeypatch.setenv("PUPPY_KENNEL_ROOT", str(root))
 
@@ -58,7 +58,7 @@ class _FakeAgent:
         return fn
 
 
-def _ctx(agent_name: str = "code-puppy") -> Any:
+def _ctx(agent_name: str = "mist") -> Any:
     return SimpleNamespace(agent_name=agent_name, deps=None)
 
 
@@ -83,7 +83,7 @@ def test_set_enabled_persists(kennel_root: Path) -> None:
 
 
 def test_garbage_cfg_value_falls_back_to_enabled(kennel_root: Path) -> None:
-    """Default-on means a typo in puppy.cfg must not silently kill memory."""
+    """Default-on means a typo in mist.cfg must not silently kill memory."""
     from code_puppy.config import set_config_value
     from code_puppy.plugins.puppy_kennel import state
 
@@ -101,7 +101,7 @@ def test_recorder_skips_when_disabled(kennel_root: Path) -> None:
 
     state.set_enabled(False)
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text="Should not be recorded.",
@@ -114,14 +114,14 @@ def test_recorder_resumes_after_re_enable(kennel_root: Path) -> None:
 
     state.set_enabled(False)
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text="Lost.",
     )
     state.set_enabled(True)
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text="Saved.",
@@ -136,7 +136,7 @@ def test_retriever_returns_none_when_disabled(kennel_root: Path) -> None:
     # Has to be longer than MIN_DRAWER_CHARS (80) to clear the packer's
     # noise filter; otherwise the block would be empty for unrelated reasons.
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text=(
@@ -262,7 +262,7 @@ def test_stats_command_works_when_disabled(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import commands, recorder, state
 
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text="something",
@@ -275,7 +275,7 @@ def test_wings_command_works_when_disabled(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import commands, recorder, state
 
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text="something",
@@ -289,7 +289,7 @@ def test_search_command_works_when_disabled(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import commands, recorder, state
 
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text="The pangolin is a scaly mammal.",
@@ -307,7 +307,7 @@ def test_advertise_tools_returns_full_list_when_enabled(kennel_root: Path) -> No
     from code_puppy.plugins.puppy_kennel import register_callbacks, state
 
     state.set_enabled(True)
-    advertised = register_callbacks._advertise_tools_to_agent("code-puppy")
+    advertised = register_callbacks._advertise_tools_to_agent("mist")
     assert set(advertised) == set(register_callbacks._KENNEL_TOOL_NAMES)
 
 
@@ -316,7 +316,7 @@ def test_advertise_tools_returns_empty_when_disabled(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import register_callbacks, state
 
     state.set_enabled(False)
-    assert register_callbacks._advertise_tools_to_agent("code-puppy") == []
+    assert register_callbacks._advertise_tools_to_agent("mist") == []
 
 
 # --------------------------------------------------------------------------- #

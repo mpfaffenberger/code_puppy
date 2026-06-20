@@ -4,7 +4,7 @@ These exist because of a bug where changing the model via ``/set`` (or
 via the interactive menu) silently left the in-memory ``_SESSION_MODEL``
 cache stale. The user would see the OLD model in the menu for the rest
 of the process lifetime even though the new value was correctly
-persisted to ``puppy.cfg``. Regression test: ensure both the set path
+persisted to ``mist.cfg``. Regression test: ensure both the set path
 and the reset path go through ``invalidate_post_write_caches`` for the
 ``model`` key.
 """
@@ -35,7 +35,7 @@ class TestInvalidatePostWriteCaches:
             patch("code_puppy.config.clear_model_cache") as mock_clear,
         ):
             invalidate_post_write_caches("yolo_mode")
-            invalidate_post_write_caches("puppy_name")
+            invalidate_post_write_caches("mist_name")
             invalidate_post_write_caches("temperature")
         mock_reset.assert_not_called()
         mock_clear.assert_not_called()

@@ -1,12 +1,12 @@
-"""subagent_panel -- live two-line status per sub-agent above the puppy.
+"""subagent_panel -- live two-line status per sub-agent above the Mist indicator.
 
-Renders, inside the puppy spinner's own Rich Live region, a block per active
+Renders, inside the Mist spinner's Rich Live region, a block per active
 sub-agent::
 
       INVOKE AGENT <name>  <model>
        <spin> 00:19  calling read_file
 
-    <bouncing puppy>
+    <Mist activity indicator>
 
 Line 1 is the INVOKE AGENT banner (core styling); line 2 is a single-char
 animated spinner + mm:ss elapsed + a color-coded status (yellow=calling,

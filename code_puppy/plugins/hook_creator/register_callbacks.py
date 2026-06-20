@@ -10,7 +10,7 @@ from code_puppy.messaging import emit_info
 def _custom_help():
     """Help entries for create-hook commands."""
     return [
-        ("create-hook", "Get help creating Code Puppy hooks"),
+        ("create-hook", "Get help creating Mist hooks"),
     ]
 
 
@@ -25,7 +25,7 @@ def _handle_custom_command(command: str, name: str):
     emit_info(HOOK_CREATION_PROMPT)
 
     # Send the prompt to the model with the hook docs as context
-    return "I need help creating a hook for Code Puppy. Here's the documentation above. Can you help me?"
+    return "I need help creating a hook for Mist. Here's the documentation above. Can you help me?"
 
 
 # Register the custom command

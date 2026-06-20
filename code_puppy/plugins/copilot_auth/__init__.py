@@ -1,4 +1,4 @@
-"""GitHub Copilot auth plugin for Code Puppy.
+"""GitHub Copilot auth plugin for Mist.
 
 Authenticates with GitHub (or GitHub Enterprise) via the browser-based
 Device Flow and exchanges the resulting OAuth token for a short-lived

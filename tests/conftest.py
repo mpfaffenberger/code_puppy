@@ -1,4 +1,4 @@
-"""Pytest configuration and fixtures for code-puppy tests.
+"""Pytest configuration and fixtures for mist tests.
 
 This file intentionally keeps the test environment lean (no extra deps).
 To support `async def` tests without pytest-asyncio, we provide a minimal
@@ -38,7 +38,7 @@ def _ensure_builtin_plugin_callback_registrations() -> None:
     cp_callbacks.register_callback("custom_command", foundry._handle_custom_command)
     cp_callbacks.register_callback("register_model_type", foundry._register_model_types)
     # Keep hook callbacks registered for wiring tests, but do not let local
-    # ~/.code_puppy or project .claude hook configuration affect test runs.
+    # ~/.mist or project .claude hook configuration affect test runs.
     hooks._hook_engine = None
     cp_callbacks.register_callback("pre_tool_call", hooks.on_pre_tool_call_hook)
     cp_callbacks.register_callback("post_tool_call", hooks.on_post_tool_call_hook)
@@ -69,7 +69,7 @@ def isolate_global_state_between_tests(tmp_path_factory):
     """Isolate mutable global state between tests.
 
     Tests must be deterministic locally and in CI. Do not seed test config from
-    the developer's real ``~/.code_puppy/puppy.cfg`` because user defaults such
+    the developer's real ``~/.mist/mist.cfg`` because user defaults such
     as ``default_agent`` or ``compaction_threshold`` change expected defaults.
     Also snapshot callback registrations so tests exercising callback mutation
     cannot wipe plugin registrations needed by later tests.
@@ -88,9 +88,9 @@ def isolate_global_state_between_tests(tmp_path_factory):
     # Create a completely separate temp directory for config isolation
     # (not using tmp_path which tests may use for their own purposes).
     config_temp_dir = tempfile.mkdtemp(prefix="code_puppy_test_config_")
-    temp_config_dir = os.path.join(config_temp_dir, ".code_puppy")
+    temp_config_dir = os.path.join(config_temp_dir, ".mist")
     os.makedirs(temp_config_dir, exist_ok=True)
-    temp_config_file = os.path.join(temp_config_dir, "puppy.cfg")
+    temp_config_file = os.path.join(temp_config_dir, "mist.cfg")
 
     # Redirect config to an empty temp file so defaults are true product
     # defaults, not the local developer's personal settings.

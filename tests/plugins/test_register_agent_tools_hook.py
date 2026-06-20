@@ -33,7 +33,7 @@ def test_phase_registered_in_callbacks() -> None:
 
 def test_on_register_agent_tools_empty() -> None:
     assert callbacks.on_register_agent_tools() == []
-    assert callbacks.on_register_agent_tools("code-puppy") == []
+    assert callbacks.on_register_agent_tools("mist") == []
 
 
 def test_on_register_agent_tools_collects_and_dedupes() -> None:
@@ -53,24 +53,24 @@ def test_on_register_agent_tools_passes_agent_name_through() -> None:
 
     callbacks.register_callback("register_agent_tools", cb)
     callbacks.on_register_agent_tools("wiggum")
-    callbacks.on_register_agent_tools("code-puppy")
+    callbacks.on_register_agent_tools("mist")
     callbacks.on_register_agent_tools(None)
 
-    assert seen == ["wiggum", "code-puppy", None]
+    assert seen == ["wiggum", "mist", None]
 
 
 def test_on_register_agent_tools_supports_per_agent_scoping() -> None:
     """Plugins can return different tools per agent."""
 
     def cb(agent_name):
-        if agent_name == "code-puppy":
+        if agent_name == "mist":
             return ["only_for_puppy"]
         if agent_name == "wiggum":
             return ["only_for_wiggum"]
         return []
 
     callbacks.register_callback("register_agent_tools", cb)
-    assert callbacks.on_register_agent_tools("code-puppy") == ["only_for_puppy"]
+    assert callbacks.on_register_agent_tools("mist") == ["only_for_puppy"]
     assert callbacks.on_register_agent_tools("wiggum") == ["only_for_wiggum"]
     assert callbacks.on_register_agent_tools("nobody") == []
 

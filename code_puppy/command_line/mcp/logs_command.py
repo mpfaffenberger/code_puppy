@@ -29,7 +29,7 @@ class LogsCommand(MCPCommandBase):
     """
     Command handler for showing MCP server logs.
 
-    Shows logs from persistent log files stored in ~/.code_puppy/mcp_logs/.
+    Shows logs from persistent log files stored in ~/.mist/mcp_logs/.
     """
 
     def execute(self, args: List[str], group_id: Optional[str] = None) -> None:

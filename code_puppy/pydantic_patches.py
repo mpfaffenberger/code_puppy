@@ -1,7 +1,7 @@
 """Monkey patches for third-party libraries.
 
 Historically pydantic-ai focused, this module now collects all runtime
-monkey patches code-puppy applies to its dependencies.  Each patch is
+monkey patches mist applies to its dependencies.  Each patch is
 idempotent and fails silently if the target library is absent.
 
 Usage:
@@ -12,22 +12,24 @@ Usage:
 import importlib.metadata
 from typing import Any
 
+from code_puppy.branding import DISTRIBUTION_NAME
+
 
 def _get_code_puppy_version() -> str:
-    """Get the current code-puppy version."""
+    """Get the current mist version."""
     try:
-        return importlib.metadata.version("code-puppy")
+        return importlib.metadata.version(DISTRIBUTION_NAME)
     except Exception:
         return "0.0.0-dev"
 
 
 def patch_user_agent() -> None:
-    """Patch pydantic-ai's User-Agent to use Code-Puppy's version.
+    """Patch pydantic-ai's User-Agent to use Mist's version.
 
     pydantic-ai sets its own User-Agent ('pydantic-ai/x.x.x') via a @cache-decorated
     function. We replace it with a dynamic function that returns:
     - 'KimiCLI/0.63' for Kimi models
-    - 'Code-Puppy/{version}' for all other models
+    - 'Mist/{version}' for all other models
 
     This MUST be called before any pydantic-ai models are created.
     """
@@ -50,7 +52,7 @@ def patch_user_agent() -> None:
                     return "KimiCLI/0.63"
             except Exception:
                 pass
-            return f"Code-Puppy/{version}"
+            return f"Mist/{version}"
 
         pydantic_models.get_user_agent = _get_dynamic_user_agent
     except Exception:

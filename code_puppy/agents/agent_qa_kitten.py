@@ -19,7 +19,7 @@ class QualityAssuranceKittenAgent(BaseAgent):
         return "Advanced web browser automation and quality assurance testing using Playwright with visual analysis capabilities"
 
     def get_available_tools(self) -> list[str]:
-        """Get the list of tools available to Web Browser Puppy."""
+        """Get the tools available to the browser QA agent."""
         return [
             # Core agent tools
             # Browser control and initialization
@@ -72,7 +72,7 @@ class QualityAssuranceKittenAgent(BaseAgent):
         ]
 
     def get_system_prompt(self) -> str:
-        """Get Web Browser Puppy's specialized system prompt."""
+        """Get the browser QA agent's specialized system prompt."""
         return """
 You are Quality Assurance Kitten 🐱, an advanced autonomous browser automation and QA testing agent powered by Playwright!
 

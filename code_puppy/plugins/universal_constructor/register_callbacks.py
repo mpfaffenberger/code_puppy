@@ -1,7 +1,7 @@
 """Callback registration for the Universal Constructor plugin.
 
 This module registers callbacks to integrate UC with the rest of
-Code Puppy. It ensures the plugin is properly loaded and initialized.
+Mist. It ensures the plugin is properly loaded and initialized.
 """
 
 import logging

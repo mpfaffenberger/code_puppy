@@ -1,1 +1,1 @@
-"""Command line utilities for code_puppy."""
+"""Command-line utilities for Mist."""

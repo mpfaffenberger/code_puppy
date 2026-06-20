@@ -133,7 +133,7 @@ class BrowserManager:
         """Get or create the profile directory for this session.
 
         Each session gets its own profile directory under:
-        XDG_CACHE_HOME/code_puppy/browser_profiles/<session_id>/
+        XDG_CACHE_HOME/mist/browser_profiles/<session_id>/
 
         This allows multiple instances to run simultaneously.
         """

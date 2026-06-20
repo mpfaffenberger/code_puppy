@@ -25,7 +25,7 @@ class ServerRegistry:
     Registry for managing MCP server configurations.
 
     Provides CRUD operations for server configurations with thread-safe access,
-    validation, and persistent storage to XDG_DATA_HOME/code_puppy/mcp_registry.json.
+    validation, and persistent storage to XDG_DATA_HOME/mist/mcp_registry.json.
 
     All operations are thread-safe and use JSON serialization for ServerConfig objects.
     Handles file not existing gracefully and validates configurations according to
@@ -38,7 +38,7 @@ class ServerRegistry:
 
         Args:
             storage_path: Optional custom path for registry storage.
-                         Defaults to XDG_DATA_HOME/code_puppy/mcp_registry.json
+                         Defaults to XDG_DATA_HOME/mist/mcp_registry.json
         """
         if storage_path is None:
             data_dir = Path(config.DATA_DIR)

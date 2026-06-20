@@ -350,7 +350,7 @@ class TestCallbackHandler:
                 callback_handler.do_GET()
 
                 mock_failure.assert_called_once_with(
-                    404, "Callback endpoint not found for the puppy parade."
+                    404, "OAuth callback endpoint not found."
                 )
                 mock_shutdown.assert_called_once()
 
@@ -361,9 +361,7 @@ class TestCallbackHandler:
                 callback_handler.path = "/auth/callback"  # No code parameter
                 callback_handler.do_GET()
 
-                mock_failure.assert_called_once_with(
-                    400, "Missing auth code — the token treat rolled away."
-                )
+                mock_failure.assert_called_once_with(400, "Missing authorization code.")
                 mock_shutdown.assert_called_once()
 
     def test_do_get_code_exchange_failure(self, callback_handler):
@@ -453,7 +451,7 @@ class TestCallbackHandler:
                 callback_handler.do_GET()
 
                 mock_failure.assert_called_once_with(
-                    500, "Unable to persist auth file — a puppy probably chewed it."
+                    500, "Unable to persist the authentication file."
                 )
                 mock_shutdown.assert_called_once()
 
@@ -464,7 +462,7 @@ class TestCallbackHandler:
                 callback_handler.do_POST()
 
                 mock_failure.assert_called_once_with(
-                    404, "POST not supported — the pups only fetch GET requests."
+                    404, "POST is not supported by this OAuth callback endpoint."
                 )
                 mock_shutdown.assert_called_once()
 

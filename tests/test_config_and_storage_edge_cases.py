@@ -23,11 +23,11 @@ from code_puppy import config as cp_config
 @pytest.fixture
 def mock_config_paths(monkeypatch, tmp_path):
     """Mock XDG paths for isolated testing."""
-    mock_config_dir = str(tmp_path / ".config" / "code_puppy")
-    mock_config_file = os.path.join(mock_config_dir, "puppy.cfg")
-    mock_data_dir = str(tmp_path / ".local" / "share" / "code_puppy")
-    mock_cache_dir = str(tmp_path / ".cache" / "code_puppy")
-    mock_state_dir = str(tmp_path / ".local" / "state" / "code_puppy")
+    mock_config_dir = str(tmp_path / ".config" / "mist")
+    mock_config_file = os.path.join(mock_config_dir, "mist.cfg")
+    mock_data_dir = str(tmp_path / ".local" / "share" / "mist")
+    mock_cache_dir = str(tmp_path / ".cache" / "mist")
+    mock_state_dir = str(tmp_path / ".local" / "state" / "mist")
 
     monkeypatch.setattr(cp_config, "CONFIG_DIR", mock_config_dir)
     monkeypatch.setattr(cp_config, "CONFIG_FILE", mock_config_file)
@@ -46,7 +46,7 @@ class TestSubagentVerbose:
         mock_cfg_dir, mock_cfg_file, _ = mock_config_paths
 
         config = configparser.ConfigParser()
-        config["puppy"] = {}
+        config["mist"] = {}
         os.makedirs(mock_cfg_dir, exist_ok=True)
         with open(mock_cfg_file, "w") as f:
             config.write(f)
@@ -65,7 +65,7 @@ class TestSubagentVerbose:
 
         os.makedirs(mock_cfg_dir, exist_ok=True)
         config = configparser.ConfigParser()
-        config["puppy"] = {"subagent_verbose": truthy_value}
+        config["mist"] = {"subagent_verbose": truthy_value}
         with open(mock_cfg_file, "w") as f:
             config.write(f)
 
@@ -81,7 +81,7 @@ class TestSubagentVerbose:
 
         os.makedirs(mock_cfg_dir, exist_ok=True)
         config = configparser.ConfigParser()
-        config["puppy"] = {"subagent_verbose": falsy_value}
+        config["mist"] = {"subagent_verbose": falsy_value}
         with open(mock_cfg_file, "w") as f:
             config.write(f)
 
@@ -97,7 +97,7 @@ class TestAllowRecursion:
         mock_cfg_dir, mock_cfg_file, _ = mock_config_paths
 
         config = configparser.ConfigParser()
-        config["puppy"] = {}
+        config["mist"] = {}
         os.makedirs(mock_cfg_dir, exist_ok=True)
         with open(mock_cfg_file, "w") as f:
             config.write(f)
@@ -110,7 +110,7 @@ class TestAllowRecursion:
         mock_cfg_dir, mock_cfg_file, _ = mock_config_paths
 
         config = configparser.ConfigParser()
-        config["puppy"] = {"allow_recursion": "false"}
+        config["mist"] = {"allow_recursion": "false"}
         os.makedirs(mock_cfg_dir, exist_ok=True)
         with open(mock_cfg_file, "w") as f:
             config.write(f)
@@ -127,7 +127,7 @@ class TestAllowRecursion:
 
         os.makedirs(mock_cfg_dir, exist_ok=True)
         config = configparser.ConfigParser()
-        config["puppy"] = {"allow_recursion": truthy}
+        config["mist"] = {"allow_recursion": truthy}
         with open(mock_cfg_file, "w") as f:
             config.write(f)
 
@@ -143,7 +143,7 @@ class TestPuppyTokens:
         mock_cfg_dir, mock_cfg_file, _ = mock_config_paths
 
         config = configparser.ConfigParser()
-        config["puppy"] = {"puppy_token": "secret-token-123"}
+        config["mist"] = {"puppy_token": "secret-token-123"}
         os.makedirs(mock_cfg_dir, exist_ok=True)
         with open(mock_cfg_file, "w") as f:
             config.write(f)
@@ -156,7 +156,7 @@ class TestPuppyTokens:
         mock_cfg_dir, mock_cfg_file, _ = mock_config_paths
 
         config = configparser.ConfigParser()
-        config["puppy"] = {}
+        config["mist"] = {}
         os.makedirs(mock_cfg_dir, exist_ok=True)
         with open(mock_cfg_file, "w") as f:
             config.write(f)
@@ -169,7 +169,7 @@ class TestPuppyTokens:
         mock_cfg_dir, mock_cfg_file, _ = mock_config_paths
 
         config = configparser.ConfigParser()
-        config["puppy"] = {}
+        config["mist"] = {}
         os.makedirs(mock_cfg_dir, exist_ok=True)
         with open(mock_cfg_file, "w") as f:
             config.write(f)
@@ -178,7 +178,7 @@ class TestPuppyTokens:
 
         saved_config = configparser.ConfigParser()
         saved_config.read(mock_cfg_file)
-        assert saved_config["puppy"]["puppy_token"] == "new-token-456"
+        assert saved_config["mist"]["mist_token"] == "new-token-456"
 
 
 class TestXDGDirectoryHandling:
@@ -188,15 +188,15 @@ class TestXDGDirectoryHandling:
         """Test that explicit XDG env var is respected."""
         with patch.dict(os.environ, {"XDG_CONFIG_HOME": "/custom/config"}):
             result = cp_config._get_xdg_dir("XDG_CONFIG_HOME", ".config")
-            assert result == "/custom/config/code_puppy"
+            assert result == "/custom/config/mist"
 
     def test_get_xdg_dir_defaults_to_home_when_no_env_var(self):
-        """Test fallback to ~/.code_puppy when env var not set."""
+        """Test fallback to ~/.mist when env var not set."""
         with patch.dict(os.environ, {}, clear=True):
             with patch("os.path.expanduser") as mock_expand:
                 mock_expand.return_value = "/home/user"
                 result = cp_config._get_xdg_dir("XDG_CONFIG_HOME", ".config")
-                assert result == "/home/user/.code_puppy"
+                assert result == "/home/user/.mist"
 
 
 class TestConfigKeys:
@@ -207,7 +207,7 @@ class TestConfigKeys:
         mock_cfg_dir, mock_cfg_file, _ = mock_config_paths
 
         config = configparser.ConfigParser()
-        config["puppy"] = {}
+        config["mist"] = {}
         os.makedirs(mock_cfg_dir, exist_ok=True)
         with open(mock_cfg_file, "w") as f:
             config.write(f)
@@ -229,7 +229,7 @@ class TestConfigKeys:
         mock_cfg_dir, mock_cfg_file, _ = mock_config_paths
 
         config = configparser.ConfigParser()
-        config["puppy"] = {"custom_key_1": "value1", "custom_key_2": "value2"}
+        config["mist"] = {"custom_key_1": "value1", "custom_key_2": "value2"}
         os.makedirs(mock_cfg_dir, exist_ok=True)
         with open(mock_cfg_file, "w") as f:
             config.write(f)

@@ -94,7 +94,7 @@ When you create something, take a moment to appreciate it. You have just expande
 
 **Use what's available, don't install new things.**
 
-You have access to code-puppy's environment which includes powerful libraries:
+You have access to mist's environment which includes powerful libraries:
 - **HTTP**: `httpx` (async-ready), `urllib.request` (stdlib)
 - **Data**: `pydantic` (validation), `json` (stdlib)
 - **Async**: `asyncio`, `anyio`

@@ -50,7 +50,7 @@ class TestSlashSetParity:
             mock_agent.return_value.reload_code_generation_agent.return_value = None
             assert handle_set_command("/set yolo_mode true") is True
         mock_set.assert_called_once_with("yolo_mode", "true")
-        assert any('Set yolo_mode = "true" in puppy.cfg!' in t for t in _texts(ms))
+        assert any('Set yolo_mode = "true" in mist.cfg!' in t for t in _texts(ms))
         assert any("Agent reloaded with updated config" in t for t in _texts(mi))
         assert mw.call_count == 0
         assert me.call_count == 0
@@ -66,8 +66,8 @@ class TestSlashSetParity:
             e_error as me,
         ):
             mock_agent.return_value.reload_code_generation_agent.return_value = None
-            handle_set_command("/set puppy_name=Rex")
-        mock_set.assert_called_once_with("puppy_name", "Rex")
+            handle_set_command("/set mist_name=Rex")
+        mock_set.assert_called_once_with("mist_name", "Rex")
         assert mw.call_count == 0
         assert me.call_count == 0
 
@@ -84,7 +84,7 @@ class TestSlashSetParity:
             mock_agent.return_value.reload_code_generation_agent.return_value = None
             handle_set_command("/set yolo_mode")
         mock_set.assert_called_once_with("yolo_mode", "")
-        assert any('Set yolo_mode = "" in puppy.cfg!' in t for t in _texts(ms))
+        assert any('Set yolo_mode = "" in mist.cfg!' in t for t in _texts(ms))
         assert me.call_count == 0
 
     def test_enable_dbos_emits_restart_notice_AND_reload_info(self):
@@ -102,7 +102,7 @@ class TestSlashSetParity:
             mock_agent.return_value.reload_code_generation_agent.return_value = None
             handle_set_command("/set enable_dbos true")
         mock_set.assert_called_once_with("enable_dbos", "true")
-        assert any('Set enable_dbos = "true" in puppy.cfg!' in t for t in _texts(ms))
+        assert any('Set enable_dbos = "true" in mist.cfg!' in t for t in _texts(ms))
         # Both signals must fire -- restart notice AND reload confirmation.
         assert any("restart" in t.lower() for t in _texts(mw))
         assert any("Agent reloaded with updated config" in t for t in _texts(mi))
@@ -123,7 +123,7 @@ class TestSlashSetParity:
         # Lower-cased before persisting (original behavior).
         mock_set.assert_called_once_with("cancel_agent_key", "ctrl+k")
         assert any(
-            'Set cancel_agent_key = "ctrl+k" in puppy.cfg!' in t for t in _texts(ms)
+            'Set cancel_agent_key = "ctrl+k" in mist.cfg!' in t for t in _texts(ms)
         )
         assert any("restart" in t.lower() for t in _texts(mw))
         assert any("Agent reloaded with updated config" in t for t in _texts(mi))
@@ -160,7 +160,7 @@ class TestSlashSetParity:
                 RuntimeError("boom")
             )
             handle_set_command("/set enable_dbos true")
-        assert any('Set enable_dbos = "true" in puppy.cfg!' in t for t in _texts(ms))
+        assert any('Set enable_dbos = "true" in mist.cfg!' in t for t in _texts(ms))
         assert any("restart" in t.lower() for t in _texts(mw))
         assert any("agent reload failed" in t.lower() for t in _texts(mw))
         # No "Agent reloaded" info when the reload genuinely failed.
@@ -181,7 +181,7 @@ class TestSlashSetParity:
                 RuntimeError("boom")
             )
             handle_set_command("/set yolo_mode true")
-        assert any('Set yolo_mode = "true" in puppy.cfg!' in t for t in _texts(ms))
+        assert any('Set yolo_mode = "true" in mist.cfg!' in t for t in _texts(ms))
         assert any("agent reload failed" in t.lower() for t in _texts(mw))
         assert not any("Agent reloaded" in t for t in _texts(mi))
 

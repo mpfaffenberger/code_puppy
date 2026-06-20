@@ -1,4 +1,4 @@
-"""Structured message models for Code Puppy's messaging system.
+"""Structured message models for Mist's messaging system.
 
 Pydantic models that decouple message content from presentation.
 NO Rich markup or formatting should be embedded in any string fields.
@@ -301,7 +301,7 @@ class SubAgentStatusMessage(BaseMessage):
 
     category: MessageCategory = MessageCategory.AGENT
     session_id: str = Field(description="Unique session ID of the sub-agent")
-    agent_name: str = Field(description="Name of the agent (e.g., 'code-puppy')")
+    agent_name: str = Field(description="Name of the agent (e.g., 'mist')")
     model_name: str = Field(description="Model being used by this agent")
     status: Literal[
         "starting", "running", "thinking", "tool_calling", "completed", "error"

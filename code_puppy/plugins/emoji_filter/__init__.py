@@ -8,5 +8,5 @@ Targets (and nothing else):
 Explicitly excluded: ThinkingPart / ThinkingPartDelta, banners, emit_* messages,
 search strings (old_str / snippet), and anything else not listed above.
 
-Toggle via the ``emoji_filter`` key in puppy.cfg. Default: on.
+Toggle via the ``emoji_filter`` key in mist.cfg. Default: on.
 """

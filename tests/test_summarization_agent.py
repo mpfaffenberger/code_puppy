@@ -452,7 +452,7 @@ class TestRunSummarizationSync:
 
     def test_run_summarization_sync_unicode_content(self):
         """Test run_summarization_sync with unicode content."""
-        unicode_history = ["Hello 🐕", "Café crème", "Привет мир", "中文测试"]
+        unicode_history = ["Hello 🌫️", "Café crème", "Привет мир", "中文测试"]
 
         with (
             patch(
@@ -627,7 +627,7 @@ class TestSummarizationAgentEdgeCases:
         test_prompts = [
             "Simple prompt",
             "Prompt with special chars: !@#$%^&*()",
-            "Prompt with unicode: 🐕 Café",
+            "Prompt with unicode: 🌫️ Café",
             "",  # Empty prompt
             " " * 1000,  # Very long prompt
             "\n\nMultiple\n\nlines\n\n",
@@ -999,7 +999,7 @@ class TestSummarizationAgentIntegration:
                 "content": "".join([f"word{i} " for i in range(100)]),
             },  # High tokens
             {"role": "user", "content": "".join(["x"] * 1000)},  # Many single chars
-            {"role": "assistant", "content": "🐕" * 100},  # Unicode emojis
+            {"role": "assistant", "content": "🌫️" * 100},  # Unicode emojis
             {"role": "user", "content": "\n" * 50},  # Many newlines
             {
                 "role": "assistant",

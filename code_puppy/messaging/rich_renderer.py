@@ -1,6 +1,6 @@
 """Rich console renderer for structured messages.
 
-This module implements the presentation layer for Code Puppy's messaging system.
+This module implements the presentation layer for Mist's messaging system.
 It consumes structured messages from the MessageBus and renders them using Rich.
 
 The renderer is responsible for ALL presentation decisions - the messages contain
@@ -1331,9 +1331,7 @@ class RichConsoleRenderer:
 
         if not msg.skills:
             self._console.print("[dim]  No skills found.[/dim]")
-            self._console.print(
-                "[dim]  Install skills in ~/.code_puppy/skills/[/dim]\n"
-            )
+            self._console.print("[dim]  Install skills in ~/.mist/skills/[/dim]\n")
             return
 
         # Create a table for skills

@@ -264,14 +264,14 @@ def test_show_status():
                 return_value="MODEL-X",
             ),
             patch("code_puppy.config.get_owner_name", return_value="Ivan"),
-            patch("code_puppy.config.get_puppy_name", return_value="Biscuit"),
+            patch("code_puppy.config.get_mist_name", return_value="Biscuit"),
             patch("code_puppy.config.get_yolo_mode", return_value=True),
         ):
             result = handle_command("/show")
             assert result is True
             mock_emit_info.assert_called()
             assert any(
-                "Puppy Status" in str(call)
+                "Mist Status" in str(call)
                 and "Ivan" in str(call)
                 and "Biscuit" in str(call)
                 and "MODEL-X" in str(call)
@@ -374,7 +374,7 @@ def test_agent_switch_triggers_autosave_rotation():
     mock_emit_success = mocks["emit_success"].start()
 
     try:
-        current_agent = SimpleNamespace(name="code-puppy", display_name="Code Puppy")
+        current_agent = SimpleNamespace(name="mist", display_name="Mist")
         new_agent = SimpleNamespace(
             name="reviewer",
             display_name="Reviewer",
@@ -389,7 +389,7 @@ def test_agent_switch_triggers_autosave_rotation():
             ),
             patch(
                 "code_puppy.agents.get_available_agents",
-                return_value={"code-puppy": "Code Puppy", "reviewer": "Reviewer"},
+                return_value={"mist": "Mist", "reviewer": "Reviewer"},
             ),
             patch(
                 "code_puppy.command_line.core_commands.finalize_autosave_session",
@@ -423,7 +423,7 @@ def test_agent_switch_same_agent_skips_rotation():
     mock_emit_info = mocks["emit_info"].start()
 
     try:
-        current_agent = SimpleNamespace(name="code-puppy", display_name="Code Puppy")
+        current_agent = SimpleNamespace(name="mist", display_name="Mist")
         with (
             patch(
                 "code_puppy.agents.get_current_agent",
@@ -431,7 +431,7 @@ def test_agent_switch_same_agent_skips_rotation():
             ),
             patch(
                 "code_puppy.agents.get_available_agents",
-                return_value={"code-puppy": "Code Puppy"},
+                return_value={"mist": "Mist"},
             ),
             patch(
                 "code_puppy.command_line.core_commands.finalize_autosave_session",
@@ -440,7 +440,7 @@ def test_agent_switch_same_agent_skips_rotation():
                 "code_puppy.agents.set_current_agent",
             ) as mock_set,
         ):
-            result = handle_command("/agent code-puppy")
+            result = handle_command("/agent mist")
             assert result is True
             mock_finalize.assert_not_called()
             mock_set.assert_not_called()
@@ -460,7 +460,7 @@ def test_agent_switch_unknown_agent_skips_rotation():
         with (
             patch(
                 "code_puppy.agents.get_available_agents",
-                return_value={"code-puppy": "Code Puppy"},
+                return_value={"mist": "Mist"},
             ),
             patch(
                 "code_puppy.command_line.core_commands.finalize_autosave_session",

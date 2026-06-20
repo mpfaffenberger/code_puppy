@@ -56,5 +56,5 @@ def test_untrusted_project_resource_paths_are_filtered(tmp_path: Path):
         patch("code_puppy.project_trust.ensure_project_trusted", return_value=False),
     ):
         assert filter_untrusted_project_paths(
-            [user_path, project / ".code_puppy" / "skills"]
+            [user_path, project / ".mist" / "skills"]
         ) == [str(user_path)]

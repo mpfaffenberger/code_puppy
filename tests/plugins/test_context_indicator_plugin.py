@@ -269,7 +269,7 @@ def test_inject_indicator_returns_unchanged_when_usage_none():
     module = _plugin_module()
     from prompt_toolkit.formatted_text import FormattedText
 
-    original = FormattedText([("bold", "🐶 "), ("class:arrow", ">>> ")])
+    original = FormattedText([("bold", "🌫️ "), ("class:arrow", ">>> ")])
     with patch(
         "code_puppy.plugins.context_indicator.register_callbacks.get_current_usage",
         return_value=None,
@@ -285,7 +285,7 @@ def test_inject_indicator_inserts_circle_after_dog():
     fake_usage = _usage_module().ContextUsage(
         used_tokens=100, overhead_tokens=0, capacity=10000
     )
-    original = FormattedText([("bold", "🐶 "), ("class:arrow", ">>> ")])
+    original = FormattedText([("bold", "🌫️ "), ("class:arrow", ">>> ")])
     with patch(
         "code_puppy.plugins.context_indicator.register_callbacks.get_current_usage",
         return_value=fake_usage,
@@ -293,7 +293,7 @@ def test_inject_indicator_inserts_circle_after_dog():
         result = module._inject_indicator(original)
 
     parts = list(result)
-    assert parts[0] == ("bold", "🐶 ")
+    assert parts[0] == ("bold", "🌫️ ")
     assert parts[1][0] == "class:context-indicator"
     assert "🟢" in parts[1][1]
 

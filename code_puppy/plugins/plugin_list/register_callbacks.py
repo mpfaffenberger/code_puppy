@@ -47,11 +47,9 @@ def _build_output() -> str:
     disabled = get_disabled_plugins()
 
     builtin_path = str(Path(__file__).parent.parent) + "/"
-    user_path = "~/.code_puppy/plugins/"
+    user_path = "~/.mist/plugins/"
     project_dir = get_project_plugins_directory()
-    project_path = (
-        str(project_dir) + "/" if project_dir else "<CWD>/.code_puppy/plugins/"
-    )
+    project_path = str(project_dir) + "/" if project_dir else "<CWD>/.mist/plugins/"
 
     lines = [
         "Loaded Plugins",
@@ -104,7 +102,7 @@ def _handle_disable(plugin_name: str) -> bool:
 
     if set_plugin_disabled(plugin_name, disabled=True):
         emit_success(f"Plugin '{plugin_name}' disabled.")
-        emit_warning("Restart Code Puppy for this change to take effect.")
+        emit_warning("Restart Mist for this change to take effect.")
     else:
         emit_info(f"Plugin '{plugin_name}' is already disabled.")
     return True
@@ -125,7 +123,7 @@ def _handle_enable(plugin_name: str) -> bool:
 
     if set_plugin_disabled(plugin_name, disabled=False):
         emit_success(f"Plugin '{plugin_name}' re-enabled.")
-        emit_warning("Restart Code Puppy for this change to take effect.")
+        emit_warning("Restart Mist for this change to take effect.")
     else:
         emit_info(f"Plugin '{plugin_name}' is already enabled.")
     return True
