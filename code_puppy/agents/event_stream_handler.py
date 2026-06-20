@@ -145,6 +145,24 @@ async def event_stream_handler(
             pass  # Just consume events without rendering
         return
 
+    # Server/SDK/RPC runs must never write Rich output into the transport's
+    # stdout. Their final response and tool events use the versioned bus
+    # envelope; raw model deltas remain available through stream callbacks.
+    from code_puppy.server.context import is_headless_transport
+
+    if is_headless_transport():
+        async for event in events:
+            if isinstance(event, PartStartEvent):
+                event_type = "part_start"
+            elif isinstance(event, PartDeltaEvent):
+                event_type = "part_delta"
+            elif isinstance(event, PartEndEvent):
+                event_type = "part_end"
+            else:
+                event_type = type(event).__name__
+            _fire_stream_event(event_type, event)
+        return
+
     # NOTE: TTFT / gen-speed timing is now handled by callback hooks
     # registered in ``messaging.spinner._stream_stats_hooks`` (agent_run_start +
     # stream_event + agent_run_end). This handler stays focused on rendering.

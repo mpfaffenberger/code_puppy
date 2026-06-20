@@ -33,9 +33,10 @@ It also handles request/response correlation for user interactions:
 """
 
 import asyncio
+import contextvars
 import queue
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from .commands import (
@@ -90,7 +91,13 @@ class MessageBus:
         self._pending_requests: Dict[str, asyncio.Future[Any]] = {}
 
         # Session context for multi-agent tracking
+        self._session_context: contextvars.ContextVar[Optional[str]] = (
+            contextvars.ContextVar(f"mist_message_bus_session_{id(self)}", default=None)
+        )
+        # Compatibility mirror for integrations that still inspect the old
+        # process-global attribute. ContextVar remains the source of truth.
         self._current_session_id: Optional[str] = None
+        self._listeners: Dict[str, Callable[[AnyMessage], None]] = {}
 
     # =========================================================================
     # Outgoing Messages (Agent → UI)
@@ -107,27 +114,33 @@ class MessageBus:
             message: The message to emit.
         """
         # Auto-tag message with current session if not already set
+        listeners: list[Callable[[AnyMessage], None]]
         with self._lock:
-            if message.session_id is None and self._current_session_id is not None:
-                message.session_id = self._current_session_id
+            session_id = self._session_context.get()
+            if message.session_id is None and session_id is not None:
+                message.session_id = session_id
+            listeners = list(self._listeners.values())
 
             if not self._has_active_renderer:
                 self._startup_buffer.append(message)
                 # Prevent unbounded buffer growth in headless mode
                 if len(self._startup_buffer) > self._maxsize:
                     self._startup_buffer = self._startup_buffer[-self._maxsize :]
-                return
-
-            # Direct put into thread-safe queue - inside lock to prevent race
-            try:
-                self._outgoing.put_nowait(message)
-            except queue.Full:
-                # Drop oldest and retry
+            else:
                 try:
-                    self._outgoing.get_nowait()
                     self._outgoing.put_nowait(message)
-                except queue.Empty:
-                    pass
+                except queue.Full:
+                    try:
+                        self._outgoing.get_nowait()
+                        self._outgoing.put_nowait(message)
+                    except queue.Empty:
+                        pass
+
+        for listener in listeners:
+            try:
+                listener(message)
+            except Exception:
+                continue
 
     def emit_text(
         self,
@@ -190,8 +203,17 @@ class MessageBus:
         Args:
             session_id: The session ID to tag messages with, or None to clear.
         """
-        with self._lock:
-            self._current_session_id = session_id
+        self._current_session_id = session_id
+        self._session_context.set(session_id)
+
+    def push_session_context(
+        self, session_id: Optional[str]
+    ) -> contextvars.Token[Optional[str]]:
+        """Set task-local session context and return a reset token."""
+        return self._session_context.set(session_id)
+
+    def reset_session_context(self, token: contextvars.Token[Optional[str]]) -> None:
+        self._session_context.reset(token)
 
     def get_session_context(self) -> Optional[str]:
         """Get the current session context.
@@ -199,8 +221,18 @@ class MessageBus:
         Returns:
             The current session_id, or None if not set.
         """
+        return self._session_context.get()
+
+    def add_listener(self, listener: Callable[[AnyMessage], None]) -> str:
+        """Subscribe a non-blocking observer without consuming renderer output."""
+        listener_id = str(uuid4())
         with self._lock:
-            return self._current_session_id
+            self._listeners[listener_id] = listener
+        return listener_id
+
+    def remove_listener(self, listener_id: str) -> None:
+        with self._lock:
+            self._listeners.pop(listener_id, None)
 
     # =========================================================================
     # User Input Requests (Agent waits for UI response)

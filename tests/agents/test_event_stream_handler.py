@@ -111,6 +111,30 @@ class TestEventStreamHandler:
         await event_stream_handler(mock_ctx, empty_stream())
 
     @pytest.mark.asyncio
+    async def test_headless_transport_emits_callback_without_console(self, mock_ctx):
+        from code_puppy.server.context import (
+            push_headless_transport,
+            reset_headless_transport,
+        )
+
+        async def event_stream():
+            yield PartStartEvent(index=0, part=TextPart(content="hello"))
+
+        console = MagicMock(spec=Console)
+        set_streaming_console(console)
+        token = push_headless_transport()
+        try:
+            with patch(
+                "code_puppy.agents.event_stream_handler._fire_stream_event"
+            ) as fire:
+                await event_stream_handler(mock_ctx, event_stream())
+        finally:
+            reset_headless_transport(token)
+
+        fire.assert_called_once()
+        console.print.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_handles_thinking_part_start_event(self, mock_ctx):
         """Test handling PartStartEvent for ThinkingPart."""
         thinking_part = ThinkingPart(content="I am thinking...")
