@@ -82,6 +82,7 @@ from code_puppy.tools.file_operations import (
 )
 from code_puppy.tools.image_tools import register_load_image
 from code_puppy.tools.model_tools import register_list_available_models
+from code_puppy.tools.task_list import register_update_task_list
 from code_puppy.tools.skills_tools import (
     register_activate_skill,
     register_list_or_search_skills,
@@ -108,6 +109,8 @@ TOOL_REGISTRY = {
     # Command Runner
     "agent_run_shell_command": register_agent_run_shell_command,
     "agent_share_your_reasoning": register_agent_share_your_reasoning,
+    # Planning / progress tracking
+    "update_task_list": register_update_task_list,
     # User Interaction
     "ask_user_question": register_ask_user_question,
     # Browser Control
