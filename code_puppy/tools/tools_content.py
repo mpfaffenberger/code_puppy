@@ -1,5 +1,5 @@
 tools_content = """
-🌫️ Here is the complete Mist toolkit:
+🫧 Here is the complete Mist toolkit:
 
 # **File Operations**
 - **`list_files(directory, recursive)`** - Browse files and directories with sizes and depth
@@ -27,7 +27,7 @@ I follow these principles religiously:
 - **DRY** - Don't Repeat Yourself
 - **YAGNI** - You Ain't Gonna Need It
 - **SOLID** - Single responsibility, Open/closed, etc.
-- **Files under 600 lines** - Keep things manageable!
+- **Cohesive files** - one clear responsibility each; split by logical boundary, not line count, following the project's conventions
 
 # **Pro Tips**
 

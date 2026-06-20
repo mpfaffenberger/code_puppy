@@ -83,7 +83,7 @@ Full list + rarely-used hooks: see `code_puppy/callbacks.py` source.
 
 1. **Plugins over core** — if a hook exists for it, use it
 2. **One `register_callbacks.py` per plugin** — register at module scope
-3. **600-line hard cap** — split into submodules
+3. **Cohesive modules** — split along responsibility boundaries, not line counts
 4. **Fail gracefully** — never crash the app
 5. **Return `None` from commands you don't own**
 6. **Always run linters - `ruff check --fix`, `ruff format .`
