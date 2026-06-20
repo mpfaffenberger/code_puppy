@@ -12,6 +12,9 @@ import types
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
+from code_puppy import config
+from code_puppy.messaging import emit_info, emit_success, emit_warning
+
 
 def _missing_playwright(*_args, **_kwargs):
     """Raise a friendly error when Playwright is unavailable."""
@@ -54,9 +57,6 @@ except ImportError:
     # browser modules importable; tools raise a friendly error only if invoked.
     Browser = BrowserContext = Page = Any
     _install_playwright_stub()
-
-from code_puppy import config
-from code_puppy.messaging import emit_info, emit_success, emit_warning
 
 # Registry for custom browser types from plugins (e.g., Camoufox for stealth browsing)
 _CUSTOM_BROWSER_TYPES: Dict[str, Callable] = {}
