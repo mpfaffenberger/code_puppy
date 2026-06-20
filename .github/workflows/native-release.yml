@@ -1,0 +1,93 @@
+name: Native release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  binary:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x64
+            archive: tar
+          - os: macos-15-intel
+            platform: macos-x64
+            archive: tar
+          - os: macos-15
+            platform: macos-arm64
+            archive: tar
+          - os: windows-2022
+            platform: windows-x64
+            archive: zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build standalone executable
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -m pip install .
+          pyinstaller --clean --noconfirm packaging/mist.spec
+          dist/mist --version || dist/mist.exe --version
+      - name: Package Unix executable
+        if: matrix.archive == 'tar'
+        shell: bash
+        run: tar -C dist -czf "mist-${{ matrix.platform }}.tar.gz" mist
+      - name: Package Windows executable
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: Compress-Archive -Path dist/mist.exe -DestinationPath mist-${{ matrix.platform }}.zip
+      - name: Build Linux AppImage
+        if: matrix.platform == 'linux-x64'
+        shell: bash
+        run: |
+          mkdir -p Mist.AppDir/usr/bin
+          cp dist/mist Mist.AppDir/usr/bin/mist
+          cp packaging/appimage/mist.desktop Mist.AppDir/mist.desktop
+          cp mist_logo.png Mist.AppDir/mist.png
+          printf '#!/bin/sh\nexec "$APPDIR/usr/bin/mist" "$@"\n' > Mist.AppDir/AppRun
+          chmod +x Mist.AppDir/AppRun
+          curl -fsSL -o appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run Mist.AppDir mist-linux-x64.AppImage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mist-${{ matrix.platform }}
+          path: |
+            mist-${{ matrix.platform }}.*
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mist-*
+          merge-multiple: true
+          path: release
+      - name: Generate package-manager manifests
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          linux_sha=$(sha256sum release/mist-linux-x64.tar.gz | cut -d' ' -f1)
+          mac_x64_sha=$(sha256sum release/mist-macos-x64.tar.gz | cut -d' ' -f1)
+          mac_arm_sha=$(sha256sum release/mist-macos-arm64.tar.gz | cut -d' ' -f1)
+          win_sha=$(sha256sum release/mist-windows-x64.zip | cut -d' ' -f1)
+          sed -e "s/@VERSION@/$version/g" -e "s/@LINUX_X64_SHA256@/$linux_sha/g" -e "s/@MACOS_X64_SHA256@/$mac_x64_sha/g" -e "s/@MACOS_ARM64_SHA256@/$mac_arm_sha/g" packaging/homebrew/mist.rb.template > release/mist.rb
+          sed -e "s/@VERSION@/$version/g" -e "s/@WINDOWS_X64_SHA256@/$win_sha/g" packaging/scoop/mist.json.template > release/mist.json
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true

@@ -1,0 +1,28 @@
+class Mist < Formula
+  desc "Contextual, adaptive AI coding agent"
+  homepage "https://github.com/bajajra/mist"
+  version "@VERSION@"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "https://github.com/bajajra/mist/releases/download/v@VERSION@/mist-macos-arm64.tar.gz"
+      sha256 "@MACOS_ARM64_SHA256@"
+    else
+      url "https://github.com/bajajra/mist/releases/download/v@VERSION@/mist-macos-x64.tar.gz"
+      sha256 "@MACOS_X64_SHA256@"
+    end
+  end
+
+  on_linux do
+    url "https://github.com/bajajra/mist/releases/download/v@VERSION@/mist-linux-x64.tar.gz"
+    sha256 "@LINUX_X64_SHA256@"
+  end
+
+  def install
+    bin.install "mist"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/mist --version")
+  end
+end
