@@ -250,28 +250,49 @@ async def main():
         try:
             import pyfiglet
 
+            # ``georgia11`` is a classical ornate-serif figlet font — the
+            # closest terminal-renderable evocation of Cinzel Decorative
+            # (pyfiglet only supports FIGlet fonts, not TrueType).
             intro_lines = pyfiglet.figlet_format(
-                PRODUCT_NAME.upper(), font="ansi_shadow"
+                PRODUCT_NAME.upper(), font="georgia11"
             ).split("\n")
 
-            # Simple blue to green gradient (top to bottom)
-            gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
+            # Soft pastel vertical gradient: Regent St blue → powder blue →
+            # aqua spring → Melanie → We Peep (cool blue sweeping into soft
+            # pink). Hex stops render smoothly on truecolor terminals and
+            # degrade to the nearest pastel on limited ones. To restyle the
+            # wordmark, edit these stops.
+            gradient_stops = ("#a8d3e1", "#b3e4e6", "#ebf7f9", "#e5b8d1", "#f2cad4")
+
+            def _gradient_hex(t: float) -> str:
+                """Interpolate the gradient at position t in [0, 1]."""
+                span = t * (len(gradient_stops) - 1)
+                i = min(int(span), len(gradient_stops) - 2)
+                frac = span - i
+                a = gradient_stops[i].lstrip("#")
+                b = gradient_stops[i + 1].lstrip("#")
+                channels = (
+                    round(int(a[k : k + 2], 16) + frac * (int(b[k : k + 2], 16) - int(a[k : k + 2], 16)))
+                    for k in (0, 2, 4)
+                )
+                return "#{:02x}{:02x}{:02x}".format(*channels)
+
             display_console.print("\n")
 
+            body_count = max(sum(1 for ln in intro_lines if ln.strip()) - 1, 1)
             lines = []
-            # Apply gradient line by line
-            for line_num, line in enumerate(intro_lines):
+            row = 0
+            for line in intro_lines:
                 if line.strip():
-                    # Use line position to determine color (top blue, middle cyan, bottom green)
-                    color_idx = min(line_num // 2, len(gradient_colors) - 1)
-                    color = gradient_colors[color_idx]
+                    color = _gradient_hex(row / body_count)
                     lines.append(f"[{color}]{line}[/{color}]")
+                    row += 1
                 else:
                     lines.append("")
             # Print directly to console to avoid the 'dim' style from emit_system_message
             display_console.print("\n".join(lines))
         except ImportError:
-            emit_system_message(f"{PRODUCT_EMOJI} {PRODUCT_NAME} is loading...")
+            emit_system_message(f"💨 {PRODUCT_NAME} is loading...")
 
         # Truecolor warning moved to interactive_mode() so it prints LAST
         # after all the help stuff - max visibility for the ugly red box!
@@ -1184,7 +1205,7 @@ def _force_utf8_stdio():
     """Ensure stdout/stderr can encode non-ASCII output (e.g. emoji prompts).
 
     On Windows the console often defaults to a legacy code page (e.g. cp1252),
-    so writing UTF-8 characters such as the "🌫️" onboarding banner raises
+    so writing UTF-8 characters such as the "🫧" onboarding banner raises
     UnicodeEncodeError and crashes the very first run. Reconfigure the streams
     to UTF-8 where the runtime supports it; no-op otherwise.
     """
