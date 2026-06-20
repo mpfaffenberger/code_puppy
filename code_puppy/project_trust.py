@@ -4,12 +4,62 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import threading
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 _LOCK = threading.RLock()
 _ENV_OVERRIDES = ("MIST_TRUST_PROJECT", "CODE_PUPPY_TRUST_PROJECT")
+
+
+@dataclass(frozen=True)
+class TrustScope:
+    """Explicit trust boundary attached to one canonical project path."""
+
+    trusted: bool = False
+    domains: tuple[str, ...] = ()
+    remotes: tuple[str, ...] = ()
+    scm_orgs: tuple[str, ...] = ()
+    buckets: tuple[str, ...] = ()
+    services: tuple[str, ...] = ()
+
+
+def _load_raw() -> dict[str, object]:
+    path = _trust_file()
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _scope_from_raw(value: object) -> TrustScope:
+    if isinstance(value, bool):
+        return TrustScope(trusted=value)
+    if not isinstance(value, dict):
+        return TrustScope()
+
+    def values(key: str) -> tuple[str, ...]:
+        raw_values = value.get(key, ())
+        if not isinstance(raw_values, (list, tuple, set)):
+            return ()
+        return tuple(
+            sorted(
+                {str(item).strip().lower() for item in raw_values if str(item).strip()}
+            )
+        )
+
+    return TrustScope(
+        trusted=bool(value.get("trusted", False)),
+        domains=values("domains"),
+        remotes=values("remotes"),
+        scm_orgs=values("scm_orgs"),
+        buckets=values("buckets"),
+        services=values("services"),
+    )
 
 
 def _trust_file() -> Path:
@@ -23,14 +73,22 @@ def _project_key(project_dir: Path | str | None = None) -> str:
 
 
 def load_trust_decisions() -> dict[str, bool]:
+    return {
+        str(key): _scope_from_raw(value).trusted for key, value in _load_raw().items()
+    }
+
+
+def load_trust_scopes() -> dict[str, TrustScope]:
+    return {str(key): _scope_from_raw(value) for key, value in _load_raw().items()}
+
+
+def _write_raw(raw: dict[str, object]) -> None:
     path = _trust_file()
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {}
-    if not isinstance(raw, dict):
-        return {}
-    return {str(key): bool(value) for key, value in raw.items()}
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(raw, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.chmod(temp, 0o600)
+    temp.replace(path)
 
 
 def set_project_trusted(
@@ -38,17 +96,147 @@ def set_project_trusted(
     trusted: bool,
 ) -> None:
     with _LOCK:
-        path = _trust_file()
-        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        decisions = load_trust_decisions()
-        decisions[_project_key(project_dir)] = trusted
-        temp = path.with_suffix(".tmp")
-        temp.write_text(
-            json.dumps(decisions, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        raw = _load_raw()
+        key = _project_key(project_dir)
+        existing = raw.get(key)
+        if isinstance(existing, dict):
+            existing = dict(existing)
+            existing["trusted"] = trusted
+            raw[key] = existing
+        else:
+            # Preserve the compact legacy form until scoped values are added.
+            raw[key] = trusted
+        _write_raw(raw)
+
+
+def get_trust_scope(project_dir: Path | str | None = None) -> TrustScope:
+    key = _project_key(project_dir)
+    scope = load_trust_scopes().get(key, TrustScope())
+    if not scope.trusted:
+        return scope
+    remotes = tuple(sorted(set(scope.remotes) | set(_git_remotes(Path(key)))))
+    domains = tuple(
+        sorted(
+            set(scope.domains)
+            | {domain for remote in remotes if (domain := _remote_domain(remote))}
         )
-        os.chmod(temp, 0o600)
-        temp.replace(path)
+    )
+    scm_orgs = tuple(
+        sorted(
+            set(scope.scm_orgs)
+            | {org for remote in remotes if (org := _remote_org(remote))}
+        )
+    )
+    return TrustScope(
+        trusted=True,
+        domains=domains,
+        remotes=remotes,
+        scm_orgs=scm_orgs,
+        buckets=scope.buckets,
+        services=scope.services,
+    )
+
+
+def set_trust_scope(
+    project_dir: Path | str | None,
+    *,
+    domains: tuple[str, ...] | list[str] | None = None,
+    remotes: tuple[str, ...] | list[str] | None = None,
+    scm_orgs: tuple[str, ...] | list[str] | None = None,
+    buckets: tuple[str, ...] | list[str] | None = None,
+    services: tuple[str, ...] | list[str] | None = None,
+) -> TrustScope:
+    """Merge named scopes into the existing project trust record."""
+    with _LOCK:
+        key = _project_key(project_dir)
+        current = get_trust_scope(key)
+
+        def merged(old: tuple[str, ...], new) -> tuple[str, ...]:
+            return tuple(
+                sorted(
+                    set(old)
+                    | {
+                        str(item).strip().lower()
+                        for item in (new or ())
+                        if str(item).strip()
+                    }
+                )
+            )
+
+        updated = TrustScope(
+            trusted=current.trusted,
+            domains=merged(current.domains, domains),
+            remotes=merged(current.remotes, remotes),
+            scm_orgs=merged(current.scm_orgs, scm_orgs),
+            buckets=merged(current.buckets, buckets),
+            services=merged(current.services, services),
+        )
+        raw = _load_raw()
+        raw[key] = asdict(updated)
+        _write_raw(raw)
+        return updated
+
+
+def is_path_trusted(path: Path | str, project_dir: Path | str | None = None) -> bool:
+    project = Path(project_dir or Path.cwd()).expanduser().resolve()
+    target = Path(path).expanduser().resolve()
+    return get_project_trust(project) is True and (
+        target == project or project in target.parents
+    )
+
+
+def is_domain_trusted(domain: str, project_dir: Path | str | None = None) -> bool:
+    normalized = domain.strip().lower().rstrip(".")
+    return any(
+        normalized == trusted or normalized.endswith(f".{trusted}")
+        for trusted in get_trust_scope(project_dir).domains
+    )
+
+
+def is_url_trusted(url: str, project_dir: Path | str | None = None) -> bool:
+    return is_domain_trusted(urlparse(url).hostname or "", project_dir)
+
+
+def _git_remotes(project: Path) -> tuple[str, ...]:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(project), "remote", "-v"],
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ()
+    if result.returncode != 0:
+        return ()
+    return tuple(
+        sorted(
+            {
+                fields[1].strip().lower()
+                for line in result.stdout.splitlines()
+                if len(fields := line.split()) >= 2
+            }
+        )
+    )
+
+
+def _remote_domain(remote: str) -> str | None:
+    parsed = urlparse(remote)
+    if parsed.hostname:
+        return parsed.hostname.lower()
+    if "@" in remote and ":" in remote:
+        return remote.split("@", 1)[1].split(":", 1)[0].lower()
+    return None
+
+
+def _remote_org(remote: str) -> str | None:
+    parsed = urlparse(remote)
+    if "://" not in remote and "@" in remote and ":" in remote:
+        path = remote.split(":", 1)[1]
+    else:
+        path = parsed.path
+    parts = [part for part in path.strip("/").split("/") if part]
+    return parts[0].lower() if len(parts) >= 2 else None
 
 
 def get_project_trust(project_dir: Path | str | None = None) -> bool | None:
