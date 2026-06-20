@@ -59,12 +59,15 @@ def test_policy_is_dormant_by_default():
 
 
 def test_policy_allows_only_configured_prefixes():
-    with patch(
-        "code_puppy.plugins.shell_prefix.register_callbacks.is_enforcement_enabled",
-        return_value=True,
-    ), patch(
-        "code_puppy.plugins.shell_prefix.register_callbacks.get_safe_prefixes",
-        return_value=frozenset({"git status"}),
+    with (
+        patch(
+            "code_puppy.plugins.shell_prefix.register_callbacks.is_enforcement_enabled",
+            return_value=True,
+        ),
+        patch(
+            "code_puppy.plugins.shell_prefix.register_callbacks.get_safe_prefixes",
+            return_value=frozenset({"git status"}),
+        ),
     ):
         assert shell_prefix_policy(None, "git status --short") is None
         result = shell_prefix_policy(None, "git log -n 2")
@@ -91,9 +94,7 @@ def test_enforcement_flag_parsing():
         ):
             assert is_enforcement_enabled() is False
     for on in ("on", "true", "1", "yes", "enabled"):
-        with patch(
-            "code_puppy.plugins.shell_prefix.config.get_value", return_value=on
-        ):
+        with patch("code_puppy.plugins.shell_prefix.config.get_value", return_value=on):
             assert is_enforcement_enabled() is True
 
 

@@ -78,9 +78,7 @@ def register_update_task_list(agent):
     """Register the update_task_list tool."""
 
     @agent.tool
-    def update_task_list(
-        context: RunContext, tasks: List[TaskItem]
-    ) -> TaskListOutput:
+    def update_task_list(context: RunContext, tasks: List[TaskItem]) -> TaskListOutput:
         """Record or revise your ordered task list for the current work.
 
         Pass the FULL list every call — this replaces the previous list. Mark

@@ -272,7 +272,10 @@ async def main():
                 a = gradient_stops[i].lstrip("#")
                 b = gradient_stops[i + 1].lstrip("#")
                 channels = (
-                    round(int(a[k : k + 2], 16) + frac * (int(b[k : k + 2], 16) - int(a[k : k + 2], 16)))
+                    round(
+                        int(a[k : k + 2], 16)
+                        + frac * (int(b[k : k + 2], 16) - int(a[k : k + 2], 16))
+                    )
                     for k in (0, 2, 4)
                 )
                 return "#{:02x}{:02x}{:02x}".format(*channels)
