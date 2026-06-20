@@ -199,7 +199,7 @@ class TestStatusDisplay:
 
         text_str = str(text)
         assert "30.0 t/s" in text_str
-        assert "🌫️" in text_str  # Paw emoji
+        assert "💨" in text_str  # ambient mist emoji
         # Check that the message contains loading message content
         found_message = False
         for msg in status_display.loading_messages:

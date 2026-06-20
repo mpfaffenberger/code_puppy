@@ -22,11 +22,11 @@ def _point_storage(monkeypatch, legacy_root, mist_root):
 
 def test_public_mist_facade_and_agent_identity():
     assert mist.PRODUCT_NAME == PRODUCT_NAME == "Mist"
-    assert mist.PRODUCT_EMOJI == PRODUCT_EMOJI == "🌫️"
+    assert mist.PRODUCT_EMOJI == PRODUCT_EMOJI == "🫧"
     assert mist.DISTRIBUTION_NAME == DISTRIBUTION_NAME == "mist-agent"
     agent = MistAgent()
     assert agent.name == "mist"
-    assert agent.display_name == "Mist 🌫️"
+    assert agent.display_name == "Mist 🫧"
     assert CodePuppyAgent is MistAgent
 
 
