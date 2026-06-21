@@ -81,6 +81,54 @@ uvx code-puppy
 uvx --from code-puppy code-puppy-bootstrap plan --profile auto --json
 ```
 
+#### Native Android / Termux
+
+On native Android / Termux, use the bootstrap planner first so you can inspect
+a lean install plan before attaching optional extras:
+
+```bash
+# Install UV if you don't have it
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Inspect the current environment
+uvx --from code-puppy code-puppy-bootstrap detect --json
+
+# Build the recommended lean install plan for this device
+uvx --from code-puppy code-puppy-bootstrap plan --profile auto
+
+# Install suggested Termux-side system packages for the lean profile
+pkg install ripgrep
+pkg install proot
+
+# Attach the lean base runtime
+uv tool install --refresh code-puppy
+
+# Run Code Puppy
+code-puppy -i
+```
+
+Why this flow exists:
+
+- `android-termux-lean` is the auto-selected profile on Termux
+- it keeps the initial Python install minimal on constrained devices
+- browser/image/fuzzy/search/provider extras stay detached until you decide to
+  reattach them
+
+If you later want a heavier profile, inspect it first and then reattach using
+that plan:
+
+```bash
+uvx --from code-puppy code-puppy-bootstrap plan --profile desktop-browser
+```
+
+You can also feed policy overrides through a manifest:
+
+```bash
+uvx --from code-puppy code-puppy-bootstrap plan \
+  --profile android-termux-lean \
+  --manifest-json '{"extras_add": ["durable"], "notes": ["Enable only after validating the device."]}'
+```
+
 #### Windows
 
 On Windows, we recommend installing code-puppy as a global tool for the best experience with keyboard shortcuts (Ctrl+C/Ctrl+X cancellation):
