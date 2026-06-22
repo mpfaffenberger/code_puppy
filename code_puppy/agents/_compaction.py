@@ -77,6 +77,7 @@ def _tool_result_clearing_config() -> tuple[bool, int, int]:
         _int("tool_result_clear_threshold", 1500),
     )
 
+
 _SUMMARIZATION_INSTRUCTIONS = (
     "The input will be a log of Agentic AI steps that have been taken"
     " as well as user queries, etc. Summarize the contents of these steps."
