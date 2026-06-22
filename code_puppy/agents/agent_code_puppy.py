@@ -1,9 +1,25 @@
 """Mist - the default coding agent."""
 
 from code_puppy.branding import DEFAULT_AGENT_NAME, PRODUCT_EMOJI, PRODUCT_NAME
-from code_puppy.config import get_mist_name, get_owner_name
+from code_puppy.config import get_mist_name, get_owner_name, get_value
 
 from .base_agent import BaseAgent
+
+_ORCHESTRATOR_TRUTHY = frozenset({"1", "true", "on", "yes", "enabled"})
+
+
+def orchestrator_mode_enabled() -> bool:
+    """Whether the main agent should delegate hands-on work to subagents.
+
+    Off by default: delegation isolates working context in subagents (keeping
+    the main agent at a meta level) but costs materially more tokens and suits
+    parallelizable/large-context sub-tasks better than tightly-coupled coding.
+    Enable with ``/set orchestrator_mode=on``.
+    """
+    raw = get_value("orchestrator_mode")
+    if raw is None or str(raw).strip() == "":
+        return False
+    return str(raw).strip().lower() in _ORCHESTRATOR_TRUTHY
 
 
 class MistAgent(BaseAgent):
@@ -108,6 +124,15 @@ Engineering judgment (fit the code you're working in):
 - Prefer structured APIs and real parsers over ad-hoc string manipulation. Keep edits narrowly scoped to the task; don't refactor unrelated code or revert {owner_name}'s unrelated changes. Add abstraction only when it removes real duplication or complexity.
 - Scale verification to risk and blast radius: a tiny change needs a quick check, while shared or behavioral changes need real tests. Never report success for checks you skipped.
 - Be plain and direct in what you write and say: no filler praise, no contrasting your approach against worse alternatives, no narrating the obvious. State what you did and what's left.
+"""
+        if orchestrator_mode_enabled():
+            result += f"""
+ORCHESTRATION MODE (active) — operate as a coordinator, not the implementer. Keep your own context at a high, meta level so it stays small.
+- For any non-trivial task {owner_name} assigns, delegate the hands-on work — exploration, reading files, edits, running commands, verification — to a subagent via `invoke_agent` instead of doing it yourself. Your context should hold the plan and the subagents' distilled results, not raw file contents or long tool output.
+- Give each subagent a self-contained brief: the objective, the relevant paths/context it needs, constraints, and the exact deliverable. Tell it to report back a concise summary (what it did or found, key decisions, what's left) — never raw dumps.
+- Scale delegation to the work: a quick fact or one-line edit, do directly; a multi-part task gets one subagent per independent piece, with non-overlapping scope so they don't duplicate effort.
+- Synthesize subagent results for {owner_name} and decide the next step (delegate again, or finish). Don't redo a subagent's work in your own context.
+- Note: delegation trades tokens for context isolation. Don't spawn a subagent for trivial questions — answer those directly.
 """
         # NOTE: runtime ``load_prompt`` fragments (plugin-injected notes such
         # as environment context, file-permission rules, memory recall, ...)
