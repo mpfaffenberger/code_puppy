@@ -37,6 +37,12 @@ class SpinnerBase(ABC):
     _context_info: str = ""
     _context_lock: Lock = Lock()
 
+    # Current activity (e.g. "Running: npm test") shown in place of the
+    # generic thinking message while a tool is executing, so a long tool
+    # call reads as live progress rather than a frozen "thinking…".
+    _activity: str = ""
+    _activity_lock: Lock = Lock()
+
     def __init__(self):
         """Initialize the spinner."""
         self._is_spinning = False
@@ -85,6 +91,23 @@ class SpinnerBase(ABC):
         """Return the current spinner context information."""
         with cls._context_lock:
             return cls._context_info
+
+    @classmethod
+    def set_activity(cls, activity: str) -> None:
+        """Set the current activity label shown beside the spinner."""
+        with cls._activity_lock:
+            cls._activity = activity or ""
+
+    @classmethod
+    def clear_activity(cls) -> None:
+        """Clear the activity label, reverting to the thinking message."""
+        cls.set_activity("")
+
+    @classmethod
+    def get_activity(cls) -> str:
+        """Return the current activity label (empty when just thinking)."""
+        with cls._activity_lock:
+            return cls._activity
 
     @staticmethod
     def format_context_info(total_tokens: int, capacity: int, proportion: float) -> str:

@@ -130,8 +130,12 @@ class ConsoleSpinner(SpinnerBase):
 
         text = Text()
 
-        # Show thinking message during normal processing
-        text.append(SpinnerBase.THINKING_MESSAGE, style="bold cyan")
+        # Show the current activity (e.g. "Running: npm test") while a tool is
+        # executing, otherwise the generic thinking message. Either way the
+        # frames keep animating so a long action reads as live progress.
+        activity = SpinnerBase.get_activity()
+        message = f"{activity} " if activity else SpinnerBase.THINKING_MESSAGE
+        text.append(message, style="bold cyan")
         text.append(self.current_frame, style="bold cyan")
 
         context_info = SpinnerBase.get_context_info()
