@@ -39,8 +39,11 @@ def build_available_skills_block(skills: List["SkillMetadata"]) -> str:
 
 
 def build_skills_guidance() -> str:
-    """One-liner telling the model how to actually use a skill."""
+    """Tell the model when and how to use a skill."""
     return (
-        "Call `activate_skill(name)` to load a skill's full instructions, "
-        "or `list_or_search_skills(query)` to find one."
+        "When the user's question or task relates to a skill listed above, "
+        "activate it with `activate_skill(name)` **before** answering so its "
+        "full instructions are loaded into context. Use "
+        "`list_or_search_skills(query)` to discover skills by keyword — it "
+        "matches any individual word in the query."
     )
