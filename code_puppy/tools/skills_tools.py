@@ -16,6 +16,13 @@ from code_puppy.messaging import (
 logger = logging.getLogger(__name__)
 
 
+def _skill_haystack(skill: dict) -> str:
+    """Lowercased blob of a skill's searchable text (name + desc + tags)."""
+    return (
+        skill["name"] + " " + skill["description"] + " " + " ".join(skill["tags"])
+    ).lower()
+
+
 # Output models
 class SkillListOutput(BaseModel):
     """Output for list_or_search_skills tool."""
@@ -180,27 +187,16 @@ def register_list_or_search_skills(agent):
             for m in metadatas
         ]
 
-        # Filter by query if provided
+        # Filter by query — match if ANY term appears in the skill's name,
+        # description, or tags. Avoids the old bug where the entire query was
+        # treated as one substring (so "code puppy architecture" matched nothing).
         if query:
-            query_lower = query.lower()
-            filtered = []
-            for skill in skills_list:
-                # Check name (case-insensitive)
-                if query_lower in skill["name"].lower():
-                    filtered.append(skill)
-                    continue
-
-                # Check description (case-insensitive)
-                if query_lower in skill["description"].lower():
-                    filtered.append(skill)
-                    continue
-
-                # Check tags (case-insensitive)
-                for tag in skill["tags"]:
-                    if query_lower in tag.lower():
-                        filtered.append(skill)
-                        break
-            skills_list = filtered
+            terms = query.lower().replace("-", " ").replace("_", " ").split()
+            skills_list = [
+                s
+                for s in skills_list
+                if any(term in _skill_haystack(s) for term in terms)
+            ]
 
         # Emit message for UI
         skill_entries = [
