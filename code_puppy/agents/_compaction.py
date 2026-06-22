@@ -25,6 +25,7 @@ from pydantic_ai.messages import (
 )
 
 from code_puppy.agents._history import (
+    clear_stale_tool_results,
     estimate_tokens_for_message,
     filter_huge_messages,
     has_pending_tool_calls,
@@ -40,10 +41,41 @@ from code_puppy.config import (
     get_compaction_strategy,
     get_compaction_threshold,
     get_protected_token_count,
+    get_value,
 )
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.messaging.spinner import SpinnerBase, update_spinner_context
 from code_puppy.summarization_agent import SummarizationError, run_summarization_sync
+
+_TRC_TRUTHY = frozenset({"1", "true", "on", "yes", "enabled"})
+
+
+def _tool_result_clearing_config() -> tuple[bool, int, int]:
+    """Return ``(enabled, keep_recent, min_tokens)`` for tool-result clearing.
+
+    Enabled by default: dropping bulky tool payloads once they're deep in
+    history is the cheapest, lowest-risk way to keep context small. Tunable via
+    ``tool_result_clearing`` / ``tool_result_keep_recent`` /
+    ``tool_result_clear_threshold``.
+    """
+    raw = get_value("tool_result_clearing")
+    enabled = (
+        True
+        if (raw is None or str(raw).strip() == "")
+        else str(raw).strip().lower() in _TRC_TRUTHY
+    )
+
+    def _int(key: str, default: int) -> int:
+        try:
+            return max(0, int(str(get_value(key)).strip()))
+        except (TypeError, ValueError):
+            return default
+
+    return (
+        enabled,
+        _int("tool_result_keep_recent", 4),
+        _int("tool_result_clear_threshold", 1500),
+    )
 
 _SUMMARIZATION_INSTRUCTIONS = (
     "The input will be a log of Agentic AI steps that have been taken"
@@ -485,6 +517,28 @@ def make_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
             if i == last_idx or h not in compacted_hashes:
                 history.append(msg)
                 messages_added += 1
+
+        # Proactive tool-result clearing — runs every turn, independent of the
+        # compaction threshold, so bulky stale payloads never accumulate.
+        trc_enabled, trc_keep, trc_min = _tool_result_clearing_config()
+        if trc_enabled:
+            model_name = None
+            try:
+                model_name = agent.get_model_name()
+            except Exception:
+                model_name = None
+            history, n_cleared = clear_stale_tool_results(
+                history,
+                keep_recent=trc_keep,
+                min_tokens=trc_min,
+                model_name=model_name,
+            )
+            if n_cleared:
+                agent._message_history = history
+                emit_info(
+                    f"🧹 Cleared {n_cleared} stale tool result(s) to save context",
+                    message_group="token_context_status",
+                )
 
         new_history, dropped = compact(
             agent,
