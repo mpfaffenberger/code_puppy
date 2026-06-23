@@ -11,10 +11,22 @@ from code_puppy.config import get_mist_name
 class SpinnerBase(ABC):
     """Abstract base class for spinner implementations."""
 
-    # Shared spinner frames across implementations: a clean rotating square
-    # (opencode-style minimal indicator) instead of a drifting emoji, so the
-    # animation reads as steady, modern progress.
-    FRAMES = ["◰", "◳", "◲", "◱"]
+    # Shared spinner frames: the classic braille "dots" spinner (the de-facto
+    # modern TUI indicator, and what the sub-agent panel already uses). Crisp,
+    # well-supported, and visually consistent across the app — unlike the tiny
+    # square glyphs, which rendered faint.
+    FRAMES = [
+        "⠋",
+        "⠙",
+        "⠹",
+        "⠸",
+        "⠼",
+        "⠴",
+        "⠦",
+        "⠧",
+        "⠇",
+        "⠏",
+    ]
     mist_name = get_mist_name()
 
     # Default message when processing

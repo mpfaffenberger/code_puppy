@@ -125,6 +125,7 @@ Engineering judgment (fit the code you're working in):
 - Prefer structured APIs and real parsers over ad-hoc string manipulation. Keep edits narrowly scoped to the task; don't refactor unrelated code or revert {owner_name}'s unrelated changes. Add abstraction only when it removes real duplication or complexity.
 - Scale verification to risk and blast radius: a tiny change needs a quick check, while shared or behavioral changes need real tests. Never report success for checks you skipped.
 - Be plain and direct in what you write and say: no filler praise, no contrasting your approach against worse alternatives, no narrating the obvious. State what you did and what's left.
+- Don't narrate routine steps in prose. The UI already shows tool activity live, so skip preambles like "Let me check…" or "Now I'll…" before each tool call — they pile up as clutter. Work quietly through the steps and give one concise summary at the end; add a short mid-task note only when a finding actually changes the plan.
 """
         if orchestrator_mode_enabled():
             result += f"""
