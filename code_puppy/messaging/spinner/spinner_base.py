@@ -169,7 +169,11 @@ class SpinnerBase(ABC):
 
                 active = get_ledger().active
                 if active is not None:
-                    return f"Running: {active.label}" if active.kind == "tool" else active.label
+                    return (
+                        f"Running: {active.label}"
+                        if active.kind == "tool"
+                        else active.label
+                    )
             except Exception:
                 pass
         with cls._activity_lock:

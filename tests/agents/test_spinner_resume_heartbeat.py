@@ -80,7 +80,13 @@ def _patch_termflow():
 @pytest.mark.parametrize(
     "next_kind",
     ["tool-call", "text", "thinking", None, "tool_call"],
-    ids=["next-tool-call", "next-text", "next-thinking", "end-of-turn", "tool-call-underscore"],
+    ids=[
+        "next-tool-call",
+        "next-text",
+        "next-thinking",
+        "end-of-turn",
+        "tool-call-underscore",
+    ],
 )
 @pytest.mark.asyncio
 async def test_part_end_resumes_spinner_for_every_next_kind(
@@ -104,8 +110,9 @@ async def test_part_end_resumes_spinner_for_every_next_kind(
         yield end
 
     with (
-        patch("code_puppy.agents.event_stream_handler.resume_all_spinners")
-        as resume_mock,
+        patch(
+            "code_puppy.agents.event_stream_handler.resume_all_spinners"
+        ) as resume_mock,
         patch(
             "code_puppy.agents.event_stream_handler.get_banner_color",
             return_value="blue",
@@ -149,8 +156,9 @@ async def test_heartbeat_fires_after_multiple_tool_parts(mock_ctx, mock_console)
 
     with (
         patch("code_puppy.agents.event_stream_handler.pause_all_spinners"),
-        patch("code_puppy.agents.event_stream_handler.resume_all_spinners")
-        as resume_mock,
+        patch(
+            "code_puppy.agents.event_stream_handler.resume_all_spinners"
+        ) as resume_mock,
         patch(
             "code_puppy.agents.event_stream_handler.get_banner_color",
             return_value="blue",
@@ -187,8 +195,9 @@ async def test_text_part_end_also_resumes(mock_ctx, mock_console):
 
     with (
         patch("code_puppy.agents.event_stream_handler.pause_all_spinners"),
-        patch("code_puppy.agents.event_stream_handler.resume_all_spinners")
-        as resume_mock,
+        patch(
+            "code_puppy.agents.event_stream_handler.resume_all_spinners"
+        ) as resume_mock,
         patch(
             "code_puppy.agents.event_stream_handler.get_banner_color",
             return_value="blue",

@@ -76,9 +76,7 @@ def compact_on(monkeypatch):
         "code_puppy.agents.event_stream_handler.get_compact_steps_summary",
         lambda: False,  # silence summary so test assertions focus on flow
     )
-    monkeypatch.setattr(
-        "code_puppy.config.get_compact_steps", lambda: True
-    )
+    monkeypatch.setattr("code_puppy.config.get_compact_steps", lambda: True)
     return True
 
 
@@ -89,9 +87,7 @@ def compact_off(monkeypatch):
         "code_puppy.agents.event_stream_handler.get_compact_steps",
         lambda: False,
     )
-    monkeypatch.setattr(
-        "code_puppy.config.get_compact_steps", lambda: False
-    )
+    monkeypatch.setattr("code_puppy.config.get_compact_steps", lambda: False)
     return False
 
 
@@ -136,9 +132,7 @@ def _consume_cm(contexts):
 
 
 @pytest.mark.asyncio
-async def test_final_answer_flushes_to_scrollback(
-    mock_ctx, mock_console, compact_on
-):
+async def test_final_answer_flushes_to_scrollback(mock_ctx, mock_console, compact_on):
     """Text-only turn (next_part_kind=None at end) flushes verbatim."""
     console, file_buf = mock_console
     set_streaming_console(console)
@@ -153,12 +147,8 @@ async def test_final_answer_flushes_to_scrollback(
 
     p_patch, parser, renderer = _patch_termflow()
     with _consume_cm(p_patch()):
-        with patch(
-            "code_puppy.agents.event_stream_handler.pause_all_spinners"
-        ):
-            with patch(
-                "code_puppy.agents.event_stream_handler.resume_all_spinners"
-            ):
+        with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
+            with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
                     "code_puppy.agents.event_stream_handler.get_banner_color",
                     return_value="blue",
@@ -169,8 +159,7 @@ async def test_final_answer_flushes_to_scrollback(
     # printed via console.print and the buffered body via console.file.write.
     written_to_file = file_buf.getvalue()
     printed = "".join(
-        str(call.args[0]) if call.args else ""
-        for call in console.print.call_args_list
+        str(call.args[0]) if call.args else "" for call in console.print.call_args_list
     )
     assert "AGENT RESPONSE" in printed
     assert "Hello world" in written_to_file
@@ -189,9 +178,7 @@ async def test_intermediate_narration_collapses_to_ledger_gist(
     text_start = PartStartEvent(index=0, part=text_part)
     text_end = PartEndEvent(index=0, part=text_part, next_part_kind="tool-call")
 
-    tool_part = ToolCallPart(
-        tool_call_id="t1", tool_name="run_shell_command", args={}
-    )
+    tool_part = ToolCallPart(tool_call_id="t1", tool_name="run_shell_command", args={})
     tool_start = PartStartEvent(index=1, part=tool_part)
     tool_end = PartEndEvent(index=1, part=tool_part, next_part_kind=None)
 
@@ -218,9 +205,7 @@ async def test_intermediate_narration_collapses_to_ledger_gist(
     StepLedger.push_narration = capture_push
     try:
         with _consume_cm(p_patch()):
-            with patch(
-                "code_puppy.agents.event_stream_handler.pause_all_spinners"
-            ):
+            with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
                 with patch(
                     "code_puppy.agents.event_stream_handler.resume_all_spinners"
                 ):
@@ -258,12 +243,8 @@ async def test_ledger_activated_when_compact_on(mock_ctx, mock_console, compact_
 
     p_patch, *_ = _patch_termflow()
     with _consume_cm(p_patch()):
-        with patch(
-            "code_puppy.agents.event_stream_handler.pause_all_spinners"
-        ):
-            with patch(
-                "code_puppy.agents.event_stream_handler.resume_all_spinners"
-            ):
+        with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
+            with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
                     "code_puppy.agents.event_stream_handler.get_banner_color",
                     return_value="blue",
@@ -276,9 +257,7 @@ async def test_ledger_activated_when_compact_on(mock_ctx, mock_console, compact_
 
 
 @pytest.mark.asyncio
-async def test_legacy_behavior_when_compact_off(
-    mock_ctx, mock_console, compact_off
-):
+async def test_legacy_behavior_when_compact_off(mock_ctx, mock_console, compact_off):
     """With ``compact_steps`` off, the legacy behavior is preserved: the
     AGENT RESPONSE banner prints inline, no ledger activation."""
     console, _file_buf = mock_console
@@ -287,9 +266,7 @@ async def test_legacy_behavior_when_compact_off(
 
     text_part = TextPart(content="Hello world")
     start = PartStartEvent(index=0, part=text_part)
-    delta = PartDeltaEvent(
-        index=0, delta=TextPartDelta(content_delta="Hello world")
-    )
+    delta = PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="Hello world"))
     end = PartEndEvent(index=0, part=text_part, next_part_kind=None)
 
     async def stream():
@@ -299,12 +276,8 @@ async def test_legacy_behavior_when_compact_off(
 
     p_patch, *_ = _patch_termflow()
     with _consume_cm(p_patch()):
-        with patch(
-            "code_puppy.agents.event_stream_handler.pause_all_spinners"
-        ):
-            with patch(
-                "code_puppy.agents.event_stream_handler.resume_all_spinners"
-            ):
+        with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
+            with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
                     "code_puppy.agents.event_stream_handler.get_banner_color",
                     return_value="blue",
@@ -314,8 +287,7 @@ async def test_legacy_behavior_when_compact_off(
     # Legacy path: the AGENT RESPONSE banner was printed via console.print,
     # not deferred.
     printed = "".join(
-        str(call.args[0]) if call.args else ""
-        for call in console.print.call_args_list
+        str(call.args[0]) if call.args else "" for call in console.print.call_args_list
     )
     assert "AGENT RESPONSE" in printed
 
@@ -331,15 +303,11 @@ async def test_streaming_text_part_does_not_print_response_banner(
 
     text_part = TextPart(content="thinking aloud")
     start = PartStartEvent(index=0, part=text_part)
-    delta = PartDeltaEvent(
-        index=0, delta=TextPartDelta(content_delta=" more")
-    )
+    delta = PartDeltaEvent(index=0, delta=TextPartDelta(content_delta=" more"))
     # Tool follows — must collapse.
     end = PartEndEvent(index=0, part=text_part, next_part_kind="tool-call")
 
-    tool_part = ToolCallPart(
-        tool_call_id="t1", tool_name="grep", args={}
-    )
+    tool_part = ToolCallPart(tool_call_id="t1", tool_name="grep", args={})
     tool_start = PartStartEvent(index=1, part=tool_part)
     tool_end = PartEndEvent(index=1, part=tool_part, next_part_kind=None)
 
@@ -352,12 +320,8 @@ async def test_streaming_text_part_does_not_print_response_banner(
 
     p_patch, *_ = _patch_termflow()
     with _consume_cm(p_patch()):
-        with patch(
-            "code_puppy.agents.event_stream_handler.pause_all_spinners"
-        ):
-            with patch(
-                "code_puppy.agents.event_stream_handler.resume_all_spinners"
-            ):
+        with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
+            with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
                     "code_puppy.agents.event_stream_handler.get_banner_color",
                     return_value="blue",
@@ -365,8 +329,7 @@ async def test_streaming_text_part_does_not_print_response_banner(
                     await event_stream_handler(mock_ctx, stream())
 
     printed = "".join(
-        str(call.args[0]) if call.args else ""
-        for call in console.print.call_args_list
+        str(call.args[0]) if call.args else "" for call in console.print.call_args_list
     )
     assert "AGENT RESPONSE" not in printed
 
@@ -386,12 +349,8 @@ async def test_stream_aborted_resets_ledger(mock_ctx, mock_console, compact_on):
 
     p_patch, *_ = _patch_termflow()
     with _consume_cm(p_patch()):
-        with patch(
-            "code_puppy.agents.event_stream_handler.pause_all_spinners"
-        ):
-            with patch(
-                "code_puppy.agents.event_stream_handler.resume_all_spinners"
-            ):
+        with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
+            with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
                 with patch(
                     "code_puppy.agents.event_stream_handler.get_banner_color",
                     return_value="blue",
@@ -401,8 +360,7 @@ async def test_stream_aborted_resets_ledger(mock_ctx, mock_console, compact_on):
 
     # No AGENT RESPONSE banner — we never reached the turn-end flush.
     printed = "".join(
-        str(call.args[0]) if call.args else ""
-        for call in console.print.call_args_list
+        str(call.args[0]) if call.args else "" for call in console.print.call_args_list
     )
     assert "AGENT RESPONSE" not in printed
     # Ledger is clean for the next turn.

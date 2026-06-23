@@ -428,9 +428,7 @@ async def event_stream_handler(
                             _initial_parser = termflow_parsers[event.index]
                             _initial_buffer = termflow_line_buffers[event.index]
                             while "\n" in _initial_buffer:
-                                _line, _initial_buffer = _initial_buffer.split(
-                                    "\n", 1
-                                )
+                                _line, _initial_buffer = _initial_buffer.split("\n", 1)
                                 _initial_parser.parse_line(_line)
                             termflow_line_buffers[event.index] = _initial_buffer
                         else:

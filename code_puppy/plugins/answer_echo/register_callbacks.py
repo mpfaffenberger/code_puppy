@@ -38,7 +38,9 @@ def _format_selection(answer: Any) -> str:
         return "(no selection)"
     selections = list(answer.selected_options or [])
     if answer.other_text:
-        selections.append(f'{_OTHER_LABEL}: {_truncate(answer.other_text, _MAX_LABEL_LEN)}')
+        selections.append(
+            f"{_OTHER_LABEL}: {_truncate(answer.other_text, _MAX_LABEL_LEN)}"
+        )
     if not selections:
         return "(no selection)"
     return ", ".join(_truncate(s, _MAX_LABEL_LEN) for s in selections)
@@ -128,9 +130,7 @@ async def _on_post_tool_call(
         except Exception:
             pass
         if not is_typed:
-            is_typed = hasattr(result, "answers") and hasattr(
-                result, "cancelled"
-            )
+            is_typed = hasattr(result, "answers") and hasattr(result, "cancelled")
 
         if not is_typed:
             return
