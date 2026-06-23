@@ -536,10 +536,11 @@ def make_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
             )
             if n_cleared:
                 agent._message_history = history
-                emit_info(
-                    f"🧹 Cleared {n_cleared} stale tool result(s) to save context",
-                    message_group="token_context_status",
-                )
+                # Tool-result clearing is a silent internal optimization — it
+                # ran on every turn and printed a scrollback line each time,
+                # which spammed the transcript and clobbered the spinner's
+                # Live region. Surface it only in the (debug) spinner context.
+                update_spinner_context(f"cleared {n_cleared} stale tool result(s)")
 
         new_history, dropped = compact(
             agent,

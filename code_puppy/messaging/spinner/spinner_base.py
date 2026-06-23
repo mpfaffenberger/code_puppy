@@ -29,6 +29,10 @@ class SpinnerBase(ABC):
             "⠈⠁⠂⠄",
         ],
         "pulse": ["⠀⠶⠀", "⠰⣿⠆", "⢾⣉⡷", "⣏⠀⣹", "⡁⠀⢈"],
+        # A circular light filling and emptying — a calm "agent is alive"
+        # heartbeat (well-supported geometric circles, render crisply).
+        "breathe": ["○", "◔", "◑", "◕", "●", "◕", "◑", "◔"],
+        "heart": ["♡", "♥", "❤", "♥"],
         "snake": [
             "⣁⡀",
             "⣉⠀",

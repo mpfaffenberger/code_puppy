@@ -731,7 +731,10 @@ async def event_stream_handler(
 
             ledger = get_ledger()
             n = ledger.completed_count()
-            if n and get_compact_steps_summary():
+            # Only summarize genuinely multi-step turns. A 1-step turn (the
+            # common case) printing "▸ 1 step" on every reply just spams the
+            # transcript without telling the user anything.
+            if n >= 2 and get_compact_steps_summary():
                 # Drop the active step silently — turn ended without it
                 # resolving (rare). Closing the Live region then printing
                 # the summary keeps the live → scrollback handoff clean.
