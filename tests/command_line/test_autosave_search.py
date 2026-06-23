@@ -11,9 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import List
-
-import pytest
+from typing import Dict, List
 
 from code_puppy.command_line.autosave_search import (
     SEARCH_ALPHABET,
