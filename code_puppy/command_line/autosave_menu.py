@@ -570,21 +570,39 @@ async def interactive_autosave_picker() -> Optional[str]:
             return visible[selected_idx[0]]
         return None
 
-    def update_visible_entries() -> None:
-        """Re-filter ``entries`` against ``search_text`` and clamp pagination."""
-        needle = search_text[0]
-        if needle:
-            visible_entries[0] = [
-                e for e in entries if entry_matches(e, needle, content_index, base_dir)
-            ]
-        else:
-            visible_entries[0] = list(entries)
-        if not visible_entries[0]:
+    def _filter_entries(needle: str) -> List[Tuple[str, dict]]:
+        """Pure filter: needle in, filtered list out. Safe to run off-thread.
+
+        Reads ``entries``, ``content_index``, and ``base_dir`` from the
+        enclosing closure -- ``entries`` is built once and never mutated,
+        and ``content_index`` is protected by its own internal lock, so
+        this is safe to invoke from an ``asyncio.to_thread`` worker.
+        """
+        if not needle:
+            return list(entries)
+        return [
+            e for e in entries if entry_matches(e, needle, content_index, base_dir)
+        ]
+
+    def _apply_filter_result(filtered: List[Tuple[str, dict]]) -> None:
+        """Apply a filter result to picker state. Must run on the main thread."""
+        visible_entries[0] = filtered
+        if not filtered:
             selected_idx[0] = 0
             current_page[0] = 0
             return
-        selected_idx[0] = min(selected_idx[0], len(visible_entries[0]) - 1)
+        selected_idx[0] = min(selected_idx[0], len(filtered) - 1)
         current_page[0] = get_page_for_index(selected_idx[0], PAGE_SIZE)
+
+    def update_visible_entries() -> None:
+        """Synchronous re-filter -- only safe when the cache is warm or empty.
+
+        Used for the picker's initial setup (no filter active -> trivial)
+        and as a fallback. The post-Enter path goes through
+        :func:`asyncio.to_thread` instead so a cold-cache filter does not
+        freeze the event loop.
+        """
+        _apply_filter_result(_filter_entries(search_text[0]))
 
     # Build UI
     menu_control = FormattedTextControl(text="")
@@ -786,12 +804,13 @@ async def interactive_autosave_picker() -> Optional[str]:
             is_filtering[0] = True
             update_display()
             event.app.invalidate()
-            # Yield control back to prompt_toolkit so it can paint the
-            # "Filtering..." indicator before the (potentially blocking)
-            # filter runs.
-            await asyncio.sleep(0)
+            # Run the (potentially blocking) filter on a worker thread
+            # so the event loop stays responsive. ``await`` yields here,
+            # which also gives prompt_toolkit the tick it needs to paint
+            # the "Filtering..." indicator before the worker starts.
             try:
-                update_visible_entries()
+                filtered = await asyncio.to_thread(_filter_entries, search_text[0])
+                _apply_filter_result(filtered)
             finally:
                 is_filtering[0] = False
             update_display()

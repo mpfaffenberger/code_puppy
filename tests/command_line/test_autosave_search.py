@@ -225,6 +225,68 @@ class TestSessionContentIndex:
         assert "s1" in idx
         assert "never_loaded" not in idx
 
+    def test_cached_failure_is_not_re_loaded(self):
+        # PR review accept #1: the lookup short-circuit must distinguish
+        # ``not cached yet`` from ``cached as empty string (failed load)``.
+        # Regression would silently retry a broken pickle on every keystroke.
+        call_count = {"n": 0}
+
+        def boom_once(name, base):
+            call_count["n"] += 1
+            raise RuntimeError("pickle ate the dog")
+
+        idx = SessionContentIndex(loader=boom_once)
+        assert idx.lookup("broken", Path("/tmp")) == ""
+        assert idx.lookup("broken", Path("/tmp")) == ""
+        assert idx.lookup("broken", Path("/tmp")) == ""
+        assert call_count["n"] == 1, "cached empty-string must not trigger reload"
+
+    def test_concurrent_access_is_thread_safe(self):
+        # PR review accept #1: the cache is touched by the event loop AND
+        # ``asyncio.to_thread`` worker threads. The lock should keep state
+        # consistent under concurrent ``lookup`` / ``count`` / ``in`` calls.
+        # This test does not prove the absence of all race conditions, but
+        # it does smoke-test the lock plumbing and would have failed loud
+        # if we'd accidentally held the lock across the loader call.
+        import threading
+
+        load_counts: Dict[str, int] = {}
+        load_lock = threading.Lock()
+
+        def slow_loader(name, base):
+            with load_lock:
+                load_counts[name] = load_counts.get(name, 0) + 1
+            return _make_history(f"content-of-{name}")
+
+        idx = SessionContentIndex(loader=slow_loader)
+        names = [f"s{i}" for i in range(20)]
+
+        errors = []
+
+        def worker():
+            try:
+                for name in names:
+                    idx.lookup(name, Path("/tmp"))
+                    _ = idx.count()
+                    _ = name in idx
+            except Exception as exc:  # pragma: no cover - asserted below
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+
+        assert not errors, f"thread-safety regression: {errors}"
+        # All 20 sessions ended up cached.
+        assert idx.count() == 20
+        # Each session was loaded at most a small number of times (one
+        # per losing-the-race thread). The point isn't "exactly 1" --
+        # the lock is released during loader -- it's "not 8x".
+        for name, n in load_counts.items():
+            assert 1 <= n <= 8, f"{name} was loaded {n} times -- lock plumbing broken"
+
 
 # ---------------------------------------------------------------------------
 # entry_matches

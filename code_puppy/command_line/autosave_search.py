@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 from typing import Callable, Dict, Iterator, Optional, Tuple
 
 from code_puppy.session_storage import load_session
@@ -90,18 +91,35 @@ class SessionContentIndex:
     ) -> None:
         self._loader = loader or load_session
         self._cache: Dict[str, str] = {}
+        # The pre-warm task runs on an ``asyncio.to_thread`` worker while
+        # the picker's render path reads cache state on the event loop;
+        # the post-Enter filter (PR review accept #2) also runs on a
+        # worker. CPython's GIL makes individual dict ops atomic, but
+        # the ``check-then-load-then-store`` sequence in ``lookup`` is
+        # not -- the lock keeps the invariant tidy and survives a future
+        # free-threaded build where GIL atomicity disappears.
+        self._lock = Lock()
 
     def lookup(self, session_name: str, base_dir: Path) -> str:
-        if session_name in self._cache:
-            return self._cache[session_name]
+        with self._lock:
+            cached = self._cache.get(session_name)
+            if cached is not None or session_name in self._cache:
+                # ``cached is not None`` short-circuits the common case;
+                # the explicit ``in`` check picks up cached-empty-string
+                # entries (failed loads) without re-running the loader.
+                return cached or ""
+        # Loader runs OUTSIDE the lock so a slow pickle read does not
+        # block other threads from checking the cache for unrelated keys.
         try:
             history = self._loader(session_name, base_dir)
+            text = _session_text(history).lower()
         except Exception:
             # Cache the failure so a broken pickle does not slow every keystroke.
-            self._cache[session_name] = ""
-            return ""
-        text = _session_text(history).lower()
-        self._cache[session_name] = text
+            text = ""
+        with self._lock:
+            # Last-writer-wins. If a concurrent ``lookup`` for the same
+            # key beat us here that is fine -- the value is identical.
+            self._cache[session_name] = text
         return text
 
     def count(self) -> int:
@@ -110,7 +128,8 @@ class SessionContentIndex:
         The picker uses this to render an ``Indexing N/M…`` progress hint
         while the background pre-warm task is still running.
         """
-        return len(self._cache)
+        with self._lock:
+            return len(self._cache)
 
     def __contains__(self, session_name: object) -> bool:
         """Membership check so callers don't have to peek at ``_cache``.
@@ -118,7 +137,8 @@ class SessionContentIndex:
         Used by the picker's pre-warm loop to skip sessions that were
         already loaded on demand by an earlier ``lookup``.
         """
-        return session_name in self._cache
+        with self._lock:
+            return session_name in self._cache
 
 
 def _formatted_timestamp(metadata: dict) -> str:
