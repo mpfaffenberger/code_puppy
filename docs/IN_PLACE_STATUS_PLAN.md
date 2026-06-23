@@ -137,10 +137,98 @@ intermediate-vs-final is the crux.
 - Cons: `Live` must own the whole turn's output; interleaving streamed markdown
   (termflow) inside a `Live` group is complex and risky.
 
-### Decision
+### Decision (original)
 **Go with Option A.** It delivers the requested behavior, reuses the spinner
 `Live` region, and is the most incremental / least risky. Options B/C can be
 revisited later if we want a fully pinned footer.
+
+### Decision (REVISED — Option B is now the recommended path)
+
+Option A was implemented (`compact_steps`) and **does not render correctly in
+the live TUI**: the ledger's `Live` region flashed/collapsed, intermediate
+status stayed invisible, and it spammed `▸ N steps`. Separately, every attempt
+at an always-on liveliness signal failed for the **same root cause**:
+
+> Mist streams assistant text via raw `console.file.write` (termflow), which
+> **bypasses Rich's `Live` coordination**. Any second writer to the terminal —
+> a spinner `Live`, a background OSC title thread — races with that raw stream
+> and corrupts output (spinner pauses to avoid it; the OSC heartbeat spewed
+> raw `]2;…` into scrollback).
+
+There is no safe side-channel. The only robust fix is to make **one Rich `Live`
+own the whole turn's output**, with streamed text routed *through* it. That is
+Option B.
+
+See **§3b** below for the full Option B plan.
+
+---
+
+## 3b. Option B — Persistent Footer (recommended)
+
+### Goal
+A single, always-present footer (pinned to the bottom) shows liveliness +
+current activity + a rolling step ledger, while the transcript scrolls above it.
+Because **one** `Live` owns all output, nothing races — no pause/resume hacks,
+no corruption, and the liveliness signal is genuinely always-on (incl. the
+response-generation gap).
+
+### The core change (and the hard part)
+Today: streamed markdown is written with `console.file.write` / a termflow
+`SmoothTermflowWriter`, **outside** any `Live`. Option B requires **all** output
+during an agent turn to go through the single managed `Live`:
+
+- Wrap the turn in one `Live(get_renderable(), console=…, transient=False)` whose
+  renderable is a `Group(transcript_tail, Rule, footer)` — OR use Rich's
+  `Live.console.print(...)` so prints scroll *above* the live footer (Rich
+  supports printing above a live region when `Live` owns the console).
+- Re-point the termflow streaming so each rendered line is emitted via the
+  Live-owned console (`live.console.print`) instead of raw `console.file.write`.
+  This is the crux: termflow currently emits ANSI directly; it must hand lines
+  to the Live-managed console so the footer stays pinned and uncorrupted.
+- The footer renderable = heartbeat glyph + spinner activity (`SpinnerBase`
+  activity/context) + the `StepLedger` rolling rows. Retire the standalone
+  `ConsoleSpinner` `Live` (one `Live` only — two `Live`s conflict).
+
+### Implementation steps (each verifiable in tmux, see §3c)
+1. **Footer renderable** — a function returning the `Group(footer rows)` built
+   from `SpinnerBase` (activity/context) + `StepLedger`. Pure render, no I/O.
+2. **Single turn-level `Live`** — start in `event_stream_handler` (or the run
+   wrapper) for the whole turn; `refresh_per_second≈12`; `transient=False` so the
+   footer clears cleanly at turn end.
+3. **Route streamed text through the Live console** — replace the termflow
+   `console.file.write` path with `live.console.print(...)` (or `Live`'s
+   "print above" API). Verify no line duplication.
+4. **Retire `ConsoleSpinner`'s own `Live`** — its frames/activity now feed the
+   footer; remove the pause/resume plumbing (`pause_all_spinners`, the
+   `pre_tool_call` resume hack, the response-gap resume).
+5. **Liveliness** — the footer animates a heartbeat glyph every frame regardless
+   of phase; no side-channel needed.
+6. **Ledger** — `compact_steps` rows render in the footer; the "defer narration"
+   logic from Option A is reused as-is.
+
+### §3c. Verification harness (now available)
+We can drive the real TUI headlessly:
+```bash
+tmux new-session -d -s mt -x 170 -y 45
+tmux send-keys -t mt '.venv-user/bin/mist' Enter        # boot
+tmux send-keys -t mt 'list the files then summarize' Enter
+# capture rendered frames over time to inspect spinner / footer / artifacts:
+tmux capture-pane -t mt -p        # rendered screen (post-escape-processing)
+tmux capture-pane -t mt -pe       # include escape sequences (catch corruption)
+tmux kill-session -t mt
+```
+`capture-pane -p` shows exactly what the user sees; `-pe` exposes raw escapes so
+regressions like the `]2;` OSC corruption are caught automatically. Each step
+above lands behind `compact_steps` (default off) and is validated by capturing
+panes mid-stream before flipping the default.
+
+### Risks
+- **Line duplication / scroll jank** if termflow text isn't fully routed through
+  the Live console — the #1 thing to verify per-step in tmux.
+- Performance: one `Live` at ~12fps over a long stream — keep the footer
+  renderable cheap (plain `Text`/`Group`, no heavy panels).
+- Provider stalls still show the heartbeat (good) — confirm it doesn't fight the
+  partially-streamed transcript above.
 
 ---
 
