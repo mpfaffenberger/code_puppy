@@ -2187,6 +2187,64 @@ def set_output_level(level: str) -> None:
     set_config_value("output_level", normalised)
 
 
+# ---------------------------------------------------------------------------
+# Compact steps ledger (in-place tool / narration status)
+# ---------------------------------------------------------------------------
+
+
+def get_compact_steps() -> bool:
+    """Return True if the in-place steps ledger is enabled.
+
+    When enabled, tool-call peeks and intermediate assistant narration
+    are routed into a single live ``SpinnerBase``-rendered ledger instead
+    of stacking in scrollback. Defaults to False so the existing banner /
+    peek behavior is preserved until the user opts in.
+
+    The flag is independent of ``output_level`` — a user can be in
+    ``medium`` and still want the in-place ledger, or in ``low`` /
+    ``high`` and keep the legacy stacking render.
+    """
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("compact_steps")
+    if cfg_val is None:
+        return False
+    return str(cfg_val).strip().lower() in true_vals
+
+
+def set_compact_steps(enabled: bool) -> None:
+    """Set the ``compact_steps`` config flag."""
+    set_config_value("compact_steps", "true" if enabled else "false")
+
+
+def get_compact_steps_max_visible() -> int:
+    """Return how many completed ledger rows to keep on screen.
+
+    Defaults to 5 — enough context without dominating the viewport.
+    """
+    cfg_val = get_value("compact_steps_max_visible")
+    if cfg_val is None:
+        return 5
+    try:
+        n = int(str(cfg_val).strip())
+        return max(0, min(n, 50))
+    except (TypeError, ValueError):
+        return 5
+
+
+def get_compact_steps_summary() -> bool:
+    """Return True if a ``▸ N steps`` summary is printed on turn end."""
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("compact_steps_summary")
+    if cfg_val is None:
+        return True
+    return str(cfg_val).strip().lower() in true_vals
+
+
+def set_compact_steps_summary(enabled: bool) -> None:
+    """Set the ``compact_steps_summary`` config flag."""
+    set_config_value("compact_steps_summary", "true" if enabled else "false")
+
+
 # API Key management functions
 def get_api_key(key_name: str) -> str:
     """Get an API key from mist.cfg.

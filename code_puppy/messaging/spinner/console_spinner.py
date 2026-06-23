@@ -128,6 +128,23 @@ class ConsoleSpinner(SpinnerBase):
         ):
             return Text("")
 
+        # Compact-steps mode: the spinner renders the full ledger
+        # (active row + recent completed rows) inside one Live region so
+        # intermediate steps stop stacking in scrollback.
+        if SpinnerBase.is_ledger_active():
+            try:
+                from code_puppy.messaging.step_ledger import get_ledger
+
+                ledger = get_ledger()
+                text = ledger.render(frame=self.current_frame)
+                # If the ledger is empty AND there's no active row, fall
+                # through to the regular "thinking" message rather than
+                # rendering a blank Live row.
+                if text.plain.strip():
+                    return text
+            except Exception:
+                pass
+
         text = Text()
 
         # Show the current activity (e.g. "Running: npm test") while a tool is

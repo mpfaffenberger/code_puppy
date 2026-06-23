@@ -4,6 +4,9 @@ While a tool runs, the spinner shows what's happening ("Running: npm test",
 "Reading src/app.py") instead of a static "thinking…", so a long action reads
 as live progress. Wired through the central pre/post tool-call hooks so every
 tool benefits from one place.
+
+When ``compact_steps`` is enabled, tool calls additionally push a row into
+the in-place ``StepLedger`` — see ``code_puppy/messaging/step_ledger.py``.
 """
 
 from __future__ import annotations
@@ -11,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from code_puppy.callbacks import register_callback
+from code_puppy.config import get_compact_steps
 from code_puppy.messaging.spinner import resume_all_spinners
 from code_puppy.messaging.spinner.spinner_base import SpinnerBase
 
@@ -56,11 +60,30 @@ def _activity_label(tool_name: str, tool_args: dict | None) -> str:
     return f"Running {tool_name or 'tool'}"
 
 
+def _strip_leading_running(label: str) -> str:
+    """Drop the ``Running: `` prefix when storing into the ledger so the
+    completed row reads as ``✓ npm test`` rather than ``✓ Running: npm test``.
+    """
+    text = (label or "").strip()
+    if text.lower().startswith("running:"):
+        text = text.split(":", 1)[1].strip()
+    return text or label
+
+
 async def _on_pre_tool_call(
     tool_name: str, tool_args: dict, context: Any = None
 ) -> None:
     try:
-        SpinnerBase.set_activity(_activity_label(tool_name, tool_args))
+        label = _activity_label(tool_name, tool_args)
+        SpinnerBase.set_activity(label)
+        if get_compact_steps():
+            try:
+                from code_puppy.messaging.step_ledger import get_ledger
+
+                SpinnerBase.set_ledger_active(True)
+                get_ledger().begin_active(label)
+            except Exception:
+                pass
         # The stream handler keeps the spinner paused when transitioning into a
         # tool call, so a long tool would otherwise run with no indicator at
         # all. Resume it here (guarded against user-input prompts) so the
@@ -79,6 +102,19 @@ async def _on_post_tool_call(
 ) -> None:
     try:
         SpinnerBase.clear_activity()
+        if get_compact_steps():
+            try:
+                from code_puppy.messaging.step_ledger import get_ledger
+
+                ledger = get_ledger()
+                if ledger.has_active():
+                    ledger.complete_active(
+                        _strip_leading_running(ledger.active.label)
+                        if ledger.active
+                        else None
+                    )
+            except Exception:
+                pass
     except Exception:
         pass
 

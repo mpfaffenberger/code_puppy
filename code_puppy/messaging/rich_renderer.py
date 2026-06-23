@@ -19,6 +19,7 @@ from rich.rule import Rule
 from rich.table import Table
 
 from code_puppy.config import (
+    get_compact_steps,
     get_output_level,
     get_subagent_verbose,
     get_suppress_directory_listing,
@@ -217,6 +218,19 @@ class RichConsoleRenderer:
         SubAgentResponseMessage,
     )
 
+    # When ``compact_steps`` is on, tool results live as ledger rows inside
+    # the live spinner region. We never want the *permanent* peek line for
+    # them — collapse further to a silent drop instead.
+    _LEDGERED_TOOL_MESSAGES = (
+        ShellStartMessage,
+        ShellLineMessage,
+        ShellOutputMessage,
+        FileListingMessage,
+        FileContentMessage,
+        GrepResultMessage,
+        DiffMessage,
+    )
+
     def _should_collapse(self, message: AnyMessage) -> bool:
         """Return True if *message* should be rendered as a one-line peek.
 
@@ -230,6 +244,24 @@ class RichConsoleRenderer:
         if isinstance(message, self._NEVER_COLLAPSE):
             return False
         # Error-level text messages always render fully.
+        if isinstance(message, TextMessage) and message.level == MessageLevel.ERROR:
+            return False
+        return True
+
+    def _should_drop_for_ledger(self, message: AnyMessage) -> bool:
+        """Return True if *message* should be silently dropped because the
+        steps ledger is already showing it (or about to).
+
+        This is the Phase 1 hook: when ``compact_steps`` is on, tool peeks
+        no longer stack in scrollback. The ledger row renders inside the
+        spinner ``Live`` region instead. Errors always break out — they
+        must never be hidden behind the ledger.
+        """
+        if not get_compact_steps():
+            return False
+        if not isinstance(message, self._LEDGERED_TOOL_MESSAGES):
+            return False
+        # Text-message errors override the ledger drop.
         if isinstance(message, TextMessage) and message.level == MessageLevel.ERROR:
             return False
         return True
@@ -442,6 +474,13 @@ class RichConsoleRenderer:
         Individual suppress toggles are also checked here.
         """
         if self._should_silence_during_pause(message):
+            return
+
+        # -- Compact-steps ledger drop --------------------------------------
+        # When the ledger is enabled, tool peek lines are replaced by a
+        # row inside the spinner Live region. Drop them here so they
+        # don't stack in scrollback (Phase 1 of IN_PLACE_STATUS_PLAN.md).
+        if self._should_drop_for_ledger(message):
             return
 
         # -- Individual suppress toggles (dead-code wiring: code_puppy_oss-dzz) --

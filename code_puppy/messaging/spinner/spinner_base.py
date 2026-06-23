@@ -73,6 +73,13 @@ class SpinnerBase(ABC):
     _activity: str = ""
     _activity_lock: Lock = Lock()
 
+    # When ``compact_steps`` is on, the spinner delegates its "current step"
+    # to the StepLedger so the same live region also shows the rolling
+    # list of completed rows. The flag is class-level so toggling config
+    # doesn't require per-instance plumbing.
+    _ledger_active: bool = False
+    _ledger_active_lock: Lock = Lock()
+
     def __init__(self):
         """Initialize the spinner."""
         self._is_spinning = False
@@ -152,8 +159,34 @@ class SpinnerBase(ABC):
     @classmethod
     def get_activity(cls) -> str:
         """Return the current activity label (empty when just thinking)."""
+        # When the ledger owns the live step, defer to it so the spinner
+        # shows the same label the user sees in the rolling log.
+        with cls._ledger_active_lock:
+            ledger_on = cls._ledger_active
+        if ledger_on:
+            try:
+                from code_puppy.messaging.step_ledger import get_ledger
+
+                active = get_ledger().active
+                if active is not None:
+                    return f"Running: {active.label}" if active.kind == "tool" else active.label
+            except Exception:
+                pass
         with cls._activity_lock:
             return cls._activity
+
+    @classmethod
+    def set_ledger_active(cls, enabled: bool) -> None:
+        """Toggle whether the live region reads its "current step" from the
+        ``StepLedger`` instead of the plain ``_activity`` string.
+        """
+        with cls._ledger_active_lock:
+            cls._ledger_active = bool(enabled)
+
+    @classmethod
+    def is_ledger_active(cls) -> bool:
+        with cls._ledger_active_lock:
+            return cls._ledger_active
 
     @staticmethod
     def format_context_info(total_tokens: int, capacity: int, proportion: float) -> str:
