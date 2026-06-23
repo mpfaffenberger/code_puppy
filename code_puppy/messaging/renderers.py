@@ -142,12 +142,20 @@ def _summarize_peek_content(content) -> str:
     return first_line
 
 
+_NEVER_COLLAPSE_GROUPS = frozenset({"task_list"})
+
+
 def _build_legacy_peek(message: UIMessage) -> Optional[Text]:
     """Return a dim one-line peek for low mode, or ``None`` to render fully.
 
     Returns pre-styled ``Text`` to avoid Rich markup mis-parsing.
     """
     if _get_output_level() != "low":
+        return None
+    # Some messages are important enough to always show in full, even in low
+    # mode — the task list is the canonical case (the user explicitly wants to
+    # see it). Keyed off the message_group passed to the emit_* call.
+    if (message.metadata or {}).get("message_group") in _NEVER_COLLAPSE_GROUPS:
         return None
     label = _LOW_MODE_PEEK_LABELS.get(message.type)
     if label is None:
