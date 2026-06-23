@@ -302,10 +302,13 @@ def _index_that_never_loads():
 
 class TestEntryMatches:
     BASE = Path("/tmp")
-    ENTRY = ("autosave_2026-06-23_a1b2", {
-        "timestamp": "2026-06-23T08:13:35",
-        "message_count": 42,
-    })
+    ENTRY = (
+        "autosave_2026-06-23_a1b2",
+        {
+            "timestamp": "2026-06-23T08:13:35",
+            "message_count": 42,
+        },
+    )
 
     def test_empty_needle_matches_everything(self):
         # Empty needle is the "no filter" state; we never touch the index.

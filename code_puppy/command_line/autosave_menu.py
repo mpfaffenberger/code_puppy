@@ -580,9 +580,7 @@ async def interactive_autosave_picker() -> Optional[str]:
         """
         if not needle:
             return list(entries)
-        return [
-            e for e in entries if entry_matches(e, needle, content_index, base_dir)
-        ]
+        return [e for e in entries if entry_matches(e, needle, content_index, base_dir)]
 
     def _apply_filter_result(filtered: List[Tuple[str, dict]]) -> None:
         """Apply a filter result to picker state. Must run on the main thread."""
