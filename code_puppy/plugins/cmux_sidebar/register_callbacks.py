@@ -496,15 +496,26 @@ def register() -> None:
     global _REGISTERED
     if _REGISTERED:
         return
-    register_callback("startup", _on_startup)
-    register_callback("user_prompt_submit", _on_user_prompt_submit)
-    register_callback("agent_run_start", _on_agent_run_start)
-    register_callback("stream_event", _on_stream_event)
-    register_callback("pre_tool_call", _on_pre_tool_call)
-    register_callback("post_tool_call", _on_post_tool_call)
-    register_callback("agent_run_end", _on_agent_run_end)
-    register_callback("agent_run_cancel", _on_agent_run_cancel)
-    register_callback("shutdown", _on_shutdown)
+    # Each phase is registered independently: if a given Code Puppy build
+    # doesn't support one (register_callback raises ValueError), we skip it
+    # and keep the rest -- a missing narration pill must never disable the
+    # whole dashboard.
+    handlers = (
+        ("startup", _on_startup),
+        ("user_prompt_submit", _on_user_prompt_submit),
+        ("agent_run_start", _on_agent_run_start),
+        ("stream_event", _on_stream_event),
+        ("pre_tool_call", _on_pre_tool_call),
+        ("post_tool_call", _on_post_tool_call),
+        ("agent_run_end", _on_agent_run_end),
+        ("agent_run_cancel", _on_agent_run_cancel),
+        ("shutdown", _on_shutdown),
+    )
+    for phase, fn in handlers:
+        try:
+            register_callback(phase, fn)
+        except Exception:
+            pass
     _REGISTERED = True
 
 

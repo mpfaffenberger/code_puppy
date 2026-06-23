@@ -167,6 +167,23 @@ def test_narration_pill_throttled(mod, monkeypatch):
     assert not any(mod.KEY_SAY in c for c in calls)
 
 
+def test_register_survives_unsupported_phase(mod, monkeypatch):
+    # If a build rejects one phase, the rest must still register.
+    registered = []
+
+    def fake_register(phase, fn):
+        if phase == "stream_event":
+            raise ValueError("Unsupported phase: stream_event")
+        registered.append(phase)
+
+    monkeypatch.setattr(rc, "register_callback", fake_register)
+    mod._REGISTERED = False
+    mod.register()  # must not raise
+    assert "startup" in registered
+    assert "agent_run_end" in registered
+    assert "stream_event" not in registered
+
+
 def test_handlers_never_raise(mod, monkeypatch):
     monkeypatch.delenv("CMUX_WORKSPACE_ID", raising=False)
     mod.in_cmux.cache_clear()
