@@ -28,8 +28,10 @@ def _reset_config_state(monkeypatch):
     return store
 
 
-def test_compact_steps_defaults_off(_reset_config_state):
-    assert config.get_compact_steps() is False
+def test_compact_steps_defaults_on(_reset_config_state):
+    # Option B (IN_PLACE_STATUS_PLAN.md §3b) is the recommended path and
+    # now the default — opt-out via ``/set compact_steps false``.
+    assert config.get_compact_steps() is True
 
 
 def test_compact_steps_round_trip(_reset_config_state):

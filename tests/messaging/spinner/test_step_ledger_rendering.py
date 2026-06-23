@@ -37,20 +37,23 @@ def _clean_ledger():
     SpinnerBase.clear_activity()
 
 
-def test_ledger_mode_renders_active_and_recent(console):
-    """When ledger mode is on, the spinner panel shows the active row
-    and the last completed rows together."""
+def test_ledger_mode_renders_activity_label(console):
+    """When ledger mode is on (Option B), the spinner panel shows the
+    heartbeat + activity label. Completed rows no longer render inside
+    the panel — they print above via ``print_above``."""
     spinner = ConsoleSpinner(console=console)
     spinner.start()
     ledger = get_ledger()
-    ledger.push_completed("✓ first step")
+    ledger.push_completed("first step")
     ledger.begin_active("Running: pytest")
     SpinnerBase.set_ledger_active(True)
 
     text = spinner._generate_spinner_panel()
     plain = text.plain
+    # Active label is surfaced via SpinnerBase.get_activity().
     assert "Running: pytest" in plain
-    assert "✓ first step" in plain
+    # Completed rows are NOT in the panel — they're printed above.
+    assert "first step" not in plain
 
     spinner.stop()
 
@@ -81,15 +84,15 @@ def test_ledger_off_uses_activity_label(console):
     SpinnerBase.clear_activity()
 
 
-def test_ledger_renders_completed_rows_dim(console):
-    """Completed rows are styled dim so the active row stands out."""
+def test_ledger_mode_includes_heartbeat(console):
+    """Option B: the panel starts with a heartbeat glyph (calming pulse)
+    so the user always sees a liveliness signal."""
     spinner = ConsoleSpinner(console=console)
     spinner.start()
-    ledger = get_ledger()
-    ledger.push_completed("✓ file read")
     SpinnerBase.set_ledger_active(True)
     text = spinner._generate_spinner_panel()
-    # At least one styled "dim" span should be present for the completed row.
-    styles = {span.style for span in text.spans}
-    assert "dim" in styles
+    plain = text.plain
+    # The breathe preset frames are ○ ◔ ◑ ◕ ● — the panel's first char
+    # should be one of these.
+    assert plain[:1] in ("○", "◔", "◑", "◕", "●")
     spinner.stop()

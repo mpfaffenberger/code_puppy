@@ -47,7 +47,11 @@ class ConsoleSpinner(SpinnerBase):
         # Print blank line before spinner for visual separation from content
         self.console.print()
 
-        # Create a Live display for the spinner
+        # When compact-steps is on, this Live is the *single* owner of the
+        # turn's output — streamed text and stacked step rows scroll above
+        # it via ``print_above`` / ``live.console.print``. transient=True so
+        # the footer disappears cleanly on turn end, leaving only the
+        # above-printed content in scrollback.
         self._live = Live(
             self._generate_spinner_panel(),
             console=self.console,
@@ -128,24 +132,18 @@ class ConsoleSpinner(SpinnerBase):
         ):
             return Text("")
 
-        # Compact-steps mode: the spinner renders the full ledger
-        # (active row + recent completed rows) inside one Live region so
-        # intermediate steps stop stacking in scrollback.
-        if SpinnerBase.is_ledger_active():
-            try:
-                from code_puppy.messaging.step_ledger import get_ledger
-
-                ledger = get_ledger()
-                text = ledger.render(frame=self.current_frame)
-                # If the ledger is empty AND there's no active row, fall
-                # through to the regular "thinking" message rather than
-                # rendering a blank Live row.
-                if text.plain.strip():
-                    return text
-            except Exception:
-                pass
-
         text = Text()
+
+        # Compact-steps mode: footer = heartbeat glyph + activity label +
+        # spinner frame. Completed step rows no longer live inside the Live
+        # region — they're printed above via ``print_above`` (rich's
+        # print-above-Live mechanism) so they persist in scrollback without
+        # this panel having to re-render them every tick. That avoids the
+        # flashing/collapse bug that plagued the in-Live ledger approach
+        # (IN_PLACE_STATUS_PLAN.md §3 "Decision (REVISED)").
+        if SpinnerBase.is_ledger_active():
+            beat = self._heartbeat_frame()
+            text.append(f"{beat} ", style="bold cyan")
 
         # Show the current activity (e.g. "Running: npm test") while a tool is
         # executing, otherwise the generic thinking message. Either way the
@@ -162,6 +160,38 @@ class ConsoleSpinner(SpinnerBase):
 
         # Return a simple Text object instead of a Panel for a cleaner look
         return text
+
+    def _heartbeat_frame(self) -> str:
+        """Return the current heartbeat glyph (calming "agent is alive" pulse).
+
+        Uses the "breathe" preset so a dot fills and empties — always present,
+        never flashy. Advances in lockstep with the spinner's own frame
+        counter so we don't need a second thread.
+        """
+        frames = SpinnerBase.SPINNER_PRESETS.get("breathe", ["○", "◔", "◑", "◕", "●"])
+        return frames[self._frame_index % len(frames)]
+
+    def print_above(self, renderable, *, soft_wrap: bool = True) -> None:
+        """Print ``renderable`` above the live footer so it persists in scrollback.
+
+        Rich's ``Live`` intercepts ``console.print`` calls on its own console
+        and scrolls them above the live region — one coordinated output
+        channel, no races with the footer refresh. This is the API the
+        event-stream handler and the spinner-activity plugin use to commit
+        step rows (``✓ label``) and streamed text.
+        """
+        if self._live is None:
+            # Live isn't running — fall back to plain console.print so
+            # callers don't have to special-case pre-start / post-stop.
+            try:
+                self.console.print(renderable, soft_wrap=soft_wrap)
+            except Exception:
+                pass
+            return
+        try:
+            self._live.console.print(renderable, soft_wrap=soft_wrap)
+        except Exception:
+            pass
 
     def _update_spinner(self):
         """Update the spinner in a background thread."""

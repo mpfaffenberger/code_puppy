@@ -30,7 +30,6 @@ from code_puppy.config import (
     get_banner_color,
     get_compact_steps,
     get_compact_steps_max_visible,
-    get_compact_steps_summary,
     get_output_level,
     get_subagent_verbose,
     get_suppress_thinking_messages,
@@ -212,6 +211,9 @@ async def event_stream_handler(
     # Per-text-part deferred buffer. Holds raw markdown so we can either
     # flush it to scrollback (final answer) or collapse to a ledger gist
     # (intermediate). Keyed by part index.
+    # NOTE: in Option B (compact-steps), we no longer defer — text streams
+    # live above the spinner footer via ``LivePrinterWriter``. This dict
+    # stays empty in compact mode and is only used by the legacy path.
     deferred_text: dict[int, str] = {}
     deferred_termflow_buffers: dict[int, io.StringIO] = {}
 
@@ -221,23 +223,54 @@ async def event_stream_handler(
     termflow_line_buffers: dict[int, str] = {}  # Buffer incomplete lines
     # Optional smooth (typewriter) writers wrapping the console for text parts.
     termflow_writers: dict[int, SmoothTermflowWriter] = {}
+    # Option B: per-text-part live-printer writers that route termflow output
+    # through the active spinner's ``print_above`` so text scrolls above the
+    # pinned footer instead of racing with it.
+    live_printer_writers: dict[int, Any] = {}
 
     def _make_text_renderer(index: int) -> TermflowRenderer:
-        """Build a termflow renderer, optionally typed out smoothly.
+        """Build a termflow renderer.
 
-        When compact-steps is on, route the rendered text into an in-memory
-        buffer instead of the live console — we don't know yet whether this
-        text part is the final answer or just intermediate narration that
-        should collapse to a ledger gist.
+        Compact-steps (Option B): route the rendered text through a
+        :class:`~code_puppy.messaging.live_printer_writer.LivePrinterWriter`
+        so each rendered line is committed above the spinner's pinned footer
+        via ``live.console.print``. One coordinated output channel — no races,
+        no flashing, the footer stays alive while text streams.
+
+        Legacy: smooth (typewriter) writer wrapping ``console.file``, or
+        ``console.file`` itself when smoothing is disabled.
         """
-        if is_compact and index not in deferred_termflow_buffers:
-            buf = io.StringIO()
-            deferred_termflow_buffers[index] = buf
-            return TermflowRenderer(
-                output=buf,
-                width=console.width,
-                features=RenderFeatures(clipboard=False),
-            )
+        if is_compact:
+            try:
+                from code_puppy.messaging.live_printer_writer import (
+                    BlankLineCollapsingFile,
+                    LivePrinterWriter,
+                )
+                from code_puppy.messaging.spinner import get_active_spinner
+
+                spinner = get_active_spinner()
+                if spinner is not None:
+                    writer = LivePrinterWriter(spinner_ref=get_active_spinner)
+                    live_printer_writers[index] = writer
+                    return TermflowRenderer(
+                        output=writer,
+                        width=console.width,
+                        features=RenderFeatures(clipboard=False),
+                    )
+                # No spinner: still collapse blank lines so compact mode
+                # produces at most one blank line between paragraphs even
+                # when there's no Live region to coordinate with.
+                blank_collapsed = BlankLineCollapsingFile(console.file)
+                live_printer_writers[index] = blank_collapsed
+                return TermflowRenderer(
+                    output=blank_collapsed,
+                    width=console.width,
+                    features=RenderFeatures(clipboard=False),
+                )
+            except Exception:
+                # Fall through to legacy rendering if anything goes wrong —
+                # better a stacked banner than no output at all.
+                pass
         writer = make_smooth_termflow_writer(console.file)
         if writer is not None:
             writer.start()
@@ -278,6 +311,13 @@ async def event_stream_handler(
         """Print the THINKING banner with spinner pause and line clear."""
         nonlocal did_stream_anything
 
+        # In compact mode, no banner \u2014 thinking streams dim directly above
+        # the pinned footer via the spinner's print_above. Pausing the
+        # spinner would just kill the heartbeat signal we want to keep.
+        if is_compact:
+            did_stream_anything = True
+            return
+
         pause_all_spinners()
         await asyncio.sleep(0.1)  # Delay to let spinner fully clear
         # Clear line and print newline before banner
@@ -297,6 +337,13 @@ async def event_stream_handler(
     async def _print_response_banner() -> None:
         """Print the AGENT RESPONSE banner with spinner pause and line clear."""
         nonlocal did_stream_anything
+
+        # Compact mode: no banner. Streamed text is already landing above
+        # the footer via LivePrinterWriter \u2014 a banner here would just stack
+        # noise on top of the step rows.
+        if is_compact:
+            did_stream_anything = True
+            return
 
         pause_all_spinners()
         await asyncio.sleep(0.1)  # Delay to let spinner fully clear
@@ -351,8 +398,16 @@ async def event_stream_handler(
         for writer in termflow_writers.values():
             writer.abort()
         termflow_writers.clear()
-        # Drop deferred text state too — the user aborted, we never want
-        # to flush a half-written intermediate narration to scrollback.
+        # Close LivePrinterWriters without flushing — the user aborted, so
+        # any partial line still buffered should be dropped, not emitted.
+        for lpw in live_printer_writers.values():
+            try:
+                lpw.close()
+            except Exception:
+                pass
+        live_printer_writers.clear()
+        # Drop deferred text state too (legacy path) — the user aborted,
+        # we never want to flush a half-written intermediate narration.
         deferred_text.clear()
         deferred_termflow_buffers.clear()
 
@@ -416,25 +471,13 @@ async def event_stream_handler(
                     termflow_line_buffers[event.index] = ""
                     # Handle initial content if present
                     if part.content and part.content.strip():
-                        if is_compact:
-                            # Defer banner + scrollback write until we know
-                            # this text part is the final answer.
-                            deferred_text[event.index] = part.content
-                            termflow_line_buffers[event.index] = part.content
-                            # Eagerly parse the initial content into the
-                            # deferred buffer so PartEndEvent can flush it
-                            # verbatim. parse_line / finalize both write to
-                            # the StringIO we passed to the renderer.
-                            _initial_parser = termflow_parsers[event.index]
-                            _initial_buffer = termflow_line_buffers[event.index]
-                            while "\n" in _initial_buffer:
-                                _line, _initial_buffer = _initial_buffer.split("\n", 1)
-                                _initial_parser.parse_line(_line)
-                            termflow_line_buffers[event.index] = _initial_buffer
-                        else:
+                        # Compact mode: termflow renderer writes through
+                        # LivePrinterWriter → text lands above the footer
+                        # immediately. No banner, no deferral.
+                        if not is_compact:
                             await _print_response_banner()
                             banner_printed.add(event.index)
-                            termflow_line_buffers[event.index] = part.content
+                        termflow_line_buffers[event.index] = part.content
                 elif isinstance(part, ToolCallPart):
                     streaming_parts.add(event.index)
                     tool_parts.add(event.index)
@@ -466,26 +509,17 @@ async def event_stream_handler(
                             # For text parts, stream markdown with termflow
                             if event.index in text_parts:
                                 # Print banner on first content — but only
-                                # in non-compact mode. Compact mode routes
-                                # the rendered output into a StringIO so we
-                                # can decide later whether to flush or
-                                # discard (Phase 2 of IN_PLACE_STATUS_PLAN.md).
+                                # in non-compact mode. Compact mode streams
+                                # directly above the footer (no banner).
                                 if event.index not in banner_printed:
-                                    if is_compact:
-                                        banner_printed.add(event.index)
-                                    else:
+                                    if not is_compact:
                                         await _print_response_banner()
-                                        banner_printed.add(event.index)
+                                    banner_printed.add(event.index)
 
                                 # Add content to line buffer
                                 termflow_line_buffers[event.index] += (
                                     delta.content_delta
                                 )
-                                if is_compact:
-                                    deferred_text[event.index] = (
-                                        deferred_text.get(event.index, "")
-                                        + delta.content_delta
-                                    )
 
                                 # Process complete lines
                                 parser = termflow_parsers[event.index]
@@ -588,30 +622,17 @@ async def event_stream_handler(
                         if writer is not None:
                             await writer.close()
 
-                        # Phase 2 — compact-steps: decide whether the buffered
-                        # text is the *final* answer (no tool follows) or just
-                        # *intermediate* narration (collapse to a ledger gist).
-                        if is_compact:
-                            next_kind = getattr(event, "next_part_kind", None)
-                            buf = deferred_termflow_buffers.pop(event.index, None)
-                            raw_text = deferred_text.pop(event.index, "")
-                            if next_kind == "tool-call":
-                                # Intermediate: never write to scrollback.
-                                gist = _narration_gist(raw_text)
-                                if gist:
-                                    try:
-                                        from code_puppy.messaging.step_ledger import (
-                                            get_ledger,
-                                        )
-
-                                        get_ledger().push_narration(gist)
-                                    except Exception:
-                                        pass
-                            else:
-                                # Final answer (turn end): print the rendered
-                                # buffer verbatim with the normal banner.
-                                if raw_text.strip():
-                                    await _flush_deferred_text(buf, raw_text)
+                        # Option B — compact-steps: flush any partial line
+                        # still buffered in the LivePrinterWriter so the
+                        # last line of the response isn't held back. Text
+                        # has already been streaming above the footer; this
+                        # just drains the tail.
+                        lpw = live_printer_writers.pop(event.index, None)
+                        if lpw is not None:
+                            try:
+                                lpw.flush()
+                            except Exception:
+                                pass
                     # For tool parts, clear the chunk counter line
                     elif event.index in tool_parts:
                         # Clear the chunk counter line by printing spaces and returning
@@ -697,13 +718,14 @@ async def event_stream_handler(
         await writer.close()
     termflow_writers.clear()
 
-    # Compact-steps: turn-end flush for any deferred text part that didn't
-    # see a PartEndEvent (rare but possible — e.g. an aborted stream that
-    # still reached the natural end). These are by definition the *final*
-    # answer because no further part exists, so flush to scrollback.
-    if is_compact and deferred_text:
+    # Compact-steps (Option B): flush any LivePrinterWriter that didn't see
+    # a PartEndEvent so the trailing partial line isn't lost, then tear down
+    # the ledger so the next turn starts fresh. No ▸ N steps summary —
+    # completed steps already printed their ``✓`` rows above the footer as
+    # they finished, so a separate summary would just duplicate them.
+    if is_compact:
         # Finalize any orphaned parser state so its rendered body is
-        # complete before we flush.
+        # complete before we flush the writer.
         for orphan_index, parser in list(termflow_parsers.items()):
             try:
                 final_events = parser.finalize()
@@ -715,33 +737,17 @@ async def event_stream_handler(
             termflow_parsers.pop(orphan_index, None)
             termflow_renderers.pop(orphan_index, None)
             termflow_line_buffers.pop(orphan_index, None)
-        for orphan_index, raw_text in list(deferred_text.items()):
-            buf = deferred_termflow_buffers.get(orphan_index)
-            if raw_text.strip():
-                await _flush_deferred_text(buf, raw_text)
-        deferred_text.clear()
-        deferred_termflow_buffers.clear()
-
-    # Compact-steps: emit the optional ▸ N steps summary and tear down
-    # the ledger so the next turn starts fresh.
-    if is_compact:
+        for orphan_index, lpw in list(live_printer_writers.items()):
+            try:
+                lpw.flush()
+            except Exception:
+                pass
+            live_printer_writers.pop(orphan_index, None)
         try:
             from code_puppy.messaging.spinner.spinner_base import SpinnerBase
             from code_puppy.messaging.step_ledger import get_ledger
 
-            ledger = get_ledger()
-            n = ledger.completed_count()
-            # Only summarize genuinely multi-step turns. A 1-step turn (the
-            # common case) printing "▸ 1 step" on every reply just spams the
-            # transcript without telling the user anything.
-            if n >= 2 and get_compact_steps_summary():
-                # Drop the active step silently — turn ended without it
-                # resolving (rare). Closing the Live region then printing
-                # the summary keeps the live → scrollback handoff clean.
-                SpinnerBase.set_ledger_active(False)
-                console.print(f"[dim]▸ {n} step{'s' if n != 1 else ''}[/dim]")
-            else:
-                SpinnerBase.set_ledger_active(False)
-            ledger.reset()
+            SpinnerBase.set_ledger_active(False)
+            get_ledger().reset()
         except Exception:
             pass

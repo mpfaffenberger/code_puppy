@@ -252,12 +252,27 @@ class RichConsoleRenderer:
         """Return True if *message* should be silently dropped because the
         steps ledger is already showing it (or about to).
 
-        This is the Phase 1 hook: when ``compact_steps`` is on, tool peeks
-        no longer stack in scrollback. The ledger row renders inside the
-        spinner ``Live`` region instead. Errors always break out — they
-        must never be hidden behind the ledger.
+        Option B (compact-steps default on): tool peeks no longer stack in
+        scrollback during an agent turn — a stacked ``✓`` step row prints
+        above the pinned footer via ``spinner.print_above`` instead. Errors
+        always break out — they must never be hidden behind the ledger.
+
+        Gated on ``SpinnerBase.is_ledger_active()`` (not just the config
+        flag) so messages still render normally *outside* a turn — e.g.
+        when the renderer is driven directly by tests, or by code paths
+        that emit messages without an active spinner.
         """
         if not get_compact_steps():
+            return False
+        # Only suppress during a live agent turn — outside of one, there's
+        # no footer / step row to take over the display, so the peek is
+        # the user's only signal.
+        try:
+            from code_puppy.messaging.spinner.spinner_base import SpinnerBase
+
+            if not SpinnerBase.is_ledger_active():
+                return False
+        except Exception:
             return False
         if not isinstance(message, self._LEDGERED_TOOL_MESSAGES):
             return False

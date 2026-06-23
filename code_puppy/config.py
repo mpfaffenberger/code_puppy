@@ -2193,12 +2193,14 @@ def set_output_level(level: str) -> None:
 
 
 def get_compact_steps() -> bool:
-    """Return True if the in-place steps ledger is enabled.
+    """Return True if the in-place steps ledger is enabled (Option B).
 
-    When enabled, tool-call peeks and intermediate assistant narration
-    are routed into a single live ``SpinnerBase``-rendered ledger instead
-    of stacking in scrollback. Defaults to False so the existing banner /
-    peek behavior is preserved until the user opts in.
+    When enabled, the spinner's ``Live`` region owns the whole turn's
+    output: streamed text and stacked ``✓ step`` rows scroll above the
+    pinned footer via ``ConsoleSpinner.print_above``, eliminating the
+    banner-stacking and escape-corruption bugs that plagued the legacy
+    render path. Defaults to True — Option B is now the recommended path
+    per ``docs/IN_PLACE_STATUS_PLAN.md`` §3b.
 
     The flag is independent of ``output_level`` — a user can be in
     ``medium`` and still want the in-place ledger, or in ``low`` /
@@ -2207,7 +2209,7 @@ def get_compact_steps() -> bool:
     true_vals = {"1", "true", "yes", "on"}
     cfg_val = get_value("compact_steps")
     if cfg_val is None:
-        return False
+        return True
     return str(cfg_val).strip().lower() in true_vals
 
 

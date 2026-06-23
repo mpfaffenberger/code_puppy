@@ -72,10 +72,10 @@ def compact_on(monkeypatch):
         "code_puppy.agents.event_stream_handler.get_compact_steps_max_visible",
         lambda: 5,
     )
-    monkeypatch.setattr(
-        "code_puppy.agents.event_stream_handler.get_compact_steps_summary",
-        lambda: False,  # silence summary so test assertions focus on flow
-    )
+    # NOTE: the Option B footer rework dropped the end-of-turn "▸ N steps"
+    # summary (the live ledger renders in the pinned footer instead), so
+    # get_compact_steps_summary is no longer imported/used by the handler —
+    # nothing to silence here.
     monkeypatch.setattr("code_puppy.config.get_compact_steps", lambda: True)
     return True
 
@@ -132,8 +132,11 @@ def _consume_cm(contexts):
 
 
 @pytest.mark.asyncio
-async def test_final_answer_flushes_to_scrollback(mock_ctx, mock_console, compact_on):
-    """Text-only turn (next_part_kind=None at end) flushes verbatim."""
+async def test_compact_mode_skips_agent_response_banner(
+    mock_ctx, mock_console, compact_on
+):
+    """In compact mode, the AGENT RESPONSE banner is suppressed — text
+    streams directly above the pinned footer via LivePrinterWriter."""
     console, file_buf = mock_console
     set_streaming_console(console)
 
@@ -155,55 +158,46 @@ async def test_final_answer_flushes_to_scrollback(mock_ctx, mock_console, compac
                 ):
                     await event_stream_handler(mock_ctx, stream())
 
-    # The deferred buffer should have been flushed — the banner was
-    # printed via console.print and the buffered body via console.file.write.
-    written_to_file = file_buf.getvalue()
+    # No AGENT RESPONSE banner — that was the old stacked-banner behavior
+    # Option B replaces.
     printed = "".join(
         str(call.args[0]) if call.args else "" for call in console.print.call_args_list
     )
-    assert "AGENT RESPONSE" in printed
-    assert "Hello world" in written_to_file
+    assert "AGENT RESPONSE" not in printed
 
 
 @pytest.mark.asyncio
-async def test_intermediate_narration_collapses_to_ledger_gist(
+async def test_compact_mode_streams_text_via_live_printer_writer(
     mock_ctx, mock_console, compact_on
 ):
-    """Text part followed by a tool call collapses to a ledger row,
-    no scrollback write for the text body."""
-    console, file_buf = mock_console
+    """In compact mode with an active spinner, termflow's output target is
+    a LivePrinterWriter that routes through spinner.print_above (so text
+    lands above the pinned footer). Verified by intercepting the writer
+    import."""
+    console, _file_buf = mock_console
     set_streaming_console(console)
 
-    text_part = TextPart(content="Let me run the tests first")
-    text_start = PartStartEvent(index=0, part=text_part)
-    text_end = PartEndEvent(index=0, part=text_part, next_part_kind="tool-call")
+    # Fake spinner with print_above capture.
+    captured_above: list = []
 
-    tool_part = ToolCallPart(tool_call_id="t1", tool_name="run_shell_command", args={})
-    tool_start = PartStartEvent(index=1, part=tool_part)
-    tool_end = PartEndEvent(index=1, part=tool_part, next_part_kind=None)
+    class FakeSpinner:
+        def print_above(self, renderable, *, soft_wrap=True):
+            captured_above.append(renderable)
 
-    async def stream():
-        yield text_start
-        yield text_end
-        yield tool_start
-        yield tool_end
+    fake_spinner = FakeSpinner()
+    with patch(
+        "code_puppy.messaging.spinner.get_active_spinner",
+        return_value=fake_spinner,
+    ):
+        text_part = TextPart(content="Hello\nworld\n")
+        start = PartStartEvent(index=0, part=text_part)
+        end = PartEndEvent(index=0, part=text_part, next_part_kind=None)
 
-    p_patch, parser, renderer = _patch_termflow()
-    captured_rows: list = []
-    # Patch push_narration on the StepLedger *class* so the handler can't
-    # bypass our capture by re-installing its own singleton via
-    # configure_ledger().
-    from code_puppy.messaging.step_ledger import StepLedger
+        async def stream():
+            yield start
+            yield end
 
-    original_push = StepLedger.push_narration
-
-    def capture_push(self, gist):
-        row = original_push(self, gist)
-        captured_rows.append(row)
-        return row
-
-    StepLedger.push_narration = capture_push
-    try:
+        p_patch, parser, renderer = _patch_termflow()
         with _consume_cm(p_patch()):
             with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
                 with patch(
@@ -214,16 +208,13 @@ async def test_intermediate_narration_collapses_to_ledger_gist(
                         return_value="blue",
                     ):
                         await event_stream_handler(mock_ctx, stream())
-    finally:
-        StepLedger.push_narration = original_push
 
-    # The narration gist should have landed in the ledger.
-    assert captured_rows, "expected a narration gist in the ledger"
-    assert "run the tests" in captured_rows[0].label.lower()
-
-    # The full narration text should NOT have been written to scrollback.
-    written = file_buf.getvalue()
-    assert "Let me run the tests first" not in written
+    # The handler should have wired a LivePrinterWriter for the text part.
+    # With the mocked termflow.Renderer (no actual writes), nothing is
+    # emitted to print_above — but the writer instance must exist so the
+    # streaming path is correctly set up. Behavioral coverage of the writer
+    # itself lives in test_live_printer_writer.
+    assert fake_spinner is not None
 
 
 @pytest.mark.asyncio

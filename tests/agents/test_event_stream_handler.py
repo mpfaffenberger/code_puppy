@@ -31,6 +31,17 @@ from code_puppy.agents.event_stream_handler import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _legacy_banner_mode(monkeypatch):
+    """These tests exercise the legacy banner-printing path (the AGENT
+    RESPONSE banner fires on first text content). Compact-steps (Option B)
+    suppresses that banner — opt this module out so the assertions hold."""
+    monkeypatch.setattr(
+        "code_puppy.agents.event_stream_handler.get_compact_steps",
+        lambda: False,
+    )
+
+
 class TestConsoleConfiguration:
     """Test console configuration functions."""
 

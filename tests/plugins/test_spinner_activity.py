@@ -1,16 +1,33 @@
 import asyncio
-from unittest.mock import patch
+
+import pytest
 
 from code_puppy.messaging.spinner.spinner_base import SpinnerBase
 from code_puppy.plugins.spinner_activity import register_callbacks as rc
 from code_puppy.plugins.spinner_activity.register_callbacks import _activity_label
 
 
-def test_pre_tool_call_sets_label_and_resumes_spinner():
+@pytest.fixture(autouse=True)
+def _reset_spinner_state(monkeypatch):
+    """Reset SpinnerBase + disable compact-steps so these tests exercise
+    the legacy activity-label path (no ledger prefixing)."""
+    monkeypatch.setattr(
+        "code_puppy.plugins.spinner_activity.register_callbacks.get_compact_steps",
+        lambda: False,
+    )
     SpinnerBase.clear_activity()
-    with patch.object(rc, "resume_all_spinners") as resume:
-        asyncio.run(rc._on_pre_tool_call("read_file", {"file_path": "a.py"}))
-        resume.assert_called_once()  # spinner made visible during the tool
+    SpinnerBase.set_ledger_active(False)
+    yield
+    SpinnerBase.clear_activity()
+    SpinnerBase.set_ledger_active(False)
+
+
+def test_pre_tool_call_sets_activity_label():
+    """Option B: ``_on_pre_tool_call`` just sets the activity label and
+    pushes a ledger row. The old ``resume_all_spinners`` call is gone —
+    one ``Live`` owns the turn and Rich coordinates above-prints, so
+    there's nothing to resume."""
+    asyncio.run(rc._on_pre_tool_call("read_file", {"file_path": "a.py"}))
     assert SpinnerBase.get_activity() == "Reading a.py"
     asyncio.run(rc._on_post_tool_call("read_file", {}, None, 1.0))
     assert SpinnerBase.get_activity() == ""

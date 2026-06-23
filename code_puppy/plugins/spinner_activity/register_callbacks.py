@@ -5,17 +5,21 @@ While a tool runs, the spinner shows what's happening ("Running: npm test",
 as live progress. Wired through the central pre/post tool-call hooks so every
 tool benefits from one place.
 
-When ``compact_steps`` is enabled, tool calls additionally push a row into
-the in-place ``StepLedger`` — see ``code_puppy/messaging/step_ledger.py``.
+When ``compact_steps`` is enabled (Option B — default on), each completed tool
+additionally prints a stacked ``✓ label`` row *above* the spinner's pinned
+footer via ``ConsoleSpinner.print_above``. That row persists in scrollback,
+matching the Claude-Code / Codex visual the user asked for. The ledger stays
+the source of truth for ``/steps`` replay.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from rich.text import Text
+
 from code_puppy.callbacks import register_callback
 from code_puppy.config import get_compact_steps
-from code_puppy.messaging.spinner import resume_all_spinners
 from code_puppy.messaging.spinner.spinner_base import SpinnerBase
 
 
@@ -84,11 +88,6 @@ async def _on_pre_tool_call(
                 get_ledger().begin_active(label)
             except Exception:
                 pass
-        # The stream handler keeps the spinner paused when transitioning into a
-        # tool call, so a long tool would otherwise run with no indicator at
-        # all. Resume it here (guarded against user-input prompts) so the
-        # activity label animates while the tool executes.
-        resume_all_spinners()
     except Exception:
         pass
 
@@ -104,15 +103,28 @@ async def _on_post_tool_call(
         SpinnerBase.clear_activity()
         if get_compact_steps():
             try:
+                from code_puppy.messaging.spinner import get_active_spinner
                 from code_puppy.messaging.step_ledger import get_ledger
 
                 ledger = get_ledger()
+                # Complete the active row (if any) so the ledger history
+                # stays accurate for ``/steps`` replay.
+                final_label = (
+                    _strip_leading_running(ledger.active.label)
+                    if ledger.has_active() and ledger.active
+                    else None
+                )
                 if ledger.has_active():
-                    ledger.complete_active(
-                        _strip_leading_running(ledger.active.label)
-                        if ledger.active
-                        else None
-                    )
+                    ledger.complete_active(final_label)
+                # Commit a stacked ``✓ label`` row above the footer so the
+                # step persists in scrollback (the screenshot's UX).
+                if final_label:
+                    row = Text()
+                    row.append("  ✓ ", style="bold green")
+                    row.append(final_label, style="dim")
+                    spinner = get_active_spinner()
+                    if spinner is not None:
+                        spinner.print_above(row)
             except Exception:
                 pass
     except Exception:

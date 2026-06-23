@@ -23,6 +23,21 @@ def unregister_spinner(spinner):
         _active_spinners.remove(spinner)
 
 
+def get_active_spinner():
+    """Return the most-recently registered active spinner, or ``None``.
+
+    Used by the event-stream handler and the activity plugin to find the
+    ``ConsoleSpinner`` whose ``Live`` owns the current turn's output — they
+    hand streamed text / stacked step rows to its ``print_above`` so the
+    footer stays pinned and uncorrupted.
+    """
+    if not _active_spinners:
+        return None
+    # Return the most recent (top of stack) — matches the LIFO nature of
+    # nested spinner contexts.
+    return _active_spinners[-1]
+
+
 def pause_all_spinners():
     """Pause all active spinners.
 
@@ -31,6 +46,11 @@ def pause_all_spinners():
 
     Exception: in ``high`` output mode, sub-agent streams render
     inline and need spinner coordination to avoid visual corruption.
+
+    Also a no-op when compact-steps (Option B) is active: the spinner's
+    ``Live`` region owns the whole turn's output, and Rich coordinates
+    above-prints automatically, so pausing the Live would just kill the
+    heartbeat footer without buying us anything.
     """
     # Lazy import to avoid circular dependency
     from code_puppy.tools.subagent_context import is_subagent
@@ -40,6 +60,9 @@ def pause_all_spinners():
 
         if get_output_level() != "high":
             return  # Sub-agents don't control the main spinner
+    # Option B: never pause the Live-owned footer — Rich coordinates prints.
+    if SpinnerBase.is_ledger_active():
+        return
     for spinner in _active_spinners:
         try:
             spinner.pause()
@@ -56,6 +79,9 @@ def resume_all_spinners():
 
     Exception: in ``high`` output mode, sub-agent streams render
     inline and need spinner coordination to avoid visual corruption.
+
+    Also a no-op when compact-steps (Option B) is active — see
+    :func:`pause_all_spinners`.
     """
     # Lazy import to avoid circular dependency
     from code_puppy.tools.subagent_context import is_subagent
@@ -65,6 +91,9 @@ def resume_all_spinners():
 
         if get_output_level() != "high":
             return  # Sub-agents don't control the main spinner
+    # Option B: nothing to resume — we never paused.
+    if SpinnerBase.is_ledger_active():
+        return
     for spinner in _active_spinners:
         try:
             spinner.resume()
@@ -88,6 +117,7 @@ __all__ = [
     "ConsoleSpinner",
     "register_spinner",
     "unregister_spinner",
+    "get_active_spinner",
     "pause_all_spinners",
     "resume_all_spinners",
     "update_spinner_context",
