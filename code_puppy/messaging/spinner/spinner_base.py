@@ -11,18 +11,10 @@ from code_puppy.config import get_mist_name
 class SpinnerBase(ABC):
     """Abstract base class for spinner implementations."""
 
-    # Shared spinner frames across implementations
-    FRAMES = [
-        "(💨    ) ",
-        "( 💨   ) ",
-        "(  💨  ) ",
-        "(   💨 ) ",
-        "(    💨) ",
-        "(   💨 ) ",
-        "(  💨  ) ",
-        "( 💨   ) ",
-        "(💨    ) ",
-    ]
+    # Shared spinner frames across implementations: a clean rotating square
+    # (opencode-style minimal indicator) instead of a drifting emoji, so the
+    # animation reads as steady, modern progress.
+    FRAMES = ["◰", "◳", "◲", "◱"]
     mist_name = get_mist_name()
 
     # Default message when processing
