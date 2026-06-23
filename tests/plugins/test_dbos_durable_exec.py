@@ -163,23 +163,29 @@ class TestWrapWithDbosAgent:
         # Toolsets are reset (pickleability fix).
         assert pydantic_agent._toolsets == []
 
-    def test_subagent_kind_forces_handler_none(self, monkeypatch):
+    def test_subagent_kind_is_not_wrapped(self, monkeypatch):
+        """Subagents must NOT be DBOS-wrapped — durability would force DBOS to
+        pickle the per-run event_stream_handler closure and crash. They run as
+        plain pydantic agents instead.
+        """
         _, captured = _install_fake_pydantic_dbos(monkeypatch)
 
         agent = MagicMock(name="agent")
         agent.name = "sub"
         pydantic_agent = MagicMock(name="pyd")
-        pydantic_agent._toolsets = []
+        pydantic_agent._toolsets = ["keep", "me"]
         handler = object()
 
-        wrapper_mod.wrap_with_dbos_agent(
+        result = wrapper_mod.wrap_with_dbos_agent(
             agent,
             pydantic_agent,
             event_stream_handler=handler,
             kind="subagent",
         )
-        assert captured["kwargs"]["event_stream_handler"] is None
-        assert captured["kwargs"]["name"].startswith("sub-subagent-")
+        assert result is None  # not wrapped
+        assert captured == {}  # DBOSAgent was never constructed
+        # And the subagent's MCP toolsets are left intact (no pickle reset).
+        assert pydantic_agent._toolsets == ["keep", "me"]
 
     def test_no_stash_attribute_left_behind(self, monkeypatch):
         """YAGNI cleanup: the dead _dbos_stashed_mcp_toolsets attr must be gone."""
@@ -449,3 +455,25 @@ class TestRegisterCallbacksWiring:
         _reload_register_callbacks()
         counts_after = {p: count_callbacks(p) for p in _SLASH_PHASES + _DBOS_PHASES}
         assert counts == counts_after, "register_callback should dedupe on reload"
+
+
+class TestSubagentsAreNotWrapped:
+    """Subagents must never be DBOS-wrapped (regression for the pickle crash
+    on the event_stream_handler closure)."""
+
+    def test_subagent_kind_returns_none(self):
+        assert (
+            wrapper_mod.wrap_with_dbos_agent(
+                MagicMock(name="agent"), MagicMock(), kind="subagent"
+            )
+            is None
+        )
+
+    def test_non_main_kinds_return_none(self):
+        for kind in ("subagent", "explore", "worker"):
+            assert (
+                wrapper_mod.wrap_with_dbos_agent(
+                    MagicMock(name="agent"), MagicMock(), kind=kind
+                )
+                is None
+            )
