@@ -476,6 +476,14 @@ async def event_stream_handler(
                                     else:
                                         await _print_response_banner()
                                         banner_printed.add(event.index)
+                                        # The banner paused the spinner. Resume
+                                        # it so a heartbeat keeps animating
+                                        # during the model's post-banner
+                                        # generation gap (the "AGENT RESPONSE
+                                        # then nothing" dead zone). It's paused
+                                        # again the instant real text flushes,
+                                        # below.
+                                        resume_all_spinners()
 
                                 # Add content to line buffer
                                 termflow_line_buffers[event.index] += (
@@ -491,6 +499,12 @@ async def event_stream_handler(
                                 parser = termflow_parsers[event.index]
                                 renderer = termflow_renderers[event.index]
                                 buffer = termflow_line_buffers[event.index]
+
+                                # Real text is about to render — clear the
+                                # heartbeat spinner first so the Live region
+                                # never collides with streamed output.
+                                if not is_compact and "\n" in buffer:
+                                    pause_all_spinners()
 
                                 while "\n" in buffer:
                                     line, buffer = buffer.split("\n", 1)
