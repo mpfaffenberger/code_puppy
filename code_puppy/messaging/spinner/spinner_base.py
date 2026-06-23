@@ -11,22 +11,48 @@ from code_puppy.config import get_mist_name
 class SpinnerBase(ABC):
     """Abstract base class for spinner implementations."""
 
-    # Shared spinner frames: the classic braille "dots" spinner (the de-facto
-    # modern TUI indicator, and what the sub-agent panel already uses). Crisp,
-    # well-supported, and visually consistent across the app — unlike the tiny
-    # square glyphs, which rendered faint.
-    FRAMES = [
-        "⠋",
-        "⠙",
-        "⠹",
-        "⠸",
-        "⠼",
-        "⠴",
-        "⠦",
-        "⠧",
-        "⠇",
-        "⠏",
-    ]
+    # Selectable braille spinner presets (crisp, well-supported). The 3–4 cell
+    # ones read with more presence than a single glyph. Pick one with
+    # ``/set spinner_style=<name>``; defaults to "sparkle".
+    # Frames adapted from github.com/Eronred/expo-agent-spinners.
+    SPINNER_PRESETS: dict = {
+        "dots": ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+        "sparkle": ["⡡⠊⢔⠡", "⠊⡰⡡⡘", "⢔⢅⠈⢢", "⡁⢂⠆⡍", "⢔⠨⢑⢐", "⠨⡑⡠⠊"],
+        "wave": [
+            "⠁⠂⠄⡀",
+            "⠂⠄⡀⢀",
+            "⠄⡀⢀⠠",
+            "⡀⢀⠠⠐",
+            "⢀⠠⠐⠈",
+            "⠠⠐⠈⠁",
+            "⠐⠈⠁⠂",
+            "⠈⠁⠂⠄",
+        ],
+        "pulse": ["⠀⠶⠀", "⠰⣿⠆", "⢾⣉⡷", "⣏⠀⣹", "⡁⠀⢈"],
+        "snake": [
+            "⣁⡀",
+            "⣉⠀",
+            "⡉⠁",
+            "⠉⠉",
+            "⠈⠙",
+            "⠀⠛",
+            "⠐⠚",
+            "⠒⠒",
+            "⠖⠂",
+            "⠶⠀",
+            "⠦⠄",
+            "⠤⠤",
+            "⠠⢤",
+            "⠀⣤",
+            "⢀⣠",
+            "⣀⣀",
+        ],
+        "bounce": ["⠁", "⠂", "⠄", "⡀", "⠄", "⠂"],
+    }
+    _DEFAULT_SPINNER = "sparkle"
+
+    # Back-compat alias; the live frames are resolved per-spinner from config.
+    FRAMES = SPINNER_PRESETS[_DEFAULT_SPINNER]
     mist_name = get_mist_name()
 
     # Default message when processing
@@ -51,6 +77,22 @@ class SpinnerBase(ABC):
         """Initialize the spinner."""
         self._is_spinning = False
         self._frame_index = 0
+        # Resolve frames once per spinner (a new spinner is created each agent
+        # turn), so /set spinner_style takes effect on the next turn without a
+        # config read on every animation frame.
+        self._frames = type(self).get_frames()
+
+    @classmethod
+    def get_frames(cls) -> list:
+        """Return the configured spinner frames (falls back to the default)."""
+        try:
+            from code_puppy.config import get_value
+
+            style = str(get_value("spinner_style") or cls._DEFAULT_SPINNER)
+            style = style.strip().lower()
+        except Exception:
+            style = cls._DEFAULT_SPINNER
+        return cls.SPINNER_PRESETS.get(style, cls.SPINNER_PRESETS[cls._DEFAULT_SPINNER])
 
     @abstractmethod
     def start(self):
@@ -67,12 +109,12 @@ class SpinnerBase(ABC):
     def update_frame(self):
         """Update to the next frame."""
         if self._is_spinning:
-            self._frame_index = (self._frame_index + 1) % len(self.FRAMES)
+            self._frame_index = (self._frame_index + 1) % len(self._frames)
 
     @property
     def current_frame(self):
         """Get the current frame."""
-        return self.FRAMES[self._frame_index]
+        return self._frames[self._frame_index % len(self._frames)]
 
     @property
     def is_spinning(self):
