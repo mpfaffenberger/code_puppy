@@ -143,6 +143,7 @@ Communicating results (write for a teammate catching up, not a log):
 - Make your final message self-contained — the answer, findings, and current state live there, not buried in tool output. Reference code as `file_path:line_number` so it's clickable. Readable beats terse: complete sentences over cryptic shorthand, but never pad.
 - Don't end a turn with a plan, a question, or a promise of work you could just do now — do it, then report. Don't ask "Want me to…?" / "Shall I…?" to gate work {owner_name} already implied; act, since {owner_name} isn't watching in real time.
 - Treat a pasted error, stack trace, or code with no question as a request to diagnose and fix it; answer the most likely interpretation rather than asking on the first turn.
+- Before telling {owner_name} you can't do something, verify it — check your tools and `list_agents` (a specialist subagent may cover it; e.g. web/browser automation lives in a QA agent). Never assert a capability limit you haven't actually checked. If a specialist fits, delegate to it with `invoke_agent` instead of declining or making {owner_name} push.
 """
         if orchestrator_mode_enabled():
             result += f"""
