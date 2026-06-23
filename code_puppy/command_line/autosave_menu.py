@@ -20,9 +20,15 @@ from prompt_toolkit.widgets import Frame
 from rich.console import Console
 from rich.markdown import Markdown
 
+from code_puppy.command_line.autosave_search import (
+    SessionContentIndex,
+    entry_matches,
+    iter_alphabet_bindings,
+)
 from code_puppy.command_line.pagination import (
     ensure_visible_page,
     get_page_bounds,
+    get_page_for_index,
     get_total_pages,
 )
 from code_puppy.config import AUTOSAVE_DIR
@@ -163,17 +169,40 @@ def _render_menu_panel(
     page: int,
     selected_idx: int,
     browse_mode: bool = False,
+    search_text: str = "",
+    in_search_mode: bool = False,
+    search_buffer: str = "",
+    status_line: Optional[Tuple[str, str]] = None,
 ) -> List:
-    """Render the left menu panel with pagination."""
+    """Render the left menu panel with pagination.
+
+    ``status_line`` is an optional ``(style, text)`` pair that, when
+    provided, replaces the normal search/filter indicator. The picker
+    uses it to surface transient states like ``Filtering...`` (right
+    after the user commits a search) and ``Indexing N/M...`` (while the
+    background pre-warm task is still chewing through sessions).
+    """
     lines = []
     total_pages = get_total_pages(len(entries), PAGE_SIZE)
     start_idx, end_idx = get_page_bounds(page, len(entries), PAGE_SIZE)
 
     lines.append(("", f" Session Page(s): ({page + 1}/{total_pages})"))
+    if status_line is not None:
+        lines.append(("", "\n"))
+        lines.append(status_line)
+    elif in_search_mode:
+        lines.append(("", "\n"))
+        lines.append(("fg:ansiyellow", f"  Searching: '{search_buffer}'"))
+    elif search_text:
+        lines.append(("", "\n"))
+        lines.append(("fg:ansiyellow", f"  Filter: '{search_text}'"))
     lines.append(("", "\n\n"))
 
     if not entries:
-        lines.append(("fg:yellow", "  No autosave sessions found."))
+        if search_text or in_search_mode:
+            lines.append(("fg:yellow", "  No sessions match your search."))
+        else:
+            lines.append(("fg:yellow", "  No autosave sessions found."))
         lines.append(("", "\n\n"))
         # Navigation hints (always show)
         lines.append(("", "\n"))
@@ -225,6 +254,8 @@ def _render_menu_panel(
         lines.append(("", "Page\n"))
         lines.append(("fg:ansicyan", "  e   "))
         lines.append(("", "Browse msgs\n"))
+        lines.append(("fg:ansibrightblack", "  /   "))
+        lines.append(("", "Search content\n"))
     lines.append(("fg:green", "  Enter  "))
     lines.append(("", "Load\n"))
     lines.append(("fg:ansibrightred", "  Ctrl+C "))
@@ -515,7 +546,7 @@ async def interactive_autosave_picker() -> Optional[str]:
         return None
 
     # State
-    selected_idx = [0]  # Current selection (global index)
+    selected_idx = [0]  # Current selection (index into visible_entries)
     current_page = [0]  # Current page
     result = [None]  # Selected session name
 
@@ -524,21 +555,74 @@ async def interactive_autosave_picker() -> Optional[str]:
     message_idx = [0]  # Current message index (0 = most recent)
     cached_history = [None]  # Cached history for current session in browse mode
 
-    total_pages = get_total_pages(len(entries), PAGE_SIZE)
+    # Search/filter state (mirrors set_menu.py's `/`-search UX)
+    search_text = [""]  # Committed filter (drives visible_entries)
+    in_search_mode = [False]  # Currently typing into the search buffer?
+    search_buffer = [""]  # Live keystrokes before Enter commits them
+    visible_entries: List[List[Tuple[str, dict]]] = [list(entries)]
+    content_index = SessionContentIndex()  # Lazy content cache for THIS picker
+    is_filtering = [False]  # True while the Enter-handler is doing the work
+    total_to_index = len(entries)  # Denominator for the prewarm progress hint
 
     def get_current_entry() -> Optional[Tuple[str, dict]]:
-        if 0 <= selected_idx[0] < len(entries):
-            return entries[selected_idx[0]]
+        visible = visible_entries[0]
+        if 0 <= selected_idx[0] < len(visible):
+            return visible[selected_idx[0]]
         return None
+
+    def update_visible_entries() -> None:
+        """Re-filter ``entries`` against ``search_text`` and clamp pagination."""
+        needle = search_text[0]
+        if needle:
+            visible_entries[0] = [
+                e for e in entries if entry_matches(e, needle, content_index, base_dir)
+            ]
+        else:
+            visible_entries[0] = list(entries)
+        if not visible_entries[0]:
+            selected_idx[0] = 0
+            current_page[0] = 0
+            return
+        selected_idx[0] = min(selected_idx[0], len(visible_entries[0]) - 1)
+        current_page[0] = get_page_for_index(selected_idx[0], PAGE_SIZE)
 
     # Build UI
     menu_control = FormattedTextControl(text="")
     preview_control = FormattedTextControl(text="")
 
+    def _compute_status_line() -> Optional[Tuple[str, str]]:
+        """Resolve which transient indicator (if any) takes the header slot.
+
+        Priority order:
+          1. ``Filtering...`` -- user just hit Enter, filter is running.
+          2. ``Searching: '...'`` / ``Filter: '...'`` -- normal search UX,
+             handled by the renderer's own branches when this returns None.
+          3. ``Indexing N/M...`` -- background pre-warm in progress and no
+             other search activity to crowd out.
+        """
+        if is_filtering[0]:
+            return ("fg:ansicyan bold", "  Filtering...")
+        if in_search_mode[0] or search_text[0]:
+            return None  # Let the renderer show the search/filter line.
+        cached = content_index.count()
+        if 0 < cached < total_to_index:
+            return (
+                "fg:ansibrightblack",
+                f"  Indexing {cached}/{total_to_index}...",
+            )
+        return None
+
     def update_display():
         """Update both panels."""
         menu_control.text = _render_menu_panel(
-            entries, current_page[0], selected_idx[0], browse_mode[0]
+            visible_entries[0],
+            current_page[0],
+            selected_idx[0],
+            browse_mode[0],
+            search_text=search_text[0],
+            in_search_mode=in_search_mode[0],
+            search_buffer=search_buffer[0],
+            status_line=_compute_status_line(),
         )
         # Show message browser if in browse mode, otherwise show preview
         if browse_mode[0] and cached_history[0] is not None:
@@ -574,6 +658,8 @@ async def interactive_autosave_picker() -> Optional[str]:
     @kb.add("up")
     @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
     def _(event):
+        if in_search_mode[0]:
+            return  # While typing the search buffer, arrows do nothing.
         if browse_mode[0]:
             # In browse mode: go to older message
             if cached_history[0] and message_idx[0] < len(cached_history[0]) - 1:
@@ -586,7 +672,7 @@ async def interactive_autosave_picker() -> Optional[str]:
                 current_page[0] = ensure_visible_page(
                     selected_idx[0],
                     current_page[0],
-                    len(entries),
+                    len(visible_entries[0]),
                     PAGE_SIZE,
                 )
                 update_display()
@@ -594,6 +680,8 @@ async def interactive_autosave_picker() -> Optional[str]:
     @kb.add("down")
     @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
     def _(event):
+        if in_search_mode[0]:
+            return
         if browse_mode[0]:
             # In browse mode: go to newer message
             if message_idx[0] > 0:
@@ -601,18 +689,20 @@ async def interactive_autosave_picker() -> Optional[str]:
                 update_display()
         else:
             # Normal mode: navigate sessions
-            if selected_idx[0] < len(entries) - 1:
+            if selected_idx[0] < len(visible_entries[0]) - 1:
                 selected_idx[0] += 1
                 current_page[0] = ensure_visible_page(
                     selected_idx[0],
                     current_page[0],
-                    len(entries),
+                    len(visible_entries[0]),
                     PAGE_SIZE,
                 )
                 update_display()
 
     @kb.add("left")
     def _(event):
+        if in_search_mode[0]:
+            return
         if current_page[0] > 0:
             current_page[0] -= 1
             selected_idx[0] = current_page[0] * PAGE_SIZE
@@ -620,14 +710,25 @@ async def interactive_autosave_picker() -> Optional[str]:
 
     @kb.add("right")
     def _(event):
+        if in_search_mode[0]:
+            return
+        # Recompute total_pages from visible_entries every call -- filtering
+        # changes the list length and a stale captured value would let users
+        # page past the end of a filtered result.
+        total_pages = get_total_pages(len(visible_entries[0]), PAGE_SIZE)
         if current_page[0] < total_pages - 1:
             current_page[0] += 1
             selected_idx[0] = current_page[0] * PAGE_SIZE
             update_display()
 
     @kb.add("e")
+    @kb.add("E")
     def _(event):
-        """Enter message browse mode."""
+        """Enter message browse mode (or feed the search buffer)."""
+        if in_search_mode[0]:
+            search_buffer[0] += "e"
+            update_display()
+            return
         if browse_mode[0]:
             return  # Already in browse mode
         entry = get_current_entry()
@@ -643,20 +744,30 @@ async def interactive_autosave_picker() -> Optional[str]:
 
     @kb.add("escape")
     def _(event):
-        """Exit browse mode or cancel."""
+        """Exit search mode, browse mode, or cancel -- in that priority."""
+        if in_search_mode[0]:
+            in_search_mode[0] = False
+            search_buffer[0] = ""
+            update_display()
+            return
         if browse_mode[0]:
             browse_mode[0] = False
             cached_history[0] = None
             message_idx[0] = 0
             update_display()
         else:
-            # Not in browse mode - treat as cancel
+            # Not in any sub-mode - treat as cancel
             result[0] = None
             event.app.exit()
 
     @kb.add("q")
+    @kb.add("Q")
     def _(event):
-        """Exit browse mode (only when in browse mode)."""
+        """Feed the search buffer, or exit browse mode if not searching."""
+        if in_search_mode[0]:
+            search_buffer[0] += "q"
+            update_display()
+            return
         if browse_mode[0]:
             browse_mode[0] = False
             cached_history[0] = None
@@ -664,11 +775,55 @@ async def interactive_autosave_picker() -> Optional[str]:
             update_display()
 
     @kb.add("enter")
-    def _(event):
+    async def _(event):
+        if in_search_mode[0]:
+            # Commit the buffer as the active filter. Repaint "Filtering..."
+            # BEFORE doing the work so users get feedback even when the
+            # content index is cold and the lookup has to read pickles.
+            search_text[0] = search_buffer[0]
+            in_search_mode[0] = False
+            search_buffer[0] = ""
+            is_filtering[0] = True
+            update_display()
+            event.app.invalidate()
+            # Yield control back to prompt_toolkit so it can paint the
+            # "Filtering..." indicator before the (potentially blocking)
+            # filter runs.
+            await asyncio.sleep(0)
+            try:
+                update_visible_entries()
+            finally:
+                is_filtering[0] = False
+            update_display()
+            event.app.invalidate()
+            return
         entry = get_current_entry()
         if entry:
             result[0] = entry[0]  # Store session name
         event.app.exit()
+
+    @kb.add("/")
+    def _(event):
+        """Enter search mode. Disabled inside browse mode (focus is on msgs)."""
+        if browse_mode[0]:
+            return
+        in_search_mode[0] = True
+        search_buffer[0] = ""
+        update_display()
+
+    @kb.add("backspace")
+    def _(event):
+        if in_search_mode[0]:
+            search_buffer[0] = search_buffer[0][:-1]
+            update_display()
+
+    for _key, _append in iter_alphabet_bindings():
+
+        @kb.add(_key)
+        def _alpha(event, _c=_append):
+            if in_search_mode[0]:
+                search_buffer[0] += _c
+                update_display()
 
     @kb.add("c-c")
     def _(event):
@@ -683,6 +838,32 @@ async def interactive_autosave_picker() -> Optional[str]:
         mouse_support=False,
     )
 
+    async def _prewarm_index() -> None:
+        """Eagerly populate the content index in the background.
+
+        Without this, the first content-search blocks the UI on N pickle
+        reads. Running the loads on a worker thread keeps the event loop
+        responsive; ``app.invalidate()`` after each one drives the
+        ``Indexing N/M...`` progress hint in the menu header.
+        """
+        for name, _meta in entries:
+            if name in content_index:
+                continue
+            try:
+                await asyncio.to_thread(content_index.lookup, name, base_dir)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # SessionContentIndex.lookup already swallows + caches
+                # load errors; we should never get here, but be paranoid.
+                pass
+            try:
+                app.invalidate()
+            except Exception:
+                # If the app is tearing down, invalidate may explode --
+                # not our problem, just stop pre-warming gracefully.
+                return
+
     set_awaiting_user_input(True)
 
     # Enter alternate screen buffer once for entire session
@@ -690,6 +871,8 @@ async def interactive_autosave_picker() -> Optional[str]:
     sys.stdout.write("\033[2J\033[H")  # Clear and home
     sys.stdout.flush()
     await asyncio.sleep(0.05)
+
+    prewarm_task = asyncio.create_task(_prewarm_index())
 
     try:
         # Initial display
@@ -703,6 +886,13 @@ async def interactive_autosave_picker() -> Optional[str]:
         await app.run_async()
 
     finally:
+        # Cancel the background pre-warm if it hasn't finished; suppress
+        # the resulting CancelledError so the picker exits cleanly.
+        prewarm_task.cancel()
+        try:
+            await prewarm_task
+        except (asyncio.CancelledError, Exception):
+            pass
         # Exit alternate screen buffer once at end
         sys.stdout.write("\033[?1049l")  # Exit alternate buffer
         sys.stdout.flush()
