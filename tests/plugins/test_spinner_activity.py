@@ -1,5 +1,19 @@
+import asyncio
+from unittest.mock import patch
+
 from code_puppy.messaging.spinner.spinner_base import SpinnerBase
+from code_puppy.plugins.spinner_activity import register_callbacks as rc
 from code_puppy.plugins.spinner_activity.register_callbacks import _activity_label
+
+
+def test_pre_tool_call_sets_label_and_resumes_spinner():
+    SpinnerBase.clear_activity()
+    with patch.object(rc, "resume_all_spinners") as resume:
+        asyncio.run(rc._on_pre_tool_call("read_file", {"file_path": "a.py"}))
+        resume.assert_called_once()  # spinner made visible during the tool
+    assert SpinnerBase.get_activity() == "Reading a.py"
+    asyncio.run(rc._on_post_tool_call("read_file", {}, None, 1.0))
+    assert SpinnerBase.get_activity() == ""
 
 
 def test_labels_are_concise_and_tool_aware():

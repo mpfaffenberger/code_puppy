@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from code_puppy.callbacks import register_callback
+from code_puppy.messaging.spinner import resume_all_spinners
 from code_puppy.messaging.spinner.spinner_base import SpinnerBase
 
 
@@ -60,6 +61,11 @@ async def _on_pre_tool_call(
 ) -> None:
     try:
         SpinnerBase.set_activity(_activity_label(tool_name, tool_args))
+        # The stream handler keeps the spinner paused when transitioning into a
+        # tool call, so a long tool would otherwise run with no indicator at
+        # all. Resume it here (guarded against user-input prompts) so the
+        # activity label animates while the tool executes.
+        resume_all_spinners()
     except Exception:
         pass
 
