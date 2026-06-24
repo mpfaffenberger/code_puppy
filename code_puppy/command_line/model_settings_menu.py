@@ -818,6 +818,7 @@ class ModelSettingsMenu:
 
         @kb.add("up")
         @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
+        @kb.add("k")  # Vim-style
         def _(event):
             if self.view_mode == "models":
                 if self.model_index > 0:
@@ -831,6 +832,7 @@ class ModelSettingsMenu:
 
         @kb.add("down")
         @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
+        @kb.add("j")  # Vim-style
         def _(event):
             if self.view_mode == "models":
                 if self.model_index < len(self.all_models) - 1:

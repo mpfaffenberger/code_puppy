@@ -245,7 +245,7 @@ def _render_menu_panel(
 
     # Navigation hints
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "  [up]/[down] "))
+    lines.append(("fg:ansibrightblack", "  [up]/[down]/jk "))
     lines.append(("", "Navigate\n"))
     lines.append(("fg:ansibrightblack", "  [left]/[right] "))
     lines.append(("", "Page\n"))
@@ -675,6 +675,7 @@ async def interactive_uc_picker() -> Optional[str]:
     list_kb = KeyBindings()
 
     @list_kb.add("up")
+    @list_kb.add("k")
     def _list_up(event):
         if selected_idx[0] > 0:
             selected_idx[0] -= 1
@@ -687,6 +688,7 @@ async def interactive_uc_picker() -> Optional[str]:
             update_list_display()
 
     @list_kb.add("down")
+    @list_kb.add("j")
     def _list_down(event):
         if selected_idx[0] < len(tools) - 1:
             selected_idx[0] += 1
@@ -751,12 +753,14 @@ async def interactive_uc_picker() -> Optional[str]:
     source_kb = KeyBindings()
 
     @source_kb.add("up")
+    @source_kb.add("k")
     def _source_up(event):
         if source_scroll[0] > 0:
             source_scroll[0] -= 1
             update_source_display()
 
     @source_kb.add("down")
+    @source_kb.add("j")
     def _source_down(event):
         max_scroll = max(0, len(source_lines[0]) - SOURCE_PAGE_SIZE)
         if source_scroll[0] < max_scroll:
