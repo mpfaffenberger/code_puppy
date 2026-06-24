@@ -142,6 +142,13 @@ class ConsoleSpinner(SpinnerBase):
         # flashing/collapse bug that plagued the in-Live ledger approach
         # (IN_PLACE_STATUS_PLAN.md §3 "Decision (REVISED)").
         if SpinnerBase.is_ledger_active():
+            # Render the task list inside the live footer so repeated
+            # update_task_list calls update in place (instead of stacking
+            # full copies in scrollback). Sits above the heartbeat line.
+            task_list = SpinnerBase.get_task_list()
+            if task_list.strip():
+                text.append(task_list.rstrip("\n"), style="bright_white")
+                text.append("\n")
             beat = self._heartbeat_frame()
             text.append(f"{beat} ", style="bold cyan")
 

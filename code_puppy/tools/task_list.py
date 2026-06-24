@@ -70,7 +70,25 @@ def _apply_update(tasks: List[TaskItem]) -> TaskListOutput:
     items = [task.model_dump() for task in tasks]
     _TASK_LISTS[_agent_key()] = items
     rendered = render_task_list(items)
-    emit_info("📋 Task list\n" + rendered, message_group="task_list")
+
+    # When the compact-steps footer is active, route the list into the live
+    # footer so repeated updates replace in place instead of stacking a fresh
+    # "📋 Task list" block in scrollback on every call. Otherwise (legacy /
+    # no footer) fall back to a one-shot scrollback print.
+    routed = False
+    try:
+        from code_puppy.config import get_compact_steps
+
+        if get_compact_steps():
+            from code_puppy.messaging.spinner.spinner_base import SpinnerBase
+
+            SpinnerBase.set_task_list("📋 Task list\n" + rendered)
+            routed = True
+    except Exception:
+        routed = False
+
+    if not routed:
+        emit_info("📋 Task list\n" + rendered, message_group="task_list")
     return TaskListOutput(success=True, rendered=rendered)
 
 

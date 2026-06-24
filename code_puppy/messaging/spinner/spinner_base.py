@@ -160,6 +160,27 @@ class SpinnerBase(ABC):
         """Clear the activity label, reverting to the thinking message."""
         cls.set_activity("")
 
+    # The current task list, rendered into the live footer so repeated
+    # update_task_list calls update *in place* instead of stacking copies in
+    # scrollback (each emit_info copy was the bug). Set by the update_task_list
+    # tool; cleared at turn end.
+    _task_list: str = ""
+    _task_list_lock: Lock = Lock()
+
+    @classmethod
+    def set_task_list(cls, rendered: str) -> None:
+        with cls._task_list_lock:
+            cls._task_list = rendered or ""
+
+    @classmethod
+    def clear_task_list(cls) -> None:
+        cls.set_task_list("")
+
+    @classmethod
+    def get_task_list(cls) -> str:
+        with cls._task_list_lock:
+            return cls._task_list
+
     @classmethod
     def get_activity(cls) -> str:
         """Return the current activity label (empty when just thinking)."""

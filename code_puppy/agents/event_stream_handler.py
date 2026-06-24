@@ -702,6 +702,7 @@ async def event_stream_handler(
                 from code_puppy.messaging.step_ledger import get_ledger
 
                 SpinnerBase.set_ledger_active(False)
+                SpinnerBase.clear_task_list()
                 get_ledger().reset()
             except Exception:
                 pass
@@ -748,6 +749,7 @@ async def event_stream_handler(
             from code_puppy.messaging.step_ledger import get_ledger
 
             SpinnerBase.set_ledger_active(False)
+            SpinnerBase.clear_task_list()
             get_ledger().reset()
         except Exception:
             pass
