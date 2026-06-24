@@ -40,7 +40,8 @@ def _agent_block() -> Optional[Dict[str, Any]]:
     return {"name": name} if name else None
 
 
-def _git_branch(cwd: str) -> Optional[str]:
+def detect_git_branch(cwd: str) -> Optional[str]:
+    """Return the active git branch for cwd, or None outside a branch/repo."""
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
@@ -55,6 +56,10 @@ def _git_branch(cwd: str) -> Optional[str]:
     except Exception:
         return None
     return None
+
+
+# Back-compat alias: quick-resume (config.py) reuses this public helper.
+_git_branch = detect_git_branch
 
 
 def _context_block() -> Dict[str, Any]:
@@ -101,7 +106,7 @@ def build_payload() -> Dict[str, Any]:
     if agent:
         payload["agent"] = agent
 
-    branch = _git_branch(cwd)
+    branch = detect_git_branch(cwd)
     if branch:
         payload["workspace"]["git_branch"] = branch
 

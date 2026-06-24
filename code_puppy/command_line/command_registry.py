@@ -17,6 +17,7 @@ class CommandInfo:
     handler: Callable[[str], bool]
     usage: str = ""
     aliases: List[str] = field(default_factory=list)
+    hidden_aliases: List[str] = field(default_factory=list)
     category: str = "core"
     detailed_help: Optional[str] = None
 
@@ -57,6 +58,7 @@ def register_command(
     description: str,
     usage: str = "",
     aliases: Optional[List[str]] = None,
+    hidden_aliases: Optional[List[str]] = None,
     category: str = "core",
     detailed_help: Optional[str] = None,
 ):
@@ -72,7 +74,10 @@ def register_command(
         name: Primary command name (without leading /)
         description: Short one-line description for help text
         usage: Full usage string (e.g., "/cd <dir>"). Defaults to "/{name}"
-        aliases: List of alternative names (without leading /)
+        aliases: List of visible alternative names (without leading /).
+            These are executable and shown in completions/help.
+        hidden_aliases: List of hidden alternative names (without leading /).
+            These are executable but omitted from completions/help.
         category: Grouping category ("core", "session", "config", etc.)
         detailed_help: Optional detailed help text for /help <command>
 
@@ -99,6 +104,7 @@ def register_command(
             handler=func,
             usage=usage,
             aliases=aliases or [],
+            hidden_aliases=hidden_aliases or [],
             category=category,
             detailed_help=detailed_help,
         )
@@ -106,8 +112,12 @@ def register_command(
         # Register primary name
         _COMMAND_REGISTRY[name] = cmd_info
 
-        # Register all aliases pointing to the same CommandInfo
+        # Register all aliases pointing to the same CommandInfo.
+        # Visible aliases are advertised by completions/help; hidden ones are
+        # executable but omitted from both (see prompt_toolkit_completion).
         for alias in aliases or []:
+            _COMMAND_REGISTRY[alias] = cmd_info
+        for alias in hidden_aliases or []:
             _COMMAND_REGISTRY[alias] = cmd_info
 
         return func

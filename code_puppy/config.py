@@ -1,11 +1,15 @@
 import configparser
 import datetime
+import hashlib
 import json
+import logging
 import os
 import pathlib
 from typing import Optional
 
 from code_puppy.session_storage import save_session
+
+logger = logging.getLogger(__name__)
 
 
 def _get_xdg_dir(env_var: str, fallback: str) -> str:
@@ -1811,6 +1815,12 @@ def auto_save_session_if_enabled() -> bool:
             auto_saved=True,
         )
 
+        # Point quick-resume at this just-saved session. Every turn, exit, and
+        # finalize routes through this single autosave chokepoint, so cwd and
+        # any tool-observed child workspaces always map to a loadable pickle.
+        # Best-effort: never let pointer bookkeeping block the autosave.
+        record_quick_resume_sessions(session_name)
+
         # Append conversation-wide TTFT + TG averages if we have any data.
         stats_suffix = ""
         try:
@@ -1918,6 +1928,285 @@ def get_last_terminal_session() -> Optional[str]:
             return None
         return session_name
     except Exception:
+        return None
+
+
+# --------------------------------------------------------------------------- #
+# Quick-resume: resume the latest autosave for a directory + git branch.
+#
+# Unlike terminal sessions (keyed by TTY, which is POSIX-only), quick-resume is
+# keyed by canonical workspace + branch, so it works identically on Windows and
+# macOS/Linux. All filesystem access goes through ``os.path``/``pathlib`` and
+# git is probed via subprocess with failures swallowed, so a missing git or a
+# non-repo directory degrades gracefully rather than raising.
+# --------------------------------------------------------------------------- #
+
+# Child workspaces touched by tools this run; flushed to pointers on next save.
+_OBSERVED_QUICK_RESUME_KEYS: set[str] = set()
+
+
+def format_quick_resume_scope(cwd: str, branch: Optional[str]) -> str:
+    """Return a non-sensitive scope label for diagnostics (no raw paths)."""
+    scope_id = hashlib.sha1(
+        f"{cwd}\x00{branch or ''}".encode("utf-8"), usedforsecurity=False
+    ).hexdigest()[:12]
+    branch_label = "detected" if branch else "null"
+    return f"scope: {scope_id} | branch: {branch_label}"
+
+
+def _quick_resume_key(cwd: str, branch: Optional[str]) -> str:
+    """Return the stable pointer key for a workspace + branch (NUL-separated)."""
+    return f"{cwd}\x00{branch or ''}"
+
+
+def _absolute_quick_resume_path(target_path: Optional[str]) -> str:
+    """Normalize a target into an absolute, user-expanded path (cwd if None)."""
+    raw_path = os.getcwd() if target_path is None else str(target_path).strip()
+    if not raw_path:
+        raw_path = os.getcwd()
+    expanded = os.path.expanduser(raw_path)
+    if not os.path.isabs(expanded):
+        expanded = os.path.join(os.getcwd(), expanded)
+    return os.path.abspath(expanded)
+
+
+def _candidate_scope_dir(target_path: Optional[str], path_kind: str) -> str:
+    """Return the directory to probe for scope.
+
+    ``path_kind='file'`` probes the path's parent dir; ``'directory'`` uses it
+    as-is; ``'auto'`` checks the filesystem so ``-qr some_file.py`` still works.
+    """
+    candidate = _absolute_quick_resume_path(target_path)
+    if path_kind == "file":
+        return os.path.dirname(candidate) or candidate
+    if path_kind == "directory":
+        return candidate
+    if os.path.isfile(candidate):
+        return os.path.dirname(candidate) or candidate
+    return candidate
+
+
+def _nearest_existing_directory(path: str) -> Optional[str]:
+    """Walk up from ``path`` to the first directory that exists, or None."""
+    current = pathlib.Path(path)
+    while True:
+        try:
+            if current.is_dir():
+                return str(current)
+        except OSError:
+            return None
+        if current.parent == current:  # reached filesystem root
+            return None
+        current = current.parent
+
+
+def _detect_git_toplevel(path: str) -> Optional[str]:
+    """Return the git worktree root for ``path``, or None outside git.
+
+    Uses ``git rev-parse --show-toplevel`` (handles nested repos, submodules,
+    and worktrees). Cross-platform; returns None if git is missing or fails.
+    """
+    probe_dir = _nearest_existing_directory(path)
+    if not probe_dir:
+        return None
+    try:
+        import subprocess
+
+        out = subprocess.run(
+            ["git", "-C", probe_dir, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+        if out.returncode == 0:
+            root = out.stdout.strip()
+            return os.path.realpath(root) if root else None
+    except Exception:
+        return None
+    return None
+
+
+def _first_child_under_cwd(path: str) -> Optional[str]:
+    """Return the first path component of ``path`` under cwd, else None.
+
+    Lets a no-git ``-qr ./ticket/src/foo`` collapse to the ``ticket`` workspace
+    instead of scattering pointers across deep subdirectories.
+    """
+    base = os.path.realpath(os.getcwd())
+    target = os.path.realpath(path)
+    if target == base:
+        return None
+    try:
+        rel = os.path.relpath(target, base)
+    except ValueError:  # different drive on Windows -> not under cwd
+        return None
+    parts = pathlib.Path(rel).parts
+    if not parts or parts[0] in (".", ".."):
+        return None
+    return os.path.realpath(os.path.join(base, parts[0]))
+
+
+def _fallback_scope_dir(candidate_dir: str, target_path: Optional[str]) -> str:
+    """Return the non-git scope: cwd itself, or the first child for explicit paths."""
+    if target_path is None:
+        return os.path.realpath(candidate_dir)
+    return _first_child_under_cwd(candidate_dir) or os.path.realpath(candidate_dir)
+
+
+def get_quick_resume_location(
+    target_path: Optional[str] = None, *, path_kind: str = "auto"
+) -> tuple[str, Optional[str]]:
+    """Return ``(canonical_workspace, branch_or_None)`` for a quick-resume scope.
+
+    The canonical workspace is the nearest git worktree root when available,
+    else a directory-only fallback. This is the single source of truth shared by
+    the pointer key and the diagnostic label, so they can never drift.
+    """
+    candidate_dir = _candidate_scope_dir(target_path, path_kind)
+    git_root = _detect_git_toplevel(candidate_dir)
+    cwd = git_root or _fallback_scope_dir(candidate_dir, target_path)
+    branch: Optional[str] = None
+    if git_root:
+        try:
+            from code_puppy.plugins.statusline.payload import detect_git_branch
+
+            branch = detect_git_branch(cwd)
+        except Exception:
+            branch = None
+    return os.path.realpath(cwd), branch
+
+
+def _dir_branch_key_for_path(
+    target_path: Optional[str] = None, *, path_kind: str = "auto"
+) -> str:
+    """Return the pointer key for a target's canonical workspace + branch."""
+    cwd, branch = get_quick_resume_location(target_path, path_kind=path_kind)
+    return _quick_resume_key(cwd, branch)
+
+
+def _dir_session_path(key: str) -> pathlib.Path:
+    """Return the pointer file path for a workspace+branch key.
+
+    The key is hashed so the filename is a short, filesystem-safe hex string on
+    every OS (sidesteps Windows path-length/charset rules regardless of how long
+    or exotic the directory or branch name is). SHA-1 truncated to 16 hex chars
+    is a cache-pointer key, never a security signature -- ``usedforsecurity``
+    flags that intent for scanners.
+    """
+    digest = hashlib.sha1(key.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
+    return pathlib.Path(CACHE_DIR) / "dir_sessions" / f"{digest}.txt"
+
+
+def _record_directory_session_key(session_name: str, key: str) -> None:
+    """Atomically write ``session_name`` into the pointer file for ``key``."""
+    session_file = _dir_session_path(key)
+    session_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp = session_file.with_suffix(".tmp")
+    tmp.write_text(session_name, encoding="utf-8")
+    tmp.replace(session_file)  # atomic + overwrites on Windows (unlike os.rename)
+
+
+def record_directory_session(
+    session_name: str, target_path: Optional[str] = None, *, path_kind: str = "auto"
+) -> None:
+    """Persist ``session_name`` as the latest autosave for a quick-resume scope.
+
+    Best-effort, mirroring ``record_terminal_session``. ``target_path`` lets
+    ``-qr ./child`` and observed workspaces reuse the same pointer machinery.
+    """
+    if not _is_valid_autosave_session_name(session_name):
+        logger.debug("Ignoring invalid quick-resume autosave pointer name")
+        return
+    try:
+        _record_directory_session_key(
+            session_name, _dir_branch_key_for_path(target_path, path_kind=path_kind)
+        )
+    except Exception:
+        logger.debug("Unable to record quick-resume autosave pointer", exc_info=True)
+
+
+def observe_quick_resume_path(target_path: str, *, path_kind: str = "auto") -> bool:
+    """Remember a child workspace touched by a tool for the next autosave.
+
+    Only a hashed pointer key is stored (never the raw path). The next autosave
+    writes its session name to every observed key so ``-qr ./child`` resolves
+    even when Code Puppy was launched from the parent directory.
+    """
+    if not target_path or not str(target_path).strip():
+        return False
+    try:
+        _OBSERVED_QUICK_RESUME_KEYS.add(
+            _dir_branch_key_for_path(str(target_path), path_kind=path_kind)
+        )
+        return True
+    except Exception:
+        logger.debug("Unable to observe quick-resume path", exc_info=True)
+        return False
+
+
+def clear_observed_quick_resume_paths() -> None:
+    """Clear the observed-workspace set (used by tests)."""
+    _OBSERVED_QUICK_RESUME_KEYS.clear()
+
+
+def record_quick_resume_sessions(session_name: str) -> None:
+    """Record cwd plus every observed child workspace for ``session_name``."""
+    record_directory_session(session_name)
+    if not _is_valid_autosave_session_name(session_name):
+        return
+    for key in tuple(_OBSERVED_QUICK_RESUME_KEYS):
+        try:
+            _record_directory_session_key(session_name, key)
+        except Exception:
+            logger.debug(
+                "Unable to record observed quick-resume pointer", exc_info=True
+            )
+
+
+def get_last_directory_session(
+    target_path: Optional[str] = None, *, path_kind: str = "auto"
+) -> Optional[str]:
+    """Return the last autosave session name for a scope, or None.
+
+    None when there is no pointer, it is empty, or the recorded name fails
+    autosave-name validation. Never raises.
+    """
+    try:
+        session_name = (
+            _dir_session_path(
+                _dir_branch_key_for_path(target_path, path_kind=path_kind)
+            )
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        if not session_name or not _is_valid_autosave_session_name(session_name):
+            return None
+        return session_name
+    except Exception:
+        logger.debug("Unable to read quick-resume autosave pointer", exc_info=True)
+        return None
+
+
+def resolve_quick_resume_pickle(
+    target_path: Optional[str] = None, *, path_kind: str = "auto"
+) -> Optional[str]:
+    """Return the absolute ``.pkl`` path for a scope's latest session, or None.
+
+    The single source of truth the CLI ``--quick-resume`` flag consults. Resolves
+    strictly inside ``AUTOSAVE_DIR`` (rejecting any path-traversal) and only
+    returns a path that is an existing file.
+    """
+    session_name = get_last_directory_session(target_path, path_kind=path_kind)
+    if not session_name:
+        return None
+    try:
+        autosave_dir = pathlib.Path(AUTOSAVE_DIR).resolve()
+        candidate = (autosave_dir / f"{session_name}.pkl").resolve(strict=False)
+        if candidate.parent != autosave_dir or not candidate.is_file():
+            return None
+        return str(candidate)
+    except OSError:
+        logger.debug("Unable to resolve quick-resume autosave path", exc_info=True)
         return None
 
 

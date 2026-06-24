@@ -133,6 +133,48 @@ def _resume_session_from_path(raw_path: str) -> None:
     )
 
 
+def apply_quick_resume(args) -> bool:
+    """Resolve ``--quick-resume [PATH]`` into ``args.resume`` so the existing
+    resume machinery loads it.
+
+    Looks up the most recent autosave for PATH (defaulting to cwd), scoped to
+    the nearest git worktree root + branch when available, with a no-git
+    fallback. No-op when ``--quick-resume`` was not requested or ``--resume`` is
+    already set (explicit ``--resume`` always wins). Returns True when a target
+    was resolved.
+    """
+    existing_resume = getattr(args, "resume", None)
+    quick_resume_target = getattr(args, "quick_resume", None)
+    if quick_resume_target is None or (
+        existing_resume and str(existing_resume).strip()
+    ):
+        return False
+
+    from code_puppy.config import (
+        format_quick_resume_scope,
+        get_quick_resume_location,
+        resolve_quick_resume_pickle,
+    )
+    from code_puppy.messaging import emit_info
+
+    target_path = str(quick_resume_target).strip() or "."
+
+    # Diagnostic identifies the lookup scope without leaking full local paths.
+    cwd, branch = get_quick_resume_location(target_path)
+    emit_info(
+        "\U0001f50d Quick Resume selected - finding latest session for "
+        f"{format_quick_resume_scope(cwd, branch)}"
+    )
+
+    quick_resume_pickle = resolve_quick_resume_pickle(target_path)
+    if quick_resume_pickle:
+        args.resume = quick_resume_pickle
+        return True
+
+    emit_info("No previous session found for this scope; starting fresh.")
+    return False
+
+
 async def main():
     """Main async entry point for Code Puppy CLI."""
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
@@ -173,6 +215,18 @@ async def main():
         type=str,
         metavar="PATH",
         help="Resume a saved session from a .pkl file (e.g. ~/.code_puppy/contexts/foo.pkl)",
+    )
+    parser.add_argument(
+        "--quick-resume",
+        "-qr",
+        nargs="?",
+        const=".",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Resume the most recent session for PATH (defaults to the current "
+            "directory; scopes to git root + branch when available)"
+        ),
     )
     parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
@@ -394,6 +448,10 @@ async def main():
             default_version_mismatch_behavior(current_version)
 
     await callbacks.on_startup()
+
+    # Resolve --quick-resume [PATH] into --resume so the resume machinery below
+    # loads the most recent session for that canonical (git-root + branch) scope.
+    apply_quick_resume(args)
 
     if args.resume:
         _resume_session_from_path(args.resume)

@@ -5,11 +5,34 @@ discovered by the command registry system.
 """
 
 from datetime import datetime
+import logging
 from pathlib import Path
 
 from code_puppy.command_line.command_registry import register_command
 from code_puppy.config import CONTEXTS_DIR
 from code_puppy.session_storage import list_sessions, load_session, save_session
+
+logger = logging.getLogger(__name__)
+
+
+def _parse_quick_resume_target(command: str) -> str:
+    """Extract the optional PATH arg from a ``/quick-resume`` command string.
+
+    OS-agnostic: splits off only the command word and keeps the remainder
+    verbatim so Windows paths (``C:\\Users\\...``) retain their backslashes --
+    ``shlex`` POSIX mode would silently strip them. A single pair of matching
+    outer quotes (used for paths containing spaces) is removed on every OS.
+    Returns ``"."`` (current directory) when no path was given.
+    """
+    parts = command.split(maxsplit=1)
+    target_path = parts[1].strip() if len(parts) > 1 else "."
+    if (
+        len(target_path) >= 2
+        and target_path[0] in ("'", '"')
+        and target_path[-1] == target_path[0]
+    ):
+        target_path = target_path[1:-1]
+    return target_path or "."
 
 
 # Import get_commands_help from command_handler to avoid circular imports
@@ -236,6 +259,86 @@ def handle_autosave_load_command(command: str) -> bool:
     """Load an autosave session."""
     # Return a special marker to indicate we need to run async autosave loading
     return "__AUTOSAVE_LOAD__"
+
+
+@register_command(
+    name="quick-resume",
+    description="Load the latest autosave for a directory/path and git branch",
+    usage="/quick-resume [path]",
+    hidden_aliases=["qr"],
+    category="session",
+    detailed_help="""
+    Resume the latest autosaved session for a path (defaults to the current
+    directory), scoped to the nearest git worktree root and branch when
+    available.
+
+    If the path is not inside a git repository (or git is unavailable), this
+    gracefully falls back to the relevant directory/workspace scope.
+    """,
+)
+def handle_quick_resume_command(command: str) -> bool:
+    """Load the latest autosave for this directory/path + branch into the agent."""
+    from code_puppy.agents.agent_manager import get_current_agent
+    from code_puppy.config import (
+        format_quick_resume_scope,
+        get_quick_resume_location,
+        resolve_quick_resume_pickle,
+        set_current_autosave_from_session_name,
+    )
+    from code_puppy.messaging import emit_error, emit_info, emit_success
+
+    # Parse an optional path argument (OS-agnostic; preserves Windows
+    # backslashes -- see _parse_quick_resume_target).
+    target_path = _parse_quick_resume_target(command)
+
+    # Diagnostic identifies the scope without leaking full local paths.
+    cwd, branch = get_quick_resume_location(target_path)
+    emit_info(
+        "Quick Resume selected - finding latest session for "
+        f"{format_quick_resume_scope(cwd, branch)}"
+    )
+
+    quick_resume_pickle = resolve_quick_resume_pickle(target_path)
+    if not quick_resume_pickle:
+        emit_info(
+            "No previous session found for this scope; staying in current session."
+        )
+        return True
+
+    session_path = Path(quick_resume_pickle)
+    session_name = session_path.stem
+
+    try:
+        history = load_session(session_name, session_path.parent)
+    except FileNotFoundError:
+        logger.warning("Quick-resume session file not found: %s", session_path)
+        emit_error(
+            "Quick-resume session file was not found; staying in current session."
+        )
+        return True
+    except Exception:
+        logger.exception("Failed to quick-resume from %s", session_path)
+        emit_error("Quick-resume failed; staying in current session.")
+        return True
+
+    agent = get_current_agent()
+    agent.set_message_history(history)
+    set_current_autosave_from_session_name(session_name)
+    total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
+
+    emit_success(
+        f"Quick resume loaded: {len(history)} messages ({total_tokens} tokens)"
+    )
+
+    # Best-effort history preview; failure must not abort a successful resume.
+    try:
+        from code_puppy.command_line.autosave_menu import display_resumed_history
+
+        display_resumed_history(history)
+    except Exception:
+        logger.debug("Unable to display quick-resume history preview", exc_info=True)
+
+    return True
 
 
 @register_command(
