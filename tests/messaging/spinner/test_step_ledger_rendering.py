@@ -31,10 +31,12 @@ def _clean_ledger():
     ledger.reset()
     SpinnerBase.set_ledger_active(False)
     SpinnerBase.clear_activity()
+    SpinnerBase.clear_task_list()
     yield
     ledger.reset()
     SpinnerBase.set_ledger_active(False)
     SpinnerBase.clear_activity()
+    SpinnerBase.clear_task_list()
 
 
 def test_ledger_mode_renders_activity_label(console):

@@ -37,10 +37,12 @@ def _reset_ledger_and_spinners():
     SpinnerBase.set_ledger_active(False)
     SpinnerBase.clear_activity()
     SpinnerBase.clear_context_info()
+    SpinnerBase.clear_task_list()
     yield
     # Re-resolve at teardown: handler may have replaced the singleton.
     get_ledger().reset()
     SpinnerBase.set_ledger_active(False)
+    SpinnerBase.clear_task_list()
 
 
 @pytest.fixture
