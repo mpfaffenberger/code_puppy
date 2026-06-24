@@ -219,7 +219,7 @@ def _delete_snippet_from_file(
     snippet: str,
     message_group: str | None = None,
 ) -> Dict[str, Any]:
-    UndoManager().record_change(file_path, 'delete_snippet')
+    UndoManager().record_change(file_path, "delete_snippet")
     file_path = os.path.abspath(file_path)
     diff_text = ""
     try:
@@ -269,7 +269,7 @@ def _replace_in_file(
     replacements: List[Dict[str, str]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
-    UndoManager().record_change(path, 'replace_in_file')
+    UndoManager().record_change(path, "replace_in_file")
     """Robust replacement engine with explicit edge‑case reporting."""
     file_path = os.path.abspath(path)
     diff_text = ""
@@ -365,7 +365,7 @@ def _write_to_file(
     overwrite: bool = False,
     message_group: str | None = None,
 ) -> Dict[str, Any]:
-    UndoManager().record_change(path, 'write_to_file')
+    UndoManager().record_change(path, "write_to_file")
     file_path = os.path.abspath(path)
 
     try:
@@ -508,7 +508,7 @@ def replace_in_file(
 def _edit_file(
     context: RunContext, payload: EditFilePayload, group_id: str | None = None
 ) -> Dict[str, Any]:
-    UndoManager().record_change(payload.file_path, 'edit_file')
+    UndoManager().record_change(payload.file_path, "edit_file")
     """
     High-level implementation of the *edit_file* behaviour.
 
@@ -600,7 +600,7 @@ def _edit_file(
 def _delete_file(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
-    UndoManager().record_change(file_path, 'delete_file')
+    UndoManager().record_change(file_path, "delete_file")
     file_path = os.path.abspath(file_path)
 
     # Use the plugin system for permission handling with operation data
