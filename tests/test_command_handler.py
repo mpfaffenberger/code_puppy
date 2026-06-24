@@ -1113,6 +1113,12 @@ class TestCommandRegistry:
         assert cmd is not None
         assert cmd.category == "core"
 
+    def test_plan_command_registered(self):
+        """Test that /plan command is registered."""
+        cmd = get_command("plan")
+        assert cmd is not None
+        assert cmd.category == "core"
+
     def test_dump_context_command_registered(self):
         """Test that dump_context command is registered."""
         cmd = get_command("dump_context")

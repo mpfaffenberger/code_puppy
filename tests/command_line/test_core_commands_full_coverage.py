@@ -633,6 +633,25 @@ class TestHandleModelSettingsCommand:
             assert handle_model_settings_command("/model_settings") is True
 
 
+class TestHandlePlanCommand:
+    def test_plan_with_goal_returns_prompt(self):
+        from code_puppy.command_line.core_commands import handle_plan_command
+
+        result = handle_plan_command("/plan add retry logic to network client")
+        assert isinstance(result, str)
+        assert "plan-only mode" in result
+        assert "add retry logic" in result
+
+    def test_plan_without_goal_emits_usage(self):
+        from code_puppy.command_line.core_commands import handle_plan_command
+
+        with patch("code_puppy.command_line.core_commands.emit_error") as mock_error:
+            result = handle_plan_command("/plan")
+
+        assert result is True
+        mock_error.assert_called_once_with("Usage: /plan <goal>")
+
+
 class TestHandleGeneratePrDescription:
     def test_basic(self):
         from code_puppy.command_line.core_commands import (
