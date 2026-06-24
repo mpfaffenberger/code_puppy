@@ -183,7 +183,7 @@ async def test_compact_mode_streams_text_via_live_printer_writer(
     captured_above: list = []
 
     class FakeSpinner:
-        def print_above(self, renderable, *, soft_wrap=True):
+        def print_above(self, renderable, *, soft_wrap=True, end="\n"):
             captured_above.append(renderable)
 
     fake_spinner = FakeSpinner()

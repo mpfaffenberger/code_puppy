@@ -18,7 +18,13 @@ class _CaptureSpinner:
     def __init__(self) -> None:
         self.calls: list = []
 
-    def print_above(self, renderable, *, soft_wrap: bool = True) -> None:
+    def print_above(
+        self, renderable, *, soft_wrap: bool = True, end: str = "\n"
+    ) -> None:
+        # The streaming writer passes end="" because its chunks carry their
+        # own newlines; record it so tests can assert the no-double-newline
+        # contract if they want.
+        self.last_end = end
         self.calls.append(renderable)
 
 

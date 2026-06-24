@@ -136,12 +136,14 @@ class LivePrinterWriter:
             return
         try:
             renderable: RenderableType = Text.from_ansi(text)
-            spinner.print_above(renderable, soft_wrap=True)
+            # end="" — the chunk already carries its own newlines; letting
+            # console.print add another would double-space every line.
+            spinner.print_above(renderable, soft_wrap=True, end="")
         except Exception:
             # Never let a rendering hiccup kill the stream — fall back to
             # plain text so the user still sees something.
             try:
-                spinner.print_above(text, soft_wrap=True)
+                spinner.print_above(text, soft_wrap=True, end="")
             except Exception:
                 pass
 

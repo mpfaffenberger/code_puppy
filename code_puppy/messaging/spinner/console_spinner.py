@@ -178,7 +178,9 @@ class ConsoleSpinner(SpinnerBase):
         frames = SpinnerBase.SPINNER_PRESETS.get("breathe", ["○", "◔", "◑", "◕", "●"])
         return frames[self._frame_index % len(frames)]
 
-    def print_above(self, renderable, *, soft_wrap: bool = True) -> None:
+    def print_above(
+        self, renderable, *, soft_wrap: bool = True, end: str = "\n"
+    ) -> None:
         """Print ``renderable`` above the live footer so it persists in scrollback.
 
         Rich's ``Live`` intercepts ``console.print`` calls on its own console
@@ -186,17 +188,23 @@ class ConsoleSpinner(SpinnerBase):
         channel, no races with the footer refresh. This is the API the
         event-stream handler and the spinner-activity plugin use to commit
         step rows (``✓ label``) and streamed text.
+
+        ``end`` defaults to ``"\\n"`` (good for step rows, which don't carry
+        their own terminator). Streamed text from ``LivePrinterWriter`` passes
+        ``end=""`` because each chunk already includes its own newlines —
+        otherwise every line gets a second newline and the output is
+        double-spaced.
         """
         if self._live is None:
             # Live isn't running — fall back to plain console.print so
             # callers don't have to special-case pre-start / post-stop.
             try:
-                self.console.print(renderable, soft_wrap=soft_wrap)
+                self.console.print(renderable, soft_wrap=soft_wrap, end=end)
             except Exception:
                 pass
             return
         try:
-            self._live.console.print(renderable, soft_wrap=soft_wrap)
+            self._live.console.print(renderable, soft_wrap=soft_wrap, end=end)
         except Exception:
             pass
 
