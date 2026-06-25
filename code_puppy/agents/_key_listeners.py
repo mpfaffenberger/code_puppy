@@ -415,6 +415,56 @@ def _listen_posix(
 
 
 # =============================================================================
+# Stdin drain (cancel cleanup)
+# =============================================================================
+#
+# When a turn is cancelled (Ctrl+C), the listener thread is still sitting in
+# cbreak mode doing ``stdin.read(1)`` right up until it observes the stop
+# event. Any follow-up instruction the user starts typing in that unwind
+# window gets eaten one byte at a time and silently discarded, leaving a
+# *truncated* tail that prompt_toolkit then submits as a corrupt prompt.
+# After the listener is fully stopped (thread joined, termios restored), we
+# drain whatever is left in the tty input queue so the next prompt starts
+# from a clean slate instead of a half-typed mess. Best-effort and TTY-only.
+
+
+def flush_stdin_input() -> None:
+    """Discard any pending bytes in the terminal's input queue.
+
+    Safe to call unconditionally: no-ops when stdin isn't a TTY or the
+    platform primitives are unavailable. Intended for the cancel path,
+    where leftover keystrokes are guaranteed-corrupt rather than useful.
+    """
+    import sys
+
+    stdin = getattr(sys, "stdin", None)
+    if stdin is None or not hasattr(stdin, "isatty"):
+        return
+    try:
+        if not stdin.isatty():
+            return
+    except Exception:
+        return
+
+    if sys.platform.startswith("win"):
+        try:
+            import msvcrt
+
+            while msvcrt.kbhit():
+                msvcrt.getwch()
+        except Exception:
+            pass
+        return
+
+    try:
+        import termios
+
+        termios.tcflush(stdin.fileno(), termios.TCIFLUSH)
+    except Exception:
+        pass
+
+
+# =============================================================================
 # Reentrant suspend context manager
 # =============================================================================
 #
@@ -474,4 +524,5 @@ __all__ = [
     "set_escape_handler",
     "spawn_key_listener",
     "suspended_key_listener",
+    "flush_stdin_input",
 ]
