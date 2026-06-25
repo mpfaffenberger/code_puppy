@@ -614,6 +614,38 @@ def handle_mcp_command(command: str) -> bool:
 
 
 @register_command(
+    name="plan",
+    description="Create a plan-only response without executing tools",
+    usage="/plan <goal>",
+    category="core",
+)
+def handle_plan_command(command: str) -> bool | str:
+    """Build a planning prompt and route it to the main chat pipeline."""
+    parts = command.split(maxsplit=1)
+    goal = parts[1].strip() if len(parts) > 1 else ""
+
+    if not goal:
+        emit_error("Usage: /plan <goal>")
+        return True
+
+    planning_prompt = f"""You are in plan-only mode.
+Do not execute tools, do not modify files, and do not run shell commands.
+
+User goal:
+{goal}
+
+Return only:
+1. A concise objective summary
+2. A numbered implementation plan
+3. Risks/unknowns
+4. Validation checklist
+5. Optional follow-up questions (only if needed)
+"""
+
+    return planning_prompt
+
+
+@register_command(
     name="generate-pr-description",
     description="Generate comprehensive PR description",
     usage="/generate-pr-description [@dir]",
