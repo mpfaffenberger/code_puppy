@@ -686,3 +686,26 @@ def handle_generate_pr_description_command(command: str) -> str:
 
     # Return the prompt to be processed by the main chat system
     return pr_prompt
+
+
+@register_command(
+    name="undo",
+    description="Undo the last file modification made by the agent",
+    usage="/undo",
+    aliases=["u", "undo_last"],
+    category="core",
+)
+def handle_undo_command(command: str) -> bool:
+    """Undo the last file operation recorded."""
+    from code_puppy.undo_manager import UndoManager
+    from code_puppy.messaging import emit_info, emit_error
+
+    manager = UndoManager()
+    result = manager.undo_last()
+
+    if "Failed" in result:
+        emit_error(result)
+    else:
+        emit_info(f" {result}")
+
+    return True
