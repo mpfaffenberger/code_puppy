@@ -622,7 +622,7 @@ async def run_with_mcp(
     run_success = False
     run_error: Optional[BaseException] = None
     run_response_text = ""
-
+    run_cancelled = False
     try:
         if cancel_agent_uses_signal():
             original_handler = signal.signal(signal.SIGINT, keyboard_interrupt_handler)
@@ -652,10 +652,12 @@ async def run_with_mcp(
         return result
     except asyncio.CancelledError:
         run_response_text = ""
+        run_cancelled = True
         agent_task.cancel()
         drain_pause_state_on_cancel()
     except KeyboardInterrupt:
         run_response_text = ""
+        run_cancelled = True
         if not agent_task.done():
             agent_task.cancel()
         drain_pause_state_on_cancel()
@@ -690,5 +692,14 @@ async def run_with_mcp(
             # Handle is None (no TTY); just flip the stop event so any
             # half-spawned bits unwind cleanly.
             key_listener_stop_event.set()
+        # On cancel the listener was reading stdin in cbreak mode right up
+        # until it saw the stop event, so it ate the leading bytes of any
+        # follow-up the user started typing -- leaving a truncated tail that
+        # the next prompt would submit as a corrupt instruction. Now that the
+        # listener is fully stopped (thread joined, termios restored), drain
+        # the tty input queue so the next prompt starts clean. Cancel-only:
+        # the happy path has nothing to flush and we won't nuke real input.
+        if run_cancelled:
+            _key_listeners.flush_stdin_input()
         if original_handler is not None:  # SIG_DFL is 0/falsy — explicit check!
             signal.signal(signal.SIGINT, original_handler)
