@@ -7,13 +7,57 @@ import asyncio
 import atexit
 import contextvars
 import os
+import sys
+import types
 from pathlib import Path
-from typing import Callable, Dict, Optional
-
-from playwright.async_api import Browser, BrowserContext, Page
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from code_puppy import config
 from code_puppy.messaging import emit_info, emit_success, emit_warning
+
+if TYPE_CHECKING:
+    from playwright.async_api import Browser, BrowserContext, Page
+else:
+    Browser = BrowserContext = Page = Any
+
+
+def _missing_playwright(*_args, **_kwargs):
+    """Raise a friendly error when Playwright is unavailable."""
+    raise RuntimeError(
+        "Playwright is not installed in this environment. "
+        "Browser tools require the optional 'playwright' dependency "
+        "(install code-puppy[browser]) on a supported platform."
+    )
+
+
+def _install_playwright_stub() -> None:
+    """Register a minimal stub so browser modules stay importable.
+
+    Keeps optional browser support from crashing startup on platforms where
+    Playwright wheels are unavailable (e.g. Android/Termux). Browser tools then
+    fail loudly only when actually invoked, instead of at import time.
+    """
+    playwright_module = sys.modules.get("playwright")
+    if playwright_module is None:
+        playwright_module = types.ModuleType("playwright")
+        sys.modules["playwright"] = playwright_module
+
+    async_api_module = sys.modules.get("playwright.async_api")
+    if async_api_module is None:
+        async_api_module = types.ModuleType("playwright.async_api")
+        async_api_module.Browser = Browser
+        async_api_module.BrowserContext = BrowserContext
+        async_api_module.Page = Page
+        async_api_module.async_playwright = _missing_playwright
+        sys.modules["playwright.async_api"] = async_api_module
+
+    setattr(playwright_module, "async_api", async_api_module)
+
+
+try:
+    import playwright.async_api as _playwright_async_api  # noqa: F401
+except ImportError:
+    _install_playwright_stub()
 
 # Registry for custom browser types from plugins (e.g., Camoufox for stealth browsing)
 _CUSTOM_BROWSER_TYPES: Dict[str, Callable] = {}
