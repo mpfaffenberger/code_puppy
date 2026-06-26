@@ -257,6 +257,8 @@ def ensure_config_exists():
     # Set default values for important config keys if they don't exist
     if not config[DEFAULT_SECTION].get("auto_save_session"):
         config[DEFAULT_SECTION]["auto_save_session"] = "true"
+    if not exists and not config[DEFAULT_SECTION].get("permission_mode"):
+        config[DEFAULT_SECTION]["permission_mode"] = "ask"
 
     # Write the config if we made any changes
     if missing or not exists:
@@ -343,6 +345,7 @@ def get_config_keys():
         "frontend_emitter_enabled",
         "frontend_emitter_max_recent_events",
         "frontend_emitter_queue_size",
+        "permission_mode",
     ]
     # 'enable_dbos' is reserved for the dbos_durable_exec plugin and is read
     # via the generic get_value API; intentionally not in default_keys.
@@ -1145,6 +1148,10 @@ def get_project_agents_directory() -> Optional[str]:
     """
     project_agents_dir = os.path.join(os.getcwd(), ".code_puppy", "agents")
     if os.path.isdir(project_agents_dir):
+        from code_puppy.project_trust import ensure_project_trusted
+
+        if not ensure_project_trusted(pathlib.Path.cwd()):
+            return None
         return project_agents_dir
     return None
 

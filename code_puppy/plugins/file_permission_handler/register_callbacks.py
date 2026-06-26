@@ -337,6 +337,13 @@ def handle_file_permission(
     Returns:
         True if permission granted, False if denied
     """
+    # Explicit core permission modes have already gated this operation. Keep
+    # this callback for legacy yolo_mode installations and rich diff previews.
+    from code_puppy.permissions import has_explicit_permission_mode
+
+    if has_explicit_permission_mode():
+        return True
+
     # Generate preview from operation_data if provided
     if operation_data is not None:
         preview = _generate_preview_from_operation_data(

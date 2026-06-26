@@ -956,8 +956,26 @@ async def run_shell_command(
                 execution_time=None,
             )
 
-    # Handle background execution - runs command detached and returns immediately
-    # This happens BEFORE user confirmation since we don't wait for the command
+    from code_puppy.permissions import (
+        authorize_shell_command,
+        has_explicit_permission_mode,
+    )
+
+    if has_explicit_permission_mode():
+        approved, permission_feedback = await authorize_shell_command(command, cwd)
+        if not approved:
+            return ShellCommandOutput(
+                success=False,
+                command=command,
+                error="Command denied by core permission policy",
+                user_feedback=permission_feedback or "",
+                stdout=None,
+                stderr=None,
+                exit_code=None,
+                execution_time=None,
+            )
+
+    # Handle legacy detached background execution after core permission gating.
     if background:
         # Create temp log file for output
         log_file = tempfile.NamedTemporaryFile(
@@ -1062,7 +1080,12 @@ async def run_shell_command(
 
     # Only ask for confirmation if we're in an interactive TTY, not in yolo mode,
     # and NOT running as a sub-agent (sub-agents run without user interaction)
-    if not yolo_mode and not running_as_subagent and sys.stdin.isatty():
+    if (
+        not has_explicit_permission_mode()
+        and not yolo_mode
+        and not running_as_subagent
+        and sys.stdin.isatty()
+    ):
         # No local lock needed -- get_user_approval_async serializes
         # parallel prompts internally so the 2nd, 3rd, 4th... destructive
         # commands queue up cleanly instead of vanishing.

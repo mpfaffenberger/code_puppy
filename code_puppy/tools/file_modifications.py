@@ -423,6 +423,11 @@ def _write_to_file(
 def delete_snippet_from_file(
     context: RunContext, file_path: str, snippet: str, message_group: str | None = None
 ) -> Dict[str, Any]:
+    from code_puppy.permissions import authorize_file_operation
+
+    if not authorize_file_operation(file_path, "delete a snippet from"):
+        return _create_rejection_response(file_path)
+
     # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
 
@@ -453,6 +458,11 @@ def write_to_file(
     overwrite: bool,
     message_group: str | None = None,
 ) -> Dict[str, Any]:
+    from code_puppy.permissions import authorize_file_operation
+
+    if not authorize_file_operation(path, "write"):
+        return _create_rejection_response(path)
+
     # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
 
@@ -484,6 +494,11 @@ def replace_in_file(
     replacements: List[Dict[str, str]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
+    from code_puppy.permissions import authorize_file_operation
+
+    if not authorize_file_operation(path, "replace text in"):
+        return _create_rejection_response(path)
+
     # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
 
@@ -602,6 +617,11 @@ def _delete_file(
 ) -> Dict[str, Any]:
     UndoManager().record_change(file_path, "delete_file")
     file_path = os.path.abspath(file_path)
+
+    from code_puppy.permissions import authorize_file_operation
+
+    if not authorize_file_operation(file_path, "delete"):
+        return _create_rejection_response(file_path)
 
     # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission

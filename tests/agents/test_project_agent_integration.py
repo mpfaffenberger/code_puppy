@@ -33,6 +33,7 @@ class TestProjectAgentIntegration:
 
         # Change to project directory
         monkeypatch.chdir(project_dir)
+        monkeypatch.setenv("CODE_PUPPY_TRUST_PROJECT", "true")
 
         with patch(
             "code_puppy.config.get_user_agents_directory",
@@ -111,6 +112,7 @@ class TestProjectAgentIntegration:
 
         # Change to project directory
         monkeypatch.chdir(project_dir)
+        monkeypatch.setenv("CODE_PUPPY_TRUST_PROJECT", "true")
 
         with patch(
             "code_puppy.config.get_user_agents_directory",

@@ -1,0 +1,1 @@
+"""Project trust management plugin."""

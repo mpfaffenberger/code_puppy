@@ -261,10 +261,14 @@ def _should_prepend_system_prompt(agent: Any, prompt: str) -> str:
     if agent._message_history:
         return prompt
 
-    system_prompt = agent.get_full_system_prompt()
+    sections = agent.get_prompt_sections()
     rules = load_puppy_rules()
     if rules:
-        system_prompt += f"\n{rules}"
+        sections = type(sections)(
+            static=f"{sections.static.rstrip()}\n{rules}",
+            dynamic=sections.dynamic,
+        )
+    system_prompt = sections.render()
 
     prepared = prepare_prompt_for_model(
         model_name=agent.get_model_name(),
@@ -355,7 +359,11 @@ async def run_with_mcp(
 
     async def _do_run(prompt_to_use: Any) -> Any:
         """Run the agent once, then honour any plugin ``retry`` requests."""
+        from code_puppy.agents._loop_controller import LoopAction, LoopController
+
         usage_limits = UsageLimits(request_limit=get_message_limit())
+        controller = LoopController(max_hook_retries=get_max_hook_retries())
+        controller.start()
 
         # Streaming config gate (issue #295). When streaming is disabled we
         # never install the stream handler at all and always render from the
@@ -372,6 +380,7 @@ async def run_with_mcp(
 
         @streaming_retry()
         async def _call() -> Any:
+            controller.record_model_call()
             return await pydantic_agent.run(
                 prompt_to_use,
                 message_history=agent._message_history,
@@ -412,6 +421,7 @@ async def run_with_mcp(
         async def _follow_up_run(follow_up_prompt: Any) -> Any:
             @streaming_retry()
             async def _call_follow_up() -> Any:
+                controller.record_model_call()
                 return await pydantic_agent.run(
                     follow_up_prompt,
                     message_history=agent._message_history,
@@ -422,42 +432,46 @@ async def run_with_mcp(
 
             return await _call_follow_up()
 
-        hook_retries_used = 0
-        queued_steers_used = 0
-        max_hook_retries = get_max_hook_retries()
-        max_queued_steers = 50  # safety cap to prevent runaway loops
-
         while True:
             # 1) Drain queue-mode steers FIRST (user-priority over hook retries).
-            if queued_steers_used < max_queued_steers:
+            steer_text = None
+            if controller.queued_steers < controller.max_queued_steers:
                 steer_text = prepare_queued_steer_injection(agent, result)
-                if steer_text is not None:
-                    queued_steers_used += 1
-                    result = await _follow_up_run(steer_text)
-                    continue
 
             # 2) Plugin-requested hook retry (cap matches original loop).
-            if hook_retries_used >= max_hook_retries:
-                break
-            hook_results = await on_agent_run_result(
-                result,
-                agent_name=agent.name,
-                model_name=agent.get_model_name(),
+            retry_req = None
+            if (
+                steer_text is None
+                and controller.hook_retries < controller.max_hook_retries
+            ):
+                hook_results = await on_agent_run_result(
+                    result,
+                    agent_name=agent.name,
+                    model_name=agent.get_model_name(),
+                )
+                retry_req = next(
+                    (r for r in hook_results if isinstance(r, dict) and r.get("retry")),
+                    None,
+                )
+
+            action = controller.next_action(
+                steer_available=steer_text is not None,
+                hook_retry_requested=retry_req is not None,
             )
-            retry_req = next(
-                (r for r in hook_results if isinstance(r, dict) and r.get("retry")),
-                None,
-            )
-            if not retry_req:
+            if action is LoopAction.STOP:
                 break
 
+            if action is LoopAction.STEER:
+                result = await _follow_up_run(steer_text)
+                continue
+
+            assert retry_req is not None
             retry_prompt = retry_req.get("prompt", "Please continue.")
             retry_delay = retry_req.get("delay", 1.0)
             if hasattr(result, "all_messages"):
                 agent._message_history = list(result.all_messages())
             await asyncio.sleep(retry_delay)
             result = await _follow_up_run(retry_prompt)
-            hook_retries_used += 1
 
         # Fallback render when streaming didn't surface any text to the user.
         if result is not None and should_render_fallback(

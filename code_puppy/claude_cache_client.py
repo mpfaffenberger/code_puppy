@@ -41,6 +41,51 @@ TOOL_PREFIX = "cp_"
 CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
 
 
+def _cache_aware_system_blocks(system: Any) -> list[dict[str, Any]] | None:
+    """Return system blocks with the breakpoint after the stable prefix.
+
+    When no explicit boundary exists, preserve the legacy behavior and cache
+    the complete system prompt. The boundary marker itself is removed before
+    the request reaches Anthropic.
+    """
+    from code_puppy.prompt_composition import split_prompt_sections
+
+    if isinstance(system, str) and system:
+        sections = split_prompt_sections(system)
+        stable = {
+            "type": "text",
+            "text": sections.static,
+            "cache_control": {"type": "ephemeral"},
+        }
+        if sections.dynamic:
+            return [stable, {"type": "text", "text": sections.dynamic}]
+        return [stable]
+
+    if not isinstance(system, list) or not system:
+        return None
+
+    # Pydantic/Anthropic normally supplies a single text block. Support a
+    # marker spanning any text block without disturbing non-text blocks.
+    rendered = "".join(
+        block.get("text", "")
+        for block in system
+        if isinstance(block, dict) and block.get("type") == "text"
+    )
+    if not rendered:
+        return None
+    sections = split_prompt_sections(rendered)
+    if sections.dynamic:
+        return [
+            {
+                "type": "text",
+                "text": sections.static,
+                "cache_control": {"type": "ephemeral"},
+            },
+            {"type": "text", "text": sections.dynamic},
+        ]
+    return None
+
+
 def _model_requires_thinking_summary(model_name):
     # Anthropic's Opus 4.7+ / Fable 5 families reject adaptive-thinking
     # requests unless 'display: summarized' is present alongside
@@ -705,18 +750,15 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
         # 1. System prompt
         system = data.get("system")
-        if isinstance(system, list) and system:
+        cache_blocks = _cache_aware_system_blocks(system)
+        if cache_blocks is not None:
+            data["system"] = cache_blocks
+            modified = True
+        elif isinstance(system, list) and system:
             last_sys = system[-1]
             if isinstance(last_sys, dict) and "cache_control" not in last_sys:
                 last_sys["cache_control"] = {"type": "ephemeral"}
                 modified = True
-        elif isinstance(system, str) and system:
-            # Convert bare string to content-block list so we can attach
-            # cache_control (the Anthropic API accepts both formats).
-            data["system"] = [
-                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
-            ]
-            modified = True
 
         # 2. Tool definitions
         tools = data.get("tools")
@@ -765,14 +807,13 @@ def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
 
     # 1. System prompt
     system = payload.get("system")
-    if isinstance(system, list) and system:
+    cache_blocks = _cache_aware_system_blocks(system)
+    if cache_blocks is not None:
+        payload["system"] = cache_blocks
+    elif isinstance(system, list) and system:
         last_sys = system[-1]
         if isinstance(last_sys, dict) and "cache_control" not in last_sys:
             last_sys["cache_control"] = {"type": "ephemeral"}
-    elif isinstance(system, str) and system:
-        payload["system"] = [
-            {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
-        ]
 
     # 2. Tool definitions
     tools = payload.get("tools")
