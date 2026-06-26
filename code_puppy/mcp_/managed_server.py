@@ -24,6 +24,7 @@ from pydantic_ai.mcp import (
 
 from code_puppy.http_utils import create_async_client
 from code_puppy.mcp_.blocking_startup import BlockingMCPServerStdio
+from code_puppy.mcp_.tool_arg_coercion import coerce_tool_args
 
 
 def _expand_env_vars(value: Any) -> Any:
@@ -81,13 +82,45 @@ class ServerConfig:
     config: Dict = field(default_factory=dict)  # Raw config from JSON
 
 
+async def _input_schema_for_tool(
+    call_tool: CallToolFunc, name: str
+) -> Optional[Dict[str, Any]]:
+    """Best-effort lookup of an MCP tool's JSON inputSchema.
+
+    ``call_tool`` is pydantic-ai's bound ``direct_call_tool`` method, so its
+    ``__self__`` is the underlying MCP server, which exposes a (cached)
+    ``list_tools()``. The ``name`` here is already prefix-stripped, matching the
+    raw tool names returned by ``list_tools()``.
+
+    Returns ``None`` if the schema cannot be resolved for any reason -- callers
+    must treat that as "don't coerce".
+    """
+    server = getattr(call_tool, "__self__", None)
+    list_tools = getattr(server, "list_tools", None)
+    if list_tools is None:
+        return None
+    try:
+        tools = await list_tools()
+    except Exception:
+        return None
+    for tool in tools:
+        if getattr(tool, "name", None) == name:
+            return getattr(tool, "inputSchema", None)
+    return None
+
+
 async def process_tool_call(
     ctx: RunContext[Any],
     call_tool: CallToolFunc,
     name: str,
     tool_args: dict[str, Any],
 ) -> ToolResult:
-    """A tool call processor that passes along the deps."""
+    """A tool call processor that coerces args and passes along the deps.
+
+    pydantic-ai forwards MCP tool args without coercing them against each tool's
+    real JSON Schema, so models that emit stringified arrays/bools/numbers cause
+    downstream validation failures. We coerce here before forwarding.
+    """
     from rich.console import Console
 
     from code_puppy.config import get_banner_color
@@ -96,6 +129,10 @@ async def process_tool_call(
     color = get_banner_color("mcp_tool_call")
     banner = f"[bold white on {color}] MCP TOOL CALL [/bold white on {color}]"
     console.print(f"\n{banner} 🔧 [bold cyan]{name}[/bold cyan]")
+
+    input_schema = await _input_schema_for_tool(call_tool, name)
+    tool_args = coerce_tool_args(tool_args, input_schema)
+
     return await call_tool(name, tool_args, {"deps": ctx.deps})
 
 
