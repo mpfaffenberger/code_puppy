@@ -315,9 +315,9 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
 
     # Set current autosave session id so subsequent autosaves overwrite this session
     try:
-        from code_puppy.config import set_current_autosave_from_session_name
+        from code_puppy.config import pin_current_session_name
 
-        set_current_autosave_from_session_name(chosen_name)
+        pin_current_session_name(chosen_name)
     except Exception:
         pass
 

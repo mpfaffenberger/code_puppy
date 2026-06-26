@@ -22,10 +22,10 @@ def _do_switch_and_resume(agent_name: str) -> bool:
     from code_puppy.config import (
         AUTOSAVE_DIR,
         finalize_autosave_session,
-        get_current_autosave_session_name,
+        get_current_session_name,
         get_last_terminal_session,
+        pin_current_session_name,
         record_terminal_session,
-        set_current_autosave_from_session_name,
     )
     from code_puppy.messaging import emit_info, emit_success, emit_warning
     from code_puppy.session_storage import (
@@ -55,7 +55,7 @@ def _do_switch_and_resume(agent_name: str) -> bool:
     try:
         history = current_agent.get_message_history()
         if history:  # Only save if there's something to save
-            session_name = get_current_autosave_session_name()
+            session_name = get_current_session_name()
             # Record the terminal session mapping before saving
             record_terminal_session(session_name)
             # Force-save the session to disk
@@ -98,7 +98,7 @@ def _do_switch_and_resume(agent_name: str) -> bool:
                 raise FileNotFoundError(session_pickle)
             history = load_session(last_session_to_resume, autosave_dir)
             new_agent.set_message_history(history)
-            set_current_autosave_from_session_name(last_session_to_resume)
+            pin_current_session_name(last_session_to_resume)
             record_terminal_session(last_session_to_resume)
             total_tokens = sum(
                 new_agent.estimate_tokens_for_message(m) for m in history

@@ -420,3 +420,68 @@ class TestInitialCommandPassthrough:
 
             # Shell passthrough should NOT have been called
             mock_run.assert_not_called()
+
+
+class TestInteractiveBootstrapMarker:
+    """Regression guard for the unified-autosave migration code-review B1 finding.
+
+    The TTY-keyed resume marker (``record_terminal_session(...)``) is
+    written exactly once at the top of every ``interactive_mode`` boot,
+    so a later ``-r`` invocation from the SAME TTY can find the right
+    session pickle even after process restart.
+
+    The original unified-autosave migration implementation had an 8-space indent on
+    this line, parking it inside the prompt_toolkit ``except ImportError``
+    block -- the call only fired when the import FAILED. Tests passed
+    because nothing asserted the call fires on the happy boot path.
+    This guard locks the behavior down.
+    """
+
+    @patch("code_puppy.command_line.shell_passthrough._get_console")
+    def test_record_terminal_session_fires_on_normal_boot(self, mock_get_console):
+        from code_puppy.cli_runner import interactive_mode
+
+        mock_get_console.return_value = MagicMock()
+        mock_renderer = MagicMock()
+        mock_renderer.console = MagicMock()
+
+        mock_agent = MagicMock()
+        mock_agent.get_user_prompt.return_value = "Enter task:"
+
+        with (
+            patch("code_puppy.cli_runner.print_truecolor_warning"),
+            patch(
+                "code_puppy.cli_runner.get_cancel_agent_display_name",
+                return_value="Ctrl+C",
+            ),
+            patch("code_puppy.messaging.emit_system_message"),
+            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.messaging.emit_success"),
+            patch("code_puppy.messaging.emit_warning"),
+            patch("code_puppy.cli_runner.get_current_agent", return_value=mock_agent),
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=mock_agent,
+            ),
+            patch(
+                "code_puppy.cli_runner.run_prompt_with_attachments",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "code_puppy.command_line.prompt_toolkit_completion."
+                "get_input_with_combined_completion",
+                side_effect=EOFError,
+            ),
+            patch(
+                "code_puppy.cli_runner.get_current_session_name",
+                return_value="auto_session_20260101_120000",
+            ),
+            patch("code_puppy.cli_runner.record_terminal_session") as mock_record,
+        ):
+            asyncio.run(interactive_mode(mock_renderer))
+
+            # The whole point: marker writes on EVERY boot, not only on
+            # the failed-import branch.
+            mock_record.assert_called_once_with(
+                "auto_session_20260101_120000", overwrite=False
+            )

@@ -48,8 +48,26 @@ def _get_session_metadata(base_dir: Path, session_name: str) -> dict:
         return {}
 
 
+def _is_auto_flavored(session_name: str) -> bool:
+    """Return True for system-generated session names.
+
+    Matches the ``auto_session_`` prefix reserved by
+    ``code_puppy.session_lifecycle.is_valid_session_name``. Pre-unification,
+    all autosaves carried this prefix; the unified-autosave migration introduces user-named
+    entries (from ``-r NAME``, ``/dump_context``, ``/load_context``) into
+    the same store, hence the need to distinguish.
+    """
+    return session_name.startswith("auto_session_")
+
+
 def _get_session_entries(base_dir: Path) -> List[Tuple[str, dict]]:
-    """Get all sessions with their metadata, sorted by timestamp."""
+    """Get all sessions with their metadata.
+
+    Returns entries grouped "named first, auto-flavored second", each group
+    sorted mtime-descending. Section headers (if any) are inserted at
+    render time -- see ``_render_menu_panel`` -- to keep this function's
+    return shape stable and pagination math straightforward.
+    """
     try:
         sessions = list_sessions(base_dir)
     except (FileNotFoundError, PermissionError):
@@ -75,8 +93,11 @@ def _get_session_entries(base_dir: Path) -> List[Tuple[str, dict]]:
                 return datetime.min
         return datetime.min
 
-    entries.sort(key=sort_key, reverse=True)
-    return entries
+    named = [e for e in entries if not _is_auto_flavored(e[0])]
+    auto = [e for e in entries if _is_auto_flavored(e[0])]
+    named.sort(key=sort_key, reverse=True)
+    auto.sort(key=sort_key, reverse=True)
+    return named + auto
 
 
 def _extract_last_user_message(history: list) -> str:
@@ -216,10 +237,24 @@ def _render_menu_panel(
         lines.append(("", "Cancel"))
         return lines
 
-    # Show sessions for current page
+    # Show sessions for current page. We inject visual section headers
+    # at named->auto boundaries within the visible page (and at the very
+    # top if the page starts in either section). Section headers do NOT
+    # consume entry indices -- they're cosmetic only -- so selection and
+    # pagination math stay untouched.
+    prev_section = None
     for i in range(start_idx, end_idx):
         session_name, metadata = entries[i]
         is_selected = i == selected_idx
+        section = "auto" if _is_auto_flavored(session_name) else "named"
+
+        if section != prev_section:
+            header = "Named sessions" if section == "named" else "Auto-saved sessions"
+            # Blank line between sections (skip for the very first one).
+            if prev_section is not None:
+                lines.append(("", "\n"))
+            lines.append(("fg:ansibrightcyan bold", f"  {header}\n"))
+            prev_section = section
 
         # Format timestamp
         timestamp = metadata.get("timestamp", "unknown")
@@ -232,11 +267,19 @@ def _render_menu_panel(
         # Format message count
         msg_count = metadata.get("message_count", "?")
 
+        # For named sessions, include the name so users can tell them
+        # apart at a glance. Auto-flavored sessions keep the existing
+        # timestamp+count summary -- the auto_session_* names are noise.
+        if section == "named":
+            label = f"{time_str} \u2022 {msg_count} msgs ({session_name})"
+        else:
+            label = f"{time_str} \u2022 {msg_count} msgs"
+
         # Highlight selected item
         if is_selected:
-            lines.append(("fg:ansibrightblack", f" > {time_str} • {msg_count} msgs"))
+            lines.append(("fg:ansibrightblack", f" > {label}"))
         else:
-            lines.append(("fg:ansibrightblack", f"   {time_str} • {msg_count} msgs"))
+            lines.append(("fg:ansibrightblack", f"   {label}"))
 
         lines.append(("", "\n"))
 
