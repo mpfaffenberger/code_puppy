@@ -325,6 +325,140 @@ def test_register_tools_callback_exposes_full_surface() -> None:
         "kennel_recent",
         "kennel_list_wings",
         "kennel_stats",
+        "kennel_forget",
+        "kennel_update",
     }
     for spec in specs:
         assert callable(spec["register_func"])
+
+
+# --------------------------------------------------------------------------- #
+# kennel_forget
+# --------------------------------------------------------------------------- #
+
+
+def test_kennel_forget_deletes_existing_drawer(kennel_root: Path) -> None:
+    from code_puppy.plugins.puppy_kennel import kennel, tools
+
+    agent = _FakeAgent()
+    tools.register_kennel_remember(agent)
+    tools.register_kennel_forget(agent)
+    remember = agent.registered["kennel_remember"]
+    forget = agent.registered["kennel_forget"]
+
+    rem = asyncio.run(remember(_ctx(), "ECDSA is better than RSA for JWT signing."))
+    assert rem.drawer_id > 0
+
+    out = asyncio.run(forget(_ctx(), rem.drawer_id))
+    assert out.error is None
+    assert out.found is True
+    assert "ECDSA" in (out.deleted_content_preview or "")
+    assert kennel.count_drawers() == 0
+
+
+def test_kennel_forget_missing_id_returns_error(kennel_root: Path) -> None:
+    from code_puppy.plugins.puppy_kennel import tools
+
+    agent = _FakeAgent()
+    tools.register_kennel_forget(agent)
+    forget = agent.registered["kennel_forget"]
+
+    out = asyncio.run(forget(_ctx(), 99999))
+    assert out.found is False
+    assert out.error is not None
+    assert "99999" in out.error
+
+
+def test_kennel_forget_content_preview_truncated_at_200(kennel_root: Path) -> None:
+    from code_puppy.plugins.puppy_kennel import tools
+
+    agent = _FakeAgent()
+    tools.register_kennel_remember(agent)
+    tools.register_kennel_forget(agent)
+    remember = agent.registered["kennel_remember"]
+    forget = agent.registered["kennel_forget"]
+
+    long_content = "x" * 500
+    rem = asyncio.run(remember(_ctx(), long_content))
+    out = asyncio.run(forget(_ctx(), rem.drawer_id))
+
+    assert out.found is True
+    assert len(out.deleted_content_preview or "") <= 200
+
+
+# --------------------------------------------------------------------------- #
+# kennel_update
+# --------------------------------------------------------------------------- #
+
+
+def test_kennel_update_replaces_content(kennel_root: Path) -> None:
+    from code_puppy.plugins.puppy_kennel import kennel, tools
+
+    agent = _FakeAgent()
+    tools.register_kennel_remember(agent)
+    tools.register_kennel_update(agent)
+    remember = agent.registered["kennel_remember"]
+    update = agent.registered["kennel_update"]
+
+    rem = asyncio.run(remember(_ctx(), "We use RSA-2048 for JWT signing."))
+    assert rem.drawer_id > 0
+
+    out = asyncio.run(
+        update(_ctx(), rem.drawer_id, "We use ECDSA P-256 for JWT signing.")
+    )
+    assert out.error is None
+    assert out.found is True
+    assert out.bytes_stored > 0
+
+    drawers = kennel.recent_drawers(rem.wing, limit=5)
+    assert any("ECDSA" in d.content for d in drawers)
+    assert not any("RSA-2048" in d.content for d in drawers)
+
+
+def test_kennel_update_missing_id_returns_error(kennel_root: Path) -> None:
+    from code_puppy.plugins.puppy_kennel import tools
+
+    agent = _FakeAgent()
+    tools.register_kennel_update(agent)
+    update = agent.registered["kennel_update"]
+
+    out = asyncio.run(update(_ctx(), 99999, "New content."))
+    assert out.found is False
+    assert out.error is not None
+    assert "99999" in out.error
+
+
+def test_kennel_update_empty_content_returns_error(kennel_root: Path) -> None:
+    from code_puppy.plugins.puppy_kennel import tools
+
+    agent = _FakeAgent()
+    tools.register_kennel_remember(agent)
+    tools.register_kennel_update(agent)
+    remember = agent.registered["kennel_remember"]
+    update = agent.registered["kennel_update"]
+
+    rem = asyncio.run(remember(_ctx(), "Something to update."))
+    out = asyncio.run(update(_ctx(), rem.drawer_id, ""))
+    assert out.found is False
+    assert out.error is not None
+
+
+def test_kennel_update_fts_index_reflects_new_content(kennel_root: Path) -> None:
+    """After update, BM25 search finds the new term and not the old one."""
+    from code_puppy.plugins.puppy_kennel import kennel, tools
+    from code_puppy.plugins.puppy_kennel.wings import repo_wing
+
+    agent = _FakeAgent()
+    tools.register_kennel_remember(agent)
+    tools.register_kennel_update(agent)
+    remember = agent.registered["kennel_remember"]
+    update = agent.registered["kennel_update"]
+
+    rem = asyncio.run(remember(_ctx(), "quagga extinct subspecies zebra"))
+    asyncio.run(update(_ctx(), rem.drawer_id, "axolotl aquatic salamander neoteny"))
+
+    wing = repo_wing()
+    old_hits = kennel.search_drawers("quagga", wing_name=wing, limit=5)
+    new_hits = kennel.search_drawers("axolotl", wing_name=wing, limit=5)
+    assert len(old_hits) == 0
+    assert len(new_hits) == 1
