@@ -881,3 +881,145 @@ class TestModelSupportsSetting:
             "claude-sonnet-4": {"type": "anthropic", "name": "claude-sonnet-4"}
         }
         assert cp_config.model_supports_setting("claude-sonnet-4", "effort") is False
+
+
+class TestSessionSingletonAndAliases:
+    """the unified-autosave migration: new singleton helpers + deprecated alias compat.
+
+    Pre-unification the singleton held a bare ID and synthesized
+    ``auto_session_<id>`` on every read. That scheme broke for user-named
+    sessions. The new contract stores the full filename verbatim; the old
+    helpers become thin deprecation-warning shims that internal code
+    must NOT call (verified separately by absence of warnings in CI).
+    """
+
+    def _reset_singleton(self):
+        """Reset the module-level singleton between tests for isolation."""
+        cp_config._CURRENT_AUTOSAVE_ID = ""
+
+    def test_get_current_session_name_lazy_mints_auto_flavored(self):
+        self._reset_singleton()
+        name = cp_config.get_current_session_name()
+        assert name.startswith("auto_session_")
+        # Idempotent until rotation/pin.
+        assert cp_config.get_current_session_name() == name
+
+    def test_rotate_session_name_always_returns_auto_flavored(self):
+        self._reset_singleton()
+        cp_config.pin_current_session_name("mywork")
+        # Rotate replaces a user-named singleton with a fresh auto one.
+        rotated = cp_config.rotate_session_name()
+        assert rotated.startswith("auto_session_")
+        assert cp_config.get_current_session_name() == rotated
+
+    def test_pin_stores_name_verbatim(self):
+        self._reset_singleton()
+        cp_config.pin_current_session_name("mywork")
+        assert cp_config.get_current_session_name() == "mywork"
+
+    def test_pin_rejects_invalid_name(self):
+        self._reset_singleton()
+        with pytest.raises(ValueError):
+            cp_config.pin_current_session_name("../../etc/passwd")
+        with pytest.raises(ValueError):
+            cp_config.pin_current_session_name("name with spaces")
+        with pytest.raises(ValueError):
+            cp_config.pin_current_session_name("")
+
+    def test_pin_accepts_auto_flavored_name(self):
+        """Stored-name semantics: ``auto_session_*`` is legitimate.
+
+        Regression guard for the round-1 B1 issue: the singleton must
+        accept the very names ``rotate_session_name`` mints, otherwise
+        the rotate -> pin round-trip would fail.
+        \n"""
+        self._reset_singleton()
+        cp_config.pin_current_session_name("auto_session_20260101_120000")
+        assert cp_config.get_current_session_name() == "auto_session_20260101_120000"
+
+    def test_get_current_autosave_session_name_alias_returns_verbatim(self):
+        """Alias semantics: full name, NOT re-synthesized.
+
+        Regression guard for B2 of round-1 (where the alias would have
+        wrapped a user-named singleton in ``auto_session_`` and broken
+        TTY-keyed resume).
+        """
+        import warnings
+
+        self._reset_singleton()
+        cp_config.pin_current_session_name("mywork")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            assert cp_config.get_current_autosave_session_name() == "mywork"
+
+    def test_deprecated_aliases_emit_warning(self):
+        """All four legacy entry points emit DeprecationWarning."""
+        import warnings
+
+        self._reset_singleton()
+        cp_config.pin_current_session_name("aliastest")
+
+        for fn_name in (
+            "get_current_autosave_id",
+            "get_current_autosave_session_name",
+            "rotate_autosave_id",
+        ):
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                getattr(cp_config, fn_name)()
+                assert any(
+                    issubclass(w.category, DeprecationWarning) for w in caught
+                ), f"{fn_name} did not emit DeprecationWarning"
+
+        # set_current_autosave_from_session_name takes an arg.
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            cp_config.set_current_autosave_from_session_name("aliastest2")
+            assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+
+    def test_deprecated_get_current_autosave_id_strips_prefix(self):
+        """The alias preserves the pre-unification return shape (bare id)."""
+        import warnings
+
+        self._reset_singleton()
+        cp_config.pin_current_session_name("auto_session_20260101_120000")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            assert cp_config.get_current_autosave_id() == "20260101_120000"
+
+    def test_deprecated_get_current_autosave_id_returns_user_named_verbatim(self):
+        """Without the ``auto_session_`` prefix, alias returns name as-is."""
+        import warnings
+
+        self._reset_singleton()
+        cp_config.pin_current_session_name("mywork")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            assert cp_config.get_current_autosave_id() == "mywork"
+
+
+class TestStoredNameValidator:
+    """``_is_valid_autosave_session_name`` is now a stored-name validator.
+
+    Pre-unification it gated TTY-keyed resume on ``auto_session_\\d{8}_\\d{6}``
+    exactly. Post-LEAN-Phase-2 it accepts both auto-flavored AND user-named
+    entries so the cross-restart resume path works for ``-r NAME`` users.
+    """
+
+    def test_accepts_auto_flavored(self):
+        assert (
+            cp_config._is_valid_autosave_session_name("auto_session_20260101_120000")
+            is True
+        )
+
+    def test_accepts_user_named(self):
+        # Round-1 B2 regression guard: must NOT reject user-named entries.
+        assert cp_config._is_valid_autosave_session_name("mywork") is True
+        assert cp_config._is_valid_autosave_session_name("my-work_2026") is True
+
+    def test_rejects_path_traversal(self):
+        assert cp_config._is_valid_autosave_session_name("../etc") is False
+
+    def test_rejects_whitespace_and_control(self):
+        assert cp_config._is_valid_autosave_session_name("bad name") is False
+        assert cp_config._is_valid_autosave_session_name("") is False

@@ -27,7 +27,7 @@ from code_puppy.config import (
     COMMAND_HISTORY_FILE,
     ensure_config_exists,
     finalize_autosave_session,
-    get_current_autosave_session_name,
+    get_current_session_name,
     initialize_command_history_file,
     record_terminal_session,
     save_command_to_history,
@@ -80,57 +80,6 @@ def _render_turn_exception(exc: Exception) -> None:
     from code_puppy.messaging.queue_console import get_queue_console
 
     get_queue_console().print_exception()
-
-
-def _resume_session_from_path(raw_path: str) -> None:
-    """Restore agent message history from a saved .pkl session file.
-
-    Accepts any path (autosaves, contexts, somewhere weird on disk). We don't
-    care where it lives — we just decompose into (parent_dir, stem) and reuse
-    ``session_storage.load_session`` so we stay DRY.
-    """
-    from code_puppy.agents.agent_manager import get_current_agent
-    from code_puppy.messaging import emit_error, emit_success
-    from code_puppy.session_storage import load_session
-
-    session_path = Path(raw_path).expanduser().resolve()
-
-    if not session_path.exists():
-        emit_error(f"--resume: session file not found: {session_path}")
-        sys.exit(1)
-
-    if session_path.suffix != ".pkl":
-        emit_error(
-            f"--resume: expected a .pkl session file, got '{session_path.suffix}': {session_path}"
-        )
-        sys.exit(1)
-
-    try:
-        history = load_session(session_path.stem, session_path.parent)
-    except Exception as exc:
-        emit_error(f"--resume: failed to load session: {exc}")
-        sys.exit(1)
-
-    try:
-        agent = get_current_agent()
-        agent.set_message_history(history)
-    except Exception as exc:
-        emit_error(f"--resume: failed to attach history to agent: {exc}")
-        sys.exit(1)
-
-    # Rotate autosave id so we don't clobber the original file we just resumed.
-    try:
-        from code_puppy.config import rotate_autosave_id
-
-        rotate_autosave_id()
-    except Exception:
-        pass  # autosave rotation is best-effort
-
-    total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
-    emit_success(
-        f"✅ Resumed session: {len(history)} messages ({total_tokens} tokens)\n"
-        f"📁 From: {session_path}"
-    )
 
 
 def apply_quick_resume(args) -> bool:
@@ -447,14 +396,98 @@ async def main():
         else:
             default_version_mismatch_behavior(current_version)
 
+    # One-shot sweep of legacy ~/.code_puppy/contexts/ into the unified
+    # autosaves/ store. Idempotent via a sentinel; safe to call every
+    # startup. MUST run before any plugin startup callback can read
+    # AUTOSAVE_DIR (otherwise a plugin could miss freshly-swept files)
+    # and before the resume block below resolves -r NAME.
+    try:
+        from code_puppy.session_migration import sweep_contexts_to_autosaves
+
+        sweep_contexts_to_autosaves()
+    except Exception:
+        # Sweep failure must never block startup -- it logs internally.
+        pass
+
     await callbacks.on_startup()
 
     # Resolve --quick-resume [PATH] into --resume so the resume machinery below
     # loads the most recent session for that canonical (git-root + branch) scope.
     apply_quick_resume(args)
 
+    # Holds the resolved (normalised) session name when -r/--resume is in
+    # effect, so save-back paths can persist into the same file the resolver
+    # opened — not the raw user input (which might be ``foo.pkl`` or an
+    # absolute path that the resolver normalised to a bare slug).
+    resolved_resume_session: str | None = None
+
     if args.resume:
-        _resume_session_from_path(args.resume)
+        from code_puppy.agents.agent_manager import get_current_agent
+        from code_puppy.config import AUTOSAVE_DIR, pin_current_session_name
+        from code_puppy.messaging import emit_error, emit_info, emit_success
+        from code_puppy.session_lifecycle import (
+            ResumeTargetError,
+            resolve_or_create_resume_target,
+        )
+        from code_puppy.session_storage import list_sessions, load_session
+
+        resume_target = args.resume
+        sessions_dir = Path(AUTOSAVE_DIR)
+
+        # Lazy-create is symmetric across modes: both headless and
+        # interactive accept ``-r missing-name`` and materialise an
+        # empty session. The typo-guard concern is preserved by the
+        # visible ``Created new session: NAME`` info line plus the
+        # empty ``message_count: 0`` initial state.
+        try:
+            session_name, session_dir, lazy_created = resolve_or_create_resume_target(
+                resume_target,
+                sessions_dir=sessions_dir,
+                allow_lazy_create=True,
+            )
+        except ResumeTargetError as resolve_exc:
+            emit_error(resolve_exc.message)
+            if resolve_exc.hint:
+                emit_info(resolve_exc.hint)
+            available = list_sessions(sessions_dir)
+            if available:
+                emit_info(f"Available sessions: {', '.join(available[:10])}")
+            sys.exit(1)
+
+        # When lazy-create fired, announce it so scripts and users can
+        # distinguish first-run creation from a normal resume.
+        if lazy_created:
+            emit_info(f"Created new session: {session_name}")
+
+        try:
+            history = load_session(session_name, session_dir)
+            agent = get_current_agent()
+            agent.set_message_history(history)
+            total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
+
+            # Pin the singleton so periodic autosave AND headless save-back
+            # both update this named file in place. Replaces the old
+            # rotate_autosave_id() call, which under unification would
+            # actively undo the named-session wiring we want.
+            #
+            # Note: even when the user resumed via an absolute path
+            # (resolver branches 1 or 3), we pin the *stem* and let
+            # subsequent writes land in AUTOSAVE_DIR. That keeps cross-mode
+            # resume by name consistent; users who passed a one-off path
+            # can copy the resulting AUTOSAVE_DIR file back if they care.
+            pin_current_session_name(session_name)
+
+            # Record the resolved name for the headless save-back path below.
+            resolved_resume_session = session_name
+
+            if not lazy_created:
+                emit_success(
+                    f"Resumed: {len(history)} messages "
+                    f"({total_tokens} tokens) from {session_name}"
+                )
+        except Exception as e:
+            emit_error(f"Failed to resume from {resume_target}: {e}")
+            sys.exit(1)
 
     global shutdown_flag
     shutdown_flag = False
@@ -470,7 +503,11 @@ async def main():
             prompt_only_mode = False
 
         if prompt_only_mode:
-            await execute_single_prompt(initial_command, message_renderer)
+            await execute_single_prompt(
+                initial_command,
+                message_renderer,
+                session_name=resolved_resume_session,
+            )
         else:
             # Default to interactive mode (no args = same as -i)
             await interactive_mode(message_renderer, initial_command=initial_command)
@@ -652,55 +689,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     # Autosave loading is now manual - use /autosave_load command
 
-    # Track this terminal's active session for /switch-agent auto-resume
-    record_terminal_session(get_current_autosave_session_name(), overwrite=False)
-
-    # Auto-run tutorial on first startup
-    try:
-        from code_puppy.command_line.onboarding_wizard import should_show_onboarding
-
-        if should_show_onboarding():
-            import concurrent.futures
-
-            from code_puppy.command_line.onboarding_wizard import run_onboarding_wizard
-            from code_puppy.config import set_model_name
-            from code_puppy.messaging import emit_info
-
-            from code_puppy.command_line.onboarding_wizard import (
-                require_model_setup_if_needed,
-            )
-
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(lambda: asyncio.run(run_onboarding_wizard()))
-                result = future.result(timeout=300)
-
-            if result == "chatgpt":
-                emit_info("🔐 Starting ChatGPT OAuth flow...")
-                from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
-
-                run_oauth_flow()
-                set_model_name("chatgpt-gpt-5.4")
-            elif result == "claude":
-                emit_info("🔐 Starting Claude Code OAuth flow...")
-                from code_puppy.plugins.claude_code_oauth.register_callbacks import (
-                    _perform_authentication,
-                )
-
-                _perform_authentication()
-                set_model_name("claude-code-claude-opus-4-7")
-            elif result == "completed":
-                emit_info("🎉 Tutorial complete! Happy coding!")
-            elif result == "skipped":
-                emit_info("⏭️ Tutorial skipped. Run /tutorial anytime!")
-
-            # No bundled default model anymore: if the user skipped OAuth they
-            # must add a model explicitly.
-            require_model_setup_if_needed(result)
-    except Exception as e:
-        from code_puppy.messaging import emit_warning
-
-        emit_warning(f"Tutorial auto-start failed: {e}")
-
+    record_terminal_session(get_current_session_name(), overwrite=False)
     # Track the current agent task for cancellation on quit
     current_agent_task = None
 
@@ -856,7 +845,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 interactive_autosave_picker,
                             )
                             from code_puppy.config import (
-                                set_current_autosave_from_session_name,
+                                pin_current_session_name,
                             )
                             from code_puppy.messaging import (
                                 emit_error,
@@ -882,7 +871,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                             agent.set_message_history(history)
 
                             # Set current autosave session
-                            set_current_autosave_from_session_name(chosen_session)
+                            pin_current_session_name(chosen_session)
 
                             total_tokens = sum(
                                 agent.estimate_tokens_for_message(msg)
@@ -1196,8 +1185,28 @@ async def run_prompt_with_attachments(
             return None, agent_task
 
 
-async def execute_single_prompt(prompt: str, message_renderer) -> None:
-    """Execute a single prompt and exit (for -p flag)."""
+async def execute_single_prompt(
+    prompt: str,
+    message_renderer,
+    *,
+    session_name: str | None = None,
+) -> None:
+    """Execute a single prompt and exit (for -p flag).
+
+    When ``session_name`` is supplied (i.e. the user passed ``-r NAME``),
+    history is persisted back to that named session in a ``finally`` block
+    so partial state still lands on cancel / error paths. The runtime
+    prunes interrupted tool calls before returning so the saved history is
+    coherent (see ``agents/_runtime.py`` -- the two ``_message_history``
+    commit/prune sites around lines 446 and 498).
+
+    Edge case worth knowing: when the agent returns ``(None, None)`` for an
+    empty-prompt scenario, the response emit is skipped but the ``finally``
+    still fires, producing a no-op idempotent rewrite of an existing
+    session (and a phantom ``post_autosave`` event for plugin authors who
+    count saves). Acceptable trade-off versus the complexity of a
+    'something-actually-ran' tracking flag.
+    """
     # Shell pass-through: !<cmd> bypasses the agent even in -p mode
     from code_puppy.command_line.shell_passthrough import (
         execute_shell_passthrough,
@@ -1206,9 +1215,26 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
 
     if is_shell_passthrough(prompt):
         execute_shell_passthrough(prompt)
+        # Agent never ran — do NOT touch the named session, otherwise
+        # `-r mywork -p '!ls'` would clobber existing history with an empty
+        # save-back. Return before the try/finally so the save path is
+        # genuinely unreachable, not just guarded.
         return
 
-    from code_puppy.messaging import emit_info
+    from code_puppy.messaging import (
+        emit_error,
+        emit_info,
+        emit_warning,
+        get_message_bus,
+    )
+    from code_puppy.messaging.messages import AgentResponseMessage
+
+    # Hoist save-back imports here rather than into the ``finally`` block --
+    # if the user passed ``-r`` we will exercise these on every code path,
+    # and lazy-importing inside ``finally`` just hides the dependency without
+    # buying any actual startup savings (the module is already loaded).
+    from code_puppy.config import AUTOSAVE_DIR
+    from code_puppy.session_lifecycle import persist_named_session
 
     emit_info(f"Executing prompt: {prompt}")
 
@@ -1220,29 +1246,47 @@ async def execute_single_prompt(prompt: str, message_renderer) -> None:
             prompt,
             spinner_console=message_renderer.console,
         )
-        if result is None:
-            return
+        if result is not None:
+            response_msg = AgentResponseMessage(
+                content=result.output,
+                is_markdown=True,
+            )
+            get_message_bus().emit(response_msg)
 
-        agent_response = result.output
-
-        # Emit structured message for proper markdown rendering
-        from code_puppy.messaging import get_message_bus
-        from code_puppy.messaging.messages import AgentResponseMessage
-
-        response_msg = AgentResponseMessage(
-            content=agent_response,
-            is_markdown=True,
-        )
-        get_message_bus().emit(response_msg)
+            # Commit the completed turn (user prompt + assistant response)
+            # into the agent's history BEFORE the finally-block save-back.
+            # Without this, headless -r save-back persists only user prompts
+            # (the normal _do_run path never writes result.all_messages()
+            # back to agent._message_history), so resumed sessions feed the
+            # model a pile of unanswered prompts and it re-answers them all.
+            # Mirrors interactive_mode's post-run set_message_history call.
+            if hasattr(result, "all_messages"):
+                agent.set_message_history(list(result.all_messages()))
 
     except asyncio.CancelledError:
-        from code_puppy.messaging import emit_warning
-
         emit_warning("Execution cancelled by user")
     except Exception as e:
-        from code_puppy.messaging import emit_error
-
         emit_error(f"Error executing prompt: {str(e)}")
+    finally:
+        if session_name:
+            try:
+                persist_named_session(
+                    get_current_agent(),
+                    session_name,
+                    base_dir=Path(AUTOSAVE_DIR),
+                    # Headless -r save-back is automated (user passed a
+                    # flag and walked away) rather than an explicit
+                    # /dump_context-style intent, so it carries the same
+                    # auto_saved=True bit as autosave proper. Plugins
+                    # that filter on `metadata.auto_saved` get the right
+                    # signal.
+                    auto_saved=True,
+                )
+            except Exception as save_exc:
+                # The user's primary deliverable (the agent response) has
+                # already been emitted. Report the save failure but do not
+                # re-raise -- a save bug shouldn't mask a successful turn.
+                emit_error(f"Failed to save session {session_name}: {save_exc}")
 
 
 def _force_utf8_stdio():

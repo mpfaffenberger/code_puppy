@@ -1750,40 +1750,166 @@ def reset_all_banner_colors():
         set_banner_color(name, color)
 
 
-def get_current_autosave_id() -> str:
-    """Get or create the current autosave session ID for this process."""
+def get_current_session_name() -> str:
+    """Return the full filename of the session this process is writing to.
+
+    On first call, lazily mints a fresh auto-flavored name
+    (``auto_session_<YYYYMMDD>_<HHMMSS>``). Subsequent calls return the
+    same string until ``rotate_session_name`` or ``pin_current_session_name``
+    is called.
+
+    The ``auto_session_`` prefix is RESERVED for system-generated names;
+    user-input names cannot start with it (enforced by
+    ``session_lifecycle.is_valid_session_name``).
+
+    This replaces the pre-unification dance of ``get_current_autosave_id`` +
+    runtime ``f"auto_session_{id}"`` construction, which silently broke
+    named-session save-back the moment a user-named string was pinned.
+    """
     global _CURRENT_AUTOSAVE_ID
     if not _CURRENT_AUTOSAVE_ID:
-        # Use a full timestamp so tests and UX can predict the name if needed
-        _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        _CURRENT_AUTOSAVE_ID = (
+            f"auto_session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
     return _CURRENT_AUTOSAVE_ID
+
+
+def rotate_session_name() -> str:
+    """Reset the singleton; next read mints a fresh auto-flavored name.
+
+    Used by ``/clear`` and ``/switch-agent`` to start a new session
+    regardless of whether the previous one was auto- or user-named.
+    """
+    global _CURRENT_AUTOSAVE_ID
+    _CURRENT_AUTOSAVE_ID = ""
+    return get_current_session_name()
+
+
+def pin_current_session_name(name: str) -> str:
+    """Pin the session to a specific filename. NO transformation.
+
+    Validates defensively against the stored-name rules so a forgetful
+    caller cannot smuggle a path-traversal name into the singleton and have
+    the next autosave write it to ``AUTOSAVE_DIR / "../../etc/passwd"``.
+    Raises ``ValueError`` on invalid input.
+
+    Callers that already validated (resolver, ``/load_context``) treat the
+    raise as a "shouldn't happen" guard.
+    """
+    from code_puppy.session_lifecycle import is_valid_session_name
+
+    if not is_valid_session_name(name, allow_reserved_prefix=True):
+        raise ValueError(f"invalid session name: {name!r}")
+    global _CURRENT_AUTOSAVE_ID
+    _CURRENT_AUTOSAVE_ID = name
+    return _CURRENT_AUTOSAVE_ID
+
+
+# ----- Deprecated aliases (the unified-autosave migration) ---------------------------------
+#
+# The pre-unification API stored a bare ID in the singleton and synthesized
+# ``auto_session_<id>`` on every read. That scheme broke the moment a
+# user-named string (e.g. ``"mywork"``) was pinned: the next read produced
+# ``"auto_session_mywork"`` and named-session save-back wrote the wrong file.
+#
+# These aliases preserve external plugin compatibility for ONE release. Every
+# internal caller in this PR has been migrated to the new API; the aliases
+# never fire from in-repo code (otherwise ``-W error`` test runs would fail
+# and every startup would spam ``DeprecationWarning`` in user terminals).
+
+
+def get_current_autosave_id() -> str:
+    """DEPRECATED: use ``get_current_session_name()``.
+
+    Returns the current session name with any ``auto_session_`` prefix
+    stripped (matches the pre-unification return shape). For user-named
+    sessions, returns the name verbatim.
+
+    .. note::
+       External callers that wrote
+       ``f"auto_session_{get_current_autosave_id()}"`` to reconstruct a
+       filename USED to be correct (the singleton always held a bare ID);
+       after the unified-autosave migration the singleton can hold a user-named string like
+       ``"mywork"``, in which case the reconstruction produces
+       ``"auto_session_mywork"`` -- a WRONG filename. Switch to
+       ``get_current_session_name()``.
+    """
+    import warnings
+
+    warnings.warn(
+        "get_current_autosave_id is deprecated; use get_current_session_name",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    name = get_current_session_name()
+    prefix = "auto_session_"
+    if name.startswith(prefix):
+        return name[len(prefix) :]
+    return name
 
 
 def rotate_autosave_id() -> str:
-    """Force a new autosave session ID and return it."""
-    global _CURRENT_AUTOSAVE_ID
-    _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    return _CURRENT_AUTOSAVE_ID
+    """DEPRECATED: use ``rotate_session_name()``.
+
+    Returns the rotated name with any ``auto_session_`` prefix stripped,
+    matching the pre-unification return shape. Internally always returns
+    an auto-flavored name (rotate ALWAYS mints fresh), so the strip is a
+    pure shape-preservation transformation.
+    """
+    import warnings
+
+    warnings.warn(
+        "rotate_autosave_id is deprecated; use rotate_session_name",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    name = rotate_session_name()
+    prefix = "auto_session_"
+    if name.startswith(prefix):
+        return name[len(prefix) :]
+    return name
 
 
 def get_current_autosave_session_name() -> str:
-    """Return the full session name used for autosaves (no file extension)."""
-    return f"auto_session_{get_current_autosave_id()}"
+    """DEPRECATED: use ``get_current_session_name()``.
+
+    Returns the full stored name VERBATIM. NOT re-synthesized from a stripped
+    ID -- doing so would produce ``"auto_session_mywork"`` for a user-named
+    session and break TTY-keyed cross-restart resume.
+    """
+    import warnings
+
+    warnings.warn(
+        "get_current_autosave_session_name is deprecated; use get_current_session_name",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return get_current_session_name()
 
 
 def set_current_autosave_from_session_name(session_name: str) -> str:
-    """Set the current autosave ID based on a full session name.
+    """DEPRECATED: use ``pin_current_session_name(name)``.
 
-    Accepts names like 'auto_session_YYYYMMDD_HHMMSS' and extracts the ID part.
-    Returns the ID that was set.
+    Behavior change vs. pre-unification: the old function stripped an
+    ``auto_session_`` prefix on input. The new contract does NOT strip --
+    the singleton holds the full filename verbatim. Callers that passed
+    ``"auto_session_xyz"`` expecting the singleton to end up as ``"xyz"``
+    (no in-repo callers do this) would now see ``"auto_session_xyz"`` in
+    the singleton.
+
+    Also: because ``pin_current_session_name`` validates input, this alias
+    now raises ``ValueError`` for names that pre-unification it would have
+    silently accepted (control chars, empty string, path-separator chars).
     """
-    global _CURRENT_AUTOSAVE_ID
-    prefix = "auto_session_"
-    if session_name.startswith(prefix):
-        _CURRENT_AUTOSAVE_ID = session_name[len(prefix) :]
-    else:
-        _CURRENT_AUTOSAVE_ID = session_name
-    return _CURRENT_AUTOSAVE_ID
+    import warnings
+
+    warnings.warn(
+        "set_current_autosave_from_session_name is deprecated; "
+        "use pin_current_session_name",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return pin_current_session_name(session_name)
 
 
 def auto_save_session_if_enabled() -> bool:
@@ -1803,7 +1929,7 @@ def auto_save_session_if_enabled() -> bool:
             return False
 
         now = datetime.datetime.now()
-        session_name = get_current_autosave_session_name()
+        session_name = get_current_session_name()
         autosave_dir = pathlib.Path(AUTOSAVE_DIR)
 
         metadata = save_session(
@@ -1835,9 +1961,18 @@ def auto_save_session_if_enabled() -> bool:
             pass
 
         emit_info(
-            f"🐾 Auto-saved session: {metadata.message_count} messages "
+            f"\U0001f43e Auto-saved session: {metadata.message_count} messages "
             f"({metadata.total_tokens} tokens){stats_suffix}"
         )
+
+        # Fire post_autosave so plugins can render follow-up lines
+        # (token quota, etc.) without us knowing about them here.
+        # Delegates to the shared lifecycle helper -- see its docstring for
+        # why an executor wrap is needed and where to add disk-level
+        # forensics if we ever want them across all callers.
+        from code_puppy.session_lifecycle import fire_post_autosave_callback
+
+        fire_post_autosave_callback(metadata)
 
         return True
 
@@ -1879,10 +2014,20 @@ def get_terminal_tty() -> Optional[str]:
 
 
 def _is_valid_autosave_session_name(session_name: str) -> bool:
-    """Return True when a terminal marker names a safe autosave session."""
-    import re
+    """Return True when a terminal marker names a safe stored session.
 
-    return bool(re.fullmatch(r"auto_session_\d{8}_\d{6}", session_name))
+    Accepts both auto-flavored entries (``auto_session_<YYYYMMDD>_<HHMMSS>``)
+    AND user-named entries (any slug matching
+    ``session_lifecycle.is_valid_session_name(..., allow_reserved_prefix=True)``).
+    Without this, TTY-keyed cross-restart resume would silently reject every
+    user-named session.
+
+    The name kept the ``_autosave_`` prefix for backward compatibility with
+    external callers; conceptually it's a stored-name validator now.
+    """
+    from code_puppy.session_lifecycle import is_valid_session_name
+
+    return is_valid_session_name(session_name, allow_reserved_prefix=True)
 
 
 def _tty_session_path(tty: str) -> pathlib.Path:
@@ -2212,9 +2357,9 @@ def resolve_quick_resume_pickle(
 
 def finalize_autosave_session() -> str:
     """Persist the current autosave snapshot and rotate to a fresh session."""
-    record_terminal_session(get_current_autosave_session_name())
+    record_terminal_session(get_current_session_name())
     auto_save_session_if_enabled()
-    return rotate_autosave_id()
+    return rotate_session_name()
 
 
 def get_suppress_thinking_messages() -> bool:
