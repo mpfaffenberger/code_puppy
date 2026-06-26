@@ -4,6 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from code_puppy.callbacks import (
+    _trigger_callbacks_sync,
     clear_callbacks,
     count_callbacks,
     get_callbacks,
@@ -14,6 +15,7 @@ from code_puppy.callbacks import (
     on_load_model_config,
     on_post_tool_call,
     on_pre_tool_call,
+    on_register_cli_args,
     on_replace_in_file,
     on_startup,
     on_stream_event,
@@ -662,3 +664,118 @@ class TestStreamEventCallback:
             assert results[1] == "OK"  # Survived
             assert successful_events == ["token"]
             mock_logger.error.assert_called_once()
+
+
+class TestTriggerCallbacksRaiseOnError:
+    """Regression coverage for the ``raise_on_error`` fail-fast knob.
+
+    Bug beadworks-dmg: ``register_cli_args`` argparse conflicts were silently
+    swallowed by the per-callback error isolation in ``_trigger_callbacks_sync``.
+    The fix added an opt-in ``raise_on_error`` flag so fatal phases surface the
+    exception instead of logging+swallowing it. These tests lock in that the
+    flag is *surgical*: it only changes behavior when explicitly requested, and
+    error isolation remains the default for every other phase.
+    """
+
+    def setup_method(self):
+        clear_callbacks()
+
+    def test_default_swallows_callback_exception(self):
+        """Default behavior (raise_on_error=False) keeps error isolation."""
+        survived = []
+
+        def boom():
+            raise ValueError("kaboom")
+
+        def survivor():
+            survived.append(True)
+            return "ok"
+
+        register_callback("startup", boom)
+        register_callback("startup", survivor)
+
+        with patch("code_puppy.callbacks.logger") as mock_logger:
+            results = _trigger_callbacks_sync("startup")
+
+        # The crash is swallowed (None) and the next callback still runs.
+        assert results == [None, "ok"]
+        assert survived == [True]
+        mock_logger.error.assert_called_once()
+
+    def test_raise_on_error_propagates_exception(self):
+        """raise_on_error=True re-raises the first failing callback."""
+
+        def boom():
+            raise ValueError("kaboom")
+
+        register_callback("startup", boom)
+
+        with pytest.raises(ValueError, match="kaboom"):
+            _trigger_callbacks_sync("startup", raise_on_error=True)
+
+    def test_raise_on_error_logs_before_raising(self):
+        """The failure is still logged for diagnostics before it propagates."""
+
+        def boom():
+            raise RuntimeError("explode")
+
+        register_callback("startup", boom)
+
+        with patch("code_puppy.callbacks.logger") as mock_logger:
+            with pytest.raises(RuntimeError, match="explode"):
+                _trigger_callbacks_sync("startup", raise_on_error=True)
+        mock_logger.error.assert_called_once()
+
+    def test_raise_on_error_stops_at_first_failure(self):
+        """A later callback never runs once an earlier one raises fatally."""
+        ran = []
+
+        def boom():
+            ran.append("boom")
+            raise ValueError("stop here")
+
+        def never():
+            ran.append("never")
+
+        register_callback("startup", boom)
+        register_callback("startup", never)
+
+        with pytest.raises(ValueError, match="stop here"):
+            _trigger_callbacks_sync("startup", raise_on_error=True)
+
+        assert ran == ["boom"]
+
+    def test_on_register_cli_args_fails_fast_on_callback_error(self):
+        """on_register_cli_args opts into fail-fast (the actual bug fix)."""
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--agent")  # core flag
+
+        def colliding_plugin(p):
+            # A plugin reusing a core option string is a fatal dev error.
+            p.add_argument("--agent")
+
+        register_callback("register_cli_args", colliding_plugin)
+
+        with pytest.raises(argparse.ArgumentError) as excinfo:
+            on_register_cli_args(parser)
+        assert "conflicting option string" in str(excinfo.value)
+
+    def test_other_phases_still_isolated(self):
+        """The sibling sync phase handle_cli_args must STILL swallow errors.
+
+        Proves the fail-fast change was surgical to register_cli_args only and
+        didn't accidentally flip the default for the whole hook system.
+        """
+        from code_puppy.callbacks import on_handle_cli_args
+
+        def boom(args):
+            raise ValueError("handler bug")
+
+        register_callback("handle_cli_args", boom)
+
+        with patch("code_puppy.callbacks.logger") as mock_logger:
+            results = on_handle_cli_args(object())  # must not raise
+        assert results == [None]
+        mock_logger.error.assert_called_once()
