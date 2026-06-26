@@ -1202,6 +1202,25 @@ def get_yolo_mode():
     return True
 
 
+def get_allow_parallel_tool_calls():
+    """
+    Checks puppy.cfg for 'allow_parallel_tool_calls' (case-insensitive value).
+    Defaults to False if not set.
+
+    When off (default), parallel tool calls are disabled outside yolo mode so
+    the user can review each call sequentially. Turn this on to let the model
+    fan out tool calls (including parallel sub-agent invocations) even when
+    yolo mode is off. Note: the ``invoke_agents`` batch tool fans out
+    internally via one reviewable tool call and does NOT require this flag.
+    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (case-insensitive).
+    """
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("allow_parallel_tool_calls")
+    if cfg_val is not None:
+        return str(cfg_val).strip().lower() in true_vals
+    return False
+
+
 def get_safety_permission_level():
     """
     Checks puppy.cfg for 'safety_permission_level' (case-insensitive in value only).

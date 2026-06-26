@@ -24,7 +24,12 @@ from code_puppy.messaging import emit_warning
 
 from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
-from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
+from .config import (
+    EXTRA_MODELS_FILE,
+    get_allow_parallel_tool_calls,
+    get_value,
+    get_yolo_mode,
+)
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .provider_identity import (
     make_anthropic_provider,
@@ -173,8 +178,11 @@ def make_model_settings(
     effective_settings = get_effective_model_settings(model_name)
     model_settings_dict.update(effective_settings)
 
-    # Disable parallel tool calls when yolo_mode is off (sequential so user can review each call)
-    if not get_yolo_mode():
+    # Disable parallel tool calls when yolo_mode is off so the user can review
+    # each call sequentially -- UNLESS they've explicitly opted into parallel
+    # fan-out via allow_parallel_tool_calls (needed for Claude-Code-style
+    # parallel sub-agent spawning outside yolo mode).
+    if not get_yolo_mode() and not get_allow_parallel_tool_calls():
         model_settings_dict["parallel_tool_calls"] = False
 
     # Default to clear_thinking=False for GLM-4.7 and GLM-5 models (preserved thinking)

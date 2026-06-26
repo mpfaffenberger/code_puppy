@@ -34,7 +34,10 @@ class TestMessageBusInitialization:
         assert bus._maxsize == 1000
         assert isinstance(bus._outgoing, queue.Queue)
         assert isinstance(bus._incoming, queue.Queue)
-        assert bus._current_session_id is None
+        # Session context now lives in a process-global ContextVar, not a
+        # per-instance attribute. A fresh bus should report no active session.
+        bus.set_session_context(None)
+        assert bus.get_session_context() is None
         assert not bus._has_active_renderer
         assert bus._startup_buffer == []
 

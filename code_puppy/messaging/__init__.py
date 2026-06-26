@@ -47,6 +47,7 @@ from .bus import (
     get_message_bus,
     get_session_context,
     reset_message_bus,
+    reset_session_context,
     set_session_context,
 )
 from .bus import emit as bus_emit  # Convenience functions (new API versions)
@@ -247,6 +248,7 @@ __all__ = [
     "reset_message_bus",
     # Session context
     "set_session_context",
+    "reset_session_context",
     "get_session_context",
     # New API convenience functions (prefixed to avoid collision)
     "bus_emit",
