@@ -21,7 +21,7 @@ NO Rich markup or formatting should be embedded in any string fields.
 """
 
 from datetime import datetime, timezone
-from typing import Literal, Optional, Union
+from typing import Any, Literal, Optional, Union
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -175,6 +175,26 @@ class SelectionResponse(BaseCommand):
     selected_value: str = Field(description="The value of the selected option")
 
 
+class AskUserQuestionResponse(BaseCommand):
+    """Response to an AskUserQuestionRequest from the browser UI.
+
+    The payload mirrors the ask_user_question tool output shape so the tool
+    can return structured answers to the agent without using the terminal TUI.
+    """
+
+    prompt_id: str = Field(
+        description="ID of the prompt this responds to (must match request)"
+    )
+    answers: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Structured answers collected by the browser UI",
+    )
+    cancelled: bool = Field(
+        default=False,
+        description="Whether the interaction was cancelled/skipped",
+    )
+
+
 # =============================================================================
 # Union Type for Type Checking
 # =============================================================================
@@ -190,6 +210,7 @@ AnyCommand = Union[
     UserInputResponse,
     ConfirmationResponse,
     SelectionResponse,
+    AskUserQuestionResponse,
 ]
 """Union of all command types for type checking."""
 
@@ -211,6 +232,7 @@ __all__ = [
     "UserInputResponse",
     "ConfirmationResponse",
     "SelectionResponse",
+    "AskUserQuestionResponse",
     # Union type
     "AnyCommand",
 ]

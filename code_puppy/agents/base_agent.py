@@ -73,6 +73,7 @@ class BaseAgent(ABC):
         self._code_generation_agent: Any = None
         self._last_model_name: Optional[str] = None
         self._runtime_model_name_override: Optional[str] = None
+        self._session_model_name: Optional[str] = None
         self._puppy_rules: Optional[str] = None
         self._mcp_servers: List[Any] = []
         self.cur_model: Optional[pydantic_ai.models.Model] = None
@@ -143,6 +144,8 @@ class BaseAgent(ABC):
         override = self.get_runtime_model_name_override()
         if override:
             return override
+        if self._session_model_name:
+            return self._session_model_name
         pinned = get_agent_pinned_model(self.name)
         return pinned if pinned else get_global_model_name()
 
@@ -190,6 +193,27 @@ class BaseAgent(ABC):
 
     def append_to_message_history(self, message: Any) -> None:
         self._message_history.append(message)
+
+    # ---- Session model + compaction compatibility helpers ----------------
+    def set_session_model(self, model_name: Optional[str]) -> None:
+        """Set a per-session model override for this agent instance."""
+        self._session_model_name = model_name or None
+
+    def get_session_model(self) -> Optional[str]:
+        """Return the per-session model override, if any."""
+        return self._session_model_name
+
+    def reset_session_model(self) -> None:
+        """Clear the per-session model override for this agent instance."""
+        self._session_model_name = None
+
+    def get_compacted_message_hashes(self) -> Set[int]:
+        """Expose compacted-message hashes for session state transfers."""
+        return set(self._compacted_message_hashes)
+
+    def add_compacted_message_hash(self, message_hash: int) -> None:
+        """Track a compacted-message hash for this agent instance."""
+        self._compacted_message_hashes.add(message_hash)
 
     # ---- Token / context helpers ------------------------------------------
     def estimate_tokens_for_message(self, message: Any) -> int:
