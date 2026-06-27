@@ -609,28 +609,42 @@ async def _on_agent_run_end(
 
 
 async def _on_post_tool_call(tool_name, tool_args, result, duration_ms, context=None):
-    """Detect a FAILED sub-agent so it renders red 'failed' instead of a green
-    'completed' checkmark.
+    """Authoritative completion signal for sub-agent invocations.
 
-    The invoke_agent tool returns an AgentInvokeOutput(session_id=..., error=...)
-    and -- crucially -- does NOT raise on sub-agent failure (its own except block
-    swallows the error and returns it on the output). So no SubAgentResponseMessage
-    is emitted, the node is never marked done via the normal path, and the root
-    flush would otherwise force it green. We read the returned .error here (the
-    real failure signal, present only AFTER the retry plugin has exhausted all
-    waves) and mark that exact session failed.
+    The primary completion path is ``SubAgentResponseMessage`` ->
+    ``_handle_frozen`` -> ``state.mark_done``. But ``_invoke_agent_impl`` in
+    ``tools/subagent_invocation.py`` suppresses that emit in high-output mode
+    when tokens have already streamed inline (to avoid double-rendering the
+    response). Without a fallback the row would sit frozen on its last
+    ``stream_event``-derived status forever -- a parent blocked awaiting
+    children emits no further ``part_start`` events, so it stays on
+    ``"thinking..."`` until the next top-level turn clears the panel.
+
+    ``post_tool_call`` fires whenever the tool returns -- success OR failure,
+    high mode OR not, response message emitted OR suppressed. It carries the
+    ``AgentInvokeOutput`` (whose ``.session_id`` and ``.error`` are the durable
+    truth). Idempotent with ``_handle_frozen``: ``mark_done`` / ``mark_failed``
+    are set-then-keep on the entry, so the dual-fire path stays correct.
+
+    The tool-name guard keeps unrelated tools (whose result objects have no
+    ``session_id`` anyway) from touching panel state.
     """
     if not _runtime_enabled():
         return
+    if tool_name not in ("invoke_agent", "invoke_agent_with_model"):
+        return
+    sid = getattr(result, "session_id", None)
+    if not sid:
+        return
     try:
         err = getattr(result, "error", None)
-        sid = getattr(result, "session_id", None)
-        if err and sid:
+        if err:
             state.mark_failed(sid)
-            # A failed agent is 'done' too -- if it was the last one running,
-            # flush the whole grouped panel now (failure path emits no
-            # SubAgentResponseMessage, so _handle_frozen won't fire).
-            _maybe_flush_group(_render_console())
+        else:
+            state.mark_done(sid)
+        # Flush the whole grouped panel if this was the last running agent
+        # (the gate inside _maybe_flush_group is a no-op otherwise).
+        _maybe_flush_group(_render_console())
     except Exception:
         pass
 
