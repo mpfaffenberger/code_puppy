@@ -148,3 +148,39 @@ async def test_missing_session_id_is_noop():
 
     # Untouched -- still 'starting', not 'completed'.
     assert state._AGENTS["agent-epsilon-mno345"]["status"] == "starting"
+
+
+async def test_does_not_call_maybe_flush_group(monkeypatch):
+    """Hard architectural constraint -- and a hard-won lesson.
+
+    ``_on_post_tool_call`` MUST NOT call ``_maybe_flush_group``. That helper
+    prints to the spinner's console; this callback fires from the pydantic-ai
+    run loop, OUTSIDE the renderer's coordination path. Calling it here races
+    against the main agent's streaming tokens and produces character-level
+    collisions in the terminal (PUP-376 hotfix). The flush must instead be
+    driven from inside ``_do_render`` via ``_handle_frozen``, or at end-of-turn
+    via ``_on_agent_run_end``.
+
+    A previous implementation made this exact mistake. This test exists so a
+    future refactor that re-adds the call fails loudly here before it ships.
+    """
+    state.register("agent-zeta-pqr678", "zeta-agent", model="gpt-5.4")
+
+    calls = {"count": 0}
+
+    def _explode(*_args, **_kwargs):
+        calls["count"] += 1
+
+    monkeypatch.setattr(register_callbacks, "_maybe_flush_group", _explode)
+
+    await register_callbacks._on_post_tool_call(
+        tool_name="invoke_agent",
+        tool_args={},
+        result=_StubInvokeResult(session_id="agent-zeta-pqr678"),
+        duration_ms=1,
+    )
+
+    assert calls["count"] == 0, (
+        "_on_post_tool_call must not call _maybe_flush_group -- it would race "
+        "the main agent's stream and garble the terminal (PUP-376)."
+    )

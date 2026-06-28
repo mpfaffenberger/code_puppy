@@ -609,9 +609,9 @@ async def _on_agent_run_end(
 
 
 async def _on_post_tool_call(tool_name, tool_args, result, duration_ms, context=None):
-    """Authoritative completion signal for sub-agent invocations.
+    """Authoritative completion **state** signal for sub-agent invocations.
 
-    The primary completion path is ``SubAgentResponseMessage`` ->
+    Background: the primary completion path is ``SubAgentResponseMessage`` ->
     ``_handle_frozen`` -> ``state.mark_done``. But ``_invoke_agent_impl`` in
     ``tools/subagent_invocation.py`` suppresses that emit in high-output mode
     when tokens have already streamed inline (to avoid double-rendering the
@@ -626,8 +626,21 @@ async def _on_post_tool_call(tool_name, tool_args, result, duration_ms, context=
     truth). Idempotent with ``_handle_frozen``: ``mark_done`` / ``mark_failed``
     are set-then-keep on the entry, so the dual-fire path stays correct.
 
-    The tool-name guard keeps unrelated tools (whose result objects have no
-    ``session_id`` anyway) from touching panel state.
+    Why we do NOT call ``_maybe_flush_group`` from here
+    ---------------------------------------------------
+    This callback runs from the pydantic-ai agent run loop -- OUTSIDE the
+    renderer's coordination path. ``_handle_frozen`` can safely call flush
+    because it lives inside ``_do_render``: the Rich Live region is paused /
+    coordinated for that paint. Printing from an out-of-band task races the
+    main agent's streaming tokens and produces character-level collisions in
+    the terminal (visible as garbled, interleaved output).
+
+    Mid-turn flush in high mode is therefore deferred to whichever
+    render-serialized hook eventually fires next: ``_handle_frozen`` when a
+    later sub-agent response IS emitted, or ``_on_agent_run_end`` /
+    ``state.clear()`` at end of turn. The row at least now reads
+    ``"completed"`` instead of lying about ``"thinking..."``; finding a
+    render-serialized mid-turn flush trigger for high mode is a follow-up.
     """
     if not _runtime_enabled():
         return
@@ -642,9 +655,6 @@ async def _on_post_tool_call(tool_name, tool_args, result, duration_ms, context=
             state.mark_failed(sid)
         else:
             state.mark_done(sid)
-        # Flush the whole grouped panel if this was the last running agent
-        # (the gate inside _maybe_flush_group is a no-op otherwise).
-        _maybe_flush_group(_render_console())
     except Exception:
         pass
 
