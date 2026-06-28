@@ -14,7 +14,11 @@ def get_skill_directories() -> List[str]:
     """Get configured skill directories.
 
     Returns:
-        List of skill directory paths from configuration.
+        List of skill directory paths from configuration, normalized to
+        POSIX-style forward-slash separators for cross-platform display
+        consistency (see the ``display-paths-as-posix`` convention adopted
+        by ``plugin_list``). Consumers that need a native ``Path`` wrap the
+        string in ``Path(...)``, which accepts either separator on Windows.
         Reads from puppy.cfg [puppy] section under 'skill_directories' key.
         Default: ['~/.code_puppy/skills', './.code_puppy/skills', './skills']
 
@@ -29,14 +33,14 @@ def get_skill_directories() -> List[str]:
             directories = json.loads(config_value)
             # Ensure it's a list
             if isinstance(directories, list):
-                return directories
+                return [Path(d).as_posix() for d in directories]
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse skill_directories config: {e}")
 
     # Fallback to defaults
-    home_skills = str(Path.home() / ".code_puppy" / "skills")
-    project_config_skills = str(Path.cwd() / ".code_puppy" / "skills")
-    local_skills = str(Path.cwd() / "skills")
+    home_skills = (Path.home() / ".code_puppy" / "skills").as_posix()
+    project_config_skills = (Path.cwd() / ".code_puppy" / "skills").as_posix()
+    local_skills = (Path.cwd() / "skills").as_posix()
     return [
         home_skills,
         project_config_skills,

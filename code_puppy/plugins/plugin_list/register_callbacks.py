@@ -46,11 +46,13 @@ def _build_output() -> str:
     loaded = get_loaded_plugins()
     disabled = get_disabled_plugins()
 
-    builtin_path = str(Path(__file__).parent.parent) + "/"
+    # Display paths with forward slashes regardless of OS so the output is
+    # consistent across Windows / POSIX (and easier to copy-paste).
+    builtin_path = Path(__file__).parent.parent.as_posix() + "/"
     user_path = "~/.code_puppy/plugins/"
     project_dir = get_project_plugins_directory()
     project_path = (
-        str(project_dir) + "/" if project_dir else "<CWD>/.code_puppy/plugins/"
+        project_dir.as_posix() + "/" if project_dir else "<CWD>/.code_puppy/plugins/"
     )
 
     lines = [
@@ -89,45 +91,29 @@ def _all_loaded_plugin_names() -> set[str]:
     return names
 
 
-def _handle_disable(plugin_name: str) -> bool:
-    """Disable a plugin by name."""
+def _handle_toggle(plugin_name: str, *, disabled: bool) -> bool:
+    """Flip *plugin_name*'s disabled state to *disabled*.
+
+    One implementation handles both ``enable`` and ``disable`` — the only
+    difference is the target state and the success-message verb.
+    """
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
     from code_puppy.plugins.config import set_plugin_disabled
 
-    all_names = _all_loaded_plugin_names()
-    if plugin_name not in all_names:
+    if plugin_name not in _all_loaded_plugin_names():
         emit_error(
             f"Plugin '{plugin_name}' is not loaded. "
             f"Use /plugins to see available plugins."
         )
         return True
 
-    if set_plugin_disabled(plugin_name, disabled=True):
-        emit_success(f"Plugin '{plugin_name}' disabled.")
+    verb = "disabled" if disabled else "re-enabled"
+    state = "disabled" if disabled else "enabled"
+    if set_plugin_disabled(plugin_name, disabled):
+        emit_success(f"Plugin '{plugin_name}' {verb}.")
         emit_warning("Restart Code Puppy for this change to take effect.")
     else:
-        emit_info(f"Plugin '{plugin_name}' is already disabled.")
-    return True
-
-
-def _handle_enable(plugin_name: str) -> bool:
-    """Enable a previously disabled plugin."""
-    from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
-    from code_puppy.plugins.config import set_plugin_disabled
-
-    all_names = _all_loaded_plugin_names()
-    if plugin_name not in all_names:
-        emit_error(
-            f"Plugin '{plugin_name}' is not loaded. "
-            f"Use /plugins to see available plugins."
-        )
-        return True
-
-    if set_plugin_disabled(plugin_name, disabled=False):
-        emit_success(f"Plugin '{plugin_name}' re-enabled.")
-        emit_warning("Restart Code Puppy for this change to take effect.")
-    else:
-        emit_info(f"Plugin '{plugin_name}' is already enabled.")
+        emit_info(f"Plugin '{plugin_name}' is already {state}.")
     return True
 
 
@@ -138,48 +124,71 @@ def _custom_help() -> list[tuple[str, str]]:
     return [("plugins", "List, enable, or disable plugins")]
 
 
+def _run_interactive_menu() -> None:
+    """Open the TUI; fall back to a plain-text list if it blows up."""
+    from code_puppy.messaging import emit_info
+
+    try:
+        from code_puppy.plugins.plugin_list.plugins_menu import run_plugins_menu
+
+        run_plugins_menu()
+    except Exception as exc:
+        logger.warning(f"Plugins TUI failed, falling back to list: {exc}")
+        emit_info(_build_output())
+
+
+def _sub_list(_tokens: list[str]) -> bool:
+    from code_puppy.messaging import emit_info
+
+    emit_info(_build_output())
+    return True
+
+
+def _sub_disable(tokens: list[str]) -> bool:
+    return _sub_toggle(tokens, disabled=True)
+
+
+def _sub_enable(tokens: list[str]) -> bool:
+    return _sub_toggle(tokens, disabled=False)
+
+
+def _sub_toggle(tokens: list[str], *, disabled: bool) -> bool:
+    from code_puppy.messaging import emit_error
+
+    action = "disable" if disabled else "enable"
+    if len(tokens) < 3:
+        emit_error(f"Usage: /plugins {action} <plugin-name>")
+        return True
+    return _handle_toggle(tokens[2], disabled=disabled)
+
+
+_SUBCOMMANDS = {
+    "list": _sub_list,
+    "disable": _sub_disable,
+    "enable": _sub_enable,
+}
+
+
 def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     if name != "plugins":
-        return None  # Not our command.
-
-    from code_puppy.messaging import emit_error, emit_info
+        return None
 
     tokens = command.strip().split()
 
-    # Bare /plugins -> interactive TUI
     if len(tokens) <= 1:
-        try:
-            from code_puppy.plugins.plugin_list.plugins_menu import run_plugins_menu
-
-            run_plugins_menu()
-        except Exception as exc:
-            logger.warning(f"Plugins TUI failed, falling back to list: {exc}")
-            emit_info(_build_output())
+        _run_interactive_menu()
         return True
 
-    subcommand = tokens[1].lower()
+    handler = _SUBCOMMANDS.get(tokens[1].lower())
+    if handler is None:
+        from code_puppy.messaging import emit_error
 
-    if subcommand == "list":
-        emit_info(_build_output())
+        emit_error(
+            f"Unknown subcommand: '{tokens[1]}'. "
+            "Usage: /plugins [list | enable <name> | disable <name>]"
+        )
         return True
-
-    if subcommand == "disable":
-        if len(tokens) < 3:
-            emit_error("Usage: /plugins disable <plugin-name>")
-            return True
-        return _handle_disable(tokens[2])
-
-    if subcommand == "enable":
-        if len(tokens) < 3:
-            emit_error("Usage: /plugins enable <plugin-name>")
-            return True
-        return _handle_enable(tokens[2])
-
-    emit_error(
-        f"Unknown subcommand: '{subcommand}'. "
-        "Usage: /plugins [list | enable <name> | disable <name>]"
-    )
-    return True
+    return handler(tokens)
 
 
 register_callback("custom_command_help", _custom_help)
