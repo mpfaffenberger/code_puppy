@@ -29,7 +29,8 @@ def test_help_outputs_help():
     mock_emit_info = mocks["emit_info"].start()
 
     try:
-        result = handle_command("/help")
+        # /help text shows text-based help (interactive panel needs real terminal)
+        result = handle_command("/help text")
         assert result is True
         mock_emit_info.assert_called()
         # Check that help was displayed (look for "Built-in Commands" section)
