@@ -609,28 +609,52 @@ async def _on_agent_run_end(
 
 
 async def _on_post_tool_call(tool_name, tool_args, result, duration_ms, context=None):
-    """Detect a FAILED sub-agent so it renders red 'failed' instead of a green
-    'completed' checkmark.
+    """Authoritative completion **state** signal for sub-agent invocations.
 
-    The invoke_agent tool returns an AgentInvokeOutput(session_id=..., error=...)
-    and -- crucially -- does NOT raise on sub-agent failure (its own except block
-    swallows the error and returns it on the output). So no SubAgentResponseMessage
-    is emitted, the node is never marked done via the normal path, and the root
-    flush would otherwise force it green. We read the returned .error here (the
-    real failure signal, present only AFTER the retry plugin has exhausted all
-    waves) and mark that exact session failed.
+    Background: the primary completion path is ``SubAgentResponseMessage`` ->
+    ``_handle_frozen`` -> ``state.mark_done``. But ``_invoke_agent_impl`` in
+    ``tools/subagent_invocation.py`` suppresses that emit in high-output mode
+    when tokens have already streamed inline (to avoid double-rendering the
+    response). Without a fallback the row would sit frozen on its last
+    ``stream_event``-derived status forever -- a parent blocked awaiting
+    children emits no further ``part_start`` events, so it stays on
+    ``"thinking..."`` until the next top-level turn clears the panel.
+
+    ``post_tool_call`` fires whenever the tool returns -- success OR failure,
+    high mode OR not, response message emitted OR suppressed. It carries the
+    ``AgentInvokeOutput`` (whose ``.session_id`` and ``.error`` are the durable
+    truth). Idempotent with ``_handle_frozen``: ``mark_done`` / ``mark_failed``
+    are set-then-keep on the entry, so the dual-fire path stays correct.
+
+    Why we do NOT call ``_maybe_flush_group`` from here
+    ---------------------------------------------------
+    This callback runs from the pydantic-ai agent run loop -- OUTSIDE the
+    renderer's coordination path. ``_handle_frozen`` can safely call flush
+    because it lives inside ``_do_render``: the Rich Live region is paused /
+    coordinated for that paint. Printing from an out-of-band task races the
+    main agent's streaming tokens and produces character-level collisions in
+    the terminal (visible as garbled, interleaved output).
+
+    Mid-turn flush in high mode is therefore deferred to whichever
+    render-serialized hook eventually fires next: ``_handle_frozen`` when a
+    later sub-agent response IS emitted, or ``_on_agent_run_end`` /
+    ``state.clear()`` at end of turn. The row at least now reads
+    ``"completed"`` instead of lying about ``"thinking..."``; finding a
+    render-serialized mid-turn flush trigger for high mode is a follow-up.
     """
     if not _runtime_enabled():
         return
+    if tool_name not in ("invoke_agent", "invoke_agent_with_model"):
+        return
+    sid = getattr(result, "session_id", None)
+    if not sid:
+        return
     try:
         err = getattr(result, "error", None)
-        sid = getattr(result, "session_id", None)
-        if err and sid:
+        if err:
             state.mark_failed(sid)
-            # A failed agent is 'done' too -- if it was the last one running,
-            # flush the whole grouped panel now (failure path emits no
-            # SubAgentResponseMessage, so _handle_frozen won't fire).
-            _maybe_flush_group(_render_console())
+        else:
+            state.mark_done(sid)
     except Exception:
         pass
 
