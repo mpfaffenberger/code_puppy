@@ -180,7 +180,20 @@ async def main():
     parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
+
+    # Let plugins contribute their own top-level CLI arguments. Plugins are
+    # already loaded at import time, so every register_cli_args callback is
+    # registered before the parser is built. Duplicate option strings raise
+    # here = fail fast.
+    callbacks.on_register_cli_args(parser)
+
     args = parser.parse_args()
+
+    # Give plugins a chance to act on parsed args and short-circuit startup.
+    # The first result dict with handled=True wins, exiting with its exit_code.
+    for result in callbacks.on_handle_cli_args(args):
+        if isinstance(result, dict) and result.get("handled"):
+            return result.get("exit_code", 0)
 
     from code_puppy.messaging import (
         RichConsoleRenderer,
@@ -1308,7 +1321,10 @@ def main_entry():
     """Entry point for the installed CLI tool."""
     _force_utf8_stdio()
     try:
-        asyncio.run(main())
+        # Capture main()'s return value so handle_cli_args plugins (and the
+        # normal return-0 path) actually influence the process exit status.
+        # main() may return None (treated as 0) or an int exit code.
+        rc = asyncio.run(main())
     except KeyboardInterrupt:
         # Note: Using sys.stderr for crash output - messaging system may not be available
         sys.stderr.write(traceback.format_exc())
@@ -1316,3 +1332,5 @@ def main_entry():
     finally:
         # Reset terminal on Unix-like systems (not Windows)
         reset_unix_terminal()
+    # Guard None -> 0 and propagate to the process exit status.
+    sys.exit(rc if rc is not None else 0)

@@ -250,12 +250,30 @@ class TestExecuteSinglePrompt:
 class TestMainEntry:
     @patch("asyncio.run")
     def test_normal_exit(self, mock_run):
+        import pytest
+
         from code_puppy.cli_runner import main_entry
 
+        # main() returning None must map to a clean exit code of 0.
         mock_run.return_value = None
         with patch("code_puppy.cli_runner.reset_unix_terminal"):
-            result = main_entry()
-        assert result is None
+            with pytest.raises(SystemExit) as exc_info:
+                main_entry()
+        assert exc_info.value.code == 0
+
+    @patch("asyncio.run")
+    def test_nonzero_exit_code_propagates(self, mock_run):
+        import pytest
+
+        from code_puppy.cli_runner import main_entry
+
+        # A handle_cli_args plugin asking for exit_code 7 flows up through
+        # main() -> main_entry() and must become the process exit code.
+        mock_run.return_value = 7
+        with patch("code_puppy.cli_runner.reset_unix_terminal"):
+            with pytest.raises(SystemExit) as exc_info:
+                main_entry()
+        assert exc_info.value.code == 7
 
     @patch("asyncio.run", side_effect=KeyboardInterrupt)
     def test_keyboard_interrupt(self, mock_run):

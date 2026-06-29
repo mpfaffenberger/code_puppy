@@ -31,6 +31,8 @@ PhaseType = Literal[
     "register_agents",
     "register_model_type",
     "register_skills",
+    "register_cli_args",
+    "handle_cli_args",
     "get_model_system_prompt",
     "prepare_model_prompt",
     "agent_run_start",
@@ -85,6 +87,8 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_agents": [],
     "register_model_type": [],
     "register_skills": [],
+    "register_cli_args": [],
+    "handle_cli_args": [],
     "get_model_system_prompt": [],
     "prepare_model_prompt": [],
     "agent_run_start": [],
@@ -232,7 +236,18 @@ def count_callbacks(phase: Optional[PhaseType] = None) -> int:
     return len(_callbacks.get(phase, []))
 
 
-def _trigger_callbacks_sync(phase: PhaseType, *args, **kwargs) -> List[Any]:
+def _trigger_callbacks_sync(
+    phase: PhaseType, *args, raise_on_error: bool = False, **kwargs
+) -> List[Any]:
+    """Run all sync callbacks for ``phase`` and collect their results.
+
+    By default each callback is wrapped in its own try/except so a single
+    misbehaving plugin can't take down the app (error isolation). For phases
+    where a callback failure is a *fatal* developer error that must surface
+    immediately (e.g. ``register_cli_args`` adding a duplicate/conflicting
+    option string), pass ``raise_on_error=True`` to disable the isolation and
+    let the exception propagate (fail-fast).
+    """
     callbacks = get_callbacks(phase)
     if not callbacks:
         logger.debug(f"No callbacks registered for phase '{phase}'")
@@ -265,6 +280,8 @@ def _trigger_callbacks_sync(phase: PhaseType, *args, **kwargs) -> List[Any]:
                 f"Callback {callback.__name__} failed in phase '{phase}': {e}\n"
                 f"{traceback.format_exc()}"
             )
+            if raise_on_error:
+                raise
             results.append(None)
 
     return results
@@ -575,6 +592,51 @@ def on_register_agents() -> List[Dict[str, Any]]:
     Example return: [{"name": "my-agent", "class": MyAgentClass}]
     """
     return _trigger_callbacks_sync("register_agents")
+
+
+def on_register_cli_args(parser: Any) -> List[Any]:
+    """Let plugins contribute top-level arguments to the ``code-puppy`` CLI.
+
+    Called once during CLI bootstrap, *before* arguments are parsed. Each
+    callback receives the shared ``argparse.ArgumentParser`` (or an
+    argument group) and should register its own flags via the usual
+    ``parser.add_argument(...)`` calls. Plugins must use unique, namespaced
+    option strings (e.g. ``--myplugin-foo``) to avoid colliding with core
+    flags or one another.
+
+    Callback contract: ``(parser: argparse.ArgumentParser) -> None``.
+    Return values are ignored; mutate the parser in place.
+
+    Unlike most hooks, this phase does **not** isolate callback errors: a
+    duplicate/conflicting option string (or any other failure while building
+    the parser) is a fatal developer error, so the exception propagates
+    (fail-fast) instead of being swallowed.
+
+    Returns the list of (typically ``None``) callback results.
+    """
+    return _trigger_callbacks_sync("register_cli_args", parser, raise_on_error=True)
+
+
+def on_handle_cli_args(args: Any) -> List[Any]:
+    """Let plugins act on parsed CLI arguments before the app proceeds.
+
+    Called once after ``parse_args``, giving each plugin a chance to inspect
+    the parsed ``argparse.Namespace`` and react to its own flags. A plugin
+    that fully handles the invocation (and wants the process to exit instead
+    of continuing into the normal run) should return the sentinel dict::
+
+        {"handled": True, "exit_code": int}
+
+    The CLI runner scans the collected results for the first entry with
+    ``handled == True`` and exits with the supplied ``exit_code``. Plugins
+    that merely observe the args (without short-circuiting) should return
+    ``None``.
+
+    Callback contract: ``(args: argparse.Namespace) -> dict | None``.
+
+    Returns the list of callback results for the runner to scan.
+    """
+    return _trigger_callbacks_sync("handle_cli_args", args)
 
 
 def on_register_model_types() -> List[Dict[str, Any]]:
