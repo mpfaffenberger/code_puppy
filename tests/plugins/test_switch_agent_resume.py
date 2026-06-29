@@ -276,12 +276,21 @@ class TestGetLastTerminalSession:
         assert result is None
 
     def test_returns_none_for_malformed_marker(self, tmp_path):
-        """Rejects non-autosave marker names instead of trusting arbitrary pickle names."""
+        """Rejects names that fail the stored-name validator.
+
+        Post-unified-autosave migration the validator accepts BOTH auto-flavored names
+        (``auto_session_<TS>``) and user-named slugs matching the bare-name
+        regex with ``allow_reserved_prefix=True``. This regression guard
+        therefore uses a name that fails the slug regex (contains a
+        path-separator character) rather than the pre-unification
+        ``manual_session`` which the new contract correctly accepts.
+        """
         from code_puppy.config import get_last_terminal_session
 
         tty_sessions_dir = tmp_path / "tty_sessions"
         tty_sessions_dir.mkdir()
-        (tty_sessions_dir / "dev_ttys001.txt").write_text("manual_session")
+        # Spaces and slashes are not in [A-Za-z0-9._-] -- always rejected.
+        (tty_sessions_dir / "dev_ttys001.txt").write_text("bad name with spaces")
 
         with (
             patch.object(_config_mod, "get_terminal_tty", return_value="/dev/ttys001"),
@@ -290,6 +299,27 @@ class TestGetLastTerminalSession:
             result = get_last_terminal_session()
 
         assert result is None
+
+    def test_returns_user_named_session(self, tmp_path):
+        """Regression guard: user-named markers MUST be accepted (was a B2 bug).
+
+        Pre-unification the validator required ``auto_session_\\d{8}_\\d{6}``
+        and would silently reject every user-named entry, breaking TTY-keyed
+        cross-restart resume for ``-r NAME`` users.
+        """
+        from code_puppy.config import get_last_terminal_session
+
+        tty_sessions_dir = tmp_path / "tty_sessions"
+        tty_sessions_dir.mkdir()
+        (tty_sessions_dir / "dev_ttys001.txt").write_text("mywork")
+
+        with (
+            patch.object(_config_mod, "get_terminal_tty", return_value="/dev/ttys001"),
+            patch.object(_config_mod, "CACHE_DIR", str(tmp_path)),
+        ):
+            result = get_last_terminal_session()
+
+        assert result == "mywork"
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +349,7 @@ class TestFinalizeAutosaveSession:
         with (
             patch.object(
                 _config_mod,
-                "get_current_autosave_session_name",
+                "get_current_session_name",
                 return_value="current-session",
             ),
             patch.object(
@@ -330,7 +360,7 @@ class TestFinalizeAutosaveSession:
                 "auto_save_session_if_enabled",
                 side_effect=fake_autosave,
             ),
-            patch.object(_config_mod, "rotate_autosave_id", side_effect=fake_rotate),
+            patch.object(_config_mod, "rotate_session_name", side_effect=fake_rotate),
         ):
             new_id = finalize_autosave_session()
 
@@ -341,17 +371,15 @@ class TestFinalizeAutosaveSession:
         assert "rotate" in call_order
 
     def test_returns_new_session_id(self):
-        """finalize_autosave_session returns whatever rotate_autosave_id returns."""
+        """finalize_autosave_session returns whatever rotate_session_name returns."""
         from code_puppy.config import finalize_autosave_session
 
         with (
-            patch.object(
-                _config_mod, "get_current_autosave_session_name", return_value="s"
-            ),
+            patch.object(_config_mod, "get_current_session_name", return_value="s"),
             patch.object(_config_mod, "record_terminal_session"),
             patch.object(_config_mod, "auto_save_session_if_enabled"),
             patch.object(
-                _config_mod, "rotate_autosave_id", return_value="brand-new-id"
+                _config_mod, "rotate_session_name", return_value="brand-new-id"
             ),
         ):
             result = finalize_autosave_session()
@@ -592,9 +620,7 @@ class TestDoSwitchAndResume:
             patch.object(
                 _session_storage_mod, "load_session", return_value=fake_history
             ) as mock_load,
-            patch.object(
-                _config_mod, "set_current_autosave_from_session_name"
-            ) as mock_set_name,
+            patch.object(_config_mod, "pin_current_session_name") as mock_set_name,
             patch.object(_config_mod, "AUTOSAVE_DIR", "/tmp/autosaves"),
             patch.object(_messaging_mod, "emit_info"),
             patch.object(_messaging_mod, "emit_success"),
@@ -724,9 +750,7 @@ class TestDoSwitchAndResume:
             patch.object(
                 _session_storage_mod, "load_session", return_value=fake_history
             ) as mock_load,
-            patch.object(
-                _config_mod, "set_current_autosave_from_session_name"
-            ) as mock_set_name,
+            patch.object(_config_mod, "pin_current_session_name") as mock_set_name,
             patch.object(_config_mod, "record_terminal_session") as mock_record,
             patch.object(_config_mod, "AUTOSAVE_DIR", "/tmp/autosaves"),
             patch.object(_messaging_mod, "emit_info"),

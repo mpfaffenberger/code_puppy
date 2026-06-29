@@ -4,13 +4,12 @@ This module contains @register_command decorated handlers that are automatically
 discovered by the command registry system.
 """
 
-from datetime import datetime
 import logging
 from pathlib import Path
 
 from code_puppy.command_line.command_registry import register_command
-from code_puppy.config import CONTEXTS_DIR
-from code_puppy.session_storage import list_sessions, load_session, save_session
+from code_puppy.config import AUTOSAVE_DIR
+from code_puppy.session_storage import list_sessions, load_session
 
 logger = logging.getLogger(__name__)
 
@@ -64,25 +63,23 @@ def get_commands_help():
 def handle_session_command(command: str) -> bool:
     """Handle /session command."""
     from code_puppy.config import (
-        AUTOSAVE_DIR,
-        get_current_autosave_id,
-        get_current_autosave_session_name,
-        rotate_autosave_id,
+        get_current_session_name,
+        rotate_session_name,
     )
     from code_puppy.messaging import emit_info, emit_success, emit_warning
 
     tokens = command.split()
 
     if len(tokens) == 1 or tokens[1] == "id":
-        sid = get_current_autosave_id()
+        session_name = get_current_session_name()
         emit_info(
-            f"[bold magenta]Autosave Session[/bold magenta]: {sid}\n"
-            f"Files prefix: {Path(AUTOSAVE_DIR) / get_current_autosave_session_name()}"
+            f"[bold magenta]Autosave Session[/bold magenta]: {session_name}\n"
+            f"Files prefix: {Path(AUTOSAVE_DIR) / session_name}"
         )
         return True
     if tokens[1] == "new":
-        new_sid = rotate_autosave_id()
-        emit_success(f"New autosave session id: {new_sid}")
+        new_name = rotate_session_name()
+        emit_success(f"New autosave session: {new_name}")
         return True
     emit_warning("Usage: /session [id|new]")
     return True
@@ -350,7 +347,11 @@ def handle_quick_resume_command(command: str) -> bool:
 def handle_dump_context_command(command: str) -> bool:
     """Dump message history to a file."""
     from code_puppy.agents.agent_manager import get_current_agent
-    from code_puppy.messaging import emit_error, emit_success, emit_warning
+    from code_puppy.messaging import emit_error, emit_warning
+    from code_puppy.session_lifecycle import (
+        is_valid_session_name,
+        persist_named_session,
+    )
 
     tokens = command.split()
     if len(tokens) != 2:
@@ -358,24 +359,38 @@ def handle_dump_context_command(command: str) -> bool:
         return True
 
     session_name = tokens[1]
-    agent = get_current_agent()
-    history = agent.get_message_history()
+    # Enforce reserved-prefix + slug rules at every user-input write site
+    # (the resolver enforces them for ``-r NAME``; this is the parallel
+    # gate for ``/dump_context``). Without it, /dump_context bypasses
+    # the validator that ``-r`` runs and lets a user squat the
+    # ``auto_session_`` namespace or smuggle in a path-traversal name.
+    if not is_valid_session_name(session_name, allow_reserved_prefix=False):
+        emit_error(
+            f"Invalid session name: {session_name!r}. "
+            "Session names must be 1-128 chars of [A-Za-z0-9._-] "
+            "and may not start with 'auto_session_' (reserved)."
+        )
+        return True
 
-    if not history:
+    agent = get_current_agent()
+    if not agent.get_message_history():
         emit_warning("No message history to dump!")
         return True
 
     try:
-        metadata = save_session(
-            history=history,
-            session_name=session_name,
-            base_dir=Path(CONTEXTS_DIR),
-            timestamp=datetime.now().isoformat(),
-            token_estimator=agent.estimate_tokens_for_message,
-        )
-        emit_success(
-            f"✅ Context saved: {metadata.message_count} messages ({metadata.total_tokens} tokens)\n"
-            f"📁 Files: {metadata.pickle_path}, {metadata.metadata_path}"
+        # The user-facing success line is preserved verbatim via
+        # ``success_message_template`` so /dump_context UX doesn't
+        # regress. The silent save-back paths (``-r``, periodic
+        # autosave) omit the template and stay quiet.
+        persist_named_session(
+            agent,
+            session_name,
+            base_dir=Path(AUTOSAVE_DIR),
+            success_message_template=(
+                "\u2705 Context saved: {message_count} messages "
+                "({total_tokens} tokens)\n"
+                "\U0001f4c1 Files: {pickle_path}, {metadata_path}"
+            ),
         )
         return True
 
@@ -392,10 +407,8 @@ def handle_dump_context_command(command: str) -> bool:
 )
 def handle_load_context_command(command: str) -> bool:
     """Load message history from a file."""
-    from rich.text import Text
-
     from code_puppy.agents.agent_manager import get_current_agent
-    from code_puppy.config import rotate_autosave_id
+    from code_puppy.config import rotate_session_name
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     tokens = command.split()
@@ -404,14 +417,14 @@ def handle_load_context_command(command: str) -> bool:
         return True
 
     session_name = tokens[1]
-    contexts_dir = Path(CONTEXTS_DIR)
-    session_path = contexts_dir / f"{session_name}.pkl"
+    sessions_dir = Path(AUTOSAVE_DIR)
+    session_path = sessions_dir / f"{session_name}.pkl"
 
     try:
-        history = load_session(session_name, contexts_dir)
+        history = load_session(session_name, sessions_dir)
     except FileNotFoundError:
         emit_error(f"Context file not found: {session_path}")
-        available = list_sessions(contexts_dir)
+        available = list_sessions(sessions_dir)
         if available:
             emit_info(f"Available contexts: {', '.join(available)}")
         return True
@@ -423,22 +436,41 @@ def handle_load_context_command(command: str) -> bool:
     agent.set_message_history(history)
     total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
 
-    # Rotate autosave id to avoid overwriting any existing autosave
-    try:
-        new_id = rotate_autosave_id()
-        autosave_info = Text.from_markup(
-            f"\n[dim]Autosave session rotated to: {new_id}[/dim]"
-        )
-    except Exception:
-        autosave_info = Text("")
+    # Rotate the singleton to a fresh ``auto_session_<TS>`` so subsequent
+    # autosaves do NOT overwrite the loaded snapshot. This asymmetry with
+    # ``-r NAME`` (which pins and saves back in place) is INTENTIONAL --
+    # the two verbs encode two different intents:
+    #
+    #   * ``/dump_context NAME`` + ``/load_context NAME`` are a snapshot
+    #     pair (think ``pg_dump`` / ``pg_restore``, save games, git
+    #     stash). The named file is a stable reference point; loading
+    #     it lets you inspect / branch from it without dirtying the
+    #     original.
+    #   * ``-r NAME`` / ``--resume NAME`` is a continuation verb (pick
+    #     up where you left off). That path pins and saves back.
+    #
+    # Origin: commit ``cc04629b`` (Mike Pfaffenberger, 2025-10-11)
+    # introduced this rotate-on-load behavior as a deliberate design
+    # choice; the commit message explicitly says "Automatically rotate
+    # session ID when loading saved context to prevent overwrites." The
+    # ``-r`` flag was added 4 months later (commit ``92bb0f90``) and
+    # the asymmetry was preserved -- on purpose. Do NOT "unify" these
+    # two paths in the name of symmetry; you'd be deleting the encoded
+    # distinction between snapshot-load and continuation-resume.
+    #
+    # If a user wants to continue working on the loaded snapshot in
+    # place, the explicit move is ``/load_context NAME`` followed by
+    # ``/dump_context NAME`` later -- or relaunch via ``-r NAME``.
+    new_autosave_id = rotate_session_name()
 
-    # Build the success message with proper Text concatenation
-    success_msg = Text(
-        f"✅ Context loaded: {len(history)} messages ({total_tokens} tokens)\n"
-        f"📁 From: {session_path}"
+    emit_success(
+        f"\u2705 Context loaded: {len(history)} messages "
+        f"({total_tokens} tokens)\n"
+        f"\U0001f4c1 From: {session_path}\n"
+        f"\U0001f504 Autosave rotated to: {new_autosave_id} "
+        f"(snapshot at {session_path.name} is preserved; further "
+        f"autosaves land in the new session)"
     )
-    success_msg.append_text(autosave_info)
-    emit_success(success_msg)
 
     # Display recent message history for context
     from code_puppy.command_line.autosave_menu import display_resumed_history

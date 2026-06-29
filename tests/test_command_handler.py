@@ -607,11 +607,10 @@ class TestSessionCommand:
     """Tests for /session command."""
 
     def test_session_show_current_id(self):
-        """Test /session shows current session ID."""
+        """Test /session shows current session name."""
         with (
-            patch("code_puppy.config.get_current_autosave_id", return_value="test-id"),
             patch(
-                "code_puppy.config.get_current_autosave_session_name",
+                "code_puppy.config.get_current_session_name",
                 return_value="test-session",
             ),
             patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/autosave"),
@@ -621,14 +620,13 @@ class TestSessionCommand:
             assert result is True
             mock_emit.assert_called_once()
             call_str = str(mock_emit.call_args)
-            assert "test-id" in call_str
+            assert "test-session" in call_str
 
     def test_session_id_subcommand(self):
-        """Test /session id shows current session ID."""
+        """Test /session id shows current session name."""
         with (
-            patch("code_puppy.config.get_current_autosave_id", return_value="test-id"),
             patch(
-                "code_puppy.config.get_current_autosave_session_name",
+                "code_puppy.config.get_current_session_name",
                 return_value="test-session",
             ),
             patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/autosave"),
@@ -642,7 +640,8 @@ class TestSessionCommand:
         """Test /session new creates new session."""
         with (
             patch(
-                "code_puppy.config.rotate_autosave_id", return_value="new-id"
+                "code_puppy.config.rotate_session_name",
+                return_value="auto_session_new",
             ) as mock_rotate,
             patch("code_puppy.messaging.emit_success") as mock_success,
         ):
@@ -651,7 +650,7 @@ class TestSessionCommand:
             mock_rotate.assert_called_once()
             mock_success.assert_called_once()
             call_str = str(mock_success.call_args)
-            assert "new-id" in call_str
+            assert "auto_session_new" in call_str
 
     def test_session_invalid_subcommand(self):
         """Test /session with invalid subcommand shows usage."""
@@ -665,9 +664,8 @@ class TestSessionCommand:
     def test_session_alias_works(self):
         """Test /s alias works for /session."""
         with (
-            patch("code_puppy.config.get_current_autosave_id", return_value="test-id"),
             patch(
-                "code_puppy.config.get_current_autosave_session_name",
+                "code_puppy.config.get_current_session_name",
                 return_value="test",
             ),
             patch("code_puppy.config.AUTOSAVE_DIR", "/tmp"),
@@ -1110,6 +1108,12 @@ class TestCommandRegistry:
     def test_generate_pr_description_command_registered(self):
         """Test that generate-pr-description command is registered."""
         cmd = get_command("generate-pr-description")
+        assert cmd is not None
+        assert cmd.category == "core"
+
+    def test_plan_command_registered(self):
+        """Test that /plan command is registered."""
+        cmd = get_command("plan")
         assert cmd is not None
         assert cmd.category == "core"
 
