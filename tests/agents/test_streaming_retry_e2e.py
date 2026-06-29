@@ -123,6 +123,7 @@ async def test_streaming_retry_does_not_retry_genuine_bugs():
 # --- Teams messages so any future regression that breaks classification of
 # --- the actual shapes seen in production gets caught.
 
+
 def _real_world_geoff_upstream_idle_timeout() -> Exception:
     """Verbatim from Geoff Allen 1:06 PM: upstream_idle_timeout, no data for 60s."""
     from anthropic import APIStatusError
@@ -199,6 +200,7 @@ async def test_field_report_tripuresh_upstream_stream_error_recovers():
 # --- blips even though the user only sees the friendly UI. These tests prove
 # --- log_error fires on every retry attempt and on exhaustion.
 
+
 @pytest.mark.asyncio
 async def test_streaming_retry_logs_each_transient_attempt_to_error_log(monkeypatch):
     """Every retry attempt MUST be persisted to errors.log, not just shown in the UI."""
@@ -207,9 +209,7 @@ async def test_streaming_retry_logs_each_transient_attempt_to_error_log(monkeypa
     def fake_log_error(exc, context=None, include_traceback=True):
         captured.append((exc, context))
 
-    monkeypatch.setattr(
-        "code_puppy.error_logging.log_error", fake_log_error
-    )
+    monkeypatch.setattr("code_puppy.error_logging.log_error", fake_log_error)
 
     call_count = {"n": 0}
 
@@ -240,9 +240,7 @@ async def test_streaming_retry_logs_exhaustion_to_error_log(monkeypatch):
     def fake_log_error(exc, context=None, include_traceback=True):
         captured.append((exc, context))
 
-    monkeypatch.setattr(
-        "code_puppy.error_logging.log_error", fake_log_error
-    )
+    monkeypatch.setattr("code_puppy.error_logging.log_error", fake_log_error)
 
     async def factory():
         raise _real_world_tripuresh_upstream_stream_error()
@@ -269,9 +267,7 @@ async def test_streaming_retry_does_not_log_non_transient(monkeypatch):
     def fake_log_error(exc, context=None, include_traceback=True):
         captured.append((exc, context))
 
-    monkeypatch.setattr(
-        "code_puppy.error_logging.log_error", fake_log_error
-    )
+    monkeypatch.setattr("code_puppy.error_logging.log_error", fake_log_error)
 
     async def factory():
         raise ValueError("genuine programming bug")

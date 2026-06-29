@@ -380,7 +380,9 @@ class TestWrappedTransientErrors:
 
         err = APIStatusError.__new__(APIStatusError)
         err.status_code = 400
-        err.body = {"error": {"message": "bad request", "type": "invalid_request_error"}}
+        err.body = {
+            "error": {"message": "bad request", "type": "invalid_request_error"}
+        }
         err.message = "bad request"
         assert not should_retry_streaming_exception(err)
 

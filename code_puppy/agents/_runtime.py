@@ -207,18 +207,14 @@ def _is_retryable_one(exc: BaseException) -> bool:
                 return _matches_retryable_snippet(body_msg)
 
     # Anthropic SDK: a bare APIConnectionError is, by definition, transient.
-    if (
-        AnthropicAPIConnectionError is not None
-        and isinstance(exc, AnthropicAPIConnectionError)
+    if AnthropicAPIConnectionError is not None and isinstance(
+        exc, AnthropicAPIConnectionError
     ):
         return True
 
     # Anthropic SDK: status errors are retryable on 5xx (or unset) OR when the
     # message/body matches a gateway-transient snippet (e.g. upstream_idle_timeout).
-    if (
-        AnthropicAPIStatusError is not None
-        and isinstance(exc, AnthropicAPIStatusError)
-    ):
+    if AnthropicAPIStatusError is not None and isinstance(exc, AnthropicAPIStatusError):
         status_code = getattr(exc, "status_code", None)
         if status_code is None or (isinstance(status_code, int) and status_code >= 500):
             return True
@@ -317,7 +313,9 @@ def streaming_retry(
                                 "attempts -- giving up and re-raising"
                             ),
                         )
-                        emit_error(f"\u274c Streaming failed after {max_attempts} attempts")
+                        emit_error(
+                            f"\u274c Streaming failed after {max_attempts} attempts"
+                        )
             assert last_exc is not None  # loop always sets this before exiting
             raise last_exc
 

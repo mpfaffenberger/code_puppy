@@ -100,9 +100,7 @@ def test_transient_exception_is_persisted_to_error_log(monkeypatch):
     def fake_log_error(exc, context=None, include_traceback=True):
         captured.append((exc, context))
 
-    monkeypatch.setattr(
-        "code_puppy.error_logging.log_error", fake_log_error
-    )
+    monkeypatch.setattr("code_puppy.error_logging.log_error", fake_log_error)
 
     with (
         patch("code_puppy.messaging.emit_error"),
@@ -125,9 +123,7 @@ def test_non_transient_exception_is_persisted_to_error_log(monkeypatch):
     def fake_log_error(exc, context=None, include_traceback=True):
         captured.append((exc, context))
 
-    monkeypatch.setattr(
-        "code_puppy.error_logging.log_error", fake_log_error
-    )
+    monkeypatch.setattr("code_puppy.error_logging.log_error", fake_log_error)
 
     with (
         patch("code_puppy.messaging.emit_error"),
