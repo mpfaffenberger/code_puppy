@@ -189,6 +189,117 @@ def test_wing_naming_conventions() -> None:
     assert wings.USER_WING == "user:default"
 
 
+def test_repo_wing_resolves_worktree_to_main_repo(tmp_path: Path) -> None:
+    """Worktrees use a .git *file* pointing to the main repo — wing must resolve to main."""
+    from code_puppy.plugins.puppy_kennel import wings
+
+    # Set up a fake main repo
+    main_repo = tmp_path / "main-repo"
+    main_git = main_repo / ".git"
+    main_git.mkdir(parents=True)
+    worktrees_dir = main_git / "worktrees" / "feature-branch"
+    worktrees_dir.mkdir(parents=True)
+
+    # Set up a fake worktree with a .git file
+    worktree = tmp_path / "main-repo-feature-branch"
+    worktree.mkdir()
+    git_file = worktree / ".git"
+    git_file.write_text(f"gitdir: {worktrees_dir}\n")
+
+    assert wings.repo_wing(worktree) == f"repo:{main_repo.resolve()}"
+    # Main repo should still resolve to itself
+    assert wings.repo_wing(main_repo) == f"repo:{main_repo.resolve()}"
+
+
+def test_repo_wing_worktree_relative_gitdir(tmp_path: Path) -> None:
+    """Worktree .git files can have relative gitdir paths."""
+    from code_puppy.plugins.puppy_kennel import wings
+
+    main_repo = tmp_path / "repos" / "my-project"
+    main_git = main_repo / ".git"
+    main_git.mkdir(parents=True)
+    worktrees_dir = main_git / "worktrees" / "hotfix"
+    worktrees_dir.mkdir(parents=True)
+
+    worktree = tmp_path / "repos" / "my-project-hotfix"
+    worktree.mkdir(parents=True)
+    git_file = worktree / ".git"
+    # Relative path from worktree to main repo's .git/worktrees/hotfix
+    git_file.write_text("gitdir: ../my-project/.git/worktrees/hotfix\n")
+
+    assert wings.repo_wing(worktree) == f"repo:{main_repo.resolve()}"
+
+
+def test_repo_wing_malformed_git_file_falls_back(tmp_path: Path) -> None:
+    """If .git file is malformed, fall back to worktree dir itself."""
+    from code_puppy.plugins.puppy_kennel import wings
+
+    worktree = tmp_path / "broken-worktree"
+    worktree.mkdir()
+    git_file = worktree / ".git"
+    git_file.write_text("garbage content\n")
+
+    # Should fall back to the directory containing .git
+    assert wings.repo_wing(worktree) == f"repo:{worktree.resolve()}"
+
+
+def test_repo_wing_subdirectory_in_worktree(tmp_path: Path) -> None:
+    """Querying from a subdirectory inside a worktree resolves to main repo."""
+    from code_puppy.plugins.puppy_kennel import wings
+
+    main_repo = tmp_path / "main"
+    main_git = main_repo / ".git"
+    main_git.mkdir(parents=True)
+    worktrees_dir = main_git / "worktrees" / "dev"
+    worktrees_dir.mkdir(parents=True)
+
+    worktree = tmp_path / "main-dev"
+    worktree.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {worktrees_dir}\n")
+    subdir = worktree / "src" / "com" / "deep"
+    subdir.mkdir(parents=True)
+
+    assert wings.repo_wing(subdir) == f"repo:{main_repo.resolve()}"
+
+
+def test_repo_wing_binary_git_file_falls_back(tmp_path: Path) -> None:
+    """A .git file with non-UTF-8 bytes must not crash — falls back gracefully."""
+    from code_puppy.plugins.puppy_kennel import wings
+
+    worktree = tmp_path / "corrupt-worktree"
+    worktree.mkdir()
+    git_file = worktree / ".git"
+    git_file.write_bytes(b"\xff\xfe\x00garbage\x80\x81")
+
+    # Should not raise, falls back to the directory itself
+    assert wings.repo_wing(worktree) == f"repo:{worktree.resolve()}"
+
+
+def test_repo_wing_submodule_stays_siloed(tmp_path: Path) -> None:
+    """Submodules should NOT merge into the superproject's wing."""
+    from code_puppy.plugins.puppy_kennel import wings
+
+    # Set up a fake superproject
+    superproject = tmp_path / "superproject"
+    super_git = superproject / ".git"
+    super_git.mkdir(parents=True)
+    modules_dir = super_git / "modules" / "my-submodule"
+    modules_dir.mkdir(parents=True)
+
+    # Set up a fake submodule with a .git file pointing to modules/
+    submodule = superproject / "vendor" / "my-submodule"
+    submodule.mkdir(parents=True)
+    git_file = submodule / ".git"
+    git_file.write_text(f"gitdir: {modules_dir}\n")
+
+    # Submodule should keep its OWN wing, not merge into superproject
+    result = wings.repo_wing(submodule)
+    # It should resolve to the submodule dir (since .git file resolution
+    # returns None for submodules, it falls back to the candidate dir)
+    assert result == f"repo:{submodule.resolve()}"
+    assert result != f"repo:{superproject.resolve()}"
+
+
 def test_default_recall_scope_combines_three_wings() -> None:
     from code_puppy.plugins.puppy_kennel import wings
 
