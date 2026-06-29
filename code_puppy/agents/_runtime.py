@@ -21,7 +21,7 @@ import signal
 import threading
 import uuid
 from contextlib import AsyncExitStack
-from typing import Any, Callable, List, Optional, Sequence, Type, Union
+from typing import Any, Callable, Iterator, List, Optional, Sequence, Type, Union
 
 import httpcore
 import httpx
@@ -44,6 +44,18 @@ try:  # pragma: no cover - optional dependency
     from openai import APIError as OpenAIAPIError
 except ImportError:
     OpenAIAPIError = None  # type: ignore[assignment]
+
+try:  # pragma: no cover - optional dependency
+    from anthropic import APIConnectionError as AnthropicAPIConnectionError
+    from anthropic import APIStatusError as AnthropicAPIStatusError
+except ImportError:
+    AnthropicAPIConnectionError = None  # type: ignore[assignment]
+    AnthropicAPIStatusError = None  # type: ignore[assignment]
+
+try:  # pragma: no cover - pydantic-ai version dependent
+    from pydantic_ai.exceptions import ModelAPIError
+except ImportError:
+    ModelAPIError = None  # type: ignore[misc,assignment]
 
 # Python 3.11+ builtin; graceful fallback for 3.10
 try:
@@ -103,6 +115,16 @@ _RETRYABLE_SNIPPETS = (
     "server had an error processing your request",
     "retry your request",
     "internal server error",
+    # Gateway / proxy transient shapes (Anthropic edge, envoy upstreams):
+    "upstream_idle_timeout",
+    "upstream_stream_error",
+    "upstream timeout",
+    "upstream connect error",
+    "no data for",
+    "error decoding response body",
+    "api_error",
+    # Generic Anthropic SDK pre-stream wrapper message:
+    "connection error",
 )
 
 # Transient transport failures worth a silent retry rather than a crash.
@@ -133,12 +155,40 @@ def _matches_retryable_snippet(msg: str) -> bool:
     return "stream" in msg and "ended" in msg
 
 
-def should_retry_streaming(exc: Exception) -> bool:
-    """Decide whether ``exc`` is a transient streaming hiccup worth retrying."""
+def _walk_cause_chain(
+    exc: BaseException, max_depth: int = 5
+) -> "Iterator[BaseException]":
+    """Yield ``exc`` and follow its ``__cause__`` / ``__context__`` chain.
+
+    Depth-capped and cycle-safe (tracked by ``id``) so a pathological
+    self-referencing chain can't loop forever. We walk both attributes because
+    Anthropic-SDK / pydantic-ai wrap the real transport error in ``__cause__``
+    (explicit ``raise X from Y``), while some libraries use the implicit
+    ``__context__`` set by ``except: raise``. Cost of a false-positive cause
+    match is at most 3 silent retries; cost of a false-negative is the 60-line
+    REPL traceback this whole helper exists to prevent.
+    """
+    seen: set[int] = set()
+    current: Optional[BaseException] = exc
+    for _ in range(max_depth):
+        if current is None or id(current) in seen:
+            return
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def _is_retryable_one(exc: BaseException) -> bool:
+    """Per-exception predicate: is *this single* exception transient?
+
+    Intentionally does NOT walk the cause chain -- that's :func:`_walk_cause_chain`'s
+    job, kept as a separate concern so each piece stays independently testable.
+    """
     if isinstance(exc, _RETRYABLE_EXCEPTIONS):
         return True
 
     msg = str(exc)
+
     if isinstance(exc, UnexpectedModelBehavior):
         return _matches_retryable_snippet(msg)
 
@@ -156,6 +206,33 @@ def should_retry_streaming(exc: Exception) -> bool:
             if body_type in {"server_error", "internal_server_error", "api_error"}:
                 return _matches_retryable_snippet(body_msg)
 
+    # Anthropic SDK: a bare APIConnectionError is, by definition, transient.
+    if AnthropicAPIConnectionError is not None and isinstance(
+        exc, AnthropicAPIConnectionError
+    ):
+        return True
+
+    # Anthropic SDK: status errors are retryable on 5xx (or unset) OR when the
+    # message/body matches a gateway-transient snippet (e.g. upstream_idle_timeout).
+    if AnthropicAPIStatusError is not None and isinstance(exc, AnthropicAPIStatusError):
+        status_code = getattr(exc, "status_code", None)
+        if status_code is None or (isinstance(status_code, int) and status_code >= 500):
+            return True
+        if _matches_retryable_snippet(msg):
+            return True
+        body = getattr(exc, "body", None)
+        if isinstance(body, dict):
+            err = body.get("error", body)
+            if isinstance(err, dict):
+                if _matches_retryable_snippet(str(err.get("message", ""))):
+                    return True
+                if str(err.get("type", "")).lower() in {
+                    "api_error",
+                    "server_error",
+                    "internal_server_error",
+                }:
+                    return True
+
     # Retry on pydantic-ai ModelHTTPError rate limits (e.g. 429 from providers)
     if ModelHTTPError is not None and isinstance(exc, ModelHTTPError):
         status_code = getattr(exc, "status_code", None)
@@ -167,14 +244,42 @@ def should_retry_streaming(exc: Exception) -> bool:
         if _matches_retryable_snippet(msg):
             return True
 
+    # pydantic-ai wraps Anthropic APIConnectionError as ModelAPIError("Connection error.").
+    # The original is usually in __cause__ (caught by the walker) but match by snippet
+    # too -- belt and braces for cases where the cause chain has been severed.
+    if ModelAPIError is not None and isinstance(exc, ModelAPIError):
+        if _matches_retryable_snippet(msg):
+            return True
+
     return False
+
+
+def should_retry_streaming(exc: Exception) -> bool:
+    """Decide whether ``exc`` (or anything it wraps) is a transient hiccup.
+
+    Walks the ``__cause__`` / ``__context__`` chain so wrapper exception types
+    like :class:`pydantic_ai.exceptions.ModelAPIError` -- which hide the
+    real httpx/anthropic transport error in ``__cause__`` -- still get
+    classified correctly. Returns ``True`` if *any* link in the chain is
+    transient.
+    """
+    return any(_is_retryable_one(e) for e in _walk_cause_chain(exc))
 
 
 def streaming_retry(
     max_attempts: int = 3,
     delays: Sequence[float] = (1, 2, 4),
 ) -> Callable[[Callable[[], Any]], Callable[[], Any]]:
-    """Wrap a no-arg async callable with streaming-retry semantics."""
+    """Wrap a no-arg async callable with streaming-retry semantics.
+
+    Every retry (and the final exhaustion, if it happens) is logged with full
+    detail to the on-disk error log via ``log_error``. Users only see a short
+    UI banner, but SRE / power-users grepping ``~/.code_puppy/logs/errors.log``
+    get the exception type, message, traceback, and which attempt it was. The
+    on-disk log is the only way to measure the upstream-blip rate after the
+    classifier silently absorbs it.
+    """
+    from code_puppy.error_logging import log_error
 
     def decorator(factory: Callable[[], Any]) -> Callable[[], Any]:
         async def runner() -> Any:
@@ -186,15 +291,31 @@ def streaming_retry(
                     if not should_retry_streaming(exc):
                         raise
                     last_exc = exc
+                    log_error(
+                        exc,
+                        context=(
+                            f"streaming_retry: transient exception on attempt "
+                            f"{attempt + 1}/{max_attempts}"
+                        ),
+                    )
                     if attempt < max_attempts - 1:
                         delay = delays[attempt] if attempt < len(delays) else delays[-1]
                         emit_warning(
-                            f"⚡ Streaming interrupted, auto-retrying in {delay}s... "
+                            f"\u26a1 Streaming interrupted, auto-retrying in {delay}s... "
                             f"(attempt {attempt + 1}/{max_attempts})"
                         )
                         await asyncio.sleep(delay)
                     else:
-                        emit_error(f"❌ Streaming failed after {max_attempts} attempts")
+                        log_error(
+                            exc,
+                            context=(
+                                f"streaming_retry: exhausted all {max_attempts} "
+                                "attempts -- giving up and re-raising"
+                            ),
+                        )
+                        emit_error(
+                            f"\u274c Streaming failed after {max_attempts} attempts"
+                        )
             assert last_exc is not None  # loop always sets this before exiting
             raise last_exc
 

@@ -63,10 +63,24 @@ def _render_turn_exception(exc: Exception) -> None:
 
     The transient/not-transient decision reuses the same classifier that drives
     streaming auto-retries, so the two stay in lock-step by construction.
+
+    Either way -- friendly one-liner OR full traceback -- the exception is
+    persisted to ``~/.code_puppy/logs/errors.log`` so SRE / support can still
+    see what actually happened upstream. The friendly UI is for the human,
+    not for the audit trail.
     """
     from code_puppy.agents.base_agent import should_retry_streaming_exception
+    from code_puppy.error_logging import log_error
 
     if should_retry_streaming_exception(exc):
+        log_error(
+            exc,
+            context=(
+                "cli_runner._render_turn_exception: transient model/connection "
+                "error reached the REPL after auto-retry exhaustion (or from a "
+                "non-streaming code path). User saw the friendly one-liner."
+            ),
+        )
         from code_puppy.messaging import emit_error
 
         emit_error(
@@ -77,6 +91,13 @@ def _render_turn_exception(exc: Exception) -> None:
         )
         return
 
+    log_error(
+        exc,
+        context=(
+            "cli_runner._render_turn_exception: non-transient turn exception "
+            "reached the REPL. User saw the full traceback in the console."
+        ),
+    )
     from code_puppy.messaging.queue_console import get_queue_console
 
     get_queue_console().print_exception()

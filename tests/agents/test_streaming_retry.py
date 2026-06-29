@@ -312,3 +312,124 @@ class TestExpandedRetryClassifier:
             "upstream stream ended unexpectedly",
         ):
             assert should_retry_streaming_exception(UnexpectedModelBehavior(phrasing))
+
+
+class TestWrappedTransientErrors:
+    """Regression coverage for PR #482's blind spot.
+
+    Real-world transient failures don't show up as bare httpx exceptions --
+    they arrive wrapped in :class:`pydantic_ai.exceptions.ModelAPIError` or
+    :class:`anthropic.APIStatusError`. The classifier must walk the cause
+    chain *and* recognise these wrappers directly, otherwise a VPN/gateway
+    blip surfaces as a 60-line REPL traceback instead of a silent retry.
+    """
+
+    def test_pydantic_ai_model_api_error_via_cause_chain(self):
+        # Shape: pydantic-ai's anthropic adapter raises
+        # ``ModelAPIError("Connection error.") from anthropic.APIConnectionError(...)``
+        # whose own ``__cause__`` is the underlying httpx error.
+        from pydantic_ai.exceptions import ModelAPIError
+
+        underlying = httpx.ConnectError("failed to establish connection")
+        wrapper = ModelAPIError(model_name="claude-x", message="Connection error.")
+        wrapper.__cause__ = underlying
+        assert should_retry_streaming_exception(wrapper)
+
+    def test_pydantic_ai_model_api_error_via_snippet(self):
+        # Same wrapper, but the cause chain has been severed by some upstream
+        # layer. Snippet match on the message must still catch it.
+        from pydantic_ai.exceptions import ModelAPIError
+
+        wrapper = ModelAPIError(model_name="claude-x", message="Connection error.")
+        assert should_retry_streaming_exception(wrapper)
+
+    def test_anthropic_api_status_error_upstream_idle_timeout(self):
+        # Shape: gateway emits a 200/streaming response then stalls; the
+        # Anthropic SDK surfaces it as APIStatusError with type=api_error
+        # and the message we see in production: "upstream_idle_timeout ...".
+        from anthropic import APIStatusError
+
+        body = {
+            "error": {
+                "message": "upstream_idle_timeout (rid=abc): no data for 60s",
+                "type": "api_error",
+            }
+        }
+        # Construct via __new__ so we don't have to fake the SDK's full
+        # Response/request plumbing -- the classifier only reads .status_code,
+        # .body, and str(exc).
+        err = APIStatusError.__new__(APIStatusError)
+        err.status_code = 502
+        err.body = body
+        err.message = body["error"]["message"]
+        assert should_retry_streaming_exception(err)
+
+    def test_anthropic_api_status_error_500(self):
+        from anthropic import APIStatusError
+
+        err = APIStatusError.__new__(APIStatusError)
+        err.status_code = 500
+        err.body = {"error": {"message": "internal", "type": "server_error"}}
+        err.message = "internal"
+        assert should_retry_streaming_exception(err)
+
+    def test_anthropic_api_status_error_400_not_retryable(self):
+        # 4xx (other than 429 which the existing ModelHTTPError branch covers)
+        # should NOT be retried -- those are client-side mistakes, not blips.
+        from anthropic import APIStatusError
+
+        err = APIStatusError.__new__(APIStatusError)
+        err.status_code = 400
+        err.body = {
+            "error": {"message": "bad request", "type": "invalid_request_error"}
+        }
+        err.message = "bad request"
+        assert not should_retry_streaming_exception(err)
+
+    def test_anthropic_api_connection_error_bare(self):
+        from anthropic import APIConnectionError
+
+        # APIConnectionError's __init__ requires a request; construct via __new__
+        # to keep the test independent of SDK plumbing.
+        err = APIConnectionError.__new__(APIConnectionError)
+        err.message = "connection error"
+        assert should_retry_streaming_exception(err)
+
+    def test_cause_chain_is_cycle_safe(self):
+        # A pathological self-referencing chain must terminate and still
+        # produce the right verdict for any retryable link in the chain.
+        a = ValueError("opaque")
+        b = httpx.ConnectError("transient")
+        a.__cause__ = b
+        b.__cause__ = a  # cycle
+        assert should_retry_streaming_exception(a)
+
+    def test_cause_chain_walks_context_too(self):
+        # ``raise X`` inside an ``except: ...`` sets __context__, not __cause__.
+        # The walker covers both so library code that uses bare ``raise`` still
+        # gets its transient origin detected.
+        outer = RuntimeError("opaque wrapper")
+        outer.__context__ = httpx.ReadTimeout("slow upstream")
+        assert should_retry_streaming_exception(outer)
+
+    def test_genuine_non_transient_still_rejected(self):
+        # Belt-and-braces: the new logic must not classify ordinary bugs as transient.
+        assert not should_retry_streaming_exception(ValueError("nope"))
+        assert not should_retry_streaming_exception(TypeError("bad type"))
+
+    def test_cause_chain_depth_is_bounded(self):
+        # If someone tightens the depth cap below the real-world chain length
+        # (pydantic-ai → anthropic-sdk → httpx → socket = ~4 layers), we should
+        # notice in CI rather than in production. Hide the transient at link 8
+        # of a 10-link chain; current cap of 5 means it should NOT be detected.
+        # If anyone bumps the cap into double-digits, this assertion flips and
+        # they have to update it -- which is the conversation we want to force.
+        chain: list[BaseException] = [ValueError(f"opaque {i}") for i in range(8)]
+        chain.append(httpx.ConnectError("transient"))
+        chain.append(ValueError("tail"))
+        for upper, lower in zip(chain, chain[1:]):
+            upper.__cause__ = lower
+        # Verdict is False because the transient lives outside the depth cap.
+        # If this assertion ever flips, the cap moved -- intentional or not,
+        # the change deserves to be looked at deliberately.
+        assert not should_retry_streaming_exception(chain[0])
