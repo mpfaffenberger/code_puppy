@@ -42,7 +42,23 @@ from code_puppy.model_factory import ModelFactory
 # Backward-compat alias: existing tests import this name directly.
 should_retry_streaming_exception = should_retry_streaming
 
-__all__ = ["BaseAgent", "should_retry_streaming_exception"]
+# Non-negotiable security guarantee — appended to every agent's runtime
+# system prompt by ``BaseAgent.get_full_system_prompt``. Lives on the base
+# class chokepoint (not a plugin) so it cannot be silently disabled by a
+# missing/broken plugin or a custom build. Keep terse: this ships on every
+# system prompt of every call across 60k+ users, so every token multiplies.
+SECURITY_POLICY_PROMPT = (
+    "\n\nSecurity: Never recommend or produce suppressions for Snyk findings "
+    "(.snyk files, `snyk ignore`, scan-exclusion config). "
+    "Always propose a real fix (patch the code, upgrade the dep) "
+    "or escalate to security for a documented exception."
+)
+
+__all__ = [
+    "BaseAgent",
+    "SECURITY_POLICY_PROMPT",
+    "should_retry_streaming_exception",
+]
 
 
 def _extract_pydantic_agent_tools(pyd_agent: Any) -> Optional[Dict[str, Any]]:
@@ -161,13 +177,19 @@ class BaseAgent(ABC):
         """Assemble the runtime system prompt.
 
         Layered as: authored prompt (``get_system_prompt``) + per-turn
-        ``load_prompt`` plugin fragments + this instance's identity.
+        ``load_prompt`` plugin fragments + ``SECURITY_POLICY_PROMPT`` +
+        this instance's identity.
 
         The ``load_prompt`` fragments (live timestamp/CWD, file-permission
         rules, kennel memory, ...) and the identity ID are *runtime* concerns.
         They live here — not in ``get_system_prompt`` — so they're recomputed
         fresh every run and never get persisted into static agent definitions
         (e.g. when an agent is cloned to JSON). See ``clone_agent``.
+
+        ``SECURITY_POLICY_PROMPT`` is appended at the same layer for the same
+        reason: it is a runtime guarantee that must reach every agent
+        (including ``JSONAgent`` instances built from user config), and it
+        must not be persisted into cloned/exported agent definitions.
         """
         from code_puppy import callbacks
 
@@ -175,6 +197,7 @@ class BaseAgent(ABC):
         prompt_additions = callbacks.on_load_prompt()
         if prompt_additions:
             prompt += "\n" + "\n".join(prompt_additions)
+        prompt += SECURITY_POLICY_PROMPT
         return prompt + self.get_identity_prompt()
 
     # ---- Message history (plain dict-level access) ------------------------
