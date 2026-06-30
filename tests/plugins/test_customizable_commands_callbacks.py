@@ -132,6 +132,202 @@ class TestLoadMarkdownCommands:
             assert "test_command" in _custom_commands
             assert "This is the description" in _command_descriptions["test_command"]
 
+    def test_loads_nested_commands_as_namespaced(self):
+        """Subdirectories become slash namespaces: flux/new.md -> 'flux/new'."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cmd_dir = Path(tmpdir)
+            # Top-level command stays un-namespaced
+            (cmd_dir / "top.md").write_text("Top level")
+            # One- and two-level nested commands
+            (cmd_dir / "flux").mkdir()
+            (cmd_dir / "flux" / "new.md").write_text("Scaffold a flux module")
+            (cmd_dir / "flux" / "sub").mkdir()
+            (cmd_dir / "flux" / "sub" / "thing.md").write_text("Deep nested")
+
+            with patch(
+                "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
+                [str(cmd_dir)],
+            ):
+                _load_markdown_commands()
+
+            assert _custom_commands["top"] == "Top level"
+            assert _custom_commands["flux/new"] == "Scaffold a flux module"
+            assert _custom_commands["flux/sub/thing"] == "Deep nested"
+
+    def test_exec_passes_user_args_shell_safely(self):
+        """User-typed args reach the script and shell metachars are quoted."""
+        from unittest.mock import MagicMock, patch as _patch
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cmd_dir = Path(tmpdir)
+            (cmd_dir / "echo.md").write_text(
+                "---\n"
+                "name: echo\n"
+                "description: Echo args\n"
+                "exec: printf '%s\\n'\n"
+                "---\n"
+                "\n"
+                "# Echo\n"
+                "reference body\n"
+            )
+
+            captured_lines = []
+            fake_shell = MagicMock(
+                side_effect=lambda line, stream="stdout": captured_lines.append(line)
+            )
+
+            with _patch(
+                "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
+                [str(cmd_dir)],
+            ):
+                with _patch(
+                    "code_puppy.plugins.customizable_commands.register_callbacks.emit_shell_line",
+                    fake_shell,
+                ):
+                    _load_markdown_commands()
+                    from code_puppy.plugins.customizable_commands.register_callbacks import (
+                        _handle_custom_command,
+                    )
+
+                    # Plain args reach the script as separate words
+                    captured_lines.clear()
+                    assert _handle_custom_command("/echo todo review", "echo") is True
+                    assert "todo" in captured_lines
+                    assert "review" in captured_lines
+
+                    # Shell metacharacters are quoted, not interpreted
+                    captured_lines.clear()
+                    assert _handle_custom_command("/echo ; rm -rf /", "echo") is True
+                    # The ';' becomes a literal arg printed by printf, NOT a
+                    # shell separator that would chain a second command.
+                    assert ";" in captured_lines
+                    # If injection had worked, captured_lines would NOT contain
+                    # the literal '/' (rm would have eaten it). It does, so safe.
+                    assert "/" in captured_lines
+
+    def test_exec_frontmatter_runs_script_and_bypasses_agent(self):
+        """`exec:` frontmatter runs a script via shell and bypasses the AI."""
+        from unittest.mock import MagicMock, patch as _patch
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cmd_dir = Path(tmpdir)
+            (cmd_dir / "status.md").write_text(
+                "---\n"
+                "name: status\n"
+                "description: Show status\n"
+                "exec: echo hello-from-exec\n"
+                "---\n"
+                "\n"
+                "# Status\n"
+                "Reference body the agent would normally receive.\n"
+            )
+
+            captured_lines = []
+            fake_shell = MagicMock(
+                side_effect=lambda line, stream="stdout": captured_lines.append(line)
+            )
+
+            with _patch(
+                "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
+                [str(cmd_dir)],
+            ):
+                with _patch(
+                    "code_puppy.plugins.customizable_commands.register_callbacks.emit_shell_line",
+                    fake_shell,
+                ):
+                    _load_markdown_commands()
+                    from code_puppy.plugins.customizable_commands.register_callbacks import (
+                        _command_exec_directives,
+                        _handle_custom_command,
+                    )
+
+                    # Frontmatter was parsed into the exec cache
+                    assert _command_exec_directives["status"] == "echo hello-from-exec"
+
+                    # Handler runs the script, returns True, and emits its output
+                    result = _handle_custom_command("/status", "status")
+                    assert result is True  # handled; no AI invocation
+                    assert any("hello-from-exec" in line for line in captured_lines)
+
+    def test_normalizes_double_slash_command_prefixes(self):
+        """Wibey //cmd refs become /cmd in the body, but URLs are left alone."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cmd_dir = Path(tmpdir)
+            (cmd_dir / "about.md").write_text(
+                "# //flux/about\n"
+                "\n"
+                "Run `//flux/new` then `//flux/qa`.\n"
+                "Docs: https://wmlink/flux\n"
+                "Not a cmd: // spaced comment\n"
+            )
+
+            with patch(
+                "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
+                [str(cmd_dir)],
+            ):
+                _load_markdown_commands()
+
+            body = _custom_commands["about"]
+            assert "//flux" not in body
+            assert "/flux/new" in body
+            assert "/flux/qa" in body
+            # URL and spaced comment must survive untouched
+            assert "https://wmlink/flux" in body
+            assert "// spaced comment" in body
+
+    def test_frontmatter_description_and_body_stripping(self):
+        """Frontmatter feeds the description and is stripped from the body."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cmd_dir = Path(tmpdir)
+            (cmd_dir / "about.md").write_text(
+                "---\n"
+                "name: about\n"
+                "description: A brief overview of the thing\n"
+                "---\n"
+                "\n"
+                "# About\n"
+                "\n"
+                "Output this exactly.\n"
+            )
+
+            with patch(
+                "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
+                [str(cmd_dir)],
+            ):
+                _load_markdown_commands()
+
+            # Description comes from frontmatter, not the literal "---"
+            assert _command_descriptions["about"] == "A brief overview of the thing"
+            # Body has the frontmatter stripped
+            body = _custom_commands["about"]
+            assert not body.startswith("---")
+            assert body.startswith("# About")
+            assert "Output this exactly." in body
+            assert "name: about" not in body
+
+    def test_skips_underscore_and_dot_namespaces(self):
+        """Files under _docs/, __pycache__/ or .hidden/ are not registered."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cmd_dir = Path(tmpdir)
+            (cmd_dir / "real.md").write_text("Real command")
+            for hidden in ("_docs", "__pycache__", ".git"):
+                (cmd_dir / hidden).mkdir()
+                (cmd_dir / hidden / "nope.md").write_text("should be skipped")
+            # A leaf file starting with _ at top level is still allowed
+            (cmd_dir / "_leaf.md").write_text("Leaf still loads")
+
+            with patch(
+                "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
+                [str(cmd_dir)],
+            ):
+                _load_markdown_commands()
+
+            assert "real" in _custom_commands
+            assert "_leaf" in _custom_commands
+            assert "_docs/nope" not in _custom_commands
+            assert "__pycache__/nope" not in _custom_commands
+            assert ".git/nope" not in _custom_commands
+
     def test_loads_prompt_md_files_from_github_prompts(self):
         """Test loading .prompt.md files from .github/prompts directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -152,7 +348,7 @@ class TestLoadMarkdownCommands:
                     with patch.object(Path, "exists", return_value=True):
                         with patch.object(
                             Path,
-                            "glob",
+                            "rglob",
                             return_value=[test_file],
                         ):
                             _load_markdown_commands()
@@ -340,7 +536,8 @@ class TestCustomHelp:
             test_entry = next((e for e in result if e[0] == "test"), None)
             assert test_entry is not None
             assert len(test_entry) == 2
-            assert "Execute markdown command" in test_entry[1]
+            # Description is shown verbatim (no "Execute markdown command:" prefix)
+            assert test_entry[1] == "Test description here"
 
     def test_reloads_commands_on_each_call(self):
         """Test that _custom_help reloads commands each time."""
@@ -496,14 +693,18 @@ class TestGlobalCommands:
     """Test global commands functionality."""
 
     def test_global_directory_in_command_directories(self):
-        """Test that global directory is included in _COMMAND_DIRECTORIES."""
+        """Global dir is the canonical ~/.code_puppy/commands (via CONFIG_DIR)."""
+        import os
+
+        from code_puppy.config import CONFIG_DIR
         from code_puppy.plugins.customizable_commands.register_callbacks import (
             _COMMAND_DIRECTORIES,
         )
 
-        assert "~/.code-puppy/commands" in _COMMAND_DIRECTORIES
+        expected = os.path.join(CONFIG_DIR, "commands")
+        assert expected in _COMMAND_DIRECTORIES
         # Global should be first (lowest priority, gets overridden by project)
-        assert _COMMAND_DIRECTORIES[0] == "~/.code-puppy/commands"
+        assert _COMMAND_DIRECTORIES[0] == expected
 
     def test_global_commands_work_with_expanduser(self):
         """Test that global path with ~ expands correctly."""
