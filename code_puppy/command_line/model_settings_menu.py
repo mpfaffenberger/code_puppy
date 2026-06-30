@@ -122,6 +122,20 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "type": "boolean",
         "default": False,
     },
+    "thinking_type": {
+        "name": "Thinking Type (GLM)",
+        "description": "GLM deep-thinking mode. 'enabled' (default) = model auto-decides whether to think (forced on for GLM-4.7/4.5V regardless). 'disabled' = direct answers, no thinking.",
+        "type": "choice",
+        "choices": ["enabled", "disabled"],
+        "default": "enabled",
+    },
+    "glm_reasoning_effort": {
+        "name": "Reasoning Effort (GLM-5.2+)",
+        "description": "Chain-of-thought reasoning effort, GLM-5.2+ only. 'max' is default/recommended. none/minimal skip thinking; low/medium are mapped to high server-side; xhigh is mapped to max.",
+        "type": "choice",
+        "choices": ["max", "xhigh", "high", "medium", "low", "minimal", "none"],
+        "default": "max",
+    },
     "thinking_enabled": {
         "name": "Thinking Enabled",
         "description": "Enable thinking mode for Gemini 3 Pro models. When enabled, the model will show its reasoning process.",
