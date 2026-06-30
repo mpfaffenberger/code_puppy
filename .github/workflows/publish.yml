@@ -34,10 +34,28 @@ jobs:
       - name: Setup uv virtual environment
         run: uv venv
 
-      - name: Install dependencies
+      - name: Install lean durable dependencies
         # [durable] extras pulls in dbos, required by integration test
         # tests/integration/test_dbos_enabled.py
         run: uv pip install -e ".[durable]"
+
+      - name: Verify lean install keeps native extras optional
+        run: |
+          uv run python - <<'PY'
+          import importlib.util
+
+          optional_modules = ["PIL", "playwright", "regex", "ripgrep", "tiktoken"]
+          installed = [name for name in optional_modules if importlib.util.find_spec(name)]
+          if installed:
+              raise SystemExit(f"Lean install unexpectedly included optional modules: {installed}")
+          print("Lean install optional-native smoke check passed")
+          PY
+
+      - name: Install CI test extras
+        # The full historical test suite exercises image/search behavior.
+        # macOS CI can use the PyPI ripgrep [search] extra; Android/Termux uses
+        # system rg from `pkg install ripgrep` instead.
+        run: uv pip install -e ".[durable,images,search]"
 
       - name: Install pexpect for integration tests
         run: uv pip install pexpect>=4.9.0
