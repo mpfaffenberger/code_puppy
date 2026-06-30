@@ -26,6 +26,12 @@ def kennel_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Throwaway kennel directory per test, isolated from the user's real one."""
     root = tmp_path / "kennel"
     monkeypatch.setenv("PUPPY_KENNEL_ROOT", str(root))
+    # Force the kennel ON for the duration of the test, independent of the
+    # developer's real puppy.cfg. This env override is also inherited across
+    # the multiprocessing *spawn* boundary, so child workers in
+    # ``test_concurrent_multiprocess_writes_do_not_corrupt`` don't silently
+    # no-op when the dev happens to have ``kennel_enabled = false`` locally.
+    monkeypatch.setenv("PUPPY_KENNEL_ENABLED", "true")
 
     # Every submodule binds paths/flags from ``config`` (and ``state``) AT
     # IMPORT TIME. If the plugin was already imported earlier in the test
@@ -201,6 +207,10 @@ def test_default_recall_scope_combines_three_wings() -> None:
 def _concurrent_worker(worker_id: int, kennel_root: str, n: int = 25) -> int:
     """Run inside a child process — imports must happen here, not at import time."""
     os.environ["PUPPY_KENNEL_ROOT"] = kennel_root
+    # Spawned children re-read the developer's REAL puppy.cfg (config
+    # isolation only patches the parent process), so pin the toggle ON via
+    # the env override or every write silently no-ops.
+    os.environ["PUPPY_KENNEL_ENABLED"] = "true"
     import importlib
 
     from code_puppy.plugins.puppy_kennel import config as kennel_config
