@@ -472,6 +472,9 @@ def filter_latest_claude_models(
         if model_name == "claude-sonnet-4-6":
             family_models.setdefault("sonnet", []).append((model_name, 4, 6, 20250610))
             continue
+        if model_name == "claude-sonnet-5":
+            family_models.setdefault("sonnet", []).append((model_name, 5, 0, 0))
+            continue
         if model_name == "claude-fable-5":
             family_models.setdefault("fable", []).append((model_name, 5, 0, 0))
             continue
@@ -578,6 +581,8 @@ def _build_model_entry(model_name: str, access_token: str, context_length: int) 
         or "4-7-opus" in lower
         or "opus-4-8" in lower
         or "4-8-opus" in lower
+        or "sonnet-5" in lower
+        or "5-sonnet" in lower
         or "fable-5" in lower
     ):
         supported_settings.append("effort")

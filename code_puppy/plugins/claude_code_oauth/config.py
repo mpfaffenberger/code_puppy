@@ -29,6 +29,7 @@ CLAUDE_CODE_OAUTH_CONFIG: Dict[str, Any] = {
         "claude-opus-4-6",
         "claude-opus-4-7",
         "claude-opus-4-8",
+        "claude-sonnet-5",
         "claude-fable-5",
     ],
     "api_key_env_var": "CLAUDE_CODE_ACCESS_TOKEN",

@@ -114,9 +114,9 @@ def supports_adaptive_thinking(
 ) -> bool:
     """Return whether a model should default to adaptive thinking.
 
-    Opus 4-6, Opus 4-7, Opus 4-8, and Sonnet 4-6 models support adaptive
-    thinking. Checks both the alias/key and the real model ID to handle Bedrock-style
-    names like ``us.anthropic.claude-opus-4-7``.
+    Opus 4-6, Opus 4-7, Opus 4-8, Sonnet 4-6, and Sonnet 5 models support
+    adaptive thinking. Checks both the alias/key and the real model ID to handle
+    Bedrock-style names like ``us.anthropic.claude-opus-4-7``.
 
     Args:
         model_name: The model alias/key (e.g. ``"bedrock-opus-4-7"``).
@@ -136,6 +136,8 @@ def supports_adaptive_thinking(
         "4-8-opus",
         "sonnet-4-6",
         "4-6-sonnet",
+        "sonnet-5",
+        "5-sonnet",
         "fable-5",
         "5-fable",
     )
@@ -147,8 +149,9 @@ def get_default_extended_thinking(
 ) -> str:
     """Return the default extended_thinking mode for an Anthropic model.
 
-    Opus 4-6, Opus 4-7, Opus 4-8, Sonnet 4-6, and Fable 5 models default to
-    ``"adaptive"`` thinking; all other Anthropic models default to ``"enabled"``.
+    Opus 4-6, Opus 4-7, Opus 4-8, Sonnet 4-6, Sonnet 5, and Fable 5 models
+    default to ``"adaptive"`` thinking; all other Anthropic models default to
+    ``"enabled"``.
 
     Args:
         model_name: The model alias/key (e.g. ``"bedrock-opus-4-7"``).
@@ -168,7 +171,7 @@ def should_use_anthropic_thinking_summary(
 ) -> bool:
     """Return whether Anthropic adaptive thinking should request summary display.
 
-    Anthropic's newer Opus 4.7+, Opus 4.8, and Fable 5 models require
+    Anthropic's newer Opus 4.7+, Opus 4.8, Sonnet 5, and Fable 5 models require
     ``display: \"summarized\"`` alongside ``thinking={"type": "adaptive"}``.
     """
     _SUMMARY_TAGS = (
@@ -176,6 +179,8 @@ def should_use_anthropic_thinking_summary(
         "4-7-opus",
         "opus-4-8",
         "4-8-opus",
+        "sonnet-5",
+        "5-sonnet",
         "fable-5",
         "5-fable",
     )
