@@ -177,13 +177,34 @@ def make_model_settings(
     if not get_yolo_mode():
         model_settings_dict["parallel_tool_calls"] = False
 
-    # Default to clear_thinking=False for GLM-4.7 and GLM-5 models (preserved thinking)
-    if "glm-4.7" in model_name.lower() or "glm-5" in model_name.lower():
-        clear_thinking = effective_settings.get("clear_thinking", False)
-        model_settings_dict["thinking"] = {
-            "type": "enabled",
-            "clear_thinking": clear_thinking,
+    # GLM-4.5+ models: thinking.type / reasoning_effort are GLM-specific
+    # OpenAI-compatible request fields pydantic-ai doesn't know natively, so
+    # they have to ride along in extra_body to actually reach the API.
+    from code_puppy.model_utils import (
+        supports_glm_reasoning_effort,
+        supports_glm_thinking,
+    )
+
+    if supports_glm_thinking(model_name):
+        glm_extra_body = model_settings_dict.get("extra_body") or {}
+        thinking_type = effective_settings.get("thinking_type", "enabled")
+        glm_extra_body["thinking"] = {
+            "type": thinking_type,
+            "clear_thinking": effective_settings.get("clear_thinking", False),
         }
+        # Only send reasoning_effort when thinking is enabled. When thinking
+        # is disabled, including reasoning_effort can cause some API proxies
+        # (e.g. Lilac) to interpret its mere presence as "enable reasoning",
+        # overriding thinking.type=disabled.
+        if thinking_type != "disabled" and supports_glm_reasoning_effort(model_name):
+            glm_extra_body["reasoning_effort"] = effective_settings.get(
+                "glm_reasoning_effort", "max"
+            )
+        model_settings_dict["extra_body"] = glm_extra_body
+        # These aren't real ModelSettings/OpenAI fields - only extra_body is
+        # read downstream, so strip the raw keys to avoid dict clutter.
+        for key in ("thinking_type", "clear_thinking", "glm_reasoning_effort"):
+            model_settings_dict.pop(key, None)
 
     model_settings: ModelSettings = ModelSettings(**model_settings_dict)
 

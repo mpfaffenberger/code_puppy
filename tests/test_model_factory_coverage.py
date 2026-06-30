@@ -96,6 +96,71 @@ class TestMakeModelSettings:
         # extra_body should NOT be set for codex models
         assert settings.get("extra_body") is None
 
+    def test_make_model_settings_glm_thinking_in_extra_body(self):
+        """GLM-4.5+ models get thinking.type routed through extra_body so it
+        actually reaches the OpenAI-compatible request (not silently dropped).
+        """
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("zai-glm-5.1-api", max_tokens=4096)
+        assert isinstance(settings, dict)
+        assert "thinking" not in settings  # not a raw top-level key
+        assert settings["extra_body"]["thinking"] == {
+            "type": "enabled",
+            "clear_thinking": False,
+        }
+        # GLM-5.1 is below the 5.2 reasoning_effort threshold
+        assert "reasoning_effort" not in settings["extra_body"]
+
+    def test_make_model_settings_glm_5_2_gets_reasoning_effort(self):
+        """GLM-5.2+ models additionally get reasoning_effort in extra_body."""
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("zai-glm-5.2-api", max_tokens=4096)
+        assert settings["extra_body"]["reasoning_effort"] == "max"
+
+    def test_make_model_settings_glm_respects_per_model_overrides(self):
+        """User-configured thinking_type/glm_reasoning_effort flow through.
+
+        When thinking is disabled, reasoning_effort is intentionally omitted
+        to avoid API proxies interpreting its presence as "enable reasoning".
+        """
+        from code_puppy.model_factory import make_model_settings
+
+        # thinking disabled -> reasoning_effort must NOT be sent
+        with patch(
+            "code_puppy.config.get_effective_model_settings",
+            return_value={
+                "thinking_type": "disabled",
+                "glm_reasoning_effort": "none",
+                "clear_thinking": True,
+            },
+        ):
+            settings = make_model_settings("zai-glm-5.2-api", max_tokens=4096)
+
+        assert settings["extra_body"]["thinking"] == {
+            "type": "disabled",
+            "clear_thinking": True,
+        }
+        assert "reasoning_effort" not in settings["extra_body"]
+
+        # thinking enabled -> reasoning_effort IS sent
+        with patch(
+            "code_puppy.config.get_effective_model_settings",
+            return_value={
+                "thinking_type": "enabled",
+                "glm_reasoning_effort": "none",
+                "clear_thinking": True,
+            },
+        ):
+            settings = make_model_settings("zai-glm-5.2-api", max_tokens=4096)
+
+        assert settings["extra_body"]["thinking"] == {
+            "type": "enabled",
+            "clear_thinking": True,
+        }
+        assert settings["extra_body"]["reasoning_effort"] == "none"
+
     def test_make_model_settings_foundry_gpt5_uses_responses_fields(self):
         """Test Azure Foundry GPT-5 gets Responses API reasoning summary fields."""
         from code_puppy.model_factory import make_model_settings
