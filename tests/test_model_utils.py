@@ -19,8 +19,11 @@ from code_puppy.callbacks import (
 from code_puppy.model_utils import (
     PreparedPrompt,
     get_default_extended_thinking,
+    get_glm_version,
     prepare_prompt_for_model,
     should_use_anthropic_thinking_summary,
+    supports_glm_reasoning_effort,
+    supports_glm_thinking,
 )
 from code_puppy.plugins.claude_code_oauth.prompt_handler import (
     CLAUDE_CODE_INSTRUCTIONS,
@@ -331,3 +334,38 @@ class TestShouldUseAnthropicThinkingSummary:
         assert should_use_anthropic_thinking_summary("claude-sonnet-4") is False
         assert should_use_anthropic_thinking_summary("claude-sonnet-4-6") is False
         assert should_use_anthropic_thinking_summary("gpt-5") is False
+
+
+class TestGlmHelpers:
+    """Tests for the GLM/Zhipu version-detection helpers."""
+
+    def test_get_glm_version_extracts_from_messy_aliases(self):
+        assert get_glm_version("zai-glm-5.1-api") == 5.1
+        assert get_glm_version("GLM-4.5-AIR-CODING") == 4.5
+        assert get_glm_version("lilac-zai-org-glm-5.1") == 5.1
+        assert get_glm_version("glm-4.7-chat") == 4.7
+        assert get_glm_version("GLM-5.2-Turbo") == 5.2
+
+    def test_get_glm_version_none_for_non_glm(self):
+        assert get_glm_version("gpt-5") is None
+        assert get_glm_version("claude-opus-4-6") is None
+
+    def test_supports_glm_thinking_from_4_5(self):
+        assert supports_glm_thinking("glm-4.5") is True
+        assert supports_glm_thinking("glm-4.5v") is True
+        assert supports_glm_thinking("glm-4.6") is True
+        assert supports_glm_thinking("glm-4.7") is True
+        assert supports_glm_thinking("zai-glm-5.1-api") is True
+        assert supports_glm_thinking("GLM-5.2-Turbo") is True
+        assert supports_glm_thinking("GLM-5V-Turbo") is True
+
+    def test_supports_glm_thinking_false_below_4_5_and_non_glm(self):
+        assert supports_glm_thinking("glm-4.4") is False
+        assert supports_glm_thinking("gpt-5") is False
+
+    def test_supports_glm_reasoning_effort_5_2_plus_only(self):
+        assert supports_glm_reasoning_effort("glm-5.2") is True
+        assert supports_glm_reasoning_effort("GLM-5.2-Turbo") is True
+        assert supports_glm_reasoning_effort("glm-5.1") is False
+        assert supports_glm_reasoning_effort("glm-4.7") is False
+        assert supports_glm_reasoning_effort("gpt-5") is False

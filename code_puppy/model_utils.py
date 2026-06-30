@@ -10,7 +10,10 @@ Plugins can register:
 - ``get_model_system_prompt``: augment/override the system prompt for a model.
 """
 
+import re
 from dataclasses import dataclass
+
+_GLM_VERSION_RE = re.compile(r"glm-(\d+(?:\.\d+)?)")
 
 
 @dataclass
@@ -188,3 +191,40 @@ def should_use_anthropic_thinking_summary(
     if actual_model_id:
         candidates.append(actual_model_id.lower())
     return any(tag in c for c in candidates for tag in _SUMMARY_TAGS)
+
+
+def get_glm_version(model_name: str) -> float | None:
+    """Extract the numeric GLM/Zhipu version embedded in a model name.
+
+    Model aliases are messy (``zai-glm-5.1-api``, ``GLM-4.5-AIR-CODING``,
+    ``lilac-zai-org-glm-5.1``) so we pattern-match ``glm-<digits>`` wherever
+    it shows up rather than relying on prefix/suffix assumptions.
+
+    Returns:
+        The version as a float (e.g. ``5.1``), or ``None`` if the name
+        doesn't look like a GLM model at all.
+    """
+    match = _GLM_VERSION_RE.search(model_name.lower())
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def supports_glm_thinking(model_name: str) -> bool:
+    """GLM-4.5 and newer expose the ``thinking.type`` deep-thinking toggle.
+
+    Per Zhipu's docs: GLM-5.2/5.1/5/5-Turbo/5V-Turbo/4.6/4.5 auto-decide
+    whether to think, while GLM-4.7 and GLM-4.5V use forced thinking (the
+    setting still round-trips, the server just won't honor "disabled").
+    """
+    version = get_glm_version(model_name)
+    return version is not None and version >= 4.5
+
+
+def supports_glm_reasoning_effort(model_name: str) -> bool:
+    """Only GLM-5.2 and newer support the ``reasoning_effort`` parameter."""
+    version = get_glm_version(model_name)
+    return version is not None and version >= 5.2
