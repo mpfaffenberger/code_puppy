@@ -36,7 +36,14 @@ from code_puppy.messaging.messages import (
 
 @pytest.fixture
 def bus():
-    return MessageBus(maxsize=10)
+    # Session context now lives in a process-global ContextVar (so parallel
+    # sub-agents stay isolated), which means it can leak across tests. Reset
+    # it before and after each test to keep them hermetic.
+    set_session_context(None)
+    try:
+        yield MessageBus(maxsize=10)
+    finally:
+        set_session_context(None)
 
 
 # =========================================================================
@@ -517,6 +524,8 @@ async def test_get_command_async_empty():
 
 def test_global_session_context():
     reset_message_bus()
+    # Context lives in a process-global ContextVar; clear any leak first.
+    set_session_context(None)
     assert get_session_context() is None
     set_session_context("s1")
     assert get_session_context() == "s1"
