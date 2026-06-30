@@ -234,17 +234,20 @@ def unsubscribe(queue: "asyncio.Queue[Dict[str, Any]]") -> None:
     )
 
 
-def get_recent_events() -> List[Dict[str, Any]]:
+def get_recent_events(session_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Get recent events for new subscribers.
 
-    Returns a copy of the most recent events (up to
-    ``frontend_emitter_max_recent_events``).  Useful for letting new
-    WebSocket connections "catch up" on recent activity.
+    Args:
+        session_id: Optional session filter. If provided, only events whose
+            ``event["session_id"] == session_id`` are returned.
 
     Returns:
         A list of recent event dictionaries.
     """
-    return _recent_events.copy()
+    events = _recent_events.copy()
+    if session_id is None:
+        return events
+    return [e for e in events if e.get("session_id") == session_id]
 
 
 def get_subscriber_count() -> int:

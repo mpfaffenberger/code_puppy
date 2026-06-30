@@ -152,8 +152,7 @@ You can toggle DBOS via either of these options:
 
 - CLI config (persists): `/set enable_dbos false` to disable (enabled by default)
 
-
-Config takes precedence if set; otherwise the environment variable is used.
+DBOS durable execution is implemented by the `dbos_durable_exec` plugin and uses its own DBOS system database. It is separate from the Puppy Desk chat history database at `~/.puppy_desk/chat_messages.db`.
 
 ### Configuration
 

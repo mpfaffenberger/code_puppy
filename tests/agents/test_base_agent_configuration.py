@@ -41,3 +41,24 @@ class TestCodePuppyDynamicPrompt:
             "Continue autonomously",
         ]:
             assert expected in prompt, f"Missing prompt section: {expected}"
+
+
+class TestBaseAgentSessionModelCompatibility:
+    @pytest.fixture
+    def agent(self):
+        return CodePuppyAgent()
+
+    def test_session_model_override_roundtrip(self, agent):
+        original = agent.get_model_name()
+        agent.set_session_model("gpt-5.5")
+        assert agent.get_session_model() == "gpt-5.5"
+        assert agent.get_model_name() == "gpt-5.5"
+        agent.reset_session_model()
+        assert agent.get_session_model() is None
+        assert agent.get_model_name() == original
+
+    def test_compacted_hash_compatibility_helpers(self, agent):
+        assert agent.get_compacted_message_hashes() == set()
+        agent.add_compacted_message_hash(123)
+        agent.add_compacted_message_hash(123)
+        assert agent.get_compacted_message_hashes() == {123}

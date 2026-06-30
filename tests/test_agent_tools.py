@@ -374,8 +374,8 @@ class TestSessionSaveLoad:
             with pytest.raises(ValueError, match="must be kebab-case"):
                 _load_session_history("Invalid_Session")
 
-    def test_save_creates_pkl_and_txt_files(self, temp_session_dir, mock_messages):
-        """Test that save creates both .pkl and .txt files."""
+    def test_save_creates_json_and_txt_files(self, temp_session_dir, mock_messages):
+        """Test that save creates both .json and .txt files."""
         session_id = "test-session"
         agent_name = "test-agent"
         initial_prompt = "Test prompt"
@@ -392,9 +392,9 @@ class TestSessionSaveLoad:
             )
 
             # Check that both files exist
-            pkl_file = temp_session_dir / f"{session_id}.pkl"
+            session_file = temp_session_dir / f"{session_id}.json"
             txt_file = temp_session_dir / f"{session_id}.txt"
-            assert pkl_file.exists()
+            assert session_file.exists()
             assert txt_file.exists()
 
     def test_txt_file_contains_readable_metadata(self, temp_session_dir, mock_messages):
@@ -465,18 +465,17 @@ class TestSessionSaveLoad:
             # last_updated should exist
             assert "last_updated" in metadata
 
-    def test_load_handles_corrupted_pickle(self, temp_session_dir):
-        """Test that loading a corrupted pickle file returns empty list."""
+    def test_load_handles_corrupted_session_json(self, temp_session_dir):
+        """Test that loading a corrupted JSON session file returns empty list."""
         session_id = "corrupted-session"
 
         with patch(
             "code_puppy.tools.agent_tools._get_subagent_sessions_dir",
             return_value=temp_session_dir,
         ):
-            # Create a corrupted pickle file
-            pkl_file = temp_session_dir / f"{session_id}.pkl"
-            with open(pkl_file, "wb") as f:
-                f.write(b"This is not a valid pickle file!")
+            # Create a corrupted JSON session file
+            session_file = temp_session_dir / f"{session_id}.json"
+            session_file.write_text("{not valid json", encoding="utf-8")
 
             # Should return empty list instead of crashing
             loaded_messages = _load_session_history(session_id)

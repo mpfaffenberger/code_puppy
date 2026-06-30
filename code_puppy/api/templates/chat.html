@@ -1,0 +1,2439 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🐶 Code Puppy Chat</title>
+    
+    <!-- Inter Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Marked.js for Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <!-- DOMPurify for XSS-safe HTML sanitization -->
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+    
+    <style>
+    /* ═══════════════════════════════════
+       DESIGN-E THEME — Batch 1: base variables & reset
+       ═══════════════════════════════════ */
+    :root {
+      --bg: #18181B;
+      --surface: #222226;
+      --panel: #26262B;
+      --elevated: #303036;
+      --text: #F0F0F5;
+      --text2: #C4B5FD;
+      --muted: #7E7E8F;
+      --accent: #F472B6;
+      --teal: #2DE2E6;
+      --purple: #7C3AED;
+      --green: #34D399;
+      --amber: #FBBF24;
+      --red: #FB7185;
+      --blue: #60A5FA;
+      --border: rgba(255,255,255,.08);
+      --borderS: rgba(255,255,255,.04);
+      --hover: rgba(255,255,255,.055);
+      --code-bg: #111113;
+      --success: #34D399;
+      --danger: #FB7185;
+      --warning: #FBBF24;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      background: var(--bg) !important;
+      color: var(--text) !important;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    /* Thin scrollbars matching design-e */
+    ::-webkit-scrollbar { width: 3px; height: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.13); border-radius: 3px; }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-connected {
+            background-color: #22c55e;
+            box-shadow: 0 0 8px #22c55e;
+        }
+        
+        .status-disconnected {
+            background-color: #ef4444;
+            box-shadow: 0 0 8px #ef4444;
+            animation: none;
+        }
+        
+        .status-thinking {
+            background-color: #f59e0b;
+            box-shadow: 0 0 8px #f59e0b;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .message-metadata {
+            font-size: 0.75rem;
+            opacity: 0.7;
+            margin-top: 0.25rem;
+        }
+        
+        .tool-badge {
+            display: inline-block;
+            padding: 0.125rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            background-color: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+        }
+        
+        /* Markdown styling */
+        .markdown-content {
+            line-height: 1.6;
+        }
+        
+        .markdown-content pre {
+            background-color: #1e1e1e;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+        }
+        
+        .markdown-content code {
+            background-color: #1e1e1e;
+            padding: 0.125rem 0.25rem;
+            border-radius: 0.25rem;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .markdown-content pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        .markdown-content h1, .markdown-content h2, .markdown-content h3 {
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        
+        .markdown-content ul, .markdown-content ol {
+            margin-left: 1.5rem;
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .markdown-content a {
+            color: #60a5fa;
+            text-decoration: underline;
+        }
+
+        /* Error blocks: wrap long unbroken text (URLs/JSON) */
+        .message-error {
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            white-space: normal;
+        }
+
+        .message-error pre {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+    /* ═══════════════════════════════════
+       DESIGN-E THEME — Batch 2: Header
+       ═══════════════════════════════════ */
+
+    /* ── header shell ── */
+    header#chat-hdr {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      padding: 0;
+    }
+
+    /* ── Row 1 ── */
+    .hdr-r1 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 14px;
+      min-height: 40px;
+    }
+    .hdr-logo { font-size: 17px; flex-shrink: 0; }
+    .hdr-title {
+      font-size: 13px;
+      font-weight: 620;
+      color: #F7F8FF;
+      flex: 1;
+      letter-spacing: .1px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    /* session sub-text shown via JS in same element */
+    #session-info {
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--text2);
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── compact selectors ── */
+    .hdr-sel-wrap {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+    .hdr-sel-lbl {
+      font-size: 9px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .hdr-sel {
+      background: var(--elevated);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 500;
+      padding: 3px 6px;
+      cursor: pointer;
+      outline: none;
+      font-family: inherit;
+      max-width: 150px;
+      transition: border-color .12s;
+    }
+    .hdr-sel:focus { border-color: rgba(124,58,237,.5); }
+    .hdr-sel--agent { color: var(--text2); }
+    .hdr-sel--model { color: var(--green); }
+
+    /* ── status dot + text ── */
+    .hdr-status {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    /* override status-indicator sizes from Batch 1 */
+    .status-indicator { width: 7px !important; height: 7px !important; border-radius: 50%; }
+    .status-connected    { background: var(--green)  !important; box-shadow: 0 0 5px var(--green); }
+    .status-disconnected { background: var(--red)    !important; box-shadow: 0 0 5px var(--red);   animation: none !important; }
+    .status-thinking     { background: var(--amber)  !important; box-shadow: 0 0 5px var(--amber); }
+
+    /* ── header action buttons ── */
+    .hdr-btn {
+      padding: 3px 9px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.04);
+      color: var(--muted);
+      font-size: 11px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      transition: background .12s, color .12s;
+      font-family: inherit;
+      flex-shrink: 0;
+    }
+    .hdr-btn:hover { background: var(--hover); color: var(--text); }
+
+    /* ── context bar (row 2) ── */
+    .ctx-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 14px 7px;
+      flex-wrap: nowrap;
+      overflow: hidden;
+    }
+
+    /* ── cwd pill ── */
+    .cc-cwd {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 9px 2px 7px;
+      border-radius: 5px;
+      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.05);
+      color: #D7DBEA;
+      font-family: ui-monospace, 'SF Mono', monospace;
+      font-size: 10.5px;
+      cursor: pointer;
+      transition: background .12s, border-color .12s;
+      max-width: 420px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      flex-shrink: 0;
+    }
+    .cc-cwd:hover    { background: rgba(255,255,255,.08); border-color: rgba(124,58,237,.4); }
+    .cc-cwd.not-set  { color: var(--amber); border-color: rgba(251,191,36,.25); background: rgba(251,191,36,.06); }
+    .cc-cwd.has-error{ color: var(--red);   border-color: rgba(251,113,133,.3);  background: rgba(251,113,133,.06); }
+    .cwd-pill-icon   { font-size: 11px; opacity: .7; flex-shrink: 0; }
+    .cwd-pill-text   { overflow: hidden; text-overflow: ellipsis; }
+
+    /* ── inline edit row ── */
+    .cwd-edit-row {
+      display: none;
+      align-items: center;
+      gap: 5px;
+      flex: 1;
+      min-width: 0;
+      animation: slideIn .12s ease;
+    }
+    @keyframes slideIn { from { opacity:0; transform: translateX(-4px); } to { opacity:1; transform: none; } }
+    .cwd-edit-row.visible { display: flex; }
+
+    .cwd-pick-btn {
+      width: 26px; height: 26px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.05);
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .12s;
+      padding: 0;
+    }
+    .cwd-pick-btn:hover { background: rgba(124,58,237,.18); border-color: rgba(124,58,237,.4); }
+
+    .cwd-input {
+      flex: 1;
+      min-width: 0;
+      background: var(--elevated);
+      border: 1px solid rgba(124,58,237,.4);
+      border-radius: 6px;
+      padding: 4px 9px;
+      color: var(--text);
+      font-size: 11px;
+      font-family: ui-monospace, 'SF Mono', monospace;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .cwd-input:focus { border-color: rgba(124,58,237,.75); }
+
+    .cwd-set-btn {
+      padding: 4px 11px;
+      border-radius: 6px;
+      border: none;
+      background: var(--purple);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      flex-shrink: 0;
+      transition: background .12s;
+    }
+    .cwd-set-btn:hover { background: #6D28D9; }
+
+    .cwd-cancel-btn {
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+      cursor: pointer;
+      font-family: inherit;
+      flex-shrink: 0;
+      transition: background .12s, color .12s;
+    }
+    .cwd-cancel-btn:hover { background: var(--hover); color: var(--text); }
+
+
+    /* ═══════════════════════════════════
+       DESIGN-E THEME — Batch 3: Message bubbles + avatars
+       ═══════════════════════════════════ */
+
+    /* messages scroll container */
+    #messages-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 22px 120px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* ── message row ── */
+    .msg { display: flex; gap: 9px; align-items: flex-start; }
+    .msg.u { flex-direction: row-reverse; }
+
+    /* ── avatar ── */
+    .mav {
+      width: 26px; height: 26px;
+      border-radius: 7px;
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 700; letter-spacing: -.5px;
+    }
+    .msg.a .mav { background: linear-gradient(135deg,#7C3AED,#2DE2E6); color:#fff; }
+    .msg.u .mav { background: var(--elevated); color: var(--muted); }
+
+    /* ── body ── */
+    .mbody {
+      display: flex; flex-direction: column; gap: 4px;
+      max-width: 78%; min-width: 0;
+    }
+    .msg.u .mbody { align-items: flex-end; }
+    .msg.a .mbody { min-width: min(480px, 60vw); }
+
+    /* ── bubble ── */
+    .bubble {
+      padding: 9px 13px;
+      border-radius: 11px;
+      font-size: 12.5px;
+      line-height: 1.65;
+      word-break: break-word;
+    }
+    .msg.a .bubble {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 3px 11px 11px 11px;
+    }
+    .msg.u .bubble {
+      background: rgba(124,58,237,.18);
+      border: 1px solid rgba(124,58,237,.25);
+      border-radius: 11px 3px 11px 11px;
+      color: #EFE9FF;
+    }
+
+    /* ── timestamp ── */
+    .mtime { font-size: 10px; color: var(--muted); padding: 0 2px; }
+    .msg.u .mtime { text-align: right; }
+
+    /* ── markdown inside bubble ── */
+    .bubble.markdown-content { line-height: 1.65; }
+    .bubble.markdown-content pre {
+      background: var(--code-bg);
+      padding: .75rem 1rem;
+      border-radius: 7px;
+      overflow-x: auto;
+      margin: .5rem 0;
+      font-size: 11.5px;
+    }
+    .bubble.markdown-content code {
+      background: var(--code-bg);
+      padding: .1em .3em;
+      border-radius: 4px;
+      font-size: 11.5px;
+      font-family: ui-monospace,'SF Mono',monospace;
+    }
+    .bubble.markdown-content pre code { background: none; padding: 0; }
+    .bubble.markdown-content h1,.bubble.markdown-content h2,.bubble.markdown-content h3 {
+      margin: .75rem 0 .35rem; font-weight: 600;
+    }
+    .bubble.markdown-content ul,.bubble.markdown-content ol {
+      margin: .4rem 0 .4rem 1.4rem;
+    }
+    .bubble.markdown-content a { color: var(--blue); text-decoration: underline; }
+    .bubble.markdown-content p { margin: .25rem 0; }
+    .bubble.markdown-content img,
+    .bubble.markdown-content svg,
+    .bubble.markdown-content canvas,
+    .bubble.markdown-content video,
+    .bubble.markdown-content iframe {
+      display: block;
+      max-width: 100%;
+      max-height: 380px;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      border-radius: 7px;
+      margin: .45rem 0;
+      background: rgba(255,255,255,.03);
+    }
+    .bubble.markdown-content table {
+      display: block;
+      max-width: 100%;
+      overflow: auto;
+      border-collapse: collapse;
+    }
+
+    /* ── system / info pills ── */
+    .sys-msg {
+      align-self: center;
+      padding: 3px 12px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      color: var(--muted);
+      background: rgba(255,255,255,.035);
+      border: 1px solid var(--borderS);
+      text-align: center;
+      max-width: 80%;
+    }
+    .sys-msg.err {
+      color: var(--red);
+      background: rgba(251,113,133,.08);
+      border-color: rgba(251,113,133,.25);
+    }
+
+    /* ── error card ── */
+    .err-card {
+      margin-left: 35px;
+      border-radius: 8px;
+      border: 1px solid rgba(251,113,133,.35);
+      background: rgba(251,113,133,.07);
+      padding: 10px 12px;
+      font-size: 11.5px;
+      display: flex; gap: 10px; align-items: flex-start;
+    }
+    .err-card-body { flex: 1; min-width: 0; }
+    .err-card-title { font-weight: 600; color: var(--red); margin-bottom: 3px; }
+    .err-card-text  { color: var(--text); opacity: .85; overflow-wrap: anywhere; }
+    .err-card-hint  { margin-top: 5px; font-size: 10.5px; color: var(--amber); }
+    .err-card-copy  {
+      flex-shrink: 0;
+      padding: 2px 8px; border-radius: 5px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.04);
+      color: var(--muted); font-size: 10px; cursor: pointer;
+      font-family: inherit; transition: background .12s, color .12s;
+    }
+    .err-card-copy:hover { background: var(--hover); color: var(--text); }
+
+    /* ── visible tool components (wireframe-style) ── */
+    .tc-inline {
+      margin: 2px 0 2px 35px;
+      width: calc(100% - 35px);
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,.09);
+      border-left: 3px solid var(--muted);
+      background: rgba(255,255,255,.025);
+      transition: background .13s, border-color .13s;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.02);
+    }
+    .tc-inline:hover { background: rgba(255,255,255,.045); border-color: rgba(255,255,255,.14); }
+    .tc-inline.t-call {
+      border-left-color: var(--blue);
+      max-width: 75vw;
+    }
+    .tc-inline.t-result { border-left-color: var(--green); }
+    .tc-inline.t-error  { border-left-color: var(--red); }
+    .tc-inline-hdr {
+      min-height: 30px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 10px; cursor: pointer; user-select: none;
+      background: rgba(255,255,255,.018);
+    }
+    .tc-inline-arr { font-size: 9px; color: var(--muted); transition: transform .14s; }
+    .tc-inline-arr.open { transform: rotate(90deg); }
+    .tc-inline-icon {
+      width: 18px; height: 18px; border-radius: 5px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 700; flex-shrink: 0;
+      background: rgba(255,255,255,.06); color: var(--muted);
+    }
+    .t-call .tc-inline-icon   { color: var(--blue);  background: rgba(96,165,250,.12); }
+    .t-result .tc-inline-icon { color: var(--green); background: rgba(52,211,153,.12); }
+    .t-error .tc-inline-icon  { color: var(--red);   background: rgba(251,113,133,.12); }
+    .tc-inline-name { font-size: 11.5px; font-weight: 650; color: var(--text); opacity: .92; }
+    .tc-inline-kind { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    .tc-inline-preview {
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--muted); font-size: 10.5px; margin-left: 2px; flex: 1;
+      font-family: ui-monospace,'SF Mono',monospace;
+    }
+    .tc-inline-meta { font-size: 9.5px; color: var(--muted); margin-left: auto; font-family: ui-monospace,'SF Mono',monospace; flex-shrink: 0; }
+    .tc-inline-body {
+      display: block;
+      border-top: 1px solid var(--borderS);
+      background: rgba(0,0,0,.16);
+      max-height: min(46vh, 420px);
+      overflow: auto;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+    }
+    .tc-inline-body.collapsed { display: none; }
+    .tc-inline-pre {
+      font-family: ui-monospace,'SF Mono',monospace;
+      font-size: 10.5px;
+      color: var(--text);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      min-width: 100%;
+      max-width: 100%;
+      opacity: .86;
+      background: rgba(10,10,12,.65);
+      padding: 9px 11px;
+      margin: 0;
+    }
+    .tc-inline-body img,
+    .tc-inline-body svg,
+    .tc-inline-body canvas,
+    .tc-inline-body video,
+    .tc-inline-body iframe {
+      display: block;
+      max-width: 100%;
+      max-height: 400px;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      border-radius: 6px;
+      background: rgba(255,255,255,.03);
+    }
+    .tc-inline-body table {
+      display: block;
+      max-width: 100%;
+      overflow: auto;
+      border-collapse: collapse;
+    }
+    .tc-inline-empty {
+      padding: 8px 11px;
+      color: var(--muted);
+      font-size: 10.5px;
+      font-family: ui-monospace,'SF Mono',monospace;
+    }
+
+    /* ── agent-invoked pill ── */
+    .agent-invoked {
+      margin-left: 35px;
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 3px 11px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      color: var(--text2);
+      background: rgba(124,58,237,.1);
+      border: 1px solid rgba(124,58,237,.22);
+      max-width: 90%;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    /* ── permission request card (wireframe-style) ── */
+    .permission-message { width: 100%; }
+    .perm-card {
+      margin: 2px 0 8px 35px;
+      width: calc(100% - 35px);
+      border-radius: 8px;
+      border: 1px solid rgba(251,191,36,.28);
+      background: rgba(251,191,36,.075);
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
+    }
+    .perm-card-hdr {
+      padding: 8px 11px;
+      border-bottom: 1px solid rgba(251,191,36,.16);
+      font-size: 11px; font-weight: 700; color: var(--amber);
+    }
+    .perm-card-body { padding: 10px 11px; display: flex; flex-direction: column; gap: 8px; }
+    .perm-card-desc { font-size: 11.5px; color: var(--text); opacity: .9; }
+    .perm-card-cmd {
+      font-family: ui-monospace,'SF Mono',monospace;
+      background: rgba(10,10,12,.75);
+      border: 1px solid rgba(255,255,255,.07);
+      border-radius: 5px;
+      padding: 8px 10px;
+      font-size: 11.5px;
+      color: var(--success);
+      overflow-wrap: anywhere;
+    }
+    .perm-card-cwd { font-size: 10px; color: var(--muted); margin-top: -2px; font-family: ui-monospace,'SF Mono',monospace; }
+    .perm-card-actions { display: flex; gap: 8px; }
+    .perm-card-btn {
+      padding: 5px 14px; border-radius: 6px; border: 1px solid;
+      font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit;
+      transition: background .12s, transform .08s;
+    }
+    .perm-card-btn:active { transform: translateY(1px); }
+    .perm-btn-ok {
+      background: rgba(52,211,153,.14); color: var(--success);
+      border-color: rgba(52,211,153,.35);
+    }
+    .perm-btn-ok:hover { background: rgba(52,211,153,.24); }
+    .perm-btn-no {
+      background: rgba(251,113,133,.14); color: var(--red);
+      border-color: rgba(251,113,133,.3);
+    }
+    .perm-btn-no:hover { background: rgba(251,113,133,.24); }
+    .perm-card-timeout { font-size: 10px; color: var(--muted); }
+    .perm-decision {
+      font-size: 11px; font-weight: 800;
+      padding: 7px 10px; border-radius: 5px;
+      font-family: ui-monospace,'SF Mono',monospace;
+    }
+    .perm-decision.ok { color: var(--success); background: rgba(52,211,153,.14); }
+    .perm-decision.no { color: var(--red);     background: rgba(251,113,133,.14); }
+
+    /* ── user interaction request card ── */
+    .interaction-message { width: 100%; }
+    .interaction-card {
+      margin: 2px 0 8px 35px;
+      width: calc(100% - 35px);
+      border-radius: 8px;
+      border: 1px solid rgba(124,58,237,.28);
+      background: rgba(124,58,237,.075);
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
+    }
+    .interaction-card-hdr {
+      padding: 8px 11px;
+      border-bottom: 1px solid rgba(124,58,237,.16);
+      font-size: 11px; font-weight: 700; color: var(--purple2);
+    }
+    .interaction-card-body { padding: 10px 11px; display: flex; flex-direction: column; gap: 9px; }
+    .interaction-prompt { font-size: 11.5px; color: var(--text); opacity: .94; }
+    .interaction-input {
+      width: 100%;
+      min-height: 34px;
+      border-radius: 7px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(10,10,12,.55);
+      color: var(--text);
+      padding: 7px 9px;
+      outline: none;
+      font: inherit;
+      font-size: 12px;
+    }
+    .interaction-input:focus { border-color: rgba(124,58,237,.45); box-shadow: 0 0 0 2px rgba(124,58,237,.10); }
+    .interaction-options { display: flex; flex-wrap: wrap; gap: 7px; }
+    .interaction-option {
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.045);
+      color: var(--text2);
+      cursor: pointer;
+      font-size: 11px;
+      font-family: inherit;
+      transition: border-color .12s, background .12s, transform .08s;
+    }
+    .interaction-option:hover,
+    .interaction-option.selected { border-color: rgba(124,58,237,.45); background: rgba(124,58,237,.16); color: var(--text); }
+    .interaction-actions { display: flex; gap: 8px; align-items: center; }
+    .interaction-btn {
+      padding: 5px 14px; border-radius: 6px; border: 1px solid rgba(124,58,237,.35);
+      font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit;
+      color: #fff; background: var(--purple);
+    }
+    .interaction-btn.secondary { color: var(--muted); background: rgba(255,255,255,.045); border-color: rgba(255,255,255,.10); }
+    .interaction-decision {
+      font-size: 11px; font-weight: 800; color: var(--success);
+      padding: 7px 10px; border-radius: 5px; background: rgba(52,211,153,.14);
+      font-family: ui-monospace,'SF Mono',monospace;
+    }
+
+    /* ── ask_user_question / userinput tool card ── */
+    .auq-card {
+      margin: 4px 0 10px 35px;
+      width: min(1040px, calc(100% - 35px));
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,.09);
+      border-left: 5px solid var(--purple2);
+      background: linear-gradient(180deg, rgba(31,31,36,.96), rgba(28,28,32,.96));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.03), 0 14px 36px rgba(0,0,0,.28);
+      padding: 18px 20px 16px;
+      color: var(--text);
+    }
+    .auq-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+    .auq-title { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 18px; font-weight: 800; color: var(--text); letter-spacing: .01em; }
+    .auq-icon { color: var(--muted); font-size: 13px; }
+    .auq-count { color: var(--text2); font-family: ui-monospace,'SF Mono',monospace; font-size: 16px; font-weight: 800; white-space: nowrap; }
+    .auq-status { display: inline-flex; align-items: center; gap: 9px; color: var(--text2); font-family: ui-monospace,'SF Mono',monospace; font-size: 14px; font-weight: 800; white-space: nowrap; }
+    .auq-dot { width: 11px; height: 11px; border-radius: 999px; background: var(--cyan); box-shadow: 0 0 0 3px rgba(34,211,238,.10); }
+    .auq-progress { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; margin-bottom: 16px; }
+    .auq-progress-seg { height: 8px; border-radius: 999px; background: rgba(255,255,255,.14); overflow: hidden; }
+    .auq-progress-seg.active, .auq-progress-seg.done { background: linear-gradient(90deg, var(--purple2), var(--purple)); }
+    .auq-question-panel { border: 1px solid rgba(255,255,255,.07); border-radius: 10px; background: rgba(255,255,255,.025); padding: 14px 16px; margin-bottom: 16px; }
+    .auq-question-kicker { display: inline-flex; margin-bottom: 7px; color: var(--purple2); font-family: ui-monospace,'SF Mono',monospace; font-size: 11px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
+    .auq-question-title { font-size: 16px; line-height: 1.35; font-weight: 800; color: var(--text); margin-bottom: 12px; }
+    .auq-option-list { display: flex; flex-direction: column; gap: 8px; }
+    .auq-option { display: grid; grid-template-columns: 24px 1fr; gap: 9px; align-items: start; width: 100%; border: 0; background: transparent; color: inherit; padding: 0; text-align: left; font: inherit; cursor: pointer; }
+    .auq-option:focus-visible { outline: 2px solid rgba(167,139,250,.65); outline-offset: 3px; border-radius: 6px; }
+    .auq-control { width: 19px; height: 19px; margin-top: 1px; border-radius: 999px; border: 2px solid rgba(255,255,255,.78); background: rgba(255,255,255,.92); box-shadow: inset 0 0 0 3px rgba(31,31,36,.92); }
+    .auq-option.multi .auq-control { border-radius: 6px; }
+    .auq-option.selected .auq-control { border-color: var(--purple2); background: var(--purple2); box-shadow: inset 0 0 0 4px rgba(31,31,36,.92); }
+    .auq-option-label { color: var(--text); font-size: 15px; font-weight: 700; line-height: 1.25; }
+    .auq-option-desc { color: var(--muted); font-size: 12.5px; line-height: 1.35; margin-top: 2px; }
+    .auq-custom { margin-top: 12px; padding-left: 56px; }
+    .auq-input { width: 100%; min-height: 40px; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); background: rgba(55,55,64,.70); color: var(--text); padding: 9px 12px; font: inherit; font-size: 14px; outline: none; }
+    .auq-input::placeholder { color: rgba(214,214,222,.46); }
+    .auq-input:focus { border-color: rgba(167,139,250,.58); box-shadow: 0 0 0 2px rgba(124,58,237,.12); }
+    .auq-footer { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; }
+    .auq-left, .auq-right { display: flex; align-items: center; gap: 10px; }
+    .auq-right { justify-content: flex-end; }
+    .auq-mid { color: var(--muted); font-weight: 800; font-size: 13px; }
+    .auq-btn { border: 0; border-radius: 10px; padding: 9px 16px; background: rgba(255,255,255,.08); color: var(--text); font: inherit; font-weight: 800; cursor: pointer; transition: transform .08s, opacity .12s, background .12s; }
+    .auq-btn:hover:not(:disabled) { background: rgba(255,255,255,.12); }
+    .auq-btn:active:not(:disabled) { transform: translateY(1px); }
+    .auq-btn:disabled { opacity: .42; cursor: not-allowed; }
+    .auq-submit { background: linear-gradient(135deg, var(--purple2), var(--purple)); color: #fff; }
+    .auq-submit:hover:not(:disabled) { background: linear-gradient(135deg, #9F7AEA, #7C3AED); }
+    .auq-pending { grid-column: 1 / -1; justify-self: start; margin-top: 6px; color: #FBBF24; border: 1px solid rgba(251,191,36,.38); background: rgba(251,191,36,.08); border-radius: 999px; padding: 5px 13px; font-weight: 800; font-size: 12px; }
+    .auq-summary { grid-column: 1 / -1; margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: rgba(52,211,153,.10); color: var(--success); font-family: ui-monospace,'SF Mono',monospace; font-size: 12px; white-space: pre-wrap; }
+    @media (max-width: 720px) {
+      .auq-card { margin-left: 0; width: 100%; padding: 14px; }
+      .auq-head { align-items: flex-start; flex-direction: column; }
+      .auq-footer { grid-template-columns: 1fr; }
+      .auq-mid, .auq-right { justify-content: flex-start; }
+      .auq-custom { padding-left: 0; }
+    }
+
+    /* ═══════════════════════════════════
+       DESIGN-E THEME — Batch 4: Floating input pill
+       ═══════════════════════════════════ */
+    .chat-footer {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 48px);
+      max-width: 740px;
+      background: var(--surface);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 14px;
+      padding: 9px 12px 8px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.45), 0 2px 8px rgba(0,0,0,.3);
+      backdrop-filter: blur(12px);
+      z-index: 10;
+    }
+
+    .chat-form-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    #message-input.chat-input {
+      flex: 1;
+      min-width: 0;
+      height: 40px;
+      background: var(--elevated);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 8px 12px;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.5;
+      outline: none;
+      font-family: inherit;
+      transition: border-color .13s, background .13s, box-shadow .13s;
+    }
+
+    #message-input.chat-input:focus {
+      border-color: rgba(124,58,237,.45);
+      background: rgba(48,48,54,.92);
+      box-shadow: 0 0 0 2px rgba(124,58,237,.10);
+    }
+
+    #message-input.chat-input::placeholder { color: var(--muted); }
+
+    #send-button.chat-send {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: none;
+      background: var(--purple);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      padding: 0;
+      transition: background .13s, transform .08s, opacity .13s;
+    }
+
+    #send-button.chat-send:hover { background: #6D28D9; }
+    #send-button.chat-send:active { transform: translateY(1px); }
+    #send-button.chat-send:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+    .typing-indicator {
+      min-height: 14px;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 10.5px;
+      line-height: 1.2;
+    }
+
+    @media (max-width: 640px) {
+      .chat-footer {
+        width: calc(100% - 24px);
+        bottom: 10px;
+        padding: 8px 9px 7px;
+      }
+      #send-button.chat-send { width: 34px; height: 34px; }
+    }
+
+
+    </style>
+</head>
+<body class="h-full bg-gray-900 text-white overflow-hidden">
+    <div class="h-full flex flex-col">
+        <!-- Header — Design-E Batch 2 -->
+        <header id="chat-hdr">
+
+          <!-- ── Row 1: logo · session info · selectors · status · controls ── -->
+          <div class="hdr-r1">
+            <span class="hdr-logo"></span>
+
+            <!-- Session title / info (reuses existing id) -->
+            <span id="session-info" class="hdr-title">Connecting…</span>
+
+            <!-- Agent selector -->
+            <div class="hdr-sel-wrap">
+              <span class="hdr-sel-lbl">Agent</span>
+              <select id="agent-selector" class="hdr-sel hdr-sel--agent" aria-label="Select agent">
+                <option value="">Loading…</option>
+              </select>
+            </div>
+
+            <!-- Model selector -->
+            <div class="hdr-sel-wrap">
+              <span class="hdr-sel-lbl">Model</span>
+              <select id="model-selector" class="hdr-sel hdr-sel--model" aria-label="Select model">
+                <option value="">Loading…</option>
+              </select>
+            </div>
+
+            <!-- Connection status -->
+            <div class="hdr-status">
+              <div id="status-indicator" class="status-indicator status-disconnected"></div>
+              <span id="status-text">Disconnected</span>
+            </div>
+
+            <!-- Controls -->
+            <button id="btn-clear" class="hdr-btn">Clear</button>
+            <a href="/" class="hdr-btn">Home</a>
+          </div>
+
+          <!-- ── Row 2: context bar — cwd pill + inline path editor ── -->
+          <div class="ctx-bar">
+
+            <!-- CWD pill — click to open inline editor -->
+            <div class="cc-cwd not-set" id="cwd-pill"
+                 onclick="openCwdEdit()"
+                 title="Click to change working directory">
+              <span class="cwd-pill-icon"></span>
+              <span class="cwd-pill-text" id="current-working-dir">Not set</span>
+            </div>
+
+            <!-- Inline editor (hidden until pill clicked) -->
+            <div class="cwd-edit-row" id="cwd-edit-row">
+
+              <!-- Native folder picker button -->
+              <button class="cwd-pick-btn" id="btn-pick-dir"
+                      onclick="triggerNativePicker()"
+                      title="Browse for folder (native picker)"></button>
+
+              <!-- Path text input (reuses existing id so backend JS still works) -->
+              <input type="text" id="working-dir-input"
+                     class="cwd-input"
+                     placeholder="/path/to/your/project"
+                     autocomplete="off" autocorrect="off" spellcheck="false">
+
+              <!-- Set / Cancel -->
+              <button class="cwd-set-btn" id="btn-set-dir">Set</button>
+              <button class="cwd-cancel-btn" onclick="closeCwdEdit()">Cancel</button>
+            </div>
+
+            <!-- Hidden fallback for browsers without showDirectoryPicker -->
+            <input type="file" id="dir-picker-fallback" webkitdirectory
+                   style="display:none" onchange="onFallbackDirPick(this)">
+          </div>
+
+        </header>
+        
+        <!-- Messages Container -->
+        <main id="messages-container">
+            <!-- Messages will be dynamically inserted here -->
+        </main>
+        
+        <!-- Input Area — Design-E Batch 4 -->
+        <footer class="chat-footer">
+            <form id="message-form" class="chat-form-row">
+                <input
+                    type="text"
+                    id="message-input"
+                    placeholder="Message Code Puppy..."
+                    class="chat-input"
+                    autocomplete="off"
+                />
+                <button
+                    type="submit"
+                    id="send-button"
+                    class="chat-send"
+                    title="Send message"
+                    aria-label="Send message">
+                    ↑
+                </button>
+            </form>
+            <div class="typing-indicator" id="typing-indicator"></div>
+        </footer>
+    </div>
+    
+    <script>
+        // Configuration
+        const CONFIG = {
+            wsUrl: `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/chat`,
+            sessionId: new URLSearchParams(window.location.search).get('session') || null
+        };
+        
+        // State
+        let socket = null;
+        let currentMessageElement = null;
+        let currentMessageId = null;
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT_ATTEMPTS = 5;
+        
+        // DOM Elements
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusText = document.getElementById('status-text');
+        const sessionInfo = document.getElementById('session-info');
+        const agentSelector = document.getElementById('agent-selector');
+        const modelSelector = document.getElementById('model-selector');
+        const messagesContainer = document.getElementById('messages-container');
+        const messageForm = document.getElementById('message-form');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const btnClear = document.getElementById('btn-clear');
+        const typingIndicator = document.getElementById('typing-indicator');
+        const workingDirInput = document.getElementById('working-dir-input');
+        const btnSetDir = document.getElementById('btn-set-dir');
+        const currentWorkingDirEl = document.getElementById('current-working-dir');
+        const sessionState = {
+            sessionId: CONFIG.sessionId,
+            title: '',
+            messageCount: null,
+            totalTokens: null,
+            pinned: false,
+            workingDirectory: '',
+            config: {}
+        };
+        window.codePuppySessionState = sessionState;
+
+        function renderSessionInfo() {
+            const parts = [];
+            if (sessionState.sessionId) parts.push(`Session: ${sessionState.sessionId}`);
+            if (sessionState.title) parts.push(sessionState.title);
+            if (Number.isInteger(sessionState.messageCount)) parts.push(`${sessionState.messageCount} msgs`);
+            if (Number.isInteger(sessionState.totalTokens)) parts.push(`${sessionState.totalTokens} tokens`);
+            sessionInfo.textContent = parts.length ? parts.join(' • ') : 'Connected';
+        }
+
+        function applyWorkingDirectory(directory, error = null) {
+            const normalized = directory || '';
+            workingDirInput.value = normalized;
+            sessionState.workingDirectory = normalized;
+
+            const pill    = document.getElementById('cwd-pill');
+            const pillTxt = document.getElementById('current-working-dir');
+
+            // Close edit row on update
+            closeCwdEdit();
+
+            if (error) {
+                pillTxt.textContent = 'Error: ' + error;
+                pill.className = 'cc-cwd has-error';
+                return;
+            }
+            if (normalized) {
+                // Show a compact path: abbreviate home dir as ~
+                const display = normalized.replace(/^\/Users\/[^\/]+/, '~')
+                                          .replace(/^\/home\/[^\/]+/, '~');
+                pillTxt.textContent = display;
+                pill.className = 'cc-cwd';
+                pill.title = normalized + ' — click to change';
+            } else {
+                pillTxt.textContent = 'Not set';
+                pill.className = 'cc-cwd not-set';
+                pill.title = 'Click to set working directory';
+            }
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            connect();
+            setupEventListeners();
+        });
+        
+        function setupEventListeners() {
+            messageForm.addEventListener('submit', handleSendMessage);
+            btnClear.addEventListener('click', clearMessages);
+            btnSetDir.addEventListener('click', handleSetWorkingDirectory);
+            workingDirInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') handleSetWorkingDirectory();
+            });
+            agentSelector.addEventListener('change', handleAgentChange);
+            modelSelector.addEventListener('change', handleModelChange);
+        }
+
+        // Fetch available agents and models to populate dropdowns
+        async function loadAgentsAndModels() {
+            try {
+                const [agentsRes, modelsRes] = await Promise.all([
+                    fetch('/api/agents/'),
+                    fetch('/api/models/')
+                ]);
+                
+                if (agentsRes.ok) {
+                    const agents = await agentsRes.json();
+                    agentSelector.innerHTML = '';
+                    agents.forEach(a => {
+                        const opt = document.createElement('option');
+                        opt.value = a.name;
+                        opt.textContent = a.display_name || a.name;
+                        agentSelector.appendChild(opt);
+                    });
+                }
+                
+                if (modelsRes.ok) {
+                    const models = await modelsRes.json();
+                    modelSelector.innerHTML = '';
+                    models.forEach(m => {
+                        const opt = document.createElement('option');
+                        opt.value = m.name;
+                        opt.textContent = m.name;
+                        modelSelector.appendChild(opt);
+                    });
+                }
+            } catch (err) {
+                console.error('[UI] Failed to load agents/models:', err);
+            }
+        }
+        
+        function handleAgentChange() {
+            const agentName = agentSelector.value;
+            if (!agentName || !socket || socket.readyState !== WebSocket.OPEN) return;
+            console.log('[WebSocket] Switching agent to:', agentName);
+            socket.send(JSON.stringify({
+                type: 'switch_agent',
+                agent_name: agentName
+            }));
+        }
+        
+        function handleModelChange() {
+            const modelName = modelSelector.value;
+            if (!modelName || !socket || socket.readyState !== WebSocket.OPEN) return;
+            console.log('[WebSocket] Switching model to:', modelName);
+            socket.send(JSON.stringify({
+                type: 'switch_model',
+                model_name: modelName
+            }));
+        }
+        
+        function isAbsoluteDirectoryPath(path) {
+            if (!path) return false;
+            // macOS/Linux absolute, home-relative, Windows drive, or UNC path.
+            return path.startsWith('/') || path.startsWith('~/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\');
+        }
+
+        function explainAbsolutePathRequired(path) {
+            const pickedName = path ? ` "${path}"` : '';
+            return 'Please enter the full absolute folder path' + pickedName +
+                '. Browser folder pickers only expose the folder name, not its full path. ' +
+                'Example: /Users/s0m0961/Documents/dev/puppy/my-ai-adoption-story';
+        }
+
+        function handleSetWorkingDirectory() {
+            const directory = workingDirInput.value.trim();
+            if (!directory) {
+                alert('Please enter a directory path');
+                return;
+            }
+
+            if (!isAbsoluteDirectoryPath(directory)) {
+                const msg = explainAbsolutePathRequired(directory);
+                alert(msg);
+                workingDirInput.placeholder = 'Paste full path — e.g. /Users/s0m0961/Documents/dev/puppy/' + directory;
+                workingDirInput.focus();
+                workingDirInput.select();
+                return;
+            }
+            
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                console.log('[WebSocket] Setting working directory:', directory);
+                socket.send(JSON.stringify({
+                    type: 'set_working_directory',
+                    directory: directory
+                }));
+            } else {
+                alert('Not connected to server');
+            }
+        }
+        
+        // Update connection status
+        function setStatus(status) {
+            statusIndicator.className = 'status-indicator';
+            
+            switch (status) {
+                case 'connected':
+                    statusIndicator.classList.add('status-connected');
+                    statusText.textContent = 'Connected';
+                    sendButton.disabled = false;
+                    break;
+                case 'disconnected':
+                    statusIndicator.classList.add('status-disconnected');
+                    statusText.textContent = 'Disconnected';
+                    sendButton.disabled = true;
+                    break;
+                case 'thinking':
+                    statusIndicator.classList.add('status-thinking');
+                    statusText.textContent = 'Thinking...';
+                    break;
+            }
+        }
+        
+        // Connect to WebSocket
+        function connect() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                return;
+            }
+            
+            setStatus('disconnected');
+            
+            let wsUrl = CONFIG.wsUrl;
+            if (CONFIG.sessionId) {
+                wsUrl += `?session_id=${CONFIG.sessionId}`;
+            }
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = () => {
+                setStatus('connected');
+                reconnectAttempts = 0;
+                console.log('Connected to chat WebSocket');
+                renderSessionInfo();
+                loadAgentsAndModels();
+            };
+            
+            socket.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    handleMessage(message);
+                } catch (e) {
+                    console.error('Failed to parse WebSocket message:', e);
+                }
+            };
+            
+            socket.onclose = (event) => {
+                setStatus('disconnected');
+                
+                if (!event.wasClean) {
+                    console.log('WebSocket connection lost');
+                    
+                    // Auto-reconnect with backoff
+                    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                        reconnectAttempts++;
+                        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+                        console.log(`Reconnecting in ${delay/1000}s (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+                        setTimeout(connect, delay);
+                    }
+                }
+            };
+            
+            socket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+        
+        // Handle WebSocket messages
+        function handleMessage(message) {
+            console.log('Received message:', message);
+            
+            switch (message.type) {
+                case 'system':
+                    handleSystemMessage(message);
+                    break;
+                case 'session_meta':
+                    handleSessionMeta(message);
+                    break;
+                case 'session_meta_updated':
+                    handleSessionMetaUpdated(message);
+                    break;
+                case 'session_restored':
+                    handleSessionRestored(message);
+                    break;
+                case 'session_switched':
+                    handleSessionSwitched(message);
+                    break;
+                case 'config_value':
+                    handleConfigValue(message);
+                    break;
+                case 'working_directory_changed':
+                    handleWorkingDirectoryChanged(message);
+                    break;
+                case 'user_message':
+                    handleUserMessage(message);
+                    break;
+                case 'assistant_message_start':
+                    handleAssistantMessageStart(message);
+                    break;
+                case 'assistant_message_delta':
+                    handleAssistantMessageDelta(message);
+                    break;
+                case 'assistant_message_end':
+                    handleAssistantMessageEnd(message);
+                    break;
+                case 'tool_call':
+                case 'tool_call_start':
+                    handleToolCall(message);
+                    break;
+                case 'tool_result':
+                case 'tool_call_complete':
+                    handleToolResult(message);
+                    break;
+                case 'tool_return':
+                    handleToolResult(message);
+                    break;
+                case 'response':
+                    handleFinalResponse(message);
+                    break;
+                case 'status':
+                    handleStatus(message);
+                    break;
+                case 'error':
+                    handleError(message);
+                    break;
+                case 'permission_request':
+                    handlePermissionRequest(message);
+                    break;
+                case 'user_input_request':
+                    handleUserInputRequest(message);
+                    break;
+                case 'confirmation_request':
+                    handleConfirmationRequest(message);
+                    break;
+                case 'selection_request':
+                    handleSelectionRequest(message);
+                    break;
+                case 'ask_user_question_request':
+                    handleAskUserQuestionRequest(message);
+                    break;
+                case 'agent_invoked':
+                    handleAgentInvoked(message);
+                    break;
+            }
+        }
+        
+        function handleSystemMessage(message) {
+            if (message.content && (!sessionState.sessionId || sessionInfo.textContent === 'Connecting...')) {
+                sessionInfo.textContent = message.content;
+            }
+            if (message.agent_name) {
+                agentSelector.value = message.agent_name;
+            }
+            if (message.model_name) {
+                modelSelector.value = message.model_name;
+            }
+            addSystemMessage(message.content);
+        }
+        
+        function handleSessionMeta(message) {
+            if (message.session_id) {
+                sessionState.sessionId = message.session_id;
+                CONFIG.sessionId = message.session_id;
+            }
+            sessionState.title = message.title || '';
+            sessionState.messageCount = Number.isInteger(message.message_count) ? message.message_count : null;
+            sessionState.totalTokens = Number.isInteger(message.total_tokens) ? message.total_tokens : null;
+            if (typeof message.pinned === 'boolean') {
+                sessionState.pinned = message.pinned;
+            }
+            if (message.agent_name) {
+                agentSelector.value = message.agent_name;
+            }
+            if (message.model_name) {
+                modelSelector.value = message.model_name;
+            }
+            applyWorkingDirectory(message.working_directory || '');
+            renderSessionInfo();
+        }
+
+        function handleSessionMetaUpdated(message) {
+            if (typeof message.title === 'string') {
+                sessionState.title = message.title;
+            }
+            if (typeof message.pinned === 'boolean') {
+                sessionState.pinned = message.pinned;
+            }
+            renderSessionInfo();
+        }
+
+        function handleSessionRestored(message) {
+            if (message.session_id) {
+                sessionState.sessionId = message.session_id;
+                CONFIG.sessionId = message.session_id;
+            }
+            if (typeof message.title === 'string') {
+                sessionState.title = message.title;
+            }
+            if (Number.isInteger(message.message_count)) {
+                sessionState.messageCount = message.message_count;
+            }
+            renderSessionInfo();
+        }
+
+        function handleSessionSwitched(message) {
+            if (message.session_id) {
+                sessionState.sessionId = message.session_id;
+                CONFIG.sessionId = message.session_id;
+            }
+            if (typeof message.title === 'string') {
+                sessionState.title = message.title;
+            }
+            if (Number.isInteger(message.message_count)) {
+                sessionState.messageCount = message.message_count;
+            }
+            if (message.agent_name) {
+                agentSelector.value = message.agent_name;
+            }
+            if (message.model_name) {
+                modelSelector.value = message.model_name;
+            }
+            applyWorkingDirectory(message.working_directory || '');
+            renderSessionInfo();
+        }
+
+        function handleConfigValue(message) {
+            if (!message.key) return;
+            sessionState.config[message.key] = message.value;
+            window.codePuppyConfig = sessionState.config;
+        }
+
+        function handleWorkingDirectoryChanged(message) {
+            if (message.success) {
+                applyWorkingDirectory(message.directory || '');
+                addSystemMessage(`Working directory set to: ${message.directory}`);
+            } else {
+                applyWorkingDirectory(message.directory || '', message.error || 'Unknown error');
+                addSystemMessage(`Failed to set working directory: ${message.error}`, 'error');
+            }
+        }
+        
+        function handleUserMessage(message) {
+            addUserMessage(message.content);
+        }
+        
+        function assistantPartKind(message) {
+            return String(message.part_type || message.partType || '').toLowerCase();
+        }
+
+        function isToolishAssistantPart(message) {
+            const kind = assistantPartKind(message);
+            return kind.includes('tool') || Boolean(message.tool_name && kind && kind !== 'text' && kind !== 'thinking');
+        }
+
+        function hasRenderableText(value) {
+            return typeof value === 'string' && value.trim().length > 0;
+        }
+
+        function removeEmptyAssistantMessage(row) {
+            if (!row) return;
+            const bubble = row.querySelector('.message-content');
+            const raw = bubble ? (bubble.getAttribute('data-raw-content') || bubble.textContent || '') : '';
+            if (!hasRenderableText(raw)) row.remove();
+        }
+
+        function ensureAssistantMessageElement(message) {
+            if (!currentMessageElement || message.message_id !== currentMessageId) {
+                currentMessageElement = createMessageElement('assistant', message);
+                currentMessageId = message.message_id;
+            }
+            return currentMessageElement;
+        }
+
+        function handleAssistantMessageStart(message) {
+            // Tool parts should render as tool cards, not as empty assistant bubbles.
+            if (isToolishAssistantPart(message)) {
+                if (message.tool_name || message.args || message.content) {
+                    addToolMessage('call', message);
+                }
+                currentMessageElement = null;
+                currentMessageId = null;
+                return;
+            }
+
+            // Do not create a visible row until text actually arrives. This avoids
+            // meaningless thin empty bubble/line artifacts for blank stream parts.
+            currentMessageElement = null;
+            currentMessageId = message.message_id;
+            
+            // Update current agent/model display
+            if (message.agent_name) {
+                agentSelector.value = message.agent_name;
+            }
+            if (message.model_name) {
+                modelSelector.value = message.model_name;
+            }
+        }
+        
+        function handleAssistantMessageDelta(message) {
+            if (isToolishAssistantPart(message)) {
+                if (message.tool_name || message.content || message.args) {
+                    addToolMessage('call', message);
+                }
+                return;
+            }
+
+            const content = typeof message.content === 'string' ? message.content : '';
+            if (!hasRenderableText(content) && !currentMessageElement) {
+                return;
+            }
+
+            if (message.message_id === currentMessageId || !currentMessageElement) {
+                const row = ensureAssistantMessageElement(message);
+                const contentDiv = row.querySelector('.message-content');
+                if (contentDiv) {
+                    const currentContent = contentDiv.getAttribute('data-raw-content') || '';
+                    const newContent = currentContent + content;
+                    contentDiv.setAttribute('data-raw-content', newContent);
+                    
+                    if (hasRenderableText(newContent)) {
+                        const renderedMarkdown = marked.parse(newContent);
+                        contentDiv.innerHTML = DOMPurify.sanitize(renderedMarkdown);
+                    }
+                    
+                    if (message.tool_name) {
+                        updateMessageMetadata(row, message);
+                    }
+                }
+                scrollToBottom();
+            }
+        }
+        
+        function handleAssistantMessageEnd(message) {
+            if (currentMessageElement && message.message_id === currentMessageId) {
+                removeEmptyAssistantMessage(currentMessageElement);
+                if (document.body.contains(currentMessageElement)) {
+                    currentMessageElement.classList.add('message-complete');
+                }
+                currentMessageElement = null;
+                currentMessageId = null;
+            }
+            setStatus('connected');
+        }
+        
+        function handleToolCall(message) {
+            const payload = message.data || message;
+            if (payload !== message && !payload.type) payload.type = message.type;
+            if (payload !== message && !payload.data) payload.data = message.data;
+            addToolMessage('call', payload);
+        }
+        
+        function handleToolResult(message) {
+            const payload = message.data || message;
+            if (payload !== message && !payload.type) payload.type = message.type;
+            if (payload !== message && !payload.data) payload.data = message.data;
+            addToolMessage('result', payload);
+        }
+        
+        function handleFinalResponse(message) {
+            if (message.done) {
+                setStatus('connected');
+                typingIndicator.textContent = '';
+                
+                // Update current agent/model if provided
+                if (message.agent_name) {
+                    agentSelector.value = message.agent_name;
+                }
+                if (message.model_name) {
+                    modelSelector.value = message.model_name;
+                }
+            }
+        }
+        
+        function handleStatus(message) {
+            if (message.status === 'thinking') {
+                setStatus('thinking');
+                typingIndicator.textContent = 'Thinking...';
+            }
+        }
+        
+        function handleError(message) {
+            console.error('Received error message:', message);
+            addErrorSystemMessage(message);
+            setStatus('connected');
+            typingIndicator.textContent = '';
+        }
+        
+        function createInteractionCard(id, title, prompt) {
+            const bubble = document.createElement('div');
+            bubble.className = 'message interaction-message';
+            bubble.id = `interaction-${id}`;
+
+            const card = document.createElement('div');
+            card.className = 'interaction-card';
+            card.innerHTML = `
+                <div class="interaction-card-hdr">${escapeHtml(title)}</div>
+                <div class="interaction-card-body">
+                    <div class="interaction-prompt">${escapeHtml(prompt || '')}</div>
+                </div>
+            `;
+            bubble.appendChild(card);
+            messagesContainer.appendChild(bubble);
+            scrollToBottom();
+            return bubble;
+        }
+
+        function finishInteractionUI(promptId, text) {
+            const bubble = document.getElementById('interaction-' + promptId);
+            if (!bubble) return;
+            const body = bubble.querySelector('.interaction-card-body');
+            const actions = bubble.querySelector('.interaction-actions');
+            const inputs = bubble.querySelectorAll('input, textarea, button');
+            inputs.forEach(el => { el.disabled = true; });
+            if (actions) actions.style.display = 'none';
+            const decision = document.createElement('div');
+            decision.className = 'interaction-decision';
+            decision.textContent = text;
+            if (body) body.appendChild(decision);
+            scrollToBottom();
+        }
+
+        function handleUserInputRequest(message) {
+            const promptId = message.prompt_id;
+            const bubble = createInteractionCard(promptId, 'Input Requested', message.prompt_text || 'Please provide input');
+            const body = bubble.querySelector('.interaction-card-body');
+            const input = document.createElement('input');
+            input.className = 'interaction-input';
+            input.type = message.input_type === 'password' ? 'password' : 'text';
+            input.value = message.default_value || '';
+            input.placeholder = message.default_value || 'Type your response...';
+            const actions = document.createElement('div');
+            actions.className = 'interaction-actions';
+            const submit = document.createElement('button');
+            submit.className = 'interaction-btn';
+            submit.textContent = 'Submit';
+            submit.addEventListener('click', () => submitUserInputResponse(promptId, input.value));
+            input.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') submitUserInputResponse(promptId, input.value);
+            });
+            actions.appendChild(submit);
+            body.appendChild(input);
+            body.appendChild(actions);
+            input.focus();
+            scrollToBottom();
+        }
+
+        function submitUserInputResponse(promptId, value) {
+            socket.send(JSON.stringify({ type: 'user_input_response', prompt_id: promptId, value: value || '' }));
+            finishInteractionUI(promptId, 'SUBMITTED');
+        }
+
+        function handleConfirmationRequest(message) {
+            const promptId = message.prompt_id;
+            const bubble = createInteractionCard(promptId, message.title || 'Confirmation Requested', message.description || 'Please confirm');
+            const body = bubble.querySelector('.interaction-card-body');
+            const feedback = document.createElement('input');
+            feedback.className = 'interaction-input';
+            feedback.placeholder = 'Optional feedback...';
+            if (!message.allow_feedback) feedback.style.display = 'none';
+            const actions = document.createElement('div');
+            actions.className = 'interaction-actions';
+            const options = Array.isArray(message.options) && message.options.length ? message.options : ['Yes', 'No'];
+            options.slice(0, 12).forEach((label, index) => {
+                const btn = document.createElement('button');
+                btn.className = index === 0 ? 'interaction-btn' : 'interaction-btn secondary';
+                btn.textContent = label;
+                btn.addEventListener('click', () => {
+                    const confirmed = index === 0 || /^yes|approve|ok|confirm$/i.test(String(label));
+                    socket.send(JSON.stringify({
+                        type: 'confirmation_response',
+                        prompt_id: promptId,
+                        confirmed,
+                        feedback: feedback.value || null
+                    }));
+                    finishInteractionUI(promptId, confirmed ? 'CONFIRMED' : 'DECLINED');
+                });
+                actions.appendChild(btn);
+            });
+            body.appendChild(feedback);
+            body.appendChild(actions);
+            scrollToBottom();
+        }
+
+        function handleSelectionRequest(message) {
+            const promptId = message.prompt_id;
+            const bubble = createInteractionCard(promptId, 'Selection Requested', message.prompt_text || 'Choose an option');
+            const body = bubble.querySelector('.interaction-card-body');
+            const optionsWrap = document.createElement('div');
+            optionsWrap.className = 'interaction-options';
+            (message.options || []).slice(0, 12).forEach((value, index) => {
+                const btn = document.createElement('button');
+                btn.className = 'interaction-option';
+                btn.textContent = value;
+                btn.addEventListener('click', () => {
+                    socket.send(JSON.stringify({
+                        type: 'selection_response',
+                        prompt_id: promptId,
+                        selected_index: index,
+                        selected_value: String(value)
+                    }));
+                    finishInteractionUI(promptId, `SELECTED: ${value}`);
+                });
+                optionsWrap.appendChild(btn);
+            });
+            body.appendChild(optionsWrap);
+            if (message.allow_cancel) {
+                const actions = document.createElement('div');
+                actions.className = 'interaction-actions';
+                const cancel = document.createElement('button');
+                cancel.className = 'interaction-btn secondary';
+                cancel.textContent = 'Cancel';
+                cancel.addEventListener('click', () => {
+                    socket.send(JSON.stringify({
+                        type: 'selection_response',
+                        prompt_id: promptId,
+                        selected_index: -1,
+                        selected_value: ''
+                    }));
+                    finishInteractionUI(promptId, 'CANCELLED');
+                });
+                actions.appendChild(cancel);
+                body.appendChild(actions);
+            }
+            scrollToBottom();
+        }
+
+        function handlePermissionRequest(message) {
+            console.log('[Permission] Request received:', message);
+            
+            const requestId = message.request_id;
+            const title = message.title || 'Permission Required';
+            const description = message.description || '';
+            const details = message.details || {};
+            const timeout = message.timeout_seconds || 300;
+            
+            // Create permission message bubble
+            const bubble = document.createElement('div');
+            bubble.className = 'message permission-message';
+            bubble.id = `permission-${requestId}`;
+            
+            const command = details.command || 'unknown command';
+            const cwd = details.cwd || 'current directory';
+            
+            bubble.innerHTML = `
+                <div class="perm-card">
+                  <div class="perm-card-hdr">Permission Required — ${escapeHtml(String(title))}</div>
+                  <div class="perm-card-body">
+                    <div class="perm-card-desc">${escapeHtml(String(description))}</div>
+                    <div class="perm-card-cmd">${escapeHtml(command)}</div>
+                    <div class="perm-card-cwd">${escapeHtml(cwd)}</div>
+                    <div class="perm-card-actions">
+                      <button class="perm-card-btn perm-btn-ok" onclick="approvePermission('${requestId}')">Approve</button>
+                      <button class="perm-card-btn perm-btn-no" onclick="denyPermission('${requestId}')">Deny</button>
+                    </div>
+                    <div class="perm-card-timeout">Timeout in ${timeout}s</div>
+                  </div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(bubble);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+        function approvePermission(requestId) {
+            console.log('[Permission] Approving:', requestId);
+            const message = {
+                type: 'permission_response',
+                request_id: requestId,
+                approved: true
+            };
+            console.log('[Permission] Sending approval message:', JSON.stringify(message));
+            socket.send(JSON.stringify(message));
+            updatePermissionUI(requestId, true);
+        }
+        
+        function denyPermission(requestId) {
+            console.log('[Permission] Denying:', requestId);
+            const message = {
+                type: 'permission_response',
+                request_id: requestId,
+                approved: false
+            };
+            console.log('[Permission] Sending denial message:', JSON.stringify(message));
+            socket.send(JSON.stringify(message));
+            updatePermissionUI(requestId, false);
+        }
+        
+        function updatePermissionUI(requestId, approved) {
+            const bubble = document.getElementById('permission-' + requestId);
+            if (!bubble) return;
+            const actionsEl = bubble.querySelector('.perm-card-actions');
+            const timeoutEl = bubble.querySelector('.perm-card-timeout');
+            if (actionsEl) actionsEl.style.display = 'none';
+            if (timeoutEl) timeoutEl.style.display = 'none';
+            const decision = document.createElement('div');
+            decision.className = approved ? 'perm-decision ok' : 'perm-decision no';
+            decision.textContent = approved ? 'APPROVED' : 'DENIED';
+            const body = bubble.querySelector('.perm-card-body');
+            if (body) body.appendChild(decision);
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Create message elements
+        // Create message elements — Design-E Batch 3
+        function createMessageElement(type, message) {
+            const row = document.createElement('div');
+            row.className = type === 'user' ? 'msg u' : 'msg a';
+
+            // Avatar
+            const av = document.createElement('div');
+            av.className = 'mav';
+            av.textContent = type === 'user' ? 'You' : 'CP';
+
+            // Body wrapper
+            const body = document.createElement('div');
+            body.className = 'mbody';
+
+            // Bubble (content target)
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble message-content markdown-content';
+            bubble.setAttribute('data-raw-content', '');
+
+            // Timestamp
+            const time = document.createElement('div');
+            time.className = 'mtime';
+            time.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            body.appendChild(bubble);
+            body.appendChild(time);
+
+            if (type === 'user') {
+                row.appendChild(body);
+                row.appendChild(av);
+            } else {
+                row.appendChild(av);
+                row.appendChild(body);
+            }
+
+            messagesContainer.appendChild(row);
+            scrollToBottom();
+            return row;
+        }
+        
+        function updateMessageMetadata(messageElement, message) {
+            // no-op: agent/model info lives in header selectors
+        }
+        
+        function addUserMessage(content) {
+            const row = createMessageElement('user', {});
+            const bubble = row.querySelector('.message-content');
+            bubble.textContent = content;
+        }
+        
+        function addSystemMessage(content, level = 'info') {
+            const div = document.createElement('div');
+            div.className = level === 'error' ? 'sys-msg err' : 'sys-msg';
+            div.textContent = content;
+            messagesContainer.appendChild(div);
+            scrollToBottom();
+        }
+
+        async function copyToClipboard(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch (_err) {
+                // Fallback for older browsers / permissions
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.setAttribute('readonly', '');
+                textarea.style.position = 'absolute';
+                textarea.style.left = '-9999px';
+                document.body.appendChild(textarea);
+                textarea.select();
+                const ok = document.execCommand('copy');
+                document.body.removeChild(textarea);
+                return ok;
+            }
+        }
+
+        function _actionRequiredText(actionRequired) {
+            switch (actionRequired) {
+                case 'switch_model':
+                    return 'Try switching to a different model using the dropdown above.';
+                case 'adjust_temperature':
+                    return 'Adjust temperature or disable extended thinking.';
+                case 'wait_or_switch_model':
+                    return 'Wait a moment, or switch to a different model.';
+                case 'check_credentials':
+                    return 'Check your API key configuration.';
+                case 'retry':
+                    return 'Retry in a moment.';
+                default:
+                    return 'Review details and try again.';
+            }
+        }
+
+        function addErrorSystemMessage(message) {
+            const card = document.createElement('div');
+            card.className = 'err-card';
+
+            const bodyEl = document.createElement('div');
+            bodyEl.className = 'err-card-body';
+
+            const title = document.createElement('div');
+            title.className = 'err-card-title';
+            title.textContent = message.error_type
+                ? message.error_type.replaceAll('_', ' ').toUpperCase()
+                : 'ERROR';
+
+            const text = document.createElement('div');
+            text.className = 'err-card-text';
+            text.textContent = message.error || 'An unknown error occurred';
+
+            bodyEl.appendChild(title);
+            bodyEl.appendChild(text);
+
+            if (message.action_required) {
+                const hint = document.createElement('div');
+                hint.className = 'err-card-hint';
+                hint.textContent = 'Suggested: ' + _actionRequiredText(message.action_required);
+                bodyEl.appendChild(hint);
+            }
+
+            const copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            copyBtn.className = 'err-card-copy';
+            copyBtn.textContent = 'Copy';
+
+            const payload = JSON.stringify(message, null, 2);
+            copyBtn.addEventListener('click', async () => {
+                const ok = await copyToClipboard(payload);
+                copyBtn.textContent = ok ? 'Copied' : 'Copy failed';
+                setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+            });
+
+            card.appendChild(bodyEl);
+            card.appendChild(copyBtn);
+            messagesContainer.appendChild(card);
+            scrollToBottom();
+        }
+        
+        function formatToolPayload(value) {
+            if (value === undefined || value === null || value === '') return '';
+            if (typeof value === 'string') return value;
+            try { return JSON.stringify(value, null, 2); }
+            catch (_err) { return String(value); }
+        }
+
+        function isEmptyToolPayload(value) {
+            if (value === undefined || value === null) return true;
+            if (typeof value === 'string') return value.trim().length === 0;
+            if (Array.isArray(value)) return value.length === 0;
+            if (typeof value === 'object') {
+                const keys = Object.keys(value);
+                if (keys.length === 0) return true;
+                if (value._pending_full_result) return true;
+
+                // Suppress status-only bookkeeping payloads that produce
+                // `.tc-inline.t-result` cards with no user-useful content.
+                const noiseKeys = new Set([
+                    '_status', '_pending_full_result', 'status', 'success',
+                    'duration_ms', 'duration', 'elapsed_ms', 'elapsed',
+                ]);
+                return keys.every((key) => noiseKeys.has(key));
+            }
+            return false;
+        }
+
+        function compactOneLine(text, maxLen = 120) {
+            const one = String(text || '').replace(/\s+/g, ' ').trim();
+            if (!one) return '';
+            return one.length > maxLen ? one.slice(0, maxLen - 3) + '...' : one;
+        }
+
+        function coerceToolPayloadObject(payload) {
+            if (!payload) return null;
+            if (typeof payload === 'object') return payload;
+            if (typeof payload !== 'string') return null;
+
+            const raw = payload.trim();
+            const candidates = [raw];
+
+            const fenced = raw.match(/```(?:json|javascript|js)?\s*([\s\S]*?)```/i);
+            if (fenced && fenced[1]) candidates.push(fenced[1].trim());
+
+            const objectStart = raw.indexOf('{');
+            const objectEnd = raw.lastIndexOf('}');
+            if (objectStart >= 0 && objectEnd > objectStart) {
+                candidates.push(raw.slice(objectStart, objectEnd + 1));
+            }
+
+            for (const candidate of candidates) {
+                try { return JSON.parse(candidate); } catch (_err) { /* try next */ }
+            }
+            return null;
+        }
+
+        function findQuestionsPayload(value, seen = new Set()) {
+            if (value === undefined || value === null) return null;
+            if (typeof value === 'string') return findQuestionsPayload(coerceToolPayloadObject(value), seen);
+            if (typeof value !== 'object') return null;
+            if (seen.has(value)) return null;
+            seen.add(value);
+
+            if (Array.isArray(value.questions) && value.questions.length) return value;
+            if (Array.isArray(value)) {
+                for (const item of value) {
+                    const found = findQuestionsPayload(item, seen);
+                    if (found) return found;
+                }
+                return null;
+            }
+
+            const likelyKeys = ['args', 'tool_args', 'arguments', 'input', 'details', 'data', 'payload', 'content', 'result', 'output'];
+            for (const key of likelyKeys) {
+                const found = findQuestionsPayload(value[key], seen);
+                if (found) return found;
+            }
+            for (const key of Object.keys(value)) {
+                if (likelyKeys.includes(key)) continue;
+                const found = findQuestionsPayload(value[key], seen);
+                if (found) return found;
+            }
+            return null;
+        }
+
+        function isAskUserQuestionTool(toolName, payload, fullMessage = null) {
+            const name = String(toolName || '').toLowerCase().replace(/[^a-z0-9_]/g, '_');
+            const obj = findQuestionsPayload(payload) || findQuestionsPayload(fullMessage);
+            return Boolean(
+                obj && Array.isArray(obj.questions) && obj.questions.length &&
+                (name.includes('ask_user_question') || name.includes('userinput') || name.includes('user_input') || name.includes('question') || name === 'tool')
+            );
+        }
+
+        function normalizeAqOption(option) {
+            if (option && typeof option === 'object') {
+                return {
+                    label: String(option.label ?? option.value ?? option.name ?? ''),
+                    description: String(option.description ?? option.detail ?? option.help ?? '')
+                };
+            }
+            return { label: String(option ?? ''), description: '' };
+        }
+
+        function renderAskUserQuestionTool(toolName, payload, fullMessage = null) {
+            const obj = findQuestionsPayload(payload) || findQuestionsPayload(fullMessage);
+            if (!obj || !Array.isArray(obj.questions)) return false;
+
+            const questions = obj.questions.map((q, index) => ({
+                header: String(q.header || q.title || `Question ${index + 1}`),
+                question: String(q.question || q.prompt || q.prompt_text || ''),
+                inputMode: String(q.input_mode || (q.options && q.options.length ? 'select' : 'text')),
+                multiSelect: Boolean(q.multi_select),
+                inputPlaceholder: String(q.input_placeholder || 'Type your response...'),
+                options: Array.isArray(q.options) ? q.options.map(normalizeAqOption).filter(o => o.label) : [],
+                selected: new Set(),
+                customText: ''
+            })).filter(q => q.question || q.options.length || q.inputMode.includes('text'));
+            if (!questions.length) return false;
+
+            let currentIndex = 0;
+            const card = document.createElement('div');
+            card.className = 'auq-card';
+            card.setAttribute('role', 'group');
+            card.setAttribute('aria-label', 'User input questions');
+            const promptId = fullMessage?.prompt_id || obj.prompt_id || null;
+            const canSubmitToServer = Boolean(promptId && socket && socket.readyState === WebSocket.OPEN);
+            if (promptId) card.id = 'interaction-' + promptId;
+
+            const render = () => {
+                const q = questions[currentIndex];
+                const countText = `${questions.length} ${questions.length === 1 ? 'question' : 'questions'} pending`;
+                const canGoBack = currentIndex > 0;
+                const canGoNext = currentIndex < questions.length - 1;
+                const showText = q.inputMode === 'text' || q.inputMode === 'select_or_text';
+                const optionsHtml = q.options.map((option, idx) => {
+                    const selected = q.selected.has(idx);
+                    const multi = q.multiSelect ? ' multi' : '';
+                    return `
+                        <button type="button" class="auq-option${multi}${selected ? ' selected' : ''}" data-auq-option="${idx}" aria-pressed="${selected ? 'true' : 'false'}">
+                            <span class="auq-control" aria-hidden="true"></span>
+                            <span>
+                                <span class="auq-option-label">${escapeHtml(option.label)}</span>
+                                ${option.description ? `<span class="auq-option-desc">${escapeHtml(option.description)}</span>` : ''}
+                            </span>
+                        </button>
+                    `;
+                }).join('');
+
+                card.innerHTML = `
+                    <div class="auq-head">
+                        <div class="auq-title"><span class="auq-icon"></span><span>User Input</span><span class="auq-count">| ${escapeHtml(countText)}</span></div>
+                        <div class="auq-status"><span class="auq-dot"></span><span>awaiting response ▼</span></div>
+                    </div>
+                    <div class="auq-progress">
+                        ${questions.map((_item, idx) => `<div class="auq-progress-seg ${idx < currentIndex ? 'done' : idx === currentIndex ? 'active' : ''}"></div>`).join('')}
+                    </div>
+                    <div class="auq-question-panel">
+                        ${q.header ? `<div class="auq-question-kicker">${escapeHtml(q.header)}</div>` : ''}
+                        <div class="auq-question-title">${currentIndex + 1}) ${escapeHtml(q.question || q.header)}</div>
+                        <div class="auq-option-list">${optionsHtml}</div>
+                        ${showText ? `<div class="auq-custom"><input class="auq-input" type="text" value="${escapeHtml(q.customText)}" placeholder="${escapeHtml(q.inputPlaceholder)}" aria-label="Custom answer for ${escapeHtml(q.header)}"></div>` : ''}
+                    </div>
+                    <div class="auq-footer">
+                        <div class="auq-left"><button type="button" class="auq-btn auq-back" ${canGoBack ? '' : 'disabled'}>Back</button></div>
+                        <div class="auq-mid">Question ${currentIndex + 1} of ${questions.length}</div>
+                        <div class="auq-right">
+                            <button type="button" class="auq-btn auq-skip">Skip</button>
+                            ${canGoNext ? '<button type="button" class="auq-btn auq-next">Next</button>' : '<button type="button" class="auq-btn auq-submit">Submit</button>'}
+                        </div>
+                        <div class="auq-pending">Pending</div>
+                    </div>
+                `;
+
+                card.querySelectorAll('[data-auq-option]').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const idx = Number(btn.getAttribute('data-auq-option'));
+                        if (q.multiSelect) {
+                            if (q.selected.has(idx)) q.selected.delete(idx);
+                            else q.selected.add(idx);
+                        } else {
+                            q.selected.clear();
+                            q.selected.add(idx);
+                        }
+                        render();
+                    });
+                });
+                const input = card.querySelector('.auq-input');
+                if (input) {
+                    input.addEventListener('input', () => { q.customText = input.value; });
+                    input.addEventListener('keydown', event => {
+                        if (event.key === 'Enter' && !canGoNext) submit();
+                    });
+                }
+                const back = card.querySelector('.auq-back');
+                const next = card.querySelector('.auq-next');
+                const skip = card.querySelector('.auq-skip');
+                const submitBtn = card.querySelector('.auq-submit');
+                if (back) back.addEventListener('click', () => { if (currentIndex > 0) { currentIndex -= 1; render(); } });
+                if (next) next.addEventListener('click', () => { if (currentIndex < questions.length - 1) { currentIndex += 1; render(); } });
+                if (skip) skip.addEventListener('click', () => { q.selected.clear(); q.customText = ''; if (canGoNext) { currentIndex += 1; render(); } else submit(); });
+                if (submitBtn) submitBtn.addEventListener('click', submit);
+            };
+
+            const submit = () => {
+                const answers = questions.map(q => ({
+                    question_header: q.header,
+                    selected_options: Array.from(q.selected).map(idx => q.options[idx]?.label).filter(Boolean),
+                    other_text: null,
+                    user_input: q.customText || null
+                }));
+                if (canSubmitToServer) {
+                    socket.send(JSON.stringify({
+                        type: 'ask_user_question_response',
+                        prompt_id: promptId,
+                        answers,
+                        cancelled: false
+                    }));
+                }
+                card.querySelectorAll('button, input').forEach(el => { el.disabled = true; });
+                const pending = card.querySelector('.auq-pending');
+                if (pending) pending.textContent = canSubmitToServer ? 'Submitted' : 'Captured locally';
+                const summary = document.createElement('div');
+                summary.className = 'auq-summary';
+                summary.textContent = (canSubmitToServer ? 'Answers submitted:' : 'Answers captured locally:') + '\n' + answers.map((a, idx) => {
+                    const parts = [];
+                    if (a.selected_options.length) parts.push(a.selected_options.join(', '));
+                    if (a.user_input) parts.push(a.user_input);
+                    return `${idx + 1}. ${a.question_header}: ${parts.join(' + ') || '(skipped)'}`;
+                }).join('\n');
+                card.querySelector('.auq-footer')?.appendChild(summary);
+                card.dataset.answers = JSON.stringify(answers);
+                scrollToBottom();
+            };
+
+            render();
+            messagesContainer.appendChild(card);
+            scrollToBottom();
+            return true;
+        }
+
+
+        function handleAskUserQuestionRequest(message) {
+            renderAskUserQuestionTool('ask_user_question', { questions: message.questions || [] }, message);
+        }
+
+        function addToolMessage(type, message) {
+            const normalizedType = (message.type === 'tool_return') ? 'result' : type;
+            const callPayload = message.args ?? message.tool_args ?? message.arguments ?? message.input ?? message.details;
+            const resultPayload = message.result ?? message.result_summary ?? message.content ?? message.output ?? message.error;
+            const success = message.success;
+            const renderedToolName = String(
+                message.tool_name || message.tool || message.name || message.tool_call_id || message.tool_id || 'tool'
+            );
+            const auqPayload = findQuestionsPayload(callPayload) || findQuestionsPayload(resultPayload) || findQuestionsPayload(message);
+            const noUsefulCallPayload = normalizedType === 'call' && isEmptyToolPayload(callPayload);
+            if (noUsefulCallPayload && isAskUserQuestionTool(renderedToolName, null, message)) {
+                return;
+            }
+            if (auqPayload && (normalizedType === 'call' || normalizedType === 'result')) {
+                if (normalizedType === 'call' && !message.prompt_id) return;
+                renderAskUserQuestionTool(renderedToolName, auqPayload, message);
+                return;
+            }
+            if (normalizedType === 'call' && isAskUserQuestionTool(renderedToolName, callPayload, message)) {
+                if (!message.prompt_id) return;
+                renderAskUserQuestionTool(renderedToolName, callPayload, message);
+                return;
+            }
+            const isErr = Boolean(
+                message.is_error ||
+                message.error ||
+                success === false ||
+                (normalizedType === 'result' && message.result && typeof message.result === 'object' && message.result.error)
+            );
+
+            // Result cards with no real payload are just noise. Keep explicit
+            // errors, and keep call cards even when they have no args, but drop
+            // empty/status-only successful results entirely.
+            if (normalizedType === 'result' && !isErr && isEmptyToolPayload(resultPayload)) {
+                return;
+            }
+
+            const card = document.createElement('div');
+            if (isErr) card.className = 'tc-inline t-error';
+            else if (normalizedType === 'call') card.className = 'tc-inline t-call';
+            else card.className = 'tc-inline t-result';
+
+            const toolName = String(
+                message.tool_name || message.tool || message.name || message.tool_call_id || message.tool_id || 'tool'
+            );
+            const durationStr = (normalizedType === 'result' && message.duration_ms)
+                ? Number(message.duration_ms).toFixed(0) + 'ms'
+                : '';
+            const kind = isErr ? 'error' : (normalizedType === 'call' ? 'call' : 'result');
+
+            let bodyContent = '';
+            if (normalizedType === 'call') {
+                bodyContent = formatToolPayload(callPayload);
+            } else {
+                bodyContent = formatToolPayload(resultPayload);
+            }
+
+            const preview = compactOneLine(bodyContent || (normalizedType === 'call' ? 'Tool requested' : 'Tool completed'));
+
+            const hdr = document.createElement('div');
+            hdr.className = 'tc-inline-hdr';
+
+            const arr = document.createElement('span');
+            arr.className = 'tc-inline-arr open';
+            arr.textContent = '>';
+
+            const ico = document.createElement('span');
+            ico.className = 'tc-inline-icon';
+            ico.textContent = isErr ? '!' : (normalizedType === 'call' ? 'IN' : 'OK');
+
+            const kindEl = document.createElement('span');
+            kindEl.className = 'tc-inline-kind';
+            kindEl.textContent = kind;
+
+            const nm = document.createElement('span');
+            nm.className = 'tc-inline-name';
+            nm.textContent = toolName;
+
+            const pv = document.createElement('span');
+            pv.className = 'tc-inline-preview';
+            pv.textContent = preview;
+
+            hdr.appendChild(arr);
+            hdr.appendChild(ico);
+            hdr.appendChild(kindEl);
+            hdr.appendChild(nm);
+            hdr.appendChild(pv);
+
+            if (durationStr) {
+                const meta = document.createElement('span');
+                meta.className = 'tc-inline-meta';
+                meta.textContent = durationStr;
+                hdr.appendChild(meta);
+            }
+
+            const bodyEl = document.createElement('div');
+            bodyEl.className = 'tc-inline-body';
+
+            // Tool call argument payloads can be wide/noisy; start them
+            // collapsed while preserving click-to-expand behavior. Results
+            // and errors remain expanded by default.
+            if (normalizedType === 'call') {
+                bodyEl.classList.add('collapsed');
+                arr.classList.remove('open');
+            }
+
+            if (bodyContent) {
+                const pre = document.createElement('pre');
+                pre.className = 'tc-inline-pre';
+                pre.textContent = bodyContent;
+                bodyEl.appendChild(pre);
+            } else {
+                const empty = document.createElement('div');
+                empty.className = 'tc-inline-empty';
+                empty.textContent = normalizedType === 'call' ? 'No arguments provided.' : 'No result payload returned.';
+                bodyEl.appendChild(empty);
+            }
+
+            hdr.addEventListener('click', () => {
+                const collapsed = bodyEl.classList.toggle('collapsed');
+                arr.classList.toggle('open', !collapsed);
+            });
+
+            card.appendChild(hdr);
+            card.appendChild(bodyEl);
+            messagesContainer.appendChild(card);
+            scrollToBottom();
+        }
+        
+        function handleAgentInvoked(message) {
+            const pill = document.createElement('div');
+            pill.className = 'agent-invoked';
+            const agentName = escapeHtml(String(message.agent_name || 'Unknown'));
+            let preview = '';
+            if (message.prompt_preview) {
+                const trimmed = message.prompt_preview.length > 72
+                    ? message.prompt_preview.substring(0, 72) + '...'
+                    : message.prompt_preview;
+                preview = ' — "' + escapeHtml(trimmed) + '"';
+            }
+            pill.innerHTML = '<span style="opacity:.5">-&gt;</span> <strong>' + agentName + '</strong>' + preview;
+            messagesContainer.appendChild(pill);
+            scrollToBottom();
+        }
+        
+        function handleSendMessage(e) {
+            e.preventDefault();
+            
+            const content = messageInput.value.trim();
+            if (!content) return;
+            
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'message',
+                    content: content
+                }));
+                
+                messageInput.value = '';
+            }
+        }
+        
+        function clearMessages() {
+            messagesContainer.innerHTML = '';
+        }
+        
+        function scrollToBottom() {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+
+        // ── CWD Pill editor ──────────────────────────────────────────────────
+        function openCwdEdit() {
+            const pill = document.getElementById('cwd-pill');
+            const row  = document.getElementById('cwd-edit-row');
+            pill.style.display = 'none';
+            row.classList.add('visible');
+            workingDirInput.value = sessionState.workingDirectory || '';
+            workingDirInput.focus();
+            workingDirInput.select();
+        }
+
+        function closeCwdEdit() {
+            const pill = document.getElementById('cwd-pill');
+            const row  = document.getElementById('cwd-edit-row');
+            if (pill) pill.style.display = '';
+            if (row)  row.classList.remove('visible');
+        }
+
+        function applyPickedFolderNameHint(folderName) {
+            const current = workingDirInput.value.trim();
+            const safeFolderName = String(folderName || '').trim();
+            if (!safeFolderName) return;
+
+            // Browsers intentionally do not expose absolute local paths from folder
+            // pickers. Never send the bare folder name to the backend, because the
+            // backend would resolve it relative to the server/worktree CWD.
+            if (isAbsoluteDirectoryPath(current) && /[\/]$/.test(current)) {
+                workingDirInput.value = current.replace(/[\/]+$/, '') + '/' + safeFolderName;
+            } else if (isAbsoluteDirectoryPath(current) && current.endsWith('/' + safeFolderName)) {
+                workingDirInput.value = current;
+            } else {
+                workingDirInput.value = '';
+                workingDirInput.placeholder = 'Paste full path — e.g. /Users/s0m0961/Documents/dev/puppy/' + safeFolderName;
+                alert('Selected folder "' + safeFolderName + '". ' + explainAbsolutePathRequired(safeFolderName));
+            }
+            workingDirInput.focus();
+            workingDirInput.select();
+        }
+
+        // ── Native folder picker ─────────────────────────────────────────────
+        // TODO(/api/pick-directory): Replace this browser-only picker/hint flow
+        // with a local backend endpoint that opens a native folder dialog and
+        // returns the absolute path (e.g. macOS osascript choose folder). Keep
+        // manual paste as the safe fallback because browser APIs only expose
+        // folder names/relative paths, never absolute local paths.
+        async function triggerNativePicker() {
+            if (window.showDirectoryPicker) {
+                try {
+                    const handle = await window.showDirectoryPicker({ mode: 'read' });
+                    applyPickedFolderNameHint(handle.name);
+                } catch (err) {
+                    if (err.name !== 'AbortError') {
+                        console.warn('[DirPicker] showDirectoryPicker error:', err);
+                        document.getElementById('dir-picker-fallback').click();
+                    }
+                }
+            } else {
+                // Fallback: <input webkitdirectory> exposes only webkitRelativePath,
+                // e.g. "project-name/file.txt", not an absolute local path.
+                document.getElementById('dir-picker-fallback').click();
+            }
+        }
+
+        function onFallbackDirPick(input) {
+            if (input.files && input.files.length > 0) {
+                const relPath = input.files[0].webkitRelativePath || '';
+                const dirName = relPath.split('/')[0];
+                applyPickedFolderNameHint(dirName);
+            }
+            input.value = '';
+        }
+
+        window.addEventListener('beforeunload', () => {
+            if (socket) {
+                socket.close();
+            }
+        });
+    </script>
+</body>
+</html>

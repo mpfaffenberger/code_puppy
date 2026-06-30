@@ -389,6 +389,20 @@ class SelectionRequest(BaseMessage):
     )
 
 
+class AskUserQuestionRequest(BaseMessage):
+    """Request for browser UI to collect structured ask_user_question answers."""
+
+    category: MessageCategory = MessageCategory.USER_INTERACTION
+    prompt_id: str = Field(description="Unique ID for matching responses to requests")
+    questions: List[Dict[str, object]] = Field(
+        description="Validated ask_user_question question payloads"
+    )
+    timeout_seconds: int = Field(
+        default=300,
+        description="Inactivity timeout in seconds",
+    )
+
+
 # =============================================================================
 # Control Messages
 # =============================================================================
@@ -511,6 +525,7 @@ AnyMessage = Union[
     UserInputRequest,
     ConfirmationRequest,
     SelectionRequest,
+    AskUserQuestionRequest,
     SpinnerControl,
     DividerMessage,
     StatusPanelMessage,

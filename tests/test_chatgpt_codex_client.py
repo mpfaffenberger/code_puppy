@@ -249,6 +249,41 @@ class TestInjectCodexFields:
         assert "verbosity" not in data
         assert data["temperature"] == 0.7  # Preserved
 
+    def test_dedupes_duplicate_input_item_ids(self):
+        """Duplicate input item IDs should be removed while preserving first-seen order."""
+        body = json.dumps(
+            {
+                "model": "gpt-5",
+                "input": [
+                    {"id": "rs_1", "type": "reasoning", "content": "first"},
+                    {"id": "rs_1", "type": "reasoning", "content": "duplicate"},
+                    {"id": "rs_2", "type": "reasoning", "content": "second"},
+                    {"type": "message", "content": "no-id item"},
+                ],
+            }
+        ).encode()
+
+        result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
+
+        assert result is not None
+        data = json.loads(result)
+        input_items = data["input"]
+
+        # rs_1 duplicate should be removed; first occurrence preserved.
+        assert [
+            item.get("id")
+            for item in input_items
+            if isinstance(item, dict) and item.get("id")
+        ] == [
+            "rs_1",
+            "rs_2",
+        ]
+        # non-id items should still be present
+        assert any(
+            isinstance(item, dict) and item.get("type") == "message"
+            for item in input_items
+        )
+
     def test_invalid_json_returns_none(self):
         """Test that invalid JSON returns (None, False)."""
         body = b"not valid json"
