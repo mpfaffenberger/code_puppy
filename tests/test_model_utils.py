@@ -300,6 +300,17 @@ class TestGetDefaultExtendedThinking:
         assert get_default_extended_thinking("anthropic-opus-4-6-preview") == "adaptive"
         assert get_default_extended_thinking("claude-4-6-opus-20250701") == "adaptive"
 
+    def test_sonnet_5_returns_adaptive(self):
+        # Sonnet 5 defaults to adaptive thinking just like Opus; classic
+        # "enabled" thinking is deprecated for it.
+        assert get_default_extended_thinking("claude-sonnet-5") == "adaptive"
+        assert (
+            get_default_extended_thinking("claude-code-claude-sonnet-5") == "adaptive"
+        )
+        assert get_default_extended_thinking("Claude-Sonnet-5") == "adaptive"
+        # Older single-digit sonnet must stay on enabled.
+        assert get_default_extended_thinking("claude-sonnet-4-20250514") == "enabled"
+
 
 class TestShouldUseAnthropicThinkingSummary:
     """Tests for should_use_anthropic_thinking_summary."""
@@ -309,7 +320,14 @@ class TestShouldUseAnthropicThinkingSummary:
         assert should_use_anthropic_thinking_summary("Claude-Opus-4-7-Latest") is True
         assert should_use_anthropic_thinking_summary("claude-4-7-opus-20250701") is True
 
+    def test_sonnet_5_models_return_true(self):
+        assert should_use_anthropic_thinking_summary("claude-sonnet-5") is True
+        assert (
+            should_use_anthropic_thinking_summary("claude-code-claude-sonnet-5") is True
+        )
+
     def test_other_models_return_false(self):
         assert should_use_anthropic_thinking_summary("claude-opus-4-6") is False
         assert should_use_anthropic_thinking_summary("claude-sonnet-4") is False
+        assert should_use_anthropic_thinking_summary("claude-sonnet-4-6") is False
         assert should_use_anthropic_thinking_summary("gpt-5") is False
