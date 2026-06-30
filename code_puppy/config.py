@@ -560,11 +560,18 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
         True if the model supports the setting, False otherwise.
         Defaults to True for backwards compatibility if model config doesn't specify.
     """
-    # GLM-4.7 and GLM-5 models always support clear_thinking setting
-    if setting == "clear_thinking" and (
-        "glm-4.7" in model_name.lower() or "glm-5" in model_name.lower()
-    ):
-        return True
+    # GLM-4.5+ models support deep-thinking controls (thinking_type,
+    # clear_thinking); GLM-5.2+ additionally support reasoning_effort.
+    if setting in ("thinking_type", "clear_thinking"):
+        from code_puppy.model_utils import supports_glm_thinking
+
+        if supports_glm_thinking(model_name):
+            return True
+    if setting == "glm_reasoning_effort":
+        from code_puppy.model_utils import supports_glm_reasoning_effort
+
+        if supports_glm_reasoning_effort(model_name):
+            return True
 
     try:
         from code_puppy.model_factory import ModelFactory

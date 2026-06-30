@@ -445,6 +445,22 @@ class TestModelSupportsSetting:
         )
         assert cp_config.model_supports_setting("GLM-5-large", "clear_thinking") is True
 
+    def test_glm_thinking_type_supported_from_4_5(self):
+        assert cp_config.model_supports_setting("GLM-4.5-AIR-CODING", "thinking_type")
+        assert cp_config.model_supports_setting("glm-4.6", "thinking_type")
+        assert cp_config.model_supports_setting("zai-glm-5.1-api", "thinking_type")
+        assert not cp_config.model_supports_setting("glm-4.4", "thinking_type")
+        assert not cp_config.model_supports_setting("gpt-5", "thinking_type")
+
+    def test_glm_reasoning_effort_only_5_2_plus(self):
+        assert not cp_config.model_supports_setting(
+            "zai-glm-5.1-api", "glm_reasoning_effort"
+        )
+        assert not cp_config.model_supports_setting("glm-4.7", "glm_reasoning_effort")
+        assert cp_config.model_supports_setting(
+            "zai-glm-5.2-api", "glm_reasoning_effort"
+        )
+
     def test_with_supported_settings_list(self):
         mock_config = {"test-model": {"supported_settings": ["temperature", "seed"]}}
         with patch(
