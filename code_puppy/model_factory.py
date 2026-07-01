@@ -316,7 +316,7 @@ def make_model_settings(
 
         from code_puppy.model_utils import (
             get_default_extended_thinking,
-            should_use_anthropic_thinking_summary,
+            resolve_anthropic_thinking_payload,
         )
 
         actual_model_id = model_config.get("name", model_name)
@@ -331,38 +331,45 @@ def make_model_settings(
             extended_thinking = "off"
 
         budget_tokens = effective_settings.get("budget_tokens", 10000)
-        if extended_thinking in ("enabled", "adaptive"):
-            model_settings_dict["anthropic_thinking"] = {
-                "type": extended_thinking,
-            }
-            if (
-                extended_thinking == "adaptive"
-                and should_use_anthropic_thinking_summary(model_name, actual_model_id)
-            ):
-                model_settings_dict["anthropic_thinking"]["display"] = "summarized"
-            # Only send budget_tokens for classic "enabled" mode
-            if extended_thinking == "enabled" and budget_tokens:
-                model_settings_dict["anthropic_thinking"]["budget_tokens"] = (
-                    budget_tokens
-                )
+        # Single choke point: coerce the internal mode (enabled/adaptive/...) to
+        # whatever wire shape THIS model actually accepts. Different Claude
+        # generations disagree: classic models want type:enabled+budget_tokens,
+        # newer adaptive-supporting models (Opus 4.6+/Sonnet 5/Fable 5) want
+        # type:adaptive and reject type:enabled. The helper picks correctly.
+        thinking_payload = resolve_anthropic_thinking_payload(
+            extended_thinking,
+            budget_tokens=budget_tokens,
+            model_name=model_name,
+            actual_model_id=actual_model_id,
+        )
+        if thinking_payload is not None:
+            model_settings_dict["anthropic_thinking"] = thinking_payload
 
-        # Opus 4-6 models support the `effort` setting via output_config.
-        # pydantic-ai doesn't have a native field for output_config yet,
-        # so we inject it through extra_body which gets merged into the
-        # HTTP request body.
-        # NOTE: effort/output_config only applies to adaptive thinking.
-        # With standard "enabled" thinking, budget_tokens controls depth.
+        # Opus 4-6+ models support the `effort` setting via output_config.
+        # pydantic-ai has no native field for output_config yet, so we inject
+        # it through extra_body which gets merged into the HTTP request body.
+        # All three gate conditions are load-bearing and must stay:
+        #   1. `thinking_payload is not None` -- user turned thinking OFF
+        #      (mode was "off"/"disabled"); don't add effort where there's
+        #      no thinking to steer.
+        #   2. `type == "adaptive"` -- verified at wire level: classic
+        #      Claude models 400 on output_config.effort; only adaptive-
+        #      shape requests may carry it.
+        #   3. `model_supports_setting(..., "effort")` -- per-model opt-in
+        #      from models.json, gives operators a kill-switch without a
+        #      code change if a specific model regresses.
+        # "Simplify" this at your peril.
         if (
-            model_supports_setting(model_name, "effort")
-            and extended_thinking == "adaptive"
+            thinking_payload is not None
+            and thinking_payload.get("type") == "adaptive"
+            and model_supports_setting(model_name, "effort")
         ):
             effort = effective_settings.get(
                 "effort", model_config.get("default_effort", "high")
             )
-            if "anthropic_thinking" in model_settings_dict:
-                extra_body = model_settings_dict.get("extra_body") or {}
-                extra_body["output_config"] = {"effort": effort}
-                model_settings_dict["extra_body"] = extra_body
+            extra_body = model_settings_dict.get("extra_body") or {}
+            extra_body["output_config"] = {"effort": effort}
+            model_settings_dict["extra_body"] = extra_body
 
         model_settings = AnthropicModelSettings(**model_settings_dict)
 

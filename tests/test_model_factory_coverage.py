@@ -351,83 +351,54 @@ class TestMakeModelSettings:
 
 
 class TestOpus46EffortSetting:
-    """Test the effort setting for Opus 4-6 models.
+    """Tests for the effort setting + adaptive/enabled routing.
 
-    The Anthropic API expects effort as a separate top-level parameter:
-        output_config: {"effort": "high"}
-    Since pydantic-ai doesn't natively support output_config yet,
-    we inject it via extra_body which gets merged into the HTTP request.
+    Two orthogonal facts (verified against real API endpoints):
+
+    1. Adaptive-supporting Claude models (Opus 4.6/4.7/4.8, Sonnet 4.6,
+       Sonnet 5, Fable 5) accept ``thinking.type = "adaptive"`` and
+       optionally ``output_config.effort`` alongside it. Classic Claude
+       models (Sonnet 4.5 and earlier) reject both.
+    2. Code Puppy's internal ``"adaptive"`` mode is not itself a wire
+       value; the resolver picks the wire shape (``adaptive`` vs
+       ``enabled``) based on the target model.
     """
 
-    def test_opus_46_gets_effort_in_extra_body(self):
-        """Opus 4-6 should inject effort via extra_body.output_config."""
-        from code_puppy.model_factory import make_model_settings
-
-        settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
-        extra_body = settings.get("extra_body", {})
-        assert "output_config" in extra_body
-        assert "effort" in extra_body["output_config"]
-
-    def test_opus_46_effort_default_is_high(self):
-        """Default effort for Opus 4-6 should be 'high'."""
-        from code_puppy.model_factory import make_model_settings
-
-        settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
-        assert settings["extra_body"]["output_config"]["effort"] == "high"
-
-    def test_opus_46_effort_user_override(self):
-        """User-configured effort value should be respected."""
-        from code_puppy.model_factory import make_model_settings
-
-        with patch(
-            "code_puppy.config.get_effective_model_settings",
-            return_value={"effort": "low", "extended_thinking": "adaptive"},
-        ):
-            settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
-            assert settings["extra_body"]["output_config"]["effort"] == "low"
-
-    def test_opus_46_reverse_name_also_works(self):
-        """claude-4-6-opus variant should also get effort."""
-        from code_puppy.model_factory import make_model_settings
-
-        settings = make_model_settings("claude-4-6-opus", max_tokens=4096)
-        extra_body = settings.get("extra_body", {})
-        assert "output_config" in extra_body
-        assert "effort" in extra_body["output_config"]
-
-    def test_non_opus_46_does_not_get_effort(self):
-        """Non Opus 4-6 Claude models should NOT have extra_body.output_config."""
-        from code_puppy.model_factory import make_model_settings
-
-        settings = make_model_settings("claude-sonnet-4-20250514", max_tokens=4096)
-        extra_body = settings.get("extra_body", {})
-        assert "output_config" not in extra_body
-
-    def test_opus_45_does_not_get_effort(self):
-        """Opus 4-5 should NOT have effort — it's 4-6 only."""
-        from code_puppy.model_factory import make_model_settings
-
-        settings = make_model_settings("claude-opus-4-5", max_tokens=4096)
-        extra_body = settings.get("extra_body", {})
-        assert "output_config" not in extra_body
-
-    def test_opus_46_thinking_type_is_adaptive_by_default(self):
-        """Opus 4-6 should default to adaptive thinking (from previous change)."""
+    def test_opus_46_injects_output_config_effort_on_adaptive(self):
+        """Opus 4-6 default -> adaptive shape + output_config.effort."""
         from code_puppy.model_factory import make_model_settings
 
         settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
         assert settings["anthropic_thinking"]["type"] == "adaptive"
+        extra_body = settings.get("extra_body", {}) or {}
+        assert extra_body.get("output_config", {}).get("effort") == "high"
 
-    def test_opus_46_effort_not_in_anthropic_thinking(self):
-        """Effort should NOT be inside anthropic_thinking — it's a separate param."""
+    def test_classic_sonnet_does_not_get_output_config(self):
+        """Classic Sonnet -> enabled shape, no output_config injection."""
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("claude-sonnet-4-5", max_tokens=4096)
+        assert settings["anthropic_thinking"]["type"] == "enabled"
+        extra_body = settings.get("extra_body", {}) or {}
+        assert "output_config" not in extra_body
+
+    def test_opus_45_does_not_get_output_config(self):
+        """Opus 4-5 is classic-shape (not in the adaptive-supporting set)."""
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("claude-opus-4-5", max_tokens=4096)
+        extra_body = settings.get("extra_body", {}) or {}
+        assert "output_config" not in extra_body
+
+    def test_opus_46_effort_not_nested_in_anthropic_thinking(self):
+        """Effort belongs in extra_body.output_config, NOT anthropic_thinking."""
         from code_puppy.model_factory import make_model_settings
 
         settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
-        thinking = settings.get("anthropic_thinking", {})
-        assert "effort" not in thinking
+        assert "effort" not in settings.get("anthropic_thinking", {})
 
     def test_opus_4_7_adaptive_thinking_adds_summary_display(self):
-        """Opus 4.7 adaptive thinking should include display=summarized."""
+        """Opus 4.7 under adaptive: wire type=adaptive + display=summarized."""
         from code_puppy.model_factory import make_model_settings
 
         with patch(
@@ -438,8 +409,8 @@ class TestOpus46EffortSetting:
         assert settings["anthropic_thinking"]["type"] == "adaptive"
         assert settings["anthropic_thinking"]["display"] == "summarized"
 
-    def test_non_opus_4_7_adaptive_thinking_does_not_add_summary_display(self):
-        """Other Anthropic adaptive-thinking models should not get display=summarized."""
+    def test_opus_4_6_adaptive_thinking_no_display(self):
+        """Opus 4-6 gets adaptive but no display (only 4.7+ gets summary)."""
         from code_puppy.model_factory import make_model_settings
 
         with patch(
@@ -449,6 +420,98 @@ class TestOpus46EffortSetting:
             settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
         assert settings["anthropic_thinking"]["type"] == "adaptive"
         assert "display" not in settings["anthropic_thinking"]
+
+    def test_adaptive_forced_on_classic_model_gets_downgraded(self):
+        """Regression: adaptive on a classic-only model must NOT leak.
+
+        Reporter's original scenario: a Sonnet 4-5 variant with
+        ``extended_thinking="adaptive"`` set. Pre-fix this produced
+        ``type: "adaptive"`` on the wire and Anthropic returned HTTP 400
+        (``Input tag 'adaptive' does not match any of the expected tags:
+        'disabled', 'enabled'``). Post-fix it coerces to type:enabled.
+        """
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.config.get_effective_model_settings",
+            return_value={"extended_thinking": "adaptive"},
+        ):
+            settings = make_model_settings("claude-sonnet-4-5", max_tokens=4096)
+        thinking = settings["anthropic_thinking"]
+        assert thinking["type"] == "enabled"
+        assert "budget_tokens" in thinking
+
+    def test_enabled_forced_on_adaptive_only_model_gets_upgraded(self):
+        """Regression (opposite direction): enabled on an adaptive-only model.
+
+        Opus 4.7 rejects ``thinking.type="enabled"`` with a different HTTP 400
+        (``"thinking.type.enabled" is not supported for this model. Use
+        adaptive.``). The resolver must upgrade enabled -> adaptive shape.
+        """
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.config.get_effective_model_settings",
+            return_value={"extended_thinking": "enabled"},
+        ):
+            settings = make_model_settings("claude-opus-4-7", max_tokens=4096)
+        assert settings["anthropic_thinking"]["type"] == "adaptive"
+
+    def test_no_combination_ever_produces_wire_invalid_type(self):
+        """Fuzz: every mode x model combination yields a wire-valid type."""
+        from code_puppy.model_factory import make_model_settings
+
+        for mode in ("enabled", "adaptive"):
+            for model in (
+                "claude-opus-4-6",
+                "claude-opus-4-7",
+                "claude-opus-4-8",
+                "claude-sonnet-4-6",
+                "claude-sonnet-5",
+                "claude-4-5-sonnet",
+                "claude-sonnet-4-5",
+                "claude-3-5-sonnet",
+            ):
+                with patch(
+                    "code_puppy.config.get_effective_model_settings",
+                    return_value={"extended_thinking": mode},
+                ):
+                    settings = make_model_settings(model, max_tokens=4096)
+                wire_type = settings.get("anthropic_thinking", {}).get("type")
+                assert wire_type in ("enabled", "adaptive", "disabled"), (
+                    f"leak: mode={mode!r} model={model!r} wire_type={wire_type!r}"
+                )
+
+    def test_off_modes_omit_anthropic_thinking_entirely(self):
+        """Companion fuzz: 'off'/'disabled'/None must NOT emit thinking at all.
+
+        The resolver returns None for these modes; the factory must translate
+        that to 'omit anthropic_thinking from the settings dict', not
+        'emit an empty dict'. Empty dicts have been known to serialize as
+        ``"thinking": {}`` on the wire and get their own validation errors.
+        """
+        from code_puppy.model_factory import make_model_settings
+
+        for mode in ("off", "disabled", None):
+            for model in (
+                "claude-opus-4-7",
+                "claude-sonnet-4-5",
+                "claude-3-5-sonnet",
+            ):
+                with patch(
+                    "code_puppy.config.get_effective_model_settings",
+                    return_value={"extended_thinking": mode},
+                ):
+                    settings = make_model_settings(model, max_tokens=4096)
+                assert "anthropic_thinking" not in settings, (
+                    f"leak: mode={mode!r} model={model!r} still emitted "
+                    f"anthropic_thinking={settings.get('anthropic_thinking')!r}"
+                )
+                # And no orphaned output_config.effort either.
+                extra_body = settings.get("extra_body") or {}
+                assert "output_config" not in extra_body, (
+                    f"orphan output_config: mode={mode!r} model={model!r}"
+                )
 
 
 class TestZaiChatModel:
