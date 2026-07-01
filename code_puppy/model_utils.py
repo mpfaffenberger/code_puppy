@@ -228,3 +228,44 @@ def supports_glm_reasoning_effort(model_name: str) -> bool:
     """Only GLM-5.2 and newer support the ``reasoning_effort`` parameter."""
     version = get_glm_version(model_name)
     return version is not None and version >= 5.2
+
+
+def get_thinking_tags(
+    model_name: str, model_config: dict | None = None
+) -> tuple[str, str] | None:
+    """Return the (start, end) tag pair a model wraps reasoning output in.
+
+    pydantic-ai defaults every model's ``ModelProfile.thinking_tags`` to
+    ``('<think>', '</think>')``, which covers the vast majority of
+    reasoning models (DeepSeek-R1, Qwen, GLM, etc). This only needs to
+    return something when a model deviates from that default. Two ways
+    to opt in, checked in order:
+
+    1. Explicit ``"thinking_tags": [start, end]`` in the model's config
+       entry - lets anyone fix a quirky endpoint via extra_models.json
+       without touching code.
+    2. Known proxy-specific quirks hardcoded here. Lilac's hosted
+       MiniMax-M3 proxy remaps reasoning into ``<mm:think>...</mm:think>``
+       instead of forwarding the model's native ``<think>`` tags -- this
+       is a lilac-the-proxy quirk, NOT a MiniMax-the-model one, so it's
+       scoped to ``provider == "lilac"`` and must not fire for MiniMax
+       served directly or through any other provider.
+
+    Returns ``None`` when the pydantic-ai default should be left alone.
+    """
+    if model_config:
+        override = model_config.get("thinking_tags")
+        if override and len(override) == 2:
+            return (str(override[0]), str(override[1]))
+
+    is_lilac = bool(model_config) and model_config.get("provider") == "lilac"
+    if is_lilac:
+        candidates = [model_name.lower()]
+        actual_id = (model_config or {}).get("name")
+        if actual_id:
+            candidates.append(actual_id.lower())
+
+        if any("minimax" in c for c in candidates):
+            return ("<mm:think>", "</mm:think>")
+
+    return None
