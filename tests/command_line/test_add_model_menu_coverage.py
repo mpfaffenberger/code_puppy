@@ -24,7 +24,7 @@ def _make_provider(
     p = MagicMock(spec=ProviderInfo)
     p.id = pid
     p.name = name
-    p.env = env or ["OPENAI_API_KEY"]
+    p.env = env if env is not None else ["OPENAI_API_KEY"]
     p.api = api
     p.model_count = model_count
     p.doc = doc
