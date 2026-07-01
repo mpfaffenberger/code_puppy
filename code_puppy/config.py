@@ -343,6 +343,7 @@ def get_config_keys():
         "frontend_emitter_enabled",
         "frontend_emitter_max_recent_events",
         "frontend_emitter_queue_size",
+        "enable_notifications",
     ]
     # 'enable_dbos' is reserved for the dbos_durable_exec plugin and is read
     # via the generic get_value API; intentionally not in default_keys.

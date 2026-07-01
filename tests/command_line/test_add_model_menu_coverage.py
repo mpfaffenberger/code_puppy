@@ -847,6 +847,7 @@ class TestRun:
             menu.pending_provider = p
 
         mock_app.run.side_effect = run_side_effect
+        mock_input.return_value = "test-api-key"
 
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "extra_models.json")
