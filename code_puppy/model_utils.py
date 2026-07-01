@@ -156,9 +156,7 @@ def _model_matches_any_tag(
     if actual_model_id:
         candidates.append(actual_model_id.lower())
     return any(
-        _matches_model_tag(candidate, tag)
-        for candidate in candidates
-        for tag in tags
+        _matches_model_tag(candidate, tag) for candidate in candidates for tag in tags
     )
 
 
