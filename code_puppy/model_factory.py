@@ -188,14 +188,26 @@ def make_model_settings(
     if supports_glm_thinking(model_name):
         glm_extra_body = model_settings_dict.get("extra_body") or {}
         thinking_type = effective_settings.get("thinking_type", "enabled")
-        glm_extra_body["thinking"] = {
-            "type": thinking_type,
-            "clear_thinking": effective_settings.get("clear_thinking", False),
-        }
+        clear_thinking = effective_settings.get("clear_thinking", False)
+
+        # Lilac's GLM proxy expects chat_template_kwargs instead of the
+        # raw thinking object that Zhipu's native API uses.
+        is_lilac = model_config.get("provider") == "lilac"
+        if is_lilac:
+            glm_extra_body["chat_template_kwargs"] = {
+                "enable_thinking": thinking_type != "disabled",
+                "clear_thinking": clear_thinking,
+            }
+        else:
+            glm_extra_body["thinking"] = {
+                "type": thinking_type,
+                "clear_thinking": clear_thinking,
+            }
+
         # Only send reasoning_effort when thinking is enabled. When thinking
         # is disabled, including reasoning_effort can cause some API proxies
-        # (e.g. Lilac) to interpret its mere presence as "enable reasoning",
-        # overriding thinking.type=disabled.
+        # to interpret its mere presence as "enable reasoning",
+        # overriding the disabled flag.
         if thinking_type != "disabled" and supports_glm_reasoning_effort(model_name):
             glm_extra_body["reasoning_effort"] = effective_settings.get(
                 "glm_reasoning_effort", "max"

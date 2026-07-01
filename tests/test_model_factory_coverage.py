@@ -161,6 +161,69 @@ class TestMakeModelSettings:
         }
         assert settings["extra_body"]["reasoning_effort"] == "none"
 
+    def test_make_model_settings_glm_lilac_uses_chat_template_kwargs(self):
+        """Lilac GLM models use chat_template_kwargs instead of thinking object."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.model_factory.ModelFactory.load_config",
+            return_value={
+                "lilac-glm-5.2": {
+                    "type": "custom_openai",
+                    "provider": "lilac",
+                    "name": "glm-5.2",
+                    "context_length": 128000,
+                    "supported_settings": ["temperature", "seed", "top_p"],
+                }
+            },
+        ):
+            with patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={
+                    "thinking_type": "enabled",
+                    "clear_thinking": False,
+                    "glm_reasoning_effort": "max",
+                },
+            ):
+                settings = make_model_settings("lilac-glm-5.2", max_tokens=4096)
+
+        assert "chat_template_kwargs" in settings["extra_body"]
+        assert settings["extra_body"]["chat_template_kwargs"] == {
+            "enable_thinking": True,
+            "clear_thinking": False,
+        }
+        assert "thinking" not in settings["extra_body"]
+        assert settings["extra_body"]["reasoning_effort"] == "max"
+
+        # thinking disabled -> enable_thinking False, no reasoning_effort
+        with patch(
+            "code_puppy.model_factory.ModelFactory.load_config",
+            return_value={
+                "lilac-glm-5.2": {
+                    "type": "custom_openai",
+                    "provider": "lilac",
+                    "name": "glm-5.2",
+                    "context_length": 128000,
+                    "supported_settings": ["temperature", "seed", "top_p"],
+                }
+            },
+        ):
+            with patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={
+                    "thinking_type": "disabled",
+                    "clear_thinking": True,
+                    "glm_reasoning_effort": "max",
+                },
+            ):
+                settings = make_model_settings("lilac-glm-5.2", max_tokens=4096)
+
+        assert settings["extra_body"]["chat_template_kwargs"] == {
+            "enable_thinking": False,
+            "clear_thinking": True,
+        }
+        assert "reasoning_effort" not in settings["extra_body"]
+
     def test_make_model_settings_foundry_gpt5_uses_responses_fields(self):
         """Test Azure Foundry GPT-5 gets Responses API reasoning summary fields."""
         from code_puppy.model_factory import make_model_settings
