@@ -20,6 +20,7 @@ from code_puppy.model_utils import (
     PreparedPrompt,
     get_default_extended_thinking,
     get_glm_version,
+    get_thinking_tags,
     prepare_prompt_for_model,
     should_use_anthropic_thinking_summary,
     supports_glm_reasoning_effort,
@@ -368,4 +369,58 @@ class TestGlmHelpers:
         assert supports_glm_reasoning_effort("GLM-5.2-Turbo") is True
         assert supports_glm_reasoning_effort("glm-5.1") is False
         assert supports_glm_reasoning_effort("glm-4.7") is False
+
+
+class TestGetThinkingTags:
+    """Tests for the reasoning-tag override helper.
+
+    The <mm:think> quirk is lilac's PROXY mangling MiniMax's output, not
+    something MiniMax itself does -- every other MiniMax deployment (direct,
+    other providers) must keep the standard <think>/</think> tags.
+    """
+
+    def test_minimax_via_lilac_gets_mm_think_tags(self):
+        config = {"provider": "lilac", "name": "minimaxai/minimax-m3"}
+        assert get_thinking_tags("lilac-minimaxai-minimax-m3", config) == (
+            "<mm:think>",
+            "</mm:think>",
+        )
+
+    def test_minimax_via_lilac_detected_via_alias_name_too(self):
+        # Even without a "name" override, the alias itself mentions minimax.
+        config = {"provider": "lilac"}
+        assert get_thinking_tags("lilac-minimaxai-minimax-m3", config) == (
+            "<mm:think>",
+            "</mm:think>",
+        )
+
+    def test_minimax_via_other_provider_keeps_default_tags(self):
+        # Same model, hosted directly / via a different provider -> no mangling,
+        # so we must NOT override its native <think> tags.
+        config = {"name": "sparkarena/Minimax-M3-v0-NVFP4"}
+        assert get_thinking_tags("boodleton-minimax-m3-nvfp4", config) is None
+        assert get_thinking_tags("minimaxai-minimax-m3") is None
+
+    def test_non_minimax_lilac_model_keeps_default_tags(self):
+        config = {"provider": "lilac", "name": "zai-org/glm-5.2"}
+        assert get_thinking_tags("lilac-zai-org-glm-5.2", config) is None
+        assert get_thinking_tags("gpt-5") is None
+
+    def test_explicit_config_override_wins_over_lilac_minimax_default(self):
+        config = {
+            "provider": "lilac",
+            "name": "minimaxai/minimax-m3",
+            "thinking_tags": ["<r>", "</r>"],
+        }
+        assert get_thinking_tags("lilac-minimaxai-minimax-m3", config) == (
+            "<r>",
+            "</r>",
+        )
+
+    def test_explicit_config_override_works_for_arbitrary_models(self):
+        config = {"thinking_tags": ["<reasoning>", "</reasoning>"]}
+        assert get_thinking_tags("some-quirky-model", config) == (
+            "<reasoning>",
+            "</reasoning>",
+        )
         assert supports_glm_reasoning_effort("gpt-5") is False
