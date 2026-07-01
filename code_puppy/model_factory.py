@@ -122,6 +122,23 @@ def _is_anthropic_model(model_name: str, model_config: dict[str, Any]) -> bool:
     return model_config.get("type") in _ANTHROPIC_MODEL_TYPES
 
 
+def _thinking_tags_profile(
+    model_name: str, model_config: dict[str, Any]
+) -> OpenAIModelProfile | None:
+    """Build an OpenAIModelProfile overriding thinking_tags, if needed.
+
+    Returns None when the model uses pydantic-ai's default ``<think>``/
+    ``</think>`` tags, so callers can pass this straight through as
+    ``profile=`` without an extra None-check.
+    """
+    from code_puppy.model_utils import get_thinking_tags
+
+    tags = get_thinking_tags(model_name, model_config)
+    if tags is None:
+        return None
+    return OpenAIModelProfile(thinking_tags=tags)
+
+
 def make_model_settings(
     model_name: str, max_tokens: int | None = None
 ) -> ModelSettings:
@@ -607,7 +624,11 @@ class ModelFactory:
                 return None
 
             provider = make_openai_provider(provider_identity, api_key=api_key)
-            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            model = OpenAIChatModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=_thinking_tags_profile(model_name, model_config),
+            )
             if "codex" in model_name:
                 model = OpenAIResponsesModel(
                     model_name=model_config["name"], provider=provider
@@ -781,7 +802,11 @@ class ModelFactory:
             if api_key:
                 provider_args["api_key"] = api_key
             provider = make_openai_provider(provider_identity, **provider_args)
-            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            model = OpenAIChatModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=_thinking_tags_profile(model_name, model_config),
+            )
             if model_name == "chatgpt-gpt-5-codex":
                 model = OpenAIResponsesModel(model_config["name"], provider=provider)
             return model
@@ -914,7 +939,11 @@ class ModelFactory:
 
             provider = OpenRouterProvider(api_key=api_key)
 
-            return OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            return OpenAIChatModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=_thinking_tags_profile(model_name, model_config),
+            )
 
         elif model_type == "gemini_oauth":
             # Gemini OAuth models use the Code Assist API (cloudcode-pa.googleapis.com)
