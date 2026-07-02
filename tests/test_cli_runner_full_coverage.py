@@ -527,8 +527,14 @@ class TestInteractiveMode:
                 "code_puppy.cli_runner.get_current_agent": MagicMock(
                     return_value=agent
                 ),
-                "code_puppy.cli_runner.get_clipboard_manager": MagicMock(
+                # /clear is handled by session_commands now; it lazy-imports
+                # the clipboard manager and autosave rotation, so patch at
+                # the source modules.
+                "code_puppy.command_line.clipboard.get_clipboard_manager": MagicMock(
                     return_value=_mock_clipboard([b"img"])
+                ),
+                "code_puppy.config.finalize_autosave_session": MagicMock(
+                    return_value="session-1"
                 ),
             },
         )
@@ -1269,8 +1275,12 @@ class TestInteractiveMode:
                 "code_puppy.cli_runner.get_current_agent": MagicMock(
                     return_value=agent
                 ),
-                "code_puppy.cli_runner.get_clipboard_manager": MagicMock(
+                # Same lazy-import targets as test_clear_command above.
+                "code_puppy.command_line.clipboard.get_clipboard_manager": MagicMock(
                     return_value=_mock_clipboard()
+                ),
+                "code_puppy.config.finalize_autosave_session": MagicMock(
+                    return_value="session-1"
                 ),
             },
         )

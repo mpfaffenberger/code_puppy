@@ -556,6 +556,7 @@ class TestChecklist6_StatsFromAgentRunStats:
             "gen_tps",
             "gen_seconds",
             "output_tokens",
+            "tokens_exact",
         }
         assert set(stats.keys()) == expected_keys
 
