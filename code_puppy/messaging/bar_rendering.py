@@ -168,20 +168,30 @@ def _prompt_visual_rows(prefix: str, buffer: str, cursor_pos: int, width: int) -
 
     Every LOGICAL line (split on ``\\n``) wraps into one or more visual
     rows of at most ``width`` cells (wide glyphs never split — rich's
-    ``chop_cells`` does the cell math). The prefix rides logical line 0.
+    ``chop_cells`` does the cell math).
+
+    The prefix may itself contain hard newlines (the prompt_newline
+    plugin appends one so typed input starts below the chrome): every
+    prefix line but the last paints as its own chrome row(s) ABOVE the
+    input, and only the final prefix line rides the buffer's logical
+    line 0. Each prefix ``\\n`` occupies an SGR slot (see
+    ``prompt_prefix_style.flatten_prompt_fragments``), so ``row_offsets``
+    index into the full newline-bearing prefix and stay SGR-aligned.
 
     Returns ``(rows, cursor_row, cursor_offset, row_offsets)``: ALL
     visual rows (uncapped), the index of the row holding the cursor, the
     cursor's char offset within that row, and each row's char offset
-    within logical line 0 (``None`` for rows of other logical lines —
-    only line 0 carries the styleable prefix). When the cursor sits past
-    a row that exactly fills the width, it wraps onto a following
-    (possibly empty) row — same as a real terminal.
+    within the prefix + logical line 0 (``None`` for rows of other
+    logical lines — only prefix rows and line 0 carry styleable prefix
+    chars). When the cursor sits past a row that exactly fills the
+    width, it wraps onto a following (possibly empty) row — same as a
+    real terminal.
     """
     width = max(1, width)
     buffer = buffer or ""
     cursor = max(0, min(cursor_pos, len(buffer)))
-    prefix = sanitize(prefix)
+    prefix_lines = [sanitize(part) for part in (prefix or "").split("\n")]
+    prefix_tail = prefix_lines[-1]
     logical = buffer.split("\n")
     before = buffer[:cursor]
     cur_line = before.count("\n")
@@ -191,11 +201,21 @@ def _prompt_visual_rows(prefix: str, buffer: str, cursor_pos: int, width: int) -
     row_offsets: list = []
     cursor_row = 0
     cursor_offset = 0
+    # Chrome rows: every prefix line except the last, offset-tracked
+    # against the full prefix (the '\n' itself consumes one SGR slot).
+    poff = 0
+    for head in prefix_lines[:-1]:
+        segments = chop_cells(head, width) or [""]
+        for seg in segments:
+            rows.append(seg)
+            row_offsets.append(poff)
+            poff += len(seg)
+        poff += 1  # the newline's SGR slot
     for i, line in enumerate(logical):
-        content = (prefix if i == 0 else "") + sanitize(line)
+        content = (prefix_tail if i == 0 else "") + sanitize(line)
         segments = chop_cells(content, width) or [""]
         if i == cur_line:
-            offset = (len(prefix) if i == 0 else 0) + cur_col
+            offset = (len(prefix_tail) if i == 0 else 0) + cur_col
             acc = 0
             seg_idx = len(segments) - 1
             inner = len(segments[-1])
@@ -217,7 +237,7 @@ def _prompt_visual_rows(prefix: str, buffer: str, cursor_pos: int, width: int) -
             cursor_row = len(rows) + seg_idx
             cursor_offset = inner
         if i == 0:
-            acc_off = 0
+            acc_off = poff  # line 0's prefix chars start after the chrome
             for seg in segments:
                 row_offsets.append(acc_off)
                 acc_off += len(seg)

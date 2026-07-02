@@ -81,11 +81,17 @@ def flatten_prompt_fragments(
     Each fragment's text is passed through the SAME ``sanitize()`` the
     bar renderer applies, so the SGR list stays index-aligned with the
     prefix chars the renderer actually paints.
+
+    Hard newlines are the ONE control character kept: they mark chrome
+    line breaks (the prompt_newline plugin appends one so input starts
+    on a fresh row) and ``bar_rendering._prompt_visual_rows`` honors
+    them. Each kept ``\\n`` still occupies an SGR slot so the per-char
+    alignment survives the split.
     """
     plain_parts: List[str] = []
     sgrs: List[str] = []
     for style, text in fragments:
-        clean = sanitize(text)
+        clean = "\n".join(sanitize(part) for part in text.split("\n"))
         if not clean:
             continue
         sgr = style_to_sgr(style, class_styles)
