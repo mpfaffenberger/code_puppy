@@ -396,7 +396,7 @@ def test_cd_completer_permission_error_silently_handled(monkeypatch):
 
 
 @pytest.mark.asyncio
-@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession")
 @patch("code_puppy.command_line.prompt_toolkit_completion.FileHistory")
 @patch("code_puppy.command_line.prompt_toolkit_completion.merge_completers")
 async def test_get_input_with_combined_completion_defaults(
@@ -427,7 +427,7 @@ async def test_get_input_with_combined_completion_defaults(
     # Check default prompt string was converted to FormattedText
     assert isinstance(mock_session_instance.prompt_async.call_args[0][0], FormattedText)
     assert mock_session_instance.prompt_async.call_args[0][0] == FormattedText(
-        [(None, ">>> ")]
+        [("", ">>> ")]
     )
     assert "style" in mock_session_instance.prompt_async.call_args[1]
 
@@ -439,7 +439,7 @@ async def test_get_input_with_combined_completion_defaults(
 
 
 @pytest.mark.asyncio
-@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession")
 @patch("code_puppy.command_line.prompt_toolkit_completion.SafeFileHistory")
 async def test_get_input_with_combined_completion_with_history(
     mock_safe_file_history, mock_prompt_session_cls
@@ -460,7 +460,7 @@ async def test_get_input_with_combined_completion_with_history(
 
 
 @pytest.mark.asyncio
-@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession")
 async def test_get_input_with_combined_completion_custom_prompt(
     mock_prompt_session_cls,
 ):
@@ -472,7 +472,7 @@ async def test_get_input_with_combined_completion_custom_prompt(
     custom_prompt_str = "Custom> "
     await get_input_with_combined_completion(prompt_str=custom_prompt_str)
     assert mock_session_instance.prompt_async.call_args[0][0] == FormattedText(
-        [(None, custom_prompt_str)]
+        [("", custom_prompt_str)]
     )
 
     # Test with FormattedText prompt
@@ -482,7 +482,7 @@ async def test_get_input_with_combined_completion_custom_prompt(
 
 
 @pytest.mark.asyncio
-@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession")
 async def test_get_input_with_combined_completion_no_model_update(
     mock_prompt_session_cls,
 ):
@@ -506,7 +506,7 @@ async def test_get_input_with_combined_completion_no_model_update(
     strict=False,
 )
 @pytest.mark.asyncio
-@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession")
 async def test_get_input_key_binding_alt_m(mock_prompt_session_cls):
     # We don't need the function to run fully, just to set up PromptSession
     mock_session_instance = MagicMock()
@@ -530,7 +530,7 @@ async def test_get_input_key_binding_alt_m(mock_prompt_session_cls):
 
 
 @pytest.mark.asyncio
-@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession")
 async def test_get_input_key_binding_escape(mock_prompt_session_cls):
     mock_session_instance = MagicMock()
     mock_session_instance.prompt_async = AsyncMock(return_value="test")

@@ -1,21 +1,19 @@
-"""subagent_panel -- live two-line status per sub-agent in the puppy spinner.
+"""subagent_panel -- live per-sub-agent status rows on the bottom bar.
 
-While running (transient, in the puppy's Live region):
+While running, the panel renders one aligned row per sub-agent on the
+bottom bar's panel rows (above the status/context row, pinned outside
+the scroll region):
 
-     INVOKE AGENT <name>  <model>
-      <spin> 00:19  calling read_file
-
-    <bouncing puppy>
+     \U0001f916 INVOKE AGENT <name>  <model>  <spin> 00:19  calling read_file
 
 On completion, a PERSISTENT frozen record is printed to the transcript that
-mirrors the live look, with the status line finalized green + check:
+mirrors the live look, with the status finalized green + check.
 
-     INVOKE AGENT <name>  <model>
-      \u2713 00:45  completed
-
-Install strategy (startup monkeypatches of seams with no hook + 1 callback):
-  1. ConsoleSpinner._generate_spinner_panel  -> render the live block above the
-     puppy (reuses the existing 20fps Live -- no second Live, no flicker).
+Install strategy (startup monkeypatches of seams with no hook + callbacks):
+  1. Live panel -> rendered to PLAIN text lines and pushed to
+     ``bottom_bar.set_panel_lines()`` on every state change (event-driven;
+     no Rich Live, no dedicated animation thread — the spin frame advances
+     whenever a stream event lands).
   2. RichConsoleRenderer._render_subagent_invocation -> CAPTURE exact metadata
      (name/model/session_id) + SUPPRESS the permanent banner.
   3. RichConsoleRenderer._do_render -> when a SubAgentResponseMessage arrives
@@ -35,7 +33,9 @@ Runtime toggle with /set subagent_panel off|on.
 from __future__ import annotations
 
 import os
-import re
+import asyncio
+import threading
+import time
 from contextvars import ContextVar
 
 _TRUTHY = {"1", "true", "yes", "on"}
@@ -98,15 +98,17 @@ _PARENT_SID: ContextVar = ContextVar("subagent_panel_parent_sid", default=None)
 
 
 # ---------------------------------------------------------------------------
-# Shared rendering helpers
+# Shared rendering helpers (moved to panel_render.py; re-exported here for
+# backwards compatibility -- tests and out-of-tree code import these names
+# from register_callbacks)
 # ---------------------------------------------------------------------------
-def _banner_color():
-    try:
-        from code_puppy.config import get_banner_color
-
-        return get_banner_color("invoke_agent")
-    except Exception:
-        return "blue"
+from .panel_render import (  # noqa: E402
+    _model_short as _model_short,  # noqa: F401  (re-export)
+    _model_variant as _model_variant,  # noqa: F401  (re-export)
+    _model_version as _model_version,  # noqa: F401  (re-export)
+    _ordered_tree,
+    _row_lines,
+)
 
 
 def _resolve_model(agent_name, override):
@@ -127,245 +129,138 @@ def _resolve_model(agent_name, override):
 
 
 # ---------------------------------------------------------------------------
-# Hierarchy helpers (true parent -> child tree)
+# Live panel rendering (event-driven, pushed to the bottom bar)
 # ---------------------------------------------------------------------------
-def _ordered_tree(rows):
-    """Return [(entry, depth), ...] in DFS order. A row whose parent is not in
-    the set (e.g. the main agent, or None) is a root (depth 0); descendants are
-    indented one-liners. Cycle-safe; stable by start time."""
-    by_id = {e["session_id"]: e for e in rows if e.get("session_id")}
-    children = {}
-    roots = []
-    for e in rows:
-        p = e.get("parent")
-        if p and p in by_id:
-            children.setdefault(p, []).append(e)
-        else:
-            roots.append(e)
-    out = []
-    seen = set()
+#
+# Compression scheme (bottom bar caps the panel at PANEL_MAX_ROWS=4 rows):
+#   * The live format is already ONE aligned row per agent (badge/elbow +
+#     name + model + spin/check + elapsed + status) — information-complete,
+#     so no per-agent compression is needed.
+#   * <= 4 agents: one row each.
+#   * >  4 agents: first 3 rows (DFS order, parents first) + "(+N more)".
+# Rows are rendered via the shared _row_lines() (same as the transcript)
+# and pushed as rich.text.Text — the bottom bar paints styled Text rows in
+# full color (SGRs regenerated from trusted Style objects; content still
+# sanitized per-segment), so the live rows match the frozen record.
 
-    def walk(node, depth):
-        sid = node.get("session_id")
-        if sid in seen:
-            return
-        seen.add(sid)
-        out.append((node, depth))
-        for kid in sorted(children.get(sid, []), key=lambda c: c["start"]):
-            walk(kid, depth + 1)
+#: Max rows the bottom bar will display for us (mirrors PANEL_MAX_ROWS).
+_PANEL_ROW_CAP = 4
 
-    for r in sorted(roots, key=lambda e: e["start"]):
-        walk(r, 0)
-    return out
+#: Same-shape repaints (spin frame / elapsed churn) at most 10x/second.
+_PUSH_MIN_INTERVAL = 0.1
+# NOTE: deliberately unsynchronized. Multiple threads may race on these
+# two scalar slots, but the worst outcome is one extra (or one skipped)
+# throttled repaint — the next event self-heals. A lock here would buy
+# nothing except contention on the hot stream-event path.
+_push_state = {"t": 0.0, "count": -1}
 
 
-# Tier/variant qualifiers that distinguish models sharing a version number
-# (e.g. gpt-5.4 vs gpt-5.4-nano vs gpt-5.4-mini). Without these, three distinct
-# models all collapse to "GPT 5.4" in the panel -- the exact confusion this maps
-# away. key (lowercased token in the id) -> Display label.
-_MODEL_VARIANTS = (
-    ("nano", "Nano"),
-    ("mini", "Mini"),
-    ("micro", "Micro"),
-    ("lite", "Lite"),
-    ("turbo", "Turbo"),
-    ("flash", "Flash"),
-    ("instant", "Instant"),
-    ("codex", "Codex"),
-    ("thinking", "Thinking"),
-    ("reasoning", "Reasoning"),
-    ("preview", "Preview"),
-    ("pro", "Pro"),
-)
-
-
-def _model_variant(m):
-    """Extract a tier/variant qualifier (Nano, Mini, Flash, ...) from a lowercased
-    model id. Matched ONLY as a hyphen/underscore/dot/space-delimited token, so
-    'mini' inside 'gemini' (or 'pro' inside another word) can never false-fire.
-    Returns '' when the id carries no recognised variant."""
-    for key, label in _MODEL_VARIANTS:
-        if re.search(rf"(?:^|[-_. ]){re.escape(key)}(?:$|[-_. ])", m):
-            return label
-    return ""
-
-
-def _model_version(m):
-    """Extract a 'major.minor' version from a lowercased model id, tolerating
-    BOTH separators in the wild: a contiguous decimal ('gpt-5.4' -> '5.4') OR a
-    dash-separated pair ('gpt-5-4', 'claude-4-8-opus' -> '5.4'/'4.8'). Only joins
-    two integer groups when both are short (<=2 digits) so date/snapshot ids like
-    'gpt-4-0125' don't get mangled into '4.0125'. Returns '' when no number."""
-    dec = re.search(r"\d+\.\d+", m)
-    if dec:
-        return dec.group(0)
-    nums = re.findall(r"\d+", m)
-    if not nums:
-        return ""
-    if len(nums) >= 2 and len(nums[0]) <= 2 and len(nums[1]) <= 2:
-        return f"{nums[0]}.{nums[1]}"
-    return nums[0]
-
-
-def _model_short(model):
-    """Human-readable shorthand for a model id, for live readability.
-    e.g. 'claude-4-8-opus' -> 'Opus 4.8', 'claude-sonnet-4-6' -> 'Sonnet 4.6',
-    'gpt-5.5' -> 'GPT 5.5', 'gpt-5.4-nano' -> 'GPT 5.4-Nano'. The tier qualifier
-    is preserved so same-version-different-tier models stay distinct. Falls back
-    to the raw id if unrecognised."""
-    if not model:
-        return ""
-
-    m = str(model).lower()
-    variant = _model_variant(m)
-    suffix = f"-{variant}" if variant else ""
-    ver = _model_version(m)
-    for key, label in (("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku")):
-        if key in m:
-            return f"{label} {ver}{suffix}".strip()
-    if "gpt" in m:
-        return (f"GPT {ver}{suffix}" if ver else f"GPT{suffix}").strip()
-    if "gemini" in m:
-        return (f"Gemini {ver}{suffix}" if ver else f"Gemini{suffix}").strip()
-    return str(model)
-
-
-def _row_lines(ordered, frame):
-    """Render a list of (entry, depth) as aligned single-line rows:
-        <prefix><name>   <model>   <spin|check> <mm:ss>
-    The model + indicator + time columns share a per-tree tab-stop computed
-    from the widest (prefix+name) AND the widest model label, so longer model
-    names (e.g. 'GPT 5.4-Nano') and deeper-indented names both push the whole
-    right block over together -- columns stay aligned no matter what gets added.
-    Alignment is done purely with U+0020 spaces (never literal tabs), and widths
-    use Rich cell_len, so the layout renders identically on Windows and macOS.
-    Root rows carry the INVOKE AGENT badge; nested rows carry the tree elbow.
-    Used for BOTH the live block and the transcript.
-    """
-    from rich.cells import cell_len
-    from rich.text import Text
-
-    color = _banner_color()
-    lefts = []
-    models = []
-    name_w = 0
-    model_w = 0
-    for e, depth in ordered:
-        left = Text(no_wrap=True, overflow="ellipsis")
-        if depth == 0:
-            left.append(" \U0001f916 INVOKE AGENT ", style=f"bold white on {color}")
-            left.append(" ")
-            left.append(e["name"], style="bold cyan")
-        else:
-            left.append("  " + "   " * (depth - 1))
-            left.append("\u2514\u2500 ", style="grey50")  # tree elbow
-            left.append(e["name"], style="bold cyan")
-        lefts.append(left)
-        ms = _model_short(e.get("model"))
-        models.append(ms)
-        name_w = max(name_w, left.cell_len)
-        model_w = max(model_w, cell_len(ms))
-
-    lines = []
-    for (e, depth), left, ms in zip(ordered, lefts, models):
-        done = bool(e.get("done"))
-        failed = bool(e.get("failed"))
-        line = left.copy()
-        # These rows are deliberately one-line status rows. If a long tool name
-        # wraps (e.g. calling agent_run_shell_command on a narrow terminal), the
-        # shared Rich Live grows at Ctrl+T and strands the previous frame into
-        # scrollback. Crop visually; preserve full status in state.
-        line.no_wrap = True
-        line.overflow = "ellipsis"
-        line.append(" " * (name_w - left.cell_len + 2))
-        line.append(ms, style="magenta")
-        line.append(" " * (model_w - cell_len(ms) + 2))
-        if failed:
-            line.append("\u2717 ", style="bold red")  # X mark
-        elif done:
-            line.append("\u2713 ", style="bold green")  # check
-        else:
-            line.append((frame or " ") + " ", style="bold cyan")
-        line.append(state.fmt_elapsed_entry(e), style="dim")
-        # Current action / status, color-coded (yellow=calling, magenta=thinking,
-        # green=writing). Done rows show 'completed' green; failed rows 'failed' red.
-        status = e.get("status", "starting")
-        line.append("  ")
-        if failed:
-            line.append("failed", style="bold red")
-        elif done:
-            line.append("completed", style="green")
-        else:
-            line.append(status, style=state.status_style(status))
-        lines.append(line)
-    return lines
-
-
-# ---------------------------------------------------------------------------
-# Live panel rendering (called from the spinner repaint loop, ~20fps)
-# ---------------------------------------------------------------------------
-def _render_status_lines():
+def _panel_lines():
+    """Render the live tree to styled Text rows for the bottom-bar panel."""
     if not _runtime_enabled():
-        return None
+        return []
     rows = state.snapshot()
     if not rows:
-        return None
-
-    from rich.text import Text
-
+        return []
     frame = state.spinner_frame()
     ordered = _ordered_tree(rows)
-    shown = ordered[: state.MAX_ROWS]
-    lines = _row_lines(shown, frame)
-
-    extra = len(ordered) - len(shown)
+    if len(ordered) <= _PANEL_ROW_CAP:
+        shown = ordered
+        extra = 0
+    else:
+        shown = ordered[: _PANEL_ROW_CAP - 1]
+        extra = len(ordered) - len(shown)
+    lines = list(_row_lines(shown, frame))
     if extra > 0:
-        lines.append(Text(f"  (+{extra} more)", style="dim"))
+        lines.append(f"  (+{extra} more)")
     return lines
 
 
-def _make_patched_panel(original_fn):
-    from rich.console import Group
-    from rich.text import Text
+# ---------------------------------------------------------------------------
+# 4 Hz elapsed-clock ticker (asyncio task — zero new threads)
+# ---------------------------------------------------------------------------
+#
+# The panel repaint is event-driven, so during a long SILENT model call
+# no stream events arrive and the mm:ss column would freeze. The ticker
+# repaints ~4x/second while any sub-agent is tracked — fast enough that
+# the wall-clock-derived braille spin frame animates smoothly during
+# silence, still comfortably above the 10fps same-shape throttle in
+# _push_panel (0.25s > 0.1s), so a plain (non-force) push is sufficient.
+# Flicker-safe: each repaint is ONE atomic bottom-bar write (CUP + EL +
+# text per row) — the same machinery the puppy spinner drives at 20fps.
 
-    def _patched(self):
-        original = original_fn(self)
-        if isinstance(original, Text) and str(original) == "":
-            return original
-        if not _runtime_enabled():
-            return original
+_TICK_INTERVAL_S = 0.25
+_ticker_task: "asyncio.Task | None" = None
+_ticker_lock = threading.Lock()
 
-        try:
-            block = _render_status_lines()
-        except Exception:
-            block = None
-        if not block:
-            return original
-        return Group(*block, Text(""), original)
 
-    _patched._subagent_panel = True
-    return _patched
+def _start_ticker() -> None:
+    """Start the ticker task (idempotent; no-op without a running loop)."""
+    global _ticker_task
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # no loop (sync/odd context): stay event-driven only
+    with _ticker_lock:
+        if _ticker_task is not None and not _ticker_task.done():
+            return
+        _ticker_task = loop.create_task(_tick_loop())
+
+
+def _stop_ticker() -> None:
+    """Cancel the ticker task if it's running. Idempotent."""
+    global _ticker_task
+    with _ticker_lock:
+        task = _ticker_task
+        _ticker_task = None
+    if task is not None and not task.done():
+        task.cancel()
+
+
+async def _tick_loop() -> None:
+    """Repaint ~4x/second so clocks + spin frames advance during silence."""
+    global _ticker_task
+    try:
+        while True:
+            await asyncio.sleep(_TICK_INTERVAL_S)
+            if not state.has_active():
+                break  # belt-and-braces: never outlive the swarm
+            _push_panel()
+    except asyncio.CancelledError:
+        pass
+    finally:
+        with _ticker_lock:
+            if _ticker_task is asyncio.current_task():
+                _ticker_task = None
+
+
+def _push_panel(force: bool = False) -> None:
+    """Push the rendered panel to the bottom bar (throttled).
+
+    ``force=True`` bypasses the throttle — used for shape-changing events
+    (register / done / clear) so grow/collapse is never delayed.
+    """
+    try:
+        lines = _panel_lines()
+        now = time.time()
+        if (
+            not force
+            and len(lines) == _push_state["count"]
+            and now - _push_state["t"] < _PUSH_MIN_INTERVAL
+        ):
+            return  # frame/elapsed churn — skip this repaint
+        _push_state["t"] = now
+        _push_state["count"] = len(lines)
+        from code_puppy.messaging.bottom_bar import get_bottom_bar
+
+        get_bottom_bar().set_panel_lines(lines)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
 # Frozen (persistent) completion record
 # ---------------------------------------------------------------------------
-def _render_console():
-    """The Rich console the puppy spinner's Live is attached to. Printing to it
-    while the Live is active makes Rich relocate the panel BELOW the print, so
-    the flushed group lands cleanly in scrollback above the live region."""
-    try:
-        from code_puppy.messaging.spinner import _active_spinners
-
-        for sp in _active_spinners:
-            con = getattr(sp, "console", None)
-            if con is not None:
-                return con
-    except Exception:
-        pass
-    return None
-
-
 def _handle_frozen(console, session_id):
     """A sub-agent finished. Mark it done but KEEP it grouped in the live panel
     (rendered as 'completed'). The ENTIRE panel flushes to the transcript as one
@@ -377,6 +272,7 @@ def _handle_frozen(console, session_id):
         return
     state.mark_done(session_id)
     _maybe_flush_group(console)
+    _push_panel(force=True)
 
 
 def _maybe_flush_group(console):
@@ -393,22 +289,17 @@ def _maybe_flush_group(console):
     if console is None:
         return
     ordered = _ordered_tree(rows)
+    console.print()  # breathing room between the transcript and the group
     for line in _row_lines(ordered, frame=None):
         console.print(line)
     state.clear()
+    _stop_ticker()  # last agent flushed — nothing left to clock
+    _push_panel(force=True)  # collapse the panel rows
 
 
 # ---------------------------------------------------------------------------
 # Monkeypatch installers
 # ---------------------------------------------------------------------------
-def _install_spinner_patch() -> None:
-    from code_puppy.messaging.spinner.console_spinner import ConsoleSpinner
-
-    current = ConsoleSpinner._generate_spinner_panel
-    if not getattr(current, "_subagent_panel", False):
-        ConsoleSpinner._generate_spinner_panel = _make_patched_panel(current)
-
-
 def _install_parent_tracking() -> None:
     """Mirror set_session_context() into an async-safe ContextVar.
 
@@ -464,6 +355,8 @@ def _install_emit_hook() -> None:
                     message.agent_name, getattr(message, "model_name", None)
                 )
                 state.register(message.session_id, message.agent_name, model, parent)
+                _push_panel(force=True)
+                _start_ticker()  # keeps mm:ss advancing through silence
         except Exception:
             pass
         return current(self, message)
@@ -547,18 +440,21 @@ def _install_suppress_completion() -> None:
     sai.emit_success = _filtered
 
 
+# TODO(deferred): replace this pile of monkeypatches (MessageBus.emit,
+# renderer seams, emit_success, set_session_context, coalesce wrapper)
+# with real core hooks — e.g. subagent_registered / subagent_completed
+# callbacks — so the plugin stops depending on private call signatures.
 def _install() -> None:
     if _DISABLED:
         return
     for installer in (
         lambda: coalesce_patch.install(_runtime_enabled),
-        _install_spinner_patch,
         _install_parent_tracking,
         _install_emit_hook,
         _install_banner_capture,
         _install_render_wrapper,
         _install_suppress_completion,
-        lambda: resume_repaint.install(_runtime_enabled, state),
+        lambda: resume_repaint.install(_runtime_enabled, state, _push_panel),
     ):
         try:
             installer()
@@ -576,6 +472,9 @@ async def _on_stream_event(event_type, event_data, agent_session_id=None):
         state.record_event(agent_session_id, event_type, event_data)
     except Exception:
         pass
+    # Event-driven animation: the spin frame + elapsed columns advance on
+    # every repaint; _push_panel throttles same-shape churn to ~10fps.
+    _push_panel()
 
 
 async def _on_agent_run_end(
@@ -606,6 +505,26 @@ async def _on_agent_run_end(
         state.clear()
     except Exception:
         pass
+    _stop_ticker()  # run over — never leave an orphan clock task
+    _push_panel(force=True)
+
+
+async def _on_agent_run_cancel(group_id=None):
+    """Ctrl+C / cancel path: stop the ticker IMMEDIATELY and collapse.
+
+    ``_tear_down_live_panels`` (core, sync signal handler) already wipes
+    the bar's panel rows; without this hook the ticker's next 1s tick
+    would repaint the stale rows right back until ``agent_run_end``
+    fires. Clearing state here is idempotent with the run-end cleanup.
+    """
+    if not _runtime_enabled():
+        return
+    _stop_ticker()
+    try:
+        state.clear()
+    except Exception:
+        pass
+    _push_panel(force=True)
 
 
 async def _on_post_tool_call(tool_name, tool_args, result, duration_ms, context=None):
@@ -657,10 +576,12 @@ async def _on_post_tool_call(tool_name, tool_args, result, duration_ms, context=
             state.mark_done(sid)
     except Exception:
         pass
+    _push_panel(force=True)
 
 
 if not _DISABLED:
     register_callback("startup", _install)
     register_callback("stream_event", _on_stream_event)
     register_callback("agent_run_end", _on_agent_run_end)
+    register_callback("agent_run_cancel", _on_agent_run_cancel)
     register_callback("post_tool_call", _on_post_tool_call)

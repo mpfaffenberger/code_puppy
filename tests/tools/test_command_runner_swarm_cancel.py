@@ -118,92 +118,29 @@ class TestSwarmCancelOnSigint:
         mock_kill.assert_called_once()
 
 
-class FakeSpinner:
-    """Minimal stand-in for ConsoleSpinner that records pause() calls."""
-
-    def __init__(self, *, explode: bool = False):
-        self.paused = 0
-        self._explode = explode
-
-    def pause(self):
-        if self._explode:
-            raise RuntimeError("spinner teardown failed")
-        self.paused += 1
-
-
 class TestTearDownLivePanels:
-    """The cancel path must hide the spinner Live (and the sub-agent panel it
-    hosts) the same way steer does, so the cancel banner isn't repainted over.
+    """Phase 3: the Rich Live spinner is gone, so teardown is a compat
+    no-op — but the SIGINT handler's ordering contract (banner BEFORE the
+    slow shell kill, cancel last) must survive.
     """
 
     def teardown_method(self):
         clear_agent_cancel()
 
-    def test_pauses_every_active_spinner(self):
-        import code_puppy.messaging.spinner as spinner_mod
+    def test_teardown_is_a_safe_noop(self):
+        # Must not raise and must not touch anything.
+        _tear_down_live_panels()
 
-        spinners = [FakeSpinner(), FakeSpinner()]
-        with patch.object(spinner_mod, "_active_spinners", spinners):
-            _tear_down_live_panels()
-        assert [s.paused for s in spinners] == [1, 1]
+    def test_banner_fires_before_the_slow_kill(self):
+        """REGRESSION: the user must get instant feedback on Ctrl+C.
 
-    def test_one_spinner_blowing_up_does_not_stop_the_rest(self):
-        import code_puppy.messaging.spinner as spinner_mod
-
-        good_a, boom, good_b = FakeSpinner(), FakeSpinner(explode=True), FakeSpinner()
-        with patch.object(spinner_mod, "_active_spinners", [good_a, boom, good_b]):
-            # Must not raise even though the middle spinner explodes.
-            _tear_down_live_panels()
-        assert good_a.paused == 1 and good_b.paused == 1
-
-    def test_sigint_hides_panel_before_emitting_banner(self):
-        """On the first Ctrl+C the panel is torn down so the banner shows."""
-        import code_puppy.messaging.spinner as spinner_mod
-
-        spinner = FakeSpinner()
-        register_agent_cancel(lambda force=False: None)
-        with (
-            patch.object(spinner_mod, "_active_spinners", [spinner]),
-            patch.object(command_runner, "kill_all_running_shell_processes"),
-            patch.object(command_runner, "emit_warning"),
-        ):
-            _shell_sigint_handler(None, None)
-        assert spinner.paused == 1, "panel must be hidden on cancel"
-
-    def test_extra_presses_keep_panel_hidden(self):
-        """Deduped extra presses still re-hide the panel in case a frame raced."""
-        import code_puppy.messaging.spinner as spinner_mod
-
-        spinner = FakeSpinner()
-        register_agent_cancel(lambda force=False: None)
-        with (
-            patch.object(spinner_mod, "_active_spinners", [spinner]),
-            patch.object(command_runner, "kill_all_running_shell_processes"),
-            patch.object(command_runner, "emit_warning"),
-        ):
-            _shell_sigint_handler(None, None)  # first: hide + banner
-            _shell_sigint_handler(None, None)  # deduped: still hides
-        assert spinner.paused == 2
-
-    def test_teardown_and_banner_fire_before_the_slow_kill(self):
-        """REGRESSION: the deep-swarm 'panel stays up until shells die' bug.
-
-        ``kill_all_running_shell_processes`` blocks for ~2s *per* nested shell
-        (SIGTERM->SIGINT->SIGKILL escalation). If the panel teardown / banner
-        run AFTER it (the old order), the spinner Live keeps repainting the
-        sub-agent panel for that whole window and the user sees nothing happen.
-        The teardown + banner MUST precede the kill so the UI responds instantly.
+        ``kill_all_running_shell_processes`` blocks for ~2s *per* nested
+        shell. The banner MUST precede the kill so the UI responds
+        instantly; the cancel sweep runs last.
         """
-        import code_puppy.messaging.spinner as spinner_mod
-
         order = []
-        spinner = FakeSpinner()
-        # Record relative ordering of the three observable side effects.
-        spinner.pause = lambda: order.append("teardown")  # type: ignore[assignment]
-
         register_agent_cancel(lambda force=False: order.append("cancel"))
         with (
-            patch.object(spinner_mod, "_active_spinners", [spinner]),
             patch.object(
                 command_runner,
                 "kill_all_running_shell_processes",
@@ -217,21 +154,16 @@ class TestTearDownLivePanels:
         ):
             _shell_sigint_handler(None, None)
 
-        assert order == ["teardown", "banner", "kill", "cancel"], (
-            "panel teardown and banner must precede the blocking shell kill so "
-            f"the UI responds instantly; got {order}"
+        assert order == ["banner", "kill", "cancel"], (
+            "banner must precede the blocking shell kill so the UI responds "
+            f"instantly; got {order}"
         )
 
-    def test_headless_path_also_hides_panel_before_kill(self):
-        """Even with no agent run, hide the panel + banner before the slow kill."""
-        import code_puppy.messaging.spinner as spinner_mod
-
+    def test_headless_path_also_banners_before_kill(self):
+        """Even with no agent run, banner before the slow kill."""
         order = []
-        spinner = FakeSpinner()
-        spinner.pause = lambda: order.append("teardown")  # type: ignore[assignment]
         clear_agent_cancel()
         with (
-            patch.object(spinner_mod, "_active_spinners", [spinner]),
             patch.object(
                 command_runner,
                 "kill_all_running_shell_processes",
@@ -245,6 +177,6 @@ class TestTearDownLivePanels:
         ):
             _shell_sigint_handler(None, None)
 
-        assert order == ["teardown", "banner", "kill"], (
-            f"headless path must hide + announce before killing; got {order}"
+        assert order == ["banner", "kill"], (
+            f"headless path must announce before killing; got {order}"
         )

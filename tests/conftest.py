@@ -16,6 +16,23 @@ import pytest
 
 from code_puppy import config as cp_config
 from code_puppy import callbacks as cp_callbacks
+from code_puppy.messaging import bottom_bar as cp_bottom_bar
+
+
+class _InertStream:
+    """Non-TTY sink: the global BottomBar must never paint a real scroll
+    region on the developer's terminal during tests (sys.__stdout__ IS a
+    TTY when pytest runs locally). Tests that want a bar inject their own
+    fake-TTY instance."""
+
+    def isatty(self):
+        return False
+
+    def write(self, _text):
+        return 0
+
+    def flush(self):
+        pass
 
 
 def _ensure_builtin_plugin_callback_registrations() -> None:
@@ -26,14 +43,10 @@ def _ensure_builtin_plugin_callback_registrations() -> None:
     registrations, so restore the key builtin registrations explicitly.
     ``register_callback`` deduplicates, making this safe to call per test.
     """
-    from code_puppy.plugins.agent_steering import register_callbacks as steering
     from code_puppy.plugins.azure_foundry import register_callbacks as foundry
     from code_puppy.plugins.claude_code_hooks import register_callbacks as hooks
     from code_puppy.plugins.universal_constructor import register_callbacks as uc
 
-    cp_callbacks.register_callback(
-        "agent_pause_requested", steering._on_pause_requested
-    )
     cp_callbacks.register_callback("custom_command_help", foundry._custom_help)
     cp_callbacks.register_callback("custom_command", foundry._handle_custom_command)
     cp_callbacks.register_callback("register_model_type", foundry._register_model_types)
@@ -80,9 +93,14 @@ def isolate_global_state_between_tests(tmp_path_factory):
     # Ensure lazy plugin imports are represented in the snapshot.
     _ensure_builtin_plugin_callback_registrations()
 
+    # Neutralize the global bottom bar (see _InertStream docstring).
+    cp_bottom_bar.reset_bottom_bar()
+    cp_bottom_bar._bottom_bar = cp_bottom_bar.BottomBar(stream=_InertStream())
+
     # Save original config path and callback registry.
     original_config_file = cp_config.CONFIG_FILE
     original_config_dir = cp_config.CONFIG_DIR
+    original_history_file = cp_config.COMMAND_HISTORY_FILE
     original_callbacks = deepcopy(cp_callbacks._callbacks)
 
     # Create a completely separate temp directory for config isolation
@@ -96,6 +114,11 @@ def isolate_global_state_between_tests(tmp_path_factory):
     # defaults, not the local developer's personal settings.
     cp_config.CONFIG_FILE = temp_config_file
     cp_config.CONFIG_DIR = temp_config_dir
+    # The persistent editor's HistoryStore resolves this at construction:
+    # never let tests read/append the developer's REAL command history.
+    cp_config.COMMAND_HISTORY_FILE = os.path.join(
+        temp_config_dir, "command_history.txt"
+    )
 
     # Clear model cache to ensure fresh state.
     cp_config.clear_model_cache()
@@ -104,9 +127,13 @@ def isolate_global_state_between_tests(tmp_path_factory):
 
     yield
 
+    # Drop any bar a test installed; next test re-neutralizes.
+    cp_bottom_bar.reset_bottom_bar()
+
     # Restore original config paths and callback registrations.
     cp_config.CONFIG_FILE = original_config_file
     cp_config.CONFIG_DIR = original_config_dir
+    cp_config.COMMAND_HISTORY_FILE = original_history_file
     cp_callbacks._callbacks.clear()
     cp_callbacks._callbacks.update(original_callbacks)
     _ensure_builtin_plugin_callback_registrations()

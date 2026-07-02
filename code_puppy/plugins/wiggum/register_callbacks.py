@@ -193,20 +193,20 @@ def _display_banner_message(
     details: str | None = None,
     final: bool = False,
 ) -> None:
-    """Display an inline banner followed by a message."""
-    import time
+    """Display an inline banner followed by a message.
 
+    Plain sequential output — it scrolls inside the bottom bar's region,
+    so no terminal-ownership dance is needed.
+    """
     from rich.console import Console
     from rich.text import Text
 
     from code_puppy.config import get_banner_color
-    from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
+    from code_puppy.tools.display import erase_progress_line
 
     console = Console()
-    pause_all_spinners()
-    time.sleep(0.1)
 
-    console.print(" " * 50, end="\r")
+    erase_progress_line(console)
     console.print()
     color = get_banner_color(banner_name)
     banner = Text.from_markup(
@@ -221,8 +221,6 @@ def _display_banner_message(
         console.print(details, markup=False, highlight=False)
     if final:
         console.print()
-
-    resume_all_spinners()
 
 
 def _display_llm_judge(

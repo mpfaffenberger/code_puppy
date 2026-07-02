@@ -250,7 +250,7 @@ def register_list_agents(agent):
             agent_count = len(agents)
             emit_info(
                 Text.from_markup(
-                    f"[bold white on {list_agents_color}] LIST AGENTS [/bold white on {list_agents_color}] "
+                    f"\n[bold white on {list_agents_color}] LIST AGENTS [/bold white on {list_agents_color}] "
                     f"[dim]Found {agent_count} agent(s).[/dim]"
                 ),
                 message_group=group_id,

@@ -42,7 +42,7 @@ from code_puppy.config import (
     get_protected_token_count,
 )
 from code_puppy.messaging import emit_error, emit_info, emit_warning
-from code_puppy.messaging.spinner import SpinnerBase, update_spinner_context
+from code_puppy.messaging.spinner import format_context_info, update_spinner_context
 from code_puppy.summarization_agent import SummarizationError, run_summarization_sync
 
 _SUMMARIZATION_INSTRUCTIONS = (
@@ -308,9 +308,7 @@ def compact(
     total_tokens = message_tokens + context_overhead
     proportion_used = total_tokens / model_max if model_max else 0.0
 
-    context_summary = SpinnerBase.format_context_info(
-        total_tokens, model_max, proportion_used
-    )
+    context_summary = format_context_info(total_tokens, model_max, proportion_used)
     update_spinner_context(context_summary)
 
     threshold = get_compaction_threshold()
@@ -385,7 +383,7 @@ def compact(
     final_token_count = sum(
         estimate_tokens_for_message(m, model_name) for m in result_messages
     )
-    final_summary = SpinnerBase.format_context_info(
+    final_summary = format_context_info(
         final_token_count,
         model_max,
         final_token_count / model_max if model_max else 0.0,

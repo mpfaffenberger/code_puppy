@@ -51,7 +51,6 @@ PhaseType = Literal[
     "pre_mcp_autostart",
     "interactive_turn_end",
     "interactive_turn_cancel",
-    "agent_pause_requested",
     "user_prompt_submit",
     "pre_compact",
     "session_end",
@@ -107,7 +106,6 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "pre_mcp_autostart": [],
     "interactive_turn_end": [],
     "interactive_turn_cancel": [],
-    "agent_pause_requested": [],
     "user_prompt_submit": [],
     "pre_compact": [],
     "session_end": [],
@@ -1196,14 +1194,3 @@ async def on_notification(
     idle waits, etc.). Fire-and-forget; return values are ignored.
     """
     return await _trigger_callbacks("notification", message, level, context)
-
-
-async def on_agent_pause_requested() -> List[Any]:
-    """Fired when the user presses the pause key while the agent is running.
-
-    Plugins are expected to handle the pause UX (collect steering input,
-    send ``PauseAgentCommand`` → ``SteerAgentCommand`` → ``ResumeAgentCommand``
-    via the message bus). Core does not provide a fallback UI; if no plugin
-    is registered, pressing the pause key is a no-op.
-    """
-    return await _trigger_callbacks("agent_pause_requested")

@@ -18,6 +18,7 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
+from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.processors import Processor, Transformation
 from prompt_toolkit.styles import Style
 
@@ -29,7 +30,6 @@ from code_puppy.command_line.attachments import (
 )
 from code_puppy.command_line.clipboard import (
     capture_clipboard_image_to_pending,
-    has_image_in_clipboard,
 )
 from code_puppy.command_line.command_registry import get_unique_commands
 from code_puppy.command_line.file_path_completion import FilePathCompleter
@@ -412,7 +412,17 @@ class SlashCompleter(Completer):
 
         # Get the text after the initial slash
         if len(stripped_text) == 1:
-            # User just typed '/', show all commands
+            # Bare '/': only show the full command menu on an EXPLICIT
+            # request (Tab). Auto-popping ~30 commands here forces the
+            # terminal to scroll for menu space, and when the user was
+            # just typo-ing a slash (type '/', erase it) that scroll
+            # leaves permanent ghost blank lines — terminals can't
+            # un-scroll. Typing any character after '/' still auto-opens
+            # the (filtered) menu as usual. getattr: defensive against
+            # callers passing None as the event.
+            if not getattr(complete_event, "completion_requested", False):
+                return
+            # User hit Tab on '/', show all commands
             partial = ""
             start_position = 0  # Don't replace anything, just insert at cursor
         else:
@@ -546,6 +556,22 @@ def _normalize_emoji_spacing(text: str) -> str:
     return "".join(result)
 
 
+# Classic prompt palette (single source of truth — the persistent bottom-bar
+# prompt converts these to raw SGR codes via messaging.prompt_prefix_style).
+# IMPORTANT: use `ansi*`-prefixed names — bare names like "magenta" resolve to
+# truecolor hex (#ff00ff) in prompt_toolkit and would IGNORE the terminal
+# palette. The ansi names emit real ANSI codes, so the /theme plugin's OSC
+# palette remap (Level 3) restyles the prompt to the chosen theme.
+PROMPT_STYLES = {
+    "puppy": "bold ansimagenta",
+    "owner": "bold ansiwhite",
+    "agent": "bold ansiblue",
+    "model": "bold ansicyan",
+    "cwd": "bold ansigreen",
+    "arrow": "bold ansiyellow",
+}
+
+
 def get_prompt_with_active_model(base: str = ">>> "):
     from code_puppy.agents.agent_manager import get_current_agent
 
@@ -583,7 +609,6 @@ def get_prompt_with_active_model(base: str = ">>> "):
         cwd_display = cwd
     return FormattedText(
         [
-            ("bold", "🐶 "),
             ("class:puppy", f"{puppy}"),
             ("", " "),
             ("class:agent", f"[{_normalize_emoji_spacing(agent_display)}] "),
@@ -592,6 +617,30 @@ def get_prompt_with_active_model(base: str = ">>> "):
             ("class:arrow", str(base)),
         ]
     )
+
+
+class _NoGhostLinesPromptSession(PromptSession):
+    """A `PromptSession` that only reserves menu space while the menu is open.
+
+    Stock prompt_toolkit reserves `reserve_space_for_menu` (8) rows for the
+    completion menu for the *entire lifetime* of the prompt whenever
+    `complete_while_typing=True` — see `_get_default_buffer_control_height`.
+    The renderer then moves the cursor to the bottom of that taller canvas on
+    first paint, force-scrolling the terminal and leaving a block of ghost
+    blank lines under (or above, after scroll) the prompt even if the
+    completion menu never appears — and terminals can't un-scroll.
+
+    Overriding the height hook so the space is reserved *only while a
+    completion state is active* means the prompt stays a single line until a
+    menu is genuinely on screen. The scroll still happens while the menu is
+    visible (physics), but it no longer haunts every prompt render or
+    lingers after a `/` is typo'd and deleted.
+    """
+
+    def _get_default_buffer_control_height(self) -> Dimension:
+        if self.default_buffer.complete_state is None:
+            return Dimension()
+        return super()._get_default_buffer_control_height()
 
 
 def _left_justify_completion_menu(session: PromptSession) -> None:
@@ -782,14 +831,16 @@ async def get_input_with_combined_completion(
             event.app.current_buffer.insert_text(sanitized_data)
             return
 
-        # No meaningful text - check if clipboard has an image (Windows image paste!)
+        # No meaningful text - try capturing a clipboard image directly
+        # (Windows image paste!). Single clipboard read: a separate
+        # "has image?" probe would double the (slow, osascript-backed on
+        # macOS) clipboard round-trip and make the keypress feel dead.
         try:
-            if has_image_in_clipboard():
-                placeholder = capture_clipboard_image_to_pending()
-                if placeholder:
-                    event.app.current_buffer.insert_text(placeholder + " ")
-                    event.app.output.bell()
-                    return
+            placeholder = capture_clipboard_image_to_pending()
+            if placeholder:
+                event.app.current_buffer.insert_text(placeholder + " ")
+                event.app.output.bell()
+                return
         except Exception:
             pass
 
@@ -803,15 +854,17 @@ async def get_input_with_combined_completion(
     def handle_smart_paste(event):
         """Handle Ctrl+V - auto-detect image vs text in clipboard."""
         try:
-            # Check for image first
-            if has_image_in_clipboard():
-                placeholder = capture_clipboard_image_to_pending()
-                if placeholder:
-                    event.app.current_buffer.insert_text(placeholder + " ")
-                    # The placeholder itself is visible feedback - no need for extra output
-                    # Use bell for audible feedback (works in most terminals)
-                    event.app.output.bell()
-                    return  # Don't also paste text
+            # Try capturing an image directly — ONE clipboard read. The old
+            # has_image_in_clipboard() probe + capture did two full reads
+            # (each an osascript round-trip on macOS), freezing the prompt
+            # long enough that users pressed Ctrl+V twice.
+            placeholder = capture_clipboard_image_to_pending()
+            if placeholder:
+                event.app.current_buffer.insert_text(placeholder + " ")
+                # The placeholder itself is visible feedback - no need for extra output
+                # Use bell for audible feedback (works in most terminals)
+                event.app.output.bell()
+                return  # Don't also paste text
         except Exception:
             pass  # Fall through to text paste on any error
 
@@ -870,22 +923,21 @@ async def get_input_with_combined_completion(
     def handle_image_paste_f3(event):
         """Handle F3 - paste image from clipboard (image-only, shows error if none)."""
         try:
-            if has_image_in_clipboard():
-                placeholder = capture_clipboard_image_to_pending()
-                if placeholder:
-                    event.app.current_buffer.insert_text(placeholder + " ")
-                    # The placeholder itself is visible feedback
-                    # Use bell for audible feedback (works in most terminals)
-                    event.app.output.bell()
+            placeholder = capture_clipboard_image_to_pending()
+            if placeholder:
+                event.app.current_buffer.insert_text(placeholder + " ")
+                # The placeholder itself is visible feedback
+                # Use bell for audible feedback (works in most terminals)
+                event.app.output.bell()
             else:
                 # Insert a transient message that user can delete
-                event.app.current_buffer.insert_text("[⚠️ no image in clipboard] ")
+                event.app.current_buffer.insert_text("[no image in clipboard] ")
                 event.app.output.bell()
         except Exception:
             event.app.current_buffer.insert_text("[❌ clipboard error] ")
             event.app.output.bell()
 
-    session = PromptSession(
+    session = _NoGhostLinesPromptSession(
         completer=completer,
         history=history,
         complete_while_typing=True,
@@ -893,21 +945,15 @@ async def get_input_with_combined_completion(
         input_processors=[AttachmentPlaceholderProcessor()],
     )
     _left_justify_completion_menu(session)
-    # If they pass a string, backward-compat: convert it to formatted_text
+    # If they pass a string, backward-compat: convert it to formatted_text.
+    # NOTE: the style field must be a str — `None` crashes `to_formatted_text`.
     if isinstance(prompt_str, str):
-        from prompt_toolkit.formatted_text import FormattedText
-
-        prompt_str = FormattedText([(None, prompt_str)])
+        prompt_str = FormattedText([("", prompt_str)])
     style = Style.from_dict(
         {
             # Keys must AVOID the 'class:' prefix – that prefix is used only when
             # tagging tokens in `FormattedText`. See prompt_toolkit docs.
-            "puppy": "bold ansibrightcyan",
-            "owner": "bold ansibrightblue",
-            "agent": "bold ansibrightblue",
-            "model": "bold ansibrightcyan",
-            "cwd": "bold ansibrightgreen",
-            "arrow": "bold ansibrightblue",
+            **PROMPT_STYLES,
             "attachment-placeholder": "italic ansicyan",
             # ── Completion menu (pi-inspired minimal look) ────────────────
             # Drop the chunky default highlight bar. Use terminal-default bg

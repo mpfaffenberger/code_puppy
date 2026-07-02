@@ -245,57 +245,85 @@ def test_live_mcp_servers_for_falls_back_to_cached_on_error(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Prompt patch
+# Status-line patch
 # ---------------------------------------------------------------------------
-def test_install_prompt_patch_is_idempotent():
+def test_install_status_patch_is_idempotent():
     module = _plugin_module()
-    from code_puppy.command_line import prompt_toolkit_completion as ptc
+    from code_puppy.agents import _compaction
 
-    original = ptc.get_prompt_with_active_model
+    original = _compaction.update_spinner_context
     try:
-        module._install_prompt_patch()
-        first = ptc.get_prompt_with_active_model
-        module._install_prompt_patch()
-        second = ptc.get_prompt_with_active_model
+        module._install_status_patch()
+        first = _compaction.update_spinner_context
+        module._install_status_patch()
+        second = _compaction.update_spinner_context
         assert first is second
-        assert getattr(ptc, "_context_indicator_original") is original
+        assert getattr(_compaction, "_context_indicator_original") is original
     finally:
-        ptc.get_prompt_with_active_model = original
-        if hasattr(ptc, "_context_indicator_original"):
-            delattr(ptc, "_context_indicator_original")
+        _compaction.update_spinner_context = original
+        if hasattr(_compaction, "_context_indicator_original"):
+            delattr(_compaction, "_context_indicator_original")
 
 
-def test_inject_indicator_returns_unchanged_when_usage_none():
+def test_patched_status_writer_forwards_decorated_info():
+    """The installed patch forwards ``_decorate_status(info)`` to the original."""
     module = _plugin_module()
-    from prompt_toolkit.formatted_text import FormattedText
+    from code_puppy.agents import _compaction
 
-    original = FormattedText([("bold", "🐶 "), ("class:arrow", ">>> ")])
+    original = _compaction.update_spinner_context
+    captured = []
+    fake_usage = _usage_module().ContextUsage(
+        used_tokens=100, overhead_tokens=0, capacity=10000
+    )
+    try:
+        _compaction.update_spinner_context = captured.append
+        module._install_status_patch()
+        with patch(
+            "code_puppy.plugins.context_indicator.register_callbacks.get_current_usage",
+            return_value=fake_usage,
+        ):
+            _compaction.update_spinner_context("5k/10k tokens (50%)")
+    finally:
+        _compaction.update_spinner_context = original
+        if hasattr(_compaction, "_context_indicator_original"):
+            delattr(_compaction, "_context_indicator_original")
+
+    assert captured == ["\U0001f7e2 5k/10k tokens (50%)"]
+
+
+def test_decorate_status_returns_unchanged_when_usage_none():
+    module = _plugin_module()
     with patch(
         "code_puppy.plugins.context_indicator.register_callbacks.get_current_usage",
         return_value=None,
     ):
-        result = module._inject_indicator(original)
-    assert result is original
+        assert module._decorate_status("5k/10k tokens (50%)") == "5k/10k tokens (50%)"
 
 
-def test_inject_indicator_inserts_circle_after_dog():
+def test_decorate_status_prepends_circle():
     module = _plugin_module()
-    from prompt_toolkit.formatted_text import FormattedText
-
     fake_usage = _usage_module().ContextUsage(
         used_tokens=100, overhead_tokens=0, capacity=10000
     )
-    original = FormattedText([("bold", "🐶 "), ("class:arrow", ">>> ")])
     with patch(
         "code_puppy.plugins.context_indicator.register_callbacks.get_current_usage",
         return_value=fake_usage,
     ):
-        result = module._inject_indicator(original)
+        result = module._decorate_status("5k/10k tokens (50%)")
+    assert result == "\U0001f7e2 5k/10k tokens (50%)"
 
-    parts = list(result)
-    assert parts[0] == ("bold", "🐶 ")
-    assert parts[1][0] == "class:context-indicator"
-    assert "🟢" in parts[1][1]
+
+def test_decorate_status_leaves_clear_calls_empty():
+    """Empty info means 'clear the row' — no lone circle haunting idle prompts."""
+    module = _plugin_module()
+    fake_usage = _usage_module().ContextUsage(
+        used_tokens=100, overhead_tokens=0, capacity=10000
+    )
+    with patch(
+        "code_puppy.plugins.context_indicator.register_callbacks.get_current_usage",
+        return_value=fake_usage,
+    ):
+        assert module._decorate_status("") == ""
 
 
 # ---------------------------------------------------------------------------

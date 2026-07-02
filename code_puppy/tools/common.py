@@ -1186,17 +1186,15 @@ def _get_user_approval_impl(
         padding=(1, 2),
     )
 
-    # Pause spinners BEFORE showing panel
+    # This approval prompt takes over the terminal: suspend the run UI
+    # (bottom-bar scroll region + key-listener stdin ownership) so the
+    # panel and arrow selector render on a normal full-height screen.
+    # Exception-safe: __exit__ runs in the finally block below.
+    from code_puppy.messaging.run_ui import suspended_run_ui
+
     set_awaiting_user_input(True)
-    # Also explicitly pause spinners to ensure they're fully stopped
-    try:
-        from code_puppy.messaging.spinner import pause_all_spinners
-
-        pause_all_spinners()
-    except (ImportError, Exception):
-        pass
-
-    time.sleep(0.3)  # Let spinners fully stop
+    _ui_suspension = suspended_run_ui()
+    _ui_suspension.__enter__()
 
     # Display panel
     local_console = Console()
@@ -1254,6 +1252,10 @@ def _get_user_approval_impl(
 
     finally:
         set_awaiting_user_input(False)
+        try:
+            _ui_suspension.__exit__(None, None, None)
+        except Exception:
+            pass
 
         # Force Rich console to reset display state to prevent artifacts
         try:
@@ -1268,7 +1270,8 @@ def _get_user_approval_impl(
         sys.stdout.flush()
         sys.stderr.flush()
 
-    # Show result BEFORE resuming spinners (no puppy litter!)
+    # Show the result (the run UI is already restored by the finally above;
+    # these lines scroll normally inside the bottom bar's region).
     emit_info("")
     if not confirmed:
         if user_feedback:
@@ -1278,14 +1281,6 @@ def _get_user_approval_impl(
             emit_error("Rejected.")
     else:
         emit_success("Approved!")
-
-    # NOW resume spinners after showing the result
-    try:
-        from code_puppy.messaging.spinner import resume_all_spinners
-
-        resume_all_spinners()
-    except (ImportError, Exception):
-        pass
 
     return confirmed, user_feedback
 
@@ -1383,17 +1378,15 @@ async def _get_user_approval_async_impl(
         padding=(1, 2),
     )
 
-    # Pause spinners BEFORE showing panel
+    # This approval prompt takes over the terminal: suspend the run UI
+    # (bottom-bar scroll region + key-listener stdin ownership) so the
+    # panel and arrow selector render on a normal full-height screen.
+    # Exception-safe: __exit__ runs in the finally block below.
+    from code_puppy.messaging.run_ui import suspended_run_ui
+
     set_awaiting_user_input(True)
-    # Also explicitly pause spinners to ensure they're fully stopped
-    try:
-        from code_puppy.messaging.spinner import pause_all_spinners
-
-        pause_all_spinners()
-    except (ImportError, Exception):
-        pass
-
-    await asyncio.sleep(0.3)  # Let spinners fully stop
+    _ui_suspension = suspended_run_ui()
+    _ui_suspension.__enter__()
 
     # Display panel
     local_console = Console()
@@ -1446,6 +1439,10 @@ async def _get_user_approval_async_impl(
 
     finally:
         set_awaiting_user_input(False)
+        try:
+            _ui_suspension.__exit__(None, None, None)
+        except Exception:
+            pass
 
         # Force Rich console to reset display state to prevent artifacts
         try:
@@ -1460,7 +1457,8 @@ async def _get_user_approval_async_impl(
         sys.stdout.flush()
         sys.stderr.flush()
 
-    # Show result BEFORE resuming spinners (no puppy litter!)
+    # Show the result (the run UI is already restored by the finally above;
+    # these lines scroll normally inside the bottom bar's region).
     emit_info("")
     if not confirmed:
         if user_feedback:
@@ -1470,14 +1468,6 @@ async def _get_user_approval_async_impl(
             emit_error("Rejected.")
     else:
         emit_success("Approved!")
-
-    # NOW resume spinners after showing the result
-    try:
-        from code_puppy.messaging.spinner import resume_all_spinners
-
-        resume_all_spinners()
-    except (ImportError, Exception):
-        pass
 
     return confirmed, user_feedback
 

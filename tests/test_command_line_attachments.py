@@ -111,7 +111,7 @@ async def test_run_prompt_with_attachments_passes_binary(tmp_path: Path) -> None
         result, _ = await run_prompt_with_attachments(
             fake_agent,
             raw_prompt,
-            spinner_console=None,
+            display_console=None,
         )
 
     assert result is fake_result
@@ -125,7 +125,7 @@ async def test_run_prompt_with_attachments_passes_binary(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_run_prompt_with_attachments_uses_spinner(tmp_path: Path) -> None:
+async def test_run_prompt_with_attachments_uses_run_ui(tmp_path: Path) -> None:
     pdf_path = tmp_path / "paper.pdf"
     pdf_path.write_bytes(b"%PDF")
 
@@ -135,20 +135,18 @@ async def test_run_prompt_with_attachments_uses_spinner(tmp_path: Path) -> None:
     dummy_console = object()
 
     with (
-        patch("code_puppy.messaging.spinner.ConsoleSpinner") as mock_spinner,
+        patch("code_puppy.messaging.run_ui.run_ui") as mock_run_ui,
         patch("code_puppy.messaging.emit_system_message"),
         patch("code_puppy.messaging.emit_warning"),
     ):
         await run_prompt_with_attachments(
             fake_agent,
             f"please summarise {pdf_path}",
-            spinner_console=dummy_console,
-            use_spinner=True,
+            display_console=dummy_console,
+            use_run_ui=True,
         )
 
-    mock_spinner.assert_called_once()
-    args, kwargs = mock_spinner.call_args
-    assert kwargs["console"] is dummy_console
+    mock_run_ui.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -162,8 +160,8 @@ async def test_run_prompt_with_attachments_warns_on_blank_prompt() -> None:
         result, _ = await run_prompt_with_attachments(
             fake_agent,
             "   ",
-            spinner_console=None,
-            use_spinner=False,
+            display_console=None,
+            use_run_ui=False,
         )
 
     assert result is None

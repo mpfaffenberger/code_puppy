@@ -1,5 +1,13 @@
 """SubAgentConsoleManager - Aggregated display for parallel sub-agents.
 
+.. note:: **Effectively dead code for display purposes** (verified in the
+   Phase 4 bottom-bar audit): ``register_agent()`` — the only path that
+   starts the Rich Live dashboard — is never called in production code, so
+   the Live never starts and ``subagent_stream_handler``'s
+   ``update_agent()`` calls all no-op. Live sub-agent status is rendered
+   by the ``subagent_panel`` plugin on the bottom bar instead. Kept for
+   API compatibility; candidate for removal in a later phase.
+
 Provides a Rich Live dashboard that shows real-time status of multiple
 running sub-agents, each in its own panel with spinner animations,
 status badges, and performance metrics.

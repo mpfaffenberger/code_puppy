@@ -1000,3 +1000,109 @@ class TestANSISequenceFormats:
         assert ENABLE_LINE_INPUT == 2
         assert ENABLE_ECHO_INPUT == 4
         assert ENABLE_PROCESSED_INPUT == 1
+
+
+class TestEnsureWindowsVTProcessing:
+    """Cross-platform tests for the raw-VT gate (persistent bottom bar).
+
+    A fake ``ctypes.windll`` is injected so the Windows branch runs on
+    any host OS -- no WINDOWS_ONLY skip needed.
+    """
+
+    class _FakeKernel32:
+        """Minimal kernel32 double with controllable console-mode fate."""
+
+        def __init__(self, mode=0x0003, set_result=1, applies=True, get_ok=True):
+            self.mode = mode
+            self.set_result = set_result
+            self.applies = applies  # False = SetConsoleMode silently no-ops
+            self.get_ok = get_ok
+            self.set_calls = []
+
+        def GetStdHandle(self, _which):
+            return 7
+
+        def GetConsoleMode(self, _handle, byref_mode):
+            if not self.get_ok:
+                return 0
+            byref_mode._obj.value = self.mode
+            return 1
+
+        def SetConsoleMode(self, _handle, new_mode):
+            self.set_calls.append(new_mode)
+            if self.set_result and self.applies:
+                self.mode = new_mode
+            return self.set_result
+
+    def _install(self, monkeypatch, fake):
+        from types import SimpleNamespace
+
+        monkeypatch.setattr("platform.system", lambda: "Windows")
+        monkeypatch.setattr(
+            "ctypes.windll", SimpleNamespace(kernel32=fake), raising=False
+        )
+
+    def test_non_windows_is_trivially_true(self):
+        from code_puppy.terminal_utils import ensure_windows_vt_processing
+
+        if platform.system() == "Windows":
+            pytest.skip("POSIX-only trivial path")
+        assert ensure_windows_vt_processing() is True
+
+    def test_windows_without_windll_fails_safe(self, monkeypatch):
+        """No usable ctypes.windll -> False (degrade to classic UI)."""
+        import ctypes
+
+        from code_puppy.terminal_utils import ensure_windows_vt_processing
+
+        monkeypatch.setattr("platform.system", lambda: "Windows")
+        monkeypatch.delattr(ctypes, "windll", raising=False)
+        assert ensure_windows_vt_processing() is False
+
+    def test_vt_already_enabled_returns_true_without_set(self, monkeypatch):
+        """Windows Terminal case: flag already on -> no SetConsoleMode."""
+        from code_puppy.terminal_utils import ensure_windows_vt_processing
+
+        fake = self._FakeKernel32(mode=0x0007)  # includes 0x0004
+        self._install(monkeypatch, fake)
+        assert ensure_windows_vt_processing() is True
+        assert fake.set_calls == []
+
+    def test_vt_enabled_and_verified(self, monkeypatch):
+        """Legacy conhost that honors SetConsoleMode -> True."""
+        from code_puppy.terminal_utils import ensure_windows_vt_processing
+
+        fake = self._FakeKernel32(mode=0x0003)
+        self._install(monkeypatch, fake)
+        assert ensure_windows_vt_processing() is True
+        assert fake.set_calls == [0x0007]  # original mode | VT flag
+
+    def test_silent_noop_set_is_caught_by_readback(self, monkeypatch):
+        """Ancient host: SetConsoleMode 'succeeds' but flag never sticks."""
+        from code_puppy.terminal_utils import ensure_windows_vt_processing
+
+        fake = self._FakeKernel32(mode=0x0003, set_result=1, applies=False)
+        self._install(monkeypatch, fake)
+        assert ensure_windows_vt_processing() is False
+
+    def test_set_console_mode_failure(self, monkeypatch):
+        from code_puppy.terminal_utils import ensure_windows_vt_processing
+
+        fake = self._FakeKernel32(mode=0x0003, set_result=0)
+        self._install(monkeypatch, fake)
+        assert ensure_windows_vt_processing() is False
+
+    def test_get_console_mode_failure(self, monkeypatch):
+        from code_puppy.terminal_utils import ensure_windows_vt_processing
+
+        fake = self._FakeKernel32(get_ok=False)
+        self._install(monkeypatch, fake)
+        assert ensure_windows_vt_processing() is False
+
+    def test_invalid_handle(self, monkeypatch):
+        from code_puppy.terminal_utils import ensure_windows_vt_processing
+
+        fake = self._FakeKernel32()
+        fake.GetStdHandle = lambda _which: 0
+        self._install(monkeypatch, fake)
+        assert ensure_windows_vt_processing() is False

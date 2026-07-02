@@ -74,9 +74,9 @@ from code_puppy.agents._non_streaming_render import (
 from code_puppy.agents._run_signals import (
     drain_pause_state_on_cancel,
     make_schedule_cancel,
-    make_schedule_pause,
     prepare_queued_steer_injection,
     reset_pause_state_at_run_start,
+    sigint_should_cancel,
 )
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
@@ -705,7 +705,6 @@ async def run_with_mcp(
     loop = asyncio.get_running_loop()
 
     schedule_agent_cancel = make_schedule_cancel(agent_task, loop)
-    schedule_agent_pause = make_schedule_pause(agent_task, loop)
 
     # Bridge the cancel callback to the shell SIGINT handler so a single
     # Ctrl+C while shells are running stops the whole agent/sub-agent swarm
@@ -718,6 +717,10 @@ async def run_with_mcp(
     def keyboard_interrupt_handler(_sig, _frame):
         # Let input() handle its own KeyboardInterrupt if we're mid-prompt.
         if is_awaiting_user_input():
+            return
+        # Buffer-first Ctrl+C: composing input absorbs the first press
+        # (clear + hint); only an empty prompt cancels the run.
+        if not sigint_should_cancel():
             return
         schedule_agent_cancel()
 
@@ -739,10 +742,12 @@ async def run_with_mcp(
     original_handler = None
     key_listener_stop_event: Optional[threading.Event] = None
     key_listener_handle: Optional[_key_listeners.KeyListenerHandle] = None
+    using_persistent_listener = False
 
     run_success = False
     run_error: Optional[BaseException] = None
     run_response_text = ""
+    run_usage_output_tokens: Optional[int] = None
 
     try:
         if cancel_agent_uses_signal():
@@ -751,25 +756,44 @@ async def run_with_mcp(
         else:
             original_handler = signal.signal(signal.SIGINT, graceful_sigint_handler)
             cancel_cb = schedule_agent_cancel
-        # Always spawn a key listener — Ctrl+X (shell) and the pause-agent
-        # key both need it. The listener cheaply no-ops if stdin isn't a TTY.
-        key_listener_stop_event = threading.Event()
-        key_listener_handle = _key_listeners.spawn_key_listener(
-            key_listener_stop_event,
-            # Ctrl+X: command_runner installs a dynamic handler via
-            # _key_listeners.set_escape_handler() while shell commands run;
-            # outside that window Ctrl+X is a no-op.
-            on_escape=lambda: None,
-            on_cancel_agent=cancel_cb,
-            on_pause_agent=schedule_agent_pause,
-        )
-        # Publish the handle so plugins (e.g. agent_steering) can suspend/
-        # resume the listener while they take over stdin.
-        _key_listeners.set_active_handle(key_listener_handle)
+        # Key listener: with the persistent prompt (Phase A) a REPL-
+        # lifetime listener already owns stdin — just arm the per-run
+        # cancel hotkey on it. Otherwise (headless -r, classic prompt,
+        # embeds) spawn a per-run listener exactly as before.
+        existing_handle = _key_listeners.get_active_handle()
+        if (
+            existing_handle is not None
+            and existing_handle.thread.is_alive()
+            and not existing_handle.stop_event.is_set()
+        ):
+            using_persistent_listener = True
+            _key_listeners.set_cancel_handler(cancel_cb)
+        else:
+            key_listener_stop_event = threading.Event()
+            key_listener_handle = _key_listeners.spawn_key_listener(
+                key_listener_stop_event,
+                # Ctrl+X: command_runner installs a dynamic handler via
+                # _key_listeners.set_escape_handler() while shell commands
+                # run; outside that window Ctrl+X is a no-op.
+                on_escape=lambda: None,
+                on_cancel_agent=cancel_cb,
+            )
+            # Publish the handle so other stdin consumers (prompt_toolkit
+            # menus, TUIs) can suspend/resume the listener while they take
+            # over stdin.
+            _key_listeners.set_active_handle(key_listener_handle)
 
         result = await agent_task
         run_success = True
         run_response_text = _extract_response_text(result)
+        try:
+            # Real billed output tokens -- calibrates the run-stats TG
+            # estimate (see run_stats.snapshot_cycle_into_aggregates).
+            run_usage_output_tokens = (
+                int(getattr(result.usage(), "output_tokens", 0) or 0) or None
+            )
+        except Exception:
+            run_usage_output_tokens = None
         return result
     except asyncio.CancelledError:
         run_response_text = ""
@@ -798,12 +822,19 @@ async def run_with_mcp(
                 success=run_success,
                 error=run_error,
                 response_text=run_response_text,
-                metadata={"model": agent.get_model_name()},
+                metadata={
+                    "model": agent.get_model_name(),
+                    "usage_output_tokens": run_usage_output_tokens,
+                },
             )
         except Exception:
             pass
 
-        if key_listener_handle is not None:
+        if using_persistent_listener:
+            # The REPL-lifetime listener survives the run — just disarm
+            # the per-run cancel hotkey.
+            _key_listeners.set_cancel_handler(None)
+        elif key_listener_handle is not None:
             _key_listeners.set_active_handle(None)
             key_listener_handle.stop()
             key_listener_handle.thread.join(timeout=1.0)

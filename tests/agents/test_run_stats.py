@@ -115,11 +115,13 @@ def test_snapshot_cycle_into_aggregates_folds_and_resets():
     assert AgentRunStats._first_token_time == 0.0
     assert AgentRunStats._stream_start_time == 0.0
     assert AgentRunStats._output_tokens == 0
-    # Last-known + conversation totals populated.
+    # Last-known + conversation totals populated. Only the SECOND event's
+    # tokens are timed (the first anchors the burst -- its decode time is
+    # unknown, so its tokens stay out of the TG numerator).
     assert AgentRunStats._last_ttft_seconds > 0
     assert AgentRunStats._last_gen_tps > 0
     assert AgentRunStats._ttft_sample_count == 1
-    assert AgentRunStats._total_output_tokens == 100
+    assert AgentRunStats._total_output_tokens == 50
     assert AgentRunStats._total_gen_seconds > 0
 
 
@@ -139,11 +141,12 @@ def test_reset_cycle_preserves_conversation_aggregates():
     AgentRunStats.record_output_tokens(25)
     AgentRunStats.snapshot_cycle_into_aggregates()
     assert AgentRunStats._ttft_sample_count == 1
-    assert AgentRunStats._total_output_tokens == 50
+    # Only the second event's 25 tokens are timed (first anchors the burst).
+    assert AgentRunStats._total_output_tokens == 25
 
     AgentRunStats.reset_cycle_state()
     assert AgentRunStats._ttft_sample_count == 1  # preserved
-    assert AgentRunStats._total_output_tokens == 50  # preserved
+    assert AgentRunStats._total_output_tokens == 25  # preserved
 
 
 def test_single_event_cycle_records_ttft_but_no_gen_sample():
@@ -175,10 +178,69 @@ def test_gen_time_excludes_stalls_between_stream_events(monkeypatch):
     gen_after_burst = AgentRunStats._gen_seconds
     assert gen_after_burst == pytest.approx(0.5)
 
-    # Stall (e.g. tool execution) wider than the threshold -- excluded.
+    # Stall (e.g. tool execution) wider than the threshold -- excluded,
+    # AND the stalled event's tokens stay out of the timed numerator
+    # (they were 'generated' during time we refused to measure).
     clock[0] += AgentRunStats._MAX_INTER_EVENT_GAP_SECONDS + 1.0
     AgentRunStats.record_output_tokens(10)
     assert AgentRunStats._gen_seconds == gen_after_burst
+    assert AgentRunStats._timed_output_tokens == 10  # only the 0.5s event
+    assert AgentRunStats._output_tokens == 30  # display total keeps all
+
+
+def test_tg_numerator_and_denominator_stay_paired(monkeypatch):
+    """Regression: TG must be timed-tokens / timed-seconds, not
+    all-tokens / timed-seconds (which inflated TG on every multi-turn
+    run -- each post-tool model call donated its first chunk for free)."""
+    clock = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    AgentRunStats.mark_request_start()
+    clock[0] += 1.0
+    AgentRunStats.record_output_tokens(1000)  # burst anchor: untimed
+    clock[0] += 1.0
+    AgentRunStats.record_output_tokens(100)  # timed: 100 tokens / 1.0s
+
+    AgentRunStats.snapshot_cycle_into_aggregates()
+    # Old math: (1000 + 100) / 1.0 = 1100 t/s. New math: 100 / 1.0.
+    assert AgentRunStats._last_gen_tps == pytest.approx(100.0)
+
+
+def test_usage_calibration_rescales_tg(monkeypatch):
+    """Real API usage corrects the char-based estimate's bias."""
+    clock = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    AgentRunStats.mark_request_start()
+    clock[0] += 1.0
+    AgentRunStats.record_output_tokens(100)  # anchor: untimed
+    clock[0] += 1.0
+    AgentRunStats.record_output_tokens(100)  # timed
+
+    # Estimator said 200 total; the API billed only 100 output tokens
+    # -> scale timed numerator by 0.5: 100 * 0.5 / 1.0s = 50 t/s.
+    AgentRunStats.snapshot_cycle_into_aggregates(usage_output_tokens=100)
+    assert AgentRunStats._last_gen_tps == pytest.approx(50.0)
+    stats = AgentRunStats.get_last_cycle_stats()
+    assert stats["output_tokens"] == 100  # real count, not the estimate
+    assert stats["tokens_exact"] is True
+
+
+def test_no_usage_falls_back_to_estimate(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    AgentRunStats.mark_request_start()
+    clock[0] += 1.0
+    AgentRunStats.record_output_tokens(60)
+    clock[0] += 1.0
+    AgentRunStats.record_output_tokens(40)
+
+    AgentRunStats.snapshot_cycle_into_aggregates(usage_output_tokens=None)
+    assert AgentRunStats._last_gen_tps == pytest.approx(40.0)
+    stats = AgentRunStats.get_last_cycle_stats()
+    assert stats["output_tokens"] == 100  # estimated total for display
+    assert stats["tokens_exact"] is False
 
 
 def test_reset_conversation_clears_aggregates():
@@ -360,6 +422,25 @@ async def test_on_agent_run_end_folds_into_aggregates():
     # Per-cycle state wiped clean.
     assert AgentRunStats._first_token_time == 0.0
     assert AgentRunStats._stream_start_time == 0.0
+
+
+@pytest.mark.asyncio
+async def test_on_agent_run_end_calibrates_from_metadata_usage(monkeypatch):
+    """The runtime passes real usage via metadata; the hook must apply it."""
+    clock = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    await _on_agent_run_start("agent", "model")
+    clock[0] += 1.0
+    AgentRunStats.record_output_tokens(100)  # anchor: untimed
+    clock[0] += 1.0
+    AgentRunStats.record_output_tokens(100)  # timed
+
+    await _on_agent_run_end(
+        "agent", "model", metadata={"model": "m", "usage_output_tokens": 100}
+    )
+    # est total 200 vs real 100 -> timed 100 * 0.5 / 1.0s = 50 t/s
+    assert AgentRunStats.get_last_cycle_stats()["gen_tps"] == pytest.approx(50.0)
 
 
 @pytest.mark.asyncio

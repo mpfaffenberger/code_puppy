@@ -14,7 +14,15 @@ the spinner / event-stream renderer:
   events -- gaps larger than ``_MAX_INTER_EVENT_GAP_SECONDS`` (tool
   execution, the next model call's request latency) are treated as stalls
   and excluded, so TG reflects actual decode speed rather than wall-clock
-  time across the whole agent run.
+  time across the whole agent run. CRITICALLY, tokens and time stay
+  paired: an event whose gap is excluded (stall / burst re-anchor) has its
+  tokens excluded from the TG numerator too -- otherwise every model call
+  after a tool run donates its first chunk "for free" and inflates TG.
+* Token counts are ESTIMATED from characters while streaming; at run end
+  the estimate is CALIBRATED against the API's real billed
+  ``usage().output_tokens`` (passed via the run-end metadata) so TG doesn't
+  inherit the estimator's systematic bias (2.5 chars/token overestimates
+  English/code tokens by ~1.5x).
 * ``agent_run_end`` -- folds the just-finished cycle into conversation-wide
   aggregates so the auto-save line shows up-to-date averages.
 
@@ -70,6 +78,10 @@ class AgentRunStats:
     _last_token_time: float = 0.0
     _gen_seconds: float = 0.0
     _output_tokens: int = 0
+    # Tokens whose inter-event gap was MEASURED (not a stall / re-anchor).
+    # Only these enter the TG numerator -- keeping numerator and
+    # denominator over the same set of events.
+    _timed_output_tokens: int = 0
     _current_model_name: str = ""
 
     # Snapshot of the most-recently-finished cycle. Used as a fallback so
@@ -78,6 +90,7 @@ class AgentRunStats:
     _last_ttft_seconds: float = 0.0
     _last_gen_tps: float = 0.0
     _last_output_tokens: int = 0
+    _last_tokens_exact: bool = False  # True when backed by real API usage
     _last_gen_seconds: float = 0.0
     _last_model_name: str = ""
 
@@ -86,7 +99,8 @@ class AgentRunStats:
     # weighted averages on auto-save / session shutdown.
     _total_ttft_seconds: float = 0.0
     _ttft_sample_count: int = 0
-    _total_output_tokens: int = 0
+    # Float: calibrated (real/estimated-scaled) token counts fold in here.
+    _total_output_tokens: float = 0.0
     _total_gen_seconds: float = 0.0
 
     # ----------------- API -----------------
@@ -103,6 +117,7 @@ class AgentRunStats:
             cls._last_token_time = 0.0
             cls._gen_seconds = 0.0
             cls._output_tokens = 0
+            cls._timed_output_tokens = 0
             cls._current_model_name = model_name
 
     @classmethod
@@ -114,6 +129,12 @@ class AgentRunStats:
         gaps between consecutive stream events; gaps wider than
         ``_MAX_INTER_EVENT_GAP_SECONDS`` are stalls (tool execution,
         follow-up request latency) and re-anchor the burst instead.
+
+        Tokens follow their gap: an event's tokens were decoded during the
+        interval since the previous event, so when that interval is
+        excluded (stall / first-token anchor) the tokens are excluded from
+        the TG numerator as well. Zero-width gaps (coarse timers, batched
+        socket flushes) keep their tokens -- adding 0.0s costs nothing.
         """
         if tokens <= 0:
             return
@@ -126,14 +147,16 @@ class AgentRunStats:
                 cls._first_token_time = now
             else:
                 gap = now - cls._last_token_time
-                if 0.0 < gap <= cls._MAX_INTER_EVENT_GAP_SECONDS:
+                if 0.0 <= gap <= cls._MAX_INTER_EVENT_GAP_SECONDS:
                     cls._gen_seconds += gap
+                    cls._timed_output_tokens += int(tokens)
             cls._last_token_time = now
             cls._output_tokens += int(tokens)
 
     @classmethod
     def snapshot_cycle_into_aggregates(
         cls,
+        usage_output_tokens: Optional[int] = None,
     ) -> None:
         """Fold the just-finished cycle into conversation-wide aggregates.
 
@@ -141,6 +164,12 @@ class AgentRunStats:
         the cycle that just completed. Also updates the ``_last_*`` snapshot
         fields. Per-cycle counters are zeroed so the next ``mark_request_start``
         starts cleanly.
+
+        ``usage_output_tokens`` is the API's REAL billed output count for
+        the whole run (``result.usage().output_tokens``). When provided,
+        the char-based estimate is calibrated against it: the ratio
+        ``real / estimated_total`` rescales the timed-token numerator, so
+        TG stops inheriting the 2.5-chars/token estimator's ~1.5x bias.
         """
         with cls._lock:
             cls._last_model_name = cls._current_model_name
@@ -150,14 +179,25 @@ class AgentRunStats:
                     cls._last_ttft_seconds = ttft
                     cls._total_ttft_seconds += ttft
                     cls._ttft_sample_count += 1
-                cls._last_output_tokens = cls._output_tokens
+                timed_tokens = float(cls._timed_output_tokens)
+                exact = bool(usage_output_tokens) and cls._output_tokens > 0
+                if exact:
+                    # Calibrate: same estimator, same event population --
+                    # the real/estimated ratio corrects the bias without
+                    # mixing untimed tokens into the timed numerator.
+                    timed_tokens *= usage_output_tokens / cls._output_tokens
+                    cls._last_output_tokens = int(usage_output_tokens)
+                else:
+                    cls._last_output_tokens = cls._output_tokens
+                cls._last_tokens_exact = exact
                 cls._last_gen_seconds = cls._gen_seconds
-                if cls._output_tokens > 0 and cls._gen_seconds > 0:
-                    cls._last_gen_tps = cls._output_tokens / cls._gen_seconds
-                    cls._total_output_tokens += cls._output_tokens
+                if timed_tokens > 0 and cls._gen_seconds > 0:
+                    cls._last_gen_tps = timed_tokens / cls._gen_seconds
+                    cls._total_output_tokens += timed_tokens
                     cls._total_gen_seconds += cls._gen_seconds
             else:
                 cls._last_output_tokens = 0
+                cls._last_tokens_exact = False
                 cls._last_gen_seconds = 0.0
 
             # Zero per-cycle state so the next run starts cleanly.
@@ -166,6 +206,7 @@ class AgentRunStats:
             cls._last_token_time = 0.0
             cls._gen_seconds = 0.0
             cls._output_tokens = 0
+            cls._timed_output_tokens = 0
             cls._current_model_name = ""
 
     @classmethod
@@ -173,7 +214,8 @@ class AgentRunStats:
         """Return a snapshot of the most-recently-completed cycle.
 
         Keys: ``model``, ``ttft_seconds``, ``gen_tps``, ``gen_seconds``,
-        ``output_tokens``.
+        ``output_tokens``, ``tokens_exact`` (True when ``output_tokens``
+        came from real API usage rather than the char estimate).
         """
         with cls._lock:
             return {
@@ -182,6 +224,7 @@ class AgentRunStats:
                 "gen_tps": cls._last_gen_tps,
                 "gen_seconds": cls._last_gen_seconds,
                 "output_tokens": cls._last_output_tokens,
+                "tokens_exact": cls._last_tokens_exact,
             }
 
     @classmethod
@@ -197,10 +240,12 @@ class AgentRunStats:
             cls._last_token_time = 0.0
             cls._gen_seconds = 0.0
             cls._output_tokens = 0
+            cls._timed_output_tokens = 0
             cls._current_model_name = ""
             cls._last_ttft_seconds = 0.0
             cls._last_gen_tps = 0.0
             cls._last_output_tokens = 0
+            cls._last_tokens_exact = False
             cls._last_gen_seconds = 0.0
             cls._last_model_name = ""
 
@@ -236,8 +281,10 @@ class AgentRunStats:
                 if live_ttft > 0:
                     total_ttft += live_ttft
                     ttft_count += 1
-                if cls._output_tokens > 0 and cls._gen_seconds > 0:
-                    total_out += cls._output_tokens
+                # Live cycle has no usage data yet -- fold the timed subset
+                # uncalibrated (consistent numerator/denominator pairing).
+                if cls._timed_output_tokens > 0 and cls._gen_seconds > 0:
+                    total_out += cls._timed_output_tokens
                     total_gen += cls._gen_seconds
 
             avg_ttft = (total_ttft / ttft_count) if ttft_count > 0 else None
@@ -474,7 +521,10 @@ def _render_high_mode_stats() -> None:
             parts.append(f"{stats['gen_tps']:,.1f} t/s")
 
         if stats["output_tokens"] > 0:
-            parts.append(f"~{stats['output_tokens']:,} output tokens (est)")
+            if stats.get("tokens_exact"):
+                parts.append(f"{stats['output_tokens']:,} output tokens")
+            else:
+                parts.append(f"~{stats['output_tokens']:,} output tokens (est)")
 
         if parts:
             line = " | ".join(parts)
@@ -569,10 +619,23 @@ async def _on_agent_run_end(
 
     In ``high`` output mode, a per-turn stats line is printed to the
     streaming console so the user sees timing + token data inline.
+
+    ``metadata["usage_output_tokens"]`` (real billed output count from
+    ``result.usage()``, provided by ``_runtime``) calibrates the
+    char-based token estimate before it enters the TG averages.
     """
     if is_subagent():
         return
-    AgentRunStats.snapshot_cycle_into_aggregates()
+    usage_output_tokens: int | None = None
+    if metadata:
+        try:
+            raw = metadata.get("usage_output_tokens")
+            usage_output_tokens = int(raw) if raw else None
+        except (TypeError, ValueError):
+            usage_output_tokens = None
+    AgentRunStats.snapshot_cycle_into_aggregates(
+        usage_output_tokens=usage_output_tokens
+    )
     _render_high_mode_stats()
 
 

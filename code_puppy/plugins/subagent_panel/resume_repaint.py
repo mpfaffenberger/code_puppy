@@ -1,11 +1,12 @@
-"""Repaint the sub-agent panel after Ctrl+T steering resumes.
+"""Repaint the sub-agent panel after a pause -> resume transition.
 
-The status panel lives inside the main ConsoleSpinner Rich Live. Michael's
-raw steer intentionally tears that Live down while collecting input. During a
-sub-agent swarm the main agent is blocked inside the invoke_agent tool await,
-so the normal event_stream_handler PartEndEvent path cannot rebuild the Live.
-This module gives subagent_panel its own tiny wake-up path, without touching
-steer itself.
+During a sub-agent swarm the main agent is blocked inside the
+invoke_agent tool await, so no stream events arrive to trigger the
+normal event-driven ``_push_panel`` repaint. If the PauseController
+paused and then resumed in that window (renderer buffering may have
+scrolled output over the bar), this module gives subagent_panel its own
+tiny wake-up path: force-push the panel lines to the bottom bar on every
+resume, plus on ``ResumeAgentCommand`` from the message bus.
 """
 
 from __future__ import annotations
@@ -20,17 +21,29 @@ class _State(Protocol):
 
 _runtime_enabled: Callable[[], bool] | None = None
 _state: _State | None = None
+_repaint: Callable[..., None] | None = None
 _install_lock = threading.Lock()
-_repaint_lock = threading.RLock()
 _installed = False
 
 
-def install(runtime_enabled: Callable[[], bool], state: _State) -> None:
-    """Install resume/repaint hooks. Safe to call repeatedly."""
-    global _installed, _runtime_enabled, _state
+def install(
+    runtime_enabled: Callable[[], bool],
+    state: _State,
+    repaint: Callable[..., None],
+) -> None:
+    """Install resume/repaint hooks. Safe to call repeatedly.
+
+    Args:
+        runtime_enabled: The plugin's runtime on/off switch.
+        state: The sub-agent registry (for the active-swarm guard).
+        repaint: Callable pushing the panel to the bottom bar; invoked
+            with ``force=True``.
+    """
+    global _installed, _runtime_enabled, _state, _repaint
     with _install_lock:
         _runtime_enabled = runtime_enabled
         _state = state
+        _repaint = repaint
         if _installed:
             return
         _installed = True
@@ -55,82 +68,14 @@ def _active_swarm() -> bool:
 
 
 def _request_repaint(_reason: str = "resume") -> None:
-    """Try now and retry shortly after prompt teardown/renderer flush races."""
+    """Force-push the panel now; no retries needed — set_panel_lines is a
+    direct synchronous paint on the reserved rows, not a Live rebuild."""
     if not _active_swarm():
         return
-    _repaint_once()
-    for delay in (0.05, 0.20, 0.50):
-        timer = threading.Timer(delay, _repaint_once)
-        timer.daemon = True
-        timer.start()
-
-
-def _repaint_once() -> None:
-    if not _active_swarm():
+    if _repaint is None:
         return
-    with _repaint_lock:
-        if not _active_swarm():
-            return
-        try:
-            from code_puppy.messaging.spinner import resume_all_spinners
-
-            resume_all_spinners()
-        except Exception:
-            pass
-        _force_refresh_active_spinners()
-
-
-def _force_refresh_active_spinners() -> None:
     try:
-        from code_puppy.messaging.spinner import _active_spinners
-    except Exception:
-        return
-    for spinner in list(_active_spinners):
-        try:
-            _force_refresh_spinner(spinner)
-        except Exception:
-            pass
-
-
-def _force_refresh_spinner(spinner) -> None:
-    if not getattr(spinner, "_is_spinning", False):
-        return
-    # If ConsoleSpinner.resume() missed its moment, force the same invariant:
-    # an unpaused spinner with a live Rich surface containing our patched panel.
-    try:
-        spinner._paused = False
-    except Exception:
-        pass
-
-    live = getattr(spinner, "_live", None)
-    if live is None:
-        _start_live(spinner)
-        return
-
-    try:
-        live.update(spinner._generate_spinner_panel())
-        live.refresh()
-    except Exception:
-        pass
-
-
-def _start_live(spinner) -> None:
-    try:
-        from rich.live import Live
-
-        console = getattr(spinner, "console", None)
-        if console is None:
-            return
-        console.print()
-        live = Live(
-            spinner._generate_spinner_panel(),
-            console=console,
-            refresh_per_second=20,
-            transient=True,
-            auto_refresh=False,
-        )
-        spinner._live = live
-        live.start()
+        _repaint(force=True)
     except Exception:
         pass
 

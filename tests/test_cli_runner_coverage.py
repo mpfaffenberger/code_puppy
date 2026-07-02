@@ -10,6 +10,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
+def _resolved(text="", warnings=None, files=None, clips=None, links=None):
+    """Build a stub ResolvedUserPrompt for patching resolve_user_prompt."""
+    m = MagicMock()
+    m.text = text
+    m.warnings = warnings or []
+    m.file_attachments = files or []
+    m.clipboard_images = clips or []
+    m.link_attachments = links or []
+    m.attachments = (files or []) + (clips or [])
+    return m
+
+
 class TestRunPromptWithAttachments:
     """Test run_prompt_with_attachments function."""
 
@@ -19,27 +31,15 @@ class TestRunPromptWithAttachments:
 
         # A prompt that becomes empty after attachment parsing
         mock_agent = MagicMock()
-        with (
-            patch("code_puppy.cli_runner.parse_prompt_attachments") as mock_parse,
-            patch("code_puppy.cli_runner.get_clipboard_manager") as mock_clip,
-        ):
-            mock_parse.return_value = MagicMock(
-                prompt="",
-                warnings=[],
-                attachments=[],
-                link_attachments=[],
-            )
-            clip_mgr = MagicMock()
-            clip_mgr.get_pending_images.return_value = []
-            clip_mgr.get_pending_count.return_value = 0
-            mock_clip.return_value = clip_mgr
+        with patch("code_puppy.cli_runner.resolve_user_prompt") as mock_resolve:
+            mock_resolve.return_value = _resolved(text="")
 
             result, task = await run_prompt_with_attachments(mock_agent, "")
             assert result is None
             assert task is None
 
     @pytest.mark.anyio
-    async def test_with_attachments_and_spinner(self):
+    async def test_with_attachments_and_run_ui(self):
         from code_puppy.cli_runner import run_prompt_with_attachments
 
         mock_agent = MagicMock()
@@ -52,63 +52,45 @@ class TestRunPromptWithAttachments:
         mock_link.url_part = "https://example.com"
 
         with (
-            patch("code_puppy.cli_runner.parse_prompt_attachments") as mock_parse,
-            patch("code_puppy.cli_runner.get_clipboard_manager") as mock_clip,
+            patch("code_puppy.cli_runner.resolve_user_prompt") as mock_resolve,
             patch("code_puppy.agents.event_stream_handler.set_streaming_console"),
-            patch("code_puppy.messaging.spinner.ConsoleSpinner") as mock_spinner,
+            patch("code_puppy.messaging.run_ui.run_ui") as mock_run_ui,
         ):
-            mock_parse.return_value = MagicMock(
-                prompt="do stuff",
+            mock_resolve.return_value = _resolved(
+                text="do stuff",
                 warnings=["warn1"],
-                attachments=[mock_attachment],
-                link_attachments=[mock_link],
+                files=[mock_attachment.content],
+                clips=[b"clip-img"],
+                links=[mock_link.url_part],
             )
-            clip_mgr = MagicMock()
-            clip_mgr.get_pending_images.return_value = [b"clip-img"]
-            clip_mgr.get_pending_count.return_value = 1
-            mock_clip.return_value = clip_mgr
-
-            mock_spinner.return_value.__enter__ = MagicMock()
-            mock_spinner.return_value.__exit__ = MagicMock(return_value=False)
 
             console = MagicMock()
             result, task = await run_prompt_with_attachments(
-                mock_agent, "do stuff", spinner_console=console, use_spinner=True
+                mock_agent, "do stuff", display_console=console, use_run_ui=True
             )
             assert result is mock_result
+            mock_run_ui.assert_called_once()
 
     @pytest.mark.anyio
-    async def test_cancelled_with_spinner(self):
+    async def test_cancelled_with_run_ui(self):
         from code_puppy.cli_runner import run_prompt_with_attachments
 
         mock_agent = MagicMock()
         mock_agent.run_with_mcp = AsyncMock(side_effect=asyncio.CancelledError)
 
         with (
-            patch("code_puppy.cli_runner.parse_prompt_attachments") as mock_parse,
-            patch("code_puppy.cli_runner.get_clipboard_manager") as mock_clip,
+            patch("code_puppy.cli_runner.resolve_user_prompt") as mock_resolve,
             patch("code_puppy.agents.event_stream_handler.set_streaming_console"),
-            patch("code_puppy.messaging.spinner.ConsoleSpinner") as mock_spinner,
+            patch("code_puppy.messaging.run_ui.run_ui") as mock_run_ui,
         ):
-            mock_parse.return_value = MagicMock(
-                prompt="do stuff",
-                warnings=[],
-                attachments=[],
-                link_attachments=[],
-            )
-            clip_mgr = MagicMock()
-            clip_mgr.get_pending_images.return_value = []
-            clip_mgr.get_pending_count.return_value = 0
-            mock_clip.return_value = clip_mgr
-
-            mock_spinner.return_value.__enter__ = MagicMock()
-            mock_spinner.return_value.__exit__ = MagicMock(return_value=False)
+            mock_resolve.return_value = _resolved(text="do stuff")
 
             console = MagicMock()
             result, task = await run_prompt_with_attachments(
-                mock_agent, "do stuff", spinner_console=console, use_spinner=True
+                mock_agent, "do stuff", display_console=console, use_run_ui=True
             )
             assert result is None
+            mock_run_ui.assert_called_once()
 
     @pytest.mark.anyio
     async def test_cancelled_without_spinner(self):
@@ -118,23 +100,13 @@ class TestRunPromptWithAttachments:
         mock_agent.run_with_mcp = AsyncMock(side_effect=asyncio.CancelledError)
 
         with (
-            patch("code_puppy.cli_runner.parse_prompt_attachments") as mock_parse,
-            patch("code_puppy.cli_runner.get_clipboard_manager") as mock_clip,
+            patch("code_puppy.cli_runner.resolve_user_prompt") as mock_resolve,
             patch("code_puppy.agents.event_stream_handler.set_streaming_console"),
         ):
-            mock_parse.return_value = MagicMock(
-                prompt="do stuff",
-                warnings=[],
-                attachments=[],
-                link_attachments=[],
-            )
-            clip_mgr = MagicMock()
-            clip_mgr.get_pending_images.return_value = []
-            clip_mgr.get_pending_count.return_value = 0
-            mock_clip.return_value = clip_mgr
+            mock_resolve.return_value = _resolved(text="do stuff")
 
             result, task = await run_prompt_with_attachments(
-                mock_agent, "do stuff", use_spinner=False
+                mock_agent, "do stuff", use_run_ui=False
             )
             assert result is None
 
@@ -146,28 +118,30 @@ class TestRunPromptWithAttachments:
         mock_result = MagicMock()
         mock_agent.run_with_mcp = AsyncMock(return_value=mock_result)
 
+        # End-to-end through the REAL resolver: only the clipboard manager
+        # is stubbed, so this covers placeholder stripping in
+        # resolve_user_prompt as consumed by run_prompt_with_attachments.
+        placeholder = "[\U0001f4cb clipboard image 1]"
         with (
-            patch("code_puppy.cli_runner.parse_prompt_attachments") as mock_parse,
-            patch("code_puppy.cli_runner.get_clipboard_manager") as mock_clip,
+            patch(
+                "code_puppy.command_line.clipboard.get_clipboard_manager"
+            ) as mock_clip,
             patch("code_puppy.agents.event_stream_handler.set_streaming_console"),
         ):
-            mock_parse.return_value = MagicMock(
-                prompt="[📋 clipboard image 1] describe this",
-                warnings=[],
-                attachments=[],
-                link_attachments=[],
-            )
             clip_mgr = MagicMock()
             clip_mgr.get_pending_images.return_value = [b"img"]
-            clip_mgr.get_pending_count.return_value = 1
             mock_clip.return_value = clip_mgr
 
             result, task = await run_prompt_with_attachments(
-                mock_agent, "test", use_spinner=False
+                mock_agent, f"{placeholder} describe this", use_run_ui=False
             )
             # The cleaned prompt should have placeholder removed
             call_args = mock_agent.run_with_mcp.call_args
             assert "clipboard image" not in call_args[0][0]
+            assert "describe this" in call_args[0][0]
+            # The pending image must ride along as an attachment
+            assert call_args[1]["attachments"] == [b"img"]
+            clip_mgr.clear_pending.assert_called_once()
 
 
 class TestExecuteSinglePrompt:

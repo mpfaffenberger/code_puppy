@@ -94,6 +94,63 @@ def reset_windows_console_mode() -> None:
         pass  # Silently ignore errors - best effort reset
 
 
+def ensure_windows_vt_processing() -> bool:
+    """Enable AND VERIFY ANSI/VT processing on the Windows console.
+
+    The persistent bottom bar (and the plugins animating it — the puppy
+    spinner at 20fps, the sub-agent panel) write raw VT escapes straight
+    to ``sys.__stdout__``; Rich's legacy-Windows renderer can't protect
+    those. Windows Terminal enables VT by default, but legacy conhost
+    (PowerShell 5.1 / cmd.exe) does not — without this gate the bar
+    renders as an escape-soup firehose.
+
+    Returns True when the console is known-good for raw VT output:
+
+    * non-Windows platforms (POSIX TTYs speak VT natively);
+    * Windows consoles where ``ENABLE_VIRTUAL_TERMINAL_PROCESSING`` was
+      already set, or was set here and CONFIRMED via a mode read-back
+      (ancient hosts silently no-op ``SetConsoleMode``).
+
+    Returns False when the flag could not be confirmed — callers should
+    degrade to the classic prompt_toolkit UI, which never emits raw
+    escapes. Never raises.
+    """
+    if platform.system() != "Windows":
+        return True
+
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+
+        STD_OUTPUT_HANDLE = -11
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+        INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+        handle = kernel32.GetStdHandle(STD_OUTPUT_HANDLE)
+        if handle in (0, None, INVALID_HANDLE_VALUE):
+            return False
+
+        mode = ctypes.c_ulong()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        if mode.value & ENABLE_VIRTUAL_TERMINAL_PROCESSING:
+            return True  # already on (Windows Terminal, ConEmu, ...)
+
+        if not kernel32.SetConsoleMode(
+            handle, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        ):
+            return False
+
+        # Read back and verify the flag actually stuck.
+        verify = ctypes.c_ulong()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(verify)):
+            return False
+        return bool(verify.value & ENABLE_VIRTUAL_TERMINAL_PROCESSING)
+    except Exception:
+        return False  # can't confirm VT -> fail safe, degrade to classic
+
+
 def flush_windows_keyboard_buffer() -> None:
     """Flush the Windows keyboard buffer.
 

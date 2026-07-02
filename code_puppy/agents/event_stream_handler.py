@@ -31,7 +31,7 @@ from code_puppy.config import (
     get_subagent_verbose,
     get_suppress_thinking_messages,
 )
-from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
+from code_puppy.tools.display import erase_progress_line
 from code_puppy.tools.subagent_context import is_subagent
 
 logger = logging.getLogger(__name__)
@@ -61,15 +61,15 @@ def _fire_stream_event(event_type: str, event_data: Any) -> None:
 
 
 # Module-level console for streaming output
-# Set via set_streaming_console() to share console with spinner
+# Set via set_streaming_console() so every stream shares one console
 _streaming_console: Optional[Console] = None
 
 
 def set_streaming_console(console: Optional[Console]) -> None:
     """Set the console used for streaming output.
 
-    This should be called with the same console used by the spinner
-    to avoid Live display conflicts that cause line duplication.
+    All streams (markdown, thinking, tool token lines) should share one
+    console; output scrolls inside the bottom bar's scroll region.
 
     Args:
         console: The Rich console to use, or None to use a fallback.
@@ -145,9 +145,9 @@ async def event_stream_handler(
             pass  # Just consume events without rendering
         return
 
-    # NOTE: TTFT / gen-speed timing is now handled by callback hooks
-    # registered in ``messaging.spinner._stream_stats_hooks`` (agent_run_start +
-    # stream_event + agent_run_end). This handler stays focused on rendering.
+    # NOTE: TTFT / gen-speed timing is handled by callback hooks
+    # (agent_run_start + stream_event + agent_run_end). This handler
+    # stays focused on rendering.
 
     from termflow import Parser as TermflowParser
     from termflow import Renderer as TermflowRenderer
@@ -214,13 +214,11 @@ async def event_stream_handler(
             console.print(f"[dim]{escape(text)}[/dim]", end="")
 
     async def _print_thinking_banner() -> None:
-        """Print the THINKING banner with spinner pause and line clear."""
+        """Print the THINKING banner on a fresh line."""
         nonlocal did_stream_anything
 
-        pause_all_spinners()
-        await asyncio.sleep(0.1)  # Delay to let spinner fully clear
-        # Clear line and print newline before banner
-        console.print(" " * 50, end="\r")
+        # Clear any \r-repainted progress line, then move below it
+        erase_progress_line(console)
         console.print()  # Newline before banner
         # Bold banner with configurable color and lightning bolt
         thinking_color = get_banner_color("thinking")
@@ -234,13 +232,11 @@ async def event_stream_handler(
         did_stream_anything = True
 
     async def _print_response_banner() -> None:
-        """Print the AGENT RESPONSE banner with spinner pause and line clear."""
+        """Print the AGENT RESPONSE banner on a fresh line."""
         nonlocal did_stream_anything
 
-        pause_all_spinners()
-        await asyncio.sleep(0.1)  # Delay to let spinner fully clear
-        # Clear line and print newline before banner
-        console.print(" " * 50, end="\r")
+        # Clear any \r-repainted progress line, then move below it
+        erase_progress_line(console)
         console.print()  # Newline before banner
         response_color = get_banner_color("agent_response")
         console.print(
@@ -268,9 +264,7 @@ async def event_stream_handler(
             from code_puppy.messaging.pause_controller import get_pause_controller
 
             _pc = get_pause_controller()
-            if _pc.is_paused():
-                # Hide the spinner while paused so nothing animates.
-                pause_all_spinners()
+            while _pc.is_paused():
                 # Read max pause from config lazily (avoid module-load coupling).
                 from code_puppy.config import get_value
 
@@ -279,13 +273,25 @@ async def event_stream_handler(
                 except (TypeError, ValueError):
                     max_pause = 180.0
                 resumed = await _pc.wait_if_paused(timeout=max_pause)
-                if not resumed:
-                    from code_puppy.messaging import emit_warning
+                if resumed:
+                    break
+                # Timed out — the controller force-resumed itself. If a
+                # slash-command window still owns the pause lease, re-arm
+                # and keep waiting: streaming must NOT interleave under an
+                # open /command menu. The drain's ``finally`` guarantees
+                # the ultimate resume, so this can't wait forever.
+                from code_puppy.messaging.run_ui import is_draining
 
-                    emit_warning(
-                        f"⏸️  Pause exceeded {max_pause:.0f}s; auto-resuming to "
-                        "avoid upstream timeout."
-                    )
+                if is_draining():
+                    _pc.pause()
+                    continue
+                from code_puppy.messaging import emit_warning
+
+                emit_warning(
+                    f"⏸  Pause exceeded {max_pause:.0f}s; auto-resuming to "
+                    "avoid upstream timeout."
+                )
+                break
 
             # PartStartEvent - register the part but defer banner until content arrives
             if isinstance(event, PartStartEvent):
@@ -464,8 +470,10 @@ async def event_stream_handler(
                             await writer.close()
                     # For tool parts, clear the chunk counter line
                     elif event.index in tool_parts:
-                        # Clear the chunk counter line by printing spaces and returning
-                        console.print(" " * 50, end="\r")
+                        # Erase the \r-repainted chunk counter line entirely
+                        # (space-padding assumed <= 50 cells and left ghost
+                        # tails like ``s)`` behind long tool names).
+                        erase_progress_line(console)
                         # In high mode, dump the full tool call arguments so the
                         # user can see exactly what the model sent to the tool.
                         if is_high_mode:
@@ -507,20 +515,12 @@ async def event_stream_handler(
                     tool_parts.discard(event.index)
                     banner_printed.discard(event.index)
 
-                    # Resume spinner if next part is NOT text/thinking/tool (avoid race condition)
-                    # If next part is None or handled differently, it's safe to resume
-                    # Note: spinner itself handles blank line before appearing
-                    next_kind = getattr(event, "next_part_kind", None)
-                    if next_kind not in ("text", "thinking", "tool-call"):
-                        resume_all_spinners()
     except BaseException:
         # Cancelled (Ctrl+C / steer) or crashed mid-stream: the graceful
         # drain below would never run, orphaning the background drain
         # tasks — which then keep typing into the terminal. Abort them.
         _abort_all_drainers()
         raise
-
-    # Spinner is resumed in PartEndEvent when appropriate (based on next_part_kind)
 
     # Drain any smoothers/writers that didn't see a PartEndEvent (e.g. the
     # stream ended abruptly) so we never lose buffered text or orphan tasks.

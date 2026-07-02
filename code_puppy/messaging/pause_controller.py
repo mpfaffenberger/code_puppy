@@ -55,10 +55,21 @@ class PauseController:
         self._steer_queue_queued: List[str] = []
         self._resume_event: Optional[asyncio.Event] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        # Rendezvous flag: set when a waiter actually parks inside
+        # wait_if_paused (i.e. the agent reached its safe boundary),
+        # cleared on resume. Lets the slash-command consumer wait for
+        # the agent to genuinely stop before taking over the terminal,
+        # instead of trusting the paused *flag* alone.
+        self._parked = threading.Event()
         # Resume listeners (tiny pub-sub for things that want to wake up
         # when paused -> not-paused, e.g. the renderer flushing its buffer).
         self._resume_listeners: List[ResumeListener] = []
         self._resume_listeners_lock = threading.Lock()
+        # Steer-QUEUE listeners: fired with the new count after any
+        # mutation of the queued-mode queue (submit/drain/edit) so UI
+        # (the '(N queued)' status suffix) stays live without polling.
+        self._steer_queue_listeners: List[Callable[[int], None]] = []
+        self._steer_queue_listeners_lock = threading.Lock()
 
     # =========================================================================
     # Pause / Resume
@@ -94,6 +105,8 @@ class PauseController:
             event = self._resume_event
             loop = self._loop
 
+        self._parked.clear()
+
         if event is not None:
             self._call_on_loop(loop, event.set)
 
@@ -104,6 +117,10 @@ class PauseController:
         """Return True if currently paused."""
         with self._lock:
             return self._paused
+
+    def is_parked(self) -> bool:
+        """True while a waiter is actually parked inside wait_if_paused."""
+        return self._parked.is_set()
 
     # =========================================================================
     # Resume listeners (pub-sub)
@@ -142,6 +159,38 @@ class PauseController:
                 pass
 
     # =========================================================================
+    # Steer-queue listeners (pub-sub for the '(N queued)' UI)
+    # =========================================================================
+
+    def add_steer_queue_listener(self, callback: Callable[[int], None]) -> None:
+        """Register ``callback(count)`` for queued-queue size changes.
+
+        Invoked synchronously from whichever thread mutated the queue —
+        keep it cheap. Duplicates are ignored.
+        """
+        with self._steer_queue_listeners_lock:
+            if callback not in self._steer_queue_listeners:
+                self._steer_queue_listeners.append(callback)
+
+    def remove_steer_queue_listener(self, callback: Callable[[int], None]) -> None:
+        """Unregister a steer-queue listener. No-op if absent."""
+        with self._steer_queue_listeners_lock:
+            try:
+                self._steer_queue_listeners.remove(callback)
+            except ValueError:
+                pass
+
+    def _fire_steer_queue_listeners(self, count: int) -> None:
+        """Notify listeners of the new queued count; swallow errors."""
+        with self._steer_queue_listeners_lock:
+            listeners = list(self._steer_queue_listeners)
+        for listener in listeners:
+            try:
+                listener(count)
+            except Exception:
+                pass
+
+    # =========================================================================
     # Steering queue
     # =========================================================================
 
@@ -168,8 +217,12 @@ class PauseController:
         with self._lock:
             if mode == "queue":
                 self._steer_queue_queued.append(text)
+                count = len(self._steer_queue_queued)
             else:
                 self._steer_queue_now.append(text)
+                count = None
+        if count is not None:
+            self._fire_steer_queue_listeners(count)
 
     def drain_pending_steer_now(self) -> List[str]:
         """Atomically pop + return every queued ``now``-mode steer.
@@ -191,7 +244,40 @@ class PauseController:
         with self._lock:
             drained = self._steer_queue_queued
             self._steer_queue_queued = []
+        if drained:
+            self._fire_steer_queue_listeners(0)
         return drained
+
+    def pop_next_steer_queued(self) -> Optional[str]:
+        """Atomically pop the OLDEST queued-mode steer (None when empty).
+
+        Owned by the idle REPL loop: consume queued prompts one at a
+        time as fresh turns when no run is in flight.
+        """
+        with self._lock:
+            if not self._steer_queue_queued:
+                return None
+            item = self._steer_queue_queued.pop(0)
+            count = len(self._steer_queue_queued)
+        self._fire_steer_queue_listeners(count)
+        return item
+
+    def peek_pending_steer_queued(self) -> List[str]:
+        """Copy of the queued-mode queue WITHOUT draining (for the /queue TUI)."""
+        with self._lock:
+            return list(self._steer_queue_queued)
+
+    def replace_pending_steer_queued(self, items: List[str]) -> None:
+        """Atomically replace the queued-mode queue (the /queue TUI's
+        edit/delete/add operations write the whole list back).
+
+        Empty/whitespace-only entries are dropped.
+        """
+        cleaned = [item for item in items if item and item.strip()]
+        with self._lock:
+            self._steer_queue_queued = cleaned
+            count = len(self._steer_queue_queued)
+        self._fire_steer_queue_listeners(count)
 
     def has_pending_steer_now(self) -> bool:
         """True iff at least one ``now``-mode steer is queued."""
@@ -211,9 +297,12 @@ class PauseController:
         came from; they just want everything gone.
         """
         with self._lock:
+            had_queued = bool(self._steer_queue_queued)
             drained = self._steer_queue_queued + self._steer_queue_now
             self._steer_queue_queued = []
             self._steer_queue_now = []
+        if had_queued:
+            self._fire_steer_queue_listeners(0)
         return drained
 
     def has_pending_steer(self) -> bool:
@@ -240,6 +329,10 @@ class PauseController:
             return True
 
         event = self._ensure_event()
+
+        # The wait is genuinely beginning — the agent is parked at a safe
+        # boundary. resume() clears this.
+        self._parked.set()
 
         try:
             if timeout is None:
@@ -280,10 +373,26 @@ class PauseController:
     ) -> None:
         """Best-effort thread-safe call into the captured event loop.
 
+        When already ON the loop thread, ``fn`` is applied synchronously
+        — deferring via ``call_soon_threadsafe`` would leave the event in
+        its OLD state until the next loop iteration, so e.g. a pause()
+        immediately followed by ``wait_if_paused()`` (the slash-command
+        re-arm path) would see a still-set resume event and fall through.
+
         Falls back to direct invocation if the loop is closed or missing.
         Silently swallows RuntimeError so caller threads never crash.
         """
         if loop is not None and not loop.is_closed():
+            try:
+                running = asyncio.get_running_loop()
+            except RuntimeError:
+                running = None
+            if running is loop:
+                try:
+                    fn()
+                except RuntimeError:
+                    pass
+                return
             try:
                 loop.call_soon_threadsafe(fn)
                 return

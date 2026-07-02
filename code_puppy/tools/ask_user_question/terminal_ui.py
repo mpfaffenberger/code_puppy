@@ -324,8 +324,8 @@ async def interactive_question_picker(
     # exclusive ownership of stdin while the TUI is up. Without this, the
     # listener's cbreak-mode reader races prompt_toolkit for every keystroke
     # (arrows / space / enter / Ctrl+S) and roughly half get swallowed,
-    # forcing the user to mash keys multiple times. See agent_steering
-    # plugin for the same contract.
+    # forcing the user to mash keys multiple times. See the suspend/resume
+    # contract on _key_listeners.KeyListenerHandle.
     #
     # Import locally to avoid a hard dependency on the agents package for
     # callers that import this module standalone (e.g. demo_tui).

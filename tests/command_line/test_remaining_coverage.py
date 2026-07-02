@@ -46,7 +46,14 @@ def test_clipboard_pil_import_failure():
         if saved:
             sys.modules[mod_name] = saved
         else:
-            importlib.import_module(mod_name)
+            saved = importlib.import_module(mod_name)
+        # ALSO restore the package attribute: ``import a.b`` rebinds
+        # ``a.b`` on every import, so without this the package attr
+        # points at the throwaway module and later string-target
+        # monkeypatches hit the wrong object.
+        import code_puppy.command_line as _pkg
+
+        _pkg.clipboard = saved
 
 
 def test_clipboard_binary_content_import_failure():
@@ -63,7 +70,11 @@ def test_clipboard_binary_content_import_failure():
         if saved:
             sys.modules[mod_name] = saved
         else:
-            importlib.import_module(mod_name)
+            saved = importlib.import_module(mod_name)
+        # See note above: keep the package attribute in sync too.
+        import code_puppy.command_line as _pkg
+
+        _pkg.clipboard = saved
 
 
 # ============================================================

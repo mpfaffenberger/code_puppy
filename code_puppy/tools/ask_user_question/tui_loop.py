@@ -401,13 +401,14 @@ async def run_question_tui(
     timeout_task = asyncio.create_task(timeout_checker())
     app_exception: BaseException | None = None
 
-    # Suspend the background key listener so prompt_toolkit has
-    # exclusive ownership of stdin -- otherwise the listener thread
-    # eats keystrokes and CPR replies (see _key_listeners.py).
-    from code_puppy.agents._key_listeners import suspended_key_listener
+    # Suspend the whole run UI: the bottom bar's scroll region is reset
+    # (prompt_toolkit needs the full screen) AND the background key
+    # listener releases stdin -- otherwise the listener thread eats
+    # keystrokes and CPR replies (see _key_listeners.py).
+    from code_puppy.messaging.run_ui import suspended_run_ui
 
     try:
-        with suspended_key_listener():
+        with suspended_run_ui():
             await app.run_async()
     except BaseException as e:
         app_exception = e

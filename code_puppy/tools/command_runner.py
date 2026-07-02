@@ -275,29 +275,17 @@ def is_awaiting_user_input():
 
 # Function to set user input flag
 def set_awaiting_user_input(awaiting=True):
-    """Set the flag indicating if user input is awaited."""
+    """Set the flag indicating if user input is awaited.
+
+    NOTE: this only toggles the flag. Components that actually take over
+    the terminal for input (approval prompts, ask_user_question TUI) are
+    responsible for wrapping themselves in
+    ``code_puppy.messaging.run_ui.suspended_run_ui()``.
+    """
     if awaiting:
         _AWAITING_USER_INPUT.set()
     else:
         _AWAITING_USER_INPUT.clear()
-
-    # When we're setting this flag, also pause/resume all active spinners
-    if awaiting:
-        # Pause all active spinners (imported here to avoid circular imports)
-        try:
-            from code_puppy.messaging.spinner import pause_all_spinners
-
-            pause_all_spinners()
-        except ImportError:
-            pass  # Spinner functionality not available
-    else:
-        # Resume all active spinners
-        try:
-            from code_puppy.messaging.spinner import resume_all_spinners
-
-            resume_all_spinners()
-        except ImportError:
-            pass  # Spinner functionality not available
 
 
 class ShellCommandOutput(BaseModel):
@@ -385,27 +373,20 @@ def _handle_ctrl_x_press() -> None:
 
 
 def _tear_down_live_panels() -> None:
-    """Hide the spinner's Live region (and the sub-agent status panel it hosts).
+    """Clear the sub-agent panel rows on swarm cancel.
 
-    Mirrors what the steer flow does via ``pause_all_spinners()``: the
-    sub-agent status panel is rendered INSIDE the puppy spinner's Rich Live,
-    which repaints ~20x/sec. Without tearing it down first, the cancel banner
-    prints once and the very next Live frame paints the panel right back over
-    it -- which is exactly why a single Ctrl+C *looked* like it did nothing and
-    the user had to mash it once per nesting level. We pause each active
-    spinner DIRECTLY (rather than ``pause_all_spinners()``) because the signal
-    handler fires on the main thread in an ambiguous contextvar state, where
-    the ``is_subagent()`` guard inside ``pause_all_spinners()`` could wrongly
-    no-op the teardown.
+    The panel now lives on the bottom bar's reserved rows (Phase 4).
+    On Ctrl+C swarm-cancel the plugin's event-driven repaints stop
+    arriving (tasks are being killed), so stale rows would linger — wipe
+    them here. Collapsing the panel also hands the rows back to the
+    scroll region so the cancel banner has maximum space.
+
+    Never raises — called from the SIGINT handler.
     """
     try:
-        from code_puppy.messaging.spinner import _active_spinners
+        from code_puppy.messaging.bottom_bar import get_bottom_bar
 
-        for spinner in list(_active_spinners):
-            try:
-                spinner.pause()
-            except Exception:
-                pass
+        get_bottom_bar().set_panel_lines([])
     except Exception:
         pass
 
@@ -1158,11 +1139,8 @@ async def _execute_shell_command(
         )
     )
 
-    # Pause spinner during shell command so \r output can work properly
-    from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
-
-    pause_all_spinners()
-
+    # Shell output (including \r progress bars) streams inside the bottom
+    # bar's scroll region — nothing to pause anymore.
     # Acquire shared keyboard context - Ctrl-X/Ctrl-C will kill ALL running commands
     # This is reference-counted: listener starts on first command, stops on last
     _acquire_keyboard_context()
@@ -1170,7 +1148,6 @@ async def _execute_shell_command(
         return await _run_command_inner(command, cwd, timeout, group_id, silent=silent)
     finally:
         _release_keyboard_context()
-        resume_all_spinners()
 
 
 def _run_command_sync(

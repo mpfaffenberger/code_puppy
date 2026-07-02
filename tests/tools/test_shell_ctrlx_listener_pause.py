@@ -193,19 +193,23 @@ def test_posix_listener_dispatches_ctrl_x_to_dynamic_handler():
     fake_stdin = MagicMock()
     fake_stdin.fileno.return_value = 7
 
+    # The listener now reads the RAW fd via _read_chunk (os.read) — the
+    # buffered stdin.read(1) path stranded escape-sequence tails (the
+    # live arrows bug). Fake the chunk reader, not stdin.read.
     reads = iter(["\x18"])
 
-    def fake_read(_n):
+    def fake_chunk(_fd, _decoder):
         try:
             return next(reads)
+        except StopIteration:
+            return None
         finally:
             stop_event.set()
-
-    fake_stdin.read.side_effect = fake_read
 
     _key_listeners.set_escape_handler(dynamic)
     with (
         patch.object(sys, "stdin", fake_stdin),
+        patch.object(_key_listeners, "_read_chunk", fake_chunk),
         patch("termios.tcgetattr", return_value=["original"]),
         patch("termios.tcsetattr"),
         patch("tty.setcbreak"),
@@ -215,6 +219,70 @@ def test_posix_listener_dispatches_ctrl_x_to_dynamic_handler():
 
     dynamic.assert_called_once()
     fallback.assert_not_called()
+
+
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX-only test")
+def test_posix_listener_clears_iexten_so_first_ctrl_v_arrives():
+    """cbreak leaves IEXTEN set; on BSD/macOS the tty driver then honors
+    VLNEXT (Ctrl+V = literal-next) even in non-canonical mode, so the
+    kernel EATS the first ^V as a quote-prefix and only a SECOND press
+    reaches the app — the live 'press Ctrl+V twice to paste an image'
+    bug. The listener must clear IEXTEN (and ICRNL) on its tty, and a
+    single ^V written to a real pty must reach dispatch exactly once.
+    """
+    import os
+    import pty
+    import termios
+
+    master, slave = pty.openpty()
+    stop_event = threading.Event()
+    received: list = []
+
+    def recorder(data, _on_escape, _cancel_char, _on_cancel):
+        received.append(data)
+        stop_event.set()
+
+    class SlaveStdin:
+        """Minimal stdin stand-in: fileno() is all the listener needs."""
+
+        def __init__(self, fd: int) -> None:
+            self._fd = fd
+
+        def fileno(self) -> int:
+            return self._fd
+
+    listener = threading.Thread(
+        target=_key_listeners._listen_posix,
+        args=(stop_event, MagicMock()),
+        daemon=True,
+    )
+    with (
+        patch.object(sys, "stdin", SlaveStdin(slave)),
+        patch.object(_key_listeners, "_dispatch_key", recorder),
+    ):
+        listener.start()
+        try:
+            # Wait for the listener to enter cbreak AND clear IEXTEN.
+            deadline = time.time() + 2.0
+            cleared = False
+            while time.time() < deadline:
+                attrs = termios.tcgetattr(slave)
+                if not attrs[3] & termios.IEXTEN:
+                    cleared = True
+                    break
+                time.sleep(0.01)
+            assert cleared, "listener never cleared IEXTEN on its tty"
+            assert not termios.tcgetattr(slave)[0] & termios.ICRNL
+
+            os.write(master, b"\x16")  # ONE Ctrl+V press
+            assert stop_event.wait(timeout=2.0), "first ^V never dispatched"
+        finally:
+            stop_event.set()
+            listener.join(timeout=2.0)
+            os.close(master)
+            os.close(slave)
+
+    assert received == ["\x16"]
 
 
 @pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX-only test")

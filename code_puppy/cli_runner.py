@@ -20,8 +20,10 @@ from rich.console import Console
 
 from code_puppy import __version__, callbacks, plugins
 from code_puppy.agents import get_current_agent
-from code_puppy.command_line.attachments import parse_prompt_attachments
-from code_puppy.command_line.clipboard import get_clipboard_manager
+from code_puppy.command_line.attachments import (
+    parse_prompt_attachments,
+    resolve_user_prompt,
+)
 from code_puppy.config import (
     AUTOSAVE_DIR,
     COMMAND_HISTORY_FILE,
@@ -36,9 +38,7 @@ from code_puppy.http_utils import find_available_port
 from code_puppy.keymap import (
     KeymapError,
     get_cancel_agent_display_name,
-    get_pause_agent_display_name,
     validate_cancel_agent_key,
-    validate_pause_agent_key,
 )
 from code_puppy.messaging import emit_info
 from code_puppy.terminal_utils import (
@@ -297,15 +297,6 @@ async def main():
         emit_error(str(e))
         sys.exit(1)
 
-    # Validate pause_agent_key configuration early (Phase 3 of pause/steer)
-    try:
-        validate_pause_agent_key()
-    except KeymapError as e:
-        from code_puppy.messaging import emit_error
-
-        emit_error(str(e))
-        sys.exit(1)
-
     # Show uvx detection notice if we're on Windows + uvx
     # Also disable Ctrl+C at the console level to prevent terminal bricking
     try:
@@ -546,6 +537,15 @@ async def main():
             # Default to interactive mode (no args = same as -i)
             await interactive_mode(message_renderer, initial_command=initial_command)
     finally:
+        # Persistent prompt teardown FIRST (restores scroll region +
+        # cursor + key listener) so the renderer stops on a sane screen.
+        # Idempotent no-op when the persistent UI never started.
+        try:
+            from code_puppy.messaging.run_ui import stop_persistent_ui
+
+            stop_persistent_ui()
+        except Exception:
+            pass
         if message_renderer:
             message_renderer.stop()
         if bus_renderer:
@@ -557,6 +557,72 @@ async def main():
         except Exception:
             pass
         await callbacks.on_shutdown()
+
+
+def _use_persistent_prompt() -> bool:
+    """Should the REPL use the persistent bottom-bar prompt (Phase A)?
+
+    False (→ classic prompt_toolkit path) when:
+      * rollback flag: env CODE_PUPPY_CLASSIC_PROMPT=1 or config
+        ``classic_prompt`` truthy — protects the eyeball-testing period;
+      * CODE_PUPPY_NO_TUI=1 (tests / pexpect harnesses);
+      * stdin/stdout isn't a real TTY (pipes, CI) — automatic degrade,
+        not just the env flag;
+      * the console can't be confirmed VT-capable (legacy Windows
+        conhost) — the bar writes raw escapes to ``__stdout__``, so
+        without VT it would render as escape soup at spinner speed.
+    """
+    truthy = {"1", "true", "yes", "on"}
+    if os.environ.get("CODE_PUPPY_CLASSIC_PROMPT", "").strip().lower() in truthy:
+        return False
+    if os.environ.get("CODE_PUPPY_NO_TUI", "").strip() == "1":
+        return False
+    try:
+        from code_puppy.config import get_value
+
+        if str(get_value("classic_prompt") or "").strip().lower() in truthy:
+            return False
+    except Exception:
+        pass
+    try:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            return False
+    except Exception:
+        return False
+    # Raw-VT gate: enable + verify Windows VT processing up front (no-op
+    # True on POSIX). Unconfirmed VT -> classic prompt, which also keeps
+    # the bar inactive so the spinner/panel tickers never start.
+    try:
+        from code_puppy.terminal_utils import ensure_windows_vt_processing
+
+        if not ensure_windows_vt_processing():
+            return False
+    except Exception:
+        pass  # the gate itself must never kill the persistent UI
+    return True
+
+
+def _persistent_prompt_parts() -> tuple:
+    """``(plain_prefix, per_char_sgrs)`` for the bottom-bar editor.
+
+    Flattens ``get_prompt_with_active_model()``'s FormattedText (read-only
+    use) so idle and running prompts look identical — keeping the style
+    classes as an out-of-band per-char SGR list (the bar sanitizes any
+    in-band escapes, so colors can't ride inside the string itself).
+    """
+    try:
+        from code_puppy.command_line.prompt_toolkit_completion import (
+            PROMPT_STYLES,
+            get_prompt_with_active_model,
+        )
+        from code_puppy.messaging.prompt_prefix_style import (
+            flatten_prompt_fragments,
+        )
+
+        formatted = get_prompt_with_active_model()
+        return flatten_prompt_fragments(formatted, PROMPT_STYLES)
+    except Exception:
+        return ">>> ", []
 
 
 def _interactive_sigint_guard(_sig, _frame):
@@ -582,6 +648,16 @@ def _interactive_sigint_guard(_sig, _frame):
     # Nothing is running that owns cancellation (otherwise their handler would
     # be installed instead of this one). Swallow the signal so a fast repeat
     # tap can't escape to main_entry and exit the process.
+    #
+    # Persistent prompt: Ctrl+C at idle with text in the buffer clears it
+    # (classic readline feel); with an empty buffer it stays a no-op
+    # (Ctrl+D is quit). No-op in classic mode / while a run is active.
+    try:
+        from code_puppy.messaging.run_ui import clear_idle_buffer
+
+        clear_idle_buffer()
+    except Exception:
+        pass
     return
 
 
@@ -610,10 +686,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     cancel_key = get_cancel_agent_display_name()
     emit_system_message(
         f"Press {cancel_key} during processing to cancel the current task or inference. Use Ctrl+X to interrupt running shell commands."
-    )
-    pause_key = get_pause_agent_display_name()
-    emit_system_message(
-        f"Press {pause_key} during processing to pause the agent and inject a steering message."
     )
     emit_system_message(
         "Use /autosave_load to manually load a previous autosave session."
@@ -649,7 +721,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         emit_info(f"Processing initial command: {initial_command}")
 
         try:
-            # Check if any tool is waiting for user input before showing spinner
+            # Skip the run UI if a tool is already waiting for user input
+            # (the input prompt owns the terminal in that case).
             try:
                 from code_puppy.tools.command_runner import is_awaiting_user_input
 
@@ -657,12 +730,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             except ImportError:
                 awaiting_input = False
 
-            # Run with or without spinner based on whether we're awaiting input
             response, agent_task = await run_prompt_with_attachments(
                 agent,
                 initial_command,
-                spinner_console=display_console,
-                use_spinner=not awaiting_input,
+                display_console=display_console,
+                use_run_ui=not awaiting_input,
             )
             if response is not None:
                 agent_response = response.output
@@ -742,6 +814,25 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     except (ValueError, OSError):
         pass
 
+    # ------------------------------------------------------------------
+    # Persistent-prompt mode (Phase A): the bottom-bar editor is THE
+    # prompt — idle AND running. The input line stays pinned; output
+    # scrolls above it; no prompt swap between turns. Classic
+    # prompt_toolkit path remains intact behind the rollback flag /
+    # non-TTY auto-degrade (see _use_persistent_prompt).
+    # ------------------------------------------------------------------
+    persistent_prompt = False
+    if _use_persistent_prompt():
+        try:
+            from code_puppy.messaging.run_ui import start_persistent_ui
+
+            _prefix, _prefix_sgrs = _persistent_prompt_parts()
+            persistent_prompt = start_persistent_ui(
+                prompt_prefix=_prefix, prefix_sgrs=_prefix_sgrs
+            )
+        except Exception:
+            persistent_prompt = False  # degrade to classic on any failure
+
     while True:
         from code_puppy.agents.agent_manager import get_current_agent
         from code_puppy.messaging import emit_info
@@ -750,30 +841,70 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         current_agent = get_current_agent()
         user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
 
-        emit_info(f"{user_prompt}\n")
+        if not persistent_prompt:
+            # Persistent path drops the per-iteration banner — the pinned
+            # prompt row + transcript echo replace it.
+            emit_info(f"{user_prompt}\n")
 
         try:
-            # Use prompt_toolkit for enhanced input with path completion
-            try:
-                # Windows-specific: Reset terminal state before prompting
-                reset_windows_terminal_ansi()
+            if persistent_prompt:
+                from rich.text import Text as _EchoText
 
-                # Use the async version of get_input_with_combined_completion
-                task = await get_input_with_combined_completion(
-                    get_prompt_with_active_model(), history_file=COMMAND_HISTORY_FILE
+                from code_puppy.messaging.run_ui import (
+                    set_idle_prompt_prefix,
+                    wait_for_idle_submission,
                 )
 
-                # Windows+uvx: Re-disable Ctrl+C after prompt_toolkit
-                # (prompt_toolkit restores console mode which re-enables Ctrl+C)
-                try:
-                    from code_puppy.terminal_utils import ensure_ctrl_c_disabled
+                # Model/agent may have changed since last turn.
+                prompt_prefix, prompt_prefix_sgrs = _persistent_prompt_parts()
+                set_idle_prompt_prefix(prompt_prefix, prompt_prefix_sgrs)
+                # Idle + queued prompts (added via /queue, or a cancelled
+                # run's leftovers): consume the oldest as this turn instead
+                # of waiting for input. Runs added mid-run normally drain
+                # inside _runtime's between-turns loop and never get here.
+                from code_puppy.messaging.pause_controller import (
+                    get_pause_controller as _get_pc,
+                )
 
-                    ensure_ctrl_c_disabled()
+                queued_task = _get_pc().pop_next_steer_queued()
+                if queued_task is not None:
+                    task = queued_task
+                    emit_info(_EchoText(f"> {task}", style="bold"))
+                    emit_info("⏭ running queued prompt")
+                else:
+                    # Raises EOFError on Ctrl+D-with-empty-buffer, which the
+                    # existing quit branch below handles.
+                    task = await wait_for_idle_submission()
+                    # Echo into the transcript: the editor clears its row
+                    # on submit, so scrollback needs the record of what was
+                    # asked. JUST the user's text (bold, '> ' marker) --
+                    # repeating the whole prompt chrome doubled every
+                    # line's noise. Text() (not markup) so bracket-y input
+                    # renders as-is.
+                    emit_info(_EchoText(f"> {task}", style="bold"))
+            else:
+                # Use prompt_toolkit for enhanced input with path completion
+                try:
+                    # Windows-specific: Reset terminal state before prompting
+                    reset_windows_terminal_ansi()
+
+                    # Use the async version of get_input_with_combined_completion
+                    task = await get_input_with_combined_completion(
+                        get_prompt_with_active_model(),
+                        history_file=COMMAND_HISTORY_FILE,
+                    )
+
+                    # Windows+uvx: Re-disable Ctrl+C after prompt_toolkit
+                    # (prompt_toolkit restores console mode which re-enables Ctrl+C)
+                    try:
+                        from code_puppy.terminal_utils import ensure_ctrl_c_disabled
+
+                        ensure_ctrl_c_disabled()
+                    except ImportError:
+                        pass
                 except ImportError:
-                    pass
-            except ImportError:
-                # Fall back to basic input if prompt_toolkit is not available
-                task = input(">>> ")
+                    # Fall back to basic input if prompt_toolkit is not available
+                    task = input(">>> ")
 
         except (KeyboardInterrupt, asyncio.CancelledError):
             # Handle Ctrl+C - cancel input and continue
@@ -810,7 +941,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         )
 
         if is_shell_passthrough(task):
-            execute_shell_passthrough(task)
+            # The shell owns the terminal — release the bar + key listener
+            # (no-op in classic mode where neither is active at idle).
+            from code_puppy.messaging.run_ui import suspended_run_ui
+
+            with suspended_run_ui():
+                execute_shell_passthrough(task)
             continue
 
         # Check for exit commands (plain text or command form)
@@ -847,7 +983,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         # Handle / commands based on cleaned prompt (after stripping attachments)
         if cleaned_for_commands.startswith("/"):
             try:
-                command_result = handle_command(cleaned_for_commands)
+                # Commands may open prompt_toolkit menus: with the
+                # persistent prompt the bar is up even at idle, so release
+                # the terminal for the duration (no-op in classic mode).
+                from code_puppy.messaging.run_ui import suspended_run_ui
+
+                with suspended_run_ui():
+                    command_result = handle_command(cleaned_for_commands)
             except Exception as e:
                 from code_puppy.messaging import emit_error
 
@@ -891,7 +1033,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 restore_autosave_interactively,
                             )
 
-                            chosen_session = await interactive_autosave_picker()
+                            from code_puppy.messaging.run_ui import (
+                                suspended_run_ui,
+                            )
+
+                            with suspended_run_ui():
+                                chosen_session = await interactive_autosave_picker()
 
                             if not chosen_session:
                                 emit_warning("Autosave load cancelled")
@@ -951,11 +1098,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             try:
                 # No need to get agent directly - use manager's run methods
 
-                # Use our custom helper to enable attachment handling with spinner support
+                # Use our custom helper to enable attachment handling with
+                # the bottom-bar run UI active for the duration.
                 result, current_agent_task = await run_prompt_with_attachments(
                     current_agent,
                     task,
-                    spinner_console=message_renderer.console,
+                    display_console=message_renderer.console,
                 )
                 # Check if the task was cancelled (but don't show message if we just killed processes)
                 if result is None:
@@ -1080,7 +1228,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     result, current_agent_task = await run_prompt_with_attachments(
                         current_agent,
                         next_prompt,
-                        spinner_console=message_renderer.console,
+                        display_console=message_renderer.console,
                     )
 
                     if result is None:
@@ -1124,13 +1272,24 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             except ImportError:
                 pass
 
+    # REPL over (exit/quit/Ctrl+D broke the loop): tear the persistent
+    # prompt down here; main()'s finally is the belt-and-braces for
+    # exception paths.
+    if persistent_prompt:
+        try:
+            from code_puppy.messaging.run_ui import stop_persistent_ui
+
+            stop_persistent_ui()
+        except Exception:
+            pass
+
 
 async def run_prompt_with_attachments(
     agent,
     raw_prompt: str,
     *,
-    spinner_console=None,
-    use_spinner: bool = True,
+    display_console=None,
+    use_run_ui: bool = True,
 ):
     """Run the agent after parsing CLI attachments for image/document support.
 
@@ -1138,58 +1297,43 @@ async def run_prompt_with_attachments(
         tuple: (result, task) where result is the agent response and task is the asyncio task
     """
     import asyncio
-    import re
 
     from code_puppy.messaging import emit_system_message, emit_warning
 
-    processed_prompt = parse_prompt_attachments(raw_prompt)
+    # Shared resolver: file paths, URLs, and pending clipboard images.
+    # (Same helper powers mid-run steering injection — keep them in sync.)
+    resolved = resolve_user_prompt(raw_prompt)
 
-    for warning in processed_prompt.warnings:
+    for warning in resolved.warnings:
         emit_warning(warning)
-
-    # Get clipboard images and merge with file attachments
-    clipboard_manager = get_clipboard_manager()
-    clipboard_images = clipboard_manager.get_pending_images()
-
-    # Clear pending clipboard images after retrieval
-    clipboard_manager.clear_pending()
 
     # Build summary of all attachments
     summary_parts = []
-    if processed_prompt.attachments:
-        summary_parts.append(f"files: {len(processed_prompt.attachments)}")
-    if clipboard_images:
-        summary_parts.append(f"clipboard images: {len(clipboard_images)}")
-    if processed_prompt.link_attachments:
-        summary_parts.append(f"urls: {len(processed_prompt.link_attachments)}")
+    if resolved.file_attachments:
+        summary_parts.append(f"files: {len(resolved.file_attachments)}")
+    if resolved.clipboard_images:
+        summary_parts.append(f"clipboard images: {len(resolved.clipboard_images)}")
+    if resolved.link_attachments:
+        summary_parts.append(f"urls: {len(resolved.link_attachments)}")
     if summary_parts:
         emit_system_message("Attachments detected -> " + ", ".join(summary_parts))
 
-    # Clean up clipboard placeholders from the prompt text
-    cleaned_prompt = processed_prompt.prompt
-    if clipboard_images and cleaned_prompt:
-        cleaned_prompt = re.sub(
-            r"\[📋 clipboard image \d+\]\s*", "", cleaned_prompt
-        ).strip()
-
+    cleaned_prompt = resolved.text
     if not cleaned_prompt:
         emit_warning(
             "Prompt is empty after removing attachments; add instructions and retry."
         )
         return None, None
 
-    # Combine file attachments with clipboard images
-    attachments = [attachment.content for attachment in processed_prompt.attachments]
-    attachments.extend(clipboard_images)  # Add clipboard images
+    attachments = resolved.attachments
+    link_attachments = resolved.link_attachments
 
-    link_attachments = [link.url_part for link in processed_prompt.link_attachments]
-
-    # IMPORTANT: Set the shared console for streaming output so it
-    # uses the same console as the spinner. This prevents Live display conflicts
-    # that cause line duplication during markdown streaming.
+    # IMPORTANT: Set the shared console for streaming output so every
+    # stream (markdown, thinking, tool token lines) writes through the
+    # same console — output scrolls inside the bottom bar's scroll region.
     from code_puppy.agents.event_stream_handler import set_streaming_console
 
-    set_streaming_console(spinner_console)
+    set_streaming_console(display_console)
 
     # Create the agent task first so we can track and cancel it
     agent_task = asyncio.create_task(
@@ -1200,23 +1344,24 @@ async def run_prompt_with_attachments(
         )
     )
 
-    if use_spinner and spinner_console is not None:
-        from code_puppy.messaging.spinner import ConsoleSpinner
-
-        with ConsoleSpinner(console=spinner_console):
-            try:
-                result = await agent_task
-                return result, agent_task
-            except asyncio.CancelledError:
-                emit_info("Agent task cancelled")
-                return None, agent_task
-    else:
+    async def _await_agent():
         try:
             result = await agent_task
             return result, agent_task
         except asyncio.CancelledError:
             emit_info("Agent task cancelled")
             return None, agent_task
+
+    if use_run_ui:
+        # Interactive run: bottom bar (scroll region + status + live prompt
+        # via RunningLineEditor) stays up while the agent works. run_ui()
+        # is idempotent + exception-safe and silently no-ops on non-TTY
+        # stdout, so cancel/exception paths always restore the terminal.
+        from code_puppy.messaging.run_ui import run_ui
+
+        with run_ui():
+            return await _await_agent()
+    return await _await_agent()
 
 
 async def execute_single_prompt(
@@ -1275,10 +1420,13 @@ async def execute_single_prompt(
     try:
         # Get agent through runtime manager and use helper for attachments
         agent = get_current_agent()
+        # Headless -p mode: no run UI (no bottom bar, no line editor) —
+        # output must stay plain for pipes/CI even when stdout is a TTY.
         result, _agent_task = await run_prompt_with_attachments(
             agent,
             prompt,
-            spinner_console=message_renderer.console,
+            display_console=message_renderer.console,
+            use_run_ui=False,
         )
         if result is not None:
             response_msg = AgentResponseMessage(

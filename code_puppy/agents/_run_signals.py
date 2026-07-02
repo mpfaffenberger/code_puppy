@@ -11,8 +11,27 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Callable, Optional
 
+from code_puppy.command_line.attachments import resolve_steer_content
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.agent_tools import _active_subagent_tasks
+
+
+def sigint_should_cancel() -> bool:
+    """Buffer-first Ctrl+C gate for the run's SIGINT handler.
+
+    Returns False when the press was absorbed by composing input (text
+    in the persistent editor / reverse-search active — the editor is
+    cleared and a hint shown instead). Applies ONLY to the Ctrl+C/SIGINT
+    cancel path: remapped cancel hotkeys and the shell-tool SIGINT
+    handler (tool interrupt) are deliberately not gated. Fails open —
+    cancellation must never break because a UI check raised.
+    """
+    try:
+        from code_puppy.messaging.run_ui import absorb_ctrl_c_if_composing
+
+        return not absorb_ctrl_c_if_composing()
+    except Exception:
+        return True
 
 
 def make_schedule_cancel(
@@ -59,43 +78,6 @@ def make_schedule_cancel(
     return schedule_agent_cancel
 
 
-def make_schedule_pause(
-    agent_task: "asyncio.Task[Any]",
-    loop: asyncio.AbstractEventLoop,
-) -> Callable[[], None]:
-    """Build the ``schedule_agent_pause`` callback for the key listener.
-
-    Fires the ``agent_pause_requested`` callback so plugins (e.g.
-    ``agent_steering``) can collect a steering message + drive the
-    pause→steer→resume bus dance.
-
-    Unlike ``make_schedule_cancel``, this is **safe to invoke during a
-    running shell command**: the renderer buffers all output while the
-    PauseController is paused, so shell stdout/stderr can't trash the
-    steering prompt. Cancel still refuses mid-shell because cancel ends
-    the task and could orphan the subprocess.
-    """
-
-    def schedule_agent_pause() -> None:
-        if agent_task.done():
-            return
-        # Re-pause while paused = duplicate keypress — silently ignore so
-        # we don't spawn N steering editors on top of each other.
-        from code_puppy.messaging.pause_controller import get_pause_controller
-
-        if get_pause_controller().is_paused():
-            return
-        from code_puppy.callbacks import on_agent_pause_requested
-
-        try:
-            asyncio.run_coroutine_threadsafe(on_agent_pause_requested(), loop)
-        except RuntimeError:
-            # Loop closed; nothing to do.
-            pass
-
-    return schedule_agent_pause
-
-
 # =============================================================================
 # PauseController hygiene — prevent cross-run leakage
 # =============================================================================
@@ -130,12 +112,14 @@ def reset_pause_state_at_run_start() -> None:
         )
 
 
-def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[str]:
+def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[Any]:
     """Drain ONE queue-mode steer and prep for between-turns injection.
 
     Called from ``_runtime._do_run``'s while-loop after each ``agent.run()``.
-    Returns the steer text to inject as the next user turn, or ``None`` if
-    no queue-mode steer is pending.
+    Returns the steer content to inject as the next user turn — a plain
+    string, or a multimodal list when the steer carries attachments
+    (clipboard images, ``@file`` paths, URLs) — or ``None`` if no
+    queue-mode steer is pending.
 
     Side-effects:
       - Persists ``result.all_messages()`` into ``agent._message_history``
@@ -155,9 +139,14 @@ def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[str]:
     steer_text = pending[0]
     for leftover in pending[1:]:
         pc.request_steer(leftover, mode="queue")
-    preview = steer_text[:80] + ("..." if len(steer_text) > 80 else "")
-    emit_info(f"📨 Injecting queued steer between turns — agent will see: {preview!r}")
-    return steer_text
+    content, preview_text = resolve_steer_content(steer_text)
+    n_extras = len(content) - 1 if isinstance(content, list) else 0
+    suffix = f" (+{n_extras} attachment(s))" if n_extras else ""
+    preview = preview_text[:80] + ("..." if len(preview_text) > 80 else "")
+    emit_info(
+        f"Injecting queued steer between turns — agent will see: {preview!r}{suffix}"
+    )
+    return content
 
 
 def drain_pause_state_on_cancel() -> None:
@@ -181,7 +170,7 @@ def drain_pause_state_on_cancel() -> None:
 __all__ = [
     "drain_pause_state_on_cancel",
     "make_schedule_cancel",
-    "make_schedule_pause",
     "prepare_queued_steer_injection",
     "reset_pause_state_at_run_start",
+    "sigint_should_cancel",
 ]

@@ -1,10 +1,11 @@
 """Phase-2 integration tests: pause/steer wiring across the runtime,
-event_stream_handler, spinner, and _do_run steering injection.
+event_stream_handler, and _do_run steering injection.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from io import StringIO
 from typing import Any, List
 from unittest.mock import MagicMock, patch
@@ -24,7 +25,6 @@ from code_puppy.messaging.pause_controller import (
     get_pause_controller,
     reset_pause_controller,
 )
-from code_puppy.messaging.spinner.console_spinner import ConsoleSpinner
 
 
 # =============================================================================
@@ -94,8 +94,8 @@ async def test_event_stream_handler_pause_gates_rendering_and_resumes():
     ev1 = PartStartEvent(index=0, part=TextPart(content="hello"))
     ev2 = PartStartEvent(index=1, part=TextPart(content="world"))
 
-    with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
-        with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
+    with contextlib.nullcontext():
+        with contextlib.nullcontext():
             with patch(
                 "code_puppy.agents.event_stream_handler.get_banner_color",
                 return_value="blue",
@@ -111,32 +111,6 @@ async def test_event_stream_handler_pause_gates_rendering_and_resumes():
     # The handler should have rendered SOMETHING (the first part's banner
     # was emitted before pause; the second one after resume).
     assert buf.getvalue() != ""
-
-
-# =============================================================================
-# Test B: spinner respects pause
-# =============================================================================
-
-
-def test_spinner_panel_is_empty_when_pause_controller_paused():
-    """When the agent is paused, ConsoleSpinner._generate_spinner_panel must
-    return an empty Text() — even if the spinner isn't internally paused.
-    """
-    spinner = ConsoleSpinner(console=Console(file=StringIO(), force_terminal=False))
-    # Sanity: when not paused, panel has content.
-    panel = spinner._generate_spinner_panel()
-    assert str(panel) != ""
-
-    # Pause via the controller (NOT spinner.pause()) — this simulates the
-    # agent-level pause that should also blank the spinner.
-    get_pause_controller().pause()
-    panel = spinner._generate_spinner_panel()
-    assert str(panel) == ""
-
-    # After resume, spinner content comes back.
-    get_pause_controller().resume()
-    panel = spinner._generate_spinner_panel()
-    assert str(panel) != ""
 
 
 # =============================================================================
@@ -173,8 +147,8 @@ async def test_pause_timeout_auto_resumes_and_warns(monkeypatch):
         get_pause_controller().pause()
         yield ev
 
-    with patch("code_puppy.agents.event_stream_handler.pause_all_spinners"):
-        with patch("code_puppy.agents.event_stream_handler.resume_all_spinners"):
+    with contextlib.nullcontext():
+        with contextlib.nullcontext():
             with patch(
                 "code_puppy.agents.event_stream_handler.get_banner_color",
                 return_value="blue",
@@ -192,6 +166,60 @@ async def test_pause_timeout_auto_resumes_and_warns(monkeypatch):
     assert any("auto-resuming" in w for w in warnings), (
         f"expected auto-resume warning, got: {warnings!r}"
     )
+
+
+@pytest.mark.asyncio
+async def test_pause_timeout_rearms_while_slash_drain_active(monkeypatch):
+    """Phase 6: while the slash-command consumer owns the pause window,
+    an expired wait must RE-ARM the pause and keep waiting — no misleading
+    auto-resume warning, no streaming under an open /command menu. Once
+    the drain ends (is_draining False), the normal timeout path applies.
+    """
+    warnings: List[str] = []
+
+    def _capture(msg: str, *_a, **_k) -> None:
+        warnings.append(msg)
+
+    monkeypatch.setattr("code_puppy.messaging.emit_warning", _capture)
+    monkeypatch.setattr(
+        "code_puppy.config.get_value",
+        lambda key, default=None: "0.05" if key == "max_pause_seconds" else default,
+    )
+
+    # Drain "active" for the first two timeouts, then idle.
+    calls = {"n": 0}
+
+    def fake_is_draining():
+        calls["n"] += 1
+        return calls["n"] <= 2
+
+    monkeypatch.setattr("code_puppy.messaging.run_ui.is_draining", fake_is_draining)
+
+    console = Console(file=StringIO(), force_terminal=False, width=80)
+    set_streaming_console(console)
+    ctx = MagicMock(spec=RunContext)
+
+    ev = PartStartEvent(index=0, part=TextPart(content="hi"))
+
+    async def _one_event_stream():
+        get_pause_controller().pause()
+        yield ev
+
+    with patch(
+        "code_puppy.agents.event_stream_handler.get_banner_color",
+        return_value="blue",
+    ):
+        with patch("termflow.Parser"):
+            with patch("termflow.Renderer"):
+                await asyncio.wait_for(
+                    event_stream_handler(ctx, _one_event_stream()),
+                    timeout=5.0,
+                )
+
+    # Two re-arms (draining), then the third timeout took the normal path.
+    assert calls["n"] == 3
+    assert len([w for w in warnings if "auto-resuming" in w]) == 1
+    assert get_pause_controller().is_paused() is False
 
 
 # =============================================================================
@@ -269,55 +297,3 @@ async def test_no_steering_means_runtime_behaves_exactly_as_before(
 
     assert result is only
     assert len(pydantic_agent.calls) == 1
-
-
-# =============================================================================
-# Spinner-resume guard (Bug fix: prevent spinner from re-summoning during pause)
-# =============================================================================
-
-
-def test_spinner_resume_is_noop_while_pause_controller_is_paused():
-    """ConsoleSpinner.resume() MUST refuse to resume while the agent-level
-    PauseController is paused. Without this guard, any code path that
-    calls resume() (event_stream_handler's PartEndEvent branch, etc.)
-    could accidentally bring the spinner back ON TOP of the steering
-    editor.
-    """
-    spinner = ConsoleSpinner(console=Console(file=StringIO(), force_terminal=False))
-    # Start the spinner so _is_spinning becomes True. Stop the live thread
-    # quickly — we only care about the state machine, not the renderer.
-    spinner.start()
-    try:
-        # Pause the agent-level controller, then pause the spinner.
-        get_pause_controller().pause()
-        spinner.pause()
-        assert spinner._paused is True
-
-        # resume() MUST early-return while controller is paused.
-        spinner.resume()
-        assert spinner._paused is True, (
-            "spinner.resume() must NOT un-pause while PauseController is paused"
-        )
-
-        # Once the controller un-pauses, resume() should actually work.
-        get_pause_controller().resume()
-        spinner.resume()
-        assert spinner._paused is False
-    finally:
-        spinner.stop()
-
-
-def test_spinner_resume_proceeds_when_pause_controller_is_not_paused():
-    """Sanity check the inverse: idle controller → resume() works normally."""
-    spinner = ConsoleSpinner(console=Console(file=StringIO(), force_terminal=False))
-    spinner.start()
-    try:
-        # Pause controller is idle.
-        assert get_pause_controller().is_paused() is False
-        spinner.pause()
-        assert spinner._paused is True
-
-        spinner.resume()
-        assert spinner._paused is False
-    finally:
-        spinner.stop()

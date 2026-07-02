@@ -64,7 +64,7 @@ from code_puppy.config import (
     get_universal_constructor_enabled,
     get_yolo_mode,
 )
-from code_puppy.keymap import get_cancel_agent_key, get_pause_agent_key
+from code_puppy.keymap import get_cancel_agent_key
 from code_puppy.plugins.dbos_durable_exec.config import is_enabled as get_dbos_enabled
 
 
@@ -371,14 +371,6 @@ _KEYBOARD = SettingsCategory(
             valid_values=("ctrl+c", "ctrl+k", "ctrl+q"),
             effective_getter=get_cancel_agent_key,
             requires_restart=True,
-        ),
-        Setting(
-            key="pause_agent_key",
-            display_name="Pause Agent Key",
-            description="Key combination to pause a running agent task.",
-            type_hint="choice",
-            valid_values=("ctrl+c", "ctrl+k", "ctrl+q"),
-            effective_getter=get_pause_agent_key,
         ),
         Setting(
             key="max_pause_seconds",

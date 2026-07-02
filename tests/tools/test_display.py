@@ -54,12 +54,12 @@ class TestDisplayNonStreamedResult:
             banner_name="test_banner",
         )
 
-        # Verify spinner pause/resume were called
-        mock_pause.assert_called_once()
-        mock_resume.assert_called_once()
+        # Phase 3: display must NOT touch the deprecated spinner shim
+        mock_pause.assert_not_called()
+        mock_resume.assert_not_called()
 
-        # Verify sleep was called
-        mock_sleep.assert_called_once_with(0.1)
+        # Phase 3: no artificial sleep needed without a Live spinner
+        mock_sleep.assert_not_called()
 
         # Verify banner color was retrieved
         mock_get_banner_color.assert_called_once_with("test_banner")
@@ -359,9 +359,10 @@ class TestDisplayNonStreamedResult:
             content="test", console=mock_console, banner_text="MY BANNER"
         )
 
-        # Verify console.print was called multiple times
-        # First call clears the line, second is newline, third is the banner
-        assert mock_console.print.call_count >= 3
+        # The line-clear is now a control-sequence (erase_progress_line),
+        # not a space-pad print: newline + banner prints remain.
+        assert mock_console.control.call_count >= 1
+        assert mock_console.print.call_count >= 2
 
     @patch("code_puppy.messaging.spinner.pause_all_spinners")
     @patch("code_puppy.messaging.spinner.resume_all_spinners")
@@ -764,5 +765,32 @@ class TestDisplayNonStreamedResult:
         with pytest.raises(Exception):
             display_non_streamed_result(content="test", console=mock_console)
 
-        # Verify pause was called, but resume may not be called due to exception
-        mock_pause.assert_called_once()
+        # Phase 3: display must NOT touch the deprecated spinner shim
+        mock_pause.assert_not_called()
+
+
+class TestEraseProgressLine:
+    """Regression tests for the ghost-tail fix (right-edge ``s)`` artifacts).
+
+    The old ``console.print(" " * 50, end="\\r")`` idiom only overwrote 50
+    cells; progress lines like ``   Calling agent_run_shell_command...
+    348 token(s)`` run 52+ cells, leaving orphaned tails in the transcript.
+    """
+
+    def test_emits_erase_in_line_and_cr_on_terminal(self):
+        from code_puppy.tools.display import erase_progress_line
+
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=True)
+        erase_progress_line(console)
+        # EL2 (whole line, any length) + CR — never a space pad.
+        assert buf.getvalue() == "\x1b[2K\r"
+
+    def test_noop_on_non_terminal(self):
+        """Headless / piped output must stay byte-identical."""
+        from code_puppy.tools.display import erase_progress_line
+
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=False)
+        erase_progress_line(console)
+        assert buf.getvalue() == ""

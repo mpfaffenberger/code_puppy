@@ -7,9 +7,29 @@ agent results and other structured content using termflow for markdown.
 from typing import Optional
 
 from rich.console import Console
+from rich.control import Control
+from rich.segment import ControlType
 
 from code_puppy.config import get_banner_color, get_output_level, get_subagent_verbose
 from code_puppy.tools.subagent_context import is_subagent
+
+#: EL2 (erase entire line) + CR. Rich drops control segments on
+#: non-terminal output, so headless/piped runs stay byte-identical.
+_ERASE_LINE_CONTROL = Control(
+    (ControlType.ERASE_IN_LINE, 2), ControlType.CARRIAGE_RETURN
+)
+
+
+def erase_progress_line(console: Console) -> None:
+    """Erase the current terminal line (the ``\\r``-overwrite slot).
+
+    Replaces the old ``console.print(" " * 50, end="\\r")`` idiom, which
+    assumed progress lines never exceed 50 cells. Longer lines (e.g.
+    ``  \U0001f527 Calling agent_run_shell_command... 348 token(s)`` = 52+
+    cells) left right-edge ghost tails like ``s)`` in the transcript.
+    Erase-in-line clears the whole row regardless of length.
+    """
+    console.control(_ERASE_LINE_CONTROL)
 
 
 def display_non_streamed_result(
@@ -40,24 +60,16 @@ def display_non_streamed_result(
     if is_subagent() and not get_subagent_verbose() and get_output_level() != "high":
         return
 
-    import time
-
     from rich.text import Text
     from termflow import Parser as TermflowParser
     from termflow import Renderer as TermflowRenderer
     from termflow.render.style import RenderFeatures
 
-    from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
-
     if console is None:
         console = Console()
 
-    # Pause spinners and give time to clear
-    pause_all_spinners()
-    time.sleep(0.1)
-
-    # Clear line and print banner
-    console.print(" " * 50, end="\r")
+    # Clear any \r-repainted progress line, then move below it
+    erase_progress_line(console)
     console.print()  # Newline before banner
 
     banner_color = get_banner_color(banner_name)
@@ -84,8 +96,5 @@ def display_non_streamed_result(
     final_events = parser.finalize()
     renderer.render_all(final_events)
 
-    # Resume spinners
-    resume_all_spinners()
 
-
-__all__ = ["display_non_streamed_result"]
+__all__ = ["display_non_streamed_result", "erase_progress_line"]

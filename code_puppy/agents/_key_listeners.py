@@ -1,14 +1,12 @@
 """Keyboard listener thread helpers, extracted from ``BaseAgent``.
 
-These functions listen for Ctrl+X (shell cancel), the configured
-cancel-agent key (when it's not bound to a signal like SIGINT), and the
-configured pause-agent key (Phase 3 of the pause/steer feature).
+These functions listen for Ctrl+X (shell cancel) and the configured
+cancel-agent key (when it's not bound to a signal like SIGINT).
 
-The listener exposes a ``KeyListenerHandle`` so consumers can ``suspend``
-it (release stdin) while another UI component (e.g. the steering-message
-editor's ``prompt_toolkit.Application``) takes over the terminal, then
-``resume`` it. Without this contract, two threads fight over stdin and
-the terminal ends up bricked — see the Phase 3 fix-up pass.
+The listener exposes a ``KeyListenerHandle`` so consumers can
+``suspend`` it (release stdin) while another UI component takes over the
+terminal, then ``resume`` it — otherwise two readers fight over stdin
+and the terminal ends up bricked.
 """
 
 from __future__ import annotations
@@ -16,12 +14,11 @@ from __future__ import annotations
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Callable, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional
 
 from code_puppy.keymap import (
     cancel_agent_uses_signal,
     get_cancel_agent_char_code,
-    get_pause_agent_char_code,
 )
 from code_puppy.messaging import emit_warning
 
@@ -113,6 +110,83 @@ def _resolve_escape_handler(fallback: Callable[[], None]) -> Callable[[], None]:
         return _escape_handler or fallback
 
 
+# =============================================================================
+# Line-editor feed target (Phase 3 of the bottom-bar rewrite)
+# =============================================================================
+#
+# The run UI installs a ``RunningLineEditor`` here; the single listener
+# thread routes every NON-hotkey character into it (one stdin reader,
+# dynamic dispatch — the ``set_escape_handler`` pattern). Ctrl+X and the
+# cancel-agent key keep priority and are never fed to the editor.
+
+_line_editor: Optional[Any] = None
+_line_editor_lock = threading.Lock()
+
+
+def set_line_editor(editor: Optional[Any]) -> None:
+    """Install (or clear, with ``None``) the line-editor feed target."""
+    global _line_editor
+    with _line_editor_lock:
+        _line_editor = editor
+
+
+def get_line_editor() -> Optional[Any]:
+    """Return the currently-installed line-editor feed target, or None."""
+    with _line_editor_lock:
+        return _line_editor
+
+
+def _feed_line_editor(key: str) -> None:
+    """Best-effort feed of a non-hotkey character into the editor."""
+    editor = get_line_editor()
+    if editor is None:
+        return
+    try:
+        editor.feed(key)
+    except Exception:
+        # A broken editor must never kill the listener thread.
+        pass
+
+
+def _tick_line_editor() -> None:
+    """Resolve the editor's pending-ESC timeout on idle poll ticks."""
+    editor = get_line_editor()
+    if editor is None:
+        return
+    try:
+        editor.check_timeout()
+    except Exception:
+        pass
+
+
+# =============================================================================
+# Dynamic cancel-agent handler (persistent listener, Phase A)
+# =============================================================================
+#
+# The cancel-agent hotkey callback is per-RUN (closes over the agent
+# task + loop): the runtime arms it here while a run is active and
+# clears it afterwards — mirroring ``set_escape_handler``. With no
+# handler armed the cancel key is inert (never fed to the editor).
+
+_cancel_handler: Optional[Callable[[], None]] = None
+_cancel_handler_lock = threading.Lock()
+
+
+def set_cancel_handler(handler: Optional[Callable[[], None]]) -> None:
+    """Install (or clear, with ``None``) the per-run cancel-agent handler."""
+    global _cancel_handler
+    with _cancel_handler_lock:
+        _cancel_handler = handler
+
+
+def _resolve_cancel_handler(
+    fallback: Optional[Callable[[], None]],
+) -> Optional[Callable[[], None]]:
+    """Return the dynamic cancel handler if set, else ``fallback``."""
+    with _cancel_handler_lock:
+        return _cancel_handler or fallback
+
+
 def set_active_handle(handle: Optional[KeyListenerHandle]) -> None:
     """Publish the currently-running listener handle for plugins."""
     global _active_handle
@@ -135,21 +209,12 @@ def spawn_key_listener(
     stop_event: threading.Event,
     on_escape: Callable[[], None],
     on_cancel_agent: Optional[Callable[[], None]] = None,
-    on_pause_agent: Optional[Callable[[], None]] = None,
 ) -> Optional[KeyListenerHandle]:
-    """Start a daemon thread that listens for Ctrl+X / cancel / pause keys.
+    """Start a daemon thread that listens for Ctrl+X / cancel keys.
 
-    Args:
-        stop_event: Signal the listener to stop.
-        on_escape: Callback for Ctrl+X (shell command cancel).
-        on_cancel_agent: Optional callback for the configured cancel-agent
-            key. Only used when ``cancel_agent_uses_signal()`` is False.
-        on_pause_agent: Optional callback for the configured pause-agent
-            key. Always honoured when provided.
-
-    Returns:
-        A ``KeyListenerHandle`` for lifecycle management, or ``None`` if
-        stdin isn't a TTY / unavailable.
+    ``on_escape`` handles Ctrl+X (shell cancel); ``on_cancel_agent`` is
+    only used when ``cancel_agent_uses_signal()`` is False. Returns a
+    ``KeyListenerHandle``, or ``None`` if stdin isn't a TTY.
     """
     try:
         import sys
@@ -175,7 +240,6 @@ def spawn_key_listener(
                     stop_event,
                     on_escape,
                     on_cancel_agent,
-                    on_pause_agent,
                     suspend_event,
                     released_event,
                 )
@@ -184,7 +248,6 @@ def spawn_key_listener(
                     stop_event,
                     on_escape,
                     on_cancel_agent,
-                    on_pause_agent,
                     suspend_event,
                     released_event,
                 )
@@ -208,26 +271,52 @@ def spawn_key_listener(
 # =============================================================================
 
 
-def _resolve_special_chars(
+def _resolve_cancel_char(
     on_cancel_agent: Optional[Callable[[], None]],
-    on_pause_agent: Optional[Callable[[], None]],
-) -> tuple[Optional[str], Optional[str]]:
-    """Resolve the cancel + pause character codes once per listener start.
+) -> Optional[str]:
+    """Resolve the cancel character code once per listener start.
 
-    Returns ``(cancel_char, pause_char)``; either may be ``None`` if the
-    corresponding callback wasn't provided or if SIGINT owns cancel.
+    Returns ``None`` when SIGINT owns cancel. The char is resolved even
+    without a spawn-time callback: the persistent listener (Phase A)
+    receives its per-run handler later via ``set_cancel_handler``, and
+    dispatch re-checks handler presence per keystroke.
     """
-    cancel_char: Optional[str] = None
-    if on_cancel_agent is not None and not cancel_agent_uses_signal():
-        cancel_char = get_cancel_agent_char_code()
+    if cancel_agent_uses_signal():
+        return None
+    try:
+        return get_cancel_agent_char_code()
+    except Exception:
+        return None
 
-    pause_char: Optional[str] = None
-    if on_pause_agent is not None:
+
+def _dispatch_key(
+    data: str,
+    on_escape: Callable[[], None],
+    cancel_agent_char: Optional[str],
+    on_cancel_agent: Optional[Callable[[], None]],
+) -> None:
+    """Route one keystroke: hotkeys first, everything else to the editor.
+
+    Ctrl+X and the cancel-agent key keep PRIORITY and are never fed to
+    the line editor. Shared by the POSIX and Windows listener loops.
+    """
+    if data == "\x18":  # Ctrl+X
         try:
-            pause_char = get_pause_agent_char_code()
+            _resolve_escape_handler(on_escape)()
         except Exception:
-            pause_char = None
-    return cancel_char, pause_char
+            emit_warning("Ctrl+X handler raised unexpectedly; Ctrl+C still works.")
+    elif cancel_agent_char and data == cancel_agent_char:
+        handler = _resolve_cancel_handler(on_cancel_agent)
+        if handler is not None:
+            try:
+                handler()
+            except Exception:
+                emit_warning("Cancel agent handler raised unexpectedly.")
+        # No handler (idle): the cancel key is inert — swallowed, never
+        # fed to the editor as a stray control character.
+    else:
+        # Not a hotkey — route to the running line editor (if installed).
+        _feed_line_editor(data)
 
 
 def _wait_while_suspended(
@@ -256,20 +345,32 @@ def _wait_while_suspended(
 # =============================================================================
 
 
+#: Windows extended keys (second getwch after \x00/\xe0) → xterm seqs.
+_WIN_EXTENDED_KEYS = {
+    "H": "\x1b[A",  # Up
+    "P": "\x1b[B",  # Down
+    "K": "\x1b[D",  # Left
+    "M": "\x1b[C",  # Right
+    "G": "\x1b[H",  # Home
+    "O": "\x1b[F",  # End
+    "S": "\x1b[3~",  # Delete
+    "s": "\x1b[1;5D",  # Ctrl+Left / Ctrl+Right / F2 below
+    "t": "\x1b[1;5C",
+    "<": "\x1b[12~",
+}
+
+
 def _listen_windows(
     stop_event: threading.Event,
     on_escape: Callable[[], None],
     on_cancel_agent: Optional[Callable[[], None]] = None,
-    on_pause_agent: Optional[Callable[[], None]] = None,
     suspend_event: Optional[threading.Event] = None,
     released_event: Optional[threading.Event] = None,
 ) -> None:
     import msvcrt
     import time
 
-    cancel_agent_char, pause_agent_char = _resolve_special_chars(
-        on_cancel_agent, on_pause_agent
-    )
+    cancel_agent_char = _resolve_cancel_char(on_cancel_agent)
 
     while not stop_event.is_set():
         # Honor suspend: msvcrt doesn't reconfigure the terminal, so the
@@ -283,23 +384,17 @@ def _listen_windows(
         try:
             if msvcrt.kbhit():
                 key = msvcrt.getwch()
-                if key == "\x18":  # Ctrl+X
-                    try:
-                        _resolve_escape_handler(on_escape)()
-                    except Exception:
-                        emit_warning(
-                            "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
-                        )
-                elif cancel_agent_char and on_cancel_agent and key == cancel_agent_char:
-                    try:
-                        on_cancel_agent()
-                    except Exception:
-                        emit_warning("Cancel agent handler raised unexpectedly.")
-                elif pause_agent_char and on_pause_agent and key == pause_agent_char:
-                    try:
-                        on_pause_agent()
-                    except Exception:
-                        emit_warning("Pause agent handler raised unexpectedly.")
+                if key in ("\x00", "\xe0") and msvcrt.kbhit():
+                    # Extended key: translate the pair to the xterm seq
+                    # the editor understands; unknown pairs swallowed.
+                    seq = _WIN_EXTENDED_KEYS.get(msvcrt.getwch())
+                    if seq:
+                        _feed_line_editor(seq)
+                else:
+                    _dispatch_key(key, on_escape, cancel_agent_char, on_cancel_agent)
+            else:
+                # Idle tick: let a pending bare ESC expire.
+                _tick_line_editor()
         except Exception:
             emit_warning(
                 "Windows key listener error; Ctrl+C is still available for cancel."
@@ -313,22 +408,46 @@ def _listen_windows(
 # =============================================================================
 
 
+def _read_chunk(fd: int, decoder) -> Optional[str]:
+    """Read every available byte from ``fd`` and decode incrementally.
+
+    CRITICAL: must be ``os.read`` on the RAW fd — never a buffered
+    ``TextIOWrapper.read(1)``. The wrapper slurps ALL available bytes
+    into its Python-level buffer and returns one char, stranding the
+    rest of an escape sequence where ``select()`` (fd-level) can't see
+    it — the pending ESC then expires on the idle tick and the ``[A``
+    tail leaks in as literal text (the live 'arrows don't work' bug).
+    The incremental decoder keeps split UTF-8 chars intact across
+    reads. Returns None on EOF/error.
+    """
+    import os
+
+    try:
+        data = os.read(fd, 1024)
+    except OSError:
+        return None
+    if not data:
+        return None
+    try:
+        return decoder.decode(data)
+    except Exception:
+        return data.decode("utf-8", errors="replace")
+
+
 def _listen_posix(
     stop_event: threading.Event,
     on_escape: Callable[[], None],
     on_cancel_agent: Optional[Callable[[], None]] = None,
-    on_pause_agent: Optional[Callable[[], None]] = None,
     suspend_event: Optional[threading.Event] = None,
     released_event: Optional[threading.Event] = None,
 ) -> None:
+    import codecs
     import select
     import sys
     import termios
     import tty
 
-    cancel_agent_char, pause_agent_char = _resolve_special_chars(
-        on_cancel_agent, on_pause_agent
-    )
+    cancel_agent_char = _resolve_cancel_char(on_cancel_agent)
 
     stdin = sys.stdin
     try:
@@ -341,11 +460,32 @@ def _listen_posix(
         return
 
     cbreak_active = False
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
     def _enter_cbreak() -> None:
         nonlocal cbreak_active
         if not cbreak_active:
             tty.setcbreak(fd)
+            # Phase B: distinguish Enter (\r) from Ctrl+J (\n) for the
+            # persistent editor — setcbreak leaves ICRNL on, which maps
+            # CR->LF and makes them identical. Best-effort; the editor
+            # treats a stray \n as newline-insert either way.
+            #
+            # setcbreak also leaves IEXTEN on, and on BSD/macOS the tty
+            # driver honors VLNEXT (Ctrl+V = "literal next") even in
+            # non-canonical mode when IEXTEN is set: the kernel EATS the
+            # first ^V as a quote-prefix and only the SECOND one reaches
+            # us (the live 'press Ctrl+V twice to paste an image' bug).
+            # VDISCARD (Ctrl+O) is likewise IEXTEN-gated. Clear IEXTEN so
+            # every control char is delivered verbatim, exactly like the
+            # raw mode (tty.setraw) the classic prompt_toolkit path used.
+            try:
+                attrs = termios.tcgetattr(fd)
+                attrs[0] &= ~termios.ICRNL  # iflag
+                attrs[3] &= ~termios.IEXTEN  # lflag
+                termios.tcsetattr(fd, termios.TCSANOW, attrs)
+            except Exception:
+                pass
             cbreak_active = True
 
     def _exit_cbreak() -> None:
@@ -372,7 +512,7 @@ def _listen_posix(
                     _enter_cbreak()
                 except Exception:
                     emit_warning(
-                        "Failed to re-acquire terminal after pause; "
+                        "Failed to re-acquire terminal after suspend; "
                         "key listener exiting."
                     )
                     return
@@ -383,27 +523,17 @@ def _listen_posix(
             except Exception:
                 break
             if not read_ready:
+                # Idle tick: let a pending bare ESC expire.
+                _tick_line_editor()
                 continue
-            data = stdin.read(1)
-            if not data:
+            chunk = _read_chunk(fd, decoder)
+            if chunk is None:
                 break
-            if data == "\x18":  # Ctrl+X
-                try:
-                    _resolve_escape_handler(on_escape)()
-                except Exception:
-                    emit_warning(
-                        "Ctrl+X handler raised unexpectedly; Ctrl+C still works."
-                    )
-            elif cancel_agent_char and on_cancel_agent and data == cancel_agent_char:
-                try:
-                    on_cancel_agent()
-                except Exception:
-                    emit_warning("Cancel agent handler raised unexpectedly.")
-            elif pause_agent_char and on_pause_agent and data == pause_agent_char:
-                try:
-                    on_pause_agent()
-                except Exception:
-                    emit_warning("Pause agent handler raised unexpectedly.")
+            # Per-char dispatch: hotkeys keep priority even mid-burst;
+            # everything else streams into the editor, whose ESC state
+            # machine assembles sequences byte-at-a-time.
+            for ch in chunk:
+                _dispatch_key(ch, on_escape, cancel_agent_char, on_cancel_agent)
     finally:
         # GUARANTEE termios restoration — even if something exploded inside
         # the suspend block.
@@ -470,8 +600,11 @@ def suspended_key_listener(timeout: float = 1.0) -> Iterator[None]:
 __all__ = [
     "KeyListenerHandle",
     "get_active_handle",
+    "get_line_editor",
     "set_active_handle",
+    "set_cancel_handler",
     "set_escape_handler",
+    "set_line_editor",
     "spawn_key_listener",
     "suspended_key_listener",
 ]

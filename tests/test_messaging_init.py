@@ -154,6 +154,16 @@ class TestMessagingPackageExports:
             "PauseController",
             "get_pause_controller",
             "reset_pause_controller",
+            # Bottom bar + running line editor (Phase 1 of bottom prompt)
+            "BottomBar",
+            "get_bottom_bar",
+            "reset_bottom_bar",
+            "RunningLineEditor",
+            # Composed run UI (Phase 3: bar + editor + key routing)
+            "start_run_ui",
+            "stop_run_ui",
+            "get_run_editor",
+            "suspended_run_ui",
             # Message bus
             "MessageBus",
             "get_message_bus",
