@@ -32,6 +32,7 @@ from typing import Callable, List, Optional
 from . import editor_keys as ek
 from .bottom_bar import get_bottom_bar
 from .editor_actions import apply_action
+from .editor_display import to_display
 from .editor_history import (
     HistoryNavigator,
     ReverseSearch,
@@ -607,8 +608,11 @@ class RunningLineEditor:
                 return
             # "[multiline] " suffix has no SGR entries: extra chars paint plain.
             prefix = self._prompt_prefix + ("[multiline] " if self._multiline else "")
+            # Attachment paths render as friendly tags ([png image]) —
+            # display only; the buffer keeps the real path for submit.
+            display_text, display_cursor = to_display(self._buffer, self._cursor)
             bar.set_prompt_text(
-                prefix, self._buffer, self._cursor, self._prompt_prefix_sgrs
+                prefix, display_text, display_cursor, self._prompt_prefix_sgrs
             )
         except Exception:
             # Painting is best-effort; the buffer state is the truth.

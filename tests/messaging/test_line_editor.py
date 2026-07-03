@@ -487,3 +487,26 @@ def test_broken_bar_never_raises(controller, clock):
     feed_all(editor, "still works")
     editor.feed("\r")
     assert controller.steers == [("still works", "queue")]
+
+
+# =========================================================================
+# Attachment display tags (editor_display wiring)
+# =========================================================================
+
+
+def test_image_path_paints_as_tag_but_buffer_keeps_path(editor, bar, tmp_path):
+    """Classic parity: the prompt row shows [png image]; buffer keeps path."""
+    png = tmp_path / "shot.png"
+    png.write_bytes(b"\x89PNG fake")
+    feed_all(editor, f"look at {png}")
+    prefix, painted, cursor = bar.paints[-1]
+    assert "[png image]" in painted
+    assert str(png) not in painted
+    assert cursor == len(painted)
+    # The REAL buffer is untouched — submit-time resolution needs the path.
+    assert editor.buffer == f"look at {png}"
+
+
+def test_non_path_text_paints_verbatim(editor, bar):
+    feed_all(editor, "just words")
+    assert bar.paints[-1] == ("> ", "just words", 10)
