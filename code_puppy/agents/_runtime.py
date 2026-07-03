@@ -660,11 +660,17 @@ async def run_with_mcp(
                 "McpError during agent run: %s", mcp_error
             )
         except* asyncio.CancelledError:
-            emit_info("Cancelled")
+            # Leading newline: a mid-stream cancel aborts the drain tasks
+            # (event_stream_handler) before the "final newline after
+            # streaming" runs, so the transcript cursor is usually parked
+            # mid-line on a half-streamed thinking/answer row. Without it
+            # the banner glues onto that text ("...AaronCancelled").
+            # Mirrors the classic cli_runner emit_warning("\nCancelled").
+            emit_info("\nCancelled")
             drain_pause_state_on_cancel()
             await on_agent_run_cancel(group_id)
         except* InterruptedError as ie:
-            emit_info(f"Interrupted: {ie}")
+            emit_info(f"\nInterrupted: {ie}")
             drain_pause_state_on_cancel()
             await on_agent_run_cancel(group_id)
         except* Exception as other:
