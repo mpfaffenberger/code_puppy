@@ -374,9 +374,16 @@ def _drain_windows_burst(msvcrt) -> list:
 
     ``kind`` is ``"char"`` (regular key) or ``"seq"`` (extended key
     already translated to its xterm sequence).
+
+    CONTRACT: the caller has already seen ``kbhit()`` return True, so
+    the FIRST read is unconditional — do-while, not while. ``kbhit()``
+    only peeks the console input queue and CANNOT see the CRT's
+    internal pushback buffer, so re-polling it before the first read
+    drops keys whose data already left the queue (an extended-key pair
+    read half-way is exactly that — the original 'kbhit lie' bug).
     """
     items: list = []
-    while msvcrt.kbhit() and len(items) < _WIN_BURST_CAP:
+    while len(items) < _WIN_BURST_CAP:
         key = msvcrt.getwch()
         if key in ("\x00", "\xe0"):
             # Extended key pair — see the pushback-buffer note below.
@@ -385,6 +392,8 @@ def _drain_windows_burst(msvcrt) -> list:
                 items.append(("seq", seq))
         else:
             items.append(("char", key))
+        if not msvcrt.kbhit():
+            break
     return items
 
 

@@ -57,6 +57,24 @@ class TestDrain:
         assert len(items) == _WIN_BURST_CAP
         assert len(fake.keys) == 10
 
+    def test_first_key_read_despite_kbhit_lie(self):
+        """The caller consumed the only kbhit() True; the drain must still
+        read the first key (and its pushback-buffered pair tail)
+        unconditionally — kbhit() cannot see either of them."""
+
+        class LyingMsvcrt:
+            def __init__(self, keys):
+                self.keys = list(keys)
+
+            def kbhit(self):
+                return False  # the lie: data pending but queue looks empty
+
+            def getwch(self):
+                return self.keys.pop(0)
+
+        items = _drain_windows_burst(LyingMsvcrt(["\xe0", "K"]))
+        assert items == [("seq", "\x1b[D")]
+
 
 class TestCoalesce:
     def test_single_char_is_not_paste(self):
