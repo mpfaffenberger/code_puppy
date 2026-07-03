@@ -84,31 +84,67 @@ class TestGetCancelAgentKey:
         # get_value should NOT be called when uvx detection triggers
         mock_get_value.assert_not_called()
 
+    @patch("code_puppy.uvx_detection.is_windows")
     @patch("code_puppy.uvx_detection.should_use_alternate_cancel_key")
     @patch("code_puppy.config.get_value")
     def test_returns_default_when_config_is_none(
-        self, mock_get_value, mock_should_use_alt
+        self, mock_get_value, mock_should_use_alt, mock_is_windows
     ):
-        """Should return default when config value is None."""
+        """Should return default when config value is None (non-Windows)."""
         mock_should_use_alt.return_value = False
+        mock_is_windows.return_value = False
         mock_get_value.return_value = None
 
         result = get_cancel_agent_key()
 
         assert result == DEFAULT_CANCEL_AGENT_KEY
 
+    @patch("code_puppy.uvx_detection.is_windows")
     @patch("code_puppy.uvx_detection.should_use_alternate_cancel_key")
     @patch("code_puppy.config.get_value")
     def test_returns_default_when_config_is_empty(
-        self, mock_get_value, mock_should_use_alt
+        self, mock_get_value, mock_should_use_alt, mock_is_windows
     ):
         """Should return default when config value is empty string."""
         mock_should_use_alt.return_value = False
+        mock_is_windows.return_value = False
         mock_get_value.return_value = "   "  # Whitespace only
 
         result = get_cancel_agent_key()
 
         assert result == DEFAULT_CANCEL_AGENT_KEY
+
+    @patch("code_puppy.uvx_detection.is_windows")
+    @patch("code_puppy.uvx_detection.should_use_alternate_cancel_key")
+    @patch("code_puppy.config.get_value")
+    def test_windows_default_is_ctrl_k(
+        self, mock_get_value, mock_should_use_alt, mock_is_windows
+    ):
+        """Windows (any launch, not just uvx): unconfigured default is
+        ctrl+k — Ctrl+C is the terminal copy gesture and must not cancel."""
+        mock_should_use_alt.return_value = False
+        mock_is_windows.return_value = True
+        mock_get_value.return_value = None
+
+        result = get_cancel_agent_key()
+
+        assert result == "ctrl+k"
+
+    @patch("code_puppy.uvx_detection.is_windows")
+    @patch("code_puppy.uvx_detection.should_use_alternate_cancel_key")
+    @patch("code_puppy.config.get_value")
+    def test_windows_explicit_ctrl_c_config_is_honored(
+        self, mock_get_value, mock_should_use_alt, mock_is_windows
+    ):
+        """An explicit cancel_agent_key in puppy.cfg beats the Windows
+        default (only uvx hard-forces ctrl+k)."""
+        mock_should_use_alt.return_value = False
+        mock_is_windows.return_value = True
+        mock_get_value.return_value = "ctrl+c"
+
+        result = get_cancel_agent_key()
+
+        assert result == "ctrl+c"
 
     @patch("code_puppy.uvx_detection.should_use_alternate_cancel_key")
     @patch("code_puppy.config.get_value")

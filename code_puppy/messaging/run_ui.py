@@ -332,12 +332,30 @@ def absorb_ctrl_c_if_composing() -> bool:
         return False
     editor.clear_buffer()
     try:
-        get_bottom_bar().set_status(
-            "input cleared — press ctrl+c again to cancel the agent"
-        )
+        get_bottom_bar().set_status(_cleared_hint())
     except Exception:
         logger.debug("ctrl+c hint paint failed", exc_info=True)
     return True
+
+
+def _cleared_hint() -> str:
+    """Status hint after a buffer-first Ctrl+C — names the REAL cancel key.
+
+    "press ctrl+c again" is only true when SIGINT owns cancel; on
+    Windows (default ctrl+k) it would be a lie.
+    """
+    try:
+        from code_puppy.keymap import (
+            cancel_agent_uses_signal,
+            get_cancel_agent_display_name,
+        )
+
+        if cancel_agent_uses_signal():
+            return "input cleared — press ctrl+c again to cancel the agent"
+        key = get_cancel_agent_display_name().lower()
+        return f"input cleared — press {key} to cancel the agent"
+    except Exception:
+        return "input cleared"
 
 
 def _persistent_router(text: str, mode: str) -> Optional[str]:

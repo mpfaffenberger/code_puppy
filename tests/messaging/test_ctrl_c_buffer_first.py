@@ -129,7 +129,12 @@ def test_is_composing_reverse_search_counts_even_empty():
 # =========================================================================
 
 
-def test_midrun_text_absorbs_clears_and_hints(persistent_ui):
+def test_midrun_text_absorbs_clears_and_hints(persistent_ui, monkeypatch):
+    import code_puppy.keymap as keymap
+
+    # Pin the SIGINT-owns-cancel config (POSIX default) so the hint text
+    # is deterministic regardless of the test host's platform.
+    monkeypatch.setattr(keymap, "cancel_agent_uses_signal", lambda: True)
     editor, tty = persistent_ui
     for ch in "half-typed steer":
         editor.feed(ch)
@@ -140,6 +145,25 @@ def test_midrun_text_absorbs_clears_and_hints(persistent_ui):
     out = tty.getvalue()
     assert "input cleared" in out and "ctrl+c again" in out
     assert "\x1b[2minput cleared" in out  # hint rides the dim status row
+
+
+def test_hint_names_remapped_cancel_key(persistent_ui, monkeypatch):
+    """With cancel remapped (Windows default: ctrl+k), the hint must name
+    the REAL cancel key — 'press ctrl+c again' would be a lie."""
+    import code_puppy.keymap as keymap
+
+    monkeypatch.setattr(keymap, "cancel_agent_uses_signal", lambda: False)
+    monkeypatch.setattr(keymap, "get_cancel_agent_display_name", lambda: "Ctrl+K")
+    editor, tty = persistent_ui
+    for ch in "half-typed steer":
+        editor.feed(ch)
+    tty.truncate(0)
+    tty.seek(0)
+    assert sigint_should_cancel() is False
+    assert editor.buffer == ""
+    out = tty.getvalue()
+    assert "press ctrl+k to cancel the agent" in out
+    assert "again" not in out
 
 
 def test_second_press_on_now_empty_buffer_cancels(persistent_ui):

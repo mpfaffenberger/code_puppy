@@ -660,11 +660,17 @@ async def run_with_mcp(
                 "McpError during agent run: %s", mcp_error
             )
         except* asyncio.CancelledError:
-            emit_info("Cancelled")
+            # Leading newline: a mid-stream cancel aborts the drain tasks
+            # (event_stream_handler) before the "final newline after
+            # streaming" runs, so the transcript cursor is usually parked
+            # mid-line on a half-streamed thinking/answer row. Without it
+            # the banner glues onto that text ("...AaronCancelled").
+            # Mirrors the classic cli_runner emit_warning("\nCancelled").
+            emit_info("\nCancelled")
             drain_pause_state_on_cancel()
             await on_agent_run_cancel(group_id)
         except* InterruptedError as ie:
-            emit_info(f"Interrupted: {ie}")
+            emit_info(f"\nInterrupted: {ie}")
             drain_pause_state_on_cancel()
             await on_agent_run_cancel(group_id)
         except* Exception as other:
@@ -761,17 +767,30 @@ async def run_with_mcp(
 
     def graceful_sigint_handler(_sig, _frame):
         from code_puppy.keymap import get_cancel_agent_display_name
-        from code_puppy.terminal_utils import (
-            ensure_ctrl_c_disabled,
-            install_windows_ctrl_c_swallower,
-            reset_windows_terminal_full,
-        )
+        from code_puppy.terminal_utils import reset_windows_terminal_full
+        from code_puppy.uvx_detection import should_use_alternate_cancel_key
 
+        if is_awaiting_user_input():
+            return
         reset_windows_terminal_full()
-        # On Windows+uvx, a SIGINT slipping through means a guard dropped.
-        # Re-arm both layers before continuing so the next Ctrl+C is a no-op.
-        ensure_ctrl_c_disabled()
-        install_windows_ctrl_c_swallower()
+        if should_use_alternate_cancel_key():
+            # Windows+uvx ONLY: a SIGINT slipping through means a guard
+            # dropped — re-arm both layers so the next Ctrl+C is a no-op.
+            # NEVER arm these on plain Windows: the swallower is a
+            # process-wide PERMANENT console handler, so one mid-run
+            # Ctrl+C used to eat every future Ctrl+C for the whole
+            # session (including the idle prompt-clear).
+            from code_puppy.terminal_utils import (
+                ensure_ctrl_c_disabled,
+                install_windows_ctrl_c_swallower,
+            )
+
+            ensure_ctrl_c_disabled()
+            install_windows_ctrl_c_swallower()
+        # Buffer-first: composing input absorbs the press (clear + hint),
+        # matching keyboard_interrupt_handler's contract.
+        if not sigint_should_cancel():
+            return
         emit_info(f"Use {get_cancel_agent_display_name()} to cancel the agent task.")
 
     original_handler = None

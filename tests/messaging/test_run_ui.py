@@ -223,6 +223,34 @@ def test_dispatch_gives_cancel_key_priority_over_editor(tty_bar):
     assert editor.buffer == ""  # cancel key never reaches the editor
 
 
+def test_dispatch_windows_uvx_contract_ctrl_k_cancels_ctrl_c_clears(tty_bar):
+    """Windows+uvx config: cancel char is Ctrl+K, and Ctrl+C arrives as a
+    raw \\x03 (no SIGINT — ENABLE_PROCESSED_INPUT is clamped).
+
+    Ctrl+K must cancel the agent WITHOUT touching typed text; Ctrl+C
+    must clear the typed line WITHOUT cancelling the agent."""
+    editor = run_ui_mod.start_run_ui()
+    cancels = []
+    for ch in "half-typed":
+        _key_listeners._dispatch_key(ch, lambda: None, "\x0b", None)
+    assert editor.buffer == "half-typed"
+
+    # Ctrl+K: priority-dispatched to the cancel handler, editor untouched.
+    _key_listeners._dispatch_key(
+        "\x0b", lambda: None, "\x0b", lambda: cancels.append(1)
+    )
+    assert cancels == [1]
+    assert editor.buffer == "half-typed"
+
+    # Ctrl+C (raw \x03): falls through to the editor, clears the line —
+    # and must NOT fire the cancel handler.
+    _key_listeners._dispatch_key(
+        "\x03", lambda: None, "\x0b", lambda: cancels.append(2)
+    )
+    assert cancels == [1]
+    assert editor.buffer == ""
+
+
 def test_broken_editor_does_not_kill_feed(tty_bar):
     class ExplodingEditor:
         def feed(self, key):

@@ -129,7 +129,7 @@ def should_autotrigger(text: str, cursor: int) -> bool:
 @dataclass
 class Item:
     text: str
-    start_position: int  # negative offset from the cursor (pt convention)
+    start_position: int  # negative offset from the QUERY cursor (pt convention)
     display: str
     meta: str = ""
 
@@ -145,17 +145,18 @@ class CompletionEngine:
     def __init__(
         self,
         loop: asyncio.AbstractEventLoop,
-        apply_edit: Callable[[int, str], None],
+        apply_edit: Callable[[int, int, str], None],
         repaint: Callable[[], None],
         completer_factory: Callable = build_completer,
     ) -> None:
         self._loop = loop
-        self._apply_edit = apply_edit  # (start_position, replacement) -> None
+        self._apply_edit = apply_edit  # (start, end, replacement) -> None (absolute)
         self._repaint = repaint  # repaints popup + prompt
         self._completer_factory = completer_factory
         self._completer = None
         self._lock = threading.Lock()
         self._items: List[Item] = []
+        self._anchor = -1  # buffer cursor at query time (start_position base)
         self._selected = -1
         self._open = False
         self._seq = 0  # stale-result discard token
@@ -180,6 +181,7 @@ class CompletionEngine:
         with self._lock:
             self._open = False
             self._items = []
+            self._anchor = -1
             self._selected = -1
             self._seq += 1  # invalidate in-flight queries
         self._repaint()
@@ -200,9 +202,13 @@ class CompletionEngine:
             self.close()
 
     def on_tab(self, text: str, cursor: int) -> bool:
-        """Tab: next item when open, else force-open. Returns handled."""
+        """Tab: accept the selection when open, else force-open.
+
+        Accept-on-Tab matches the classic prompt_toolkit prompt (and every
+        IDE popup ever); navigation stays on Up/Down/Shift-Tab.
+        """
         if self.is_open():
-            self.move(1)
+            self.accept()
             return True
         self._schedule_query(text, cursor, open_menu=True, debounce=False)
         return True
@@ -215,18 +221,28 @@ class CompletionEngine:
         self._repaint()
 
     def accept(self) -> bool:
-        """Apply the selected completion. Returns True if one was applied."""
+        """Apply the selected completion. Returns True if one was applied.
+
+        The replace range is anchored to the cursor captured WHEN THE
+        QUERY RAN, not the live cursor — the user may have arrowed away
+        since (menu stays open on movement), and applying a stale
+        relative offset against the new cursor would splice garbage
+        into the buffer.
+        """
         with self._lock:
             if not (self._open and self._items):
                 return False
             index = max(0, self._selected)
             item = self._items[index]
+            anchor = self._anchor
             self._open = False
             self._items = []
+            self._anchor = -1
             self._selected = -1
             self._seq += 1
         try:
-            self._apply_edit(item.start_position, item.text)
+            start = max(0, anchor + item.start_position)
+            self._apply_edit(start, anchor, item.text)
         except Exception:
             logger.debug("completion apply failed", exc_info=True)
         self._repaint()
@@ -296,6 +312,7 @@ class CompletionEngine:
             if seq != self._seq:
                 return  # buffer changed while we were querying — stale
             self._items = items
+            self._anchor = cursor if items else -1
             self._open = bool(items)
             self._selected = 0 if items else -1
         self._repaint()

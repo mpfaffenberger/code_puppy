@@ -135,6 +135,54 @@ def test_backspace_on_empty_buffer_is_noop(editor, bar):
     assert bar.paints == []  # no-op edits don't repaint
 
 
+def test_raw_ctrl_c_clears_buffer(editor):
+    """Raw ^C (Windows+uvx: no SIGINT, byte reaches the editor) must
+    behave like Ctrl+C-at-idle everywhere else: wipe the typed text."""
+    feed_all(editor, "half-typed thought")
+    editor.feed("\x03")
+    assert editor.buffer == ""
+    assert editor.cursor == 0
+
+
+def test_raw_ctrl_c_on_empty_buffer_is_noop(editor):
+    editor.feed("\x03")
+    assert editor.buffer == ""
+    assert editor.cursor == 0
+
+
+def test_raw_ctrl_c_does_not_submit(editor, controller):
+    feed_all(editor, "do not send this")
+    editor.feed("\x03")
+    assert controller.steers == []
+
+
+def test_raw_ctrl_c_cancels_reverse_search(bar, controller, clock):
+    class ActiveRSearch:
+        def __init__(self):
+            self.active = True
+            self.cancelled = False
+
+        def cancel(self):
+            self.active = False
+            self.cancelled = True
+
+        def prompt_text(self):
+            return "(reverse-i-search)`': "
+
+    rsearch = ActiveRSearch()
+    editor = RunningLineEditor(
+        prompt_prefix="> ",
+        bar=bar,
+        pause_controller=controller,
+        now=clock,
+        history=FakeHistory(),
+        reverse_search=rsearch,
+    )
+    editor.feed("\x03")
+    assert rsearch.cancelled is True
+    assert editor.buffer == ""
+
+
 def test_ctrl_u_kills_line(editor):
     feed_all(editor, "kill me")
     editor.feed("\x15")
@@ -439,3 +487,26 @@ def test_broken_bar_never_raises(controller, clock):
     feed_all(editor, "still works")
     editor.feed("\r")
     assert controller.steers == [("still works", "queue")]
+
+
+# =========================================================================
+# Attachment display tags (editor_display wiring)
+# =========================================================================
+
+
+def test_image_path_paints_as_tag_but_buffer_keeps_path(editor, bar, tmp_path):
+    """Classic parity: the prompt row shows [png image]; buffer keeps path."""
+    png = tmp_path / "shot.png"
+    png.write_bytes(b"\x89PNG fake")
+    feed_all(editor, f"look at {png}")
+    prefix, painted, cursor = bar.paints[-1]
+    assert "[png image]" in painted
+    assert str(png) not in painted
+    assert cursor == len(painted)
+    # The REAL buffer is untouched — submit-time resolution needs the path.
+    assert editor.buffer == f"look at {png}"
+
+
+def test_non_path_text_paints_verbatim(editor, bar):
+    feed_all(editor, "just words")
+    assert bar.paints[-1] == ("> ", "just words", 10)

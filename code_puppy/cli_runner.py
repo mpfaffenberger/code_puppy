@@ -649,13 +649,22 @@ def _interactive_sigint_guard(_sig, _frame):
     # be installed instead of this one). Swallow the signal so a fast repeat
     # tap can't escape to main_entry and exit the process.
     #
-    # Persistent prompt: Ctrl+C at idle with text in the buffer clears it
-    # (classic readline feel); with an empty buffer it stays a no-op
-    # (Ctrl+D is quit). No-op in classic mode / while a run is active.
+    # Persistent prompt: Ctrl+C with text in the buffer clears it (classic
+    # readline feel); with an empty buffer it stays a no-op (Ctrl+D is
+    # quit). Mid-run this guard only owns SIGINT when the cancel key is
+    # remapped (e.g. Windows defaults to ctrl+k) — buffer-first clearing
+    # applies there too; cancellation stays with the remapped hotkey.
     try:
-        from code_puppy.messaging.run_ui import clear_idle_buffer
+        from code_puppy.messaging.run_ui import (
+            absorb_ctrl_c_if_composing,
+            clear_idle_buffer,
+            is_run_active,
+        )
 
-        clear_idle_buffer()
+        if is_run_active():
+            absorb_ctrl_c_if_composing()
+        else:
+            clear_idle_buffer()
     except Exception:
         pass
     return

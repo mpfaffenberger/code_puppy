@@ -32,6 +32,7 @@ from typing import Callable, List, Optional
 from . import editor_keys as ek
 from .bottom_bar import get_bottom_bar
 from .editor_actions import apply_action
+from .editor_display import to_display
 from .editor_history import (
     HistoryNavigator,
     ReverseSearch,
@@ -52,7 +53,8 @@ DEFAULT_ESC_TIMEOUT = 0.05
 # Raw control chars live in editor_keys (see the Ctrl+K / Ctrl+V notes there).
 _ENTER, _CTRL_J, _TAB, _ESC = ek.ENTER, ek.CTRL_J, ek.TAB, ek.ESC
 _BACKSPACE_KEYS = ek.BACKSPACE_KEYS
-_CTRL_A, _CTRL_D, _CTRL_E, _CTRL_K = ek.CTRL_A, ek.CTRL_D, ek.CTRL_E, ek.CTRL_K
+_CTRL_A, _CTRL_C, _CTRL_D = ek.CTRL_A, ek.CTRL_C, ek.CTRL_D
+_CTRL_E, _CTRL_K = ek.CTRL_E, ek.CTRL_K
 _CTRL_R, _CTRL_U, _CTRL_V, _CTRL_W = ek.CTRL_R, ek.CTRL_U, ek.CTRL_V, ek.CTRL_W
 
 #: Callback signature: ``(text, mode)`` where mode is "now" or "queue".
@@ -206,13 +208,17 @@ class RunningLineEditor:
             except ValueError:
                 pass
 
-    def apply_completion(self, start_position: int, replacement: str) -> None:
-        """Apply a completion: replace [cursor+start_position, cursor)."""
+    def apply_completion(self, start: int, end: int, replacement: str) -> None:
+        """Apply a completion: replace buffer[start:end) with ``replacement``.
+
+        Absolute indices (clamped) — the CompletionEngine anchors them to
+        the cursor AT QUERY TIME, so the splice stays correct even when
+        the user moved the cursor while the menu was open.
+        """
         with self._lock:
-            start = max(0, self._cursor + start_position)
-            self._buffer = (
-                self._buffer[:start] + replacement + self._buffer[self._cursor :]
-            )
+            start = max(0, min(start, len(self._buffer)))
+            end = max(start, min(end, len(self._buffer)))
+            self._buffer = self._buffer[:start] + replacement + self._buffer[end:]
             self._cursor = start + len(replacement)
             self._history.reset()
             self._repaint()
@@ -309,6 +315,15 @@ class RunningLineEditor:
                 self._set_completion_suppressed(False)
                 self._repaint()
             self._esc_pending_at = self._now()
+            return None
+
+        if ch == _CTRL_C:
+            # Raw ^C only reaches the editor when the console can't turn
+            # it into SIGINT (Windows+uvx clamps ENABLE_PROCESSED_INPUT).
+            # Mirror the SIGINT path: discard composed input / cancel
+            # reverse search, never submit or kill anything — cancel
+            # semantics stay with the hotkey/signal layers.
+            self.clear_buffer()
             return None
 
         if self._rsearch.active:
@@ -593,8 +608,11 @@ class RunningLineEditor:
                 return
             # "[multiline] " suffix has no SGR entries: extra chars paint plain.
             prefix = self._prompt_prefix + ("[multiline] " if self._multiline else "")
+            # Attachment paths render as friendly tags ([png image]) —
+            # display only; the buffer keeps the real path for submit.
+            display_text, display_cursor = to_display(self._buffer, self._cursor)
             bar.set_prompt_text(
-                prefix, self._buffer, self._cursor, self._prompt_prefix_sgrs
+                prefix, display_text, display_cursor, self._prompt_prefix_sgrs
             )
         except Exception:
             # Painting is best-effort; the buffer state is the truth.

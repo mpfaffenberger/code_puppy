@@ -130,16 +130,77 @@ async def test_typing_slash_opens_menu():
     assert selected == 0
 
 
-async def test_tab_navigates_and_enter_accepts_without_submitting():
+async def test_tab_accepts_selection_without_submitting():
+    """Tab completes the highlighted item (classic prompt behavior) —
+    it must NOT cycle to the next menu entry."""
     steers = []
     editor, engine = make_engine(["/help", "/hero"])
     editor.set_submit_router(lambda text, mode: steers.append(text) or None)
     editor.feed("/")
     await settle()
-    editor.feed("\t")  # next -> "/hero"
+    editor.feed("\t")  # accept "/help", NOT navigate
+    assert editor.buffer == "/help"
+    assert steers == []  # no submission happened
+    assert engine.is_open() is False
+
+
+async def test_down_then_tab_accepts_navigated_selection():
+    steers = []
+    editor, engine = make_engine(["/help", "/hero"])
+    editor.set_submit_router(lambda text, mode: steers.append(text) or None)
+    editor.feed("/")
+    await settle()
+    editor.feed("\x1b[B")  # Down -> "/hero"
+    editor.feed("\t")  # accept it
+    assert editor.buffer == "/hero"
+    assert steers == []
+    assert engine.is_open() is False
+
+
+async def test_enter_accepts_without_submitting():
+    steers = []
+    editor, engine = make_engine(["/help", "/hero"])
+    editor.set_submit_router(lambda text, mode: steers.append(text) or None)
+    editor.feed("/")
+    await settle()
+    editor.feed("\x1b[B")  # Down -> "/hero"
     editor.feed("\r")  # accept, NOT submit (classic behavior)
     assert editor.buffer == "/hero"
-    assert steers == []  # no submission happened
+    assert steers == []
+    assert engine.is_open() is False
+
+
+async def test_accept_after_cursor_moved_left_splices_correctly():
+    """Regression: completion offsets are anchored to the QUERY cursor.
+
+    Type "/he", arrow LEFT (menu stays open), then Enter: the completion
+    must replace the original "/he" cleanly — not splice against the
+    moved cursor and produce garbage like "/helpe" that later submits
+    as a plain prompt."""
+    steers = []
+    editor, engine = make_engine(["/help", "/hero"])
+    editor.set_submit_router(lambda text, mode: steers.append(text) or None)
+    for ch in "/he":
+        editor.feed(ch)
+    await settle()
+    assert engine.is_open() is True
+    editor.feed("\x1b[D")  # Left: cursor drifts, menu stays open
+    editor.feed("\r")  # accept — must use the query-time anchor
+    assert editor.buffer == "/help"
+    assert editor.cursor == len("/help")
+    assert steers == []  # accepted, never submitted
+    assert engine.is_open() is False
+
+
+async def test_tab_accept_after_cursor_moved_left_splices_correctly():
+    editor, engine = make_engine(["/help", "/hero"])
+    for ch in "/he":
+        editor.feed(ch)
+    await settle()
+    editor.feed("\x1b[D")  # Left
+    editor.feed("\x1b[D")  # Left again (cursor=1)
+    editor.feed("\t")  # Tab-accept — same anchor rules as Enter
+    assert editor.buffer == "/help"
     assert engine.is_open() is False
 
 
