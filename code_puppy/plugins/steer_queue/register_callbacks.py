@@ -91,13 +91,20 @@ def _emit_queue_summary() -> None:
 # Status suffix: '(N queued)'
 # ---------------------------------------------------------------------------
 def _update_status_suffix(count: int) -> None:
-    """Steer-queue listener: paint/clear the queued-count tag."""
+    """Steer-queue listener: paint/clear the pending-count tag.
+
+    ``count`` is the TOTAL across both queues (now + queued), so the
+    suffix is on whenever EITHER queue holds something. ``/steer`` uses
+    ``mode="now"``; that steer sits in the now-queue until the history
+    processor drains it, so the suffix tags the whole window between
+    submit and injection.
+    """
     try:
         from code_puppy.messaging.bottom_bar import get_bottom_bar
 
-        get_bottom_bar().set_status_suffix(f" ({count} queued)" if count else "")
+        get_bottom_bar().set_status_suffix(f" ({count} pending)" if count else "")
     except Exception:
-        logger.debug("queued-count paint failed", exc_info=True)
+        logger.debug("pending-count paint failed", exc_info=True)
 
 
 def _on_startup() -> None:

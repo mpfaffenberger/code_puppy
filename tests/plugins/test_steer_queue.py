@@ -1,8 +1,8 @@
 """Tests for the steer_queue plugin + PauseController queue operations.
 
 New contract: mid-run Enter queues by default, /steer injects mid-turn,
-/queue manages the queue via TUI, and a '(N queued)' tag rides the
-bottom bar's status suffix slot.
+/queue manages the queue via TUI, and a '(N pending)' tag rides the
+bottom bar's status row.
 """
 
 from __future__ import annotations
@@ -66,14 +66,34 @@ def test_listener_fires_on_every_queue_mutation():
     assert counts == [1, 2, 1, 3, 0]
 
 
-def test_listener_not_fired_for_now_mode_or_empty_drains():
+def test_listener_fires_for_now_mode_addition():
+    """``/steer`` (now-mode) now triggers the listener -- so the status
+    bar can show a '(N pending)' tag from the moment the user submits."""
     pc = PauseController()
     counts = []
     pc.add_steer_queue_listener(counts.append)
-    pc.request_steer("inject me", mode="now")  # now-queue: not our row
-    pc.drain_pending_steer_queued()  # already empty: no event
-    pc.drain_pending_steer()  # drains now-queue only: no event
-    assert counts == []
+    pc.request_steer("inject me", mode="now")
+    assert counts == [1]
+
+
+def test_listener_fires_for_now_mode_drain():
+    pc = PauseController()
+    counts = []
+    pc.request_steer("a", mode="now")  # fill before listener attaches
+    pc.add_steer_queue_listener(counts.append)
+    pc.drain_pending_steer_now()
+    assert counts == [0]
+
+
+def test_listener_total_count_includes_both_queues():
+    pc = PauseController()
+    counts = []
+    pc.add_steer_queue_listener(counts.append)
+    pc.request_steer("now one", mode="now")
+    pc.request_steer("queued one", mode="queue")
+    # After the second request the total across both queues is 2.
+    assert counts == [1, 2]
+    assert counts[-1] == 2
 
 
 def test_drain_all_notifies_when_queued_items_existed():
@@ -83,6 +103,25 @@ def test_drain_all_notifies_when_queued_items_existed():
     pc.add_steer_queue_listener(counts.append)
     pc.drain_pending_steer()
     assert counts == [0]
+
+
+def test_drain_all_notifies_when_only_now_queue_had_items():
+    pc = PauseController()
+    counts = []
+    pc.request_steer("now-only", mode="now")
+    pc.add_steer_queue_listener(counts.append)
+    pc.drain_pending_steer()
+    assert counts == [0]
+
+
+def test_listener_not_fired_for_empty_drain():
+    pc = PauseController()
+    counts = []
+    pc.add_steer_queue_listener(counts.append)
+    pc.drain_pending_steer_now()  # empty: no event
+    pc.drain_pending_steer_queued()  # empty: no event
+    pc.drain_pending_steer()  # empty: no event
+    assert counts == []
 
 
 def test_broken_listener_does_not_break_mutations():
@@ -151,7 +190,7 @@ def test_suffix_updates_and_clears(monkeypatch):
     monkeypatch.setattr("code_puppy.messaging.bottom_bar.get_bottom_bar", lambda: fake)
     rc._update_status_suffix(3)
     rc._update_status_suffix(0)
-    assert fake.suffixes == [" (3 queued)", ""]
+    assert fake.suffixes == [" (3 pending)", ""]
 
 
 def test_startup_wires_listener_end_to_end(monkeypatch):
@@ -163,4 +202,17 @@ def test_startup_wires_listener_end_to_end(monkeypatch):
     pc = get_pause_controller()
     pc.request_steer("queued thing", mode="queue")
     pc.drain_pending_steer_queued()
-    assert fake.suffixes == [" (1 queued)", ""]
+    assert fake.suffixes == [" (1 pending)", ""]
+
+
+def test_startup_wires_steer_listener_for_now_mode(monkeypatch):
+    """/steer (now-mode) should tag the bar from submit until drain."""
+    fake = FakeBar()
+    monkeypatch.setattr("code_puppy.messaging.bottom_bar.get_bottom_bar", lambda: fake)
+    rc._on_startup()
+    from code_puppy.messaging.pause_controller import get_pause_controller
+
+    pc = get_pause_controller()
+    pc.request_steer("focus on the tests", mode="now")
+    pc.drain_pending_steer_now()
+    assert fake.suffixes == [" (1 pending)", ""]

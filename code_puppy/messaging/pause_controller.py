@@ -181,7 +181,13 @@ class PauseController:
                 pass
 
     def _fire_steer_queue_listeners(self, count: int) -> None:
-        """Notify listeners of the new queued count; swallow errors."""
+        """Notify listeners of the new TOTAL pending count (now + queued).
+
+        ``count`` is computed under ``_lock`` at the call site so the listener
+        always sees a self-consistent snapshot including both queues'
+        sizes. ``count == 0`` still fires (so listeners can clear a tag).
+        Swallows listener errors so a broken UI doesn't break others.
+        """
         with self._steer_queue_listeners_lock:
             listeners = list(self._steer_queue_listeners)
         for listener in listeners:
@@ -217,12 +223,15 @@ class PauseController:
         with self._lock:
             if mode == "queue":
                 self._steer_queue_queued.append(text)
-                count = len(self._steer_queue_queued)
             else:
                 self._steer_queue_now.append(text)
-                count = None
-        if count is not None:
-            self._fire_steer_queue_listeners(count)
+            # Listener always gets the TOTAL across both queues so a single
+            # UI tag (e.g. ``(N pending)``) reflects both now- and
+            # queue-mode items together. Now-mode additions now fire too,
+            # so a freshly-injected /steer text shows up in the status bar
+            # until the history processor drains it.
+            count = len(self._steer_queue_now) + len(self._steer_queue_queued)
+        self._fire_steer_queue_listeners(count)
 
     def drain_pending_steer_now(self) -> List[str]:
         """Atomically pop + return every queued ``now``-mode steer.
@@ -233,6 +242,9 @@ class PauseController:
         with self._lock:
             drained = self._steer_queue_now
             self._steer_queue_now = []
+            total = len(self._steer_queue_now) + len(self._steer_queue_queued)
+        if drained:
+            self._fire_steer_queue_listeners(total)
         return drained
 
     def drain_pending_steer_queued(self) -> List[str]:
@@ -244,8 +256,9 @@ class PauseController:
         with self._lock:
             drained = self._steer_queue_queued
             self._steer_queue_queued = []
+            total = len(self._steer_queue_now) + len(self._steer_queue_queued)
         if drained:
-            self._fire_steer_queue_listeners(0)
+            self._fire_steer_queue_listeners(total)
         return drained
 
     def pop_next_steer_queued(self) -> Optional[str]:
@@ -258,8 +271,8 @@ class PauseController:
             if not self._steer_queue_queued:
                 return None
             item = self._steer_queue_queued.pop(0)
-            count = len(self._steer_queue_queued)
-        self._fire_steer_queue_listeners(count)
+            total = len(self._steer_queue_now) + len(self._steer_queue_queued)
+        self._fire_steer_queue_listeners(total)
         return item
 
     def peek_pending_steer_queued(self) -> List[str]:
@@ -276,8 +289,8 @@ class PauseController:
         cleaned = [item for item in items if item and item.strip()]
         with self._lock:
             self._steer_queue_queued = cleaned
-            count = len(self._steer_queue_queued)
-        self._fire_steer_queue_listeners(count)
+            total = len(self._steer_queue_now) + len(self._steer_queue_queued)
+        self._fire_steer_queue_listeners(total)
 
     def has_pending_steer_now(self) -> bool:
         """True iff at least one ``now``-mode steer is queued."""
@@ -297,11 +310,11 @@ class PauseController:
         came from; they just want everything gone.
         """
         with self._lock:
-            had_queued = bool(self._steer_queue_queued)
+            had_anything = bool(self._steer_queue_queued or self._steer_queue_now)
             drained = self._steer_queue_queued + self._steer_queue_now
             self._steer_queue_queued = []
             self._steer_queue_now = []
-        if had_queued:
+        if had_anything:
             self._fire_steer_queue_listeners(0)
         return drained
 
