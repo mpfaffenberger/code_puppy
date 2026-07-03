@@ -25,8 +25,10 @@ from code_puppy import secret_store
 def _reset_warn_flag():
     """The one-shot fallback warning is process global; reset per test."""
     secret_store._warned_fallback = False
+    secret_store._backend_installed = True  # skip lazy install in these tests
     yield
     secret_store._warned_fallback = False
+    secret_store._backend_installed = False
 
 
 @pytest.fixture

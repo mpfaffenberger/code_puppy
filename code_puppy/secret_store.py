@@ -38,6 +38,27 @@ _FALLBACK_MODE = 0o600
 # we do not spam the console on every read/write.
 _warned_fallback = False
 
+# The consolidated macOS backend is installed lazily, once, on first use.
+_backend_installed = False
+
+
+def _ensure_backend() -> None:
+    """Install the consolidated macOS backend once, before any secret op.
+
+    Off macOS (or when the user pinned a backend) this is a no-op and the
+    native ``keyring`` backend is used unchanged. Best-effort: a failure
+    leaves the native backend in place.
+    """
+    global _backend_installed
+    if _backend_installed:
+        return
+    _backend_installed = True
+    from code_puppy.secret_store_backends import (
+        install_consolidated_backend_if_appropriate,
+    )
+
+    install_consolidated_backend_if_appropriate()
+
 
 # ---------------------------------------------------------------------------
 # Keyring availability + low-level access
@@ -51,6 +72,7 @@ def keyring_available() -> bool:
     a headless Linux box) is treated as unavailable, so callers degrade to
     the file fallback instead of writing into a black hole.
     """
+    _ensure_backend()
     try:
         backend = keyring.get_keyring()
     except Exception:
@@ -170,6 +192,7 @@ def get_secret(name: str) -> str | None:
     Reads the keyring first, then the file fallback. The fallback is only
     consulted when the keyring backend is unavailable.
     """
+    _ensure_backend()
     value = _keyring_get(name)
     if value:
         return value
@@ -191,6 +214,7 @@ def set_secret(name: str, value: str) -> None:
     Writes to the keyring when a backend is available, otherwise to the
     permission-hardened JSON fallback.
     """
+    _ensure_backend()
     if _keyring_set(name, value):
         return
 
@@ -205,6 +229,7 @@ def set_secret(name: str, value: str) -> None:
 
 def delete_secret(name: str) -> None:
     """Best-effort removal of a secret from both the keyring and fallback."""
+    _ensure_backend()
     _keyring_delete(name)
 
     if keyring_available():
