@@ -206,13 +206,17 @@ class RunningLineEditor:
             except ValueError:
                 pass
 
-    def apply_completion(self, start_position: int, replacement: str) -> None:
-        """Apply a completion: replace [cursor+start_position, cursor)."""
+    def apply_completion(self, start: int, end: int, replacement: str) -> None:
+        """Apply a completion: replace buffer[start:end) with ``replacement``.
+
+        Absolute indices (clamped) — the CompletionEngine anchors them to
+        the cursor AT QUERY TIME, so the splice stays correct even when
+        the user moved the cursor while the menu was open.
+        """
         with self._lock:
-            start = max(0, self._cursor + start_position)
-            self._buffer = (
-                self._buffer[:start] + replacement + self._buffer[self._cursor :]
-            )
+            start = max(0, min(start, len(self._buffer)))
+            end = max(start, min(end, len(self._buffer)))
+            self._buffer = self._buffer[:start] + replacement + self._buffer[end:]
             self._cursor = start + len(replacement)
             self._history.reset()
             self._repaint()
