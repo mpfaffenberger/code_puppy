@@ -384,9 +384,17 @@ def _listen_windows(
         try:
             if msvcrt.kbhit():
                 key = msvcrt.getwch()
-                if key in ("\x00", "\xe0") and msvcrt.kbhit():
-                    # Extended key: translate the pair to the xterm seq
-                    # the editor understands; unknown pairs swallowed.
+                if key in ("\x00", "\xe0"):
+                    # Extended key: the second half of the pair sits in
+                    # the CRT's internal pushback buffer, which kbhit()
+                    # CANNOT see (it only peeks the console input queue)
+                    # — so per the _getwch docs we read again
+                    # unconditionally. Gating on kbhit() here leaked the
+                    # prefix into the editor as a literal 'à' (\xe0) on
+                    # every arrow press. Unknown pairs are swallowed.
+                    # Known wart: a literal typed 'à' (U+00E0, non-US
+                    # layouts) is indistinguishable from the prefix and
+                    # briefly blocks this read until the next keypress.
                     seq = _WIN_EXTENDED_KEYS.get(msvcrt.getwch())
                     if seq:
                         _feed_line_editor(seq)

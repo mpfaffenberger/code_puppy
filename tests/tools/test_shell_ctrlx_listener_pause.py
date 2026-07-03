@@ -350,3 +350,46 @@ def test_windows_listener_skips_kbhit_while_suspended(monkeypatch):
     fake_msvcrt.kbhit.assert_not_called()
     on_escape.assert_not_called()
     assert released_event.is_set()
+
+
+def test_windows_listener_translates_extended_key_despite_kbhit_lie(monkeypatch):
+    """Arrow keys must translate even though kbhit() can't see the pair's tail.
+
+    Real CRT behaviour (verified on Windows): after ``getwch()`` returns
+    the ``\\xe0`` prefix of an extended key, the second half sits in the
+    CRT's internal pushback buffer — INVISIBLE to ``kbhit()``, which only
+    peeks the console input queue. Gating the second read on ``kbhit()``
+    leaked the prefix into the line editor as a literal 'à' on every
+    arrow press (the slash-menu mystery-character bug).
+    """
+    keys = iter(["\xe0", "K"])  # Left arrow pair
+    kbhits = iter([True])  # True before the prefix, False forever after
+
+    fake_msvcrt = MagicMock()
+    fake_msvcrt.kbhit.side_effect = lambda: next(kbhits, False)
+    fake_msvcrt.getwch.side_effect = lambda: next(keys)
+    monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+
+    fed: list[str] = []
+    editor = MagicMock()
+    editor.feed.side_effect = fed.append
+    _key_listeners.set_line_editor(editor)
+
+    stop_event = threading.Event()
+
+    def stop_after_a_tick():
+        time.sleep(0.15)
+        stop_event.set()
+
+    stopper = threading.Thread(target=stop_after_a_tick)
+    stopper.start()
+    try:
+        _key_listeners._listen_windows(stop_event, MagicMock())
+    finally:
+        stopper.join()
+        _key_listeners.set_line_editor(None)
+
+    assert fed == ["\x1b[D"], (
+        "Left arrow must reach the editor as its xterm sequence — "
+        f"never as raw '\\xe0'/'K' literals (got {fed!r})"
+    )
