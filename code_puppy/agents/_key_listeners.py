@@ -360,6 +360,51 @@ _WIN_EXTENDED_KEYS = {
 }
 
 
+#: Max chars drained from the console input queue in one poll tick.
+_WIN_BURST_CAP = 4096
+
+#: Minimum all-text burst length treated as a paste. Two chars can be a
+#: fast typing roll landing inside one 50ms poll tick (e.g. 'i' + Enter);
+#: three-plus plain chars in under 50ms is effectively only ever a paste.
+_WIN_PASTE_MIN_CHARS = 3
+
+
+def _drain_windows_burst(msvcrt) -> list:
+    """Read every pending console char as ``(kind, value)`` items.
+
+    ``kind`` is ``"char"`` (regular key) or ``"seq"`` (extended key
+    already translated to its xterm sequence).
+    """
+    items: list = []
+    while msvcrt.kbhit() and len(items) < _WIN_BURST_CAP:
+        key = msvcrt.getwch()
+        if key in ("\x00", "\xe0"):
+            # Extended key pair — see the pushback-buffer note below.
+            seq = _WIN_EXTENDED_KEYS.get(msvcrt.getwch())
+            if seq:
+                items.append(("seq", seq))
+        else:
+            items.append(("char", key))
+    return items
+
+
+def _coalesce_paste_burst(items: list) -> Optional[str]:
+    """Return the paste payload for a large all-text burst, else ``None``.
+
+    The Windows console input queue has no bracketed paste: a paste
+    arrives as a flood of individual chars, which the old one-char-per-
+    tick loop rendered like slow typing — and every ``\\r`` in the flood
+    submitted as its own prompt. Mirroring the classic prompt_toolkit
+    win32 heuristic: many chars in a single read only ever means paste.
+    Bursts containing extended keys (arrows etc.) are real typing.
+    """
+    if len(items) < _WIN_PASTE_MIN_CHARS:
+        return None
+    if any(kind != "char" for kind, _ in items):
+        return None
+    return "".join(value for _, value in items)
+
+
 def _listen_windows(
     stop_event: threading.Event,
     on_escape: Callable[[], None],
@@ -383,23 +428,33 @@ def _listen_windows(
 
         try:
             if msvcrt.kbhit():
-                key = msvcrt.getwch()
-                if key in ("\x00", "\xe0"):
-                    # Extended key: the second half of the pair sits in
-                    # the CRT's internal pushback buffer, which kbhit()
-                    # CANNOT see (it only peeks the console input queue)
-                    # — so per the _getwch docs we read again
-                    # unconditionally. Gating on kbhit() here leaked the
-                    # prefix into the editor as a literal 'à' (\xe0) on
-                    # every arrow press. Unknown pairs are swallowed.
-                    # Known wart: a literal typed 'à' (U+00E0, non-US
-                    # layouts) is indistinguishable from the prefix and
-                    # briefly blocks this read until the next keypress.
-                    seq = _WIN_EXTENDED_KEYS.get(msvcrt.getwch())
-                    if seq:
-                        _feed_line_editor(seq)
+                # Drain the WHOLE pending burst this tick (one char per
+                # 50ms tick made a 200-char paste take ten seconds).
+                # Extended-key note: the second half of a \x00/\xe0 pair
+                # sits in the CRT's internal pushback buffer, which
+                # kbhit() CANNOT see (it only peeks the console input
+                # queue) — so per the _getwch docs the drain reads again
+                # unconditionally. Gating on kbhit() here leaked the
+                # prefix into the editor as a literal 'à' (\xe0) on
+                # every arrow press. Unknown pairs are swallowed.
+                # Known wart: a literal typed 'à' (U+00E0, non-US
+                # layouts) is indistinguishable from the prefix and
+                # briefly blocks the read until the next keypress.
+                items = _drain_windows_burst(msvcrt)
+                payload = _coalesce_paste_burst(items)
+                if payload is not None:
+                    # Synthesize a bracketed paste: the editor inserts
+                    # it atomically and newlines stay IN the buffer
+                    # instead of submitting one prompt per line.
+                    _feed_line_editor("\x1b[200~" + payload + "\x1b[201~")
                 else:
-                    _dispatch_key(key, on_escape, cancel_agent_char, on_cancel_agent)
+                    for kind, value in items:
+                        if kind == "seq":
+                            _feed_line_editor(value)
+                        else:
+                            _dispatch_key(
+                                value, on_escape, cancel_agent_char, on_cancel_agent
+                            )
             else:
                 # Idle tick: let a pending bare ESC expire.
                 _tick_line_editor()

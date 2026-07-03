@@ -407,6 +407,8 @@ class BottomBar(BarPainterMixin):
     def _establish(self) -> None:
         """Set the scroll region, park the cursor inside it, paint rows."""
         cols, rows = self._safe_size()
+        old_rows = self._rows
+        old_reserved = self._reserved if self._region_up else 0
         self._cols, self._rows = cols, rows
         reserved = self._total_reserved()
         if rows < reserved + 1:
@@ -428,7 +430,22 @@ class BottomBar(BarPainterMixin):
             self._region_up = False
             return
         top = rows - reserved
-        parts = [
+        parts = []
+        if old_reserved and old_rows > 0:
+            # Re-establish after a resize: the old bar rows were painted
+            # at the PREVIOUS geometry and nothing repaints over them —
+            # without an explicit erase they linger as ghost duplicates
+            # ("multiples of UI elements") at their old positions while
+            # the fresh bar paints at the new bottom. Reset the region
+            # first so the erases can reach rows outside the incoming
+            # one, then blank the old reserved band (clamped to the new
+            # screen height).
+            parts.append(_RESET_REGION)
+            for row in range(
+                max(1, old_rows - old_reserved + 1), min(old_rows, rows) + 1
+            ):
+                parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
+        parts += [
             # Push existing content up so the reserved rows start blank.
             "\n" * reserved,
             # DECSTBM: scrollable region = rows 1..H-reserved. Homes cursor.
