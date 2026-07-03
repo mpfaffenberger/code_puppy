@@ -55,15 +55,21 @@ class KeymapError(Exception):
 def get_cancel_agent_key() -> str:
     """Get the configured cancel agent key from config.
 
-    On Windows when launched via uvx, this automatically returns "ctrl+k"
-    to work around uvx capturing Ctrl+C before it reaches Python.
+    On Windows when launched via uvx, this always returns "ctrl+k"
+    (uvx captures Ctrl+C before it reaches Python — not configurable).
+
+    On any other Windows launch the DEFAULT is also "ctrl+k": Windows
+    terminals treat Ctrl+C with a selection as the COPY gesture, so
+    Ctrl+C-as-cancel meant copying agent output could kill the run.
+    Ctrl+C stays the clear-typed-input gesture. An explicit
+    ``cancel_agent_key`` in puppy.cfg is still honored.
 
     Returns:
         The key name (e.g., "ctrl+c", "ctrl+k") from config,
-        or the default if not configured.
+        or the platform default if not configured.
     """
     from code_puppy.config import get_value
-    from code_puppy.uvx_detection import should_use_alternate_cancel_key
+    from code_puppy.uvx_detection import is_windows, should_use_alternate_cancel_key
 
     # On Windows + uvx, force ctrl+k to bypass uvx's SIGINT capture
     if should_use_alternate_cancel_key():
@@ -71,7 +77,7 @@ def get_cancel_agent_key() -> str:
 
     key = get_value("cancel_agent_key")
     if key is None or key.strip() == "":
-        return DEFAULT_CANCEL_AGENT_KEY
+        return "ctrl+k" if is_windows() else DEFAULT_CANCEL_AGENT_KEY
     return key.strip().lower()
 
 
