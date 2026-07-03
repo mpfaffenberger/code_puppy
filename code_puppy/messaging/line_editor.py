@@ -52,7 +52,8 @@ DEFAULT_ESC_TIMEOUT = 0.05
 # Raw control chars live in editor_keys (see the Ctrl+K / Ctrl+V notes there).
 _ENTER, _CTRL_J, _TAB, _ESC = ek.ENTER, ek.CTRL_J, ek.TAB, ek.ESC
 _BACKSPACE_KEYS = ek.BACKSPACE_KEYS
-_CTRL_A, _CTRL_D, _CTRL_E, _CTRL_K = ek.CTRL_A, ek.CTRL_D, ek.CTRL_E, ek.CTRL_K
+_CTRL_A, _CTRL_C, _CTRL_D = ek.CTRL_A, ek.CTRL_C, ek.CTRL_D
+_CTRL_E, _CTRL_K = ek.CTRL_E, ek.CTRL_K
 _CTRL_R, _CTRL_U, _CTRL_V, _CTRL_W = ek.CTRL_R, ek.CTRL_U, ek.CTRL_V, ek.CTRL_W
 
 #: Callback signature: ``(text, mode)`` where mode is "now" or "queue".
@@ -313,6 +314,15 @@ class RunningLineEditor:
                 self._set_completion_suppressed(False)
                 self._repaint()
             self._esc_pending_at = self._now()
+            return None
+
+        if ch == _CTRL_C:
+            # Raw ^C only reaches the editor when the console can't turn
+            # it into SIGINT (Windows+uvx clamps ENABLE_PROCESSED_INPUT).
+            # Mirror the SIGINT path: discard composed input / cancel
+            # reverse search, never submit or kill anything — cancel
+            # semantics stay with the hotkey/signal layers.
+            self.clear_buffer()
             return None
 
         if self._rsearch.active:

@@ -16,6 +16,11 @@ CTRL_J = "\n"
 BACKSPACE_KEYS = ("\x7f", "\x08")
 TAB = "\t"
 CTRL_A = "\x01"  # beginning of (logical) line
+# NOTE: Ctrl+C normally never reaches the editor — the console turns it
+# into SIGINT and the REPL's handlers clear/cancel. On Windows+uvx we
+# strip ENABLE_PROCESSED_INPUT (terminal-bricking guard), so ^C arrives
+# as this raw byte through the key listener instead.
+CTRL_C = "\x03"
 CTRL_D = "\x04"
 CTRL_E = "\x05"  # end of (logical) line
 # NOTE: Ctrl+K (\x0b) doubles as a configurable cancel-agent hotkey

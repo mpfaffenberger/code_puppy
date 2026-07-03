@@ -135,6 +135,54 @@ def test_backspace_on_empty_buffer_is_noop(editor, bar):
     assert bar.paints == []  # no-op edits don't repaint
 
 
+def test_raw_ctrl_c_clears_buffer(editor):
+    """Raw ^C (Windows+uvx: no SIGINT, byte reaches the editor) must
+    behave like Ctrl+C-at-idle everywhere else: wipe the typed text."""
+    feed_all(editor, "half-typed thought")
+    editor.feed("\x03")
+    assert editor.buffer == ""
+    assert editor.cursor == 0
+
+
+def test_raw_ctrl_c_on_empty_buffer_is_noop(editor):
+    editor.feed("\x03")
+    assert editor.buffer == ""
+    assert editor.cursor == 0
+
+
+def test_raw_ctrl_c_does_not_submit(editor, controller):
+    feed_all(editor, "do not send this")
+    editor.feed("\x03")
+    assert controller.steers == []
+
+
+def test_raw_ctrl_c_cancels_reverse_search(bar, controller, clock):
+    class ActiveRSearch:
+        def __init__(self):
+            self.active = True
+            self.cancelled = False
+
+        def cancel(self):
+            self.active = False
+            self.cancelled = True
+
+        def prompt_text(self):
+            return "(reverse-i-search)`': "
+
+    rsearch = ActiveRSearch()
+    editor = RunningLineEditor(
+        prompt_prefix="> ",
+        bar=bar,
+        pause_controller=controller,
+        now=clock,
+        history=FakeHistory(),
+        reverse_search=rsearch,
+    )
+    editor.feed("\x03")
+    assert rsearch.cancelled is True
+    assert editor.buffer == ""
+
+
 def test_ctrl_u_kills_line(editor):
     feed_all(editor, "kill me")
     editor.feed("\x15")
