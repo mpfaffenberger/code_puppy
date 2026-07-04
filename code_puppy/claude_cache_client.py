@@ -440,15 +440,8 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 if response.status_code == 400:
                     is_auth_error = await self._is_cloudflare_html_error(response)
                     if is_auth_error:
-                        # cf-ray + request size make edge flaps diagnosable
-                        # (and reportable to Anthropic) from errors.log alone.
-                        request_body = self._extract_body_bytes(request) or b""
-                        logger.warning(
-                            "Detected Cloudflare HTML 400 (cf-ray=%s, "
-                            "request_bytes=%d, url=%s); attempting token refresh",
-                            response.headers.get("cf-ray"),
-                            len(request_body),
-                            request.url.path,
+                        logger.info(
+                            "Detected Cloudflare 400 error (likely auth-related), attempting token refresh"
                         )
 
                 if is_auth_error:

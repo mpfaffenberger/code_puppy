@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 import signal
 import threading
-import time
 import uuid
 from contextlib import AsyncExitStack
 from typing import Any, Callable, Iterator, List, Optional, Sequence, Type, Union
@@ -298,7 +297,6 @@ def streaming_retry(
     max_attempts: int = 3,
     delays: Sequence[float] = (1, 2, 4),
     model_name: Optional[str] = None,
-    progress_window: float = 120.0,
 ) -> Callable[[Callable[[], Any]], Callable[[], Any]]:
     """Wrap a no-arg async callable with streaming-retry semantics.
 
@@ -313,43 +311,36 @@ def streaming_retry(
     ``agent_retryable_exception`` hook, so plugins can opt provider-specific
     failures (e.g. OAuth auth errors) into this same retry schedule.
     ``model_name`` is forwarded to the hook so plugins can scope themselves.
-
-    ``max_attempts`` caps *consecutive rapid* failures, not total failures
-    per run. An agent run wraps many model calls; a long run can hit several
-    unrelated provider blips spread across minutes of successful work. If an
-    attempt survives at least ``progress_window`` seconds before failing, it
-    clearly made progress, so the failure streak resets and the blip gets a
-    fresh retry budget. Only back-to-back quick failures — the actual
-    hopeless-loop signature — burn through the cap.
     """
     from code_puppy.error_logging import log_error
 
     def decorator(factory: Callable[[], Any]) -> Callable[[], Any]:
         async def runner() -> Any:
-            streak = 0  # consecutive rapid failures
-            while True:
-                attempt_started = time.monotonic()
+            last_exc: Optional[Exception] = None
+            for attempt in range(max_attempts):
                 try:
                     return await factory()
                 except Exception as exc:
-                    made_progress = (
-                        time.monotonic() - attempt_started >= progress_window
-                    )
                     if not should_retry_streaming(exc) and not await _plugin_says_retry(
-                        exc, model_name, streak + 1, max_attempts
+                        exc, model_name, attempt + 1, max_attempts
                     ):
                         raise
-                    if made_progress:
-                        streak = 0
-                    streak += 1
+                    last_exc = exc
                     log_error(
                         exc,
                         context=(
                             f"streaming_retry: transient exception on attempt "
-                            f"{streak}/{max_attempts}"
+                            f"{attempt + 1}/{max_attempts}"
                         ),
                     )
-                    if streak >= max_attempts:
+                    if attempt < max_attempts - 1:
+                        delay = delays[attempt] if attempt < len(delays) else delays[-1]
+                        emit_warning(
+                            f"\u26a1 Streaming interrupted, auto-retrying in {delay}s... "
+                            f"(attempt {attempt + 1}/{max_attempts})"
+                        )
+                        await asyncio.sleep(delay)
+                    else:
                         log_error(
                             exc,
                             context=(
@@ -360,15 +351,8 @@ def streaming_retry(
                         emit_error(
                             f"\u274c Streaming failed after {max_attempts} attempts"
                         )
-                        raise
-                    delay = (
-                        delays[streak - 1] if streak - 1 < len(delays) else delays[-1]
-                    )
-                    emit_warning(
-                        f"\u26a1 Streaming interrupted, auto-retrying in {delay}s... "
-                        f"(attempt {streak}/{max_attempts})"
-                    )
-                    await asyncio.sleep(delay)
+            assert last_exc is not None  # loop always sets this before exiting
+            raise last_exc
 
         return runner
 
