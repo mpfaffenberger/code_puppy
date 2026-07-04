@@ -640,7 +640,7 @@ def _user_prompt_echo(task: str):
 
     color = get_banner_color("user_prompt")
     echo = Text("\n")
-    echo.append(" USER PROMPT ", style=f"bold white on {color}")
+    echo.append(" USER ", style=f"bold white on {color}")
     echo.append(f" {task}", style="bold")
     return echo
 
