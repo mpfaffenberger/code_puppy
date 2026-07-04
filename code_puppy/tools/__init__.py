@@ -36,6 +36,14 @@ from code_puppy.tools.browser.browser_locators import (
     register_find_links,
     register_run_xpath_query,
 )
+from code_puppy.tools.browser.browser_page_snapshot import (
+    register_get_page_snapshot,
+)
+from code_puppy.tools.browser.browser_semantic_interactions import (
+    register_click_by_role,
+    register_click_by_text,
+    register_set_text_by_label,
+)
 from code_puppy.tools.browser.browser_navigation import (
     register_browser_go_back,
     register_browser_go_forward,
@@ -132,6 +140,11 @@ TOOL_REGISTRY = {
     "browser_xpath_query": register_run_xpath_query,
     "browser_find_buttons": register_find_buttons,
     "browser_find_links": register_find_links,
+    # Browser Semantic Interactions (accessibility-first, DOM progression)
+    "browser_page_snapshot": register_get_page_snapshot,
+    "browser_click_by_role": register_click_by_role,
+    "browser_click_by_text": register_click_by_text,
+    "browser_set_text_by_label": register_set_text_by_label,
     # Browser Element Interactions
     "browser_click": register_click_element,
     "browser_double_click": register_double_click_element,
