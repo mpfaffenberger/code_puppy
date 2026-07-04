@@ -127,14 +127,17 @@ async def handle_retryable_exception(
         return False
 
     emit_warning(
-        "Claude Code OAuth rejected the request — refreshing token before the retry…"
+        "Claude Code OAuth rejected the request — ensuring a fresh token "
+        "before the retry…"
     )
 
     # refresh_access_token does blocking network I/O; keep the loop free.
+    # (It has a built-in cooldown: if a refresh just happened, it reuses the
+    # still-warm token instead of burning another refresh-token rotation.)
     refreshed = await asyncio.to_thread(refresh_access_token, True)
     if refreshed:
         _broadcast_token(refreshed)
-        emit_info("Claude Code OAuth token refreshed.")
+        emit_info("Claude Code OAuth token ready; retrying.")
     else:
         # Still opt in: the HTTP client gets a fresh shot at recovery on the
         # next attempt (including its interactive reauthentication fallback).

@@ -26,6 +26,14 @@ from .config import (
 TOKEN_REFRESH_BUFFER_SECONDS = 300
 MIN_REFRESH_BUFFER_SECONDS = 30
 
+# Cooldown for *forced* refreshes (seconds). Every refresh-token exchange
+# rotates the refresh token; hammering the endpoint during a flappy episode
+# (e.g. repeated Cloudflare 400s that a new token can't cure anyway) burns
+# through rotations for nothing and risks invalidating the token family.
+# If the stored tokens were refreshed within this window and are still
+# valid, force=True short-circuits to the existing access token.
+FORCE_REFRESH_COOLDOWN_SECONDS = 30
+
 logger = logging.getLogger(__name__)
 
 
@@ -213,6 +221,19 @@ def refresh_access_token(force: bool = False) -> Optional[str]:
     if not force and not is_token_expired(tokens):
         return tokens.get("access_token")
 
+    # Forced-refresh cooldown: a token minted seconds ago is as fresh as a
+    # new exchange would produce. Skip the rotation and reuse it.
+    if force and tokens.get("access_token") and not is_token_expired(tokens):
+        seconds_since_refresh = time.time() - float(tokens.get("refreshed_at") or 0)
+        if seconds_since_refresh < FORCE_REFRESH_COOLDOWN_SECONDS:
+            logger.info(
+                "Skipping forced token refresh (last refresh %.0fs ago, "
+                "cooldown %ds); reusing current access token",
+                seconds_since_refresh,
+                FORCE_REFRESH_COOLDOWN_SECONDS,
+            )
+            return tokens.get("access_token")
+
     refresh_token = tokens.get("refresh_token")
     if not refresh_token:
         logger.debug("No refresh_token available")
@@ -259,6 +280,7 @@ def refresh_access_token(force: bool = False) -> Optional[str]:
             if expires_in_value is not None:
                 tokens["expires_in"] = expires_in_value
                 tokens["expires_at"] = _calculate_expires_at(expires_in_value)
+            tokens["refreshed_at"] = time.time()
             if save_tokens(tokens):
                 update_claude_code_model_tokens(tokens["access_token"])
                 return tokens["access_token"]
