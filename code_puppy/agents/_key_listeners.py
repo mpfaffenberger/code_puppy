@@ -200,6 +200,38 @@ def get_active_handle() -> Optional[KeyListenerHandle]:
         return _active_handle
 
 
+def acquire_listener(
+    stop_event: threading.Event,
+    on_escape: Callable[[], None],
+    on_cancel_agent: Optional[Callable[[], None]] = None,
+) -> tuple[Optional[KeyListenerHandle], bool]:
+    """Atomically reuse the live active listener or spawn + register one.
+
+    The historical bug: three call sites each did ``get_active_handle()``
+    → ``spawn_key_listener()`` → ``set_active_handle()`` as separate steps,
+    so two components racing through that window could both spawn — two
+    cbreak readers on one stdin, keystrokes split between them.
+
+    Returns:
+        ``(handle, spawned)`` — ``spawned`` is False when an existing live
+        listener was reused (the caller must NOT stop it). ``handle`` is
+        ``None`` (with ``spawned=True``) when stdin isn't a TTY.
+    """
+    global _active_handle
+    with _active_handle_lock:
+        existing = _active_handle
+        if (
+            existing is not None
+            and existing.thread.is_alive()
+            and not existing.stop_event.is_set()
+        ):
+            return existing, False
+        handle = spawn_key_listener(stop_event, on_escape, on_cancel_agent)
+        if handle is not None:
+            _active_handle = handle
+        return handle, True
+
+
 # =============================================================================
 # Spawn
 # =============================================================================
@@ -329,14 +361,24 @@ def _wait_while_suspended(
     Sets ``released_event`` (when given) to confirm we've parked. Polls
     every 50ms so we still respond to stop in a reasonable time.
 
+    The ack is LEVEL-triggered — re-asserted every lap — not edge-
+    triggered at park entry only. Rationale: back-to-back suspensions
+    (e.g. ``/resume``: one scope around ``handle_command``, another
+    around the picker) can resume+re-suspend within one 50ms poll lap.
+    The re-suspend clears ``released_event`` while we're STILL parked in
+    this loop (``suspend_event`` never read as clear), so an entry-only
+    ack would never be re-set and the new suspend would falsely time
+    out ("Key listener did not release stdin in time") even though
+    stdin was released the whole time.
+
     NOTE: we deliberately wait on ``stop_event`` (which is unset) rather
     than ``suspend_event`` (which IS set while we're parked here — waiting
     on it returns immediately and busy-spins, hogging the GIL and making
     raw-mode input prompts feel laggy while the listener is suspended).
     """
-    if released_event is not None:
-        released_event.set()
     while suspend_event.is_set() and not stop_event.is_set():
+        if released_event is not None:
+            released_event.set()
         stop_event.wait(timeout=0.05)
 
 
@@ -656,9 +698,18 @@ def suspended_key_listener(timeout: float = 1.0) -> Iterator[None]:
         if _suspend_depth == 1 and handle is not None:
             is_outermost = True
     if is_outermost:
-        # Best-effort suspend; if it doesn't release in time we just
-        # carry on quietly rather than spamming the user with a warning.
-        handle.suspend(timeout=timeout)
+        # A silently-failed suspend means the caller launches its own stdin
+        # reader (prompt_toolkit, input()) while the listener is STILL in
+        # cbreak mode — two readers, keystrokes split between them. Give
+        # the listener one extended grace period, then warn loudly so the
+        # flakiness is at least diagnosable instead of "sometimes my keys
+        # vanish".
+        if not handle.suspend(timeout=timeout):
+            if not handle.released_event.wait(timeout=2.0):
+                emit_warning(
+                    "Key listener did not release stdin in time; "
+                    "input may be flaky until this prompt closes."
+                )
     try:
         yield
     finally:
@@ -671,6 +722,7 @@ def suspended_key_listener(timeout: float = 1.0) -> Iterator[None]:
 
 __all__ = [
     "KeyListenerHandle",
+    "acquire_listener",
     "get_active_handle",
     "get_line_editor",
     "set_active_handle",

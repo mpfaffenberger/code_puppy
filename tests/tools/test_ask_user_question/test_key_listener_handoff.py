@@ -106,14 +106,16 @@ async def test_resume_called_when_suspend_succeeds_even_if_tui_raises():
 
 
 @pytest.mark.asyncio
-async def test_no_resume_when_suspend_timed_out():
+async def test_resume_still_called_when_suspend_timed_out():
     """If suspend() returned False (listener didn't ack within the timeout),
-    we deliberately skip resume() — calling resume() on a listener that
-    never paused would just clear an already-clear event, which is
-    harmless, but the underlying problem (rogue listener) is something the
-    user should see, not get silently masked by a spurious resume call."""
+    we WARN the user (via suspended_key_listener's grace-period fallback)
+    but still resume() on exit. The old skip-resume behavior was a trap:
+    a listener that acked LATE would park on the still-set suspend_event
+    forever — permanently dead keyboard. Resume on a never-parked listener
+    is a harmless clear of an already-clear event."""
     fake_handle = MagicMock()
     fake_handle.suspend.return_value = False  # didn't ack in time
+    fake_handle.released_event.wait.return_value = False  # grace period too
 
     fake_run = AsyncMock(return_value=([], False, False))
 
@@ -123,6 +125,9 @@ async def test_no_resume_when_suspend_timed_out():
             return_value=fake_handle,
         ),
         patch(
+            "code_puppy.agents._key_listeners.emit_warning",
+        ) as mock_warn,
+        patch(
             "code_puppy.tools.ask_user_question.tui_loop.run_question_tui",
             fake_run,
         ),
@@ -130,4 +135,5 @@ async def test_no_resume_when_suspend_timed_out():
         await interactive_question_picker(_make_questions(), timeout_seconds=5)
 
     fake_handle.suspend.assert_called_once()
-    fake_handle.resume.assert_not_called()
+    fake_handle.resume.assert_called_once()
+    mock_warn.assert_called_once()

@@ -91,6 +91,44 @@ def test_wait_while_suspended_sleeps_instead_of_busy_spinning(monkeypatch):
     assert all(t == 0.05 for t in sleep_calls)
 
 
+def test_wait_while_suspended_re_acks_after_back_to_back_resuspend():
+    """Regression (the '/resume' false warning): suspend → resume → suspend
+    faster than one 50ms poll lap. The parked loop never observes the
+    brief suspend_event clear, so an entry-only (edge-triggered) ack
+    would leave the new suspend()'s freshly-cleared released_event unset
+    forever — a false 'Key listener did not release stdin in time'
+    timeout while stdin was in fact released the whole time. The ack
+    must be level-triggered: re-asserted on every poll lap.
+    """
+    stop = threading.Event()
+    suspend = threading.Event()
+    released = threading.Event()
+    suspend.set()
+
+    parked = threading.Thread(
+        target=_wait_while_suspended, args=(stop, suspend, released), daemon=True
+    )
+    parked.start()
+    try:
+        # First suspension acks normally.
+        assert released.wait(timeout=1.0), "initial park never acked"
+
+        # Back-to-back re-suspension racing ahead of the 50ms poll:
+        # resume + immediate suspend — the park loop never sees the gap.
+        # (suspend() clears released_event then sets suspend_event; the
+        # event stays set throughout, exactly like the live race.)
+        released.clear()
+
+        # The parked loop must re-assert the ack within a few laps.
+        assert released.wait(timeout=1.0), (
+            "parked listener never re-acked after re-suspend — "
+            "edge-triggered ack regression"
+        )
+    finally:
+        stop.set()
+        parked.join(timeout=1.0)
+
+
 def test_wait_while_suspended_tolerates_missing_released_event():
     """Inline call sites pass ``released_event=None`` — must not crash."""
     stop = threading.Event()

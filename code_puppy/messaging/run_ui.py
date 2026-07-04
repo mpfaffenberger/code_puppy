@@ -148,6 +148,10 @@ def stop_run_ui() -> None:
             # The UI outlives the run — just drop back to idle routing.
             _run_active = False
             _clear_status_row()
+            # Self-heal: if the REPL-lifetime listener died mid-run (its
+            # thread crashed, or a per-run listener replaced-then-stopped
+            # it), typing at the idle prompt would be dead forever.
+            _ensure_persistent_listener_locked()
             return
         editor = _editor
         _editor = None
@@ -403,15 +407,50 @@ def _spawn_persistent_listener() -> None:
         from code_puppy.agents import _key_listeners
     except ImportError:
         return  # no listener infra: prompt still works via nothing-to-feed
-    if _key_listeners.get_active_handle() is not None:
-        return  # someone else owns stdin already
     stop_event = threading.Event()
-    handle = _key_listeners.spawn_key_listener(stop_event, on_escape=lambda: None)
-    if handle is None:
+    # Atomic reuse-or-spawn: if someone else already owns stdin we back
+    # off (spawned=False) and deliberately do NOT record their handle as
+    # ours — stop_persistent_ui must never stop a listener it didn't spawn.
+    handle, spawned = _key_listeners.acquire_listener(
+        stop_event, on_escape=lambda: None
+    )
+    if handle is None or not spawned:
         return
-    _key_listeners.set_active_handle(handle)
     with _lock:
         _listener_handle = handle
+
+
+def _ensure_persistent_listener_locked() -> None:
+    """Respawn the persistent listener if it died. Caller holds ``_lock``.
+
+    Never raises — this runs on ``finally`` teardown paths.
+    """
+    global _listener_handle
+    handle = _listener_handle
+    if (
+        handle is not None
+        and handle.thread.is_alive()
+        and not handle.stop_event.is_set()
+    ):
+        return  # healthy
+    try:
+        from code_puppy.agents import _key_listeners
+    except ImportError:
+        return
+    try:
+        # Drop the stale registration (if it's still ours) so
+        # acquire_listener doesn't refuse to spawn over a corpse.
+        if handle is not None and _key_listeners.get_active_handle() is handle:
+            _key_listeners.set_active_handle(None)
+        _listener_handle = None
+        stop_event = threading.Event()
+        new_handle, spawned = _key_listeners.acquire_listener(
+            stop_event, on_escape=lambda: None
+        )
+        if new_handle is not None and spawned:
+            _listener_handle = new_handle
+    except Exception:
+        logger.debug("persistent listener respawn failed", exc_info=True)
 
 
 # =============================================================================

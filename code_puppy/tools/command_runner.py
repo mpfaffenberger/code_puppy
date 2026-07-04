@@ -113,6 +113,7 @@ _USER_KILLED_PROCESSES = set()
 # Global state for shell command keyboard handling
 _SHELL_CTRL_X_STOP_EVENT: Optional[threading.Event] = None
 _SHELL_CTRL_X_THREAD: Optional[threading.Thread] = None
+_SHELL_CTRL_X_HANDLE = None  # KeyListenerHandle when WE spawned the listener
 _ORIGINAL_SIGINT_HANDLER = None
 
 # Bridge from the shell SIGINT handler back to the active agent run's cancel
@@ -331,19 +332,29 @@ def _spawn_ctrl_x_key_listener(
 ) -> Optional[threading.Thread]:
     """Spawn the unified key listener with a Ctrl+X handler.
 
-    Thin shim over ``_key_listeners.spawn_key_listener`` so there is exactly
+    Thin shim over ``_key_listeners.acquire_listener`` so there is exactly
     ONE stdin-listener implementation in the codebase. Two cbreak readers on
     the same stdin is how CPR replies got eaten ("your terminal doesn't
     support cursor position requests") and keystrokes went missing.
 
-    Only used when no agent-run listener is already active (headless /
-    tool-only invocations); otherwise ``_start_keyboard_listener`` just
-    points the existing listener's Ctrl+X dispatch at our handler.
+    ``acquire_listener`` makes the reuse-or-spawn decision atomic AND
+    registers a spawned listener as the active handle — previously the
+    shell listener was invisible to ``get_active_handle()``, so
+    ``suspended_key_listener()`` no-op'd around it and other components
+    could spawn a second reader on the same stdin.
+
+    Returns the spawned listener's thread, or ``None`` when an existing
+    listener already owns stdin (it gets our Ctrl+X handler via
+    ``set_escape_handler``) or stdin isn't a TTY.
     """
+    global _SHELL_CTRL_X_HANDLE
     from code_puppy.agents import _key_listeners
 
-    handle = _key_listeners.spawn_key_listener(stop_event, on_escape=on_escape)
-    return handle.thread if handle is not None else None
+    handle, spawned = _key_listeners.acquire_listener(stop_event, on_escape=on_escape)
+    if not spawned or handle is None:
+        return None
+    _SHELL_CTRL_X_HANDLE = handle
+    return handle.thread
 
 
 @contextmanager
@@ -479,13 +490,14 @@ def _start_keyboard_listener() -> None:
     from code_puppy.agents import _key_listeners
 
     _key_listeners.set_escape_handler(_handle_ctrl_x_press)
-    if _key_listeners.get_active_handle() is None:
-        # No agent-run listener owns stdin — spawn the unified listener.
-        _SHELL_CTRL_X_STOP_EVENT = threading.Event()
-        _SHELL_CTRL_X_THREAD = _spawn_ctrl_x_key_listener(
-            _SHELL_CTRL_X_STOP_EVENT,
-            _handle_ctrl_x_press,
-        )
+    # Reuse-or-spawn is atomic inside the shim: an agent-run/persistent
+    # listener is reused (our handler above owns Ctrl+X dispatch); only
+    # headless / tool-only invocations actually spawn.
+    _SHELL_CTRL_X_STOP_EVENT = threading.Event()
+    _SHELL_CTRL_X_THREAD = _spawn_ctrl_x_key_listener(
+        _SHELL_CTRL_X_STOP_EVENT,
+        _handle_ctrl_x_press,
+    )
 
     # Replace SIGINT handler temporarily
     try:
@@ -500,7 +512,11 @@ def _stop_keyboard_listener() -> None:
 
     Called when the last shell command finishes.
     """
-    global _SHELL_CTRL_X_STOP_EVENT, _SHELL_CTRL_X_THREAD, _ORIGINAL_SIGINT_HANDLER
+    global \
+        _SHELL_CTRL_X_STOP_EVENT, \
+        _SHELL_CTRL_X_THREAD, \
+        _SHELL_CTRL_X_HANDLE, \
+        _ORIGINAL_SIGINT_HANDLER
 
     from code_puppy.agents import _key_listeners
 
@@ -509,6 +525,13 @@ def _stop_keyboard_listener() -> None:
     # Clean up: stop our own listener (only spawned in headless mode)
     if _SHELL_CTRL_X_STOP_EVENT:
         _SHELL_CTRL_X_STOP_EVENT.set()
+
+    # Deregister BEFORE joining so nobody tries to suspend a dying listener.
+    if (
+        _SHELL_CTRL_X_HANDLE is not None
+        and _key_listeners.get_active_handle() is _SHELL_CTRL_X_HANDLE
+    ):
+        _key_listeners.set_active_handle(None)
 
     if _SHELL_CTRL_X_THREAD and _SHELL_CTRL_X_THREAD.is_alive():
         try:
@@ -526,6 +549,7 @@ def _stop_keyboard_listener() -> None:
     # Clean up global state
     _SHELL_CTRL_X_STOP_EVENT = None
     _SHELL_CTRL_X_THREAD = None
+    _SHELL_CTRL_X_HANDLE = None
     _ORIGINAL_SIGINT_HANDLER = None
 
 

@@ -431,6 +431,16 @@ def _collect_exceptions(
 # ---- The main entry point ---------------------------------------------------
 
 
+# Depth of in-flight ``run_with_mcp`` calls. Only touched from the main
+# event loop's thread (every run is awaited on the same loop), so a plain
+# int is race-free. Depth > 0 at entry means a NESTED run — e.g. the
+# shell_safety plugin assessing a command while the primary agent runs.
+# Nested runs must NOT touch process-wide interactive state: the
+# PauseController (it would drain the user's queued steers!), the SIGINT
+# handler, the shell cancel bridge, or the key-listener cancel hotkey.
+_active_run_depth = 0
+
+
 async def run_with_mcp(
     agent: Any,
     prompt: str,
@@ -440,13 +450,48 @@ async def run_with_mcp(
     output_type: Optional[Type[Any]] = None,
     **kwargs: Any,
 ) -> Any:
-    """Run ``agent`` against ``prompt`` with full MCP + cancellation support."""
+    """Run ``agent`` against ``prompt`` with full MCP + cancellation support.
+
+    Thin depth-tracking wrapper: nested calls (a run started while another
+    run is already in flight on this loop) skip the interactive-state
+    plumbing — see ``_active_run_depth``.
+    """
+    global _active_run_depth
+    is_nested_run = _active_run_depth > 0
+    _active_run_depth += 1
+    try:
+        return await _run_with_mcp_impl(
+            agent,
+            prompt,
+            attachments=attachments,
+            link_attachments=link_attachments,
+            output_type=output_type,
+            is_nested_run=is_nested_run,
+            **kwargs,
+        )
+    finally:
+        _active_run_depth -= 1
+
+
+async def _run_with_mcp_impl(
+    agent: Any,
+    prompt: str,
+    *,
+    attachments: Optional[Sequence[BinaryContent]] = None,
+    link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl]]] = None,
+    output_type: Optional[Type[Any]] = None,
+    is_nested_run: bool = False,
+    **kwargs: Any,
+) -> Any:
+    """Body of :func:`run_with_mcp` (depth bookkeeping lives in the wrapper)."""
 
     # Scrub any stale PauseController state from a previously-cancelled run
     # BEFORE we touch the prompt or build the agent. The controller is a
     # process-wide singleton; without this guard a leftover steer queue
-    # would silently poison this run.
-    reset_pause_state_at_run_start()
+    # would silently poison this run. NEVER from a nested run: the "stale"
+    # steers it would drain are the OUTER run's live ones.
+    if not is_nested_run:
+        reset_pause_state_at_run_start()
 
     prompt = _sanitize_prompt(prompt)
     group_id = str(uuid.uuid4())
@@ -715,10 +760,12 @@ async def run_with_mcp(
     # Bridge the cancel callback to the shell SIGINT handler so a single
     # Ctrl+C while shells are running stops the whole agent/sub-agent swarm
     # (kill shells, then cancel every task) instead of only killing the
-    # current batch of shells.
+    # current batch of shells. Nested runs must not clobber the outer
+    # run's bridge (clear_agent_cancel in their finally would disarm it).
     from code_puppy.tools import command_runner as _command_runner
 
-    _command_runner.register_agent_cancel(schedule_agent_cancel)
+    if not is_nested_run:
+        _command_runner.register_agent_cancel(schedule_agent_cancel)
 
     def keyboard_interrupt_handler(_sig, _frame):
         # Let input() handle its own KeyboardInterrupt if we're mid-prompt.
@@ -769,27 +816,25 @@ async def run_with_mcp(
     run_usage_output_tokens: Optional[int] = None
 
     try:
-        if cancel_agent_uses_signal():
-            original_handler = signal.signal(signal.SIGINT, keyboard_interrupt_handler)
-            cancel_cb: Optional[Callable[[], None]] = None  # SIGINT owns cancel
-        else:
-            original_handler = signal.signal(signal.SIGINT, graceful_sigint_handler)
-            cancel_cb = schedule_agent_cancel
-        # Key listener: with the persistent prompt (Phase A) a REPL-
-        # lifetime listener already owns stdin — just arm the per-run
-        # cancel hotkey on it. Otherwise (headless -r, classic prompt,
-        # embeds) spawn a per-run listener exactly as before.
-        existing_handle = _key_listeners.get_active_handle()
-        if (
-            existing_handle is not None
-            and existing_handle.thread.is_alive()
-            and not existing_handle.stop_event.is_set()
-        ):
-            using_persistent_listener = True
-            _key_listeners.set_cancel_handler(cancel_cb)
-        else:
+        # Nested runs (e.g. shell_safety mid-run) leave the SIGINT handler
+        # and cancel hotkey alone — the outer run owns them, and cancelling
+        # the outer task propagates into this awaited one anyway.
+        if not is_nested_run:
+            if cancel_agent_uses_signal():
+                original_handler = signal.signal(
+                    signal.SIGINT, keyboard_interrupt_handler
+                )
+                cancel_cb: Optional[Callable[[], None]] = None  # SIGINT owns cancel
+            else:
+                original_handler = signal.signal(signal.SIGINT, graceful_sigint_handler)
+                cancel_cb = schedule_agent_cancel
+            # Key listener: with the persistent prompt (Phase A) a REPL-
+            # lifetime listener already owns stdin — just arm the per-run
+            # cancel hotkey on it. Otherwise (headless -r, classic prompt,
+            # embeds) spawn a per-run listener. ``acquire_listener`` makes
+            # the reuse-or-spawn decision atomic (no double-reader race).
             key_listener_stop_event = threading.Event()
-            key_listener_handle = _key_listeners.spawn_key_listener(
+            handle, spawned = _key_listeners.acquire_listener(
                 key_listener_stop_event,
                 # Ctrl+X: command_runner installs a dynamic handler via
                 # _key_listeners.set_escape_handler() while shell commands
@@ -797,10 +842,11 @@ async def run_with_mcp(
                 on_escape=lambda: None,
                 on_cancel_agent=cancel_cb,
             )
-            # Publish the handle so other stdin consumers (prompt_toolkit
-            # menus, TUIs) can suspend/resume the listener while they take
-            # over stdin.
-            _key_listeners.set_active_handle(key_listener_handle)
+            if spawned:
+                key_listener_handle = handle
+            else:
+                using_persistent_listener = True
+                _key_listeners.set_cancel_handler(cancel_cb)
 
         result = await agent_task
         run_success = True
@@ -817,22 +863,27 @@ async def run_with_mcp(
     except asyncio.CancelledError:
         run_response_text = ""
         agent_task.cancel()
-        drain_pause_state_on_cancel()
+        # Nested runs never drain: the pending steers belong to the outer
+        # run, whose own cancel path (or run end) handles them.
+        if not is_nested_run:
+            drain_pause_state_on_cancel()
     except KeyboardInterrupt:
         run_response_text = ""
         if not agent_task.done():
             agent_task.cancel()
-        drain_pause_state_on_cancel()
+        if not is_nested_run:
+            drain_pause_state_on_cancel()
     except Exception as e:
         run_error = e
         raise
     finally:
-        try:
-            from code_puppy.tools import command_runner as _command_runner
+        if not is_nested_run:
+            try:
+                from code_puppy.tools import command_runner as _command_runner
 
-            _command_runner.clear_agent_cancel()
-        except Exception:
-            pass
+                _command_runner.clear_agent_cancel()
+            except Exception:
+                pass
         try:
             await on_agent_run_end(
                 agent_name=agent.name,

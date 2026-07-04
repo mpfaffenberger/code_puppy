@@ -59,19 +59,24 @@ def test_resolve_escape_handler_prefers_dynamic():
 def test_start_keyboard_listener_routes_instead_of_spawning():
     """With an active agent-run listener, _start_keyboard_listener must NOT
     spawn a second thread — it just points Ctrl+X dispatch at the shell
-    kill handler.
+    kill handler. The reuse-or-spawn decision is atomic inside
+    ``acquire_listener`` (spawned=False ⇒ reuse, no new reader).
     """
     from code_puppy.tools import command_runner
 
     fake_handle = MagicMock()
     with (
-        patch.object(_key_listeners, "get_active_handle", return_value=fake_handle),
-        patch.object(command_runner, "_spawn_ctrl_x_key_listener") as mock_spawn,
+        patch.object(
+            _key_listeners, "acquire_listener", return_value=(fake_handle, False)
+        ) as mock_acquire,
         patch("signal.signal", return_value=None),
     ):
         command_runner._start_keyboard_listener()
         try:
-            mock_spawn.assert_not_called()
+            mock_acquire.assert_called_once()
+            # Reused listener: no thread of our own, no handle to stop.
+            assert command_runner._SHELL_CTRL_X_THREAD is None
+            assert command_runner._SHELL_CTRL_X_HANDLE is None
             assert (
                 _key_listeners._resolve_escape_handler(MagicMock())
                 is command_runner._handle_ctrl_x_press
@@ -103,7 +108,9 @@ def test_start_keyboard_listener_spawns_when_headless():
 
 
 def test_spawn_shim_delegates_to_unified_listener():
-    """The compat shim must delegate to _key_listeners.spawn_key_listener."""
+    """The compat shim must delegate to _key_listeners.acquire_listener
+    (atomic reuse-or-spawn + registration) and record the handle it owns.
+    """
     from code_puppy.tools import command_runner
 
     stop = threading.Event()
@@ -111,12 +118,33 @@ def test_spawn_shim_delegates_to_unified_listener():
 
     fake_handle = MagicMock()
     with patch.object(
-        _key_listeners, "spawn_key_listener", return_value=fake_handle
-    ) as mock_spawn:
+        _key_listeners, "acquire_listener", return_value=(fake_handle, True)
+    ) as mock_acquire:
         result = command_runner._spawn_ctrl_x_key_listener(stop, on_escape)
 
-    mock_spawn.assert_called_once_with(stop, on_escape=on_escape)
-    assert result is fake_handle.thread
+    try:
+        mock_acquire.assert_called_once_with(stop, on_escape=on_escape)
+        assert result is fake_handle.thread
+        assert command_runner._SHELL_CTRL_X_HANDLE is fake_handle
+    finally:
+        command_runner._SHELL_CTRL_X_HANDLE = None
+
+
+def test_spawn_shim_backs_off_when_listener_reused():
+    """spawned=False (someone else owns stdin) ⇒ shim returns None and
+    records nothing — stop must never touch a listener we didn't spawn."""
+    from code_puppy.tools import command_runner
+
+    fake_handle = MagicMock()
+    with patch.object(
+        _key_listeners, "acquire_listener", return_value=(fake_handle, False)
+    ):
+        result = command_runner._spawn_ctrl_x_key_listener(
+            threading.Event(), MagicMock()
+        )
+
+    assert result is None
+    assert command_runner._SHELL_CTRL_X_HANDLE is None
 
 
 def test_spawn_shim_returns_none_without_tty():
@@ -124,7 +152,7 @@ def test_spawn_shim_returns_none_without_tty():
     from code_puppy.tools import command_runner
 
     stop = threading.Event()
-    with patch.object(_key_listeners, "spawn_key_listener", return_value=None):
+    with patch.object(_key_listeners, "acquire_listener", return_value=(None, True)):
         assert command_runner._spawn_ctrl_x_key_listener(stop, MagicMock()) is None
 
 
