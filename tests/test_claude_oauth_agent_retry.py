@@ -1,4 +1,8 @@
-"""Tests for agent-level auto-retry on Claude Code OAuth auth errors."""
+"""Tests for the Claude Code OAuth agent-retry hook and main-loop integration.
+
+Detection tests live in test_claude_oauth_auth_detection.py; the forced-
+refresh cooldown tests live in test_claude_oauth_refresh_cooldown.py.
+"""
 
 from unittest.mock import Mock, patch
 
@@ -10,103 +14,10 @@ from code_puppy.plugins.claude_code_oauth.auth_retry import (
     is_claude_auth_error,
     register_runtime_token_updater,
 )
-
-CLOUDFLARE_400_TEXT = (
-    "<html><head><title>400 Bad Request</title></head>"
-    "<body><center><h1>400 Bad Request</h1></center>"
-    "<hr><center>cloudflare</center></body></html>"
+from tests.claude_oauth_helpers import (
+    CLOUDFLARE_400_TEXT,
+    StatusError as _StatusError,
 )
-
-
-class _StatusError(Exception):
-    """Stand-in for anthropic APIStatusError / pydantic-ai ModelHTTPError."""
-
-    def __init__(self, message: str, status_code=None, body=None):
-        super().__init__(message)
-        self.status_code = status_code
-        self.body = body
-
-
-class _HttpxishError(Exception):
-    """Stand-in for httpx.HTTPStatusError (status lives on .response)."""
-
-    def __init__(self, message: str, status_code: int):
-        super().__init__(message)
-        self.response = Mock(status_code=status_code)
-
-
-# --- is_claude_auth_error ---------------------------------------------------
-
-
-class TestAuthErrorDetection:
-    def test_401_status_code(self):
-        assert is_claude_auth_error(_StatusError("unauthorized", status_code=401))
-
-    def test_403_status_code(self):
-        assert is_claude_auth_error(_StatusError("forbidden", status_code=403))
-
-    def test_401_on_response_attribute(self):
-        assert is_claude_auth_error(_HttpxishError("boom", status_code=401))
-
-    def test_cloudflare_400_in_message(self):
-        exc = _StatusError(CLOUDFLARE_400_TEXT, status_code=400)
-        assert is_claude_auth_error(exc)
-
-    def test_cloudflare_400_in_body(self):
-        exc = _StatusError("bad request", status_code=400, body=CLOUDFLARE_400_TEXT)
-        assert is_claude_auth_error(exc)
-
-    def test_cloudflare_markers_without_status(self):
-        assert is_claude_auth_error(Exception(CLOUDFLARE_400_TEXT))
-
-    def test_plain_400_is_not_auth(self):
-        exc = _StatusError("invalid_request_error: bad tool schema", status_code=400)
-        assert not is_claude_auth_error(exc)
-
-    def test_500_is_not_auth(self):
-        assert not is_claude_auth_error(_StatusError("server error", status_code=500))
-
-    def test_generic_exception_is_not_auth(self):
-        assert not is_claude_auth_error(ValueError("nope"))
-
-    def test_wrapped_cause_chain_is_walked(self):
-        inner = _StatusError("unauthorized", status_code=401)
-        outer = RuntimeError("model call failed")
-        outer.__cause__ = inner
-        assert is_claude_auth_error(outer)
-
-    def test_context_chain_is_walked(self):
-        inner = _StatusError("forbidden", status_code=403)
-        outer = RuntimeError("wrapper")
-        outer.__context__ = inner
-        assert is_claude_auth_error(outer)
-
-    def test_cyclic_chain_terminates(self):
-        exc = RuntimeError("loop")
-        exc.__cause__ = exc
-        assert not is_claude_auth_error(exc)
-
-    def test_real_model_http_error_401_with_none_body(self):
-        """Regression: the exact production shape from the streaming path.
-
-        pydantic-ai raised ``ModelHTTPError(status_code=401,
-        model_name='claude-fable-5', body=None)`` and the run died. Detection
-        must work on status_code alone — no body, no helpful message.
-        """
-        from pydantic_ai.exceptions import ModelHTTPError
-
-        exc = ModelHTTPError(status_code=401, model_name="claude-fable-5", body=None)
-        assert is_claude_auth_error(exc)
-
-    def test_real_model_http_error_plain_400_is_not_auth(self):
-        from pydantic_ai.exceptions import ModelHTTPError
-
-        exc = ModelHTTPError(
-            status_code=400,
-            model_name="claude-fable-5",
-            body={"error": {"type": "invalid_request_error"}},
-        )
-        assert not is_claude_auth_error(exc)
 
 
 # --- handle_retryable_exception ----------------------------------------------
@@ -423,87 +334,137 @@ async def test_streaming_retry_exhausts_attempts_when_error_persists():
     assert calls["n"] == 3
 
 
-# --- forced-refresh cooldown ----------------------------------------------------
+# --- Cloudflare recurrence escalation -------------------------------------------
 
 
-class TestForceRefreshCooldown:
-    """Repeated force-refreshes must not spam refresh-token rotations."""
+class TestCloudflareEscalation:
+    """Recurring CF400s escalate to full re-auth; refresh is field-proven
+    to only buy temporary recovery, while a browser sign-in durably cures it.
+    """
 
-    def _valid_tokens(self, refreshed_ago: float) -> dict:
-        import time
+    @pytest.fixture(autouse=True)
+    def _reset_state(self):
+        auth_retry._last_cloudflare_event_at = 0.0
+        yield
+        auth_retry._last_cloudflare_event_at = 0.0
 
-        return {
-            "access_token": "current_token",
-            "refresh_token": "r",
-            "expires_in": 3600,
-            "expires_at": time.time() + 3000,
-            "refreshed_at": time.time() - refreshed_ago,
-        }
+    def _cf_exc(self):
+        return _StatusError(CLOUDFLARE_400_TEXT, status_code=400)
 
-    def test_force_refresh_within_cooldown_reuses_token(self):
-        from code_puppy.plugins.claude_code_oauth import utils
-
-        with (
+    def _common_patches(self, reauth_return="reauth_token"):
+        return (
             patch.object(
-                utils, "load_stored_tokens", return_value=self._valid_tokens(5)
+                auth_retry,
+                "load_stored_tokens",
+                return_value={"access_token": "old", "refresh_token": "r"},
             ),
-            patch.object(utils.requests, "post") as mock_post,
-        ):
-            result = utils.refresh_access_token(force=True)
-
-        assert result == "current_token"
-        mock_post.assert_not_called()
-
-    def test_force_refresh_after_cooldown_does_exchange(self):
-        from code_puppy.plugins.claude_code_oauth import utils
-
-        response = Mock(status_code=200)
-        response.headers = {"content-type": "application/json"}
-        response.json.return_value = {
-            "access_token": "brand_new",
-            "refresh_token": "r2",
-            "expires_in": 3600,
-        }
-
-        with (
+            patch.object(auth_retry, "refresh_access_token", return_value="refreshed"),
             patch.object(
-                utils, "load_stored_tokens", return_value=self._valid_tokens(120)
+                auth_retry,
+                "_run_full_reauthentication",
+                return_value=reauth_return,
             ),
-            patch.object(utils.requests, "post", return_value=response) as mock_post,
-            patch.object(utils, "save_tokens", return_value=True) as mock_save,
-            patch.object(utils, "update_claude_code_model_tokens"),
-        ):
-            result = utils.refresh_access_token(force=True)
+            patch.object(auth_retry, "emit_warning"),
+            patch.object(auth_retry, "emit_info"),
+        )
 
-        assert result == "brand_new"
-        mock_post.assert_called_once()
-        saved = mock_save.call_args.args[0]
-        assert saved["refreshed_at"] == pytest.approx(__import__("time").time(), abs=5)
-
-    def test_expired_token_ignores_cooldown(self):
-        """An actually-expired token must always attempt the exchange."""
-        import time
-
-        from code_puppy.plugins.claude_code_oauth import utils
-
-        tokens = self._valid_tokens(1)
-        tokens["expires_at"] = time.time() - 10  # expired despite recent refresh
-
-        response = Mock(status_code=200)
-        response.headers = {"content-type": "application/json"}
-        response.json.return_value = {
-            "access_token": "brand_new",
-            "refresh_token": "r2",
-            "expires_in": 3600,
-        }
-
+    @pytest.mark.asyncio
+    async def test_first_cloudflare_400_uses_cheap_refresh(self):
+        patches = self._common_patches()
         with (
-            patch.object(utils, "load_stored_tokens", return_value=tokens),
-            patch.object(utils.requests, "post", return_value=response) as mock_post,
-            patch.object(utils, "save_tokens", return_value=True),
-            patch.object(utils, "update_claude_code_model_tokens"),
+            patches[0],
+            patches[1] as mock_refresh,
+            patches[2] as mock_reauth,
+            patches[3],
+            patches[4],
         ):
-            result = utils.refresh_access_token(force=True)
+            result = await handle_retryable_exception(
+                self._cf_exc(), model_name="claude-code-claude-fable-5"
+            )
 
-        assert result == "brand_new"
-        mock_post.assert_called_once()
+        assert result is True
+        mock_refresh.assert_called_once()
+        mock_reauth.assert_not_called()
+        assert auth_retry._last_cloudflare_event_at > 0
+
+    @pytest.mark.asyncio
+    async def test_recurring_cloudflare_400_escalates_to_reauth(self):
+        updater = Mock()
+        register_runtime_token_updater(updater)
+        # Simulate a CF400 handled moments ago (refresh didn't cure it).
+        auth_retry._last_cloudflare_event_at = __import__("time").monotonic() - 30
+
+        patches = self._common_patches()
+        with (
+            patches[0],
+            patches[1] as mock_refresh,
+            patches[2] as mock_reauth,
+            patches[3],
+            patches[4],
+        ):
+            result = await handle_retryable_exception(
+                self._cf_exc(), model_name="claude-code-claude-fable-5"
+            )
+
+        assert result is True
+        mock_reauth.assert_called_once_with("claude-code-claude-fable-5")
+        mock_refresh.assert_not_called()
+        updater.assert_called_once_with("reauth_token")
+        # Cured: future CF400s start fresh with the cheap refresh path.
+        assert auth_retry._last_cloudflare_event_at == 0.0
+
+    @pytest.mark.asyncio
+    async def test_cloudflare_outside_window_does_not_escalate(self):
+        auth_retry._last_cloudflare_event_at = __import__("time").monotonic() - (
+            auth_retry.CLOUDFLARE_REAUTH_WINDOW_SECONDS + 60
+        )
+
+        patches = self._common_patches()
+        with (
+            patches[0],
+            patches[1] as mock_refresh,
+            patches[2] as mock_reauth,
+            patches[3],
+            patches[4],
+        ):
+            result = await handle_retryable_exception(
+                self._cf_exc(), model_name="claude-code-claude-fable-5"
+            )
+
+        assert result is True
+        mock_refresh.assert_called_once()
+        mock_reauth.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_failed_reauth_does_not_retry(self):
+        auth_retry._last_cloudflare_event_at = __import__("time").monotonic() - 30
+
+        patches = self._common_patches(reauth_return=None)
+        with patches[0], patches[1], patches[2] as mock_reauth, patches[3], patches[4]:
+            result = await handle_retryable_exception(
+                self._cf_exc(), model_name="claude-code-claude-fable-5"
+            )
+
+        assert result is False
+        mock_reauth.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_plain_401_never_escalates_even_when_recurring(self):
+        auth_retry._last_cloudflare_event_at = __import__("time").monotonic() - 30
+
+        patches = self._common_patches()
+        with (
+            patches[0],
+            patches[1] as mock_refresh,
+            patches[2] as mock_reauth,
+            patches[3],
+            patches[4],
+        ):
+            result = await handle_retryable_exception(
+                _StatusError("unauthorized", status_code=401),
+                model_name="claude-code-claude-fable-5",
+            )
+
+        assert result is True
+        mock_refresh.assert_called_once()
+        mock_reauth.assert_not_called()
