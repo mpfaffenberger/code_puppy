@@ -73,9 +73,9 @@ async def test_persistent_submission_is_echoed_then_exit(monkeypatch, renderer):
             cli_runner.interactive_mode(renderer, initial_command=None), 10.0
         )
 
-    # Transcript echo: JUST the user's text with a '> ' marker — no
+    # Transcript echo: a USER banner tag followed by the user's text — no
     # copy of the prompt chrome (prefix/model/cwd stay on the bar).
-    echoes = [str(m) for m in infos if str(m) == "\n> /exit"]
+    echoes = [str(m) for m in infos if str(m) == "\n USER  /exit"]
     assert echoes, f"expected transcript echo, got infos: {[str(m) for m in infos]}"
     assert not any(">>> /exit" in str(m) for m in infos)  # chrome not echoed
     assert any("Goodbye" in s for s in successes)
