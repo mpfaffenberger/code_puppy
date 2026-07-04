@@ -1701,6 +1701,8 @@ DEFAULT_BANNER_COLORS = {
     "shell_passthrough": "medium_sea_green",  # Green - user's own shell commands
     # LLM Judge - goal-mode verdict (distinct from agent reasoning)
     "llm_judge": "gold3",  # Gold - judicial authority / gavel
+    # Transcript echo of the user's submitted prompt (persistent prompt path)
+    "user_prompt": "dark_green",  # Green - the human speaks
 }
 
 

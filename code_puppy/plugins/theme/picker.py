@@ -37,6 +37,7 @@ from .themes import (
 
 # A few representative banners to show in the preview pane (keeps it readable).
 PREVIEW_BANNERS = [
+    "user_prompt",
     "thinking",
     "agent_response",
     "shell_command",
