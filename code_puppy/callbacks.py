@@ -8,7 +8,6 @@ PhaseType = Literal[
     "shutdown",
     "invoke_agent",
     "agent_exception",
-    "agent_retryable_exception",
     "version_check",
     "edit_file",
     "create_file",
@@ -64,7 +63,6 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "shutdown": [],
     "invoke_agent": [],
     "agent_exception": [],
-    "agent_retryable_exception": [],
     "version_check": [],
     "edit_file": [],
     "create_file": [],
@@ -328,23 +326,6 @@ async def on_invoke_agent(*args, **kwargs) -> List[Any]:
 
 async def on_agent_exception(exception: Exception, *args, **kwargs) -> List[Any]:
     return await _trigger_callbacks("agent_exception", exception, *args, **kwargs)
-
-
-async def on_agent_retryable_exception(
-    exception: Exception, *args, **kwargs
-) -> List[Any]:
-    """Ask plugins whether an exception the core classifier rejected is retryable.
-
-    Fired from the main agent retry loop (``streaming_retry``) when
-    ``should_retry_streaming`` says an exception is NOT transient. Plugins
-    receive ``(exception, model_name=..., attempt=..., max_attempts=...)`` and
-    may perform recovery work (e.g. refreshing an OAuth token) before
-    answering. Any truthy result opts the exception into the standard retry
-    schedule (delays, banner, error-log, attempt cap).
-    """
-    return await _trigger_callbacks(
-        "agent_retryable_exception", exception, *args, **kwargs
-    )
 
 
 async def on_version_check(*args, **kwargs) -> List[Any]:

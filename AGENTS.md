@@ -56,7 +56,6 @@ and skills (`<CWD>/.code_puppy/skills/`).
 | `shutdown` | Graceful exit | `() -> None` |
 | `invoke_agent` | Sub-agent invoked | `(*args, **kwargs) -> None` |
 | `agent_exception` | Unhandled agent error | `(exception, *args, **kwargs) -> None` |
-| `agent_retryable_exception` | Core retry classifier rejected an exception | `(exception, model_name=None, attempt=1, max_attempts=3) -> bool` — return truthy to opt it into the main retry loop (do recovery work, e.g. token refresh, before returning) |
 | `agent_run_start` | Before agent task | `(agent_name, model_name, session_id=None) -> None` |
 | `agent_run_end` | After agent run | `(agent_name, model_name, session_id=None, success=True, error=None, response_text=None, metadata=None) -> None` |
 | `load_prompt` | System prompt assembly | `() -> str \| None` |

@@ -23,7 +23,6 @@ from code_puppy.provider_identity import (
 )
 
 from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
-from .auth_retry import handle_retryable_exception, register_runtime_token_updater
 from .config import CLAUDE_CODE_OAUTH_CONFIG, get_token_storage_path
 from .fast_mode import (
     FAST_SETTING_KEY,
@@ -457,9 +456,6 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
             custom_endpoint["api_key"] = access_token
 
     client.set_token_update_callback(_update_runtime_token)
-    # Also track the updater so agent-level auth-retry (auth_retry.py) can
-    # broadcast a refreshed token into this live client before re-running.
-    register_runtime_token_updater(_update_runtime_token)
     patch_anthropic_client_messages(anthropic_client)
     # Fast mode wrapper sits outside cache-control injector and re-reads
     # the setting on every call so /claude-code-fast takes effect live.
@@ -548,7 +544,6 @@ async def _on_agent_run_end(
             logger.debug("Error stopping token refresh heartbeat: %s", exc)
 
 
-register_callback("agent_retryable_exception", handle_retryable_exception)
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
 register_callback("register_model_type", _register_model_types)

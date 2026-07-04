@@ -81,7 +81,6 @@ from code_puppy.agents._run_signals import (
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
     on_agent_exception,
-    on_agent_retryable_exception,
     on_agent_run_cancel,
     on_agent_run_context,
     on_agent_run_end,
@@ -267,36 +266,9 @@ def should_retry_streaming(exc: Exception) -> bool:
     return any(_is_retryable_one(e) for e in _walk_cause_chain(exc))
 
 
-async def _plugin_says_retry(
-    exc: Exception,
-    model_name: Optional[str],
-    attempt: int,
-    max_attempts: int,
-) -> bool:
-    """Ask ``agent_retryable_exception`` hooks whether ``exc`` is retryable.
-
-    Gives plugins a chance to (a) classify provider-specific failures the
-    core classifier can't know about and (b) perform recovery work (e.g. an
-    OAuth token refresh) before the retry fires. Any truthy result means
-    retry. Hook machinery failures are swallowed: a broken plugin must never
-    turn a genuine error into a hang, nor a retryable blip into a crash.
-    """
-    try:
-        results = await on_agent_retryable_exception(
-            exc,
-            model_name=model_name,
-            attempt=attempt,
-            max_attempts=max_attempts,
-        )
-    except Exception:  # pragma: no cover - defensive
-        return False
-    return any(bool(r) for r in results)
-
-
 def streaming_retry(
     max_attempts: int = 3,
     delays: Sequence[float] = (1, 2, 4),
-    model_name: Optional[str] = None,
 ) -> Callable[[Callable[[], Any]], Callable[[], Any]]:
     """Wrap a no-arg async callable with streaming-retry semantics.
 
@@ -306,11 +278,6 @@ def streaming_retry(
     get the exception type, message, traceback, and which attempt it was. The
     on-disk log is the only way to measure the upstream-blip rate after the
     classifier silently absorbs it.
-
-    Exceptions the built-in classifier rejects get one more chance via the
-    ``agent_retryable_exception`` hook, so plugins can opt provider-specific
-    failures (e.g. OAuth auth errors) into this same retry schedule.
-    ``model_name`` is forwarded to the hook so plugins can scope themselves.
     """
     from code_puppy.error_logging import log_error
 
@@ -321,9 +288,7 @@ def streaming_retry(
                 try:
                     return await factory()
                 except Exception as exc:
-                    if not should_retry_streaming(exc) and not await _plugin_says_retry(
-                        exc, model_name, attempt + 1, max_attempts
-                    ):
+                    if not should_retry_streaming(exc):
                         raise
                     last_exc = exc
                     log_error(
@@ -526,7 +491,7 @@ async def run_with_mcp(
         # the non-streaming fallback render.
         skip_fallback_render = on_should_skip_fallback_render(agent)
 
-        @streaming_retry(model_name=agent.get_model_name())
+        @streaming_retry()
         async def _call() -> Any:
             return await pydantic_agent.run(
                 prompt_to_use,
@@ -566,7 +531,7 @@ async def run_with_mcp(
         # between ``agent.run()`` calls below — additive, won't interrupt
         # in-progress work.
         async def _follow_up_run(follow_up_prompt: Any) -> Any:
-            @streaming_retry(model_name=agent.get_model_name())
+            @streaming_retry()
             async def _call_follow_up() -> Any:
                 return await pydantic_agent.run(
                     follow_up_prompt,
