@@ -15,20 +15,12 @@ and return ``True`` so the exception rides the **main agent retry loop**
 (``streaming_retry``) — the same delays, banners, error-logging, and
 attempt cap as a 429. The loop's ``max_attempts`` bounds us, so a dead
 refresh token can't spin forever.
-
-Recovery escalation ladder for Cloudflare HTML 400s specifically:
-refresh-token exchanges only buy temporary recovery (the edge starts
-flapping again minutes later), while a full interactive re-auth durably
-cures it. So the first CF400 gets the cheap refresh+retry; a recurrence
-within ``CLOUDFLARE_REAUTH_WINDOW_SECONDS`` escalates to the browser
-sign-in flow before retrying.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from typing import Any, Callable, Iterator, Optional
 from weakref import WeakSet
 
@@ -41,17 +33,6 @@ logger = logging.getLogger(__name__)
 
 AUTH_STATUS_CODES = frozenset({401, 403})
 CLOUDFLARE_400_MARKERS = ("cloudflare", "400 bad request")
-
-# Cloudflare 400s are only *durably* cured by a full interactive re-auth
-# (field evidence: refresh-token exchanges buy temporary recovery, then the
-# edge starts flapping again; a browser sign-in stops it entirely). The
-# first CF400 gets the cheap refresh+retry. A recurrence within this window
-# proves refresh isn't curing it, so we escalate to the browser flow.
-CLOUDFLARE_REAUTH_WINDOW_SECONDS = 900.0  # 15 minutes
-
-# Monotonic timestamp of the last Cloudflare-400 recovery attempt.
-# Module-level: recurrence is a per-process pattern, not per-run.
-_last_cloudflare_event_at: float = 0.0
 
 # Live-client token updaters, registered when a claude_code model is built.
 # Weak references: entries vanish automatically when a model is torn down
@@ -120,25 +101,6 @@ def is_claude_auth_error(exc: BaseException) -> bool:
     return False
 
 
-def is_cloudflare_error(exc: BaseException) -> bool:
-    """True when any link in the chain is specifically a Cloudflare 400."""
-    return any(
-        _is_cloudflare_400(link, _status_code_of(link))
-        for link in _iter_exception_chain(exc)
-    )
-
-
-def _run_full_reauthentication(model_name: str) -> Optional[str]:
-    """Launch the interactive browser OAuth flow; returns a token or None.
-
-    Lazy import: register_callbacks imports this module at load time, so a
-    top-level import here would be circular.
-    """
-    from .register_callbacks import _reauthenticate_after_expired_oauth
-
-    return _reauthenticate_after_expired_oauth(model_name)
-
-
 async def handle_retryable_exception(
     exception: Exception, *args: Any, **kwargs: Any
 ) -> bool:
@@ -163,33 +125,6 @@ async def handle_retryable_exception(
             "Run /claude-code-auth to sign in again."
         )
         return False
-
-    # Cloudflare 400s that keep recurring are not cured by refresh-token
-    # exchanges (field-proven); only a full interactive re-auth stops them.
-    global _last_cloudflare_event_at
-    if is_cloudflare_error(exception):
-        now = time.monotonic()
-        recurring = (
-            _last_cloudflare_event_at > 0
-            and (now - _last_cloudflare_event_at) < CLOUDFLARE_REAUTH_WINDOW_SECONDS
-        )
-        _last_cloudflare_event_at = now
-        if recurring:
-            emit_warning(
-                "Cloudflare keeps rejecting requests and token refresh isn't "
-                "curing it — escalating to full browser re-authentication…"
-            )
-            token = await asyncio.to_thread(_run_full_reauthentication, model_name)
-            if token:
-                _broadcast_token(token)
-                _last_cloudflare_event_at = 0.0  # cured; future CF400s start fresh
-                emit_info("Claude Code re-authentication complete; retrying.")
-                return True
-            emit_warning(
-                "Re-authentication did not produce a usable token. "
-                "Run /claude-code-auth manually."
-            )
-            return False
 
     emit_warning(
         "Claude Code OAuth rejected the request — ensuring a fresh token "
