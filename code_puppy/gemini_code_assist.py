@@ -28,7 +28,9 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
-from pydantic_ai.models import Model, ModelRequestParameters
+from dataclasses import dataclass, field
+from pydantic_ai.messages import ModelResponseStreamEvent
+from pydantic_ai.models import Model, ModelRequestParameters, StreamedResponse
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RequestUsage
@@ -98,7 +100,8 @@ class GeminiCodeAssistModel(Model):
         messages: list[ModelMessage],
         model_settings: ModelSettings | None,
         model_request_parameters: ModelRequestParameters,
-    ) -> AsyncIterator[StreamedResponse]:
+        run_context: Any = None,
+    ) -> AsyncIterator[CodeAssistStreamedResponse]:
         """Make a streaming request to the Code Assist API."""
         request_body = self._build_request(
             messages, model_settings, model_request_parameters
@@ -117,7 +120,25 @@ class GeminiCodeAssistModel(Model):
                         f"Code Assist API error {response.status_code}: {error_text.decode()}"
                     )
 
-                yield StreamedResponse(response, self._model_name)
+                async def _sse_chunks() -> AsyncIterator[dict[str, Any]]:
+                    async for line in response.aiter_lines():
+                        line = line.strip()
+                        if line.startswith("data: "):
+                            data_str = line[6:]
+                            if data_str and data_str != "[DONE]":
+                                try:
+                                    data = json.loads(data_str)
+                                    # Unwrap the Code Assist outer `response` envelope
+                                    yield data.get("response", data)
+                                except json.JSONDecodeError:
+                                    logger.warning("Failed to parse SSE: %s", data_str)
+
+                yield CodeAssistStreamedResponse(
+                    model_request_parameters=model_request_parameters,
+                    _chunks=_sse_chunks(),
+                    _model_name_str=self._model_name,
+                    _timestamp_val=datetime.now(timezone.utc),
+                )
 
     def _get_headers(self) -> Dict[str, str]:
         """Get HTTP headers for the request."""
@@ -311,75 +332,79 @@ class GeminiCodeAssistModel(Model):
         )
 
 
-class StreamedResponse:
-    """Handler for streaming responses from Code Assist API."""
+def _generate_tool_call_id() -> str:
+    return str(uuid.uuid4())[:8]
 
-    def __init__(self, response: httpx.Response, model_name: str):
-        self._response = response
-        self._model_name = model_name
-        self._usage: Optional[RequestUsage] = None
-        self._timestamp = datetime.now(timezone.utc)
 
-    def __aiter__(self) -> AsyncIterator[str]:
-        return self._iter_chunks()
+@dataclass
+class CodeAssistStreamedResponse(StreamedResponse):
+    """pydantic_ai-compatible streaming response for Google Code Assist."""
 
-    async def _iter_chunks(self) -> AsyncIterator[str]:
-        """Iterate over SSE chunks from the response."""
-        async for line in self._response.aiter_lines():
-            line = line.strip()
+    _chunks: AsyncIterator[dict[str, Any]]
+    _model_name_str: str
+    _timestamp_val: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    _current_tool_call_id: str | None = field(default=None)
+    _current_tool_name: str | None = field(default=None)
+    _current_vendor_part_id: uuid.UUID | None = field(default=None)
+    _current_args: dict[str, Any] = field(default_factory=dict)
 
-            if line.startswith("data: "):
-                data_str = line[6:]
-                if data_str == "[DONE]":
-                    break
+    async def _get_event_iterator(self) -> AsyncIterator[ModelResponseStreamEvent]:
+        async for chunk in self._chunks:
+            usage_meta = chunk.get("usageMetadata", {})
+            if usage_meta:
+                self._usage = RequestUsage(
+                    input_tokens=usage_meta.get("promptTokenCount", 0),
+                    output_tokens=usage_meta.get("candidatesTokenCount", 0),
+                )
 
-                try:
-                    data = json.loads(data_str)
-                    # Unwrap Code Assist format
-                    inner = data.get("response", data)
+            candidates = chunk.get("candidates", [])
+            if not candidates:
+                continue
 
-                    # Extract usage if available
-                    if "usageMetadata" in inner:
-                        meta = inner["usageMetadata"]
-                        self._usage = RequestUsage(
-                            input_tokens=meta.get("promptTokenCount", 0),
-                            output_tokens=meta.get("candidatesTokenCount", 0),
+            candidate = candidates[0]
+            content = candidate.get("content", {})
+            parts = content.get("parts", [])
+
+            for part in parts:
+                if part.get("text") is not None:
+                    text = part["text"]
+                    if text:
+                        for event in self._parts_manager.handle_text_delta(
+                            vendor_part_id=None,
+                            content=text,
+                        ):
+                            yield event
+                elif part.get("functionCall"):
+                    fc = part["functionCall"]
+                    if fc.get("name"):
+                        self._current_tool_name = fc["name"]
+                        self._current_tool_call_id = fc.get("id") or _generate_tool_call_id()
+                        self._current_vendor_part_id = uuid.uuid4()
+                        self._current_args = {}
+                    args = fc.get("args", {})
+                    self._current_args.update(args)
+                    if self._current_vendor_part_id and self._current_tool_name:
+                        event = self._parts_manager.handle_tool_call_delta(
+                            vendor_part_id=self._current_vendor_part_id,
+                            tool_name=self._current_tool_name,
+                            args=args,
+                            tool_call_id=self._current_tool_call_id,
                         )
+                        if event is not None:
+                            yield event
 
-                    # Extract text from candidates
-                    for candidate in inner.get("candidates", []):
-                        content = candidate.get("content", {})
-                        for part in content.get("parts", []):
-                            if "text" in part:
-                                yield part["text"]
-
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse SSE data: %s", data_str)
-                    continue
-
-    async def get_response_parts(self) -> list[ModelResponsePart]:
-        """Get all response parts after streaming is complete."""
-        text_content = ""
-        tool_calls = []
-
-        async for chunk in self:
-            text_content += chunk
-
-        parts: list[ModelResponsePart] = []
-        if text_content:
-            parts.append(TextPart(content=text_content))
-        parts.extend(tool_calls)
-
-        return parts
-
-    def usage(self) -> RequestUsage:
-        """Get usage statistics."""
-        return self._usage or RequestUsage()
-
+    @property
     def model_name(self) -> str:
-        """Get the model name."""
-        return self._model_name
+        return self._model_name_str
 
+    @property
+    def provider_name(self) -> str | None:
+        return "google"
+
+    @property
+    def provider_url(self) -> str | None:
+        return None
+
+    @property
     def timestamp(self) -> datetime:
-        """Get the response timestamp."""
-        return self._timestamp
+        return self._timestamp_val
