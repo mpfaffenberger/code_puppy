@@ -625,6 +625,26 @@ def _persistent_prompt_parts() -> tuple:
         return ">>> ", []
 
 
+def _user_prompt_echo(task: str):
+    """Transcript echo for a submitted prompt, banner-tagged.
+
+    The persistent editor clears its row on submit, so scrollback needs
+    a record of what was asked. A bare ``> `` marker looked like an
+    orphaned prompt row (especially on Windows); tag it like every other
+    transcript block (AGENT RESPONSE, SHELL COMMAND, ...) instead.
+    Built with ``Text`` (not markup) so bracket-y input renders as-is.
+    """
+    from rich.text import Text
+
+    from code_puppy.config import get_banner_color
+
+    color = get_banner_color("user_prompt")
+    echo = Text("\n")
+    echo.append(" USER PROMPT ", style=f"bold white on {color}")
+    echo.append(f" {task}", style="bold")
+    return echo
+
+
 def _interactive_sigint_guard(_sig, _frame):
     """Baseline SIGINT handler for the interactive REPL.
 
@@ -857,8 +877,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         try:
             if persistent_prompt:
-                from rich.text import Text as _EchoText
-
                 from code_puppy.messaging.run_ui import (
                     set_idle_prompt_prefix,
                     wait_for_idle_submission,
@@ -878,19 +896,16 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 queued_task = _get_pc().pop_next_steer_queued()
                 if queued_task is not None:
                     task = queued_task
-                    emit_info(_EchoText(f"\n> {task}", style="bold"))
+                    emit_info(_user_prompt_echo(task))
                     emit_info("⏭ running queued prompt")
                 else:
                     # Raises EOFError on Ctrl+D-with-empty-buffer, which the
                     # existing quit branch below handles.
                     task = await wait_for_idle_submission()
-                    # Echo into the transcript: the editor clears its row
-                    # on submit, so scrollback needs the record of what was
-                    # asked. JUST the user's text (bold, '> ' marker) --
+                    # Echo into the transcript (see _user_prompt_echo) --
                     # repeating the whole prompt chrome doubled every
-                    # line's noise. Text() (not markup) so bracket-y input
-                    # renders as-is.
-                    emit_info(_EchoText(f"\n> {task}", style="bold"))
+                    # line's noise, so it's just a tag + the user's text.
+                    emit_info(_user_prompt_echo(task))
             else:
                 # Use prompt_toolkit for enhanced input with path completion
                 try:
