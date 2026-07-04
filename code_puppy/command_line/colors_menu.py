@@ -38,7 +38,6 @@ BANNER_DISPLAY_INFO = {
     "universal_constructor": ("UNIVERSAL CONSTRUCTOR", "🔧"),
     "terminal_tool": ("TERMINAL TOOL", "🖥️"),
     "llm_judge": ("LLM JUDGE", "⚖️"),
-    "user_prompt": ("USER", "🧑"),
 }
 
 # Sample content to show after each banner
@@ -60,7 +59,6 @@ BANNER_SAMPLE_CONTENT = {
     "universal_constructor": "action=create tool_name=api.weather\n✅ Created successfully",
     "terminal_tool": "$ chromium --headless\nBrowser terminal session started",
     "llm_judge": "🎯 Verdict: Complete ✅\nGoal verified — all tests pass.",
-    "user_prompt": "Fix the flaky test in tests/test_api.py",
 }
 
 # Available background colors grouped by theme
