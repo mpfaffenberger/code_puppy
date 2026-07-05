@@ -167,10 +167,18 @@ def _list_files(
         error_msg = f"Error: '{directory}' is not a directory"
         return ListFileOutput(content=error_msg, error=error_msg)
 
-    # Smart home directory detection - auto-limit recursion for performance
-    # But allow recursion in tests (when context=None) or when explicitly requested
-    if context is not None and is_likely_home_directory(directory) and recursive:
-        if not is_project_directory(directory):
+    # Smart home directory detection - auto-limit recursion for performance.
+    # Allow recursion in tests (when context=None) or when explicitly requested.
+    #
+    # The EXACT home directory ALWAYS limits recursion: a stray project marker
+    # at ~ (e.g. ~/package.json, ~/.git) must NOT unleash a full recursive
+    # crawl of the entire home tree (Library, Downloads, node_modules
+    # graveyards, network mounts...). For home *subdirs* (Documents, Desktop,
+    # ...) we keep the project-directory override so a real project living
+    # under home can still be listed recursively.
+    if context is not None and recursive and is_likely_home_directory(directory):
+        is_exact_home = directory == os.path.abspath(os.path.expanduser("~"))
+        if is_exact_home or not is_project_directory(directory):
             output_lines.append(
                 "Warning: Detected home directory - limiting to non-recursive listing for performance"
             )

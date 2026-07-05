@@ -83,6 +83,24 @@ class HelpCommand(MCPCommandBase):
             )
             help_lines.append(Text(""))
 
+            # Binding Commands
+            help_lines.append(Text("Binding Commands:", style="bold cyan"))
+            help_lines.append(
+                Text("/mcp bind", style="cyan")
+                + Text(
+                    " <server> <agent>          Bind a server to an agent (persistent)"
+                )
+            )
+            help_lines.append(
+                Text("/mcp bind", style="cyan")
+                + Text(" <server> <agent> --no-autostart  Bind without auto-start")
+            )
+            help_lines.append(
+                Text("/mcp unbind", style="cyan")
+                + Text(" <server> <agent>        Remove a server <-> agent binding")
+            )
+            help_lines.append(Text(""))
+
             # Management Commands
             help_lines.append(Text("Management Commands:", style="bold cyan"))
             help_lines.append(
@@ -124,13 +142,16 @@ class HelpCommand(MCPCommandBase):
 
             # Examples
             help_lines.append(Text("Examples:", style="bold"))
-            examples_text = """/mcp search database     # Find database servers
-/mcp install postgres    # Install PostgreSQL server
-/mcp start filesystem    # Start a specific server
-/mcp start-all           # Start all servers at once
-/mcp stop-all            # Stop all running servers
-/mcp edit filesystem     # Edit an existing server config
-/mcp remove filesystem # Remove a server"""
+            examples_text = """/mcp search database              # Find database servers
+/mcp install postgres             # Install PostgreSQL server
+/mcp bind mcp-jira cooper         # Bind mcp-jira to the cooper agent (auto-start on)
+/mcp bind mcp-jira cooper --no-autostart  # Bind without auto-start
+/mcp unbind mcp-jira cooper       # Remove that binding
+/mcp start filesystem             # Start a specific server (session-only bind)
+/mcp start-all                    # Start all servers at once
+/mcp stop-all                     # Stop all running servers
+/mcp edit filesystem              # Edit an existing server config
+/mcp remove filesystem            # Remove a server"""
             help_lines.append(Text(examples_text, style="dim"))
 
             # Combine all lines

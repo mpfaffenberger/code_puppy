@@ -255,9 +255,14 @@ def test_prepare_queued_steer_injection_drains_one_and_requeues_rest():
     fake_result = Mock()
     fake_result.all_messages = lambda: ["msg1", "msg2"]
 
-    text = prepare_queued_steer_injection(agent, fake_result)
+    result = prepare_queued_steer_injection(agent, fake_result)
 
-    assert text == "one"
+    # Now returns (content, echo_text) so _do_run can fire the prompt_echo
+    # stream_event without a separate bus round-trip.
+    assert result is not None
+    content, echo_text = result
+    assert content == "one"
+    assert echo_text == "one"
     # Leftovers re-queued in the same order.
     assert pc.drain_pending_steer_queued() == ["two", "three"]
     # Result's messages were persisted into agent._message_history.

@@ -239,6 +239,11 @@ def _push_panel(force: bool = False) -> None:
 
     ``force=True`` bypasses the throttle — used for shape-changing events
     (register / done / clear) so grow/collapse is never delayed.
+
+    In TUI mode the bottom bar is inactive; instead the
+    ``subagent_panel_lines_changed`` callback hook is fired so the Textual
+    UI can render a native panel widget. Both sinks are attempted
+    independently so neither can kill the other.
     """
     try:
         lines = _panel_lines()
@@ -251,9 +256,18 @@ def _push_panel(force: bool = False) -> None:
             return  # frame/elapsed churn — skip this repaint
         _push_state["t"] = now
         _push_state["count"] = len(lines)
-        from code_puppy.messaging.bottom_bar import get_bottom_bar
+        try:
+            from code_puppy.messaging.bottom_bar import get_bottom_bar
 
-        get_bottom_bar().set_panel_lines(lines)
+            get_bottom_bar().set_panel_lines(lines)
+        except Exception:
+            pass
+        try:
+            from code_puppy.callbacks import _trigger_callbacks_sync
+
+            _trigger_callbacks_sync("subagent_panel_lines_changed", lines)
+        except Exception:
+            pass
     except Exception:
         pass
 

@@ -28,7 +28,13 @@ DEFAULT_ACCEPTED_IMAGE_EXTENSIONS = {
     ".webp",
     ".tiff",
 }
-DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS = set()
+# Only PDF: it's genuinely binary (read_file can't help) and is the one
+# document format multimodal models accept as BinaryContent. Text/code files
+# (.txt/.md/.json/...) are deliberately excluded so pasting their path doesn't
+# silently turn into a binary attachment instead of a read_file target.
+DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS = {
+    ".pdf",
+}
 
 
 @dataclass
@@ -250,6 +256,21 @@ def _is_supported_extension(path: Path) -> bool:
         suffix
         in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS | DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS
     )
+
+
+def attachment_placeholder_label(path: Path) -> str:
+    """Friendly display label for a recognised attachment path.
+
+    e.g. ``foo.png`` -> ``[png image]``, ``bar.pdf`` -> ``[pdf document]``.
+    Shared by the classic prompt_toolkit processor and the Textual prompt so
+    both UIs render the exact same placeholder (DRY).
+    """
+    suffix = path.suffix.lower()
+    if suffix in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS:
+        return f"[{suffix.lstrip('.') or 'image'} image]"
+    if suffix in DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS:
+        return f"[{suffix.lstrip('.') or 'file'} document]"
+    return "[file attachment]"
 
 
 def _parse_link(token: str) -> PromptLinkAttachment | None:
@@ -483,4 +504,5 @@ __all__ = [
     "parse_prompt_attachments",
     "resolve_steer_content",
     "resolve_user_prompt",
+    "attachment_placeholder_label",
 ]

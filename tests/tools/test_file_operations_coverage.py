@@ -513,17 +513,41 @@ class TestHomeDirectoryDetection:
         # Create a mock context (non-None)
         mock_context = MagicMock()
 
-        # Listing home with context should auto-limit recursion
-        result = _list_files(mock_context, home, recursive=True)
+        # Force the "not a project dir" branch so the home-directory safety
+        # limit is actually exercised. Without this patch, a stray project
+        # marker in the real home (e.g. ``~/package.json``) makes
+        # ``is_project_directory`` return True, which DISABLES the recursion
+        # limit and causes ``_list_files`` to crawl the entire home directory
+        # -- turning this test into a machine-dependent hang.
+        with patch(
+            "code_puppy.tools.file_operations.is_project_directory",
+            return_value=False,
+        ):
+            result = _list_files(mock_context, home, recursive=True)
 
-        # Should contain warning about limiting recursion
-        # (unless it's actually a project directory)
-        if not is_project_directory(home):
-            assert (
-                "limiting" in result.content.lower()
-                or "non-recursive" in result.content.lower()
-                or result.content is not None
-            )
+        # The home-directory guard should have kicked in and limited us to a
+        # (fast) non-recursive listing.
+        assert "limiting" in result.content.lower()
+
+    def test_exact_home_limits_even_when_project_dir(self):
+        """Exact home ALWAYS limits recursion, even with a project marker.
+
+        Regression test: a stray ``~/package.json`` (or ``~/.git`` etc.) must
+        not disable the home-directory recursion guard and unleash a full
+        crawl of the entire home tree.
+        """
+        home = os.path.expanduser("~")
+        mock_context = MagicMock()
+
+        # Pretend home IS a project directory -- the exact-home override must
+        # still win and force a non-recursive listing.
+        with patch(
+            "code_puppy.tools.file_operations.is_project_directory",
+            return_value=True,
+        ):
+            result = _list_files(mock_context, home, recursive=True)
+
+        assert "limiting" in result.content.lower()
 
     def test_home_subdir_detection(self):
         """Test detection of common home subdirectories."""

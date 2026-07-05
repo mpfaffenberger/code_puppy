@@ -87,6 +87,7 @@ from code_puppy.callbacks import (
     on_agent_run_result,
     on_agent_run_start,
     on_should_skip_fallback_render,
+    on_stream_event,
     on_user_prompt_submit,
 )
 from code_puppy.config import (
@@ -596,10 +597,16 @@ async def _run_with_mcp_impl(
         while True:
             # 1) Drain queue-mode steers FIRST (user-priority over hook retries).
             if queued_steers_used < max_queued_steers:
-                steer_text = prepare_queued_steer_injection(agent, result)
-                if steer_text is not None:
+                injection = prepare_queued_steer_injection(agent, result)
+                if injection is not None:
+                    steer_content, echo_text = injection
+                    # Fire prompt_echo synchronously on the event loop so the
+                    # TUI can show a PROMPT banner BEFORE this turn's stream
+                    # deltas arrive (bus polling has ~10 ms latency; stream
+                    # events fire inline and are ordered correctly).
+                    await on_stream_event("prompt_echo", {"text": echo_text})
                     queued_steers_used += 1
-                    result = await _follow_up_run(steer_text)
+                    result = await _follow_up_run(steer_content)
                     continue
 
             # 2) Plugin-requested hook retry (cap matches original loop).
@@ -822,20 +829,28 @@ async def _run_with_mcp_impl(
             # cancel hotkey on it. Otherwise (headless -r, classic prompt,
             # embeds) spawn a per-run listener. ``acquire_listener`` makes
             # the reuse-or-spawn decision atomic (no double-reader race).
-            key_listener_stop_event = threading.Event()
-            handle, spawned = _key_listeners.acquire_listener(
-                key_listener_stop_event,
-                # Ctrl+X: command_runner installs a dynamic handler via
-                # _key_listeners.set_escape_handler() while shell commands
-                # run; outside that window Ctrl+X is a no-op.
-                on_escape=lambda: None,
-                on_cancel_agent=cancel_cb,
-            )
-            if spawned:
-                key_listener_handle = handle
-            else:
-                using_persistent_listener = True
-                _key_listeners.set_cancel_handler(cancel_cb)
+            #
+            # But NOT in the Textual TUI: Textual owns the terminal and a
+            # second cbreak reader races it for keystrokes (swallowing ~half).
+            # The TUI binds Esc=cancel, Ctrl+T=steer, Ctrl+X=kill-shell
+            # natively, and pause routes through the message bus instead.
+            from code_puppy.config import is_tui_mode
+
+            if not is_tui_mode():
+                key_listener_stop_event = threading.Event()
+                handle, spawned = _key_listeners.acquire_listener(
+                    key_listener_stop_event,
+                    # Ctrl+X: command_runner installs a dynamic handler via
+                    # _key_listeners.set_escape_handler() while shell commands
+                    # run; outside that window Ctrl+X is a no-op.
+                    on_escape=lambda: None,
+                    on_cancel_agent=cancel_cb,
+                )
+                if spawned:
+                    key_listener_handle = handle
+                else:
+                    using_persistent_listener = True
+                    _key_listeners.set_cancel_handler(cancel_cb)
 
         result = await agent_task
         run_success = True

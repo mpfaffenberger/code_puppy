@@ -151,12 +151,27 @@ class TestBrowserWorkflowsRemainingLines:
         bad_file = wf_dir / "bad.md"
         bad_file.write_text("test")
 
+        # Surgical stat override: fail ONLY for the workflow .md file, and let
+        # every other stat (directories, etc.) pass through to the real impl.
+        # On Python 3.12+, Path.glob() itself calls parent.is_dir() -> stat(),
+        # so a blanket ``side_effect=OSError`` would blow up glob() before the
+        # per-file read loop is ever reached. Passing a real function (not a
+        # MagicMock) keeps descriptor binding, so ``self`` is available.
+        from pathlib import Path
+
+        real_stat = Path.stat
+
+        def selective_stat(self, *args, **kwargs):
+            if self.name == "bad.md":
+                raise OSError("fail")
+            return real_stat(self, *args, **kwargs)
+
         with (
             patch(f"{MOD_WF}.get_workflows_directory", return_value=wf_dir),
             patch(f"{MOD_WF}.emit_info"),
             patch(f"{MOD_WF}.emit_warning") as mock_warn,
             patch(f"{MOD_WF}.emit_success"),
-            patch.object(type(bad_file), "stat", side_effect=OSError("fail")),
+            patch.object(Path, "stat", selective_stat),
         ):
             r = await list_workflows()
             assert r["success"] is True

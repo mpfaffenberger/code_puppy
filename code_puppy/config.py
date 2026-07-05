@@ -374,7 +374,6 @@ def get_config_keys():
     default_keys.append("goal_max_iterations")
     # Add dangerous command guard disable (skips force push and destructive command guards)
     default_keys.append("disable_dangerous_command_guard")
-
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
@@ -409,6 +408,24 @@ def reset_value(key: str) -> None:
         del config[DEFAULT_SECTION][key]
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             config.write(f)
+
+
+# --- UI MODE ---------------------------------------------------------------
+# Set once at startup by cli_runner from the --tui / -t flag.
+# Use -t/--tui to launch Textual; everything else is classic interactive.
+# Shell alias (alias pup='code-puppy -t') beats a config knob any day.
+_TUI_MODE: bool = False
+
+
+def is_tui_mode() -> bool:
+    """True when running under the Textual TUI (set once at startup)."""
+    return _TUI_MODE
+
+
+def set_tui_mode(enabled: bool) -> None:
+    """Called once by cli_runner to lock in the UI mode for the process."""
+    global _TUI_MODE
+    _TUI_MODE = bool(enabled)
 
 
 # --- MODEL STICKY EXTENSION STARTS HERE ---
@@ -1701,6 +1718,8 @@ DEFAULT_BANNER_COLORS = {
     "shell_passthrough": "medium_sea_green",  # Green - user's own shell commands
     # LLM Judge - goal-mode verdict (distinct from agent reasoning)
     "llm_judge": "gold3",  # Gold - judicial authority / gavel
+    # User prompt echo - TUI-only (classic keeps the prompt in scrollback)
+    "prompt": "royal_blue1",  # Royal blue - the user's own turn
 }
 
 

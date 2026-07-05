@@ -336,7 +336,7 @@ class TestInitialCommandPassthrough:
         with (
             patch("code_puppy.cli_runner.print_truecolor_warning"),
             patch(
-                "code_puppy.cli_runner.get_cancel_agent_display_name",
+                "code_puppy.startup_banner.get_cancel_agent_display_name",
                 return_value="Ctrl+C",
             ),
             patch("code_puppy.messaging.emit_system_message"),
@@ -451,7 +451,7 @@ class TestInteractiveBootstrapMarker:
         with (
             patch("code_puppy.cli_runner.print_truecolor_warning"),
             patch(
-                "code_puppy.cli_runner.get_cancel_agent_display_name",
+                "code_puppy.startup_banner.get_cancel_agent_display_name",
                 return_value="Ctrl+C",
             ),
             patch("code_puppy.messaging.emit_system_message"),

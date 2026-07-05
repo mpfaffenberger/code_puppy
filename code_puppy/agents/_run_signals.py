@@ -112,14 +112,13 @@ def reset_pause_state_at_run_start() -> None:
         )
 
 
-def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[Any]:
+def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[tuple]:
     """Drain ONE queue-mode steer and prep for between-turns injection.
 
     Called from ``_runtime._do_run``'s while-loop after each ``agent.run()``.
-    Returns the steer content to inject as the next user turn — a plain
-    string, or a multimodal list when the steer carries attachments
-    (clipboard images, ``@file`` paths, URLs) — or ``None`` if no
-    queue-mode steer is pending.
+    Returns ``(content, echo_text)`` where ``content`` is the steer payload to
+    inject (plain string or multimodal list) and ``echo_text`` is a plain-text
+    preview for UI display — or ``None`` if no queue-mode steer is pending.
 
     Side-effects:
       - Persists ``result.all_messages()`` into ``agent._message_history``
@@ -146,7 +145,11 @@ def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[Any]:
     emit_info(
         f"Injecting queued steer between turns — agent will see: {preview!r}{suffix}"
     )
-    return content
+    # Return (content, echo_text) so _do_run can fire the prompt-echo
+    # stream_event synchronously (on the event loop, ordered before the
+    # next agent.run() stream deltas). Bus emit was removed: it has a
+    # 10 ms polling delay that races with the next turn's stream events.
+    return content, preview_text
 
 
 def drain_pause_state_on_cancel() -> None:

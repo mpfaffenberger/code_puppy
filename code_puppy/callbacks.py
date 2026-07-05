@@ -33,6 +33,7 @@ PhaseType = Literal[
     "register_skills",
     "register_cli_args",
     "handle_cli_args",
+    "register_screen",
     "get_model_system_prompt",
     "prepare_model_prompt",
     "agent_run_start",
@@ -55,6 +56,7 @@ PhaseType = Literal[
     "pre_compact",
     "session_end",
     "notification",
+    "subagent_panel_lines_changed",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -88,6 +90,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_skills": [],
     "register_cli_args": [],
     "handle_cli_args": [],
+    "register_screen": [],
     "get_model_system_prompt": [],
     "prepare_model_prompt": [],
     "agent_run_start": [],
@@ -110,6 +113,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "pre_compact": [],
     "session_end": [],
     "notification": [],
+    "subagent_panel_lines_changed": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -680,6 +684,27 @@ def on_register_skills() -> List[Dict[str, Any]]:
     - "scripts_dir": str | Path
     """
     return _trigger_callbacks_sync("register_skills")
+
+
+def on_register_screens() -> List[Dict[str, Any]]:
+    """Collect Textual screen/menu registrations from plugins.
+
+    Lets plugins contribute their own modal menus to the Textual UI. Each
+    callback returns a list of dicts with:
+    - "command": str  - the slash command (with or without leading '/') that
+      opens the screen, e.g. "mytool" -> typing /mytool opens it
+    - "open": callable - ``open(app) -> None``; typically pushes a ModalScreen
+      via ``app.push_screen(MyScreen(), callback)``
+
+    Optional keys:
+    - "aliases": list[str] - extra command names that open the same screen
+
+    The opener runs only for the BARE command in the Textual UI; a command
+    with args still falls through to the classic handler. No-op in classic UI.
+
+    Example return: [{"command": "mytool", "open": open_my_tool}]
+    """
+    return _trigger_callbacks_sync("register_screen")
 
 
 def on_get_model_system_prompt(

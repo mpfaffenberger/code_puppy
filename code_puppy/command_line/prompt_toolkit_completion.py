@@ -23,10 +23,9 @@ from prompt_toolkit.layout.processors import Processor, Transformation
 from prompt_toolkit.styles import Style
 
 from code_puppy.command_line.attachments import (
-    DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS,
-    DEFAULT_ACCEPTED_IMAGE_EXTENSIONS,
     _detect_path_tokens,
     _tokenise,
+    attachment_placeholder_label,
 )
 from code_puppy.command_line.clipboard import (
     capture_clipboard_image_to_pending,
@@ -193,13 +192,7 @@ class AttachmentPlaceholderProcessor(Processor):
         for detection in detections:
             display_text: str | None = None
             if detection.path and detection.has_path():
-                suffix = detection.path.suffix.lower()
-                if suffix in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS:
-                    display_text = f"[{suffix.lstrip('.') or 'image'} image]"
-                elif suffix in DEFAULT_ACCEPTED_DOCUMENT_EXTENSIONS:
-                    display_text = f"[{suffix.lstrip('.') or 'file'} document]"
-                else:
-                    display_text = "[file attachment]"
+                display_text = attachment_placeholder_label(detection.path)
             elif detection.link is not None:
                 display_text = "[link]"
 

@@ -1331,6 +1331,24 @@ async def _get_user_approval_async_impl(
     """Inner implementation of get_user_approval_async (lock-free)."""
     from code_puppy.tools.command_runner import set_awaiting_user_input
 
+    # In the Textual TUI, route approval through the bus so it renders as a
+    # ConfirmModal (with optional feedback). The classic console/arrow-key
+    # path below would print to stdout and corrupt the Textual screen.
+    from code_puppy.config import is_tui_mode
+
+    if is_tui_mode():
+        from code_puppy.messaging import get_message_bus
+
+        text_content = content.plain if isinstance(content, Text) else str(content)
+        description = text_content or "Approve?"
+        confirmed, feedback = await get_message_bus().request_confirmation(
+            title=title or "Approve this action?",
+            description=description,
+            options=["Approve", "Reject"],
+            allow_feedback=True,
+        )
+        return confirmed, (feedback or None)
+
     if not _stdin_supports_interactive_approval():
         return _deny_noninteractive_approval(title)
 
