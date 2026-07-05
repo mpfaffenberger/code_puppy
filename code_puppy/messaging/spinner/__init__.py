@@ -21,6 +21,7 @@ New code should use ``code_puppy.messaging.bottom_bar`` directly.
 """
 
 import logging
+import threading
 from typing import Any, List
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,44 @@ logger = logging.getLogger(__name__)
 #: Always empty now. Kept because a few call sites (and out-of-tree
 #: plugins) import it to poke at active spinners.
 _active_spinners: List[Any] = []
+
+# ---------------------------------------------------------------------------
+# Spinner animation constants (formerly ``SpinnerBase.FRAMES`` /
+# ``THINKING_MESSAGE``). The Rich Live spinner is gone in the classic UI, but
+# the Textual TUI still paints its own "<puppy> is thinking..." spinner and
+# needs a single canonical frame set to animate. Kept at module scope (DRY):
+# the TUI reads these, and the retired ``SpinnerBase`` class no longer exists.
+# ---------------------------------------------------------------------------
+_DOG = "\U0001f436"  # dog face; escaped so emoji-stripping filters don't eat it
+
+#: Kennel-bounce: the puppy slides right then back inside a 5-wide pen.
+FRAMES: List[str] = [
+    f"({' ' * i}{_DOG}{' ' * (4 - i)}) " for i in (0, 1, 2, 3, 4, 3, 2, 1, 0)
+]
+
+try:
+    from code_puppy.config import get_puppy_name
+
+    THINKING_MESSAGE = f"{get_puppy_name()} is thinking... "
+except Exception:  # config not ready / import hiccup — never crash the shim
+    THINKING_MESSAGE = "cooper is thinking... "
+
+#: The latest main-agent context summary (token usage etc.). Written by
+#: ``update_spinner_context`` and read back by the TUI spinner via
+#: ``get_context_info`` — the retrievable half of the old
+#: ``SpinnerBase._context_info`` state, restored at module scope.
+_context_info: str = ""
+_context_lock = threading.Lock()
+
+
+def get_context_info() -> str:
+    """Return the last context summary passed to ``update_spinner_context``.
+
+    The Textual TUI paints this beside its thinking spinner. In the classic
+    UI the same string rides the bottom-bar status row instead.
+    """
+    with _context_lock:
+        return _context_info
 
 
 def register_spinner(spinner: Any) -> None:
@@ -100,12 +139,18 @@ def update_spinner_context(info: str) -> None:
     doesn't apply to a status row that describes the main context.
     (Sub-agent status lives on the panel rows via ``set_panel_lines``.)
     """
+    global _context_info
     try:
         from code_puppy.tools.subagent_context import is_subagent
     except ImportError:
         is_subagent = None
     if is_subagent is not None and is_subagent():
         return
+    # Store the main-agent summary so the TUI spinner can read it back via
+    # ``get_context_info`` (sub-agent writes are dropped above, same as the
+    # bottom-bar forward, so they can't stomp the main token summary).
+    with _context_lock:
+        _context_info = info or ""
     try:
         from code_puppy.messaging.bottom_bar import get_bottom_bar
 
@@ -159,4 +204,7 @@ __all__ = [
     "format_context_info",
     "update_spinner_context",
     "clear_spinner_context",
+    "get_context_info",
+    "FRAMES",
+    "THINKING_MESSAGE",
 ]

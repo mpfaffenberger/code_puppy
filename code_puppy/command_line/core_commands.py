@@ -173,6 +173,25 @@ def handle_paste_command(command: str) -> bool:
 
 
 @register_command(
+    name="vim",
+    description="Toggle vim editing mode for the prompt box (TUI only)",
+    usage="/vim",
+    category="core",
+)
+def handle_vim_command(command: str) -> bool:
+    """Toggle vim mode.
+
+    In the Textual TUI this is intercepted by the app *before* reaching here
+    (so the toggle is instant). In the classic UI vim mode isn't available, so
+    we just say so.
+    """
+    from code_puppy.messaging import emit_warning
+
+    emit_warning("Vim mode is only available in the TUI (run with -t / --tui).")
+    return True
+
+
+@register_command(
     name="tutorial",
     description="Run the interactive tutorial wizard",
     usage="/tutorial",

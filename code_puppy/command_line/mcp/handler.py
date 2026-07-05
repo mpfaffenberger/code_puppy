@@ -13,6 +13,7 @@ from rich.text import Text
 from code_puppy.messaging import emit_info
 
 from .base import MCPCommandBase
+from .bind_command import BindCommand, UnbindCommand
 from .edit_command import EditCommand
 from .help_command import HelpCommand
 from .install_command import InstallCommand
@@ -56,6 +57,8 @@ class MCPCommandHandler(MCPCommandBase):
         # Initialize command handlers
         self._commands = {
             "list": ListCommand(),
+            "bind": BindCommand(),
+            "unbind": UnbindCommand(),
             "start": StartCommand(),
             "start-all": StartAllCommand(),
             "stop": StopCommand(),

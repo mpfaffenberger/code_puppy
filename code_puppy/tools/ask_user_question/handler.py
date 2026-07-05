@@ -120,6 +120,14 @@ def ask_user_question(
             "by completing the current task."
         )
 
+    # In the Textual TUI, route through the message bus so the question renders
+    # as a native ModalScreen instead of a prompt_toolkit app (which would
+    # corrupt the Textual screen). The classic path below is untouched.
+    from code_puppy.config import is_tui_mode
+
+    if is_tui_mode():
+        return _run_textual_picker(validated_input.questions, timeout)
+
     # Check for interactive environment
     if not is_interactive():
         return AskUserQuestionOutput.error_response(
@@ -146,6 +154,33 @@ def ask_user_question(
 
     except OSError as e:
         return AskUserQuestionOutput.error_response(f"Interaction error: {e!s}")
+
+
+def _run_textual_picker(
+    questions: list[Question], timeout: int
+) -> AskUserQuestionOutput:
+    """Render the questions via the Textual modal over the message bus.
+
+    Runs from the tool's sync worker thread; ``ask_questions_blocking`` marshals
+    the request onto the UI event loop and blocks until the user answers.
+    """
+    from code_puppy.messaging import get_message_bus
+
+    serialized = [q.model_dump() for q in questions]
+    try:
+        answer_dicts, cancelled, timed_out = get_message_bus().ask_questions_blocking(
+            serialized, timeout
+        )
+    except Exception as exc:  # never let a bridge hiccup crash the agent turn
+        return AskUserQuestionOutput.error_response(f"Interaction error: {exc!s}")
+
+    if timed_out:
+        return AskUserQuestionOutput.timeout_response(timeout)
+    if cancelled:
+        return _cancelled_response()
+
+    answers = [QuestionAnswer.model_validate(a) for a in answer_dicts]
+    return AskUserQuestionOutput(answers=answers)
 
 
 def _run_interactive_picker(

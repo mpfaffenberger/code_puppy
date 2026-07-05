@@ -746,3 +746,22 @@ class TestRegisterCallbacks:
             result = _handle_theme("/theme", "theme")
         assert result is True
         assert "unchanged" in str(mock_info.call_args)
+
+    def test_register_theme_screen_shape(self):
+        from code_puppy.plugins.theme.register_callbacks import _register_theme_screen
+
+        entries = _register_theme_screen()
+        assert isinstance(entries, list) and len(entries) == 1
+        assert entries[0]["command"] == "theme"
+        assert callable(entries[0]["open"])
+
+    def test_open_theme_in_tui_points_to_palette(self):
+        from code_puppy.plugins.theme.register_callbacks import _open_theme_in_tui
+
+        with patch(
+            "code_puppy.plugins.theme.register_callbacks.emit_info"
+        ) as mock_info:
+            _open_theme_in_tui(app=None)
+        assert mock_info.called
+        msg = str(mock_info.call_args)
+        assert "Ctrl+P" in msg or "^p" in msg
