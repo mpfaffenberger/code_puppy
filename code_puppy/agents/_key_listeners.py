@@ -321,6 +321,26 @@ def _resolve_cancel_char(
         return None
 
 
+#: Raw Ctrl+C byte. On Windows the session strips ENABLE_PROCESSED_INPUT,
+#: so ^C reaches the listener as this byte instead of becoming a SIGINT.
+_RAW_CTRL_C = "\x03"
+
+
+def _ctrl_c_should_cancel() -> bool:
+    """Buffer-first gate for raw-^C cancel (same contract as SIGINT).
+
+    Returns False when composing input absorbed the press (editor
+    cleared + hint shown). Fails open — cancellation must never break
+    because a UI check raised.
+    """
+    try:
+        from code_puppy.agents._run_signals import sigint_should_cancel
+
+        return sigint_should_cancel()
+    except Exception:
+        return True
+
+
 def _dispatch_key(
     data: str,
     on_escape: Callable[[], None],
@@ -331,24 +351,37 @@ def _dispatch_key(
 
     Ctrl+X and the cancel-agent key keep PRIORITY and are never fed to
     the line editor. Shared by the POSIX and Windows listener loops.
+
+    Raw ^C as the cancel char (the Windows default) keeps its universal
+    shell semantics, mirroring the POSIX SIGINT handler's contract:
+    composing input absorbs the press (clear + hint); only an empty
+    prompt cancels the run; idle ^C clears the typed line.
     """
     if data == "\x18":  # Ctrl+X
         try:
             _resolve_escape_handler(on_escape)()
         except Exception:
             emit_warning("Ctrl+X handler raised unexpectedly; Ctrl+C still works.")
-    elif cancel_agent_char and data == cancel_agent_char:
+        return
+    if cancel_agent_char and data == cancel_agent_char:
         handler = _resolve_cancel_handler(on_cancel_agent)
-        if handler is not None:
-            try:
-                handler()
-            except Exception:
-                emit_warning("Cancel agent handler raised unexpectedly.")
-        # No handler (idle): the cancel key is inert — swallowed, never
-        # fed to the editor as a stray control character.
-    else:
-        # Not a hotkey — route to the running line editor (if installed).
-        _feed_line_editor(data)
+        if handler is None:
+            # No handler (idle): a remapped cancel key is inert —
+            # swallowed, never fed to the editor as a stray control
+            # character. Raw ^C keeps its clear-the-line meaning via
+            # the editor's own \x03 handling.
+            if data == _RAW_CTRL_C:
+                _feed_line_editor(data)
+            return
+        if data == _RAW_CTRL_C and not _ctrl_c_should_cancel():
+            return  # buffer-first: composing input absorbed the press
+        try:
+            handler()
+        except Exception:
+            emit_warning("Cancel agent handler raised unexpectedly.")
+        return
+    # Not a hotkey — route to the running line editor (if installed).
+    _feed_line_editor(data)
 
 
 def _wait_while_suspended(

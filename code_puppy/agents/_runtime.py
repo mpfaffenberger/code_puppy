@@ -780,25 +780,14 @@ async def _run_with_mcp_impl(
     def graceful_sigint_handler(_sig, _frame):
         from code_puppy.keymap import get_cancel_agent_display_name
         from code_puppy.terminal_utils import reset_windows_terminal_full
-        from code_puppy.uvx_detection import should_use_alternate_cancel_key
 
         if is_awaiting_user_input():
             return
+        # On Windows the full reset re-clamps raw-Ctrl+C mode itself
+        # (reset_windows_console_mode respects the sticky clamp), so a
+        # stray SIGINT can't regress the console into event-generating
+        # mode. No launcher-specific re-arming needed.
         reset_windows_terminal_full()
-        if should_use_alternate_cancel_key():
-            # Windows+uvx ONLY: a SIGINT slipping through means a guard
-            # dropped — re-arm both layers so the next Ctrl+C is a no-op.
-            # NEVER arm these on plain Windows: the swallower is a
-            # process-wide PERMANENT console handler, so one mid-run
-            # Ctrl+C used to eat every future Ctrl+C for the whole
-            # session (including the idle prompt-clear).
-            from code_puppy.terminal_utils import (
-                ensure_ctrl_c_disabled,
-                install_windows_ctrl_c_swallower,
-            )
-
-            ensure_ctrl_c_disabled()
-            install_windows_ctrl_c_swallower()
         # Buffer-first: composing input absorbs the press (clear + hint),
         # matching keyboard_interrupt_handler's contract.
         if not sigint_should_cancel():

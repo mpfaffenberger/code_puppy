@@ -16,17 +16,19 @@ CTRL_J = "\n"
 BACKSPACE_KEYS = ("\x7f", "\x08")
 TAB = "\t"
 CTRL_A = "\x01"  # beginning of (logical) line
-# NOTE: Ctrl+C normally never reaches the editor — the console turns it
-# into SIGINT and the REPL's handlers clear/cancel. On Windows+uvx we
-# strip ENABLE_PROCESSED_INPUT (terminal-bricking guard), so ^C arrives
-# as this raw byte through the key listener instead.
+# NOTE: On POSIX, Ctrl+C normally never reaches the editor — the
+# terminal turns it into SIGINT and the REPL's handlers clear/cancel.
+# On Windows we strip ENABLE_PROCESSED_INPUT for the whole session (so
+# Ctrl+C can't become a console-wide event that kills wrapper launchers
+# like uvx.exe), so ^C arrives as this raw byte via the key listener.
 CTRL_C = "\x03"
 CTRL_D = "\x04"
 CTRL_E = "\x05"  # end of (logical) line
-# NOTE: Ctrl+K (\x0b) doubles as a configurable cancel-agent hotkey
-# (forced on Windows+uvx). The key listener's priority dispatch swallows
-# it BEFORE the editor in that configuration — kill-to-end simply won't
-# fire there; everywhere else it reaches us normally.
+# NOTE: Ctrl+K (\x0b) can be remapped as the cancel-agent hotkey via
+# cancel_agent_key in puppy.cfg. The key listener's priority dispatch
+# swallows it BEFORE the editor in that configuration — kill-to-end
+# simply won't fire there; with the ctrl+c default it reaches us
+# normally on every platform.
 CTRL_K = "\x0b"
 CTRL_R = "\x12"
 CTRL_U = "\x15"

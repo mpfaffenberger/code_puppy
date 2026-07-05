@@ -227,14 +227,41 @@ def test_idle_empty_buffer_noop(persistent_ui):
 # =========================================================================
 
 
-def test_hotkey_cancel_path_is_unconditional():
+def test_remapped_hotkey_cancel_is_unconditional(persistent_ui):
     """A remapped cancel hotkey (ctrl+k/ctrl+q) never routes through the
-    buffer-first gate — only Ctrl+C/SIGINT does."""
+    buffer-first gate — it cancels immediately even while composing,
+    without touching typed text. Only raw ^C (and SIGINT) is gated."""
     from code_puppy.agents import _key_listeners
 
-    src = inspect.getsource(_key_listeners)
-    assert "absorb_ctrl_c" not in src
-    assert "sigint_should_cancel" not in src
+    editor, _tty = persistent_ui
+    cancels = []
+    for ch in "half-typed":
+        _key_listeners._dispatch_key(ch, lambda: None, "\x0b", None)
+    _key_listeners._dispatch_key(
+        "\x0b", lambda: None, "\x0b", lambda: cancels.append(1)
+    )
+    assert cancels == [1]
+    assert editor.buffer == "half-typed"
+
+
+def test_raw_ctrl_c_hotkey_is_buffer_first(persistent_ui):
+    """Raw ^C as the cancel char (Windows default) IS gated: composing
+    input absorbs the first press; the empty prompt cancels."""
+    from code_puppy.agents import _key_listeners
+
+    editor, _tty = persistent_ui
+    cancels = []
+    for ch in "half-typed":
+        _key_listeners._dispatch_key(ch, lambda: None, "\x03", None)
+    _key_listeners._dispatch_key(
+        "\x03", lambda: None, "\x03", lambda: cancels.append(1)
+    )
+    assert cancels == []
+    assert editor.buffer == ""
+    _key_listeners._dispatch_key(
+        "\x03", lambda: None, "\x03", lambda: cancels.append(2)
+    )
+    assert cancels == [2]
 
 
 def test_shell_tool_sigint_handler_untouched():

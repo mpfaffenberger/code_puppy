@@ -1491,14 +1491,14 @@ class TestInteractiveModeEdgeCases:
 
 
 # ---------------------------------------------------------------------------
-# main() uvx detection and other edge cases
+# main() Windows raw-Ctrl+C clamp and other edge cases
 # ---------------------------------------------------------------------------
 
 
-class TestMainUvxAndEdgeCases:
+class TestMainWindowsClampAndEdgeCases:
     @pytest.mark.anyio
-    async def test_uvx_alternate_cancel_key(self):
-        """Lines 181-212: uvx should_use_alternate_cancel_key returns True."""
+    async def test_windows_raw_ctrl_c_clamp_armed(self):
+        """When the console clamp succeeds, the sticky flag is set."""
         patches = _base_main_patches()
         with ExitStack() as stack:
             stack.enter_context(patch.dict(os.environ, {"NO_VERSION_UPDATE": "1"}))
@@ -1528,23 +1528,21 @@ class TestMainUvxAndEdgeCases:
                 )
             )
             _apply_patches(stack, patches)
-            # Patch the uvx detection to return True
-            stack.enter_context(
+            mock_disable = stack.enter_context(
                 patch(
-                    "code_puppy.uvx_detection.should_use_alternate_cancel_key",
+                    "code_puppy.terminal_utils.disable_windows_ctrl_c",
                     return_value=True,
                 )
             )
-            stack.enter_context(
-                patch("code_puppy.terminal_utils.disable_windows_ctrl_c")
-            )
-            stack.enter_context(
+            mock_keep = stack.enter_context(
                 patch("code_puppy.terminal_utils.set_keep_ctrl_c_disabled")
             )
-            stack.enter_context(patch("signal.signal"))
             from code_puppy.cli_runner import main
 
             await main()
+
+            mock_disable.assert_called_once()
+            mock_keep.assert_called_once_with(True)
 
     @pytest.mark.anyio
     async def test_initial_command_awaiting_input(self):

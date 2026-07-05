@@ -136,7 +136,7 @@ def test_backspace_on_empty_buffer_is_noop(editor, bar):
 
 
 def test_raw_ctrl_c_clears_buffer(editor):
-    """Raw ^C (Windows+uvx: no SIGINT, byte reaches the editor) must
+    """Raw ^C (Windows: no SIGINT, byte reaches the editor) must
     behave like Ctrl+C-at-idle everywhere else: wipe the typed text."""
     feed_all(editor, "half-typed thought")
     editor.feed("\x03")

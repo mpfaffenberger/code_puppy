@@ -286,20 +286,6 @@ class TestCancelAgentKeyValidation:
         mock_validate.assert_called_once()
 
 
-class TestUVXDetection:
-    """Test Windows+uvx specific handling."""
-
-    def test_uvx_detection_can_be_imported(self):
-        """Test uvx detection module can be imported."""
-        try:
-            from code_puppy import uvx_detection
-
-            assert uvx_detection is not None
-        except ImportError:
-            # uvx_detection module may not be available in all environments
-            pass
-
-
 class TestConfigInitialization:
     """Test configuration initialization."""
 

@@ -223,31 +223,53 @@ def test_dispatch_gives_cancel_key_priority_over_editor(tty_bar):
     assert editor.buffer == ""  # cancel key never reaches the editor
 
 
-def test_dispatch_windows_uvx_contract_ctrl_k_cancels_ctrl_c_clears(tty_bar):
-    """Windows+uvx config: cancel char is Ctrl+K, and Ctrl+C arrives as a
-    raw \\x03 (no SIGINT — ENABLE_PROCESSED_INPUT is clamped).
+def test_dispatch_windows_contract_ctrl_c_buffer_first_cancel(tty_bar):
+    """Windows default config: cancel char is raw Ctrl+C (\\x03 — no
+    SIGINT, ENABLE_PROCESSED_INPUT is clamped for the whole session).
 
-    Ctrl+K must cancel the agent WITHOUT touching typed text; Ctrl+C
-    must clear the typed line WITHOUT cancelling the agent."""
+    Buffer-first contract, mirroring the POSIX SIGINT handler: the
+    first ^C while composing clears typed text WITHOUT cancelling; a
+    second ^C on the now-empty prompt cancels the agent."""
     editor = run_ui_mod.start_run_ui()
     cancels = []
     for ch in "half-typed":
-        _key_listeners._dispatch_key(ch, lambda: None, "\x0b", None)
+        _key_listeners._dispatch_key(ch, lambda: None, "\x03", None)
     assert editor.buffer == "half-typed"
 
-    # Ctrl+K: priority-dispatched to the cancel handler, editor untouched.
+    # First ^C: absorbed by composing input — clears the line, no cancel.
     _key_listeners._dispatch_key(
-        "\x0b", lambda: None, "\x0b", lambda: cancels.append(1)
+        "\x03", lambda: None, "\x03", lambda: cancels.append(1)
     )
-    assert cancels == [1]
-    assert editor.buffer == "half-typed"
+    assert cancels == []
+    assert editor.buffer == ""
 
-    # Ctrl+C (raw \x03): falls through to the editor, clears the line —
-    # and must NOT fire the cancel handler.
+    # Second ^C on the empty prompt: cancels the agent.
     _key_listeners._dispatch_key(
-        "\x03", lambda: None, "\x0b", lambda: cancels.append(2)
+        "\x03", lambda: None, "\x03", lambda: cancels.append(2)
     )
-    assert cancels == [1]
+    assert cancels == [2]
+
+
+def test_dispatch_ctrl_k_reaches_editor_as_kill_to_end(tty_bar):
+    """With the ctrl+c default, Ctrl+K is NOT a hotkey — it must reach
+    the editor and kill from the cursor to end of line."""
+    editor = run_ui_mod.start_run_ui()
+    for ch in "keep-me-not":
+        _key_listeners._dispatch_key(ch, lambda: None, "\x03", None)
+    # Home, then Ctrl+K: the whole line dies.
+    for ch in "\x1b[H":
+        _key_listeners._dispatch_key(ch, lambda: None, "\x03", None)
+    _key_listeners._dispatch_key("\x0b", lambda: None, "\x03", None)
+    assert editor.buffer == ""
+
+
+def test_dispatch_idle_ctrl_c_clears_line(tty_bar):
+    """Idle (no cancel handler): raw ^C keeps its universal clear-the-
+    line meaning instead of being swallowed as an inert hotkey."""
+    editor = run_ui_mod.start_run_ui()
+    for ch in "oops":
+        _key_listeners._dispatch_key(ch, lambda: None, "\x03", None)
+    _key_listeners._dispatch_key("\x03", lambda: None, "\x03", None)
     assert editor.buffer == ""
 
 

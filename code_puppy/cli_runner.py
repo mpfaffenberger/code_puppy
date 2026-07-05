@@ -297,55 +297,23 @@ async def main():
         emit_error(str(e))
         sys.exit(1)
 
-    # Show uvx detection notice if we're on Windows + uvx
-    # Also disable Ctrl+C at the console level to prevent terminal bricking
-    try:
-        from code_puppy.uvx_detection import should_use_alternate_cancel_key
+    # Windows: run the console in raw-Ctrl+C mode for the whole session.
+    # Stripping ENABLE_PROCESSED_INPUT means the console never turns Ctrl+C
+    # into a console-wide CTRL_C_EVENT — which would also hit wrapper
+    # launchers (uvx.exe, pipx shims) and kill them, wrecking the terminal.
+    # Instead Ctrl+C arrives as a plain \x03 byte that the key listener /
+    # line editor handle like any other keystroke (clear typed input, or
+    # cancel if configured). No launcher detection needed — this is just
+    # how a raw-mode TUI should own the terminal. No-op on non-Windows.
+    from code_puppy.terminal_utils import (
+        disable_windows_ctrl_c,
+        set_keep_ctrl_c_disabled,
+    )
 
-        if should_use_alternate_cancel_key():
-            from code_puppy.terminal_utils import (
-                disable_windows_ctrl_c,
-                install_windows_ctrl_c_swallower,
-                set_keep_ctrl_c_disabled,
-            )
-
-            # Layer 1: Strip ENABLE_PROCESSED_INPUT so the console doesn't
-            # translate Ctrl+C into a signal in the first place.
-            disable_windows_ctrl_c()
-
-            # Layer 2: Register an OS-level SetConsoleCtrlHandler that
-            # swallows CTRL_C_EVENT even if something flips processed-input
-            # back on (e.g. prompt_toolkit, a child shell exit, etc).
-            install_windows_ctrl_c_swallower()
-
-            # Set flag to keep console mode clamped (prompt_toolkit may
-            # re-enable processed input on entry/exit).
-            set_keep_ctrl_c_disabled(True)
-
-            # Use print directly - emit_system_message can get cleared by ANSI codes
-            print(
-                "🔧 Detected uvx launch on Windows - using Ctrl+K for cancellation "
-                "(Ctrl+C is disabled to prevent terminal issues)"
-            )
-
-            # Layer 3: Python-level SIGINT backup. If a SIGINT somehow
-            # squeezes past layers 1 and 2, this handler resets the terminal
-            # and re-clamps everything before returning. It deliberately
-            # does NOT cancel the agent — Ctrl+K owns that on uvx+Windows.
-            import signal
-
-            from code_puppy.terminal_utils import reset_windows_terminal_full
-
-            def _uvx_protective_sigint_handler(_sig, _frame):
-                """Protective SIGINT handler for Windows+uvx."""
-                reset_windows_terminal_full()
-                # Re-arm all the guards in case something dropped them.
-                disable_windows_ctrl_c()
-                install_windows_ctrl_c_swallower()
-
-            signal.signal(signal.SIGINT, _uvx_protective_sigint_handler)
-    except ImportError:
-        pass  # uvx_detection module not available, ignore
+    if disable_windows_ctrl_c():
+        # Keep the clamp sticky: terminal resets and prompt_toolkit
+        # sessions restore console modes; re-clamp instead of regressing.
+        set_keep_ctrl_c_disabled(True)
 
     # Load API keys from puppy.cfg into environment variables
     from code_puppy.config import load_api_keys_to_environment
@@ -903,8 +871,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         history_file=COMMAND_HISTORY_FILE,
                     )
 
-                    # Windows+uvx: Re-disable Ctrl+C after prompt_toolkit
-                    # (prompt_toolkit restores console mode which re-enables Ctrl+C)
+                    # Windows: re-clamp raw-Ctrl+C mode after prompt_toolkit
+                    # (prompt_toolkit restores console mode on exit)
                     try:
                         from code_puppy.terminal_utils import ensure_ctrl_c_disabled
 
@@ -1118,7 +1086,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 if result is None:
                     # Windows-specific: Reset terminal state after cancellation
                     reset_windows_terminal_ansi()
-                    # Re-disable Ctrl+C if needed (uvx mode)
+                    # Windows: re-clamp raw-Ctrl+C mode after terminal reset
                     try:
                         from code_puppy.terminal_utils import ensure_ctrl_c_disabled
 
@@ -1272,8 +1240,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     _render_turn_exception(e)
                     auto_save_session_if_enabled()
 
-            # Re-disable Ctrl+C if needed (uvx mode) - must be done after
-            # each iteration as various operations may restore console mode
+            # Windows: re-clamp raw-Ctrl+C mode after each iteration, as
+            # various operations may restore console mode
             try:
                 from code_puppy.terminal_utils import ensure_ctrl_c_disabled
 

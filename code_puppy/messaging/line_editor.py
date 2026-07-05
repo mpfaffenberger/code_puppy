@@ -319,7 +319,8 @@ class RunningLineEditor:
 
         if ch == _CTRL_C:
             # Raw ^C only reaches the editor when the console can't turn
-            # it into SIGINT (Windows+uvx clamps ENABLE_PROCESSED_INPUT).
+            # it into SIGINT (Windows clamps ENABLE_PROCESSED_INPUT for
+            # the whole session — see cli_runner startup).
             # Mirror the SIGINT path: discard composed input / cancel
             # reverse search, never submit or kill anything — cancel
             # semantics stay with the hotkey/signal layers.

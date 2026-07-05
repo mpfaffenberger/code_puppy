@@ -52,32 +52,32 @@ class KeymapError(Exception):
     """Exception raised for keymap configuration errors."""
 
 
+def _is_windows() -> bool:
+    """Check if we're running on Windows."""
+    import platform
+
+    return platform.system() == "Windows"
+
+
 def get_cancel_agent_key() -> str:
     """Get the configured cancel agent key from config.
 
-    On Windows when launched via uvx, this always returns "ctrl+k"
-    (uvx captures Ctrl+C before it reaches Python — not configurable).
-
-    On any other Windows launch the DEFAULT is also "ctrl+k": Windows
-    terminals treat Ctrl+C with a selection as the COPY gesture, so
-    Ctrl+C-as-cancel meant copying agent output could kill the run.
-    Ctrl+C stays the clear-typed-input gesture. An explicit
-    ``cancel_agent_key`` in puppy.cfg is still honored.
+    The default is "ctrl+c" on every platform. On Windows the session
+    runs with ``ENABLE_PROCESSED_INPUT`` stripped, so Ctrl+C arrives as
+    a raw ``\\x03`` byte handled by the key listener (buffer-first:
+    composing input absorbs the press; an empty prompt cancels) — and
+    Ctrl+C-with-a-selection is intercepted by the terminal itself as
+    the COPY gesture, so copying agent output can't cancel the run.
 
     Returns:
         The key name (e.g., "ctrl+c", "ctrl+k") from config,
-        or the platform default if not configured.
+        or the default if not configured.
     """
     from code_puppy.config import get_value
-    from code_puppy.uvx_detection import is_windows, should_use_alternate_cancel_key
-
-    # On Windows + uvx, force ctrl+k to bypass uvx's SIGINT capture
-    if should_use_alternate_cancel_key():
-        return "ctrl+k"
 
     key = get_value("cancel_agent_key")
     if key is None or key.strip() == "":
-        return "ctrl+k" if is_windows() else DEFAULT_CANCEL_AGENT_KEY
+        return DEFAULT_CANCEL_AGENT_KEY
     return key.strip().lower()
 
 
@@ -99,11 +99,17 @@ def validate_cancel_agent_key() -> None:
 def cancel_agent_uses_signal() -> bool:
     """Check if the cancel agent key uses SIGINT (Ctrl+C).
 
+    On Windows this is always False: the interactive UI runs the console
+    with ``ENABLE_PROCESSED_INPUT`` stripped (so Ctrl+C never becomes a
+    console-wide CTRL_C_EVENT that would kill wrapper launchers like
+    uvx.exe). Ctrl+C arrives as a raw ``\\x03`` byte and is handled by
+    the key listener like any other hotkey.
+
     Returns:
         True if the cancel key is ctrl+c (uses SIGINT handler),
         False if it uses keyboard listener approach.
     """
-    return get_cancel_agent_key() == "ctrl+c"
+    return get_cancel_agent_key() == "ctrl+c" and not _is_windows()
 
 
 def get_cancel_agent_char_code() -> str:
