@@ -276,6 +276,13 @@ def _classify_style(message: UIMessage) -> Optional[str]:
 
 def _print_message(console: Console, message: UIMessage) -> None:
     """Print ``message`` to ``console`` using the standard styling rules."""
+    # New transcript output is about to scroll: the bottom bar walks
+    # its popup slack back one row per message so the prompt steps down
+    # with the flow (see BottomBar.notify_transcript_output).
+    from .bottom_bar import get_bottom_bar
+
+    get_bottom_bar().notify_transcript_output()
+
     style = _classify_style(message)
     content = message.content
     if isinstance(content, str):

@@ -495,9 +495,10 @@ def test_popup_clip_happens_before_styling(bar, tty):
     assert visible == "x" * 80
 
 
-def test_popup_below_prompt_slides_prompt_up_and_back(bar, tty):
+def test_popup_below_prompt_slides_prompt_up_but_not_back(bar, tty):
     """IDE-dropdown motion: popup opens UNDER the typed line (prompt
-    slides up), and the prompt slides back down on close."""
+    slides up). On close the prompt STAYS PUT — the vacated rows become
+    blank slack awaiting lazy reclaim (no idle-time teleporting)."""
     bar.start()
     bar.set_prompt_text("> ", "hi", 2)  # prompt at 24 (status hidden)
     drain(tty)
@@ -511,8 +512,56 @@ def test_popup_below_prompt_slides_prompt_up_and_back(bar, tty):
     drain(tty)
     bar.set_popup_lines([])
     out = written(tty)
-    assert "\x1b[1;22r" in out  # region grows back
-    assert "\x1b[24;1H\x1b[2K> hi" in out  # prompt slid back down
+    assert "\x1b[1;22r" not in out  # region does NOT grow back yet
+    # The prompt is NOT repainted anywhere — it never moved off row 22.
+    assert "> hi" not in out
+    # The vacated popup rows are actively blanked (no stale menu paint).
+    assert "\x1b[23;1H\x1b[2K" in out
+    assert "\x1b[24;1H\x1b[2K" in out
+    assert "/one" not in out and "/two" not in out
+
+
+def test_popup_slack_reclaimed_one_row_per_output(bar, tty):
+    """notify_transcript_output releases ONE slack row per call: the
+    prompt STEPS down with the flow of output instead of teleporting
+    on the first message (e.g. the submit echo)."""
+    bar.start()
+    bar.set_prompt_text("> ", "hi", 2)
+    bar.set_popup_lines(["/one", "/two"], selected=0)
+    bar.set_popup_lines([])  # close -> slack of 2, prompt still at 22
+    drain(tty)
+    bar.notify_transcript_output()  # first message: one row back
+    out = written(tty)
+    assert "\x1b[1;21r" in out  # region grows by ONE row only
+    assert "\x1b[23;1H\x1b[2K> hi" in out  # prompt steps to 23
+    assert "\x1b[1;22r" not in out  # NOT all the way down yet
+    drain(tty)
+    bar.notify_transcript_output()  # second message: last row back
+    out = written(tty)
+    assert "\x1b[1;22r" in out  # region fully restored
+    assert "\x1b[24;1H\x1b[2K> hi" in out  # prompt back at the bottom
+    drain(tty)
+    bar.notify_transcript_output()  # no slack left: no writes at all
+    assert written(tty) == ""
+
+
+def test_popup_reopen_reuses_slack_without_scrolling(bar, tty):
+    """Reopening the menu while slack is pending reuses the reserved
+    rows: no region change, no fresh scroll-up."""
+    bar.start()
+    bar.set_prompt_text("> ", "hi", 2)
+    bar.set_popup_lines(["/one", "/two"], selected=0)
+    bar.set_popup_lines([])  # close -> slack 2
+    drain(tty)
+    bar.set_popup_lines(["/one", "/two"], selected=1)
+    out = written(tty)
+    # No region change and no fresh scroll-up — the rows were reused,
+    # and the prompt (still parked at 22) needed no repaint at all.
+    assert "\x1b[1;20r" not in out and "\x1b[1;22r" not in out
+    assert "\x1b[2S" not in out
+    assert "> hi" not in out
+    assert "\x1b[23;1H\x1b[2K\x1b[2m/one\x1b[22m" in out
+    assert "\x1b[24;1H\x1b[2K\x1b[1;36m/two\x1b[22;39m" in out
 
 
 def test_popup_sheds_rows_when_terminal_short_prompt_wins():

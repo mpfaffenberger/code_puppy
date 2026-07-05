@@ -130,28 +130,41 @@ async def test_typing_slash_opens_menu():
     assert selected == 0
 
 
-async def test_tab_accepts_selection_without_submitting():
-    """Tab completes the highlighted item (classic prompt behavior) —
-    it must NOT cycle to the next menu entry."""
+async def test_tab_cycles_selection_without_accepting():
+    """Tab walks forward through the menu (shell menu-complete) — it
+    must NOT accept the highlighted item; Enter does that."""
     steers = []
     editor, engine = make_engine(["/help", "/hero"])
     editor.set_submit_router(lambda text, mode: steers.append(text) or None)
     editor.feed("/")
     await settle()
-    editor.feed("\t")  # accept "/help", NOT navigate
-    assert editor.buffer == "/help"
+    editor.feed("\t")  # cycle -> "/hero", NOT accept
+    assert editor.buffer == "/"  # buffer untouched
     assert steers == []  # no submission happened
-    assert engine.is_open() is False
+    assert engine.is_open() is True  # menu stays open
+    _lines, selected = engine.popup_rows()
+    assert selected == 1
 
 
-async def test_down_then_tab_accepts_navigated_selection():
+async def test_tab_wraps_around_the_menu():
+    editor, engine = make_engine(["/help", "/hero"])
+    editor.feed("/")
+    await settle()
+    editor.feed("\t")  # -> 1
+    editor.feed("\t")  # wraps -> 0
+    _lines, selected = engine.popup_rows()
+    assert selected == 0
+    assert engine.is_open() is True
+
+
+async def test_tab_then_enter_accepts_cycled_selection():
     steers = []
     editor, engine = make_engine(["/help", "/hero"])
     editor.set_submit_router(lambda text, mode: steers.append(text) or None)
     editor.feed("/")
     await settle()
-    editor.feed("\x1b[B")  # Down -> "/hero"
-    editor.feed("\t")  # accept it
+    editor.feed("\t")  # cycle -> "/hero"
+    editor.feed("\r")  # accept it
     assert editor.buffer == "/hero"
     assert steers == []
     assert engine.is_open() is False
@@ -192,15 +205,17 @@ async def test_accept_after_cursor_moved_left_splices_correctly():
     assert engine.is_open() is False
 
 
-async def test_tab_accept_after_cursor_moved_left_splices_correctly():
+async def test_tab_cycle_after_cursor_moved_then_enter_splices_correctly():
     editor, engine = make_engine(["/help", "/hero"])
     for ch in "/he":
         editor.feed(ch)
     await settle()
     editor.feed("\x1b[D")  # Left
     editor.feed("\x1b[D")  # Left again (cursor=1)
-    editor.feed("\t")  # Tab-accept — same anchor rules as Enter
-    assert editor.buffer == "/help"
+    editor.feed("\t")  # cycle -> "/hero" (buffer untouched)
+    assert editor.buffer == "/he"
+    editor.feed("\r")  # accept — anchored to the QUERY cursor
+    assert editor.buffer == "/hero"
     assert engine.is_open() is False
 
 

@@ -139,6 +139,12 @@ class BottomBar(BarPainterMixin):
         self._panel_lines: list[str] = []
         self._popup_lines: list[str] = []  # completion popup (over panel)
         self._popup_selected = -1
+        # Blank rows held below the prompt after the popup shrinks/closes
+        # (high-water residue). The prompt does NOT slide back down when
+        # the menu closes; the slack is reclaimed lazily by
+        # ``notify_transcript_output`` so the prompt falls back into
+        # place while output is scrolling anyway.
+        self._popup_slack = 0
         self._reserved = 0  # reserved-row count while the region is up
         self._paste_armed = False  # bracketed paste (ESC[?2004h) state
         self._modkeys_armed = False  # xterm modifyOtherKeys level 1
@@ -256,11 +262,36 @@ class BottomBar(BarPainterMixin):
         Up to ``POPUP_MAX_ROWS`` rows; the ``selected`` index renders in
         the brand accent. While non-empty the popup takes precedence
         over the sub-agent panel (cached and restored on close).
+
+        Shrinking/closing does NOT slide the prompt back down: the
+        vacated rows are kept as blank ``_popup_slack`` so the prompt
+        stays put, then :meth:`notify_transcript_output` walks them
+        back one row at a time as transcript output scrolls in.
         """
         cleaned = [_sanitize(str(line)) for line in (lines or [])][:POPUP_MAX_ROWS]
         with self._lock:
+            old_block = len(self._popup_lines) + self._popup_slack
             self._popup_lines = cleaned
             self._popup_selected = selected
+            self._popup_slack = max(0, old_block - len(cleaned))
+            self._sync_reserved(self._popup_seq)
+
+    def notify_transcript_output(self) -> None:
+        """Release ONE row of popup slack — called per rendered message.
+
+        The renderers poke this right before they print. Releasing the
+        whole slack at once would teleport the prompt down on the very
+        first message after the menu closed (e.g. the submit echo — the
+        exact jump we're avoiding), so instead the prompt steps down a
+        single row per message: amid the scrolling output each step is
+        imperceptible, and a normal burst of turn output walks it back
+        to the bottom almost immediately. Cheap no-op (one lock + int
+        check) when there is no slack.
+        """
+        with self._lock:
+            if self._popup_slack == 0:
+                return
+            self._popup_slack -= 1
             self._sync_reserved(self._popup_seq)
 
     def get_panel_lines(self) -> list:
@@ -410,6 +441,9 @@ class BottomBar(BarPainterMixin):
         old_rows = self._rows
         old_reserved = self._reserved if self._region_up else 0
         self._cols, self._rows = cols, rows
+        # Full rebuild = fresh geometry: leftover popup slack (the
+        # lazy-reclaim gap below the prompt) is meaningless here.
+        self._popup_slack = 0
         reserved = self._total_reserved()
         if rows < reserved + 1:
             # Terminal too small for a region + reserved rows; if one was

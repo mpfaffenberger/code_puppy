@@ -16,8 +16,11 @@ prompt, and only while it has something to say):
     top margin                blank separator below the transcript
 
 The popup opens UNDER the typed line (IDE-dropdown feel): the prompt
-rows slide up to make room and slide back down on close — the existing
-``_sync_reserved`` grow/shrink machinery provides the motion. The same
+rows slide up to make room — the existing ``_sync_reserved``
+grow/shrink machinery provides the motion. On close the prompt does
+NOT slide back down: the vacated rows persist as blank ``_popup_slack``
+until ``notify_transcript_output`` reclaims them, so the prompt falls
+back into place only when new output is scrolling anyway. The same
 machinery materializes/collapses the status row when its text appears
 or empties (``_total_reserved`` changes → region grows/shrinks).
 """
@@ -111,6 +114,20 @@ class BarPainterMixin:
         budget = rows - self._prompt_row_count() - 3
         return self._popup_lines[: max(0, budget)]
 
+    def _visible_popup_slack(self) -> int:
+        """Blank rows still reserved below the prompt after the popup
+        shrank/closed (high-water residue awaiting lazy reclaim).
+
+        Clamped to whatever the popup's own row budget has left, so a
+        short terminal sheds slack exactly like it sheds popup rows.
+        """
+        slack = self._popup_slack
+        if slack <= 0:
+            return 0
+        rows = self._rows if self._rows > 0 else 24
+        budget = rows - self._prompt_row_count() - 3 - len(self._visible_popup_lines())
+        return max(0, min(slack, budget))
+
     def _visible_panel_lines(self) -> list:
         """Panel rows to paint — popup takes precedence while open."""
         return [] if self._visible_popup_lines() else self._panel_lines
@@ -126,6 +143,7 @@ class BarPainterMixin:
             + len(self._visible_panel_lines())
             + self._prompt_row_count()
             + len(self._visible_popup_lines())
+            + self._visible_popup_slack()
             + (1 if self._status_visible() else 0)
         )
 
@@ -141,7 +159,13 @@ class BarPainterMixin:
         """
         rows = self._rows
         status_rows = 1 if self._status_visible() else 0
-        popup_top = rows - status_rows - len(self._visible_popup_lines()) + 1
+        popup_top = (
+            rows
+            - status_rows
+            - self._visible_popup_slack()
+            - len(self._visible_popup_lines())
+            + 1
+        )
         prompt_top = popup_top - self._prompt_row_count()
         panel_top = prompt_top - len(self._visible_panel_lines())
         return prompt_top, popup_top, rows, panel_top
@@ -189,7 +213,8 @@ class BarPainterMixin:
         into the transcript scrolling above it.
         """
         popup = self._visible_popup_lines()
-        if not popup:
+        slack = self._visible_popup_slack()
+        if not popup and not slack:
             return ""
         parts = [_SAVE_CURSOR, _WRAP_OFF]
         _pt, popup_top, _status, _panel = self._row_anchors()
@@ -200,6 +225,10 @@ class BarPainterMixin:
             else:
                 text = _dim(text)
             parts.append(f"\x1b[{popup_top + i};1H{_CLEAR_LINE}{text}")
+        # Slack rows (below any remaining popup rows) must be actively
+        # blanked — they still hold the closed menu's paint otherwise.
+        for j in range(slack):
+            parts.append(f"\x1b[{popup_top + len(popup) + j};1H{_CLEAR_LINE}")
         parts.append(_WRAP_ON)
         parts.append(_RESTORE_CURSOR)
         return "".join(parts)

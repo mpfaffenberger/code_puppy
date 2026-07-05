@@ -202,13 +202,14 @@ class CompletionEngine:
             self.close()
 
     def on_tab(self, text: str, cursor: int) -> bool:
-        """Tab: accept the selection when open, else force-open.
+        """Tab: cycle the selection when open, else force-open.
 
-        Accept-on-Tab matches the classic prompt_toolkit prompt (and every
-        IDE popup ever); navigation stays on Up/Down/Shift-Tab.
+        Cycle-on-Tab matches shell menu-complete: Tab walks forward
+        through the candidates (wrapping), Shift-Tab/Up walk backward,
+        and Enter accepts the highlighted item.
         """
         if self.is_open():
-            self.accept()
+            self.move(1)
             return True
         self._schedule_query(text, cursor, open_menu=True, debounce=False)
         return True
