@@ -59,12 +59,40 @@ def test_builtins_include_the_cli_spinners_pack():
         assert name in sp.BUILTIN_SPINNERS
 
 
-def test_every_builtin_defaults_to_point_two():
+def test_every_builtin_defaults_to_point_two_except_the_classic():
     """One speed to rule them all -- per-spinner tuning is what the
-    picker's speed keys and spinners.json tweaks are for.
+    picker's speed keys and spinners.json tweaks are for. The default
+    puppy is the lone exception: the kennel bounce trots at 0.06s.
     """
     for spinner in sp.BUILTIN_SPINNERS.values():
-        assert spinner.interval == pytest.approx(0.2), spinner.name
+        expected = 0.06 if spinner.name == sp.DEFAULT_SPINNER else 0.2
+        assert spinner.interval == pytest.approx(expected), spinner.name
+
+
+def test_tick_interval_follows_the_puppy_default():
+    """rc sources its fallback tempo from the catalogue, so the puppy's
+    0.06s default and the tick loop can never disagree.
+    """
+    assert rc._TICK_INTERVAL_S == pytest.approx(0.06)
+    assert rc._TICK_INTERVAL_S == sp.BUILTIN_SPINNERS[sp.DEFAULT_SPINNER].interval
+
+
+def test_paint_gap_separates_frame_from_status(monkeypatch):
+    """Non-empty frames get the gap appended; clearing paints a true
+    empty string so nothing lingers in the prefix slot.
+    """
+    painted = []
+
+    class FakeBar:
+        def set_status_prefix(self, text):
+            painted.append(text)
+
+    monkeypatch.setattr(
+        "code_puppy.messaging.bottom_bar.get_bottom_bar", lambda: FakeBar()
+    )
+    rc._paint_prefix("(x) ")
+    rc._clear_prefix()
+    assert painted == ["(x) " + rc._PREFIX_GAP, ""]
 
 
 def test_catalogue_is_alphabetical():

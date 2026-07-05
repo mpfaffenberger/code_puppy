@@ -31,7 +31,8 @@ effect on the very next animation frame — no restart, even mid-run.
 ## Builtin spinners
 
 Every builtin runs at 0.2s per frame by default — per-spinner tuning is
-what the picker's speed keys and `spinners.json` tweaks are for.
+what the picker's speed keys and `spinners.json` tweaks are for. The
+one exception: the classic `puppy` trots at 0.06s out of the box.
 
 The puppy pack: `puppy` (default), `bone`, `zoomies`, `paws`, `dots`.
 
