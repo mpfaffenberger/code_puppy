@@ -83,6 +83,35 @@ def _ensure_builtin_plugin_callback_registrations() -> None:
     cp_callbacks.register_callback("startup", uc._on_startup)
 
 
+def _ensure_builtin_commands_loaded() -> None:
+    """Guarantee built-in slash commands (/help, /diff, ...) are registered.
+
+    The command_registry test suite calls ``clear_registry()``, which wipes
+    every command -- including the built-ins registered via ``@register_command``
+    decorators in config_commands/core_commands/session_commands/uc_menu. Those
+    modules are import-cached, so a plain re-import is a no-op and the built-ins
+    stay gone, silently breaking any later test that expects them (e.g. the TUI
+    completion tests). Reload the modules so their decorators re-fire.
+    Registration is keyed by name, so this is idempotent and cheap on the fast
+    path (we bail the moment /help is already present).
+    """
+    import code_puppy.command_line.command_handler  # noqa: F401  (first load)
+    from code_puppy.command_line.command_registry import get_all_commands
+
+    if "help" in get_all_commands():
+        return
+
+    import importlib
+
+    import code_puppy.command_line.config_commands as _cfg
+    import code_puppy.command_line.core_commands as _core
+    import code_puppy.command_line.session_commands as _sess
+    import code_puppy.command_line.uc_menu as _uc
+
+    for _mod in (_cfg, _core, _sess, _uc):
+        importlib.reload(_mod)
+
+
 # Integration test fixtures - only import if pexpect.spawn is available (Unix)
 # On Windows, pexpect doesn't have spawn attribute, so skip these imports
 try:
@@ -118,6 +147,9 @@ def isolate_global_state_between_tests(tmp_path_factory):
     # Ensure lazy plugin imports are represented in the snapshot.
     _ensure_builtin_plugin_callback_registrations()
 
+    # Ensure built-in slash commands survive a prior test's clear_registry().
+    _ensure_builtin_commands_loaded()
+
     # Neutralize the global bottom bar (see _InertStream docstring).
     cp_bottom_bar.reset_bottom_bar()
     cp_bottom_bar._bottom_bar = cp_bottom_bar.BottomBar(stream=_InertStream())
@@ -145,12 +177,31 @@ def isolate_global_state_between_tests(tmp_path_factory):
         temp_config_dir, "command_history.txt"
     )
 
+    # Isolate the customizable_commands plugin from the developer's REAL
+    # ~/.code_puppy/commands/ directory. The plugin freezes its global-commands
+    # path (_COMMAND_DIRECTORIES[0]) at import time from the real CONFIG_DIR, so
+    # without this it would happily load e.g. ~/.code_puppy/commands/hello-world.md
+    # into the shared command cache -- which then leaks into TUI completion tests
+    # (a stray /hello-world sorts before /help and hijacks the dropdown). The
+    # completion source (_custom_help) reloads from this dir on every call, so
+    # repointing it at the empty temp dir is enough; we deliberately DON'T touch
+    # the _commands_loaded sentinel or caches (tests manage those themselves).
+    from code_puppy.plugins.customizable_commands import (
+        register_callbacks as _cc_plugin,
+    )
+
+    original_cc_dir0 = _cc_plugin._COMMAND_DIRECTORIES[0]
+    _cc_plugin._COMMAND_DIRECTORIES[0] = os.path.join(temp_config_dir, "commands")
+
     # Clear model cache to ensure fresh state.
     cp_config.clear_model_cache()
     # Clear session-local model cache (required for /model session sticky behavior).
     cp_config.reset_session_model()
 
     yield
+
+    # Restore the plugin's global-commands path.
+    _cc_plugin._COMMAND_DIRECTORIES[0] = original_cc_dir0
 
     # Drop any bar a test installed; next test re-neutralizes.
     cp_bottom_bar.reset_bottom_bar()

@@ -292,9 +292,23 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
 # ---------------------------------------------------------------------------
 # Register all callbacks
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Textual TUI integration
+# ---------------------------------------------------------------------------
+# The prompt_toolkit skills menu corrupts the Textual screen, so the TUI opens
+# a native ModalScreen browser instead. register_screen is consumed only by
+# the TUI; classic mode + the /skills subcommands are unaffected. (The remote
+# catalog installer, /skills install, remains a separate flow.)
+def _register_skills_screen():
+    from code_puppy.plugins.agent_skills.skills_tui import open_skills
+
+    return [{"command": _COMMAND_NAME, "open": open_skills, "aliases": list(_ALIASES)}]
+
+
 register_callback("get_model_system_prompt", _inject_skills_into_prompt)
 register_callback("register_tools", _register_skills_tools)
 register_callback("custom_command_help", _skills_command_help)
 register_callback("custom_command", _handle_skills_command)
+register_callback("register_screen", _register_skills_screen)
 
 logger.info("Agent Skills plugin loaded")

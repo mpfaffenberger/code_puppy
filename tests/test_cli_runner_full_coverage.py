@@ -77,7 +77,7 @@ def _base_main_patches():
 def _interactive_patches():
     return {
         "code_puppy.cli_runner.print_truecolor_warning": MagicMock(),
-        "code_puppy.cli_runner.get_cancel_agent_display_name": MagicMock(
+        "code_puppy.startup_banner.get_cancel_agent_display_name": MagicMock(
             return_value="Ctrl+C"
         ),
         "code_puppy.cli_runner.reset_windows_terminal_ansi": MagicMock(),

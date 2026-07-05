@@ -137,6 +137,7 @@ class TestMessagingPackageExports:
             "UserInputRequest",
             "ConfirmationRequest",
             "SelectionRequest",
+            "QuestionRequest",
             "SpinnerControl",
             "DividerMessage",
             "StatusPanelMessage",
@@ -151,6 +152,7 @@ class TestMessagingPackageExports:
             "UserInputResponse",
             "ConfirmationResponse",
             "SelectionResponse",
+            "QuestionResponse",
             "AnyCommand",
             # Pause controller (Phase 1 of pause/steer)
             "PauseController",

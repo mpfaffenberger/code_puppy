@@ -180,10 +180,21 @@ def _clear_prefix() -> None:
     _paint_prefix("")
 
 
+# The prompt_toolkit spinner picker's animated preview corrupts the Textual
+# screen, so the TUI opens a native live-preview ModalScreen over the SAME
+# catalogue / set_active data layer. register_screen is consumed only by the
+# Textual UI; classic mode still gets the full-screen prompt_toolkit picker.
+def _register_spinner_screen():
+    from .spinner_tui import open_spinner
+
+    return [{"command": "spinner", "open": open_spinner}]
+
+
 register_callback("agent_run_start", _on_run_start)
 register_callback("agent_run_end", _on_run_end)
 register_callback("custom_command", commands.handle_spinner)
 register_callback("custom_command_help", commands.help_entries)
+register_callback("register_screen", _register_spinner_screen)
 
 
 __all__ = [

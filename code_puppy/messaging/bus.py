@@ -42,6 +42,7 @@ from .commands import (
     AnyCommand,
     ConfirmationResponse,
     PauseAgentCommand,
+    QuestionResponse,
     ResumeAgentCommand,
     SelectionResponse,
     SteerAgentCommand,
@@ -52,6 +53,7 @@ from .messages import (
     ConfirmationRequest,
     MessageCategory,
     MessageLevel,
+    QuestionRequest,
     SelectionRequest,
     TextMessage,
     UserInputRequest,
@@ -335,9 +337,86 @@ class MessageBus:
             with self._lock:
                 self._pending_requests.pop(prompt_id, None)
 
+    async def request_questions(
+        self,
+        questions: List[Dict[str, Any]],
+        timeout: int = 300,
+    ) -> Tuple[List[Dict[str, Any]], bool, bool]:
+        """Request answers to one or more multiple-choice questions.
+
+        Emits a QuestionRequest and blocks until the UI provides a response.
+        Mirrors the ``ask_user_question`` tool's contract.
+
+        Args:
+            questions: Serialized Question dicts (header/question/options/...).
+            timeout: Inactivity timeout in seconds (informational for the UI).
+
+        Returns:
+            Tuple of (answers, cancelled, timed_out) where ``answers`` is a list
+            of serialized QuestionAnswer dicts.
+        """
+        prompt_id = str(uuid4())
+
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[Tuple[List[Dict[str, Any]], bool, bool]] = (
+            loop.create_future()
+        )
+
+        with self._lock:
+            self._pending_requests[prompt_id] = future
+
+        request = QuestionRequest(
+            prompt_id=prompt_id,
+            questions=questions,
+            timeout=timeout,
+        )
+        self.emit(request)
+
+        try:
+            return await future
+        finally:
+            with self._lock:
+                self._pending_requests.pop(prompt_id, None)
+
+    def ask_questions_blocking(
+        self,
+        questions: List[Dict[str, Any]],
+        timeout: int = 300,
+    ) -> Tuple[List[Dict[str, Any]], bool, bool]:
+        """Synchronous bridge to :meth:`request_questions` for non-async callers.
+
+        The ``ask_user_question`` tool is a *sync* tool, so pydantic-ai runs it
+        in a worker thread with no event loop. This schedules the async request
+        onto the UI's event loop (set via :meth:`set_event_loop`) and blocks the
+        worker thread until the user answers. Falls back to a cancelled result
+        if no event loop is registered (nothing can render the modal anyway).
+        """
+        loop = self._event_loop
+        if loop is None or not loop.is_running():
+            # No UI loop to drive the modal -- treat as cancelled rather than
+            # hanging the worker thread forever.
+            return [], True, False
+
+        cfuture = asyncio.run_coroutine_threadsafe(
+            self.request_questions(questions, timeout), loop
+        )
+        # No hard wall-clock cap here: the QuestionRequest carries its own
+        # timeout and the UI is responsible for resolving the future.
+        return cfuture.result()
+
     # =========================================================================
     # Incoming Commands (UI → Agent)
     # =========================================================================
+
+    def set_event_loop(self, loop: Optional[asyncio.AbstractEventLoop]) -> None:
+        """Register the UI's event loop for cross-thread request completion.
+
+        Set by the active renderer/app once its loop is running. Enables
+        sync callers (e.g. tools on worker threads) to drive async requests
+        via :meth:`ask_questions_blocking`, and lets :meth:`_complete_request`
+        marshal future results back onto the correct loop.
+        """
+        self._event_loop = loop
 
     def provide_response(self, command: AnyCommand) -> None:
         """Provide a response to a pending request.
@@ -358,6 +437,11 @@ class MessageBus:
         elif isinstance(command, SelectionResponse):
             self._complete_request(
                 command.prompt_id, (command.selected_index, command.selected_value)
+            )
+        elif isinstance(command, QuestionResponse):
+            self._complete_request(
+                command.prompt_id,
+                (command.answers, command.cancelled, command.timed_out),
             )
         elif isinstance(command, PauseAgentCommand):
             from .pause_controller import get_pause_controller

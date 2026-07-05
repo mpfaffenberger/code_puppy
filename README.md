@@ -780,6 +780,30 @@ Consider contributing agent templates for:
 - Documentation writers
 - Testing specialists
 
+### Dev Scripts
+
+Maintenance helpers live in `scripts/` (kept out of the shipped `code_puppy`
+package on purpose).
+
+**`scripts/upload_pr_video.py`** — attach a big video (or any large binary) to a
+PR. GitHub's drag-and-drop caps videos at ~10 MB, so this parks the file on a
+GitHub Release (up to 2 GB per asset) via the `gh` CLI and prints a paste-ready
+URL that renders as an inline player in the PR body.
+
+```bash
+# simplest -- auto-detects the repo from your cwd
+python scripts/upload_pr_video.py demo.mp4
+
+# custom release tag, e.g. per-PR
+python scripts/upload_pr_video.py demo.mp4 --tag pr-1234-assets
+
+# preview the commands without touching anything (no gh auth needed)
+python scripts/upload_pr_video.py demo.mp4 --dry-run
+```
+
+Requires the [GitHub CLI](https://cli.github.com/) installed and authenticated
+(`gh auth login`).
+
 ---
 
 # Code Puppy Privacy Commitment

@@ -360,5 +360,28 @@ register_callback("termflow_style", _termflow_style)
 register_callback("termflow_highlighter", _termflow_highlighter)
 register_callback("prompt_text_color", _prompt_text_color)
 register_callback("prompt_toolkit_style", _prompt_toolkit_style)
+
+
+# --- Textual TUI integration ------------------------------------------------
+# The curated /theme picker is a prompt_toolkit split-panel that fights the
+# Textual screen, so in the TUI we point users at Textual's own theme system
+# (the command palette). Registered via the register_screen hook, which only
+# the Textual UI consumes -- classic and `/theme <name>` are unaffected.
+def _open_theme_in_tui(app) -> None:
+    del app  # opener signature only; we just emit guidance
+    from code_puppy.messaging import emit_info
+
+    emit_info(
+        "\U0001f3a8 In the TUI, themes live in the command palette \u2014 "
+        "press Ctrl+P (^p) and search for 'theme'. "
+        "You can still apply a curated palette by name, e.g. /theme ocean."
+    )
+
+
+def _register_theme_screen():
+    return [{"command": "theme", "open": _open_theme_in_tui}]
+
+
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_theme)
+register_callback("register_screen", _register_theme_screen)

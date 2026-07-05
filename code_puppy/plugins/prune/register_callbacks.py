@@ -382,8 +382,19 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     return _handle_prune_command(command)
 
 
+# ── Textual TUI integration ────────────────────────────────────────────────
+# The prompt_toolkit PruneMenu corrupts the Textual screen, so the TUI opens
+# a native multi-select ModalScreen over the same data layer. register_screen
+# is consumed only by the Textual UI; classic mode is unaffected.
+def _register_prune_screen():
+    from code_puppy.plugins.prune.prune_tui import open_prune
+
+    return [{"command": "prune", "open": open_prune}]
+
+
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
+register_callback("register_screen", _register_prune_screen)
 
 
 __all__ = [
