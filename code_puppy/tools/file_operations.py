@@ -20,6 +20,7 @@ from code_puppy.messaging import (  # New structured messaging types
     GrepResultMessage,
     get_message_bus,
 )
+from code_puppy.tools.common import resolve_path
 
 
 # Pydantic models for tool return types
@@ -154,7 +155,7 @@ def _list_files(
     import sys
 
     results = []
-    directory = os.path.abspath(os.path.expanduser(directory))
+    directory = resolve_path(directory)
 
     # Plain text output for LLM consumption
     output_lines = []
@@ -464,7 +465,40 @@ def _read_file(
     start_line: int | None = None,
     num_lines: int | None = None,
 ) -> ReadFileOutput:
-    file_path = os.path.abspath(os.path.expanduser(file_path))
+    file_path = resolve_path(file_path)
+
+    # When a filesystem backend is installed (e.g. an editor host), read
+    # through it so we see unsaved buffers and the host's view of the file.
+    # The backend owns existence/permission semantics, so we skip the local
+    # disk checks on this path.
+    from code_puppy.tools.io_backends import get_filesystem_backend
+
+    backend = get_filesystem_backend()
+    if backend is not None:
+        if start_line is not None and start_line < 1:
+            error_msg = "start_line must be >= 1 (1-based indexing)"
+            return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
+        if num_lines is not None and num_lines < 1:
+            error_msg = "num_lines must be >= 1"
+            return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
+        # Push the slice down to the host (ACP fs/read supports line+limit) so a
+        # chunked read doesn't drag the whole file across the wire. Matches the
+        # local path: only slice when BOTH bounds are given.
+        want_slice = start_line is not None and num_lines is not None
+        try:
+            if want_slice:
+                raw = backend.read_text_file(
+                    file_path, line=start_line, limit=num_lines
+                )
+            else:
+                raw = backend.read_text_file(file_path)
+        except FileNotFoundError:
+            error_msg = f"File {file_path} does not exist"
+            return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
+        except Exception as e:
+            message = f"An error occurred trying to read the file: {e}"
+            return ReadFileOutput(content=message, num_tokens=0, error=message)
+        return _finalize_read_output(file_path, raw, start_line, num_lines)
 
     if not os.path.exists(file_path):
         error_msg = f"File {file_path} does not exist"
@@ -497,54 +531,7 @@ def _read_file(
                 # Read the entire file
                 content = f.read()
 
-            # Sanitize the content to remove any surrogate characters that could
-            # cause issues when the content is later serialized or displayed
-            # This re-encodes with surrogatepass then decodes with replace to
-            # convert lone surrogates to replacement characters
-            try:
-                content = content.encode("utf-8", errors="surrogatepass").decode(
-                    "utf-8", errors="replace"
-                )
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                # If that fails, do a more aggressive cleanup
-                content = "".join(
-                    char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
-                    for char in content
-                )
-
-            # Simple approximation: ~4 characters per token
-            num_tokens = len(content) // 4
-            if num_tokens > 10000:
-                return ReadFileOutput(
-                    content=None,
-                    error="The file is massive, greater than 10,000 tokens which is dangerous to read entirely. Please read this file in chunks.",
-                    num_tokens=0,
-                )
-
-            # Count total lines for the message
-            total_lines = content.count("\n") + (
-                1 if content and not content.endswith("\n") else 0
-            )
-
-            # Emit structured message for the UI
-            # Only include start_line/num_lines if they are valid positive integers
-            emit_start_line = (
-                start_line if start_line is not None and start_line >= 1 else None
-            )
-            emit_num_lines = (
-                num_lines if num_lines is not None and num_lines >= 1 else None
-            )
-            file_content_msg = FileContentMessage(
-                path=file_path,
-                content=content,
-                start_line=emit_start_line,
-                num_lines=emit_num_lines,
-                total_lines=total_lines,
-                num_tokens=num_tokens,
-            )
-            get_message_bus().emit(file_content_msg)
-
-        return ReadFileOutput(content=content, num_tokens=num_tokens)
+        return _finalize_read_output(file_path, content, start_line, num_lines)
     except FileNotFoundError:
         error_msg = "FILE NOT FOUND"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
@@ -554,6 +541,56 @@ def _read_file(
     except Exception as e:
         message = f"An error occurred trying to read the file: {e}"
         return ReadFileOutput(content=message, num_tokens=0, error=message)
+
+
+def _finalize_read_output(
+    file_path: str,
+    content: str,
+    start_line: int | None,
+    num_lines: int | None,
+) -> ReadFileOutput:
+    """Sanitize/guard/emit for a just-read file body and build the output.
+
+    Shared by the local (disk) and backend (host) read paths so both apply the
+    identical surrogate sanitization, 10k-token guard, and UI emission.
+    """
+    # Sanitize the content to remove any surrogate characters that could cause
+    # issues when the content is later serialized or displayed.
+    try:
+        content = content.encode("utf-8", errors="surrogatepass").decode(
+            "utf-8", errors="replace"
+        )
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        content = "".join(
+            char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
+            for char in content
+        )
+
+    # Simple approximation: ~4 characters per token
+    num_tokens = len(content) // 4
+    if num_tokens > 10000:
+        return ReadFileOutput(
+            content=None,
+            error="The file is massive, greater than 10,000 tokens which is dangerous to read entirely. Please read this file in chunks.",
+            num_tokens=0,
+        )
+
+    total_lines = content.count("\n") + (
+        1 if content and not content.endswith("\n") else 0
+    )
+    emit_start_line = start_line if start_line is not None and start_line >= 1 else None
+    emit_num_lines = num_lines if num_lines is not None and num_lines >= 1 else None
+    get_message_bus().emit(
+        FileContentMessage(
+            path=file_path,
+            content=content,
+            start_line=emit_start_line,
+            num_lines=emit_num_lines,
+            total_lines=total_lines,
+            num_tokens=num_tokens,
+        )
+    )
+    return ReadFileOutput(content=content, num_tokens=num_tokens)
 
 
 def _sanitize_string(text: str) -> str:
@@ -676,7 +713,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     # Sanitize search string to handle any surrogates from copy-paste
     search_string = _sanitize_string(search_string)
 
-    directory = os.path.abspath(os.path.expanduser(directory))
+    directory = resolve_path(directory)
     matches: List[MatchInfo] = []
     error_message: str | None = None
 

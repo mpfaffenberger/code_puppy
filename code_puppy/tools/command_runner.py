@@ -1179,9 +1179,68 @@ async def _execute_shell_command(
     # This is reference-counted: listener starts on first command, stops on last
     _acquire_keyboard_context()
     try:
+        # When a command executor backend is installed (e.g. an editor host
+        # running commands in its own terminal), delegate execution to it.
+        # This runs on the event loop, so we can await the host directly.
+        from code_puppy.tools.io_backends import get_command_executor
+
+        executor = get_command_executor()
+        if executor is not None:
+            return await _execute_via_backend(
+                executor, command, cwd, timeout, group_id, silent
+            )
         return await _run_command_inner(command, cwd, timeout, group_id, silent=silent)
     finally:
         _release_keyboard_context()
+
+
+async def _execute_via_backend(
+    executor,
+    command: str,
+    cwd: str | None,
+    timeout: int,
+    group_id: str,
+    silent: bool,
+) -> ShellCommandOutput:
+    """Run a command through an installed ``CommandExecutor`` backend.
+
+    Streams the host's combined output to the UI as shell lines (so the run
+    still looks live inside Code Puppy) and maps the result to the standard
+    ``ShellCommandOutput``. Failures fall back to a structured error rather
+    than raising, matching ``_run_command_inner``.
+    """
+    start = time.perf_counter()
+    try:
+        result = await executor.run(command, cwd, timeout)
+    except Exception as e:
+        if not silent:
+            emit_error(traceback.format_exc(), message_group=group_id)
+        return ShellCommandOutput(
+            success=False,
+            command=command,
+            error=f"Error executing command {str(e)}",
+            stdout=None,
+            stderr=None,
+            exit_code=-1,
+            execution_time=time.perf_counter() - start,
+            timeout=False,
+        )
+
+    output = result.output or ""
+    if output and not silent:
+        bus = get_message_bus()
+        for line in output.splitlines():
+            bus.emit_shell_line(line)
+    truncated = "\n".join(_truncate_line(line) for line in output.split("\n")[-256:])
+    return ShellCommandOutput(
+        success=(result.exit_code == 0 and not result.timed_out),
+        command=command,
+        stdout=truncated or None,
+        stderr=None,
+        exit_code=result.exit_code,
+        execution_time=time.perf_counter() - start,
+        timeout=result.timed_out,
+    )
 
 
 def _run_command_sync(

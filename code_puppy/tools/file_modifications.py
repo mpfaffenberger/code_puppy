@@ -33,8 +33,9 @@ from code_puppy.messaging import (  # Structured messaging types
 )
 from code_puppy.tools.common import (
     _find_best_window,
-    atomic_write_text,
     generate_group_id,
+    resolve_path,
+    write_project_file,
 )
 
 
@@ -220,7 +221,7 @@ def _delete_snippet_from_file(
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     UndoManager().record_change(file_path, "delete_snippet")
-    file_path = os.path.abspath(file_path)
+    file_path = resolve_path(file_path)
     diff_text = ""
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
@@ -251,7 +252,7 @@ def _delete_snippet_from_file(
                 n=get_diff_context_lines(),
             )
         )
-        atomic_write_text(file_path, modified)
+        write_project_file(file_path, modified)
         return {
             "success": True,
             "path": file_path,
@@ -271,7 +272,7 @@ def _replace_in_file(
 ) -> Dict[str, Any]:
     UndoManager().record_change(path, "replace_in_file")
     """Robust replacement engine with explicit edge‑case reporting."""
-    file_path = os.path.abspath(path)
+    file_path = resolve_path(path)
     diff_text = ""
     try:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
@@ -346,7 +347,7 @@ def _replace_in_file(
                 n=get_diff_context_lines(),
             )
         )
-        atomic_write_text(file_path, modified)
+        write_project_file(file_path, modified)
         return {
             "success": True,
             "path": file_path,
@@ -366,7 +367,7 @@ def _write_to_file(
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     UndoManager().record_change(path, "write_to_file")
-    file_path = os.path.abspath(path)
+    file_path = resolve_path(path)
 
     try:
         exists = os.path.exists(file_path)
@@ -403,8 +404,14 @@ def _write_to_file(
         )
         diff_text = "".join(diff_lines)
 
-        os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
-        atomic_write_text(file_path, content)
+        # Only create local directories when writing locally; when a filesystem
+        # backend owns the write (e.g. a remote editor host), the host manages
+        # its own directory creation and a local mkdir would be a phantom.
+        from code_puppy.tools.io_backends import get_filesystem_backend
+
+        if get_filesystem_backend() is None:
+            os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
+        write_project_file(file_path, content)
 
         action = "overwritten" if exists else "created"
         return {
@@ -540,7 +547,7 @@ def _edit_file(
     The function auto-detects the payload type and routes to the appropriate internal helper.
     """
     # Extract file_path from payload
-    file_path = os.path.abspath(payload.file_path)
+    file_path = resolve_path(payload.file_path)
 
     # Use provided group_id or generate one if not provided
     if group_id is None:
@@ -601,7 +608,7 @@ def _delete_file(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
     UndoManager().record_change(file_path, "delete_file")
-    file_path = os.path.abspath(file_path)
+    file_path = resolve_path(file_path)
 
     # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
