@@ -89,8 +89,13 @@ def render_list(menu: "PluginsMenu") -> Fragments:
         is_selected = i == menu.selected_idx
         is_disabled = entry.name in menu.disabled
 
-        icon = "x" if is_disabled else "+"
-        icon_style = "fg:ansired" if is_disabled else "fg:ansigreen"
+        if entry.status == "loaded":
+            icon = "x" if is_disabled else "+"
+            icon_style = "fg:ansired" if is_disabled else "fg:ansigreen"
+        else:
+            # Trust-gated project plugin: discovered but never imported.
+            icon = "!"
+            icon_style = "fg:ansired" if entry.status == "error" else "fg:ansiyellow"
         prefix = " > " if is_selected else "   "
 
         if is_selected:
@@ -121,7 +126,7 @@ def _render_hints(lines: Fragments) -> None:
         ("fg:ansibrightblack", "  PgUp/PgDn      ", "Page"),
         ("fg:ansibrightblack", "  g / G          ", "First / Last"),
         ("fg:ansibrightblack", "  h/l or \u2190/\u2192    ", "Scroll details"),
-        ("fg:ansigreen", "  Enter          ", "Toggle"),
+        ("fg:ansigreen", "  Enter          ", "Toggle / Enable"),
         ("fg:ansired", "  q / Esc        ", "Exit"),
     ]
     lines.append(("", "\n"))
@@ -133,11 +138,123 @@ def _render_hints(lines: Fragments) -> None:
 # ---------------------------------------------------------------------------
 # Detail pane (right)
 # ---------------------------------------------------------------------------
+
+# Status line + explanation for project plugins the trust gate held back.
+# ``{name}`` is substituted with the plugin name in the hint text.
+_GATE_STATUS_DETAILS = {
+    "untrusted": (
+        "fg:ansiyellow bold",
+        "Not enabled (project plugins are disabled by default)",
+        "Press Enter to review its files and enable it.",
+    ),
+    "changed": (
+        "fg:ansiyellow bold",
+        "Changed since you accepted it",
+        "Its files were modified after you trusted it, so trust was "
+        "revoked. Press Enter to re-review and re-enable.",
+    ),
+    "disabled": (
+        "fg:ansired bold",
+        "Disabled (trusted, but not loaded)",
+        "Press Enter to load it.",
+    ),
+    "error": (
+        "fg:ansired bold",
+        "Failed to load",
+        "Check the logs, then press Enter to retry.",
+    ),
+}
+
+
+def _render_gate_status(lines: Fragments, menu: "PluginsMenu", entry) -> None:
+    """Status + hint for a project plugin that was never imported."""
+    style, label, hint = _GATE_STATUS_DETAILS.get(
+        entry.status,
+        ("fg:ansiyellow bold", entry.status, "See '/plugins list' for details."),
+    )
+    lines.append(("bold", "  Status: "))
+    lines.append((style, label))
+    lines.append(("", "\n"))
+    inner = max(20, menu._detail_cols - 4)
+    _append_wrapped(
+        lines, "fg:ansibrightblack", "  ", hint.format(name=entry.name), inner
+    )
+    lines.append(("", "\n"))
+
+
+def render_trust_modal(menu: "PluginsMenu") -> Fragments:
+    """Body of the trust popup (the input box is a separate widget below).
+
+    Kept deliberately stark: this is the security decision point, so it
+    restates the risk and lists the files about to be executed.
+    """
+    from code_puppy.plugins.plugin_list.project_trust_flow import (
+        ACCEPT_WORD,
+        plugin_file_listing,
+    )
+
+    entry = menu.trust_target
+    lines: Fragments = []
+    if entry is None:
+        return lines
+    inner = 58  # popup is width-capped at 64; leave room for the frame
+
+    reason = (
+        "has CHANGED since you last accepted it"
+        if entry.status == "changed"
+        else "has never been enabled for this project"
+    )
+    _append_wrapped(
+        lines, "fg:ansiyellow bold", " ", f"'{entry.name}' {reason}.", inner
+    )
+    lines.append(("", "\n"))
+    _append_wrapped(
+        lines,
+        "",
+        " ",
+        "Project plugins run arbitrary code with YOUR permissions the "
+        "moment they load. Only enable plugins you have reviewed.",
+        inner,
+    )
+    lines.append(("", "\n"))
+
+    if menu.project_dir:
+        lines.append(("bold", " Files:"))
+        lines.append(("", "\n"))
+        from pathlib import Path
+
+        listing = plugin_file_listing(Path(menu.project_dir) / entry.name, limit=8)
+        for row in listing.splitlines():
+            for piece in wrap_text(row.strip(), inner - 2):
+                lines.append(("fg:ansicyan", f"   {piece}"))
+                lines.append(("", "\n"))
+        lines.append(("", "\n"))
+
+    if menu.trust_error:
+        _append_wrapped(lines, "fg:ansired bold", " ", menu.trust_error, inner)
+        lines.append(("", "\n"))
+
+    _append_wrapped(
+        lines,
+        "bold",
+        " ",
+        f"Type '{ACCEPT_WORD}' and press Enter to accept the risk — Esc cancels:",
+        inner,
+    )
+    return lines
+
+
 def render_detail(menu: "PluginsMenu") -> Fragments:
     lines: Fragments = []
 
     lines.append(("dim cyan", " PLUGIN DETAILS"))
     lines.append(("", "\n\n"))
+
+    # Outcome of the most recent enable/activate action, if any.
+    if menu.trust_feedback:
+        inner = max(20, menu._detail_cols - 4)
+        _append_wrapped(lines, "fg:ansigreen", "  ", menu.trust_feedback, inner)
+        lines.append(("", "\n"))
 
     entry = menu._current()
     if not entry:
@@ -162,6 +279,25 @@ def render_detail(menu: "PluginsMenu") -> Fragments:
     lines.append(("bold", "  Tier: "))
     lines.append(("", entry.tier))
     lines.append(("", "\n\n"))
+
+    # Trust is scoped per project path — always show which project this is.
+    if entry.tier == "project" and menu.project_dir:
+        lines.append(("bold", "  Project:"))
+        lines.append(("", "\n"))
+        inner = max(20, menu._detail_cols - 6)
+        _append_wrapped(lines, "fg:ansibrightblack", "    ", menu.project_dir, inner)
+        lines.append(("", "\n"))
+
+    if entry.status != "loaded":
+        # Trust-gated: never imported, so hooks/contributions don't exist.
+        _render_gate_status(lines, menu, entry)
+        path = f"{menu.project_dir}/{entry.name}/" if menu.project_dir else None
+        if path:
+            lines.append(("bold", "  Path:"))
+            lines.append(("", "\n"))
+            inner = max(20, menu._detail_cols - 6)
+            _append_wrapped(lines, "fg:ansibrightblack", "    ", path, inner)
+        return lines
 
     lines.append(("bold", "  Status: "))
     if is_disabled:

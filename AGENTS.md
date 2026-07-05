@@ -36,6 +36,18 @@ and skills (`<CWD>/.code_puppy/skills/`).
 
 - **Directory must be created intentionally.** Code Puppy will never auto-create
   `.code_puppy/plugins/` — your team opts in by creating it.
+- **Disabled by default (trust gate).** Project plugins run arbitrary repo
+  code at import time, so none load until the user accepts them in the
+  `/plugins` TUI ceremony (select → Enter → type `trust`); accepted plugins
+  hot-load with no restart. Trust is a SHA-256 of the plugin dir, stored
+  user-side in `~/.code_puppy/trusted_plugins.json` and scoped to the project
+  path — any file change reverts the plugin to untrusted, and everything else
+  fails closed. `/plugins revoke <name>` removes trust. Full security model:
+  `code_puppy/plugins/trust.py`.
+- **Keep runtime state out of the plugin dir** — writing state (SQLite,
+  caches, logs) next to the code self-tampers the hash and demands
+  re-acceptance every boot. Use `~/.code_puppy/` like builtin plugins do, or
+  a dot-path (e.g. `.state/`), which is excluded from hashing.
 - **Load order is builtin → user → project.** Project plugins load last, giving
   them highest precedence for override-style hooks.
 - **Project wins on name collision.** If a project plugin shares a name with a
