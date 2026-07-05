@@ -670,6 +670,41 @@ def _interactive_sigint_guard(_sig, _frame):
     return
 
 
+def _process_plan_step_markers(agent_response: str) -> str:
+    """Check the agent response for PLAN_STEP_DONE markers and update the plan file.
+
+    This runs after every LLM turn so /plan run [N] can auto-check steps off.
+    Returns the response with the markers stripped.
+    """
+    import re
+
+    from code_puppy.command_line.plan_manager import PlanManager
+    from code_puppy.messaging import emit_success
+
+    pm = PlanManager()
+    updated = False
+    lines = agent_response.split("\n")
+    filtered: list[str] = []
+
+    for line in lines:
+        m = re.match(r"PLAN_STEP_DONE:\s*(\d+)", line.strip())
+        if m:
+            step_num = int(m.group(1))
+            if pm.mark_step_done(step_num, done=True):
+                emit_success(f"✅ Step {step_num} marked as done in the plan.")
+                updated = True
+            # Don't include the marker in the response to the user
+            continue
+        filtered.append(line)
+
+    if updated:
+        from code_puppy.messaging import emit_info
+
+        emit_info("Plan updated in .claude/plan.md")
+
+    return "\n".join(filtered)
+
+
 async def interactive_mode(message_renderer, initial_command: str = None) -> None:
     """Run the agent in interactive mode."""
     from code_puppy.command_line.command_handler import handle_command
@@ -1132,6 +1167,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Get the structured response
                 agent_response = result.output
 
+                # Process PLAN_STEP_DONE markers from plan execution steps
+                agent_response = _process_plan_step_markers(agent_response)
+
                 # Emit structured message for proper markdown rendering
                 from code_puppy.messaging import get_message_bus
                 from code_puppy.messaging.messages import AgentResponseMessage
@@ -1247,6 +1285,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         break
 
                     agent_response = result.output
+                    agent_response = _process_plan_step_markers(agent_response)
                     response_msg = AgentResponseMessage(
                         content=agent_response,
                         is_markdown=True,
