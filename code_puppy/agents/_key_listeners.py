@@ -20,7 +20,7 @@ from code_puppy.keymap import (
     cancel_agent_uses_signal,
     get_cancel_agent_char_code,
 )
-from code_puppy.messaging import emit_warning
+from code_puppy.messaging import emit_info, emit_warning
 
 
 # =============================================================================
@@ -501,6 +501,9 @@ def _listen_windows(
 
     cancel_agent_char = _resolve_cancel_char(on_cancel_agent)
 
+    backoff = _RECOVERY_INITIAL_BACKOFF_S
+    in_outage = False
+
     while not stop_event.is_set():
         # Honor suspend: msvcrt doesn't reconfigure the terminal, so the
         # contract here is purely "don't read keystrokes while suspended."
@@ -542,17 +545,39 @@ def _listen_windows(
             else:
                 # Idle tick: let a pending bare ESC expire.
                 _tick_line_editor()
-        except Exception:
-            emit_warning(
-                "Windows key listener error; Ctrl+C is still available for cancel."
-            )
-            return
+        except Exception as exc:
+            # Recover instead of dying: warn once per outage, back off,
+            # and keep retrying — a dead listener means a dead prompt.
+            if not in_outage:
+                in_outage = True
+                emit_warning(
+                    f"Windows key listener error ({exc!r}); recovering "
+                    "automatically — Ctrl+C is still available for cancel."
+                )
+            if stop_event.wait(backoff):
+                return
+            backoff = min(backoff * 2.0, _RECOVERY_MAX_BACKOFF_S)
+            continue
+        if in_outage:
+            in_outage = False
+            backoff = _RECOVERY_INITIAL_BACKOFF_S
+            emit_info("Windows key listener recovered.")
         time.sleep(0.05)
 
 
 # =============================================================================
 # POSIX listener
 # =============================================================================
+
+
+#: Consecutive transient read failures tolerated within one read session
+#: (× the ~50ms retry pace ≈ 10 seconds of continuous EIO) before the
+#: session yields back to the supervisor's slower backoff loop.
+_MAX_TRANSIENT_READS = 200
+
+#: Supervisor backoff bounds between read-session recovery attempts.
+_RECOVERY_INITIAL_BACKOFF_S = 1.0
+_RECOVERY_MAX_BACKOFF_S = 10.0
 
 
 def _read_chunk(fd: int, decoder) -> Optional[str]:
@@ -565,13 +590,28 @@ def _read_chunk(fd: int, decoder) -> Optional[str]:
     it — the pending ESC then expires on the idle tick and the ``[A``
     tail leaks in as literal text (the live 'arrows don't work' bug).
     The incremental decoder keeps split UTF-8 chars intact across
-    reads. Returns None on EOF/error.
+    reads.
+
+    Returns:
+        * a (possibly empty) string of decoded chars on success — empty
+          means a split multibyte char is buffered in the decoder;
+        * ``""`` also for TRANSIENT errors (EINTR / EIO / EAGAIN): e.g.
+          reads from the controlling tty return EIO while our process
+          group is temporarily not the foreground group (backgrounded
+          shell commands / tcsetpgrp shuffles). The listener must RETRY
+          those, not die — a silent death here restores cooked termios
+          and every subsequent keystroke echoes raw while the prompt
+          goes unresponsive (the 2026-07-05 stdin wedge);
+        * ``None`` on EOF or a fatal error (stdin genuinely gone).
     """
+    import errno
     import os
 
     try:
         data = os.read(fd, 1024)
-    except OSError:
+    except OSError as exc:
+        if exc.errno in (errno.EINTR, errno.EIO, errno.EAGAIN, errno.EWOULDBLOCK):
+            return ""
         return None
     if not data:
         return None
@@ -588,13 +628,19 @@ def _listen_posix(
     suspend_event: Optional[threading.Event] = None,
     released_event: Optional[threading.Event] = None,
 ) -> None:
-    import codecs
-    import select
+    """Self-healing supervisor around the actual read session.
+
+    A read session can die for RECOVERABLE reasons — EIO storms while
+    another process group briefly owns the tty, a failed cbreak
+    re-acquire after suspend, select hiccups. Dying used to restore
+    cooked termios and leave the prompt permanently dead with raw
+    keystroke echo (the 2026-07-05 stdin wedge). Instead: warn ONCE per
+    outage, back off (1s doubling to 10s), and keep retrying until the
+    tty works again or the app stops — then announce recovery on the
+    first successful read so the user knows input is back.
+    """
     import sys
     import termios
-    import tty
-
-    cancel_agent_char = _resolve_cancel_char(on_cancel_agent)
 
     stdin = sys.stdin
     try:
@@ -606,6 +652,71 @@ def _listen_posix(
     except Exception:
         return
 
+    backoff = _RECOVERY_INITIAL_BACKOFF_S
+    in_outage = [False]  # list-wrapped for the closure
+
+    def _on_input_ok() -> None:
+        nonlocal backoff
+        if in_outage[0]:
+            in_outage[0] = False
+            emit_info("Key listener recovered — keyboard input restored.")
+        backoff = _RECOVERY_INITIAL_BACKOFF_S
+
+    while not stop_event.is_set():
+        try:
+            reason = _posix_read_session(
+                stop_event,
+                on_escape,
+                on_cancel_agent,
+                suspend_event,
+                released_event,
+                stdin,
+                fd,
+                original_attrs,
+                _on_input_ok,
+            )
+        except Exception as exc:  # a bug must not kill input forever
+            reason = f"unexpected error: {exc!r}"
+        if reason == "stop" or stop_event.is_set():
+            # Clean shutdown — including a stop that landed mid-session:
+            # never cry "outage" over the app simply exiting.
+            return
+        if not in_outage[0]:
+            in_outage[0] = True
+            emit_warning(
+                f"Key listener: keyboard input interrupted ({reason}); "
+                "recovering automatically — the prompt may be briefly "
+                "unresponsive."
+            )
+        if stop_event.wait(backoff):
+            return
+        backoff = min(backoff * 2.0, _RECOVERY_MAX_BACKOFF_S)
+
+
+def _posix_read_session(
+    stop_event: threading.Event,
+    on_escape: Callable[[], None],
+    on_cancel_agent: Optional[Callable[[], None]],
+    suspend_event: Optional[threading.Event],
+    released_event: Optional[threading.Event],
+    stdin,
+    fd: int,
+    original_attrs,
+    on_input_ok: Callable[[], None],
+) -> str:
+    """One cbreak read session; returns WHY it ended.
+
+    ``"stop"`` means clean shutdown; anything else is a human-readable
+    recoverable reason the supervisor folds into its outage warning.
+    ALWAYS restores the original termios attrs on the way out.
+    """
+    import codecs
+    import select
+    import termios
+    import time
+    import tty
+
+    cancel_agent_char = _resolve_cancel_char(on_cancel_agent)
     cbreak_active = False
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
@@ -644,8 +755,13 @@ def _listen_posix(
                 pass
             cbreak_active = False
 
+    transient_reads = 0
+    reported_ok = False
     try:
-        _enter_cbreak()
+        try:
+            _enter_cbreak()
+        except Exception as exc:
+            return f"could not enter cbreak mode: {exc!r}"
         while not stop_event.is_set():
             # Suspend handling: release stdin (restore termios) and park
             # until the plugin signals resume. Re-arm cbreak afterwards.
@@ -653,34 +769,46 @@ def _listen_posix(
                 _exit_cbreak()
                 _wait_while_suspended(stop_event, suspend_event, released_event)
                 if stop_event.is_set():
-                    return
+                    return "stop"
                 # Plugin finished — re-acquire raw mode.
                 try:
                     _enter_cbreak()
-                except Exception:
-                    emit_warning(
-                        "Failed to re-acquire terminal after suspend; "
-                        "key listener exiting."
-                    )
-                    return
+                except Exception as exc:
+                    return f"could not re-acquire terminal after suspend: {exc!r}"
                 continue
 
             try:
                 read_ready, _, _ = select.select([stdin], [], [], 0.05)
-            except Exception:
-                break
+            except Exception as exc:
+                return f"stdin select failed: {exc!r}"
             if not read_ready:
                 # Idle tick: let a pending bare ESC expire.
                 _tick_line_editor()
                 continue
             chunk = _read_chunk(fd, decoder)
             if chunk is None:
-                break
+                return "stdin EOF or fatal read error"
+            if not chunk:
+                # Transient failure (EIO while another process group
+                # briefly owns the tty) or a split multibyte char still
+                # buffering in the decoder. Retry — paced, and bounded
+                # per session; the supervisor keeps retrying beyond that
+                # with its slower backoff.
+                transient_reads += 1
+                if transient_reads >= _MAX_TRANSIENT_READS:
+                    return "stdin unreadable (persistent EIO)"
+                time.sleep(0.05)
+                continue
+            transient_reads = 0
+            if not reported_ok:
+                reported_ok = True
+                on_input_ok()
             # Per-char dispatch: hotkeys keep priority even mid-burst;
             # everything else streams into the editor, whose ESC state
             # machine assembles sequences byte-at-a-time.
             for ch in chunk:
                 _dispatch_key(ch, on_escape, cancel_agent_char, on_cancel_agent)
+        return "stop"
     finally:
         # GUARANTEE termios restoration — even if something exploded inside
         # the suspend block.
