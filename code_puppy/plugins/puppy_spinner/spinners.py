@@ -58,6 +58,9 @@ MAX_INTERVAL = 1.0
 #: One speed to rule them all: every builtin ships at this, and it's the
 #: fallback when spinners.json omits (or fumbles) an interval.
 _DEFAULT_INTERVAL = 0.2
+#: ...except the classic. The kennel bounce was tuned for a quicker trot
+#: (0.05s originally) and looks sluggish at the pack default.
+_PUPPY_INTERVAL = 0.06
 _MAX_FRAME_LEN = 40  # the status-prefix slot is prime real estate
 
 # Escape-spelled glyphs (repo emoji filter).
@@ -103,7 +106,7 @@ def _kennel_bounce(critter: str) -> Tuple[str, ...]:
 _BUILTIN_SPECS = {
     "puppy": (
         _kennel_bounce(PUPPY),
-        _DEFAULT_INTERVAL,
+        _PUPPY_INTERVAL,
         "the classic kennel bounce (default)",
     ),
     "bone": (

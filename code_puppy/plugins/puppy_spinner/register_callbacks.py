@@ -158,10 +158,20 @@ def _current_frames_and_interval():
     return FRAMES, _TICK_INTERVAL_S
 
 
+#: Breathing room between the spinner frame and whatever the status bar
+#: renders next. Applied at paint time so every spinner -- builtin or
+#: user-authored -- gets the same gap without baking spaces into frames.
+_PREFIX_GAP = "  "
+
+
 def _paint_prefix(text: str) -> None:
-    """Best-effort paint -- a broken bar must never kill the ticker."""
+    """Best-effort paint -- a broken bar must never kill the ticker.
+
+    Non-empty frames get ``_PREFIX_GAP`` appended; clearing stays a
+    true empty string so nothing lingers in the prefix slot.
+    """
     try:
-        _bar().set_status_prefix(text)
+        _bar().set_status_prefix(text + _PREFIX_GAP if text else "")
     except Exception:
         logger.debug("puppy spinner paint failed", exc_info=True)
 
