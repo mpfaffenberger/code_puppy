@@ -28,6 +28,16 @@ _SESSION_AGENTS_CACHE: dict[str, str] = {}
 _SESSION_FILE_LOADED: bool = False
 _SESSION_LOCK = threading.Lock()
 
+# Serializes _discover_agents(): it clears + repopulates the shared registry,
+# so concurrent passes must not interleave. RLock so plugin callbacks fired
+# during discovery may safely re-enter agent-manager APIs on the same thread.
+_DISCOVERY_LOCK = threading.RLock()
+
+# JSON-agent names we've already warned about being shadowed by builtin
+# Python agents. Discovery runs constantly; warn once per process, not once
+# per pass.
+_WARNED_JSON_SHADOWED: set = set()
+
 
 # Session persistence file path
 def _get_session_file_path() -> Path:
@@ -190,7 +200,22 @@ def _ensure_session_cache_loaded() -> None:
 
 
 def _discover_agents(message_group_id: Optional[str] = None):
-    """Dynamically discover all agent classes and JSON agents."""
+    """Dynamically discover all agent classes and JSON agents.
+
+    Thread-safe: discovery does a destructive ``clear()`` + repopulate of the
+    shared ``_AGENT_REGISTRY``, and it gets invoked from multiple threads
+    (agent loads, completion threads, refreshes). Without the lock, two
+    interleaved passes each see the other's freshly-inserted JSON agents
+    during their own step 2 and emit bogus "builtin Python agent takes
+    precedence" warnings for every JSON agent. See the RLock so re-entrant
+    same-thread calls (e.g. plugin callbacks) can't deadlock.
+    """
+    with _DISCOVERY_LOCK:
+        _discover_agents_locked(message_group_id=message_group_id)
+
+
+def _discover_agents_locked(message_group_id: Optional[str] = None):
+    """Actual discovery body. Callers must hold ``_DISCOVERY_LOCK``."""
     # Always clear the registry to force refresh
     _AGENT_REGISTRY.clear()
 
@@ -286,11 +311,17 @@ def _discover_agents(message_group_id: Optional[str] = None):
         # Add JSON agents to registry (store file path instead of class)
         # Python (builtin) agents take precedence over JSON agents.
         for agent_name, json_path in json_agents.items():
-            if agent_name in _AGENT_REGISTRY:
-                emit_warning(
-                    f"JSON agent '{agent_name}' skipped: builtin Python agent with the same name takes precedence.",
-                    message_group=message_group_id,
-                )
+            existing = _AGENT_REGISTRY.get(agent_name)
+            if isinstance(existing, type):
+                # Genuine collision with a builtin Python agent class.
+                # Warn once per process — discovery re-runs on every agent
+                # load, and repeating the same warning is pure noise.
+                if agent_name not in _WARNED_JSON_SHADOWED:
+                    _WARNED_JSON_SHADOWED.add(agent_name)
+                    emit_warning(
+                        f"JSON agent '{agent_name}' skipped: builtin Python agent with the same name takes precedence.",
+                        message_group=message_group_id,
+                    )
                 continue
             _AGENT_REGISTRY[agent_name] = json_path
 
