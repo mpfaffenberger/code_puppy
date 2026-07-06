@@ -218,6 +218,40 @@ CURATED_THEMES: dict[str, dict] = {
         ),
         "terminal_palette": bp.BUBBLEGUM_PINK,
     },
+    "purple-puppy": {
+        "icon": "\U0001f436",  # dog face
+        "label": "Purple Puppy",
+        "blurb": "vivid violet fur, white muzzle & pink tongue",
+        "colors": [
+            "#9b30d9",  # highlight fur
+            "#8408b0",  # body fur
+            "#b06be8",  # light fur
+            "#6a0dad",  # shade fur
+            "#d9a7f5",  # lilac glow
+            "#ff7fa8",  # tongue pink
+            "#e8ccff",  # muzzle lavender
+            "#4b1a6e",  # deep shade
+        ],
+        "content_styles": {
+            "info": "#c9a0f0",
+            "warning": "#f5c26b",
+            "success": "#ff8fb3",
+            "error": "bold red",
+            "debug": "dim #b8a0d0",
+            "diff_add": "#ff8fb3",
+            "diff_remove": "red",
+            "diff_context": "dim #9b7fc0",
+        },
+        "color_remap": rt.make_remap(
+            cyan="#c9a0f0",
+            blue="#9b30d9",
+            magenta="#ff7fa8",
+            bright_cyan="#e8ccff",
+            bright_blue="#b06be8",
+            bright_magenta="#ff9fd2",
+        ),
+        "terminal_palette": bp.PURPLE_PUPPY,
+    },
     # --- Mure-port "palette-first" themes ---------------------------------
     # These rely primarily on the OSC ANSI palette swap (slot 6 = cyan, etc.)
     # so Rich's own [cyan]/[blue]/[magenta] tags automatically render in the
@@ -441,7 +475,7 @@ SURPRISE = {
     "terminal_palette": None,  # randomized at apply time
 }
 
-# The 14th option: restore Code Puppy defaults (banners + content).
+# The 15th option: restore Code Puppy defaults (banners + content).
 DEFAULT = {
     "icon": "🔄",
     "label": "Restore Defaults",
@@ -452,13 +486,14 @@ DEFAULT = {
     "terminal_palette": None,  # handled specially (OSC reset)
 }
 
-# Ordered menu: 5 vivid/dark themes, 7 palette-first/light themes, surprise, default.
+# Ordered menu: 6 vivid/dark themes, 7 palette-first/light themes, surprise, default.
 MENU: list[tuple[str, dict]] = [
     ("ocean", CURATED_THEMES["ocean"]),
     ("forest", CURATED_THEMES["forest"]),
     ("sunset", CURATED_THEMES["sunset"]),
     ("vaporwave", CURATED_THEMES["vaporwave"]),
     ("bubblegum-pink", CURATED_THEMES["bubblegum-pink"]),
+    ("purple-puppy", CURATED_THEMES["purple-puppy"]),
     ("catppuccin-mocha", CURATED_THEMES["catppuccin-mocha"]),
     ("catppuccin-latte", CURATED_THEMES["catppuccin-latte"]),
     ("tokyo-night", CURATED_THEMES["tokyo-night"]),
@@ -481,6 +516,8 @@ MENU_BY_NAME["latte"] = CURATED_THEMES["catppuccin-latte"]
 MENU_BY_NAME["tokyo"] = CURATED_THEMES["tokyo-night"]
 MENU_BY_NAME["bubblegum"] = CURATED_THEMES["bubblegum-pink"]
 MENU_BY_NAME["pink"] = CURATED_THEMES["bubblegum-pink"]
+MENU_BY_NAME["puppy"] = CURATED_THEMES["purple-puppy"]
+MENU_BY_NAME["purple"] = CURATED_THEMES["purple-puppy"]
 MENU_BY_NAME["solarized"] = CURATED_THEMES["solarized-light"]
 MENU_BY_NAME["github"] = CURATED_THEMES["github-light"]
 MENU_BY_NAME["rose-pine"] = CURATED_THEMES["rose-pine-dawn"]

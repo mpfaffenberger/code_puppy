@@ -59,16 +59,17 @@ from code_puppy.plugins.theme.osc_palette import (
 # ---------------------------------------------------------------------------
 class TestThemeCatalog:
     def test_curated_themes_count(self):
-        assert len(CURATED_THEMES) == 12
+        assert len(CURATED_THEMES) == 13
 
     def test_menu_has_expected_entries(self):
         names = [name for name, _ in MENU]
-        assert len(names) == 14
+        assert len(names) == 15
         assert "ocean" in names
         assert "forest" in names
         assert "sunset" in names
         assert "vaporwave" in names
         assert "bubblegum-pink" in names
+        assert "purple-puppy" in names
         assert "catppuccin-mocha" in names
         assert "tokyo-night" in names
         assert "deep-black" in names
@@ -81,14 +82,17 @@ class TestThemeCatalog:
     def test_menu_by_index_maps_strings(self):
         assert MENU_BY_INDEX["1"] == "ocean"
         assert MENU_BY_INDEX["5"] == "bubblegum-pink"
-        assert MENU_BY_INDEX["6"] == "catppuccin-mocha"
-        assert MENU_BY_INDEX["10"] == "solarized-light"
+        assert MENU_BY_INDEX["6"] == "purple-puppy"
+        assert MENU_BY_INDEX["7"] == "catppuccin-mocha"
+        assert MENU_BY_INDEX["11"] == "solarized-light"
         assert MENU_BY_INDEX[str(len(MENU))] == "default"
 
     def test_aliases_resolve(self):
         assert MENU_BY_NAME["mocha"] is CURATED_THEMES["catppuccin-mocha"]
         assert MENU_BY_NAME["bubblegum"] is CURATED_THEMES["bubblegum-pink"]
         assert MENU_BY_NAME["pink"] is CURATED_THEMES["bubblegum-pink"]
+        assert MENU_BY_NAME["puppy"] is CURATED_THEMES["purple-puppy"]
+        assert MENU_BY_NAME["purple"] is CURATED_THEMES["purple-puppy"]
         assert MENU_BY_NAME["tokyo"] is CURATED_THEMES["tokyo-night"]
         assert MENU_BY_NAME["solarized"] is CURATED_THEMES["solarized-light"]
         assert MENU_BY_NAME["github"] is CURATED_THEMES["github-light"]

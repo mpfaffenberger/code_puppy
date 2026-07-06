@@ -10,7 +10,7 @@ escape sequences (mure-style).
 ```
 /theme
 ```
-Launches a split-panel TUI with 14 themes (5 neon/dark themes, 7 palette-first/light themes, surprise, reset).
+Launches a split-panel TUI with 15 themes (6 neon/dark themes, 7 palette-first/light themes, surprise, reset).
 
 
 ## What gets themed
@@ -35,22 +35,23 @@ Themes persist to your Code Puppy config and survive restarts. The OSC palette a
 | 3 | 🌅 Sunset | warm reds, oranges & gold |
 | 4 | 🪩 Vaporwave | neon pinks & purples |
 | 5 | 🫧 Bubblegum Pink | sweet pinks, candy neon & glow |
-| 6 | 🐱 Catppuccin Mocha | soothing pastel dark (mure default) |
-| 7 | ☕ Catppuccin Latte | soothing pastel light |
-| 8 | 🌃 Tokyo Night | neon-on-navy night |
-| 9 | 🌑 Deep Black | inky noir with subtle neon edge |
-| 10 | ☀️ Solarized Light | classic warm beige with calm accents |
-| 11 | 📄 GitHub Light | crisp white, familiar code colors |
-| 12 | 🌸 Rose Pine Dawn | soft pastel rose light |
-| 13 | 🎲 Surprise Me | a fresh random remix every time |
-| 14 | 🔄 Restore Defaults | back to Code Puppy + terminal factory |
+| 6 | 🐶 Purple Puppy | vivid violet fur, white muzzle & pink tongue |
+| 7 | 🐱 Catppuccin Mocha | soothing pastel dark (mure default) |
+| 8 | ☕ Catppuccin Latte | soothing pastel light |
+| 9 | 🌃 Tokyo Night | neon-on-navy night |
+| 10 | 🌑 Deep Black | inky noir with subtle neon edge |
+| 11 | ☀️ Solarized Light | classic warm beige with calm accents |
+| 12 | 📄 GitHub Light | crisp white, familiar code colors |
+| 13 | 🌸 Rose Pine Dawn | soft pastel rose light |
+| 14 | 🎲 Surprise Me | a fresh random remix every time |
+| 15 | 🔄 Restore Defaults | back to Code Puppy + terminal factory |
 
 ## Power-user shortcuts
 
 ```
 /theme 5            apply theme #5 (Bubblegum Pink)
-/theme bubblegum    apply by alias (also: pink, mocha, latte, tokyo,
-                    solarized, github, rose-pine)
+/theme bubblegum    apply by alias (also: pink, puppy, purple, mocha,
+                    latte, tokyo, solarized, github, rose-pine)
 /theme tokyo-night  apply by canonical name
 /theme surprise     re-roll a random palette
 /theme default      restore Code Puppy + terminal factory colors

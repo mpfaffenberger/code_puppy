@@ -272,6 +272,32 @@ VAPORWAVE = {
     ],
 }
 
+PURPLE_PUPPY = {
+    # Colors lifted straight off the purple puppy mascot: vivid violet fur
+    # (#8408b0), lighter highlight fur, deep shade purple, white muzzle,
+    # pink tongue, and an inky outline for the background.
+    "bg": "#1c0630",
+    "fg": "#f0e3ff",
+    "ansi": [
+        "#2a0a45",  # 0  black — dark plum outline
+        "#ff5c8a",  # 1  red — tongue pink-red
+        "#c986ff",  # 2  green — bright orchid fur highlight
+        "#f5c26b",  # 3  yellow — warm gold (warnings still warn)
+        "#9b30d9",  # 4  blue — vivid violet fur
+        "#ff7fa8",  # 5  magenta — tongue pink
+        "#d9a7f5",  # 6  cyan — soft lilac
+        "#f0e3ff",  # 7  white — muzzle lavender-white
+        "#4b1a6e",  # 8  bright black — shade purple
+        "#ff7fa8",  # 9  bright red
+        "#dba1ff",  # 10 bright green
+        "#ffd58f",  # 11 bright yellow
+        "#b06be8",  # 12 bright blue
+        "#ff9fd2",  # 13 bright magenta
+        "#e8ccff",  # 14 bright cyan
+        "#fdf7ff",  # 15 bright white — muzzle shine
+    ],
+}
+
 BUBBLEGUM_PINK = {
     "bg": "#2a0f1f",
     "fg": "#fff1f7",
