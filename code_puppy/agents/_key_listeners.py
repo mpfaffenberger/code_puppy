@@ -438,6 +438,46 @@ _WIN_EXTENDED_KEYS = {
 #: Max chars drained from the console input queue in one poll tick.
 _WIN_BURST_CAP = 4096
 
+#: CSI-u Shift+Enter — editor_keys maps body "13;2u" → newline.
+_SHIFT_ENTER_SEQ = "\x1b[13;2u"
+
+_VK_SHIFT = 0x10
+
+
+def _win_shift_is_down() -> bool:
+    """Physical Shift state via ``GetAsyncKeyState`` (best-effort).
+
+    Classic console input (``getwch``) encodes Shift+Enter as a plain
+    ``\\r`` — byte-identical to bare Enter — and neither Windows
+    Terminal nor conhost honors the xterm modifyOtherKeys arming that
+    disambiguates it on POSIX terminals (Ctrl+Enter only works because
+    the console happens to encode it as ``\\n``). Asking the OS for the
+    live modifier state is the only way to tell the two apart. Fails
+    False (= plain Enter, submit) on headless/remote sessions where no
+    local keyboard exists.
+    """
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.user32.GetAsyncKeyState(_VK_SHIFT) & 0x8000)
+    except Exception:
+        return False
+
+
+def _windows_char_to_seq(
+    value: str, shift_is_down: Callable[[], bool] = _win_shift_is_down
+) -> Optional[str]:
+    """Translate chars whose classic-console encoding is ambiguous.
+
+    Returns an xterm/CSI-u sequence to feed the editor directly, or
+    ``None`` for a regular keystroke. Called AFTER paste coalescing so
+    Shift+Insert pastes stay atomic bracketed pastes.
+    """
+    if value == "\r" and shift_is_down():
+        return _SHIFT_ENTER_SEQ
+    return None
+
+
 #: Minimum all-text burst length treated as a paste. Two chars can be a
 #: fast typing roll landing inside one 50ms poll tick (e.g. 'i' + Enter);
 #: three-plus plain chars in under 50ms is effectively only ever a paste.
@@ -536,6 +576,10 @@ def _listen_windows(
                     _feed_line_editor("\x1b[200~" + payload + "\x1b[201~")
                 else:
                     for kind, value in items:
+                        if kind == "char":
+                            translated = _windows_char_to_seq(value)
+                            if translated is not None:
+                                kind, value = "seq", translated
                         if kind == "seq":
                             _feed_line_editor(value)
                         else:

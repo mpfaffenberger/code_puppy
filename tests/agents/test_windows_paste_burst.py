@@ -8,10 +8,12 @@ bursts in a synthesized bracketed paste.
 """
 
 from code_puppy.agents._key_listeners import (
+    _SHIFT_ENTER_SEQ,
     _WIN_BURST_CAP,
     _WIN_PASTE_MIN_CHARS,
     _coalesce_paste_burst,
     _drain_windows_burst,
+    _windows_char_to_seq,
 )
 
 
@@ -98,3 +100,35 @@ class TestCoalesce:
         items = [("char", c) for c in "abc"]
         assert len(items) == _WIN_PASTE_MIN_CHARS
         assert _coalesce_paste_burst(items) == "abc"
+
+
+class TestShiftEnter:
+    """Classic console input encodes Shift+Enter as a bare \\r — the
+    listener disambiguates via the live Shift state and synthesizes the
+    CSI-u sequence the editor already maps to newline."""
+
+    def test_shift_enter_becomes_csi_u_newline_seq(self):
+        assert _windows_char_to_seq("\r", shift_is_down=lambda: True) == (
+            _SHIFT_ENTER_SEQ
+        )
+
+    def test_plain_enter_stays_a_regular_keystroke(self):
+        assert _windows_char_to_seq("\r", shift_is_down=lambda: False) is None
+
+    def test_shift_with_ordinary_char_is_untouched(self):
+        # Shift+A arrives as 'A' already — no translation wanted.
+        assert _windows_char_to_seq("A", shift_is_down=lambda: True) is None
+
+    def test_seq_maps_to_editor_newline_action(self):
+        """End-to-end contract: the synthesized body is a known newline."""
+        from code_puppy.messaging.editor_keys import classify_csi
+
+        assert _SHIFT_ENTER_SEQ.startswith("\x1b[")
+        assert classify_csi(_SHIFT_ENTER_SEQ[2:]) == "newline"
+
+    def test_default_shift_checker_never_raises(self):
+        """On non-Windows there is no user32 — must degrade to False
+        (plain Enter) instead of raising into the listener loop."""
+        from code_puppy.agents._key_listeners import _win_shift_is_down
+
+        assert _win_shift_is_down() in (True, False)

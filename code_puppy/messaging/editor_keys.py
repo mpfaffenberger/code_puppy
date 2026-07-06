@@ -70,6 +70,9 @@ _CSI_ACTIONS = {
     # CSI-u (kitty-style / iTerm2 "CSI u") and xterm modifyOtherKeys
     # (armed via CSI >4;1m — see bottom_bar). Plain-\r terminals CANNOT
     # encode Shift+Enter at all; users there have Ctrl+J / F2 multiline.
+    # On Windows (where the console ignores modifyOtherKeys) the key
+    # listener synthesizes 13;2u itself via GetAsyncKeyState — see
+    # _key_listeners._windows_char_to_seq.
     "13;2u": "newline",  # Shift+Enter (CSI-u)
     "13;5u": "newline",  # Ctrl+Enter  (CSI-u)
     "27;2;13~": "newline",  # Shift+Enter (modifyOtherKeys)
