@@ -13,17 +13,21 @@ import errno
 import os
 import select as select_mod
 import sys
-import termios
 import threading
 import time
-import tty
 
 import pytest
+
+try:
+    import termios
+    import tty
+except ImportError:  # Windows: a bare import here would abort COLLECTION
+    termios = tty = None  # of the whole test run, not just skip this module
 
 from code_puppy.agents import _key_listeners as kl
 
 pytestmark = pytest.mark.skipif(
-    not hasattr(select_mod, "select") or os.name == "nt",
+    termios is None or not hasattr(select_mod, "select") or os.name == "nt",
     reason="POSIX listener only",
 )
 
