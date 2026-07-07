@@ -1,3 +1,5 @@
+import os
+
 from code_puppy.callbacks import on_register_agent_tools, on_register_tools
 from code_puppy.messaging import emit_warning
 from code_puppy.tools.agent_tools import register_list_agents
@@ -190,6 +192,26 @@ TOOL_EXPANSIONS: dict[str, list[str]] = {
 # that still work should stay in TOOL_REGISTRY.
 REMOVED_LEGACY_TOOLS: set[str] = set()
 
+# Process-wide tool kill-switch (issue #182). Set by the builtin ``no_tools``
+# plugin when ``--no-tools`` is passed, or directly by wrappers that spawn
+# Code Puppy as a subprocess. An env var (not puppy.cfg) on purpose: it's
+# scoped to this process and never persists.
+NO_TOOLS_ENV_VAR = "CODE_PUPPY_NO_TOOLS"
+
+
+def tools_disabled() -> bool:
+    """True when the ``CODE_PUPPY_NO_TOOLS`` kill-switch is active.
+
+    When active, no tools are registered on any agent and no MCP toolsets
+    are attached — the model runs pure text-in/text-out.
+    """
+    return os.environ.get(NO_TOOLS_ENV_VAR, "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
 
 def _load_plugin_tools() -> None:
     """Load tools registered by plugins via the register_tools callback.
@@ -289,6 +311,11 @@ def register_tools_for_agent(
             advertise tools per-agent if they want.
     """
     from code_puppy.config import get_universal_constructor_enabled
+
+    if tools_disabled():
+        # --no-tools / CODE_PUPPY_NO_TOOLS: register nothing at all. This
+        # also keeps tool schemas out of the request, trimming token usage.
+        return
 
     _load_plugin_tools()
 
