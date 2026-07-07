@@ -512,6 +512,13 @@ def _drain_windows_burst(msvcrt) -> list:
     return items
 
 
+#: Bracketed-paste markers a modern terminal (Windows Terminal ≥1.18
+#: honors the ?2004h arming the bottom bar emits) may ALREADY have put
+#: around a paste before ConPTY flattens it into a char flood.
+_PASTE_OPEN = "\x1b[200~"
+_PASTE_CLOSE = "\x1b[201~"
+
+
 def _coalesce_paste_burst(items: list) -> Optional[str]:
     """Return the paste payload for a large all-text burst, else ``None``.
 
@@ -527,6 +534,63 @@ def _coalesce_paste_burst(items: list) -> Optional[str]:
     if any(kind != "char" for kind, _ in items):
         return None
     return "".join(value for _, value in items)
+
+
+def _editor_paste_active() -> bool:
+    """True when the installed line editor is mid-bracketed-paste."""
+    editor = get_line_editor()
+    if editor is None:
+        return False
+    try:
+        return bool(getattr(editor, "paste_active", False))
+    except Exception:
+        return False
+
+
+def _route_windows_burst(
+    items: list,
+    on_escape: Callable[[], None],
+    cancel_agent_char: Optional[str],
+    on_cancel_agent: Optional[Callable[[], None]],
+) -> None:
+    """Route one drained console burst to the editor / hotkey dispatch.
+
+    Four lanes, in priority order:
+
+    1. Editor mid-paste — continuation of a terminal-bracketed paste
+       split across poll ticks: stream verbatim until the editor's
+       PasteBuffer sees the closer. Wrapping (or dispatching) here
+       would corrupt the payload.
+    2. Terminal-bracketed paste — Windows Terminal honors the ?2004h
+       arming and ConPTY delivers the ESC[200~/201~ markers as plain
+       chars. Feed verbatim: wrapping AGAIN nests the markers, the
+       inner opener classifies as "text", and an image-only paste
+       (empty payload: ESC[200~ESC[201~) never reaches the
+       clipboard-image capture — the Windows Ctrl+V image regression.
+    3. Raw char flood (legacy conhost / older WT) — synthesize a
+       bracketed paste so the editor inserts atomically and newlines
+       stay IN the buffer instead of submitting one prompt per line.
+    4. Real typing — per-key dispatch (hotkeys keep priority; ambiguous
+       classic-console encodings like Shift+Enter get translated).
+    """
+    payload = _coalesce_paste_burst(items)
+    if _editor_paste_active():
+        for _, value in items:
+            _feed_line_editor(value)
+    elif payload is not None and (_PASTE_OPEN in payload or _PASTE_CLOSE in payload):
+        _feed_line_editor(payload)
+    elif payload is not None:
+        _feed_line_editor(_PASTE_OPEN + payload + _PASTE_CLOSE)
+    else:
+        for kind, value in items:
+            if kind == "char":
+                translated = _windows_char_to_seq(value)
+                if translated is not None:
+                    kind, value = "seq", translated
+            if kind == "seq":
+                _feed_line_editor(value)
+            else:
+                _dispatch_key(value, on_escape, cancel_agent_char, on_cancel_agent)
 
 
 def _listen_windows(
@@ -568,24 +632,9 @@ def _listen_windows(
                 # layouts) is indistinguishable from the prefix and
                 # briefly blocks the read until the next keypress.
                 items = _drain_windows_burst(msvcrt)
-                payload = _coalesce_paste_burst(items)
-                if payload is not None:
-                    # Synthesize a bracketed paste: the editor inserts
-                    # it atomically and newlines stay IN the buffer
-                    # instead of submitting one prompt per line.
-                    _feed_line_editor("\x1b[200~" + payload + "\x1b[201~")
-                else:
-                    for kind, value in items:
-                        if kind == "char":
-                            translated = _windows_char_to_seq(value)
-                            if translated is not None:
-                                kind, value = "seq", translated
-                        if kind == "seq":
-                            _feed_line_editor(value)
-                        else:
-                            _dispatch_key(
-                                value, on_escape, cancel_agent_char, on_cancel_agent
-                            )
+                _route_windows_burst(
+                    items, on_escape, cancel_agent_char, on_cancel_agent
+                )
             else:
                 # Idle tick: let a pending bare ESC expire.
                 _tick_line_editor()

@@ -155,6 +155,15 @@ class RunningLineEditor:
         with self._lock:  # async Ctrl+V clipboard handler (run_ui)
             self._clipboard_handler = handler
 
+    @property
+    def paste_active(self) -> bool:
+        """True while a bracketed paste is streaming into the buffer.
+
+        The Windows key listener checks this so a paste split across
+        poll ticks isn't re-coalesced (and re-wrapped) mid-stream.
+        """
+        return self._paste.active
+
     def insert_paste_text(self, text: str) -> None:
         """Insert clipboard content (programmatic — no completion)."""
         if not text:
