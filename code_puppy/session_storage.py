@@ -44,6 +44,8 @@ class SessionMetadata:
     pickle_path: Path
     metadata_path: Path
     auto_saved: bool = False
+    label: str | None = None
+    cwd: str | None = None
 
     def as_serialisable(self) -> dict[str, Any]:
         return {
@@ -53,7 +55,57 @@ class SessionMetadata:
             "total_tokens": self.total_tokens,
             "file_path": str(self.pickle_path),
             "auto_saved": self.auto_saved,
+            "label": self.label,
+            "cwd": self.cwd,
         }
+
+
+# ---------------------------------------------------------------------------
+# Deterministic session labeling (issue #246)
+# ---------------------------------------------------------------------------
+# Human-readable identity derived purely from data already at hand -- the
+# working directory and the first user prompt. No LLM call, no token cost,
+# no latency, fully reproducible.
+
+_LABEL_PROMPT_MAX_CHARS = 60
+
+
+def _first_user_prompt(history: SessionHistory) -> str | None:
+    """Return the first user-prompt text in ``history``, or ``None``.
+
+    Duck-types against pydantic-ai message shapes (``msg.parts`` with
+    ``part_kind == "user-prompt"``) so unpickled histories from older
+    versions still work. Non-string content (attachments) is skipped.
+    """
+    for message in history:
+        for part in getattr(message, "parts", []) or []:
+            if getattr(part, "part_kind", None) != "user-prompt":
+                continue
+            content = getattr(part, "content", None)
+            if isinstance(content, str) and content.strip():
+                return content
+    return None
+
+
+def derive_session_label(history: SessionHistory) -> str | None:
+    """Build a deterministic label like ``[my-project] Fix column mapping``.
+
+    Combines the current working directory's basename with the first user
+    prompt (whitespace-collapsed, truncated to ~60 chars). Returns ``None``
+    when neither component is available (e.g. an empty lazy-created
+    session in an unnamed cwd).
+    """
+    parts: list[str] = []
+    project = Path.cwd().name
+    if project:
+        parts.append(f"[{project}]")
+    prompt = _first_user_prompt(history)
+    if prompt:
+        collapsed = " ".join(prompt.split())
+        if len(collapsed) > _LABEL_PROMPT_MAX_CHARS:
+            collapsed = collapsed[: _LABEL_PROMPT_MAX_CHARS - 1].rstrip() + "\u2026"
+        parts.append(collapsed)
+    return " ".join(parts) or None
 
 
 def _extract_pickle_payload(raw: bytes) -> bytes:
@@ -99,6 +151,13 @@ def save_session(
     tmp_pickle.replace(paths.pickle_path)
 
     total_tokens = sum(token_estimator(message) for message in history)
+    try:
+        label = derive_session_label(history)
+        cwd = str(Path.cwd())
+    except Exception:
+        # Labeling is decorative -- never let it poison the save path.
+        label = None
+        cwd = None
     metadata = SessionMetadata(
         session_name=session_name,
         timestamp=timestamp,
@@ -107,6 +166,8 @@ def save_session(
         pickle_path=paths.pickle_path,
         metadata_path=paths.metadata_path,
         auto_saved=auto_saved,
+        label=label,
+        cwd=cwd,
     )
 
     tmp_metadata = paths.metadata_path.with_suffix(".tmp")
@@ -199,13 +260,15 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
                 data = json.load(meta_file)
             timestamp = data.get("timestamp")
             message_count = data.get("message_count")
+            label = data.get("label")
         except Exception:
             timestamp = None
             message_count = None
-        entries.append((name, timestamp, message_count))
+            label = None
+        entries.append((name, timestamp, message_count, label))
 
     def sort_key(entry):
-        _, timestamp, _ = entry
+        _, timestamp, _, _ = entry
         if timestamp:
             try:
                 return datetime.fromisoformat(timestamp)
@@ -224,15 +287,20 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
         end = min(start + PAGE_SIZE, total)
         page_entries = entries[start:end]
         emit_system_message("Autosave Sessions Available:")
-        for idx, (name, timestamp, message_count) in enumerate(page_entries, start=1):
+        for idx, (name, timestamp, message_count, label) in enumerate(
+            page_entries, start=1
+        ):
             timestamp_display = timestamp or "unknown time"
             message_display = (
                 f"{message_count} messages"
                 if message_count is not None
                 else "unknown size"
             )
+            # Deterministic label (#246) beats the opaque auto_session_* name.
+            display_name = label or name
             emit_system_message(
-                f"  [{idx}] {name} ({message_display}, saved at {timestamp_display})"
+                f"  [{idx}] {display_name} "
+                f"({message_display}, saved at {timestamp_display})"
             )
         # If there are more pages, offer next-page; show 'Return to first page' on last page
         if total > PAGE_SIZE:
@@ -289,7 +357,7 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
             continue
 
         # Allow direct typing by exact session name
-        for name, _ts, _mc in entries:
+        for name, _ts, _mc, _label in entries:
             if name == selection:
                 chosen_name = name
                 break

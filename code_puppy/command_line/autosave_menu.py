@@ -268,12 +268,16 @@ def _render_menu_panel(
         msg_count = metadata.get("message_count", "?")
 
         # For named sessions, include the name so users can tell them
-        # apart at a glance. Auto-flavored sessions keep the existing
-        # timestamp+count summary -- the auto_session_* names are noise.
+        # apart at a glance. Auto-flavored sessions get the deterministic
+        # label persisted at save time (#246) -- '[project] first prompt' --
+        # since the auto_session_* names are noise.
         if section == "named":
             label = f"{time_str} \u2022 {msg_count} msgs ({session_name})"
         else:
             label = f"{time_str} \u2022 {msg_count} msgs"
+            derived = metadata.get("label")
+            if derived:
+                label = f"{label} \u2014 {derived}"
 
         # Highlight selected item
         if is_selected:
@@ -422,6 +426,11 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
     lines.append(("bold", "  Session: "))
     lines.append(("", session_name))
     lines.append(("", "\n"))
+
+    derived = metadata.get("label")
+    if derived:
+        lines.append(("fg:ansibrightblack", f"  Label: {derived}"))
+        lines.append(("", "\n"))
 
     timestamp = metadata.get("timestamp", "unknown")
     try:
