@@ -41,31 +41,47 @@ def make_schedule_cancel(
     """Build the ``schedule_agent_cancel`` callback for the key listener.
 
     The returned callback accepts ``force``: when ``True`` it skips the
-    "refuse to cancel while a shell is running" guard. The shell SIGINT
-    handler uses ``force=True`` because it kills all shells *before*
-    requesting the cancel, so the guard's anti-orphan rationale no longer
-    applies -- and during a sub-agent swarm shells are almost always
-    running, so without the bypass a single Ctrl+C could never stop the
-    swarm (it would only ever kill the current batch of shells).
+    kill-running-shells step. The shell SIGINT handler uses
+    ``force=True`` because it kills all shells *before* requesting the
+    cancel, so sweeping them again here would be redundant.
+
+    When ``force`` is False and shells ARE running, the callback kills
+    them first and then cancels — mirroring ``_shell_sigint_handler``
+    (the POSIX ^C-during-shell path). This is load-bearing on Windows:
+    the session strips ENABLE_PROCESSED_INPUT so ^C never becomes a
+    SIGINT — it arrives as a raw ``\\x03`` and lands HERE instead of in
+    the shell SIGINT handler. The old behavior (refuse + "press Ctrl+X")
+    left Ctrl+C dead for the entire lifetime of every shell command on
+    Windows: the run stayed active, new submissions queued as steers,
+    and the eventual cancel discarded them. Killing the shells first
+    preserves the guard's anti-orphan rationale (a cancelled executor
+    await would otherwise leave the subprocess spewing into the
+    terminal) while letting the cancel actually proceed.
     """
 
     def schedule_agent_cancel(force: bool = False) -> None:
-        from code_puppy.tools.command_runner import _RUNNING_PROCESSES
+        from code_puppy.tools.command_runner import (
+            _RUNNING_PROCESSES,
+            _tear_down_live_panels,
+            kill_all_running_shell_processes,
+        )
 
-        if _RUNNING_PROCESSES and not force:
-            emit_warning(
-                "Refusing to cancel Agent while a shell command is running — "
-                "press Ctrl+X to cancel the shell command."
-            )
-            return
         if agent_task.done():
             return
+        if _RUNNING_PROCESSES and not force:
+            # Ordering matters (see _shell_sigint_handler): hide the
+            # panel and show the banner BEFORE the kill — the sweep
+            # blocks this (key-listener) thread up to ~2s per process,
+            # and the user deserves instant feedback.
+            _tear_down_live_panels()
+            emit_warning(
+                "\nCtrl-C detected! Stopping the agent (shells + all sub-agents)..."
+            )
+            kill_all_running_shell_processes()
         if _active_subagent_tasks:
             # Hide the sub-agent status panel (rendered inside the spinner's
             # Live) the same way the steer flow does, so the cancel banner
             # isn't instantly repainted over. Mirrors _shell_sigint_handler.
-            from code_puppy.tools.command_runner import _tear_down_live_panels
-
             _tear_down_live_panels()
             emit_warning(
                 f"Cancelling {len(_active_subagent_tasks)} active subagent task(s)..."
