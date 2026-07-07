@@ -201,6 +201,38 @@ def reset_unix_terminal() -> None:
         pass  # Silently fail if reset command isn't available
 
 
+#: Disable every xterm mouse-tracking mode plus bracketed paste.
+#: 1000=click, 1002=drag, 1003=any-motion, 1005/1006/1015=coordinate
+#: encodings, 2004=bracketed paste. Disabling a mode that was never
+#: enabled is a harmless no-op, so we always send the full set.
+_MOUSE_TRACKING_OFF = (
+    "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?2004l"
+)
+
+
+def disable_mouse_tracking(stream=None) -> None:
+    """Explicitly disable xterm mouse tracking and bracketed paste.
+
+    Safety net for TUI components that enable ``mouse_support``: if their
+    cleanup is interrupted (thread race, exception during alternate-screen
+    exit), mouse tracking stays armed and every click/scroll floods stdin
+    with escape sequences that leak into the prompt as garbage (#244).
+
+    Safe to call unconditionally on POSIX: prompt_toolkit re-arms
+    bracketed paste on the next prompt render. No-op on Windows, where
+    mouse reporting is a console-mode flag handled by
+    :func:`reset_windows_console_mode` instead of escape sequences.
+    """
+    if platform.system() == "Windows":
+        return
+    out = stream if stream is not None else sys.stdout
+    try:
+        out.write(_MOUSE_TRACKING_OFF)
+        out.flush()
+    except Exception:
+        pass  # Never let a cleanup helper crash the caller.
+
+
 def reset_terminal() -> None:
     """Cross-platform terminal reset.
 

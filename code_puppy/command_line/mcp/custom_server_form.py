@@ -607,11 +607,15 @@ class CustomServerForm:
 
         # Create application - start focused on name input
         layout = Layout(root_container, focused_element=self.name_area)
+        # mouse_support stays False like every other TUI component: it was
+        # the only True in the codebase, and if cleanup is interrupted the
+        # terminal's mouse-tracking modes stay armed — every click/scroll
+        # then floods stdin with escape garbage (#244).
         app = Application(
             layout=layout,
             key_bindings=kb,
             full_screen=False,
-            mouse_support=True,
+            mouse_support=False,
         )
 
         set_awaiting_user_input(True)
@@ -637,6 +641,11 @@ class CustomServerForm:
             # Exit alternate screen buffer
             sys.stdout.write("\033[?1049l")
             sys.stdout.flush()
+            # Safety net: make sure mouse tracking / bracketed paste can't
+            # stay armed even if prompt_toolkit's own teardown was skipped.
+            from code_puppy.terminal_utils import disable_mouse_tracking
+
+            disable_mouse_tracking()
             set_awaiting_user_input(False)
 
         # Clear exit message if not installing
