@@ -12,7 +12,12 @@ from code_puppy.plugins.no_tools import register_callbacks as no_tools_plugin
 
 @pytest.fixture
 def clean_env(monkeypatch):
-    monkeypatch.delenv(tools_pkg.NO_TOOLS_ENV_VAR, raising=False)
+    # setenv first so monkeypatch records the pre-test state (absent) and
+    # teardown removes the var even when _handle_cli_args writes os.environ
+    # DIRECTLY (delenv(raising=False) on an absent var records nothing,
+    # which let the flag leak into later tests and break the suite).
+    monkeypatch.setenv(tools_pkg.NO_TOOLS_ENV_VAR, "sentinel")
+    monkeypatch.delenv(tools_pkg.NO_TOOLS_ENV_VAR)
     return monkeypatch
 
 
