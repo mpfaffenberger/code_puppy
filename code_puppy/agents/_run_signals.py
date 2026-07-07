@@ -74,8 +74,12 @@ def make_schedule_cancel(
             # blocks this (key-listener) thread up to ~2s per process,
             # and the user deserves instant feedback.
             _tear_down_live_panels()
+            # Key-agnostic wording: on POSIX this branch is only reachable
+            # via a REMAPPED cancel hotkey (ctrl+k/ctrl+q — SIGINT owns
+            # ctrl+c and routes through _shell_sigint_handler instead),
+            # so "Ctrl-C detected!" would be a lie there.
             emit_warning(
-                "\nCtrl-C detected! Stopping the agent (shells + all sub-agents)..."
+                "\nCancel requested! Stopping the agent (shells + all sub-agents)..."
             )
             kill_all_running_shell_processes()
         if _active_subagent_tasks:

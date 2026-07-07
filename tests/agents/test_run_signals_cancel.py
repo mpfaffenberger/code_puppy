@@ -83,6 +83,29 @@ async def test_no_shells_means_no_sweep(monkeypatch, kill_spy):
     assert kill_spy == []
 
 
+async def test_swarm_stop_sweeps_shells_and_subagents(monkeypatch, kill_spy):
+    """One press stops the whole tree: shells killed, sub-agents cancelled.
+
+    The old refusal returned early, so a swarm with shells in flight
+    could never be stopped by the cancel hotkey at all.
+    """
+    _shells_running(monkeypatch, True)
+    task = await _hanging_task()
+    subagent = await _hanging_task()
+    monkeypatch.setattr(
+        "code_puppy.agents._run_signals._active_subagent_tasks", {subagent}
+    )
+    cancel = make_schedule_cancel(task, asyncio.get_running_loop())
+
+    cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=2)
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(subagent, timeout=2)
+    assert kill_spy == ["kill"]
+
+
 async def test_done_task_is_a_noop(monkeypatch, kill_spy):
     """A stale handler firing after run end must not sweep anyone's shells."""
     _shells_running(monkeypatch, True)
