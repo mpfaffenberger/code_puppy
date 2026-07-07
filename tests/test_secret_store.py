@@ -216,3 +216,46 @@ class TestFallbackPath:
         with _w.catch_warnings():
             _w.simplefilter("error")
             secret_store.set_secret("k2", "v2")  # would raise if it warned
+
+
+# ---------------------------------------------------------------------------
+# 4. Cross-platform fixes
+# ---------------------------------------------------------------------------
+
+
+class TestCrossPlatform:
+    def test_ensure_backend_survives_import_error(self):
+        """_ensure_backend must not crash when secret_store_backends is
+        unimportable (e.g. Windows where fcntl doesn't exist)."""
+        secret_store._backend_installed = False
+        with patch.dict(
+            "sys.modules", {"code_puppy.secret_store_backends": None}
+        ):
+            # Should complete without raising.
+            secret_store._ensure_backend()
+        assert secret_store._backend_installed is True
+
+    def test_write_fallback_without_fchmod(self, tmp_fallback, monkeypatch):
+        """_write_fallback must succeed when os.fchmod is absent (Windows)."""
+        monkeypatch.delattr(os, "fchmod", raising=False)
+        assert secret_store._write_fallback({"k": "v"}) is True
+        assert json.loads(tmp_fallback.read_text()) == {"k": "v"}
+        mode = stat.S_IMODE(os.stat(tmp_fallback).st_mode)
+        assert mode == 0o600
+
+    def test_set_warns_on_transient_keyring_failure(self, tmp_fallback):
+        """When keyring is healthy but the write fails, set_secret warns
+        instead of silently stranding the secret in the fallback file."""
+        fake = MagicMock()
+        fake.set_password = MagicMock(side_effect=Exception("transient"))
+        fake.get_password = MagicMock(return_value=None)
+
+        backend = MagicMock()
+        backend.priority = 10  # healthy
+        fake.get_keyring = MagicMock(return_value=backend)
+
+        with patch.object(secret_store, "keyring", fake):
+            with pytest.warns(UserWarning, match="Keyring write failed"):
+                secret_store.set_secret("k", "v")
+        # Must NOT have written to the fallback file.
+        assert not tmp_fallback.exists()

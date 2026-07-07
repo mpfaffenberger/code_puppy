@@ -53,9 +53,14 @@ def _ensure_backend() -> None:
     if _backend_installed:
         return
     _backend_installed = True
-    from code_puppy.secret_store_backends import (
-        install_consolidated_backend_if_appropriate,
-    )
+    try:
+        from code_puppy.secret_store_backends import (
+            install_consolidated_backend_if_appropriate,
+        )
+    except ImportError:
+        # secret_store_backends imports fcntl (POSIX-only); on Windows
+        # the consolidated macOS backend is irrelevant anyway.
+        return
 
     install_consolidated_backend_if_appropriate()
 
@@ -166,7 +171,11 @@ def _write_fallback(data: dict[str, str]) -> bool:
 
     fd, tmp = tempfile.mkstemp(dir=CONFIG_DIR, suffix=".tmp")
     try:
-        os.fchmod(fd, _FALLBACK_MODE)
+        # os.fchmod is POSIX-only; fall back to os.chmod on the path.
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, _FALLBACK_MODE)
+        else:
+            os.chmod(tmp, _FALLBACK_MODE)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
             f.flush()
@@ -216,6 +225,18 @@ def set_secret(name: str, value: str) -> None:
     """
     _ensure_backend()
     if _keyring_set(name, value):
+        return
+
+    if keyring_available():
+        # The backend is healthy but the write still failed (transient
+        # error, permission prompt dismissed, etc.).  Writing to the
+        # fallback here would strand the secret: get_secret() skips the
+        # fallback when the keyring is available.  Warn instead.
+        warnings.warn(
+            f"Keyring write failed for {name!r} despite a healthy "
+            "backend; the secret was not persisted.",
+            stacklevel=2,
+        )
         return
 
     _warn_fallback_active()
