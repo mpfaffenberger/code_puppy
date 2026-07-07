@@ -171,11 +171,7 @@ def _write_fallback(data: dict[str, str]) -> bool:
 
     fd, tmp = tempfile.mkstemp(dir=CONFIG_DIR, suffix=".tmp")
     try:
-        # os.fchmod is POSIX-only; fall back to os.chmod on the path.
-        if hasattr(os, "fchmod"):
-            os.fchmod(fd, _FALLBACK_MODE)
-        else:
-            os.chmod(tmp, _FALLBACK_MODE)
+        os.chmod(tmp, _FALLBACK_MODE)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
             f.flush()

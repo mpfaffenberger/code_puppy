@@ -235,9 +235,8 @@ class TestCrossPlatform:
             secret_store._ensure_backend()
         assert secret_store._backend_installed is True
 
-    def test_write_fallback_without_fchmod(self, tmp_fallback, monkeypatch):
-        """_write_fallback must succeed when os.fchmod is absent (Windows)."""
-        monkeypatch.delattr(os, "fchmod", raising=False)
+    def test_write_fallback_uses_chmod(self, tmp_fallback, monkeypatch):
+        """_write_fallback uses os.chmod (cross-platform), not os.fchmod."""
         assert secret_store._write_fallback({"k": "v"}) is True
         assert json.loads(tmp_fallback.read_text()) == {"k": "v"}
         mode = stat.S_IMODE(os.stat(tmp_fallback).st_mode)
