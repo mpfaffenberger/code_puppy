@@ -980,9 +980,13 @@ async def run_shell_command(
         log_file_path = log_file.name
 
         try:
-            # Platform-specific process detachment
+            # Platform-specific process detachment. CREATE_NO_WINDOW:
+            # own hidden console so the background tree can't stomp OUR
+            # console input mode (see _run_command_sync docstring).
             if sys.platform.startswith("win"):
-                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+                creationflags = (
+                    subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+                )
                 process = subprocess.Popen(
                     command,
                     shell=True,
@@ -1187,12 +1191,34 @@ def _run_command_sync(
     group_id: str,
     silent: bool = False,
 ) -> ShellCommandOutput:
-    """Synchronous command execution - runs in thread pool."""
+    """Synchronous command execution - runs in thread pool.
+
+    Console isolation (Windows): children get ``CREATE_NO_WINDOW`` — their
+    own HIDDEN console — plus ``stdin=DEVNULL``. Sharing our console let
+    the child tree stomp the shared input buffer: ``timeout /t`` and
+    ``powershell`` call ``SetConsoleMode`` and re-enable
+    ``ENABLE_PROCESSED_INPUT``, turning ^C back into console-wide
+    CTRL_C_EVENTs mid-command (killing wrapper launchers like uvx.exe and
+    waking the parent shell into fighting us for stdin), and children
+    could literally eat the user's keystrokes ('press a key to
+    continue'). With an isolated console their mode changes hit THEIR
+    console, keyboard ^C can never be delivered to them as an event, and
+    cancellation flows exclusively through the key listener →
+    ``kill_all_running_shell_processes`` (taskkill /T) path by design.
+
+    ``stdin=DEVNULL`` on every platform: agent shell commands are
+    non-interactive by contract — a child reading stdin used to compete
+    with the key listener for keystrokes (POSIX: also stomping termios);
+    now it gets instant EOF instead of hanging until timeout.
+    """
     creationflags = 0
     preexec_fn = None
     if sys.platform.startswith("win"):
         try:
-            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+            creationflags = (
+                subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+                | subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+            )
         except Exception:
             creationflags = 0
     else:
@@ -1205,6 +1231,7 @@ def _run_command_sync(
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
         cwd=cwd,
         bufsize=0,  # Unbuffered for real-time output
         preexec_fn=preexec_fn,
