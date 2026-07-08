@@ -16,7 +16,7 @@ from code_puppy.keymap import (
     KEY_CODES,
     VALID_CANCEL_KEYS,
     KeymapError,
-    cancel_agent_uses_signal,
+    sigint_fallback_cancels,
     get_cancel_agent_char_code,
     get_cancel_agent_display_name,
     get_cancel_agent_key,
@@ -157,48 +157,54 @@ class TestValidateCancelAgentKey:
         assert "ctrl+c" in error_msg or "ctrl+k" in error_msg
 
 
-class TestCancelAgentUsesSignal:
-    """Test cancel_agent_uses_signal function."""
+class TestSigintFallbackCancels:
+    """Test sigint_fallback_cancels function.
+
+    Ctrl+C is a pure keybinding everywhere — the key listener always
+    owns cancel. This function only decides whether an OUT-OF-BAND
+    SIGINT (kill -INT, piped stdin, cooked-mode gaps) cancels the run.
+    """
 
     @patch("code_puppy.keymap._is_windows")
     @patch("code_puppy.keymap.get_cancel_agent_key")
     def test_returns_true_for_ctrl_c_on_posix(self, mock_get_key, mock_is_windows):
-        """Should return True when cancel key is ctrl+c (POSIX)."""
+        """Fallback SIGINT cancels when ^C IS the cancel gesture (POSIX)."""
         mock_get_key.return_value = "ctrl+c"
         mock_is_windows.return_value = False
 
-        result = cancel_agent_uses_signal()
+        result = sigint_fallback_cancels()
 
         assert result is True
 
     @patch("code_puppy.keymap._is_windows")
     @patch("code_puppy.keymap.get_cancel_agent_key")
     def test_returns_false_for_ctrl_c_on_windows(self, mock_get_key, mock_is_windows):
-        """Windows never uses SIGINT for cancel — the console runs with
-        processed input stripped, so ^C arrives as a raw byte for the
-        key listener instead of a signal."""
+        """Windows never routes cancel through SIGINT — the console runs
+        with processed input stripped AND the process-level CTRL_C_EVENT
+        ignore flag set, so ^C arrives as a raw byte for the key
+        listener; a genuinely stray SIGINT only earns console repair."""
         mock_get_key.return_value = "ctrl+c"
         mock_is_windows.return_value = True
 
-        result = cancel_agent_uses_signal()
+        result = sigint_fallback_cancels()
 
         assert result is False
 
     @patch("code_puppy.keymap.get_cancel_agent_key")
     def test_returns_false_for_ctrl_k(self, mock_get_key):
-        """Should return False when cancel key is ctrl+k."""
+        """A SIGINT is not the cancel gesture when cancel is remapped."""
         mock_get_key.return_value = "ctrl+k"
 
-        result = cancel_agent_uses_signal()
+        result = sigint_fallback_cancels()
 
         assert result is False
 
     @patch("code_puppy.keymap.get_cancel_agent_key")
     def test_returns_false_for_ctrl_q(self, mock_get_key):
-        """Should return False when cancel key is ctrl+q."""
+        """A SIGINT is not the cancel gesture when cancel is remapped."""
         mock_get_key.return_value = "ctrl+q"
 
-        result = cancel_agent_uses_signal()
+        result = sigint_fallback_cancels()
 
         assert result is False
 

@@ -345,16 +345,18 @@ def absorb_ctrl_c_if_composing() -> bool:
 def _cleared_hint() -> str:
     """Status hint after a buffer-first Ctrl+C — names the REAL cancel key.
 
-    "press ctrl+c again" is only true when SIGINT owns cancel; on
-    Windows (default ctrl+k) it would be a lie.
+    When the cancel key IS ctrl+c (the default everywhere — the press
+    that just cleared the buffer was the cancel gesture), say "again".
+    When cancel is remapped (ctrl+k/ctrl+q), "press ctrl+c again" would
+    be a lie — name the real key instead.
     """
     try:
         from code_puppy.keymap import (
-            cancel_agent_uses_signal,
             get_cancel_agent_display_name,
+            get_cancel_agent_key,
         )
 
-        if cancel_agent_uses_signal():
+        if get_cancel_agent_key() == "ctrl+c":
             return "input cleared — press ctrl+c again to cancel the agent"
         key = get_cancel_agent_display_name().lower()
         return f"input cleared — press {key} to cancel the agent"

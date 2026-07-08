@@ -16,10 +16,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Optional
 
-from code_puppy.keymap import (
-    cancel_agent_uses_signal,
-    get_cancel_agent_char_code,
-)
+from code_puppy.keymap import get_cancel_agent_char_code
 from code_puppy.messaging import emit_info, emit_warning
 
 
@@ -244,9 +241,10 @@ def spawn_key_listener(
 ) -> Optional[KeyListenerHandle]:
     """Start a daemon thread that listens for Ctrl+X / cancel keys.
 
-    ``on_escape`` handles Ctrl+X (shell cancel); ``on_cancel_agent`` is
-    only used when ``cancel_agent_uses_signal()`` is False. Returns a
-    ``KeyListenerHandle``, or ``None`` if stdin isn't a TTY.
+    ``on_escape`` handles Ctrl+X (shell cancel); ``on_cancel_agent``
+    handles the cancel hotkey (Ctrl+C is a pure keybinding — the
+    listener always owns cancel). Returns a ``KeyListenerHandle``, or
+    ``None`` if stdin isn't a TTY.
     """
     try:
         import sys
@@ -308,21 +306,23 @@ def _resolve_cancel_char(
 ) -> Optional[str]:
     """Resolve the cancel character code once per listener start.
 
-    Returns ``None`` when SIGINT owns cancel. The char is resolved even
-    without a spawn-time callback: the persistent listener (Phase A)
-    receives its per-run handler later via ``set_cancel_handler``, and
-    dispatch re-checks handler presence per keystroke.
+    Ctrl+C is a pure keybinding on every platform, so the cancel char is
+    ALWAYS resolved (the key listener owns cancellation; SIGINT is only
+    an out-of-band fallback). The char is resolved even without a
+    spawn-time callback: the persistent listener (Phase A) receives its
+    per-run handler later via ``set_cancel_handler``, and dispatch
+    re-checks handler presence per keystroke.
     """
-    if cancel_agent_uses_signal():
-        return None
+    del on_cancel_agent  # handler presence is re-checked per keystroke
     try:
         return get_cancel_agent_char_code()
     except Exception:
         return None
 
 
-#: Raw Ctrl+C byte. On Windows the session strips ENABLE_PROCESSED_INPUT,
-#: so ^C reaches the listener as this byte instead of becoming a SIGINT.
+#: Raw Ctrl+C byte. ^C reaches the listener as this byte instead of
+#: becoming a signal: Windows strips ENABLE_PROCESSED_INPUT session-wide;
+#: POSIX disables the tty INTR char while the listener holds cbreak mode.
 _RAW_CTRL_C = "\x03"
 
 
@@ -352,8 +352,8 @@ def _dispatch_key(
     Ctrl+X and the cancel-agent key keep PRIORITY and are never fed to
     the line editor. Shared by the POSIX and Windows listener loops.
 
-    Raw ^C as the cancel char (the Windows default) keeps its universal
-    shell semantics, mirroring the POSIX SIGINT handler's contract:
+    Raw ^C as the cancel char (the default everywhere) keeps its
+    universal shell semantics, matching the old SIGINT handler contract:
     composing input absorbs the press (clear + hint); only an empty
     prompt cancels the run; idle ^C clears the typed line.
     """
@@ -804,6 +804,7 @@ def _posix_read_session(
     ALWAYS restores the original termios attrs on the way out.
     """
     import codecs
+    import os
     import select
     import termios
     import time
@@ -830,10 +831,25 @@ def _posix_read_session(
             # VDISCARD (Ctrl+O) is likewise IEXTEN-gated. Clear IEXTEN so
             # every control char is delivered verbatim, exactly like the
             # raw mode (tty.setraw) the classic prompt_toolkit path used.
+            #
+            # Pure-keybinding Ctrl+C: disable the tty's INTR character so
+            # ^C is delivered as a raw \x03 byte instead of becoming a
+            # SIGINT — the POSIX mirror of Windows' session-wide
+            # ENABLE_PROCESSED_INPUT strip. Disabling just VINTR (set to
+            # _POSIX_VDISABLE, via fpathconf — '\0' on Linux, '\xff' on
+            # BSD/macOS) rather than clearing ISIG keeps ^Z (SIGTSTP) and
+            # ^\ (SIGQUIT) job control intact. Restored with the rest of
+            # the original attrs on suspend/exit, so plain SIGINT
+            # semantics return whenever we release stdin.
             try:
                 attrs = termios.tcgetattr(fd)
                 attrs[0] &= ~termios.ICRNL  # iflag
                 attrs[3] &= ~termios.IEXTEN  # lflag
+                try:
+                    vdisable = os.fpathconf(fd, "PC_VDISABLE")
+                except (OSError, ValueError, AttributeError):
+                    vdisable = 0
+                attrs[6][termios.VINTR] = bytes([vdisable])  # cc
                 termios.tcsetattr(fd, termios.TCSANOW, attrs)
             except Exception:
                 pass

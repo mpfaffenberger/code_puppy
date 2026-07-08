@@ -47,12 +47,14 @@ def make_schedule_cancel(
 
     When ``force`` is False and shells ARE running, the callback kills
     them first and then cancels — mirroring ``_shell_sigint_handler``
-    (the POSIX ^C-during-shell path). This is load-bearing on Windows:
-    the session strips ENABLE_PROCESSED_INPUT so ^C never becomes a
-    SIGINT — it arrives as a raw ``\\x03`` and lands HERE instead of in
-    the shell SIGINT handler. The old behavior (refuse + "press Ctrl+X")
-    left Ctrl+C dead for the entire lifetime of every shell command on
-    Windows: the run stayed active, new submissions queued as steers,
+    (the out-of-band SIGINT fallback path). This is load-bearing on
+    EVERY platform now that Ctrl+C is a pure keybinding: Windows strips
+    ENABLE_PROCESSED_INPUT and POSIX disables the tty INTR char while
+    the key listener owns stdin, so ^C never becomes a SIGINT — it
+    arrives as a raw ``\\x03`` and lands HERE instead of in the shell
+    SIGINT handler. The old behavior (refuse + "press Ctrl+X") left
+    Ctrl+C dead for the entire lifetime of every shell command:
+    the run stayed active, new submissions queued as steers,
     and the eventual cancel discarded them. Killing the shells first
     preserves the guard's anti-orphan rationale (a cancelled executor
     await would otherwise leave the subprocess spewing into the

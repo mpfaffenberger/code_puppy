@@ -403,7 +403,13 @@ def _tear_down_live_panels() -> None:
 
 
 def _shell_sigint_handler(_sig, _frame):
-    """Ctrl-C during shell execution: stop the swarm responsively.
+    """SIGINT during shell execution: stop the swarm responsively.
+
+    Ctrl+C is a pure keybinding — with a raw-mode key listener owning
+    stdin, ^C arrives as ``\\x03`` and cancels via the key-listener path
+    (``make_schedule_cancel``) instead of here. This handler is the
+    out-of-band fallback: ``kill -INT``, piped stdin (no TTY listener),
+    or ^C landing in a cooked-mode gap between raw readers.
 
     ORDER MATTERS, and it's the opposite of what you'd naively expect:
 

@@ -619,9 +619,11 @@ def _interactive_sigint_guard(_sig, _frame):
     #
     # Persistent prompt: Ctrl+C with text in the buffer clears it (classic
     # readline feel); with an empty buffer it stays a no-op (Ctrl+D is
-    # quit). Mid-run this guard only owns SIGINT when the cancel key is
-    # remapped (e.g. Windows defaults to ctrl+k) — buffer-first clearing
-    # applies there too; cancellation stays with the remapped hotkey.
+    # quit). Ctrl+C is a pure keybinding — while a raw-mode reader owns
+    # stdin it arrives as \x03 and never lands here; this guard only sees
+    # out-of-band SIGINTs (kill -INT, cooked-mode gaps) and, mid-run, only
+    # owns them when the cancel key is remapped — buffer-first clearing
+    # applies there too; cancellation stays with the key listener.
     try:
         from code_puppy.messaging.run_ui import (
             absorb_ctrl_c_if_composing,

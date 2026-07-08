@@ -7,7 +7,8 @@ preserved verbatim:
 - Plugin-supplied async context managers wrap the run (see
   ``on_agent_run_context``); used e.g. by the DBOS plugin to set a workflow
   ID and swap MCP toolsets in/out.
-- Signal-vs-key-listener branch driven by ``cancel_agent_uses_signal()``
+- SIGINT fallback-handler choice driven by ``sigint_fallback_cancels()``
+  (the key listener always owns cancel; ^C is a pure keybinding)
 - Windows terminal reset on graceful SIGINT
 - ``is_awaiting_user_input()`` guards interrupt handling
 - Subagent task cancellation via ``_active_subagent_tasks``
@@ -94,7 +95,7 @@ from code_puppy.config import (
     get_max_hook_retries,
     get_message_limit,
 )
-from code_puppy.keymap import cancel_agent_uses_signal
+from code_puppy.keymap import sigint_fallback_cancels
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.command_runner import is_awaiting_user_input
 
@@ -809,14 +810,21 @@ async def _run_with_mcp_impl(
         # and cancel hotkey alone — the outer run owns them, and cancelling
         # the outer task propagates into this awaited one anyway.
         if not is_nested_run:
-            if cancel_agent_uses_signal():
+            # Ctrl+C is a PURE keybinding: whenever a raw-mode reader owns
+            # stdin (key listener with VINTR disabled on POSIX; raw-Ctrl+C
+            # console clamp on Windows), ^C arrives as \x03 and the key
+            # listener handles cancellation. SIGINT only fires out-of-band
+            # (kill -INT, piped stdin with no listener, cooked-mode gaps
+            # between raw readers) — the handler installed here is that
+            # fallback: it cancels when ^C IS the cancel gesture, and only
+            # hints at the real key when cancel is remapped.
+            if sigint_fallback_cancels():
                 original_handler = signal.signal(
                     signal.SIGINT, keyboard_interrupt_handler
                 )
-                cancel_cb: Optional[Callable[[], None]] = None  # SIGINT owns cancel
             else:
                 original_handler = signal.signal(signal.SIGINT, graceful_sigint_handler)
-                cancel_cb = schedule_agent_cancel
+            cancel_cb: Optional[Callable[[], None]] = schedule_agent_cancel
             # Key listener: with the persistent prompt (Phase A) a REPL-
             # lifetime listener already owns stdin — just arm the per-run
             # cancel hotkey on it. Otherwise (headless -r, classic prompt,
