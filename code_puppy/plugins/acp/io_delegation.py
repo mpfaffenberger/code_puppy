@@ -22,11 +22,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 from typing import Any, List, Optional, Tuple
 
 from code_puppy.plugins.acp import capabilities, state
 from code_puppy.tools.io_backends import (
+    DirEntry,
     ExecResult,
     set_command_executor,
     set_filesystem_backend,
@@ -47,12 +49,21 @@ def shell_invocation(command: str) -> Tuple[str, List[str]]:
 
 
 class DelegatedFileSystemBackend:
-    """Synchronous workspace file I/O that delegates to the client's ``fs/*``.
+    """Workspace file I/O that delegates *content* to the client's ``fs/*``.
 
-    Called from Code Puppy's tool threadpool, so each method bridges to the ACP
-    loop via ``run_coroutine_threadsafe`` and blocks the worker for the answer.
-    The loop stays free to service the round-trip, so there's no deadlock; a
-    guard bails out if we ever end up on the loop thread itself.
+    Called from Code Puppy's tool threadpool, so the content methods bridge to
+    the ACP loop via ``run_coroutine_threadsafe`` and block the worker for the
+    answer. The loop stays free to service the round-trip, so there's no
+    deadlock; a guard bails out if we ever end up on the loop thread itself.
+
+    Topology/metadata (exists / is_file / is_dir / list_dir / delete /
+    make_dirs) is served from the **local disk**: an ACP editor host runs on
+    the same machine and workspace as the agent, so the local filesystem is the
+    authoritative source for what exists and how the tree is shaped -- only
+    *content* carries the host's unsaved-buffer overlay. This "topology is
+    local" decision lives here, in the adapter that legitimately knows its host
+    shares the disk, and never leaks into the general ``FileSystemBackend``
+    seam (a remote/virtual backend would implement these against its own store).
     """
 
     def read_text_file(
@@ -71,6 +82,41 @@ class DelegatedFileSystemBackend:
             await conn.write_text_file(content=content, path=path, session_id=sid)
 
         self._bridge(_write)
+
+    # --- topology / metadata: local disk (host shares it) ------------------
+    def exists(self, path: str) -> bool:
+        return os.path.exists(path)
+
+    def is_file(self, path: str) -> bool:
+        return os.path.isfile(path)
+
+    def is_dir(self, path: str) -> bool:
+        return os.path.isdir(path)
+
+    def list_dir(self, path: str) -> List[DirEntry]:
+        if not os.path.exists(path):
+            raise FileNotFoundError(path)
+        if not os.path.isdir(path):
+            raise NotADirectoryError(path)
+        entries: List[DirEntry] = []
+        for name in os.listdir(path):
+            full = os.path.join(path, name)
+            try:
+                if os.path.isdir(full):
+                    entries.append(DirEntry(name=name, is_dir=True, size=0))
+                elif os.path.isfile(full):
+                    size = os.path.getsize(full)
+                    entries.append(DirEntry(name=name, is_dir=False, size=size))
+            except OSError:
+                continue
+        return entries
+
+    def delete_file(self, path: str) -> None:
+        os.remove(path)
+
+    def make_dirs(self, path: str) -> None:
+        if path:
+            os.makedirs(path, exist_ok=True)
 
     def _bridge(self, make_coro):
         connection = state.get_connection()

@@ -37,6 +37,7 @@ from code_puppy.tools.common import (
     resolve_path,
     write_project_file,
 )
+from code_puppy.tools import fs_access
 
 
 def _create_rejection_response(file_path: str) -> Dict[str, Any]:
@@ -224,10 +225,9 @@ def _delete_snippet_from_file(
     file_path = resolve_path(file_path)
     diff_text = ""
     try:
-        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
-        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-            original = f.read()
+        original = fs_access.read_text(file_path)
         # Sanitize any surrogate characters from reading
         try:
             original = original.encode("utf-8", errors="surrogatepass").decode(
@@ -275,11 +275,10 @@ def _replace_in_file(
     file_path = resolve_path(path)
     diff_text = ""
     try:
-        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
 
-        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-            original = f.read()
+        original = fs_access.read_text(file_path)
 
         # Sanitize any surrogate characters from reading
         try:
@@ -370,7 +369,7 @@ def _write_to_file(
     file_path = resolve_path(path)
 
     try:
-        exists = os.path.exists(file_path)
+        exists = fs_access.exists(file_path)
         if exists and not overwrite:
             return {
                 "success": False,
@@ -383,8 +382,7 @@ def _write_to_file(
         from code_puppy.config import get_diff_context_lines
 
         if exists:
-            with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-                old_content = f.read()
+            old_content = fs_access.read_text(file_path)
             try:
                 old_content = old_content.encode(
                     "utf-8", errors="surrogatepass"
@@ -405,12 +403,9 @@ def _write_to_file(
         diff_text = "".join(diff_lines)
 
         # Only create local directories when writing locally; when a filesystem
-        # backend owns the write (e.g. a remote editor host), the host manages
-        # its own directory creation and a local mkdir would be a phantom.
-        from code_puppy.tools.io_backends import get_filesystem_backend
-
-        if get_filesystem_backend() is None:
-            os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
+        # backend owns the write it manages its own topology (the ACP host, for
+        # instance, creates parents on the local disk it shares).
+        fs_access.make_dirs(os.path.dirname(file_path) or ".")
         write_project_file(file_path, content)
 
         action = "overwritten" if exists else "created"
@@ -568,7 +563,7 @@ def _edit_file(
                 context, file_path, replacements_dict, message_group=group_id
             )
         elif isinstance(payload, ContentPayload):
-            file_exists = os.path.exists(file_path)
+            file_exists = fs_access.exists(file_path)
             if file_exists and not payload.overwrite:
                 return {
                     "success": False,
@@ -625,10 +620,10 @@ def _delete_file(
         return _create_rejection_response(file_path)
 
     try:
-        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             return {"error": f"File '{file_path}' does not exist."}
 
-        os.remove(file_path)
+        fs_access.delete_file(file_path)
         try:
             emit_success(f"Deleted file: {file_path}", message_group=message_group)
         except Exception:

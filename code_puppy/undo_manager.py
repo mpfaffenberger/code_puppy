@@ -1,4 +1,3 @@
-import os
 from typing import Optional, List
 from dataclasses import dataclass
 
@@ -24,11 +23,17 @@ class UndoManager:
             self.history: List[FileChange] = []
 
     def record_change(self, file_path: str, action: str):
+        # Route through the filesystem facade + resolve the path so undo stays
+        # coherent with whatever filesystem the tools actually wrote to (local
+        # disk by default, or an installed backend such as an editor host).
+        from code_puppy.tools import fs_access
+        from code_puppy.tools.common import resolve_path
+
+        file_path = resolve_path(file_path)
         original_content = None
-        if os.path.exists(file_path):
+        if fs_access.exists(file_path):
             try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    original_content = f.read()
+                original_content = fs_access.read_text(file_path)
             except Exception:
                 pass  # Ignore binary files or unreadable files for now
         self.history.append(
@@ -48,15 +53,16 @@ class UndoManager:
             return "No more actions to undo."
 
         try:
+            from code_puppy.tools import fs_access
+
             if change.original_content is None:
                 # File was created, so we delete it
-                if os.path.exists(change.file_path):
-                    os.remove(change.file_path)
+                if fs_access.exists(change.file_path):
+                    fs_access.delete_file(change.file_path)
                 return f"Undid {change.action}: deleted {change.file_path}"
             else:
                 # File was modified or deleted, restore original content
-                with open(change.file_path, "w", encoding="utf-8") as f:
-                    f.write(change.original_content)
+                fs_access.write_text(change.file_path, change.original_content)
                 return f"Undid {change.action}: restored {change.file_path}"
         except Exception as e:
             return f"Failed to undo {change.action} on {change.file_path}: {e}"

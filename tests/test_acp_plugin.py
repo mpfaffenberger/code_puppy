@@ -701,6 +701,208 @@ async def test_fs_backend_read_bridges_worker_thread():
 
 
 # --------------------------------------------------------------------------- #
+# I/O delegation — terminal error/edge paths + bridge guards
+# --------------------------------------------------------------------------- #
+class _TerminalConn(FakeConnection):
+    """FakeConnection with configurable terminal behavior for edge paths."""
+
+    def __init__(
+        self,
+        *,
+        terminal_id="term1",
+        wait_exit_code=0,
+        hang=False,
+        out_exit_code=0,
+        kill_raises=False,
+        release_raises=False,
+        output_raises=False,
+    ):
+        super().__init__()
+        self._terminal_id = terminal_id
+        self._wait_exit_code = wait_exit_code
+        self._hang = hang
+        self._out_exit_code = out_exit_code
+        self._kill_raises = kill_raises
+        self._release_raises = release_raises
+        self._output_raises = output_raises
+        self.killed = False
+
+    async def create_terminal(self, command, session_id, args=None, cwd=None, **_):
+        self.created = (command, args, cwd)
+        return CreateTerminalResponse(terminal_id=self._terminal_id)
+
+    async def wait_for_terminal_exit(self, session_id, terminal_id, **_):
+        if self._hang:
+            await asyncio.sleep(10)
+        if self._wait_exit_code is None:
+            return SimpleNamespace()  # no exit_code attr -> triggers fallback
+        return WaitForTerminalExitResponse(exit_code=self._wait_exit_code)
+
+    async def terminal_output(self, session_id, terminal_id, **_):
+        if self._output_raises:
+            raise RuntimeError("output boom")
+        status = (
+            TerminalExitStatus(exit_code=self._out_exit_code)
+            if self._out_exit_code is not None
+            else None
+        )
+        return TerminalOutputResponse(
+            output="OUT\n", exit_status=status, truncated=False
+        )
+
+    async def kill_terminal(self, session_id, terminal_id, **_):
+        self.killed = True
+        if self._kill_raises:
+            raise RuntimeError("kill boom")
+
+    async def release_terminal(self, session_id, terminal_id, **_):
+        self.released = True
+        if self._release_raises:
+            raise RuntimeError("release boom")
+
+
+async def _run_cmd(conn, command="echo x", cwd="/tmp", timeout=60):
+    state.set_connection(conn, asyncio.get_event_loop())
+    state.begin_run("s1")
+    try:
+        return await io_delegation.DelegatedCommandExecutor().run(command, cwd, timeout)
+    finally:
+        state.end_run()
+        state.set_connection(None, None)
+
+
+@pytest.mark.asyncio
+async def test_command_timeout_kills_and_reports_minus_one():
+    conn = _TerminalConn(hang=True, out_exit_code=None)
+    result = await _run_cmd(conn, timeout=0)
+    assert result.timed_out is True
+    assert result.exit_code == -1  # no exit status available after a timeout
+    assert conn.killed is True
+    assert conn.released is True  # released in finally, always
+
+
+@pytest.mark.asyncio
+async def test_command_exit_status_fallback_when_wait_has_no_code():
+    # wait_for_terminal_exit returns no exit_code -> fall back to terminal_output.
+    conn = _TerminalConn(wait_exit_code=None, out_exit_code=7)
+    result = await _run_cmd(conn)
+    assert result.exit_code == 7
+    assert result.timed_out is False
+
+
+@pytest.mark.asyncio
+async def test_command_missing_terminal_id_raises():
+    conn = _TerminalConn(terminal_id="")
+    with pytest.raises(RuntimeError, match="terminalId"):
+        await _run_cmd(conn)
+
+
+@pytest.mark.asyncio
+async def test_command_no_connection_raises():
+    state.set_connection(None, None)
+    with pytest.raises(RuntimeError, match="no active connection"):
+        await io_delegation.DelegatedCommandExecutor().run("echo x", "/tmp", 60)
+
+
+@pytest.mark.asyncio
+async def test_command_no_session_raises():
+    conn = _TerminalConn()
+    state.set_connection(conn, asyncio.get_event_loop())
+    state.end_run()  # ensure no active session
+    try:
+        with pytest.raises(RuntimeError, match="outside a session"):
+            await io_delegation.DelegatedCommandExecutor().run("echo x", "/tmp", 60)
+    finally:
+        state.set_connection(None, None)
+
+
+@pytest.mark.asyncio
+async def test_command_kill_and_release_errors_are_swallowed():
+    # A timeout path where both kill and release raise must NOT surface an error.
+    conn = _TerminalConn(
+        hang=True, out_exit_code=None, kill_raises=True, release_raises=True
+    )
+    result = await _run_cmd(conn, timeout=0)  # should not raise
+    assert result.timed_out is True
+    assert conn.killed is True
+
+
+@pytest.mark.asyncio
+async def test_command_releases_terminal_even_when_output_raises():
+    conn = _TerminalConn(output_raises=True)
+    with pytest.raises(RuntimeError, match="output boom"):
+        await _run_cmd(conn)
+    assert conn.released is True  # finally still released it
+
+
+@pytest.mark.asyncio
+async def test_fs_backend_write_bridges_to_client():
+    conn = FakeConnection()
+    state.set_connection(conn, asyncio.get_event_loop())
+    state.begin_run("s1")
+    try:
+        backend = io_delegation.DelegatedFileSystemBackend()
+        await asyncio.to_thread(backend.write_text_file, "/proj/w.py", "DATA\n")
+    finally:
+        state.end_run()
+        state.set_connection(None, None)
+    assert ("/proj/w.py", "DATA\n") in conn.writes
+
+
+@pytest.mark.asyncio
+async def test_fs_backend_bridge_no_connection_raises():
+    state.set_connection(None, None)
+    backend = io_delegation.DelegatedFileSystemBackend()
+    with pytest.raises(RuntimeError, match="no active connection"):
+        await asyncio.to_thread(backend.read_text_file, "/proj/a.py")
+
+
+@pytest.mark.asyncio
+async def test_fs_backend_bridge_no_session_raises():
+    # Connection present but no active session -> the fs bridge must refuse.
+    conn = FakeConnection()
+    state.set_connection(conn, asyncio.get_event_loop())
+    state.end_run()
+    try:
+        backend = io_delegation.DelegatedFileSystemBackend()
+        with pytest.raises(RuntimeError, match="outside a session"):
+            await asyncio.to_thread(backend.read_text_file, "/proj/a.py")
+    finally:
+        state.set_connection(None, None)
+
+
+def test_shell_invocation_windows(monkeypatch):
+    monkeypatch.setattr(io_delegation.sys, "platform", "win32")
+    assert io_delegation.shell_invocation("echo x") == ("cmd", ["/c", "echo x"])
+
+
+def test_shell_invocation_posix(monkeypatch):
+    monkeypatch.setattr(io_delegation.sys, "platform", "linux")
+    assert io_delegation.shell_invocation("echo x") == ("/bin/sh", ["-c", "echo x"])
+
+
+def test_acp_backend_make_dirs_empty_is_noop():
+    # Empty path must be a no-op (guards against makedirs('') raising).
+    io_delegation.DelegatedFileSystemBackend().make_dirs("")
+
+
+@pytest.mark.asyncio
+async def test_fs_backend_bridge_deadlock_guard():
+    # Calling a bridged method while ON the ACP loop must refuse, not deadlock.
+    conn = FakeConnection()
+    loop = asyncio.get_event_loop()
+    state.set_connection(conn, loop)
+    state.begin_run("s1")
+    try:
+        backend = io_delegation.DelegatedFileSystemBackend()
+        with pytest.raises(RuntimeError, match="deadlock"):
+            backend.read_text_file("/proj/a.py")  # sync call, on the loop thread
+    finally:
+        state.end_run()
+        state.set_connection(None, None)
+
+
+# --------------------------------------------------------------------------- #
 # Gap-closing features: fork / persistence / extra-dirs / commands / images /
 # mcp / models / config options
 # --------------------------------------------------------------------------- #
