@@ -617,6 +617,20 @@ def _interactive_sigint_guard(_sig, _frame):
     # be installed instead of this one). Swallow the signal so a fast repeat
     # tap can't escape to main_entry and exit the process.
     #
+    # Windows: a SIGINT reaching Python AT ALL means the console mode
+    # regressed (something re-enabled processed input — with the clamp
+    # active ^C arrives as a raw \x03 instead). Each such event also
+    # leaks console-wide: it kills wrapper launchers (uvx.exe) and wakes
+    # the parent shell into fighting us for stdin. Re-clamp immediately
+    # — the key listener's 1s-cadence heal also covers this, but the
+    # signal is a free, instant tripwire. No-op on POSIX/healthy consoles.
+    try:
+        from code_puppy.terminal_utils import ensure_ctrl_c_disabled
+
+        ensure_ctrl_c_disabled()
+    except Exception:
+        pass
+    #
     # Persistent prompt: Ctrl+C with text in the buffer clears it (classic
     # readline feel); with an empty buffer it stays a no-op (Ctrl+D is
     # quit). Ctrl+C is a pure keybinding — while a raw-mode reader owns

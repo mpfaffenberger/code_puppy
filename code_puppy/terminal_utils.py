@@ -257,15 +257,16 @@ def disable_windows_ctrl_c() -> bool:
     This is more reliable than SetConsoleCtrlHandler because the event is
     never generated in the first place — for ANY process on the console.
 
-    Belt-and-suspenders: on success we ALSO set the process-level ignore
-    flag (``SetConsoleCtrlHandler(NULL, TRUE)``). The mode strip stops
-    the KEYBOARD from generating CTRL_C_EVENT; the ignore flag stops
-    events synthesized by other processes (``GenerateConsoleCtrlEvent``)
-    from reaching Python's SIGINT machinery. Ctrl+C is a pure keybinding
-    — SIGINT effectively never fires on Windows. Safe for children: our
-    shell kills use ``taskkill /T``, never CTRL_C_EVENT, and shell
-    subprocesses already start in CREATE_NEW_PROCESS_GROUP (which
-    implies the same ignore flag anyway).
+    Deliberately NOT ``SetConsoleCtrlHandler(NULL, TRUE)``: the process-
+    level ignore flag silences the very SIGINT that triggers console-mode
+    REPAIR. Anything sharing the console (shell children, conda hooks)
+    can flip ENABLE_PROCESSED_INPUT back on; if we then ignore the
+    resulting CTRL_C_EVENTs, the console stays regressed forever while
+    each ^C kills wrapper launchers (uvx.exe) and wakes the parent shell
+    into fighting us for stdin (the 2026-07-08 uvx incident). Instead the
+    Windows key listener re-clamps the mode on a ~1s cadence and a stray
+    SIGINT still reaches the graceful handler, which repairs via
+    ``reset_windows_terminal_full()``.
 
     Returns:
         True if successfully disabled, False otherwise.
@@ -299,13 +300,6 @@ def disable_windows_ctrl_c() -> bool:
         new_mode = mode.value & ~ENABLE_PROCESSED_INPUT
 
         if kernel32.SetConsoleMode(stdin_handle, new_mode):
-            # Layer 2: ignore CTRL_C_EVENT at the process level too
-            # (see docstring). Best-effort — the mode strip above is
-            # the load-bearing part.
-            try:
-                kernel32.SetConsoleCtrlHandler(None, True)
-            except Exception:
-                pass
             return True
         return False
 
@@ -341,12 +335,6 @@ def enable_windows_ctrl_c() -> bool:
         # Restore original mode
         if kernel32.SetConsoleMode(stdin_handle, _original_ctrl_handler):
             _original_ctrl_handler = None
-            # Drop the process-level CTRL_C_EVENT ignore flag set by
-            # disable_windows_ctrl_c(). Best-effort symmetry.
-            try:
-                kernel32.SetConsoleCtrlHandler(None, False)
-            except Exception:
-                pass
             return True
         return False
 

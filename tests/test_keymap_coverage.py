@@ -180,9 +180,9 @@ class TestSigintFallbackCancels:
     @patch("code_puppy.keymap.get_cancel_agent_key")
     def test_returns_false_for_ctrl_c_on_windows(self, mock_get_key, mock_is_windows):
         """Windows never routes cancel through SIGINT — the console runs
-        with processed input stripped AND the process-level CTRL_C_EVENT
-        ignore flag set, so ^C arrives as a raw byte for the key
-        listener; a genuinely stray SIGINT only earns console repair."""
+        with processed input stripped, so ^C arrives as a raw byte for
+        the key listener; a SIGINT means the console mode regressed and
+        earns repair (reset + re-clamp), not a cancel."""
         mock_get_key.return_value = "ctrl+c"
         mock_is_windows.return_value = True
 

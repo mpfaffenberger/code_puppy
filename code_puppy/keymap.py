@@ -114,10 +114,11 @@ def sigint_fallback_cancels() -> bool:
     remapped (ctrl+k/ctrl+q), a SIGINT is NOT the cancel gesture and
     only earns a hint.
 
-    Always False on Windows: SIGINT effectively never fires there (the
-    session also sets the process-level CTRL_C_EVENT ignore flag), and
-    the graceful handler doubles as console-mode repair for genuinely
-    stray signals.
+    Always False on Windows: with the console clamp active SIGINT only
+    fires when the console mode has REGRESSED (something re-enabled
+    processed input), and cancelling then would be wrong — the graceful
+    handler instead repairs the console via reset_windows_terminal_full()
+    and re-clamps, restoring pure-keybinding delivery.
 
     Returns:
         True if a fallback SIGINT should cancel the agent run,

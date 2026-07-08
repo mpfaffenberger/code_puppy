@@ -603,10 +603,13 @@ def _listen_windows(
     import msvcrt
     import time
 
+    from code_puppy.terminal_utils import ensure_ctrl_c_disabled
+
     cancel_agent_char = _resolve_cancel_char(on_cancel_agent)
 
     backoff = _RECOVERY_INITIAL_BACKOFF_S
     in_outage = False
+    next_clamp_check = 0.0  # first lap re-clamps immediately
 
     while not stop_event.is_set():
         # Honor suspend: msvcrt doesn't reconfigure the terminal, so the
@@ -616,6 +619,26 @@ def _listen_windows(
             if stop_event.is_set():
                 return
             continue
+
+        # Self-healing console clamp. Anything sharing the console (shell
+        # children, conda hooks, full-screen TUIs) can flip
+        # ENABLE_PROCESSED_INPUT back on — then ^C stops arriving as a raw
+        # \x03 and instead fires console-wide CTRL_C_EVENTs that kill
+        # wrapper launchers (uvx.exe) and wake the parent shell into
+        # fighting us for stdin (the 2026-07-08 uvx incident). Re-clamp on
+        # a ~1s cadence so a regressed console heals even at idle, BEFORE
+        # the user presses ^C into it. ensure_ctrl_c_disabled() is a
+        # no-op unless the sticky startup clamp is set AND the mode
+        # actually regressed — one cheap GetConsoleMode per second.
+        # Deliberately NOT run while suspended: whoever suspended us
+        # (prompt_toolkit, ask_user TUI) owns the console mode then.
+        now = time.monotonic()
+        if now >= next_clamp_check:
+            next_clamp_check = now + 1.0
+            try:
+                ensure_ctrl_c_disabled()
+            except Exception:
+                pass
 
         try:
             if msvcrt.kbhit():
