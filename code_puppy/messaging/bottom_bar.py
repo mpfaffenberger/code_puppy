@@ -87,6 +87,7 @@ from .bar_rendering import (
 )
 
 from .bar_painters import PROMPT_MAX_ROWS, BarPainterMixin  # noqa: E402
+from .transcript_guard import TranscriptGuardMixin  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ SizeProvider = Callable[[], Tuple[int, int]]
 # =============================================================================
 
 
-class BottomBar(BarPainterMixin):
+class BottomBar(TranscriptGuardMixin, BarPainterMixin):
     """Scroll-region manager for the persistent bottom prompt.
 
     Use the module-level singleton via :func:`get_bottom_bar` in app code;
@@ -159,6 +160,9 @@ class BottomBar(BarPainterMixin):
         # without hiding, a second "rogue" cursor blinks wherever
         # streaming output last wrote inside the region).
         self._cursor_hidden = False
+        # Windows scrollback guard (no-op state on POSIX) — see
+        # transcript_guard.TranscriptGuardMixin.
+        self._init_transcript_guard_state()
 
     # =========================================================================
     # Public API
@@ -177,6 +181,7 @@ class BottomBar(BarPainterMixin):
             self._active = True
             if self._suspend_depth == 0:
                 self._establish()
+        self._install_transcript_guard()  # Windows-only; no-op elsewhere
         self._install_sigwinch()
         self._register_atexit()
 
@@ -192,6 +197,7 @@ class BottomBar(BarPainterMixin):
             self._active = False
             if self._region_up:
                 self._teardown()
+        self._uninstall_transcript_guard()
 
     def is_active(self) -> bool:
         """True between :meth:`start` and :meth:`stop`."""
@@ -461,6 +467,7 @@ class BottomBar(BarPainterMixin):
                     parts.append(_MODKEYS_OFF)
                     self._modkeys_armed = False
                 self._write("".join(parts))
+            self._guard_on_teardown()
             self._region_up = False
             return
         top = rows - reserved
@@ -506,6 +513,7 @@ class BottomBar(BarPainterMixin):
         self._reserved = reserved
         parts.append(self._reserved_rows_seq())
         self._write("".join(parts))
+        self._guard_on_establish(top)  # cursor parked at (top, 1)
 
     def _resize_reserved(self, old_reserved: int) -> None:
         """Grow/shrink the reserved area while the region is up.
@@ -539,7 +547,15 @@ class BottomBar(BarPainterMixin):
         if new_reserved > old_reserved:
             # Blank the soon-to-be-reserved rows by scrolling content up.
             delta_up = new_reserved - old_reserved
-            parts.append(f"\x1b[{delta_up}S")
+            if self._guard_scroll_fix:
+                # Windows: CSI S inside a restricted region DESTROYS the
+                # scrolled lines (they never reach scrollback). Reset the
+                # margins and feed LFs at the physical bottom row instead
+                # — visually identical, but the lines pan into history.
+                parts.append("\x1b[r")
+                parts.append(f"\x1b[{rows};1H" + "\n" * delta_up)
+            else:
+                parts.append(f"\x1b[{delta_up}S")
         else:
             # Clear rows being returned to the scroll region.
             for row in range(rows - old_reserved + 1, rows - new_reserved + 1):
@@ -555,6 +571,8 @@ class BottomBar(BarPainterMixin):
         self._reserved = new_reserved
         parts.append(self._reserved_rows_seq())
         self._write("".join(parts))
+        if delta_up:
+            self._guard_on_resize_scroll(delta_up)
 
     def _teardown(self) -> None:
         """Reset to a full-screen region and clear the reserved rows.
@@ -564,6 +582,7 @@ class BottomBar(BarPainterMixin):
         and clearing rows computed from stale height either misses the
         real reserved rows or clears mid-screen content.
         """
+        self._guard_on_teardown()  # flush withheld tail BEFORE our escapes
         rows = self._safe_size()[1]
         reserved = self._reserved or self._total_reserved()
         parts = [_RESET_REGION]
@@ -623,6 +642,7 @@ class BottomBar(BarPainterMixin):
                     self._cursor_hidden = False
                     self._paste_armed = False
                     self._modkeys_armed = False
+            self._uninstall_transcript_guard()
         except Exception:
             pass  # interpreter is dying; nothing sane left to do
 
