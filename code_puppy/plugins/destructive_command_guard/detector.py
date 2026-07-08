@@ -118,8 +118,9 @@ def detect_destructive_command(command: str) ->  DestructiveCommandMatch | None:
 
         #If no keywords are found, skip expensive regex checks for this subcommand
         if not found_groups:
+            print("didnt find a keyword") #cleanup
             continue
-
+        print("found a key word") #cleanup
         # Use expensive regex patterns to check for destructive commands, return first match found
         for pattern, name, description in found_groups:
             if pattern.search(subcommand):

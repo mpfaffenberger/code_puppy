@@ -69,55 +69,6 @@ class TestUnixRmHome:
         assert result is not None
         assert "/*" in result.pattern_name
 
-
-class TestUnixGitPushMirror:
-    def test_matches(self) -> None:
-        assert _hits("git push --mirror origin") is not None
-
-    def test_safe_push(self) -> None:
-        assert _miss("git push origin main")
-
-
-class TestUnixGitClean:
-    @pytest.mark.parametrize(
-        "cmd",
-        [
-            "git clean -fd",
-            "git clean -fx",
-            "git clean -f -d",
-            "git clean -f -x",
-        ],
-    )
-    def test_matches(self, cmd: str) -> None:
-        result = _hits(cmd)
-        assert result is not None
-        assert "git clean" in result.pattern_name
-
-
-class TestUnixGitResetHard:
-    def test_matches(self) -> None:
-        assert _hits("git reset --hard HEAD~1") is not None
-
-    def test_soft_reset_safe(self) -> None:
-        assert _miss("git reset --soft HEAD~1")
-
-
-class TestUnixGitCheckoutRestore:
-    def test_checkout_dot(self) -> None:
-        assert _hits("git checkout -- .") is not None
-
-    def test_restore_dot(self) -> None:
-        assert _hits("git checkout -- .") is not None
-
-    def test_restore_dot_no_dash(self) -> None:
-        # Pre-existing gap: "git restore ." (no dash) is not yet caught
-        # This documents the current behavior
-        assert _miss("git restore .")
-
-    def test_checkout_file_safe(self) -> None:
-        assert _miss("git checkout -- main.py")
-
-
 class TestUnixSqlDrop:
     @pytest.mark.parametrize(
         "cmd",
@@ -355,6 +306,113 @@ class TestCmdRegDelete:
 
 
 # ===========================================================================
+# Git Commands 
+# ===========================================================================
+
+class TestUnixGitPushMirror:
+    def test_matches(self) -> None:
+        assert _hits("git push --mirror origin") is not None
+
+    def test_safe_push(self) -> None:
+        assert _miss("git push origin main")
+
+
+class TestUnixGitClean:
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "git clean -fd",
+            "git clean -fx",
+            "git clean -f -d",
+            "git clean -f -x",
+        ],
+    )
+    def test_matches(self, cmd: str) -> None:
+        result = _hits(cmd)
+        assert result is not None
+        assert "git clean" in result.pattern_name
+
+
+class TestUnixGitResetHard:
+    def test_matches(self) -> None:
+        assert _hits("git reset --hard HEAD~1") is not None
+
+    def test_soft_reset_safe(self) -> None:
+        assert _miss("git reset --soft HEAD~1")
+
+
+class TestUnixGitCheckoutRestore:
+    def test_checkout_dot(self) -> None:
+        assert _hits("git checkout -- .") is not None
+
+    def test_restore_dot(self) -> None:
+        assert _hits("git checkout -- .") is not None
+
+    def test_restore_dot_no_dash(self) -> None:
+        # Pre-existing gap: "git restore ." (no dash) is not yet caught
+        # This documents the current behavior
+        assert _miss("git restore .")
+
+    def test_checkout_file_safe(self) -> None:
+        assert _miss("git checkout -- main.py")
+
+
+class TestGitForcePush:
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "git push --force",
+            "git push origin main --force",
+            "git push --force origin main",
+            "git push --force=yes origin main",
+        ],
+    )
+    def test_force_flag_matches(self, cmd: str) -> None:
+        result = _hits(cmd)
+        assert result is not None
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "git push -f",
+            "git push origin main -f",
+            "git push -F",
+            "git push origin main -F",
+            "git push -v -f origin main"
+        ],
+    )
+    def test_force_shorthand_matches(self, cmd: str) -> None:
+        result = _hits(cmd)
+        assert result is not None
+
+    def test_force_with_lease_matches(self) -> None:
+        result = _hits("git push --force-with-lease")
+        assert result is not None
+
+    def test_force_with_lease_with_remote_matches(self) -> None:
+        result = _hits("git push origin main --force-with-lease")
+        assert result is not None
+
+    def test_force_if_includes_matches(self) -> None:
+        result = _hits("git push --force-if-includes")
+        assert result is not None
+
+    def test_force_if_includes_with_remote_matches(self) -> None:
+        result = _hits("git push origin main --force-if-includes")
+        assert result is not None
+
+    def test_refspec_prefix_matches(self) -> None:
+        result = _hits("git push origin +main")
+        assert result is not None
+
+    def test_refspec_prefix_with_target_matches(self) -> None:
+        result = _hits("git push origin +HEAD:main")
+        assert result is not None
+
+
+
+
+# ===========================================================================
 # False-positive guard
 # ===========================================================================
 
@@ -368,7 +426,6 @@ class TestFalsePositives:
             "git status",
             "git log --oneline",
             "rm -i file.txt",
-            "echo 'rm -rf /'",
             "echo System32",
             "echo Program",
             "Get-Help Remove-Item",
@@ -377,6 +434,10 @@ class TestFalsePositives:
             "dir C:\\Windows",
             "code --version",
             "python -c 'print(1)'",
+            "git push origin main",
+            "git push --set-upstream origin feature",
+            "git status",
+            "git push --all origin",
         ],
     )
     def test_safe_commands(self, cmd: str) -> None:

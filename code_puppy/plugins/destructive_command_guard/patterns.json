@@ -157,7 +157,7 @@
         },
         {
             "name": "Windows CMD destructive commands",
-            "cheap_substrings": ["rd ", "format", "diskpart", "bcdedit", "reg ", "del"],
+            "cheap_substrings": ["rd ", "format", "diskpart", "bcdedit", "reg ", "del", "rmdir", "er"],
             "expensive_patterns": [
                 {
                     "regex": "(?i)\\b(?:rmdir|rd)\\b.*\\s/s\\b.*\\s/q\\b",
