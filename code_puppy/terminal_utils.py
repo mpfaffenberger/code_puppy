@@ -154,6 +154,87 @@ def ensure_windows_vt_processing() -> bool:
         return False  # can't confirm VT -> fail safe, degrade to classic
 
 
+#: ENABLE_VIRTUAL_TERMINAL_INPUT — stdin delivers VT sequences verbatim.
+_ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
+
+
+def enable_windows_vt_input() -> bool:
+    """Enable VT input (``ENABLE_VIRTUAL_TERMINAL_INPUT``) on stdin, verified.
+
+    ConPTY only forwards terminal-side VT input sequences to a client
+    whose stdin carries this flag. Bracketed-paste markers
+    (``ESC[200~``/``ESC[201~``) have no key-event representation, so
+    without the flag ConPTY silently DROPS them — and Windows Terminal
+    pastes an image-only clipboard as an EMPTY bracketed paste, meaning
+    the app receives NOTHING and Ctrl+V image capture never fires.
+    (Text pastes still arrive as synthesized keystrokes, which is why
+    only image paste broke.) Verified live via console probe 2026-07-08:
+    mode ``0x1f7`` → 0 chars delivered; mode ``0x3f7`` → the 12-char
+    empty bracketed paste.
+
+    Scope contract: only the Windows key listener enables this, while it
+    owns stdin — and it disables it around suspensions, because
+    ``ReadConsoleInput``-based readers (prompt_toolkit TUIs) expect
+    classic key events. Returns True when the flag is CONFIRMED set via
+    a mode read-back (mirrors :func:`ensure_windows_vt_processing`;
+    ancient hosts silently no-op ``SetConsoleMode``). Never raises.
+    """
+    if platform.system() != "Windows":
+        return False
+
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        stdin_handle = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+
+        mode = ctypes.c_ulong()
+        if not kernel32.GetConsoleMode(stdin_handle, ctypes.byref(mode)):
+            return False
+        if mode.value & _ENABLE_VIRTUAL_TERMINAL_INPUT:
+            return True  # already on
+
+        if not kernel32.SetConsoleMode(
+            stdin_handle, mode.value | _ENABLE_VIRTUAL_TERMINAL_INPUT
+        ):
+            return False
+
+        verify = ctypes.c_ulong()
+        if not kernel32.GetConsoleMode(stdin_handle, ctypes.byref(verify)):
+            return False
+        return bool(verify.value & _ENABLE_VIRTUAL_TERMINAL_INPUT)
+    except Exception:
+        return False
+
+
+def disable_windows_vt_input() -> None:
+    """Clear ``ENABLE_VIRTUAL_TERMINAL_INPUT`` from stdin (best-effort).
+
+    Called by the Windows key listener before parking for a suspension
+    and on exit, so ``ReadConsoleInput``-based readers (prompt_toolkit
+    TUIs, the parent shell after we quit) get classic key events instead
+    of raw VT sequences. Never raises.
+    """
+    if platform.system() != "Windows":
+        return
+
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        stdin_handle = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+
+        mode = ctypes.c_ulong()
+        if not kernel32.GetConsoleMode(stdin_handle, ctypes.byref(mode)):
+            return
+        if mode.value & _ENABLE_VIRTUAL_TERMINAL_INPUT:
+            kernel32.SetConsoleMode(
+                stdin_handle, mode.value & ~_ENABLE_VIRTUAL_TERMINAL_INPUT
+            )
+    except Exception:
+        pass
+
+
 def flush_windows_keyboard_buffer() -> None:
     """Flush the Windows keyboard buffer.
 

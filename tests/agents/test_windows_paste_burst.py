@@ -108,6 +108,34 @@ class TestCoalesce:
         assert _coalesce_paste_burst(items) == "abc"
 
 
+class TestCoalesceVtInput:
+    """With ENABLE_VIRTUAL_TERMINAL_INPUT, special keys arrive as VT
+    escape sequences (3+ chars in one tick) — they must classify as
+    typing, not paste, or arrows insert literal ESC garbage. Terminal
+    pastes are always bracketed while ?2004h is armed, so the markers
+    stay the paste discriminator."""
+
+    def test_single_arrow_seq_is_typing(self):
+        assert _coalesce_paste_burst([("char", c) for c in "\x1b[A"]) is None
+
+    def test_key_repeat_arrow_flood_is_typing(self):
+        items = [("char", c) for c in "\x1b[B" * 20]
+        assert _coalesce_paste_burst(items) is None
+
+    def test_chars_then_arrow_in_one_tick_is_typing(self):
+        items = [("char", c) for c in "ab\x1b[D"]
+        assert _coalesce_paste_burst(items) is None
+
+    def test_bracketed_burst_with_markers_still_coalesces(self):
+        wire = _PASTE_OPEN + "hello" + _PASTE_CLOSE
+        assert _coalesce_paste_burst([("char", c) for c in wire]) == wire
+
+    def test_empty_bracketed_paste_still_coalesces(self):
+        # The image-only Ctrl+V payload — must reach the editor verbatim.
+        wire = _PASTE_OPEN + _PASTE_CLOSE
+        assert _coalesce_paste_burst([("char", c) for c in wire]) == wire
+
+
 class TestShiftEnter:
     """Classic console input encodes Shift+Enter as a bare \\r — the
     listener disambiguates via the live Shift state and synthesizes the
@@ -205,3 +233,12 @@ class TestRouteBurst:
     def test_small_typing_burst_dispatches_per_key(self, editor):
         _route(_chars("a"))
         assert editor._buffer == "a"
+
+    def test_vt_arrow_burst_moves_cursor_instead_of_pasting(self, editor):
+        # VT-input arrows arrive as a char burst; they must reach the
+        # editor's CSI state machine, not the buffer as literal text.
+        _route(_chars("ab"))
+        _route(_chars("\x1b[D\x1b[D"))
+        _route(_chars("X"))
+        assert editor._buffer == "Xab"
+        assert "\x1b" not in editor._buffer

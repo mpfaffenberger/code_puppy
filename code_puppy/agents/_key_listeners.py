@@ -533,7 +533,18 @@ def _coalesce_paste_burst(items: list) -> Optional[str]:
         return None
     if any(kind != "char" for kind, _ in items):
         return None
-    return "".join(value for _, value in items)
+    payload = "".join(value for _, value in items)
+    if "\x1b" in payload and _PASTE_OPEN not in payload and _PASTE_CLOSE not in payload:
+        # With ENABLE_VIRTUAL_TERMINAL_INPUT, special keys arrive as VT
+        # escape sequences instead of \x00/\xe0 extended-key pairs — an
+        # arrow press (or a key-repeat flood of them) is a 3+ char all-
+        # text burst that would otherwise classify as a paste and land
+        # in the buffer as literal ESC garbage. Real terminal pastes are
+        # always bracketed while ?2004h is armed, so an ESC-bearing
+        # burst WITHOUT markers is typing: dispatch per key and let the
+        # editor's CSI state machine handle the sequences.
+        return None
+    return payload
 
 
 def _editor_paste_active() -> bool:
@@ -600,10 +611,34 @@ def _listen_windows(
     suspend_event: Optional[threading.Event] = None,
     released_event: Optional[threading.Event] = None,
 ) -> None:
+    """Windows listener entry — wraps the loop so VT input is ALWAYS
+    released on the way out (the parent shell expects classic key
+    events; see ``enable_windows_vt_input`` for the scope contract)."""
+    from code_puppy.terminal_utils import disable_windows_vt_input
+
+    try:
+        _listen_windows_loop(
+            stop_event, on_escape, on_cancel_agent, suspend_event, released_event
+        )
+    finally:
+        disable_windows_vt_input()
+
+
+def _listen_windows_loop(
+    stop_event: threading.Event,
+    on_escape: Callable[[], None],
+    on_cancel_agent: Optional[Callable[[], None]] = None,
+    suspend_event: Optional[threading.Event] = None,
+    released_event: Optional[threading.Event] = None,
+) -> None:
     import msvcrt
     import time
 
-    from code_puppy.terminal_utils import ensure_ctrl_c_disabled
+    from code_puppy.terminal_utils import (
+        disable_windows_vt_input,
+        enable_windows_vt_input,
+        ensure_ctrl_c_disabled,
+    )
 
     cancel_agent_char = _resolve_cancel_char(on_cancel_agent)
 
@@ -612,12 +647,17 @@ def _listen_windows(
     next_clamp_check = 0.0  # first lap re-clamps immediately
 
     while not stop_event.is_set():
-        # Honor suspend: msvcrt doesn't reconfigure the terminal, so the
-        # contract here is purely "don't read keystrokes while suspended."
+        # Honor suspend. Whoever suspended us (prompt_toolkit TUIs, the
+        # ask_user picker) reads via ReadConsoleInput and expects classic
+        # key events — hand the console back without VT input, and
+        # re-clamp immediately (not up to 1s later) on resume so a paste
+        # right after a menu closes isn't dropped.
         if suspend_event is not None and suspend_event.is_set():
+            disable_windows_vt_input()
             _wait_while_suspended(stop_event, suspend_event, released_event)
             if stop_event.is_set():
                 return
+            next_clamp_check = 0.0
             continue
 
         # Self-healing console clamp. Anything sharing the console (shell
@@ -637,6 +677,16 @@ def _listen_windows(
             next_clamp_check = now + 1.0
             try:
                 ensure_ctrl_c_disabled()
+            except Exception:
+                pass
+            # VT-input clamp, same self-healing cadence: without
+            # ENABLE_VIRTUAL_TERMINAL_INPUT, ConPTY silently drops the
+            # bracketed-paste markers Windows Terminal sends for an
+            # image-only Ctrl+V (an EMPTY paste has no key events to
+            # synthesize) — the Windows image-paste-goes-dead bug.
+            # No-op (one GetConsoleMode) when the flag is already set.
+            try:
+                enable_windows_vt_input()
             except Exception:
                 pass
 
