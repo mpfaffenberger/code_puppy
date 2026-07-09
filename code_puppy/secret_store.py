@@ -1,16 +1,38 @@
 """Generic OS keyring secret store for Code Puppy.
 
 Reads and writes secrets through the operating system keyring, with a
-permission-hardened JSON file fallback for headless and CI environments
-where no keyring backend is available.
+permission-hardened JSON file fallback as a final safety net.
+
+Write strategy (three tiers, in order):
+  1. **Direct keyring write** -- used when the value fits in one entry.
+  2. **Chunked keyring write** -- the value is split into ≤``_CHUNK_SIZE``
+     pieces when the OS imposes a per-entry size cap.  The primary real-world
+     case is Windows Credential Manager, which rejects blobs larger than
+     ~2 560 bytes UTF-16-LE (error 1783); long tokens routinely exceed
+     this.  Chunking keeps the keyring as the source of truth.
+  3. **Permission-hardened file fallback** -- used only when both keyring
+     strategies fail (genuinely broken backend, backend crash, headless CI).
+     The file is ``0o600`` and written atomically.
+
+Read strategy:
+  The keyring is queried first (with transparent chunk reassembly).  The
+  fallback file is always consulted as a last resort so secrets written there
+  by a previous session (after exhausting both keyring options) are still
+  recoverable even when the keyring subsequently becomes healthy.
+
+The keyring service name is configurable via ``configure_service_name`` so
+each distribution can namespace its secrets and never read, copy, or alias
+secrets across builds.  The default is ``"code-puppy"``; downstream
+distributions override it at startup.
 
 Public API
 ----------
 ``keyring_available()``
     Report whether a usable keyring backend is configured.
+``configure_service_name(name)``
+    Override the keyring service name used for all secret operations.
 ``get_secret(name)`` / ``set_secret(name, value)`` / ``delete_secret(name)``
-    Keyring-first secret operations that transparently fall back to the
-    ``0o600`` JSON file when the keyring backend is unavailable.
+    Three-tier secret operations (keyring direct → keyring chunked → file).
 """
 
 from __future__ import annotations
@@ -25,9 +47,9 @@ import keyring
 from code_puppy.config import CONFIG_DIR
 
 # Namespace under which every secret is stored in the OS keyring. Downstream
-# distributions should use a distinct service name so secrets never bleed
-# across builds.
-_SERVICE_NAME = "code-puppy"
+# distributions call ``configure_service_name`` to use a distinct name so
+# secrets never bleed across builds.
+_service_name = "code-puppy"
 
 # Permission-hardened JSON fallback used only when the keyring backend is
 # unavailable (headless boxes, minimal CI containers, etc.).
@@ -65,6 +87,49 @@ def _ensure_backend() -> None:
     install_consolidated_backend_if_appropriate()
 
 
+def get_service_name() -> str:
+    """Return the current keyring service name."""
+    return _service_name
+
+
+def configure_service_name(name: str) -> None:
+    """Override the keyring service name used for all secret operations.
+
+    Call this early at startup -- before any get/set/delete calls -- so
+    secrets are namespaced per distribution.  Downstream distributions
+    call this from their ``startup`` callback.  The default is
+    ``"code-puppy"``.
+    """
+    global _service_name
+    name = str(name).strip()
+    if not name:
+        raise ValueError("service name must be non-empty")
+    _service_name = name
+
+
+# Maximum characters per keyring entry.  Windows Credential Manager encodes
+# credential blobs as UTF-16-LE (2 bytes per char) and caps them at ~2 560
+# bytes, giving a ~1 280-char ceiling.  We stay conservatively below that so
+# typical ASCII padding in the JWT header/signature doesn't push us over.
+_CHUNK_SIZE = 1200
+
+# Suffix tokens used to build chunk-related keyring entry names.  The ``cp``
+# prefix scopes them to Code Puppy and makes accidental collisions with real
+# secret names essentially impossible.
+_CHUNK_NS = ":cp:"
+_COUNT_SUFFIX = ":cp:n"
+
+
+def _chunk_count_key(name: str) -> str:
+    """Keyring entry name for the chunk-count (commit) marker."""
+    return f"{name}{_COUNT_SUFFIX}"
+
+
+def _chunk_key(name: str, i: int) -> str:
+    """Keyring entry name for chunk *i* of *name*."""
+    return f"{name}{_CHUNK_NS}{i}"
+
+
 # ---------------------------------------------------------------------------
 # Keyring availability + low-level access
 # ---------------------------------------------------------------------------
@@ -91,9 +156,10 @@ def keyring_available() -> bool:
         return True
 
 
-def _keyring_get(name: str) -> str | None:
+def _kr_get_raw(name: str) -> str | None:
+    """Read one keyring entry; ``None`` on any error or absence."""
     try:
-        value = keyring.get_password(_SERVICE_NAME, name)
+        value = keyring.get_password(_service_name, name)
     except Exception:
         return None
     if value is None:
@@ -102,23 +168,130 @@ def _keyring_get(name: str) -> str | None:
     return normalized or None
 
 
+def _kr_set_raw(name: str, value: str) -> bool:
+    """Write one keyring entry; return ``False`` on any error."""
+    try:
+        keyring.set_password(_service_name, name, value)
+    except Exception:
+        return False
+    return True
+
+
+def _kr_del_raw(name: str) -> bool:
+    """Delete one keyring entry; return ``False`` on any error."""
+    try:
+        keyring.delete_password(_service_name, name)
+    except Exception:
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Chunk-aware keyring helpers (transparent to callers)
+# ---------------------------------------------------------------------------
+
+
+def _keyring_get(name: str) -> str | None:
+    """Read a logical secret, transparently reassembling chunks if present.
+
+    Checks for a chunk-count key first.  When found, reads and concatenates
+    all chunks in order.  Falls back to a direct single-entry read for values
+    written by older builds or that never needed chunking.
+    """
+    count_raw = _kr_get_raw(_chunk_count_key(name))
+    if count_raw is not None:
+        try:
+            n = int(count_raw)
+        except ValueError:
+            return None  # corrupt count -- treat as absent
+        parts: list[str] = []
+        for i in range(n):
+            chunk = _kr_get_raw(_chunk_key(name, i))
+            if chunk is None:
+                return None  # partial write -- treat as absent
+            parts.append(chunk)
+        assembled = "".join(parts)
+        return assembled or None
+
+    # No chunk metadata -- try a plain single-entry read.
+    return _kr_get_raw(name)
+
+
+def _delete_chunks(name: str) -> None:
+    """Best-effort removal of all chunk entries for *name*."""
+    count_raw = _kr_get_raw(_chunk_count_key(name))
+    if count_raw is None:
+        return
+    try:
+        n = int(count_raw)
+    except ValueError:
+        n = 0
+    for i in range(n):
+        _kr_del_raw(_chunk_key(name, i))
+    _kr_del_raw(_chunk_count_key(name))
+
+
 def _keyring_set(name: str, value: str) -> bool:
+    """Write a logical secret, chunking automatically when it exceeds _CHUNK_SIZE.
+
+    **Small values** (len <= _CHUNK_SIZE):
+      - Written as a single keyring entry under *name*.
+      - Any stale chunk entries from a prior oversized write are removed.
+
+    **Large values** (len > _CHUNK_SIZE):
+      - Split into ceil(len / _CHUNK_SIZE) pieces.
+      - Chunk data entries are written first, then the count key last so a
+        mid-write crash never leaves a partially-readable value behind.
+      - Excess chunks from a prior write with more pieces are pruned.
+      - The direct *name* entry is removed to avoid ambiguity on read.
+
+    Returns ``True`` on success, ``False`` if any keyring write fails.
+    """
     normalized = str(value).strip()
     if not normalized:
         return False
-    try:
-        keyring.set_password(_SERVICE_NAME, name, normalized)
-    except Exception:
+
+    if len(normalized) <= _CHUNK_SIZE:
+        if not _kr_set_raw(name, normalized):
+            return False
+        _delete_chunks(name)  # clean up any old chunked write
+        return True
+
+    # --- Chunked write path ---
+    chunks = [
+        normalized[i: i + _CHUNK_SIZE]
+        for i in range(0, len(normalized), _CHUNK_SIZE)
+    ]
+
+    # Write data entries first.
+    for idx, chunk in enumerate(chunks):
+        if not _kr_set_raw(_chunk_key(name, idx), chunk):
+            # Partial write -- roll back what we managed.
+            for j in range(idx):
+                _kr_del_raw(_chunk_key(name, j))
+            return False
+
+    # Prune stale trailing chunks from a prior larger write.
+    stale = len(chunks)
+    while _kr_get_raw(_chunk_key(name, stale)) is not None:
+        _kr_del_raw(_chunk_key(name, stale))
+        stale += 1
+
+    # Commit: write the count key last as the atomic marker.
+    if not _kr_set_raw(_chunk_count_key(name), str(len(chunks))):
+        for idx in range(len(chunks)):
+            _kr_del_raw(_chunk_key(name, idx))
         return False
+
+    _kr_del_raw(name)  # remove any stale single-entry write
     return True
 
 
 def _keyring_delete(name: str) -> bool:
-    try:
-        keyring.delete_password(_SERVICE_NAME, name)
-    except Exception:
-        return False
-    return True
+    """Delete a logical secret, removing chunks if present."""
+    direct = _kr_del_raw(name)
+    _delete_chunks(name)
+    return direct
 
 
 # ---------------------------------------------------------------------------
@@ -194,18 +367,22 @@ def _write_fallback(data: dict[str, str]) -> bool:
 def get_secret(name: str) -> str | None:
     """Return a secret by name, or ``None`` when it is not stored.
 
-    Reads the keyring first, then the file fallback. The fallback is only
-    consulted when the keyring backend is unavailable.
+    Resolution order:
+      1. OS keyring -- direct read or transparent chunk reassembly.
+      2. Permission-hardened fallback file -- always consulted as a last
+         resort so secrets written there by a previous session (after
+         exhausting both keyring options) are still recoverable.
     """
     _ensure_backend()
     value = _keyring_get(name)
     if value:
         return value
 
-    if keyring_available():
-        return None
-
-    _warn_fallback_active()
+    # Always check the fallback file: a prior set_secret may have ended up
+    # there after both keyring paths failed.  Only emit the headless warning
+    # when the keyring backend itself is unavailable.
+    if not keyring_available():
+        _warn_fallback_active()
     stored = _read_fallback().get(name)
     if stored is None:
         return None
@@ -216,26 +393,30 @@ def get_secret(name: str) -> str | None:
 def set_secret(name: str, value: str) -> None:
     """Persist a secret by name.
 
-    Writes to the keyring when a backend is available, otherwise to the
-    permission-hardened JSON fallback.
+    Attempts three strategies in order:
+      1. Direct keyring write (small values).
+      2. Chunked keyring write (oversized values, e.g. Windows CM cap).
+      3. Permission-hardened JSON file fallback (only when both keyring
+         strategies fail -- unexpected backend error or no keyring at all).
     """
     _ensure_backend()
     if _keyring_set(name, value):
         return
 
     if keyring_available():
-        # The backend is healthy but the write still failed (transient
-        # error, permission prompt dismissed, etc.).  Writing to the
-        # fallback here would strand the secret: get_secret() skips the
-        # fallback when the keyring is available.  Warn instead.
+        # Both direct and chunked writes failed despite a healthy backend.
+        # Unexpected (transient error, backend crash, prompt dismissed).
+        # Warn so it's diagnosable, then persist to the file so the secret
+        # is not lost.
         warnings.warn(
-            f"Keyring write failed for {name!r} despite a healthy "
-            "backend; the secret was not persisted.",
+            f"Keyring write failed for {name!r} despite a healthy backend "
+            "(transient error or backend crash). Storing in the secure file "
+            f"fallback at {_FALLBACK_FILE}.",
             stacklevel=2,
         )
-        return
+    else:
+        _warn_fallback_active()
 
-    _warn_fallback_active()
     normalized = str(value).strip()
     if not normalized:
         return
@@ -245,13 +426,12 @@ def set_secret(name: str, value: str) -> None:
 
 
 def delete_secret(name: str) -> None:
-    """Best-effort removal of a secret from both the keyring and fallback."""
+    """Best-effort removal of a secret from keyring (and chunks) and fallback."""
     _ensure_backend()
     _keyring_delete(name)
 
-    if keyring_available():
-        return
-
+    # Always scrub the fallback file: a prior write may have ended up there
+    # even on a system where the keyring is now healthy.
     data = _read_fallback()
     if name in data:
         del data[name]

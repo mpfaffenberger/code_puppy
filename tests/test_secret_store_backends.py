@@ -8,11 +8,20 @@ Covers:
 """
 
 import json
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_puppy import secret_store_backends as ssb
+# secret_store_backends imports fcntl which is POSIX-only. Skip the entire
+# module on Windows before attempting the import so collection doesn't crash.
+if sys.platform == "win32":
+    pytest.skip(
+        "secret_store_backends uses fcntl (POSIX-only); not applicable on Windows",
+        allow_module_level=True,
+    )
+
+from code_puppy import secret_store_backends as ssb  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

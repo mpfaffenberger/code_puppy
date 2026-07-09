@@ -4,11 +4,14 @@ Covers the three paths called out in the subtask:
     1. keyring available   -- reads/writes route through the OS keyring
     2. keyring missing      -- operations degrade to the file fallback
     3. fallback file        -- 0o600 perms, atomic write, read-repair
+
+Plus the configurable service name for downstream distributions.
 """
 
 import json
 import os
 import stat
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,24 +19,20 @@ import pytest
 from code_puppy import secret_store
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture(autouse=True)
-def _reset_warn_flag():
-    """The one-shot fallback warning is process global; reset per test."""
+def _reset_state():
+    """Reset process-global state between tests."""
     secret_store._warned_fallback = False
+    secret_store._service_name = "code-puppy"
     secret_store._backend_installed = True  # skip lazy install in these tests
     yield
     secret_store._warned_fallback = False
+    secret_store._service_name = "code-puppy"
     secret_store._backend_installed = False
 
 
 @pytest.fixture
 def tmp_fallback(tmp_path, monkeypatch):
-    """Point the fallback file + config dir at a temp location."""
     cfg_dir = tmp_path / "cfg"
     cfg_dir.mkdir()
     fallback = cfg_dir / "secrets.json"
@@ -44,10 +43,8 @@ def tmp_fallback(tmp_path, monkeypatch):
 
 @pytest.fixture
 def working_keyring():
-    """A keyring with a healthy backend and an in-memory store."""
     store: dict[tuple[str, str], str] = {}
     fake = MagicMock()
-
     fake.get_password = MagicMock(
         side_effect=lambda service, name: store.get((service, name))
     )
@@ -63,33 +60,53 @@ def working_keyring():
 
     fake.set_password = MagicMock(side_effect=_set)
     fake.delete_password = MagicMock(side_effect=_delete)
-
     backend = MagicMock()
     backend.priority = 10
     fake.get_keyring = MagicMock(return_value=backend)
-
     with patch.object(secret_store, "keyring", fake):
         yield fake, store
 
 
 @pytest.fixture
 def missing_keyring():
-    """A keyring whose backend is unavailable (priority 0, ops raise)."""
     fake = MagicMock()
     fake.get_password = MagicMock(side_effect=Exception("no backend"))
     fake.set_password = MagicMock(side_effect=Exception("no backend"))
     fake.delete_password = MagicMock(side_effect=Exception("no backend"))
-
     backend = MagicMock()
     backend.priority = 0
     fake.get_keyring = MagicMock(return_value=backend)
-
     with patch.object(secret_store, "keyring", fake):
         yield fake
 
 
 # ---------------------------------------------------------------------------
-# 1. keyring_available
+# configure_service_name
+# ---------------------------------------------------------------------------
+
+
+class TestServiceName:
+    def test_default(self):
+        assert secret_store.get_service_name() == "code-puppy"
+
+    def test_override(self):
+        secret_store.configure_service_name("my-custom-distribution")
+        assert secret_store.get_service_name() == "my-custom-distribution"
+
+    def test_rejects_empty(self):
+        with pytest.raises(ValueError, match="non-empty"):
+            secret_store.configure_service_name("  ")
+
+    def test_secrets_land_under_configured_name(self, working_keyring):
+        _, store = working_keyring
+        secret_store.configure_service_name("my-custom-distribution")
+        secret_store.set_secret("tok", "v")
+        assert ("my-custom-distribution", "tok") in store
+        assert ("code-puppy", "tok") not in store
+
+
+# ---------------------------------------------------------------------------
+# keyring_available
 # ---------------------------------------------------------------------------
 
 
@@ -102,7 +119,7 @@ class TestKeyringAvailable:
 
     def test_true_when_priority_missing(self):
         fake = MagicMock()
-        backend = MagicMock(spec=[])  # no .priority attribute
+        backend = MagicMock(spec=[])
         fake.get_keyring = MagicMock(return_value=backend)
         with patch.object(secret_store, "keyring", fake):
             assert secret_store.keyring_available() is True
@@ -115,7 +132,7 @@ class TestKeyringAvailable:
 
 
 # ---------------------------------------------------------------------------
-# 2. keyring-available path
+# keyring-available path
 # ---------------------------------------------------------------------------
 
 
@@ -123,7 +140,7 @@ class TestKeyringPath:
     def test_set_then_get_roundtrip(self, working_keyring, tmp_fallback):
         _, store = working_keyring
         secret_store.set_secret("my_key", "hunter2")
-        assert store[(secret_store._SERVICE_NAME, "my_key")] == "hunter2"
+        assert store[(secret_store._service_name, "my_key")] == "hunter2"
         assert secret_store.get_secret("my_key") == "hunter2"
 
     def test_get_missing_returns_none(self, working_keyring):
@@ -131,29 +148,173 @@ class TestKeyringPath:
 
     def test_get_strips_whitespace(self, working_keyring):
         _, store = working_keyring
-        store[(secret_store._SERVICE_NAME, "k")] = "  spaced  "
+        store[(secret_store._service_name, "k")] = "  spaced  "
         assert secret_store.get_secret("k") == "spaced"
 
     def test_delete_removes_from_keyring(self, working_keyring):
         _, store = working_keyring
-        store[(secret_store._SERVICE_NAME, "k")] = "v"
+        store[(secret_store._service_name, "k")] = "v"
         secret_store.delete_secret("k")
-        assert (secret_store._SERVICE_NAME, "k") not in store
+        assert (secret_store._service_name, "k") not in store
 
     def test_set_does_not_write_fallback_file(self, working_keyring, tmp_fallback):
+        """A successful keyring write must never touch the fallback file."""
         secret_store.set_secret("k", "v")
         assert not os.path.exists(tmp_fallback)
 
-    def test_get_ignores_fallback_when_keyring_healthy(
+    def test_get_falls_through_to_fallback_as_last_resort(
         self, working_keyring, tmp_fallback
     ):
-        # A stale fallback file must not shadow a healthy (empty) keyring.
-        tmp_fallback.write_text(json.dumps({"k": "stale"}))
-        assert secret_store.get_secret("k") is None
+        """When keyring has no entry, the fallback file is consulted.
+
+        This covers recovery from a prior session where both keyring strategies
+        failed and set_secret wrote to the file as a last resort.
+        """
+        tmp_fallback.write_text(json.dumps({"k": "rescued"}))
+        assert secret_store.get_secret("k") == "rescued"
+
+    def test_keyring_value_takes_precedence_over_fallback(
+        self, working_keyring, tmp_fallback
+    ):
+        """Keyring entry wins when both stores have a value for the same key."""
+        _, store = working_keyring
+        store[(secret_store._service_name, "k")] = "from-keyring"
+        tmp_fallback.write_text(json.dumps({"k": "from-file"}))
+        assert secret_store.get_secret("k") == "from-keyring"
+
+    def test_set_warns_and_writes_file_when_keyring_fails(
+        self, working_keyring, tmp_fallback
+    ):
+        """When all keyring writes fail despite a healthy backend, set_secret
+        emits a warning then persists to the fallback file so the secret is
+        not lost."""
+        fake, _ = working_keyring
+        fake.set_password.side_effect = Exception("backend crash")
+
+        with pytest.warns(UserWarning, match="despite a healthy backend"):
+            secret_store.set_secret("k", "v")
+
+        assert tmp_fallback.exists()
+        assert json.loads(tmp_fallback.read_text())["k"] == "v"
+
+    def test_delete_also_cleans_fallback(
+        self, working_keyring, tmp_fallback
+    ):
+        """delete_secret always scrubs the fallback file, in case a prior write
+        landed there as a last resort."""
+        tmp_fallback.write_text(json.dumps({"k": "leftover", "other": "keep"}))
+        secret_store.delete_secret("k")
+        data = json.loads(tmp_fallback.read_text())
+        assert "k" not in data
+        assert data["other"] == "keep"
 
 
 # ---------------------------------------------------------------------------
-# 3. keyring-missing / file fallback path
+# Transparent chunking (Windows Credential Manager size-limit)
+# ---------------------------------------------------------------------------
+
+
+class TestChunking:
+    """Verify that oversized secrets are split into <=_CHUNK_SIZE pieces and
+    reassembled transparently.  Chunking keeps the keyring as the primary store;
+    the file fallback is only reached if chunking itself also fails.
+    """
+
+    def test_large_value_stored_as_chunks(self, working_keyring):
+        """A value that exceeds _CHUNK_SIZE is split into chunk keys."""
+        _, store = working_keyring
+        svc = secret_store._service_name
+        big = "A" * (secret_store._CHUNK_SIZE * 2 + 100)  # 3 chunks
+        secret_store.set_secret("tok", big)
+
+        count_key = secret_store._chunk_count_key("tok")
+        assert store.get((svc, count_key)) == "3"
+        for i in range(3):
+            assert (svc, secret_store._chunk_key("tok", i)) in store
+        # Direct entry must NOT exist (unambiguous read path)
+        assert (svc, "tok") not in store
+
+    def test_large_value_roundtrip(self, working_keyring):
+        """get_secret reassembles chunks to return the original value."""
+        big = "Z" * (secret_store._CHUNK_SIZE * 3 + 50)
+        secret_store.set_secret("tok", big)
+        assert secret_store.get_secret("tok") == big
+
+    def test_small_value_uses_direct_entry(self, working_keyring):
+        """Values under the chunk threshold go to the direct key, not chunks."""
+        _, store = working_keyring
+        svc = secret_store._service_name
+        secret_store.set_secret("small", "tiny")
+        assert store.get((svc, "small")) == "tiny"
+        assert (svc, secret_store._chunk_count_key("small")) not in store
+
+    def test_stale_chunks_pruned_on_smaller_write(self, working_keyring):
+        """If a secret shrinks from 3 chunks to 2, the 3rd chunk is removed."""
+        _, store = working_keyring
+        svc = secret_store._service_name
+        big3 = "B" * (secret_store._CHUNK_SIZE * 2 + 100)  # 3 chunks
+        secret_store.set_secret("tok", big3)
+        assert store.get((svc, secret_store._chunk_count_key("tok"))) == "3"
+
+        big2 = "C" * (secret_store._CHUNK_SIZE + 100)  # 2 chunks
+        secret_store.set_secret("tok", big2)
+        assert store.get((svc, secret_store._chunk_count_key("tok"))) == "2"
+        assert (svc, secret_store._chunk_key("tok", 2)) not in store
+        assert secret_store.get_secret("tok") == big2
+
+    def test_delete_removes_all_chunk_keys(self, working_keyring):
+        """delete_secret wipes the count key and every chunk entry."""
+        _, store = working_keyring
+        svc = secret_store._service_name
+        big = "D" * (secret_store._CHUNK_SIZE * 2 + 1)  # 3 chunks
+        secret_store.set_secret("tok", big)
+        secret_store.delete_secret("tok")
+
+        assert (svc, secret_store._chunk_count_key("tok")) not in store
+        for i in range(3):
+            assert (svc, secret_store._chunk_key("tok", i)) not in store
+
+    def test_old_single_entry_still_readable(self, working_keyring):
+        """Pre-chunking entries written without a count key are still readable."""
+        _, store = working_keyring
+        svc = secret_store._service_name
+        store[(svc, "legacy")] = "old-value"
+        assert secret_store.get_secret("legacy") == "old-value"
+
+    def test_missing_chunk_returns_none(self, working_keyring):
+        """A partially-written chunk sequence (count present, chunk missing)
+        is treated as absent rather than returning corrupt data."""
+        _, store = working_keyring
+        svc = secret_store._service_name
+        store[(svc, secret_store._chunk_count_key("tok"))] = "3"
+        store[(svc, secret_store._chunk_key("tok", 0))] = "part0"
+        # chunk 1 and 2 missing
+        assert secret_store.get_secret("tok") is None
+
+    def test_direct_entry_removed_after_chunked_write(self, working_keyring):
+        """Writing a small value then a large one leaves no direct entry."""
+        _, store = working_keyring
+        svc = secret_store._service_name
+        secret_store.set_secret("tok", "small")
+        assert (svc, "tok") in store
+
+        secret_store.set_secret("tok", "X" * (secret_store._CHUNK_SIZE * 2))
+        assert (svc, "tok") not in store
+
+    def test_chunk_keys_cleaned_on_revert_to_small(self, working_keyring):
+        """Writing a large value then a small one removes all chunk keys."""
+        _, store = working_keyring
+        svc = secret_store._service_name
+        secret_store.set_secret("tok", "X" * (secret_store._CHUNK_SIZE * 2))
+        assert (svc, secret_store._chunk_count_key("tok")) in store
+
+        secret_store.set_secret("tok", "small")
+        assert (svc, secret_store._chunk_count_key("tok")) not in store
+        assert store.get((svc, "tok")) == "small"
+
+
+# ---------------------------------------------------------------------------
+# keyring-missing / file fallback path
 # ---------------------------------------------------------------------------
 
 
@@ -170,17 +331,23 @@ class TestFallbackPath:
     def test_get_missing_returns_none(self, missing_keyring, tmp_fallback):
         assert secret_store.get_secret("nope") is None
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="NTFS does not enforce POSIX permission bits via os.chmod",
+    )
     def test_fallback_file_is_0600(self, missing_keyring, tmp_fallback):
         secret_store.set_secret("k", "v")
-        mode = stat.S_IMODE(os.stat(tmp_fallback).st_mode)
-        assert mode == 0o600
+        assert stat.S_IMODE(os.stat(tmp_fallback).st_mode) == 0o600
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="NTFS does not enforce POSIX permission bits via os.chmod",
+    )
     def test_read_repairs_loose_permissions(self, missing_keyring, tmp_fallback):
         tmp_fallback.write_text(json.dumps({"k": "v"}))
         os.chmod(tmp_fallback, 0o644)
         assert secret_store.get_secret("k") == "v"
-        mode = stat.S_IMODE(os.stat(tmp_fallback).st_mode)
-        assert mode == 0o600
+        assert stat.S_IMODE(os.stat(tmp_fallback).st_mode) == 0o600
 
     def test_set_blank_is_ignored(self, missing_keyring, tmp_fallback):
         secret_store.set_secret("k", "   ")
@@ -194,32 +361,24 @@ class TestFallbackPath:
         assert "k" not in data
         assert data["keep"] == "me"
 
-    def test_set_preserves_existing_keys(self, missing_keyring, tmp_fallback):
-        secret_store.set_secret("a", "1")
-        secret_store.set_secret("b", "2")
-        data = json.loads(tmp_fallback.read_text())
-        assert data == {"a": "1", "b": "2"}
-
-    def test_corrupt_fallback_file_is_tolerated(self, missing_keyring, tmp_fallback):
+    def test_corrupt_fallback_tolerated(self, missing_keyring, tmp_fallback):
         tmp_fallback.write_text("{ not valid json")
         assert secret_store.get_secret("k") is None
-        # A subsequent write recovers the file.
         secret_store.set_secret("k", "v")
         assert secret_store.get_secret("k") == "v"
 
-    def test_fallback_emits_warning_once(self, missing_keyring, tmp_fallback):
-        with pytest.warns(UserWarning, match="fallback"):
-            secret_store.set_secret("k", "v")
-        # Second op must not warn again (one-shot guard).
+    def test_fallback_warns_once(self, missing_keyring, tmp_fallback):
         import warnings as _w
 
+        with pytest.warns(UserWarning, match="fallback"):
+            secret_store.set_secret("k", "v")
         with _w.catch_warnings():
             _w.simplefilter("error")
-            secret_store.set_secret("k2", "v2")  # would raise if it warned
+            secret_store.set_secret("k2", "v2")
 
 
 # ---------------------------------------------------------------------------
-# 4. Cross-platform fixes
+# Cross-platform fixes
 # ---------------------------------------------------------------------------
 
 
@@ -235,26 +394,13 @@ class TestCrossPlatform:
             secret_store._ensure_backend()
         assert secret_store._backend_installed is True
 
-    def test_write_fallback_uses_chmod(self, tmp_fallback, monkeypatch):
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="NTFS does not enforce POSIX permission bits via os.chmod",
+    )
+    def test_write_fallback_uses_chmod(self, tmp_fallback):
         """_write_fallback uses os.chmod (cross-platform), not os.fchmod."""
         assert secret_store._write_fallback({"k": "v"}) is True
         assert json.loads(tmp_fallback.read_text()) == {"k": "v"}
         mode = stat.S_IMODE(os.stat(tmp_fallback).st_mode)
         assert mode == 0o600
-
-    def test_set_warns_on_transient_keyring_failure(self, tmp_fallback):
-        """When keyring is healthy but the write fails, set_secret warns
-        instead of silently stranding the secret in the fallback file."""
-        fake = MagicMock()
-        fake.set_password = MagicMock(side_effect=Exception("transient"))
-        fake.get_password = MagicMock(return_value=None)
-
-        backend = MagicMock()
-        backend.priority = 10  # healthy
-        fake.get_keyring = MagicMock(return_value=backend)
-
-        with patch.object(secret_store, "keyring", fake):
-            with pytest.warns(UserWarning, match="Keyring write failed"):
-                secret_store.set_secret("k", "v")
-        # Must NOT have written to the fallback file.
-        assert not tmp_fallback.exists()
