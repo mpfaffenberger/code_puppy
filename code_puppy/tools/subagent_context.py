@@ -69,9 +69,7 @@ _subagent_name: ContextVar[str | None] = ContextVar("subagent_name", default=Non
 # immutable tuple so each context-manager push is a cheap snapshot. The
 # tuple is empty in the main-agent context and `(deepest_name,)` for a
 # single-level sub-agent. For ``code-puppy -> A -> B`` it is ``("A", "B")``.
-_subagent_chain: ContextVar[tuple[str, ...]] = ContextVar(
-    "subagent_chain", default=()
-)
+_subagent_chain: ContextVar[tuple[str, ...]] = ContextVar("subagent_chain", default=())
 
 
 @contextmanager
