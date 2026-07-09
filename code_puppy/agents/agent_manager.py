@@ -73,7 +73,12 @@ def _is_process_alive(pid: int) -> bool:
     Returns:
         bool: True if process likely exists, False otherwise.
     """
-    if pid <= 0:
+    try:
+        process_id = int(pid)
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+    if process_id <= 0:
         return False
 
     try:
@@ -91,7 +96,7 @@ def _is_process_alive(pid: int) -> bool:
             ]
             kernel32.OpenProcess.restype = wintypes.HANDLE
             handle = kernel32.OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid)
+                PROCESS_QUERY_LIMITED_INFORMATION, False, process_id
             )
             if handle:
                 kernel32.CloseHandle(handle)
@@ -104,7 +109,7 @@ def _is_process_alive(pid: int) -> bool:
             return False
         else:
             # Unix-like: signal 0 does not deliver a signal but checks existence
-            os.kill(int(pid), 0)
+            os.kill(process_id, 0)
             return True
     except PermissionError:
         # No permission to signal -> process exists
