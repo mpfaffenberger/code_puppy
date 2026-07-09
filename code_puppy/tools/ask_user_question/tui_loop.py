@@ -16,6 +16,7 @@ from prompt_toolkit import Application
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.formatted_text import ANSI, FormattedText
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
@@ -270,6 +271,38 @@ async def run_question_tui(
             if char and len(char) == 1 and ord(char) >= 32:
                 state.other_text_buffer += char
                 event.app.invalidate()
+
+    @kb.add(Keys.BracketedPaste)
+    def handle_paste(event: KeyPressEvent) -> None:
+        """Support clipboard paste into the 'Other' text buffer.
+
+        The terminal delivers the whole pasted payload in ``event.data`` when
+        bracketed paste is enabled (prompt_toolkit's ``Application`` turns
+        this on by default). We only accept paste while the user is typing
+        into the 'Other' option -- pasting outside text-entry mode would be
+        meaningless and is silently ignored.
+
+        Control characters are stripped so a stray newline / tab from the
+        clipboard cannot submit the form or break the layout. Newlines and
+        tabs are collapsed to a single space to keep the single-line input
+        readable.
+        """
+        state.reset_activity_timer()
+        if not state.entering_other_text:
+            return
+        pasted = event.data or ""
+        if not pasted:
+            return
+        cleaned_chars: list[str] = []
+        for ch in pasted:
+            if ch in ("\n", "\r", "\t"):
+                cleaned_chars.append(" ")
+            elif ch.isprintable():
+                cleaned_chars.append(ch)
+        cleaned = "".join(cleaned_chars)
+        if cleaned:
+            state.other_text_buffer += cleaned
+            event.app.invalidate()
 
     @kb.add("backspace")
     def handle_backspace(event: KeyPressEvent) -> None:

@@ -16,6 +16,7 @@ from code_puppy.config import get_diff_context_lines, get_yolo_mode
 from code_puppy.tools.common import (
     _find_best_window,
     get_user_approval,
+    get_user_approval_async,
 )
 
 # NOTE: The previous module-level ``_FILE_CONFIRMATION_LOCK`` was
@@ -194,8 +195,35 @@ def _preview_replace_in_file(
 
 
 def _preview_delete_file(file_path: str) -> str | None:
-    """Whole-file deletes intentionally do not show content diffs."""
-    return None
+    """Generate a preview diff for deleting a file without modifying it."""
+    try:
+        file_path = os.path.abspath(file_path)
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            return None
+
+        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
+            original = f.read()
+
+        # Sanitize any surrogate characters
+        try:
+            original = original.encode("utf-8", errors="surrogatepass").decode(
+                "utf-8", errors="replace"
+            )
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+
+        diff_text = "".join(
+            difflib.unified_diff(
+                original.splitlines(keepends=True),
+                [],
+                fromfile=f"a/{os.path.basename(file_path)}",
+                tofile=f"b/{os.path.basename(file_path)}",
+                n=get_diff_context_lines(),
+            )
+        )
+        return diff_text
+    except Exception:
+        return None
 
 
 def prompt_for_file_permission(
@@ -423,8 +451,117 @@ When file operations are rejected, the response includes a `user_feedback` field
 """
 
 
-# Register the callback for file permission handling
-register_callback("file_permission", handle_file_permission)
+async def prompt_for_file_permission_async(
+    file_path: str,
+    operation: str,
+    preview: str | None = None,
+    message_group: str | None = None,
+) -> tuple[bool, str | None]:
+    """Async sibling of :func:`prompt_for_file_permission`.
+
+    Uses :func:`get_user_approval_async` so prompt_toolkit cooperates
+    with the running asyncio loop instead of bailing out via
+    ``arrow_select() called from async context``.
+    """
+    if get_yolo_mode():
+        return True, None
+
+    panel_content = RichText()
+    panel_content.append("\U0001f512 Requesting permission to ", style="bold yellow")
+    panel_content.append(operation, style="bold cyan")
+    panel_content.append(":\n", style="bold yellow")
+    panel_content.append("\U0001f4c4 ", style="dim")
+    panel_content.append(file_path, style="bold white")
+
+    return await get_user_approval_async(
+        title="File Operation",
+        content=panel_content,
+        preview=preview,
+        border_style="dim white",
+    )
+
+
+async def handle_edit_file_permission_async(
+    context: Any,
+    file_path: str,
+    operation_type: str,
+    operation_data: Any,
+    message_group: str | None = None,
+) -> bool:
+    """Async sibling of :func:`handle_edit_file_permission`."""
+    preview = None
+
+    if operation_type == "write":
+        content = operation_data.get("content", "")
+        overwrite = operation_data.get("overwrite", False)
+        preview = _preview_write_to_file(file_path, content, overwrite)
+        operation_desc = "write to"
+    elif operation_type == "replace":
+        replacements = operation_data.get("replacements", [])
+        preview = _preview_replace_in_file(file_path, replacements)
+        operation_desc = "replace text in"
+    elif operation_type == "delete_snippet":
+        snippet = operation_data.get("delete_snippet", "")
+        preview = _preview_delete_snippet(file_path, snippet)
+        operation_desc = "delete snippet from"
+    else:
+        operation_desc = f"perform {operation_type} operation on"
+
+    confirmed, user_feedback = await prompt_for_file_permission_async(
+        file_path, operation_desc, preview, message_group
+    )
+    _set_user_feedback(user_feedback)
+    return confirmed
+
+
+async def handle_delete_file_permission_async(
+    context: Any,
+    file_path: str,
+    message_group: str | None = None,
+) -> bool:
+    """Async sibling of :func:`handle_delete_file_permission`."""
+    preview = _preview_delete_file(file_path)
+    confirmed, user_feedback = await prompt_for_file_permission_async(
+        file_path, "delete", preview, message_group
+    )
+    _set_user_feedback(user_feedback)
+    return confirmed
+
+
+async def handle_file_permission_async(
+    context: Any,
+    file_path: str,
+    operation: str,
+    preview: str | None = None,
+    message_group: str | None = None,
+    operation_data: Any = None,
+) -> bool:
+    """Async sibling of :func:`handle_file_permission`.
+
+    This is the variant registered on the ``file_permission`` hook so
+    callers in async contexts (e.g. ``on_file_permission_async``)
+    don't trip the ``arrow_select() called from async context`` guard.
+    The async dispatcher awaits the coroutine; the sync dispatcher
+    handles it by running it on a fresh loop when invoked from a
+    worker thread.
+    """
+    if operation_data is not None:
+        preview = _generate_preview_from_operation_data(
+            file_path, operation, operation_data
+        )
+
+    confirmed, user_feedback = await prompt_for_file_permission_async(
+        file_path, operation, preview, message_group
+    )
+    _set_user_feedback(user_feedback)
+    return confirmed
+
+
+# Register the async callback for file permission handling. The async
+# dispatcher (`on_file_permission_async`) awaits it directly; the sync
+# dispatcher (`on_file_permission`) runs it via ``asyncio.run`` when
+# triggered from a worker thread with no running loop.
+register_callback("file_permission", handle_file_permission_async)
 
 # Register the prompt hook for file permission instructions
 register_callback("load_prompt", get_file_permission_prompt_additions)

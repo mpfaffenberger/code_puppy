@@ -15,6 +15,7 @@ PhaseType = Literal[
     "delete_snippet",
     "delete_file",
     "run_shell_command",
+    "run_shell_command_output",
     "load_model_config",
     "load_models_config",
     "load_model_descriptions",
@@ -26,6 +27,7 @@ PhaseType = Literal[
     "pre_tool_call",
     "post_tool_call",
     "stream_event",
+    "thinking_display_filter",
     "register_tools",
     "register_agent_tools",
     "register_agents",
@@ -54,6 +56,7 @@ PhaseType = Literal[
     "user_prompt_submit",
     "pre_compact",
     "session_end",
+    "post_autosave",
     "notification",
 ]
 CallbackFunc = Callable[..., Any]
@@ -70,6 +73,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "delete_snippet": [],
     "delete_file": [],
     "run_shell_command": [],
+    "run_shell_command_output": [],
     "load_model_config": [],
     "load_models_config": [],
     "load_model_descriptions": [],
@@ -81,6 +85,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "pre_tool_call": [],
     "post_tool_call": [],
     "stream_event": [],
+    "thinking_display_filter": [],
     "register_tools": [],
     "register_agent_tools": [],
     "register_agents": [],
@@ -109,6 +114,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "user_prompt_submit": [],
     "pre_compact": [],
     "session_end": [],
+    "post_autosave": [],
     "notification": [],
 }
 
@@ -316,8 +322,8 @@ async def on_startup() -> List[Any]:
     return await _trigger_callbacks("startup")
 
 
-async def on_shutdown() -> List[Any]:
-    return await _trigger_callbacks("shutdown")
+def on_shutdown() -> List[Any]:
+    return _trigger_callbacks_sync("shutdown")
 
 
 async def on_invoke_agent(*args, **kwargs) -> List[Any]:
@@ -386,8 +392,22 @@ async def on_run_shell_command(*args, **kwargs) -> Any:
     return await _trigger_callbacks("run_shell_command", *args, **kwargs)
 
 
+async def on_run_shell_command_output(*args, **kwargs) -> Any:
+    return await _trigger_callbacks("run_shell_command_output", *args, **kwargs)
+
+
 def on_agent_reload(*args, **kwargs) -> Any:
     return _trigger_callbacks_sync("agent_reload", *args, **kwargs)
+
+
+async def on_post_autosave(*args, **kwargs) -> List[Any]:
+    """Fire after an auto-save successfully writes a session.
+
+    Receives the autosave ``SessionMetadata`` so plugins can render
+    follow-up info lines (e.g. remaining token quota) without having
+    to reach back into the autosave plumbing themselves.
+    """
+    return await _trigger_callbacks("post_autosave", *args, **kwargs)
 
 
 def on_load_prompt():
@@ -438,10 +458,13 @@ def on_file_permission(
     message_group: str | None = None,
     operation_data: Any = None,
 ) -> List[Any]:
-    """Trigger file permission callbacks.
+    """Trigger file permission callbacks synchronously.
 
-    This allows plugins to register handlers for file permission checks
-    before file operations are performed.
+    This preserves the original sync ``file_permission`` hook contract for
+    terminal/CLI plugins. If a callback is async and no event loop is running,
+    it is executed with ``asyncio.run`` by ``_trigger_callbacks_sync``. If an
+    event loop is already running, callers that need async callbacks to be
+    awaited should use :func:`on_file_permission_async` instead.
 
     Args:
         context: The operation context
@@ -452,13 +475,45 @@ def on_file_permission(
         operation_data: Operation-specific data for preview generation (recommended)
 
     Returns:
-        List of boolean results from permission handlers.
-        Returns True if permission should be granted, False if denied.
+        List of permission results. Callers should treat explicit ``False`` as
+        denial, ``True`` as approval, and ``None`` as no opinion.
     """
     # For backward compatibility, if operation_data is provided, prefer it over preview
     if operation_data is not None:
         preview = None
     return _trigger_callbacks_sync(
+        "file_permission",
+        context,
+        file_path,
+        operation,
+        preview,
+        message_group,
+        operation_data,
+    )
+
+
+async def on_file_permission_async(
+    context: Any,
+    file_path: str,
+    operation: str,
+    preview: str | None = None,
+    message_group: str | None = None,
+    operation_data: Any = None,
+) -> List[Any]:
+    """Trigger file permission callbacks from async tool execution.
+
+    This uses the existing ``file_permission`` hook phase and awaits async
+    callbacks while still supporting sync callbacks unchanged. It is intended
+    for async file tools, including WebSocket/browser approval flows, where the
+    tool must wait for a permission decision without dropping an unawaited
+    coroutine. Sync callbacks still run inline, matching existing behavior.
+
+    Return semantics match :func:`on_file_permission`: explicit ``False``
+    denies, ``True`` approves, and ``None`` means no opinion.
+    """
+    if operation_data is not None:
+        preview = None
+    return await _trigger_callbacks(
         "file_permission",
         context,
         file_path,
@@ -513,6 +568,47 @@ async def on_post_tool_call(
     return await _trigger_callbacks(
         "post_tool_call", tool_name, tool_args, result, duration_ms, context
     )
+
+
+def on_thinking_display_filter(
+    text: str,
+    *,
+    stream_id: object,
+    part_index: int,
+    final: bool = False,
+) -> str:
+    """Synchronously chain filters before thinking text reaches the display.
+
+    Filters may retain incomplete streaming syntax between calls, keyed by
+    ``stream_id`` and ``part_index``. They must release or discard that state
+    when ``final`` is true. A callback failure or non-string return leaves the
+    current text unchanged so display plugins can never break agent runs.
+    """
+    current = text
+    for callback in get_callbacks("thinking_display_filter"):
+        try:
+            result = callback(
+                current,
+                stream_id=stream_id,
+                part_index=part_index,
+                final=final,
+            )
+            if isinstance(result, str):
+                current = result
+            else:
+                logger.warning(
+                    "Thinking display filter %s returned %s; ignoring it",
+                    callback.__name__,
+                    type(result).__name__,
+                )
+        except Exception as exc:
+            logger.error(
+                "Thinking display filter %s failed: %s\n%s",
+                callback.__name__,
+                exc,
+                traceback.format_exc(),
+            )
+    return current
 
 
 async def on_stream_event(
@@ -920,17 +1016,17 @@ def on_register_browser_types() -> List[Any]:
 
     Plugins can register callbacks that return a dict mapping browser type names
     to initialization functions. This allows plugins to provide custom browser
-    implementations (like Camoufox for stealth browsing).
+    implementations (such as stealth-focused or hardened browsers).
 
     Each callback should return a dict with:
-    - key: str - the browser type name (e.g., "camoufox", "firefox-stealth")
+    - key: str - the browser type name (e.g., "firefox-stealth", "hardened")
     - value: callable - async initialization function that takes (manager, **kwargs)
                         and sets up the browser on the manager instance
 
     Example callback:
         def register_my_browser_types():
             return {
-                "camoufox": initialize_camoufox,
+                "firefox-stealth": initialize_firefox_stealth,
                 "my-stealth-browser": initialize_my_stealth,
             }
 
@@ -944,7 +1040,7 @@ def on_register_model_providers() -> List[Any]:
     """Trigger callbacks to register custom model provider classes.
 
     Plugins can register callbacks that return a dict mapping provider names
-    to model classes. Example: {"walmart_gemini": WalmartGeminiModel}
+    to model classes. Example: {"my_provider": MyCustomModel}
 
     Returns:
         List of dicts from all registered callbacks.

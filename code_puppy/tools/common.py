@@ -1532,10 +1532,17 @@ async def _get_user_approval_async_impl(
             confirmed = False
             emit_info("")
             emit_info(f"Tell {puppy_name} what to change:")
-            user_feedback = Prompt.ask(
-                "[bold green]➤[/bold green]",
-                default="",
-            ).strip()
+            # Rich's Prompt.ask reads stdin -- suspend the key listener
+            # so it doesn't fight us for keystrokes. Without this, the
+            # key-listener thread eats roughly half the user's keypresses
+            # and the feedback box appears "broken."
+            from code_puppy.agents._key_listeners import suspended_key_listener
+
+            with suspended_key_listener():
+                user_feedback = Prompt.ask(
+                    "[bold green]➤[/bold green]",
+                    default="",
+                ).strip()
 
             if not user_feedback:
                 user_feedback = None

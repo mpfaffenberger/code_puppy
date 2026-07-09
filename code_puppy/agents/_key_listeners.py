@@ -76,45 +76,16 @@ _active_handle: Optional[KeyListenerHandle] = None
 _active_handle_lock = threading.Lock()
 
 # =============================================================================
-# Dynamic escape (Ctrl+X) handler
-# =============================================================================
-#
-# The shell-command runner needs Ctrl+X to kill running processes, but only
-# while commands are in flight. Rather than spawning a *second* cbreak
-# listener thread (two readers on one stdin -- the historical cause of
-# stolen CPR replies and the "terminal doesn't support cursor position
-# requests" warning), it registers a handler here and the single active
-# listener dispatches to it.
-
-_escape_handler: Optional[Callable[[], None]] = None
-_escape_handler_lock = threading.Lock()
-
-
-def set_escape_handler(handler: Optional[Callable[[], None]]) -> None:
-    """Install (or clear, with ``None``) the dynamic Ctrl+X handler.
-
-    While set, it takes precedence over the ``on_escape`` callback the
-    listener was spawned with.
-    """
-    global _escape_handler
-    with _escape_handler_lock:
-        _escape_handler = handler
-
-
-def _resolve_escape_handler(fallback: Callable[[], None]) -> Callable[[], None]:
-    """Return the dynamic Ctrl+X handler if set, else ``fallback``."""
-    with _escape_handler_lock:
-        return _escape_handler or fallback
-
-
 # =============================================================================
 # Line-editor feed target (Phase 3 of the bottom-bar rewrite)
 # =============================================================================
 #
 # The run UI installs a ``RunningLineEditor`` here; the single listener
 # thread routes every NON-hotkey character into it (one stdin reader,
-# dynamic dispatch — the ``set_escape_handler`` pattern). Ctrl+X and the
-# cancel-agent key keep priority and are never fed to the editor.
+# dynamic dispatch). The cancel-agent key keeps priority and is never
+# fed to the editor; Ctrl+X always flows INTO the editor as the chord
+# prefix (bindings live in ``messaging.chords``) — the spawn-time
+# ``on_escape`` fallback only fires when no editor is installed.
 
 _line_editor: Optional[Any] = None
 _line_editor_lock = threading.Lock()
@@ -162,7 +133,8 @@ def _tick_line_editor() -> None:
 #
 # The cancel-agent hotkey callback is per-RUN (closes over the agent
 # task + loop): the runtime arms it here while a run is active and
-# clears it afterwards — mirroring ``set_escape_handler``. With no
+# clears it afterwards — same dynamic-dispatch pattern as the
+# line-editor feed target above. With no
 # handler armed the cancel key is inert (never fed to the editor).
 
 _cancel_handler: Optional[Callable[[], None]] = None
@@ -349,8 +321,13 @@ def _dispatch_key(
 ) -> None:
     """Route one keystroke: hotkeys first, everything else to the editor.
 
-    Ctrl+X and the cancel-agent key keep PRIORITY and are never fed to
-    the line editor. Shared by the POSIX and Windows listener loops.
+    The cancel-agent key keeps PRIORITY and is never fed to the line
+    editor. Ctrl+X is NOT modal: with an editor installed it always
+    flows into it as the chord prefix and the ``messaging.chords``
+    registry decides what the follow-up key does (Ctrl+E $EDITOR,
+    Ctrl+X kill shells, Ctrl+B background shells). The spawn-time
+    ``on_escape`` callback only fires headless (no editor) — there a
+    bare Ctrl+X keeps its historical kill-the-shells meaning.
 
     Raw ^C as the cancel char (the default everywhere) keeps its
     universal shell semantics, matching the old SIGINT handler contract:
@@ -358,8 +335,11 @@ def _dispatch_key(
     prompt cancels the run; idle ^C clears the typed line.
     """
     if data == "\x18":  # Ctrl+X
+        if get_line_editor() is not None:
+            _feed_line_editor(data)  # chord prefix — chords registry decides
+            return
         try:
-            _resolve_escape_handler(on_escape)()
+            on_escape()
         except Exception:
             emit_warning("Ctrl+X handler raised unexpectedly; Ctrl+C still works.")
         return
@@ -1070,7 +1050,6 @@ __all__ = [
     "get_line_editor",
     "set_active_handle",
     "set_cancel_handler",
-    "set_escape_handler",
     "set_line_editor",
     "spawn_key_listener",
     "suspended_key_listener",

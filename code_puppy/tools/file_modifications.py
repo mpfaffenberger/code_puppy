@@ -1,11 +1,11 @@
-"""Robust file-modification helpers + agent tools.
+"""Robust, always-diff-logging file-modification helpers + agent tools.
 
 Key guarantees
 --------------
-1. **Create/edit operations emit diffs** when there are changes to show.
-2. **Delete-file operations do not print removed content**; they only report deletion.
-3. **Full traceback logging** for unexpected errors via `_log_error`.
-4. Helper functions stay print-free while agent-tool wrappers handle console output.
+1. **A diff is printed _inline_ on every path** (success, no-op, or error) – no decorator magic.
+2. **Full traceback logging** for unexpected errors via `_log_error`.
+3. Helper functions stay print-free and return a `diff` key, while agent-tool wrappers handle
+   all console output.
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ from code_puppy.messaging import (  # Structured messaging types
     DiffLine,
     DiffMessage,
     emit_error,
-    emit_success,
     emit_warning,
     get_message_bus,
 )
@@ -38,6 +37,15 @@ from code_puppy.tools.common import (
     write_project_file,
 )
 from code_puppy.tools import fs_access
+
+
+def _permission_denied(permission_results: List[Any]) -> bool:
+    """Return True when any permission callback explicitly denies.
+
+    Permission callbacks use a tri-state contract: ``False`` denies, ``True``
+    approves, and ``None`` means no opinion.
+    """
+    return any(result is False for result in permission_results if result is not None)
 
 
 def _create_rejection_response(file_path: str) -> Dict[str, Any]:
@@ -434,9 +442,7 @@ def delete_snippet_from_file(
     )
 
     # If any permission handler denies the operation, return cancelled result
-    if permission_results and any(
-        not result for result in permission_results if result is not None
-    ):
+    if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
     res = _delete_snippet_from_file(
@@ -464,9 +470,7 @@ def write_to_file(
     )
 
     # If any permission handler denies the operation, return cancelled result
-    if permission_results and any(
-        not result for result in permission_results if result is not None
-    ):
+    if _permission_denied(permission_results):
         return _create_rejection_response(path)
 
     res = _write_to_file(
@@ -495,9 +499,79 @@ def replace_in_file(
     )
 
     # If any permission handler denies the operation, return cancelled result
-    if permission_results and any(
-        not result for result in permission_results if result is not None
-    ):
+    if _permission_denied(permission_results):
+        return _create_rejection_response(path)
+
+    res = _replace_in_file(context, path, replacements, message_group=message_group)
+    diff = res.get("diff", "")
+    if diff:
+        _emit_diff_message(path, "modify", diff)
+    return res
+
+
+async def delete_snippet_from_file_async(
+    context: RunContext, file_path: str, snippet: str, message_group: str | None = None
+) -> Dict[str, Any]:
+    """Async permission-aware variant of ``delete_snippet_from_file``."""
+    from code_puppy.callbacks import on_file_permission_async
+
+    operation_data = {"snippet": snippet}
+    permission_results = await on_file_permission_async(
+        context, file_path, "delete snippet from", None, message_group, operation_data
+    )
+    if _permission_denied(permission_results):
+        return _create_rejection_response(file_path)
+
+    res = _delete_snippet_from_file(
+        context, file_path, snippet, message_group=message_group
+    )
+    diff = res.get("diff", "")
+    if diff:
+        _emit_diff_message(file_path, "modify", diff)
+    return res
+
+
+async def write_to_file_async(
+    context: RunContext,
+    path: str,
+    content: str,
+    overwrite: bool,
+    message_group: str | None = None,
+) -> Dict[str, Any]:
+    """Async permission-aware variant of ``write_to_file``."""
+    from code_puppy.callbacks import on_file_permission_async
+
+    operation_data = {"content": content, "overwrite": overwrite}
+    permission_results = await on_file_permission_async(
+        context, path, "write", None, message_group, operation_data
+    )
+    if _permission_denied(permission_results):
+        return _create_rejection_response(path)
+
+    res = _write_to_file(
+        context, path, content, overwrite=overwrite, message_group=message_group
+    )
+    diff = res.get("diff", "")
+    if diff:
+        operation = "modify" if overwrite else "create"
+        _emit_diff_message(path, operation, diff, new_content=content)
+    return res
+
+
+async def replace_in_file_async(
+    context: RunContext,
+    path: str,
+    replacements: List[Dict[str, str]],
+    message_group: str | None = None,
+) -> Dict[str, Any]:
+    """Async permission-aware variant of ``replace_in_file``."""
+    from code_puppy.callbacks import on_file_permission_async
+
+    operation_data = {"replacements": replacements}
+    permission_results = await on_file_permission_async(
+        context, path, "replace text in", None, message_group, operation_data
+    )
+    if _permission_denied(permission_results):
         return _create_rejection_response(path)
 
     res = _replace_in_file(context, path, replacements, message_group=message_group)
@@ -599,6 +673,65 @@ def _edit_file(
         }
 
 
+async def _edit_file_async(
+    context: RunContext, payload: EditFilePayload, group_id: str | None = None
+) -> Dict[str, Any]:
+    """Async permission-aware variant of ``_edit_file``."""
+    file_path = os.path.abspath(payload.file_path)
+
+    if group_id is None:
+        group_id = generate_group_id("edit_file", file_path)
+
+    try:
+        if isinstance(payload, DeleteSnippetPayload):
+            return await delete_snippet_from_file_async(
+                context, file_path, payload.delete_snippet, message_group=group_id
+            )
+        elif isinstance(payload, ReplacementsPayload):
+            replacements_dict = [
+                {"old_str": rep.old_str, "new_str": rep.new_str}
+                for rep in payload.replacements
+            ]
+            return await replace_in_file_async(
+                context, file_path, replacements_dict, message_group=group_id
+            )
+        elif isinstance(payload, ContentPayload):
+            file_exists = os.path.exists(file_path)
+            if file_exists and not payload.overwrite:
+                return {
+                    "success": False,
+                    "path": file_path,
+                    "message": f"File '{file_path}' exists. Set 'overwrite': true to replace.",
+                    "changed": False,
+                }
+            return await write_to_file_async(
+                context,
+                file_path,
+                payload.content,
+                payload.overwrite,
+                message_group=group_id,
+            )
+        else:
+            return {
+                "success": False,
+                "path": file_path,
+                "message": f"Unknown payload type: {type(payload)}",
+                "changed": False,
+            }
+    except Exception as e:
+        emit_error(
+            "Unable to route file modification tool call to sub-tool",
+            message_group=group_id,
+        )
+        emit_error(str(e), message_group=group_id)
+        return {
+            "success": False,
+            "path": file_path,
+            "message": f"Something went wrong in file editing: {str(e)}",
+            "changed": False,
+        }
+
+
 def _delete_file(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
@@ -614,30 +747,103 @@ def _delete_file(
     )
 
     # If any permission handler denies the operation, return cancelled result
-    if permission_results and any(
-        not result for result in permission_results if result is not None
-    ):
+    if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
     try:
         if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
-            return {"error": f"File '{file_path}' does not exist."}
+            res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
+        else:
+            original = fs_access.read_text(file_path)
+            # Sanitize any surrogate characters from reading
+            try:
+                original = original.encode("utf-8", errors="surrogatepass").decode(
+                    "utf-8", errors="replace"
+                )
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
+            from code_puppy.config import get_diff_context_lines
 
-        fs_access.delete_file(file_path)
-        try:
-            emit_success(f"Deleted file: {file_path}", message_group=message_group)
-        except Exception:
-            # Deletion already succeeded; UI notification failures should not flip it.
-            pass
-        return {
-            "success": True,
-            "path": file_path,
-            "message": f"File '{file_path}' deleted successfully.",
-            "changed": True,
-        }
+            diff_text = "".join(
+                difflib.unified_diff(
+                    original.splitlines(keepends=True),
+                    [],
+                    fromfile=f"a/{os.path.basename(file_path)}",
+                    tofile=f"b/{os.path.basename(file_path)}",
+                    n=get_diff_context_lines(),
+                )
+            )
+            fs_access.delete_file(file_path)
+            res = {
+                "success": True,
+                "path": file_path,
+                "message": f"File '{file_path}' deleted successfully.",
+                "changed": True,
+                "diff": diff_text,
+            }
     except Exception as exc:
         _log_error("Unhandled exception in delete_file", exc)
-        return {"error": str(exc)}
+        res = {"error": str(exc), "diff": ""}
+
+    diff = res.get("diff", "")
+    if diff:
+        _emit_diff_message(file_path, "delete", diff)
+    return res
+
+
+async def _delete_file_async(
+    context: RunContext, file_path: str, message_group: str | None = None
+) -> Dict[str, Any]:
+    """Async permission-aware variant of ``_delete_file``."""
+    file_path = resolve_path(file_path)
+
+    from code_puppy.callbacks import on_file_permission_async
+
+    operation_data = {}
+    permission_results = await on_file_permission_async(
+        context, file_path, "delete", None, message_group, operation_data
+    )
+    if _permission_denied(permission_results):
+        return _create_rejection_response(file_path)
+
+    try:
+        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
+            res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
+        else:
+            original = fs_access.read_text(file_path)
+            try:
+                original = original.encode("utf-8", errors="surrogatepass").decode(
+                    "utf-8", errors="replace"
+                )
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
+            from code_puppy.config import get_diff_context_lines
+
+            diff_text = "".join(
+                difflib.unified_diff(
+                    original.splitlines(keepends=True),
+                    [],
+                    fromfile=f"a/{os.path.basename(file_path)}",
+                    tofile=f"b/{os.path.basename(file_path)}",
+                    n=get_diff_context_lines(),
+                )
+            )
+            fs_access.delete_file(file_path)
+            res = {
+                "success": True,
+                "path": file_path,
+                "message": f"File '{file_path}' deleted successfully.",
+                "changed": True,
+                "diff": diff_text,
+            }
+    except Exception as exc:
+        _log_error("Unhandled exception in delete_file", exc)
+        res = {"error": str(exc), "diff": ""}
+
+    diff = res.get("diff", "")
+    if diff:
+        _emit_diff_message(file_path, "delete", diff)
+    return res
 
 
 def register_edit_file(agent):
@@ -658,7 +864,7 @@ def register_edit_file(agent):
     )
 
     @agent.tool
-    def edit_file(
+    async def edit_file(
         context: RunContext,
         payload: EditFilePayload | str = "",
     ) -> Dict[str, Any]:
@@ -700,7 +906,8 @@ def register_edit_file(agent):
                 }
 
         # Call _edit_file which will extract file_path from payload and handle group_id generation
-        result = _edit_file(context, payload)
+        result = await _edit_file_async(context, payload)
+        on_edit_file(payload)
         if "diff" in result:
             del result["diff"]
 
@@ -720,18 +927,17 @@ def register_delete_file(agent):
     """Register only the delete_file tool."""
 
     @agent.tool
-    def delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
-        """Safely delete a file and report the deletion.
+    async def delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
+        """Safely delete files with comprehensive logging and diff generation.
 
-        Delete operations intentionally do not generate or print diffs of removed content.
+        Shows exactly what content was removed via diff output.
         """
         # Generate group_id for delete_file tool execution
         group_id = generate_group_id("delete_file", file_path)
-        result = _delete_file(context, file_path, message_group=group_id)
-        if "diff" in result:
-            del result["diff"]
+        result = await _delete_file_async(context, file_path, message_group=group_id)
 
         # Trigger delete_file callbacks to enhance the result with rejection details
+        # We do this before removing 'diff' so callbacks (like telemetry) can see what happened
         enhanced_results = on_delete_file(context, result, file_path)
         if enhanced_results:
             # Use the first non-None enhanced result
@@ -739,6 +945,9 @@ def register_delete_file(agent):
                 if enhanced_result is not None:
                     result = enhanced_result
                     break
+
+        if "diff" in result:
+            del result["diff"]
 
         return result
 
@@ -748,16 +957,16 @@ def register_delete_file(agent):
 # function named 'replace_in_file' which shadows the module-level helper of the
 # same name for the entire enclosing scope (Python scoping rules).  We capture
 # a reference here so the registration function can call the helper.
-_replace_in_file_helper = replace_in_file
+_replace_in_file_helper = replace_in_file_async
 
 
 def register_create_file(agent):
     """Register the create_file tool for creating or overwriting files."""
     # Local alias to avoid shadowing by the @agent.tool decorated function below
-    _write_file = write_to_file
+    _write_file = write_to_file_async
 
     @agent.tool
-    def create_file(
+    async def create_file(
         context: RunContext,
         file_path: str = "",
         content: str = "",
@@ -765,7 +974,7 @@ def register_create_file(agent):
     ) -> Dict[str, Any]:
         """Create a new file or overwrite an existing one with the provided content."""
         group_id = generate_group_id("create_file", file_path)
-        result = _write_file(
+        result = await _write_file(
             context, file_path, content, overwrite, message_group=group_id
         )
         if "diff" in result:
@@ -843,7 +1052,7 @@ def register_replace_in_file(agent):
     """Register the replace_in_file tool for targeted text replacements."""
 
     @agent.tool
-    def replace_in_file(
+    async def replace_in_file(
         context: RunContext,
         file_path: str = "",
         replacements: RepairableReplacementsList = [],
@@ -882,7 +1091,7 @@ def register_replace_in_file(agent):
                     }
                 normalized.append({"old_str": r["old_str"], "new_str": r["new_str"]})
 
-            result = _replace_in_file_helper(
+            result = await _replace_in_file_helper(
                 context, file_path, normalized, message_group=group_id
             )
             if "diff" in result:
@@ -917,17 +1126,19 @@ def register_replace_in_file(agent):
 def register_delete_snippet(agent):
     """Register the delete_snippet tool for removing text from files."""
     # Local alias to avoid shadowing by the @agent.tool decorated function below
-    _remove_snippet = delete_snippet_from_file
+    _remove_snippet = delete_snippet_from_file_async
 
     @agent.tool
-    def delete_snippet(
+    async def delete_snippet(
         context: RunContext,
         file_path: str = "",
         snippet: str = "",
     ) -> Dict[str, Any]:
         """Remove the first occurrence of a text snippet from a file."""
         group_id = generate_group_id("delete_snippet", file_path)
-        result = _remove_snippet(context, file_path, snippet, message_group=group_id)
+        result = await _remove_snippet(
+            context, file_path, snippet, message_group=group_id
+        )
         if "diff" in result:
             del result["diff"]
 

@@ -12,6 +12,26 @@ from __future__ import annotations
 from typing import Optional
 
 from . import editor_keys as ek
+from .chords import clear_chord_hint, dispatch_chord, show_chord_hint
+
+
+def handle_chord(ed, ch: str) -> bool:
+    """Ctrl+X chord prefix handling; True = key consumed.
+
+    First press arms the prefix (+ hint on the bottom bar); the next
+    key resolves against the chords registry. Unbound follow-ups fall
+    through (False) so the editor processes them normally — Esc and
+    Ctrl+C disarm via the editor's own branches before reaching here.
+    """
+    if ed._ctrl_x_pending:
+        ed._ctrl_x_pending = False
+        clear_chord_hint()
+        return dispatch_chord(ch)
+    if ch == ek.CTRL_X:
+        ed._ctrl_x_pending = True
+        show_chord_hint()
+        return True
+    return False
 
 
 def apply_action(ed, action: Optional[str]) -> None:
@@ -77,4 +97,4 @@ def apply_action(ed, action: Optional[str]) -> None:
         ed._repaint()
 
 
-__all__ = ["apply_action"]
+__all__ = ["apply_action", "handle_chord"]

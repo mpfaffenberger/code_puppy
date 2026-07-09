@@ -12,11 +12,42 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Set
 
 from code_puppy.config import get_value, set_value
 
 logger = logging.getLogger(__name__)
+
+# Hidden config key. When truthy, builtin plugins cannot be disabled and are
+# hidden from the /plugins menu. A general-purpose deployment lock: managed
+# distributions (corporate forks, kiosk installs) can flip it to protect the
+# shipped plugin set from being switched off by end users.
+LOCK_BUILTIN_KEY = "lock_builtin_plugins"
+
+
+def get_lock_builtin_plugins() -> bool:
+    """Whether builtin plugins are locked (un-disableable + hidden)."""
+    raw = get_value(LOCK_BUILTIN_KEY)
+    if raw is None:
+        return False
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
+def set_lock_builtin_plugins(locked: bool) -> None:
+    """Set the builtin-plugin lock. Idempotent at the config layer."""
+    set_value(LOCK_BUILTIN_KEY, "true" if locked else "false")
+
+
+def is_builtin_plugin(plugin_name: str) -> bool:
+    """True if *plugin_name* is a builtin (shipped in code_puppy/plugins/).
+
+    Filesystem ground-truth so the check is independent of plugin load order.
+    """
+    import code_puppy.plugins as plugins_pkg
+
+    plugin_dir = Path(plugins_pkg.__file__).parent / plugin_name
+    return plugin_dir.is_dir() and (plugin_dir / "register_callbacks.py").exists()
 
 
 def get_disabled_plugins() -> Set[str]:
@@ -44,8 +75,19 @@ def set_plugin_disabled(plugin_name: str, disabled: bool) -> bool:
     """Disable or re-enable a plugin by name.
 
     Returns ``True`` if the state changed, ``False`` if it was already in the
-    requested state.
+    requested state (or if the change was refused).
+
+    When the builtin lock is active, requests to *disable* a builtin plugin
+    are refused outright — re-enabling is always allowed so the lock can
+    never strand a builtin in the disabled set.
     """
+    if disabled and get_lock_builtin_plugins() and is_builtin_plugin(plugin_name):
+        logger.warning(
+            f"Refusing to disable builtin plugin '{plugin_name}': "
+            f"builtin plugins are locked ({LOCK_BUILTIN_KEY})."
+        )
+        return False
+
     disabled_plugins = get_disabled_plugins()
 
     if disabled:

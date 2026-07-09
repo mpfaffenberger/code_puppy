@@ -205,12 +205,47 @@ def test_dispatch_routes_non_hotkeys_to_editor(tty_bar):
     assert editor.buffer == "a"
 
 
-def test_dispatch_gives_ctrl_x_priority_over_editor(tty_bar):
+def test_dispatch_ctrl_x_chord_kill_all(tty_bar):
+    """Ctrl+X Ctrl+X fires the registered kill-all chord (shell binding)."""
+    from code_puppy.messaging import chords
+
     editor = run_ui_mod.start_run_ui()
+    kills = []
+    chords.register_chord("\x18", lambda: kills.append(1), "Ctrl+X kill shells")
+    try:
+        _key_listeners._dispatch_key("\x18", lambda: None, None, None)
+        assert kills == []  # first press only arms the chord
+        _key_listeners._dispatch_key("\x18", lambda: None, None, None)
+    finally:
+        chords.unregister_chord("\x18")
+    assert kills == [1]
+    assert editor.buffer == ""  # chord keys never reach the buffer
+
+
+def test_dispatch_feeds_ctrl_x_to_editor_as_chord_prefix(tty_bar):
+    """Ctrl+X flows into the editor; the registry resolves the follow-up."""
+    from code_puppy.messaging import chords
+
+    editor = run_ui_mod.start_run_ui()
+    escapes = []
+    edits = []
+    chords.register_chord("\x05", lambda: edits.append(1), "Ctrl+E edit")
+    try:
+        _key_listeners._dispatch_key("\x18", lambda: escapes.append(1), None, None)
+        assert escapes == []  # spawn-time fallback NOT called: editor owns it
+        assert editor.buffer == ""  # chord prefix is invisible
+        _key_listeners._dispatch_key("\x05", lambda: None, None, None)
+    finally:
+        chords.unregister_chord("\x05")
+    assert edits == [1]  # chord completed through the real dispatch path
+
+
+def test_dispatch_ctrl_x_falls_back_without_editor():
+    """No editor installed (headless/exotic): spawn-time fallback fires."""
+    assert _key_listeners.get_line_editor() is None
     escapes = []
     _key_listeners._dispatch_key("\x18", lambda: escapes.append(1), None, None)
     assert escapes == [1]
-    assert editor.buffer == ""  # Ctrl+X never reaches the editor
 
 
 def test_dispatch_gives_cancel_key_priority_over_editor(tty_bar):

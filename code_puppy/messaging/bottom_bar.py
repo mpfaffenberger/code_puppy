@@ -217,6 +217,11 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
             self._status = text or ""
             self._sync_reserved(self._status_seq)
 
+    def get_status(self) -> str:
+        """Current status-line text (the cached :meth:`set_status` value)."""
+        with self._lock:
+            return self._status
+
     def set_status_prefix(self, text: str) -> None:
         """Update the spinner slot painted BEFORE the status text.
 

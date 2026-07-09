@@ -1,4 +1,5 @@
 import asyncio
+import warnings
 from unittest.mock import patch
 
 import pytest
@@ -664,6 +665,116 @@ class TestStreamEventCallback:
             assert results[1] == "OK"  # Survived
             assert successful_events == ["token"]
             mock_logger.error.assert_called_once()
+
+
+class TestAsyncFilePermissionCallbacks:
+    """Async-compatible file permission callback behavior."""
+
+    def setup_method(self):
+        clear_callbacks()
+
+    def teardown_method(self):
+        clear_callbacks()
+
+    def test_sync_file_permission_callback_still_works(self):
+        from code_puppy.callbacks import on_file_permission
+
+        def approve(
+            context,
+            file_path,
+            operation,
+            preview=None,
+            message_group=None,
+            operation_data=None,
+        ):
+            return True
+
+        register_callback("file_permission", approve)
+        assert on_file_permission(None, "example.txt", "write") == [True]
+
+    @pytest.mark.asyncio
+    async def test_async_file_permission_callback_is_awaited(self):
+        from code_puppy.callbacks import on_file_permission_async
+
+        calls = []
+
+        async def approve(
+            context,
+            file_path,
+            operation,
+            preview=None,
+            message_group=None,
+            operation_data=None,
+        ):
+            await asyncio.sleep(0)
+            calls.append((file_path, operation, operation_data))
+            return True
+
+        register_callback("file_permission", approve)
+        result = await on_file_permission_async(
+            None, "example.txt", "write", operation_data={"overwrite": True}
+        )
+
+        assert result == [True]
+        assert calls == [("example.txt", "write", {"overwrite": True})]
+
+    @pytest.mark.asyncio
+    async def test_mixed_sync_and_async_file_permission_callbacks(self):
+        from code_puppy.callbacks import on_file_permission_async
+
+        def no_op(
+            context,
+            file_path,
+            operation,
+            preview=None,
+            message_group=None,
+            operation_data=None,
+        ):
+            return None
+
+        async def deny(
+            context,
+            file_path,
+            operation,
+            preview=None,
+            message_group=None,
+            operation_data=None,
+        ):
+            await asyncio.sleep(0)
+            return False
+
+        register_callback("file_permission", no_op)
+        register_callback("file_permission", deny)
+
+        assert await on_file_permission_async(None, "example.txt", "write") == [
+            None,
+            False,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_async_file_permission_has_no_unawaited_coroutine_warning(self):
+        from code_puppy.callbacks import on_file_permission_async
+
+        async def approve(
+            context,
+            file_path,
+            operation,
+            preview=None,
+            message_group=None,
+            operation_data=None,
+        ):
+            await asyncio.sleep(0)
+            return True
+
+        register_callback("file_permission", approve)
+
+        with warnings.catch_warnings(record=True) as warnings_record:
+            warnings.simplefilter("always")
+            assert await on_file_permission_async(None, "example.txt", "write") == [
+                True
+            ]
+
+        assert not [w for w in warnings_record if "was never awaited" in str(w.message)]
 
 
 class TestTriggerCallbacksRaiseOnError:

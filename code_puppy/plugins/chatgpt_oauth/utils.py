@@ -344,6 +344,10 @@ def exchange_code_for_tokens(
 # These are the known models that work with ChatGPT OAuth tokens
 # Based on codex-rs CLI and shell-scripts/codex-call.sh
 DEFAULT_CODEX_MODELS = [
+    "gpt-5.6",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
     "gpt-5.5",
     "gpt-5.4",
     "gpt-5.3-instant",
@@ -357,6 +361,10 @@ DEFAULT_CODEX_MODELS = [
 # doesn't return them (e.g. newly launched, not yet in the API catalogue).
 # These are merged into whatever the endpoint returns.
 REQUIRED_CODEX_MODELS = [
+    "gpt-5.6",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
     "gpt-5.5",
     "gpt-5.4",
     "gpt-5.3-instant",
@@ -366,9 +374,21 @@ REQUIRED_CODEX_MODELS = [
 # Per-model context length overrides (tokens).
 # Models not listed here use CHATGPT_OAUTH_CONFIG["default_context_length"] (272,000).
 CODEX_MODEL_CONTEXT_LENGTHS = {
+    "gpt-5.6": 1050000,
+    "gpt-5.6-sol": 1050000,
+    "gpt-5.6-terra": 1050000,
+    "gpt-5.6-luna": 1050000,
     "gpt-5.3-codex-spark": 131000,
     "gpt-5.3-instant": 192000,
 }
+
+
+def _supports_xhigh_reasoning(model_name: str) -> bool:
+    """Return whether a ChatGPT OAuth model supports xhigh reasoning."""
+    normalized_model_name = model_name.lower()
+    return "codex" in normalized_model_name or normalized_model_name.startswith(
+        ("gpt-5.4", "gpt-5.5", "gpt-5.6")
+    )
 
 
 def _ensure_required_models(models: List[str]) -> List[str]:
@@ -482,11 +502,7 @@ def add_models_to_extra_config(models: List[str]) -> bool:
 
             # xhigh reasoning is supported by codex models and GPT-5.4+ variants.
             # Older non-codex GPT-5.x models like gpt-5.2 stay capped at "high".
-            normalized_model_name = model_name.lower()
-            supports_xhigh_reasoning = (
-                "codex" in normalized_model_name
-                or normalized_model_name.startswith(("gpt-5.4", "gpt-5.5"))
-            )
+            supports_xhigh_reasoning = _supports_xhigh_reasoning(model_name)
 
             chatgpt_models[prefixed] = {
                 "type": "chatgpt_oauth",
