@@ -198,6 +198,15 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
         pid = proc.pid
         try:
             pgid = os.getpgid(pid)
+            # SAFETY: never signal our OWN process group. Production spawns
+            # every child with start_new_session=True/os.setsid so it lands
+            # in its own group -- but a child spawned WITHOUT that isolation
+            # inherits our group, and killpg(our_pgid, SIGKILL) would take
+            # out this process (pytest, or the CI runner's step shell) too.
+            # That footgun is exactly what canceled CI. Fall back to a
+            # single-process kill when the group isn't isolated.
+            if pgid == os.getpgrp():
+                raise ProcessLookupError("refusing to killpg our own process group")
             os.killpg(pgid, signal.SIGTERM)
             time.sleep(1.0)
             if proc.poll() is None:

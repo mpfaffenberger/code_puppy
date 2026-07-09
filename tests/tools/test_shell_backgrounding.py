@@ -23,11 +23,16 @@ SLOW_SCRIPT = (
 
 
 def _spawn_slow_process():
+    # start_new_session mirrors production (command_runner spawns with
+    # os.setsid) so the child gets its OWN process group. Without it the
+    # child inherits pytest's group and _kill_process_group's killpg would
+    # nuke pytest -- and, in CI, the runner's step shell (cancels the job).
     return subprocess.Popen(
         [sys.executable, "-u", "-c", SLOW_SCRIPT],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        start_new_session=True,
     )
 
 
@@ -135,6 +140,7 @@ def test_streaming_unaffected_by_prior_background_requests():
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        start_new_session=True,
     )
     command_runner._register_process(process)
     result = run_shell_command_streaming(
