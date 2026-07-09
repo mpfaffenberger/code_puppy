@@ -32,9 +32,11 @@ from code_puppy.messaging import (  # Structured messaging types
 )
 from code_puppy.tools.common import (
     _find_best_window,
-    atomic_write_text,
     generate_group_id,
+    resolve_path,
+    write_project_file,
 )
+from code_puppy.tools import fs_access
 
 
 def _permission_denied(permission_results: List[Any]) -> bool:
@@ -228,13 +230,12 @@ def _delete_snippet_from_file(
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     UndoManager().record_change(file_path, "delete_snippet")
-    file_path = os.path.abspath(file_path)
+    file_path = resolve_path(file_path)
     diff_text = ""
     try:
-        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
-        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-            original = f.read()
+        original = fs_access.read_text(file_path)
         # Sanitize any surrogate characters from reading
         try:
             original = original.encode("utf-8", errors="surrogatepass").decode(
@@ -259,7 +260,7 @@ def _delete_snippet_from_file(
                 n=get_diff_context_lines(),
             )
         )
-        atomic_write_text(file_path, modified)
+        write_project_file(file_path, modified)
         return {
             "success": True,
             "path": file_path,
@@ -279,14 +280,13 @@ def _replace_in_file(
 ) -> Dict[str, Any]:
     UndoManager().record_change(path, "replace_in_file")
     """Robust replacement engine with explicit edge‑case reporting."""
-    file_path = os.path.abspath(path)
+    file_path = resolve_path(path)
     diff_text = ""
     try:
-        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
 
-        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-            original = f.read()
+        original = fs_access.read_text(file_path)
 
         # Sanitize any surrogate characters from reading
         try:
@@ -354,7 +354,7 @@ def _replace_in_file(
                 n=get_diff_context_lines(),
             )
         )
-        atomic_write_text(file_path, modified)
+        write_project_file(file_path, modified)
         return {
             "success": True,
             "path": file_path,
@@ -374,10 +374,10 @@ def _write_to_file(
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     UndoManager().record_change(path, "write_to_file")
-    file_path = os.path.abspath(path)
+    file_path = resolve_path(path)
 
     try:
-        exists = os.path.exists(file_path)
+        exists = fs_access.exists(file_path)
         if exists and not overwrite:
             return {
                 "success": False,
@@ -390,8 +390,7 @@ def _write_to_file(
         from code_puppy.config import get_diff_context_lines
 
         if exists:
-            with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-                old_content = f.read()
+            old_content = fs_access.read_text(file_path)
             try:
                 old_content = old_content.encode(
                     "utf-8", errors="surrogatepass"
@@ -411,8 +410,11 @@ def _write_to_file(
         )
         diff_text = "".join(diff_lines)
 
-        os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
-        atomic_write_text(file_path, content)
+        # Only create local directories when writing locally; when a filesystem
+        # backend owns the write it manages its own topology (the ACP host, for
+        # instance, creates parents on the local disk it shares).
+        fs_access.make_dirs(os.path.dirname(file_path) or ".")
+        write_project_file(file_path, content)
 
         action = "overwritten" if exists else "created"
         return {
@@ -614,7 +616,7 @@ def _edit_file(
     The function auto-detects the payload type and routes to the appropriate internal helper.
     """
     # Extract file_path from payload
-    file_path = os.path.abspath(payload.file_path)
+    file_path = resolve_path(payload.file_path)
 
     # Use provided group_id or generate one if not provided
     if group_id is None:
@@ -635,7 +637,7 @@ def _edit_file(
                 context, file_path, replacements_dict, message_group=group_id
             )
         elif isinstance(payload, ContentPayload):
-            file_exists = os.path.exists(file_path)
+            file_exists = fs_access.exists(file_path)
             if file_exists and not payload.overwrite:
                 return {
                     "success": False,
@@ -734,7 +736,7 @@ def _delete_file(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
     UndoManager().record_change(file_path, "delete_file")
-    file_path = os.path.abspath(file_path)
+    file_path = resolve_path(file_path)
 
     # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
@@ -749,11 +751,10 @@ def _delete_file(
         return _create_rejection_response(file_path)
 
     try:
-        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
         else:
-            with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-                original = f.read()
+            original = fs_access.read_text(file_path)
             # Sanitize any surrogate characters from reading
             try:
                 original = original.encode("utf-8", errors="surrogatepass").decode(
@@ -772,7 +773,7 @@ def _delete_file(
                     n=get_diff_context_lines(),
                 )
             )
-            os.remove(file_path)
+            fs_access.delete_file(file_path)
             res = {
                 "success": True,
                 "path": file_path,
@@ -794,7 +795,7 @@ async def _delete_file_async(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
     """Async permission-aware variant of ``_delete_file``."""
-    file_path = os.path.abspath(file_path)
+    file_path = resolve_path(file_path)
 
     from code_puppy.callbacks import on_file_permission_async
 
@@ -806,11 +807,10 @@ async def _delete_file_async(
         return _create_rejection_response(file_path)
 
     try:
-        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
         else:
-            with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-                original = f.read()
+            original = fs_access.read_text(file_path)
             try:
                 original = original.encode("utf-8", errors="surrogatepass").decode(
                     "utf-8", errors="replace"
@@ -828,7 +828,7 @@ async def _delete_file_async(
                     n=get_diff_context_lines(),
                 )
             )
-            os.remove(file_path)
+            fs_access.delete_file(file_path)
             res = {
                 "success": True,
                 "path": file_path,

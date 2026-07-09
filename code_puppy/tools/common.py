@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import fnmatch
 import hashlib
 import os
@@ -73,6 +74,101 @@ def _deny_noninteractive_approval(title: str) -> tuple[bool, None]:
     """Fail closed when approval is requested without an interactive stdin."""
     emit_warning(f"Approval for '{title}' rejected: stdin is not interactive.")
     return False, None
+
+
+# =============================================================================
+# Pluggable approval backend
+# =============================================================================
+#
+# By default, user approval is collected via an interactive stdin prompt
+# (see ``get_user_approval`` / ``get_user_approval_async``). Frontends that
+# have no stdin to prompt on -- a GUI, a web UI, or an editor speaking the
+# Agent Client Protocol -- would otherwise fail closed (auto-deny) via
+# ``_deny_noninteractive_approval`` above.
+#
+# An embedder can instead register an approval *backend*: a callable that
+# renders the request in its own UI and returns the user's decision. When a
+# backend is registered it takes precedence over the stdin prompt in BOTH the
+# sync and async approval paths. The backend is a plain synchronous callable
+# (an async backend would have to bridge two event loops); the async path
+# runs it in a worker thread so it never blocks the running loop.
+
+ApprovalBackend = Callable[[str, str, Optional[str]], Tuple[bool, Optional[str]]]
+_APPROVAL_BACKEND: Optional[ApprovalBackend] = None
+
+
+def set_approval_backend(backend: Optional[ApprovalBackend]) -> None:
+    """Install (or clear, with ``None``) the approval backend.
+
+    ``backend(title, message, preview) -> (approved, feedback)``. When set, it
+    replaces the interactive stdin prompt for every approval request, so a
+    non-terminal frontend can gate file/shell operations in its own UI.
+    """
+    global _APPROVAL_BACKEND
+    _APPROVAL_BACKEND = backend
+
+
+def get_approval_backend() -> Optional[ApprovalBackend]:
+    """Return the installed approval backend, or ``None`` for stdin prompting."""
+    return _APPROVAL_BACKEND
+
+
+def _approval_message_text(content) -> str:
+    """Flatten Rich ``Text``/``str`` approval content to plain text."""
+    plain = getattr(content, "plain", None)
+    return plain if isinstance(plain, str) else str(content)
+
+
+# =============================================================================
+# Active working directory (async-safe base for relative path resolution)
+# =============================================================================
+#
+# Tools resolve relative paths against a base directory. By default that base is
+# the process CWD (``os.getcwd()``). An embedder that runs Code Puppy against a
+# workspace it did not ``cd`` into -- e.g. an editor speaking the Agent Client
+# Protocol, where each session carries its own ``cwd`` -- can override the base
+# *without mutating process-global state* (``os.chdir`` would corrupt the SDK's
+# own I/O, subprocesses, and any concurrent session).
+#
+# This uses a ``ContextVar`` so the override is isolated per asyncio task and
+# propagates into sync tools (pydantic-ai runs them via anyio ``to_thread``,
+# which copies the context to the worker thread). ``None`` means "use os.getcwd".
+
+_WORKING_DIR: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "code_puppy_working_dir", default=None
+)
+
+
+def set_working_directory(path: Optional[str]) -> contextvars.Token:
+    """Override the base dir for relative path resolution in this context.
+
+    Returns a token; pass it to :func:`reset_working_directory` to restore.
+    """
+    return _WORKING_DIR.set(path)
+
+
+def reset_working_directory(token: contextvars.Token) -> None:
+    """Restore the working directory to its value before ``set``."""
+    _WORKING_DIR.reset(token)
+
+
+def get_working_directory() -> str:
+    """The active base dir for relative paths (override, else process CWD)."""
+    return _WORKING_DIR.get() or os.getcwd()
+
+
+def resolve_path(file_path: str) -> str:
+    """Absolutize ``file_path`` against the active working directory.
+
+    Expands ``~`` and joins relative paths onto :func:`get_working_directory`
+    (absolute inputs pass through unchanged). Use this instead of
+    ``os.path.abspath(os.path.expanduser(...))`` in tools so an embedder's
+    per-session cwd is honored without a process-global ``os.chdir``.
+    """
+    expanded = os.path.expanduser(file_path)
+    if os.path.isabs(expanded):
+        return os.path.abspath(expanded)
+    return os.path.abspath(os.path.join(get_working_directory(), expanded))
 
 
 # Syntax highlighting imports for "syntax" diff mode
@@ -1139,6 +1235,10 @@ def _get_user_approval_impl(
 
     from code_puppy.tools.command_runner import set_awaiting_user_input
 
+    backend = get_approval_backend()
+    if backend is not None:
+        return backend(title, _approval_message_text(content), preview)
+
     if not _stdin_supports_interactive_approval():
         return _deny_noninteractive_approval(title)
 
@@ -1330,6 +1430,13 @@ async def _get_user_approval_async_impl(
 ) -> tuple[bool, str | None]:
     """Inner implementation of get_user_approval_async (lock-free)."""
     from code_puppy.tools.command_runner import set_awaiting_user_input
+
+    backend = get_approval_backend()
+    if backend is not None:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, backend, title, _approval_message_text(content), preview
+        )
 
     if not _stdin_supports_interactive_approval():
         return _deny_noninteractive_approval(title)
@@ -1545,6 +1652,37 @@ def atomic_write_text(
             os.close(dir_fd)
     except (OSError, AttributeError):
         pass  # directory fsync unsupported -- file content is still durable
+
+
+def write_project_file(
+    file_path: str, content: str, *, encoding: str = "utf-8"
+) -> None:
+    """Write a *workspace* file the agent is editing, honoring the I/O backend.
+
+    Use this (not ``atomic_write_text``) for files the agent creates or edits on
+    the user's behalf. When a ``FileSystemBackend`` is installed (e.g. an editor
+    host), the write is delegated to it so the change lands in the host's diff
+    UI; otherwise it falls back to the local atomic write.
+
+    ``encoding`` applies only to the local path -- a backend host owns its own
+    on-disk encoding (the Agent Client Protocol, for instance, is UTF-8 only),
+    so a non-default encoding cannot be honored through a backend.
+
+    Internal writes (config, session state, agent metadata) intentionally keep
+    calling ``atomic_write_text`` directly -- they are machine-local and must
+    never be rerouted to an editor workspace.
+    """
+    from code_puppy.tools.io_backends import get_filesystem_backend
+
+    backend = get_filesystem_backend()
+    if backend is not None:
+        if encoding.lower() not in ("utf-8", "utf8"):
+            raise ValueError(
+                f"filesystem backend writes are UTF-8 only; got encoding={encoding!r}"
+            )
+        backend.write_text_file(resolve_path(file_path), content)
+        return
+    atomic_write_text(file_path, content, encoding=encoding)
 
 
 def _find_best_window(
