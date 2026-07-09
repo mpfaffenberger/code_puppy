@@ -88,6 +88,8 @@ class PluginsMenu:
         self.plugins: List[_PluginEntry] = []
         self.disabled: set[str] = set()
         self.project_dir: Optional[str] = None
+        self.lock_builtin: bool = False
+        self.hidden_builtin_count: int = 0
 
         # Trust popup state. While ``trust_target`` is set, the modal is
         # visible, ALL list keybindings are filter-disabled (so typing the
@@ -144,16 +146,26 @@ class PluginsMenu:
             get_project_plugins_directory,
         )
         from code_puppy.plugins.config import get_disabled_plugins
+        from code_puppy.plugins.config import (
+            get_lock_builtin_plugins,
+        )
 
         loaded = get_loaded_plugins()
         self.disabled = get_disabled_plugins()
+        self.lock_builtin = get_lock_builtin_plugins()
 
         project_dir = get_project_plugins_directory()
         self.project_dir = project_dir.as_posix() if project_dir else None
 
         entries: List[_PluginEntry] = []
+        self.hidden_builtin_count = 0
         for tier in ("builtin", "user", "project"):
             for name in sorted(loaded.get(tier, [])):
+                # When locked, builtins are managed/protected — hide them so
+                # they can't be toggled (the config layer refuses anyway).
+                if self.lock_builtin and tier == "builtin":
+                    self.hidden_builtin_count += 1
+                    continue
                 entries.append(_PluginEntry(name, tier))
 
         # Project plugins held back by the trust gate — shown so Enter can
@@ -165,6 +177,10 @@ class PluginsMenu:
                 entries.append(_PluginEntry(name, "project", statuses[name]))
 
         self.plugins = entries
+
+        # Keep selection in range if the list shrank.
+        if self.selected_idx >= len(self.plugins):
+            self.selected_idx = max(0, len(self.plugins) - 1)
 
     def _current(self) -> Optional[_PluginEntry]:
         if 0 <= self.selected_idx < len(self.plugins):
@@ -197,9 +213,10 @@ class PluginsMenu:
         from code_puppy.plugins.config import set_plugin_disabled
 
         is_disabled = entry.name in self.disabled
-        set_plugin_disabled(entry.name, not is_disabled)
-        self._changed = True
-        self.detail_scroll = 0
+        changed = set_plugin_disabled(entry.name, not is_disabled)
+        if changed:
+            self._changed = True
+            self.detail_scroll = 0
         self._refresh_data()
         self.update_display()
 
@@ -247,6 +264,16 @@ class PluginsMenu:
         self._refresh_data()
         self._close_trust_modal()
         return False
+
+    # -- render compatibility ---------------------------------------------
+
+    def _render_list(self) -> Fragments:
+        """Return rendered list fragments for existing tests/callers."""
+        return render_list(self)
+
+    def _render_detail(self) -> Fragments:
+        """Return rendered detail fragments for existing tests/callers."""
+        return render_detail(self)
 
     # -- display update ----------------------------------------------------
 
