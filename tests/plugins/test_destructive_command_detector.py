@@ -410,6 +410,45 @@ class TestGitForcePush:
         assert result is not None
 
 
+# ===========================================================================
+# Obfuscation check
+# ===========================================================================
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            r"r''M -rf /",
+            r"gi\t push --mirror",
+            "'git' push -F",
+            r"disk''par\t",
+            "npm,publish",
+            "^git clean -fd",
+            "rm   -rf   /",
+            'r""m -rf /',
+            '"git" push --force'
+        ],
+    )
+    def test_obfuscation_matches(self, cmd: str) -> None:
+        result = _hits(cmd)
+        assert result is not None
+
+
+# ===========================================================================
+# Compound command check
+# ===========================================================================
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "cd . && rm -rf /",
+            "rm non_existent_file.txt || git push -F",
+            "echo hello; diskpart",
+            "echo done & rd /s /q C:",
+            "ls / | rm -rf /"
+        ],
+    )
+    def test_compound_command(self, cmd: str) -> None:
+        result = _hits(cmd)
+        assert result is not None
+
 
 
 # ===========================================================================
