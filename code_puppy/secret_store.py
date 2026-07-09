@@ -384,14 +384,19 @@ def _write_fallback(data: dict[str, str]) -> bool:
     Writes to a temp file in the same directory, ``chmod`` s it before it
     ever holds content the target will keep, then ``os.replace`` s it into
     place so a crash mid-write can never leave a truncated secrets file.
+
+    Returns ``True`` on success and ``False`` on *any* failure (including a
+    ``mkstemp`` that fails on a read-only or full filesystem).  The contract
+    is uniform so callers can act on it -- see ``set_secret``/``delete_secret``.
     """
     try:
         os.makedirs(CONFIG_DIR, exist_ok=True)
     except OSError:
         return False
 
-    fd, tmp = tempfile.mkstemp(dir=CONFIG_DIR, suffix=".tmp")
+    tmp = None
     try:
+        fd, tmp = tempfile.mkstemp(dir=CONFIG_DIR, suffix=".tmp")
         os.chmod(tmp, _FALLBACK_MODE)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -399,10 +404,11 @@ def _write_fallback(data: dict[str, str]) -> bool:
             os.fsync(f.fileno())
         os.replace(tmp, _FALLBACK_FILE)
     except OSError:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
         return False
     return True
 
@@ -469,11 +475,21 @@ def set_secret(name: str, value: str) -> None:
 
     data = _read_fallback()
     data[name] = value
-    _write_fallback(data)
+    if not _write_fallback(data):
+        raise SecretStoreError(
+            f"Failed to persist secret {name!r}: the OS keyring is unavailable "
+            f"and the fallback file at {_FALLBACK_FILE} could not be written "
+            "(read-only or full filesystem?). The secret was NOT saved."
+        )
 
 
 def delete_secret(name: str) -> None:
-    """Best-effort removal of a secret from keyring (and chunks) and fallback."""
+    """Best-effort removal of a secret from keyring (and chunks) and fallback.
+
+    Raises ``SecretStoreError`` if the fallback file holds the secret but
+    cannot be rewritten to scrub it -- otherwise "delete" would report success
+    while the plaintext secret survives on disk.
+    """
     _validate_name(name)
     _ensure_backend()
     _keyring_delete(name)
@@ -483,4 +499,9 @@ def delete_secret(name: str) -> None:
     data = _read_fallback()
     if name in data:
         del data[name]
-        _write_fallback(data)
+        if not _write_fallback(data):
+            raise SecretStoreError(
+                f"Failed to remove secret {name!r} from the fallback file at "
+                f"{_FALLBACK_FILE} (read-only or full filesystem?). The "
+                "plaintext secret may still be present on disk."
+            )

@@ -474,3 +474,39 @@ class TestValueNormalization:
             _w.simplefilter("error")
             with pytest.raises(ValueError):
                 secret_store.set_secret("k", "  ")
+
+
+# ---------------------------------------------------------------------------
+# F3/F4/F10 -- uniform fallback failure contract; callers surface failures
+# ---------------------------------------------------------------------------
+
+
+class TestFallbackFailureContract:
+    def test_write_fallback_returns_false_on_mkstemp_error(self, tmp_fallback):
+        """F3: a mkstemp failure returns False instead of raising raw OSError."""
+        with patch("tempfile.mkstemp", side_effect=OSError("read-only fs")):
+            assert secret_store._write_fallback({"k": "v"}) is False
+
+    def test_write_fallback_returns_false_on_replace_error(self, tmp_fallback):
+        with patch("os.replace", side_effect=OSError("disk full")):
+            assert secret_store._write_fallback({"k": "v"}) is False
+
+    def test_set_raises_when_fallback_write_fails(self, missing_keyring, tmp_fallback):
+        """F4: a lost credential must not report success."""
+        with patch.object(secret_store, "_write_fallback", return_value=False):
+            with pytest.warns(UserWarning):
+                with pytest.raises(secret_store.SecretStoreError, match="NOT saved"):
+                    secret_store.set_secret("k", "v")
+
+    def test_delete_raises_when_scrub_write_fails(self, missing_keyring, tmp_fallback):
+        """F10: a failed scrub must not report a successful delete."""
+        tmp_fallback.write_text(json.dumps({"k": "leftover"}))
+        with patch.object(secret_store, "_write_fallback", return_value=False):
+            with pytest.raises(secret_store.SecretStoreError, match="still be present"):
+                secret_store.delete_secret("k")
+
+    def test_delete_absent_key_does_not_raise(self, missing_keyring, tmp_fallback):
+        """No fallback entry -> nothing to scrub -> no error even if write would fail."""
+        tmp_fallback.write_text(json.dumps({"other": "keep"}))
+        with patch.object(secret_store, "_write_fallback", return_value=False):
+            secret_store.delete_secret("k")  # must not raise
