@@ -55,6 +55,7 @@ __all__ = [
     "subagent_context",
     "is_subagent",
     "get_subagent_name",
+    "get_subagent_chain",
     "get_subagent_depth",
 ]
 
@@ -63,6 +64,12 @@ _subagent_depth: ContextVar[int] = ContextVar("subagent_depth", default=0)
 
 # Track current sub-agent name (None = main agent)
 _subagent_name: ContextVar[str | None] = ContextVar("subagent_name", default=None)
+
+# Track the full call chain of sub-agent names. Stored as an
+# immutable tuple so each context-manager push is a cheap snapshot. The
+# tuple is empty in the main-agent context and `(deepest_name,)` for a
+# single-level sub-agent. For ``code-puppy -> A -> B`` it is ``("A", "B")``.
+_subagent_chain: ContextVar[tuple[str, ...]] = ContextVar("subagent_chain", default=())
 
 
 @contextmanager
@@ -92,10 +99,12 @@ def subagent_context(agent_name: str) -> Generator[None, None, None]:
     """
     # Get current depth for incrementing
     current_depth = _subagent_depth.get()
+    current_chain = _subagent_chain.get()
 
     # Set new values and save tokens for restoration
     depth_token = _subagent_depth.set(current_depth + 1)
     name_token = _subagent_name.set(agent_name)
+    chain_token = _subagent_chain.set(current_chain + (agent_name,))
 
     try:
         yield
@@ -104,6 +113,7 @@ def subagent_context(agent_name: str) -> Generator[None, None, None]:
         # This ensures the context is restored even if an exception occurs
         _subagent_depth.reset(depth_token)
         _subagent_name.reset(name_token)
+        _subagent_chain.reset(chain_token)
 
 
 def is_subagent() -> bool:
@@ -156,3 +166,30 @@ def get_subagent_depth() -> int:
         2
     """
     return _subagent_depth.get()
+
+
+def get_subagent_chain() -> tuple[str, ...]:
+    """Return the full sub-agent invocation chain, outermost first.
+
+    The main agent is not part of the chain — it is implicit. Use this
+    when you need to know the *immediate* parent sub-agent rather than
+    just the current name.
+
+    This is used to attribute token spend to the agent that actually
+    initiated the call vs. the one one level up the call stack.
+
+    Returns:
+        An immutable tuple of sub-agent names, deepest last. ``()`` when
+        running in the main agent context.
+
+    Example:
+        >>> get_subagent_chain()
+        ()
+        >>> with subagent_context("retriever"):
+        ...     get_subagent_chain()
+        ('retriever',)
+        ...     with subagent_context("terrier"):
+        ...         get_subagent_chain()
+        ('retriever', 'terrier')
+    """
+    return _subagent_chain.get()
