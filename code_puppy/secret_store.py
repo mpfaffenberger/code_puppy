@@ -120,6 +120,36 @@ _CHUNK_NS = ":cp:"
 _COUNT_SUFFIX = ":cp:n"
 
 
+class SecretStoreError(RuntimeError):
+    """Raised when a secret cannot be persisted or removed as requested.
+
+    Distinct from a *missing* secret (``get_secret`` returns ``None``): this
+    signals an active failure -- e.g. a fallback write to a read-only or full
+    filesystem -- so callers never mistake a lost credential for success.
+    """
+
+
+def _validate_name(name: str) -> str:
+    """Validate a caller-supplied secret name.
+
+    The chunk machinery reserves the ``:cp:`` token to build internal entry
+    names (``<name>:cp:<i>`` for chunks, ``<name>:cp:n`` for the commit
+    marker).  A caller-supplied name containing ``:cp:`` could therefore
+    shadow a real secret's chunk metadata or, via ``delete_secret``, destroy
+    an unrelated entry.  Because this module is a generic store whose names
+    may be built from user- or config-derived strings, we reject the reserved
+    token outright rather than trust that "nobody would name a secret that."
+    """
+    if not isinstance(name, str) or not name:
+        raise ValueError("secret name must be a non-empty string")
+    if _CHUNK_NS in name:
+        raise ValueError(
+            f"secret name {name!r} contains the reserved substring "
+            f"{_CHUNK_NS!r}; it is used internally for chunk metadata"
+        )
+    return name
+
+
 def _chunk_count_key(name: str) -> str:
     """Keyring entry name for the chunk-count (commit) marker."""
     return f"{name}{_COUNT_SUFFIX}"
@@ -372,6 +402,7 @@ def get_secret(name: str) -> str | None:
          resort so secrets written there by a previous session (after
          exhausting both keyring options) are still recoverable.
     """
+    _validate_name(name)
     _ensure_backend()
     value = _keyring_get(name)
     if value:
@@ -398,6 +429,7 @@ def set_secret(name: str, value: str) -> None:
       3. Permission-hardened JSON file fallback (only when both keyring
          strategies fail -- unexpected backend error or no keyring at all).
     """
+    _validate_name(name)
     _ensure_backend()
     if _keyring_set(name, value):
         return
@@ -426,6 +458,7 @@ def set_secret(name: str, value: str) -> None:
 
 def delete_secret(name: str) -> None:
     """Best-effort removal of a secret from keyring (and chunks) and fallback."""
+    _validate_name(name)
     _ensure_backend()
     _keyring_delete(name)
 

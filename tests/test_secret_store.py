@@ -400,3 +400,37 @@ class TestCrossPlatform:
         assert json.loads(tmp_fallback.read_text()) == {"k": "v"}
         mode = stat.S_IMODE(os.stat(tmp_fallback).st_mode)
         assert mode == 0o600
+
+
+# ---------------------------------------------------------------------------
+# F9 -- reserved ':cp:' namespace is enforced on caller-supplied names
+# ---------------------------------------------------------------------------
+
+
+class TestReservedNamespace:
+    """A caller name containing ':cp:' must be rejected before it can shadow
+    or destroy chunk metadata (PR #531 review finding F9)."""
+
+    def test_set_rejects_reserved_substring(self, working_keyring):
+        with pytest.raises(ValueError, match="reserved substring"):
+            secret_store.set_secret("foo:cp:n", "3")
+
+    def test_get_rejects_reserved_substring(self, working_keyring):
+        with pytest.raises(ValueError, match="reserved substring"):
+            secret_store.get_secret("foo:cp:0")
+
+    def test_delete_rejects_reserved_substring(self, working_keyring):
+        with pytest.raises(ValueError, match="reserved substring"):
+            secret_store.delete_secret("foo:cp:n")
+
+    def test_empty_name_rejected(self, working_keyring):
+        with pytest.raises(ValueError, match="non-empty string"):
+            secret_store.set_secret("", "v")
+
+    def test_shadow_attack_cannot_poison_count_marker(self, working_keyring):
+        """Rejecting 'foo:cp:n' means a real 'foo' entry can't be shadowed by
+        a bogus chunk-count marker."""
+        secret_store.set_secret("foo", "legit")
+        with pytest.raises(ValueError):
+            secret_store.set_secret("foo:cp:n", "3")
+        assert secret_store.get_secret("foo") == "legit"
