@@ -34,6 +34,7 @@ CTRL_R = "\x12"
 CTRL_U = "\x15"
 CTRL_V = "\x16"  # smart paste fallback (most terminals bracket-paste first)
 CTRL_W = "\x17"  # delete word backwards
+CTRL_X = "\x18"  # chord prefix: Ctrl+X Ctrl+E = edit buffer in $EDITOR
 ESC = "\x1b"
 
 #: CSI body (params + final byte) → editor action.

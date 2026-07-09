@@ -815,10 +815,19 @@ async def _run_with_mcp_impl(
             # console clamp on Windows), ^C arrives as \x03 and the key
             # listener handles cancellation. SIGINT only fires out-of-band
             # (kill -INT, piped stdin with no listener, cooked-mode gaps
-            # between raw readers) — the handler installed here is that
+            # between raw readers) -- the handler installed here is that
             # fallback: it cancels when ^C IS the cancel gesture, and only
             # hints at the real key when cancel is remapped.
-            if sigint_fallback_cancels():
+            #
+            # Off the main thread (ACP server, embeds, worker threads) we skip
+            # SIGINT wiring entirely: signal handlers are main-thread-only in
+            # CPython, so installing one there raises "signal only works in
+            # main thread". Cancellation still flows through
+            # schedule_agent_cancel, and the stdin key listener no-ops when
+            # stdin isn't a TTY, so no cancel affordance is lost.
+            if threading.current_thread() is not threading.main_thread():
+                pass  # original_handler stays None -> restore is a no-op
+            elif sigint_fallback_cancels():
                 original_handler = signal.signal(
                     signal.SIGINT, keyboard_interrupt_handler
                 )
@@ -833,9 +842,11 @@ async def _run_with_mcp_impl(
             key_listener_stop_event = threading.Event()
             handle, spawned = _key_listeners.acquire_listener(
                 key_listener_stop_event,
-                # Ctrl+X: command_runner installs a dynamic handler via
-                # _key_listeners.set_escape_handler() while shell commands
-                # run; outside that window Ctrl+X is a no-op.
+                # Ctrl+X: with an editor installed it's the chord prefix
+                # (messaging.chords — command_runner registers shell
+                # kill/background bindings while commands run). This
+                # fallback only fires with NO editor; a no-op is right
+                # because chord targets don't exist headless either.
                 on_escape=lambda: None,
                 on_cancel_agent=cancel_cb,
             )

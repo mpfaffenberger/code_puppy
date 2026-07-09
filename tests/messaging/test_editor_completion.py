@@ -4,6 +4,7 @@ import asyncio
 
 
 from code_puppy.messaging.editor_completion import (
+    DEBOUNCE_S,
     CompletionEngine,
     query_completions,
     should_autotrigger,
@@ -93,7 +94,30 @@ def make_engine(words, repaints=None):
 
 
 async def settle():
-    await asyncio.sleep(0.12)  # debounce (50ms) + executor round-trip
+    """Wait for the debounced completion query to fully drain.
+
+    The engine schedules a debounced (``DEBOUNCE_S``) query that then runs
+    the completer in the default thread-pool executor. A fixed sleep is
+    racy: under load (e.g. the full suite) the debounce + executor
+    round-trip can exceed the window, the menu never opens, and the test
+    sees a phantom failure. Instead, let the debounce timer fire, then
+    poll until the query task(s) have actually completed.
+    """
+    loop = asyncio.get_running_loop()
+    # Give the debounce timer time to fire and create the query task.
+    await asyncio.sleep(DEBOUNCE_S + 0.02)
+    # Drain the (one-shot) completion query task(s) - the executor
+    # round-trip keeps the task pending until the result lands.
+    deadline = loop.time() + 2.0
+    while loop.time() < deadline:
+        pending = [
+            t
+            for t in asyncio.all_tasks(loop)
+            if t is not asyncio.current_task() and not t.done()
+        ]
+        if not pending:
+            return
+        await asyncio.sleep(0.01)
 
 
 # =========================================================================

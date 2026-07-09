@@ -1286,27 +1286,20 @@ class TestDisplayResumedHistory:
         assert "Tool result" in captured.out or "test_tool" in captured.out
 
 
-class TestNamedAutoSplit:
-    """the unified-autosave migration: menu separates user-named from auto-flavored entries.
-
-    Mixing them in one timestamp-sorted list was the round-1 UX complaint:
-    user-named sessions (which the user picks deliberately) got buried
-    under the auto-flavored ones (which are time-decaying anyway). The new
-    contract returns named first, then auto, each sorted mtime-desc.
-    """
+class TestSessionEntrySorting:
+    """Session picker is a flat list sorted by timestamp, newest first."""
 
     @patch("code_puppy.command_line.autosave_menu.list_sessions")
     @patch("code_puppy.command_line.autosave_menu._get_session_metadata")
-    def test_named_sessions_sort_before_auto(self, mock_metadata, mock_list):
+    def test_mixed_sessions_sort_by_timestamp(self, mock_metadata, mock_list):
         from code_puppy.command_line.autosave_menu import _get_session_entries
 
-        # Mixed: 2 named + 2 auto, with auto having NEWER timestamps to
-        # prove section ordering wins over timestamp ordering.
+        # Mixed named + auto: pure mtime-desc, no section grouping.
         mock_list.return_value = [
-            "auto_session_20260101_120000",  # newest auto
-            "mywork",  # older named
-            "auto_session_20251201_120000",  # older auto
-            "vacation_planning",  # newer named
+            "auto_session_20260101_120000",  # newest overall
+            "mywork",  # oldest overall
+            "auto_session_20251201_120000",
+            "vacation_planning",
         ]
         mock_metadata.side_effect = [
             {"timestamp": "2026-01-01T12:00:00"},
@@ -1317,13 +1310,12 @@ class TestNamedAutoSplit:
 
         result = _get_session_entries(Path("/fake/dir"))
 
-        names = [entry[0] for entry in result]
-        # Named entries come first, sorted newest-first within their group.
-        assert names[0] == "vacation_planning"
-        assert names[1] == "mywork"
-        # Auto entries come second, sorted newest-first within their group.
-        assert names[2] == "auto_session_20260101_120000"
-        assert names[3] == "auto_session_20251201_120000"
+        assert [entry[0] for entry in result] == [
+            "auto_session_20260101_120000",
+            "vacation_planning",
+            "auto_session_20251201_120000",
+            "mywork",
+        ]
 
     @patch("code_puppy.command_line.autosave_menu.list_sessions")
     @patch("code_puppy.command_line.autosave_menu._get_session_metadata")

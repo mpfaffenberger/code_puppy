@@ -13,9 +13,10 @@ Meta-b/f), Up/Down (menu > multiline line-move > history), Enter
 POSIX listener clears ICRNL so Ctrl+J = ``\\n`` = newline), Shift/Ctrl+
 Enter (CSI-u + modifyOtherKeys → newline), Alt+Enter (queue-submit),
 Ctrl+D (EOF on empty), Ctrl+R (reverse search; Enter accepts WITHOUT
-submitting), Ctrl+V (async smart paste — image or text), Tab/Shift-Tab
-(completion), F2 / Alt+M (multiline), bracketed paste (atomic insert
-with image detection).
+submitting), Ctrl+V (async smart paste — image or text), Ctrl+X chords
+(registry-driven: Ctrl+E $EDITOR, shell kill/background — see chords),
+Tab/Shift-Tab
+(completion), F2 / Alt+M (multiline), bracketed paste (atomic insert).
 
 Unknown CSI/SS3 sequences are swallowed whole. ESC disambiguation uses
 a pending timestamp; bare ESC resolves on the next feed()/check_timeout.
@@ -31,7 +32,8 @@ from typing import Callable, List, Optional
 
 from . import editor_keys as ek
 from .bottom_bar import get_bottom_bar
-from .editor_actions import apply_action
+from .chords import clear_chord_hint
+from .editor_actions import apply_action, handle_chord
 from .editor_display import to_display
 from .editor_history import (
     HistoryNavigator,
@@ -107,6 +109,7 @@ class RunningLineEditor:
         self._router: Optional[SubmitRouter] = None
         self._eof_handler: Optional[Callable[[], None]] = None
         self._clipboard_handler: Optional[Callable[[], None]] = None
+        self._ctrl_x_pending = False  # Ctrl+X chord prefix armed (see chords)
         # Phase B feature state.
         self._history = history if history is not None else safe_navigator()
         self._rsearch = (
@@ -171,6 +174,15 @@ class RunningLineEditor:
         with self._lock:
             self._insert_text(text, typed=False)
 
+    def replace_buffer_text(self, text: str) -> None:
+        """Replace the whole buffer (external $EDITOR round-trip)."""
+        with self._lock:
+            self._buffer = text
+            self._cursor = len(text)
+            self._history.reset()
+            self._close_completion()
+            self._repaint()
+
     def attach_completion(self, engine) -> None:
         """Attach a CompletionEngine (or None to detach)."""
         with self._lock:
@@ -195,6 +207,9 @@ class RunningLineEditor:
         """Discard typed text + transient UI state (Ctrl+C-at-idle)."""
         with self._lock:
             self._esc_pending_at = None
+            if self._ctrl_x_pending:
+                self._ctrl_x_pending = False
+                clear_chord_hint()
             if self._rsearch.active:
                 self._rsearch.cancel()
                 self._set_completion_suppressed(False)
@@ -317,6 +332,9 @@ class RunningLineEditor:
             return None
 
         if ch == _ESC:
+            if self._ctrl_x_pending:  # Esc cancels an armed chord
+                self._ctrl_x_pending = False
+                clear_chord_hint()
             if self._rsearch.active:
                 # Cancel search immediately; keep ESC pending so a
                 # trailing sequence is still consumed safely.
@@ -338,6 +356,9 @@ class RunningLineEditor:
 
         if self._rsearch.active:
             return self._feed_rsearch(ch)
+
+        if handle_chord(self, ch):  # Ctrl+X chord prefix (chords registry)
+            return None
 
         if ch == _ENTER:
             if self._completion_open():
@@ -363,11 +384,7 @@ class RunningLineEditor:
             return None
         if ch == _CTRL_V:
             # Raw-\x16 / image-only clipboard fallback; handler is async.
-            if self._clipboard_handler is not None:
-                try:
-                    self._clipboard_handler()
-                except Exception:
-                    logger.debug("clipboard handler failed", exc_info=True)
+            self._call_handler(self._clipboard_handler, "clipboard")
             return None
         if ch in _BACKSPACE_KEYS:
             if self._cursor > 0:
@@ -397,11 +414,8 @@ class RunningLineEditor:
             return None
         if ch == _CTRL_D:
             # EOF only on an EMPTY buffer (classic readline semantics).
-            if not self._buffer and self._eof_handler is not None:
-                try:
-                    self._eof_handler()
-                except Exception:
-                    logger.debug("EOF handler failed", exc_info=True)
+            if not self._buffer:
+                self._call_handler(self._eof_handler, "EOF")
             return None
         if ch.isprintable():
             self._insert_text(ch)
@@ -411,6 +425,16 @@ class RunningLineEditor:
     def _apply_action(self, action: Optional[str]) -> None:
         """Dispatch a classified CSI/SS3 action (see editor_actions)."""
         apply_action(self, action)
+
+    @staticmethod
+    def _call_handler(handler: Optional[Callable[[], None]], name: str) -> None:
+        """Best-effort invoke of an installed async handler (run_ui)."""
+        if handler is None:
+            return
+        try:
+            handler()
+        except Exception:
+            logger.debug("%s handler failed", name, exc_info=True)
 
     # =========================================================================
     # Internals — history / reverse search / completion / paste glue

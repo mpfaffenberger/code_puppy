@@ -71,8 +71,16 @@ def _is_process_alive(pid: int) -> bool:
         pid: Process ID to check
 
     Returns:
-        bool: True if process likely exists, False otherwise
+        bool: True if process likely exists, False otherwise.
     """
+    try:
+        process_id = int(pid)
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+    if process_id <= 0:
+        return False
+
     try:
         if os.name == "nt":
             # Windows: use OpenProcess to probe liveness safely
@@ -88,7 +96,7 @@ def _is_process_alive(pid: int) -> bool:
             ]
             kernel32.OpenProcess.restype = wintypes.HANDLE
             handle = kernel32.OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid)
+                PROCESS_QUERY_LIMITED_INFORMATION, False, process_id
             )
             if handle:
                 kernel32.CloseHandle(handle)
@@ -101,7 +109,7 @@ def _is_process_alive(pid: int) -> bool:
             return False
         else:
             # Unix-like: signal 0 does not deliver a signal but checks existence
-            os.kill(int(pid), 0)
+            os.kill(process_id, 0)
             return True
     except PermissionError:
         # No permission to signal -> process exists
@@ -182,8 +190,31 @@ def _save_session_data(sessions: dict[str, str]) -> None:
         with open(temp_file, "w", encoding="utf-8") as f:
             json.dump(cleaned_sessions, f, indent=2)
 
-        # Atomic rename (works on all platforms)
-        temp_file.replace(session_file)
+        # Atomic rename; on Windows replace() is best-effort if target exists
+        try:
+            temp_file.replace(session_file)
+        except Exception:
+            try:
+                if session_file.exists():
+                    session_file.unlink(
+                        missing_ok=True
+                    )  # Python 3.8+: ignore if missing
+            except Exception:
+                pass
+            try:
+                temp_file.replace(session_file)
+            except Exception:
+                # As a last resort, copy contents
+                try:
+                    with (
+                        open(temp_file, "r", encoding="utf-8") as rf,
+                        open(session_file, "w", encoding="utf-8") as wf,
+                    ):
+                        wf.write(rf.read())
+                    temp_file.unlink(missing_ok=True)
+                except Exception:
+                    # Give up silently; session persistence isn't critical
+                    pass
 
     except (IOError, OSError):
         # File permission issues, etc. - just continue without persistence
