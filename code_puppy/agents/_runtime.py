@@ -833,9 +833,11 @@ async def _run_with_mcp_impl(
             key_listener_stop_event = threading.Event()
             handle, spawned = _key_listeners.acquire_listener(
                 key_listener_stop_event,
-                # Ctrl+X: command_runner installs a dynamic handler via
-                # _key_listeners.set_escape_handler() while shell commands
-                # run; outside that window Ctrl+X is a no-op.
+                # Ctrl+X: with an editor installed it's the chord prefix
+                # (messaging.chords — command_runner registers shell
+                # kill/background bindings while commands run). This
+                # fallback only fires with NO editor; a no-op is right
+                # because chord targets don't exist headless either.
                 on_escape=lambda: None,
                 on_cancel_agent=cancel_cb,
             )

@@ -47,6 +47,8 @@ from typing import Dict, Iterator, Optional
 
 from .bottom_bar import get_bottom_bar
 from .line_editor import RunningLineEditor
+from .chords import register_chord, unregister_chord
+from .external_editor import make_external_edit_handler
 from .run_ui_wiring import attach_completion, make_clipboard_handler
 
 logger = logging.getLogger(__name__)
@@ -130,6 +132,14 @@ def start_run_ui() -> Optional[RunningLineEditor]:
             _loop = None
     editor.add_submit_listener(_make_slash_listener(editor))
     editor.set_clipboard_handler(make_clipboard_handler(editor, _get_loop))
+    # Ctrl+X Ctrl+E: edit the prompt in $EDITOR (chord registry — shell
+    # kill/background chords are registered by command_runner while
+    # shells run; this one lives for the UI's lifetime).
+    register_chord(
+        "\x05",
+        make_external_edit_handler(editor, _get_loop),
+        "Ctrl+E edit in $EDITOR",
+    )
     attach_completion(editor, _get_loop)
     _set_feed_target(editor)
     editor.repaint()
@@ -158,6 +168,7 @@ def stop_run_ui() -> None:
         _loop = None
     if editor is not None:
         _set_feed_target(None)
+    unregister_chord("\x05")  # the handler closes over the dead editor
     _clear_status_row()
     try:
         get_bottom_bar().stop()
