@@ -53,6 +53,11 @@ from code_puppy.config import CONFIG_DIR
 # secrets never bleed across builds.
 _service_name = "code-puppy"
 
+# The default service namespace.  A legacy flat fallback file (pre per-service
+# scoping) is migrated under this name so it stays readable on the default
+# build without leaking into another distribution's namespace.
+_DEFAULT_SERVICE = "code-puppy"
+
 # Permission-hardened JSON fallback used only when the keyring backend is
 # unavailable (headless boxes, minimal CI containers, etc.).
 _FALLBACK_FILE = os.path.join(CONFIG_DIR, "secrets.json")
@@ -420,8 +425,17 @@ def _warn_fallback_active() -> None:
     )
 
 
-def _read_fallback() -> dict[str, str]:
-    """Read the fallback secrets file, repairing its permissions on read."""
+def _read_fallback_doc() -> dict[str, dict[str, str]]:
+    """Read the raw fallback file as a service-namespaced document.
+
+    The on-disk shape is ``{service_name: {secret_name: value}}`` so each
+    distribution's fallback secrets are isolated the same way keyring entries
+    are (F2).  Permissions are repaired on read.  A legacy *flat*
+    ``{secret_name: value}`` file (written before per-service scoping existed)
+    is migrated under the default service namespace so historical secrets stay
+    readable under the default build without leaking into another
+    distribution's namespace.
+    """
     try:
         # Repair permissions on read: if the file leaked to a broader mode
         # (bad umask, restored backup), tighten it back to 0o600.
@@ -435,10 +449,23 @@ def _read_fallback() -> dict[str, str]:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    # Current (nested) format: service -> {name: value}.
+    nested = {k: v for k, v in data.items() if isinstance(v, dict)}
+    if nested:
+        return nested
+    # Legacy flat format: migrate under the default service namespace.
+    flat = {k: v for k, v in data.items() if isinstance(v, str)}
+    return {_DEFAULT_SERVICE: flat} if flat else {}
 
 
-def _write_fallback(data: dict[str, str]) -> bool:
+def _read_fallback() -> dict[str, str]:
+    """Return the current service's fallback slice (used by ``get_secret``)."""
+    return dict(_read_fallback_doc().get(_service_name, {}))
+
+
+def _write_fallback(data: dict[str, dict[str, str]]) -> bool:
     """Atomically write the fallback file with ``0o600`` permissions.
 
     Writes to a temp file in the same directory, ``chmod`` s it before it
@@ -474,31 +501,35 @@ def _write_fallback(data: dict[str, str]) -> bool:
 
 
 def _fallback_set(name: str, value: str) -> bool:
-    """Add/update a fallback entry under the cross-process lock (F5)."""
+    """Add/update a fallback entry under the cross-process lock (F5), scoped to
+    the current service namespace (F2)."""
     with _fallback_lock():
-        data = _read_fallback()
-        data[name] = value
-        return _write_fallback(data)
+        doc = _read_fallback_doc()
+        doc.setdefault(_service_name, {})[name] = value
+        return _write_fallback(doc)
 
 
 def _fallback_delete(name: str) -> bool | None:
-    """Remove a fallback entry under the lock.
+    """Remove a fallback entry (current service only) under the lock.
 
     Returns ``True`` on a successful scrub, ``False`` if the rewrite failed,
     and ``None`` when there was nothing to remove (so callers don't treat a
     no-op as a failure).
     """
     with _fallback_lock():
-        data = _read_fallback()
-        if name not in data:
+        doc = _read_fallback_doc()
+        slice_ = doc.get(_service_name, {})
+        if name not in slice_:
             return None
-        del data[name]
-        return _write_fallback(data)
+        del slice_[name]
+        if not slice_:
+            doc.pop(_service_name, None)
+        return _write_fallback(doc)
 
 
 def _fallback_scrub(name: str) -> None:
     """Best-effort removal of a stale fallback entry after a healthy keyring
-    write (F6).
+    write (F6), scoped to the current service namespace (F2).
 
     A successful keyring write must not leave a rotated-out secret sitting in
     plaintext on disk, where it could later be resurrected if the keyring
@@ -506,11 +537,14 @@ def _fallback_scrub(name: str) -> None:
     failure to rewrite the file is not fatal -- but it is worth surfacing.
     """
     with _fallback_lock():
-        data = _read_fallback()
-        if name not in data:
+        doc = _read_fallback_doc()
+        slice_ = doc.get(_service_name, {})
+        if name not in slice_:
             return
-        del data[name]
-        if not _write_fallback(data):
+        del slice_[name]
+        if not slice_:
+            doc.pop(_service_name, None)
+        if not _write_fallback(doc):
             warnings.warn(
                 f"Secret {name!r} was written to the keyring but its stale "
                 f"plaintext copy in {_FALLBACK_FILE} could not be removed "

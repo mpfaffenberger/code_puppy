@@ -19,6 +19,12 @@ import pytest
 from code_puppy import secret_store
 
 
+def _slice(fb, service=None):
+    """Return the current service's slice of the nested fallback file (F2)."""
+    doc = json.loads(fb.read_text())
+    return doc.get(service or secret_store._service_name, {})
+
+
 @pytest.fixture(autouse=True)
 def _reset_state():
     """Reset process-global state between tests."""
@@ -197,14 +203,14 @@ class TestKeyringPath:
             secret_store.set_secret("k", "v")
 
         assert tmp_fallback.exists()
-        assert json.loads(tmp_fallback.read_text())["k"] == "v"
+        assert _slice(tmp_fallback)["k"] == "v"
 
     def test_delete_also_cleans_fallback(self, working_keyring, tmp_fallback):
         """delete_secret always scrubs the fallback file, in case a prior write
         landed there as a last resort."""
         tmp_fallback.write_text(json.dumps({"k": "leftover", "other": "keep"}))
         secret_store.delete_secret("k")
-        data = json.loads(tmp_fallback.read_text())
+        data = _slice(tmp_fallback)
         assert "k" not in data
         assert data["other"] == "keep"
 
@@ -322,7 +328,7 @@ class TestFallbackPath:
     def test_set_writes_fallback_file(self, missing_keyring, tmp_fallback):
         secret_store.set_secret("k", "v")
         assert tmp_fallback.exists()
-        assert json.loads(tmp_fallback.read_text())["k"] == "v"
+        assert _slice(tmp_fallback)["k"] == "v"
 
     def test_set_then_get_roundtrip(self, missing_keyring, tmp_fallback):
         secret_store.set_secret("k", "v")
@@ -360,7 +366,7 @@ class TestFallbackPath:
         secret_store.set_secret("k", "v")
         secret_store.set_secret("keep", "me")
         secret_store.delete_secret("k")
-        data = json.loads(tmp_fallback.read_text())
+        data = _slice(tmp_fallback)
         assert "k" not in data
         assert data["keep"] == "me"
 
@@ -536,7 +542,7 @@ class TestFallbackLockingAndScrub:
         for t in threads:
             t.join()
 
-        data = json.loads(tmp_fallback.read_text())
+        data = _slice(tmp_fallback)
         for i in range(25):
             assert data[f"key{i}"] == f"val{i}"
 
@@ -548,7 +554,7 @@ class TestFallbackLockingAndScrub:
         # keyring now holds the new value...
         assert secret_store.get_secret("tok") == "NEW"
         # ...and the stale plaintext copy is gone, unrelated entries preserved.
-        data = json.loads(tmp_fallback.read_text())
+        data = _slice(tmp_fallback)
         assert "tok" not in data
         assert data["other"] == "keep"
 
@@ -571,3 +577,48 @@ class TestFallbackLockingAndScrub:
         with patch.object(secret_store, "_write_fallback", return_value=False):
             with pytest.warns(UserWarning, match="stale"):
                 secret_store.set_secret("tok", "NEW")  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# F2 -- fallback file is namespaced by service; distributions stay isolated
+# ---------------------------------------------------------------------------
+
+
+class TestFallbackServiceIsolation:
+    def test_distributions_cannot_see_each_others_fallback(
+        self, missing_keyring, tmp_fallback
+    ):
+        """Distribution A's fallback secret must be invisible to distribution
+        B, and B must not overwrite or delete it (F2)."""
+        import warnings as _w
+
+        with _w.catch_warnings():
+            _w.simplefilter("ignore")
+            secret_store.configure_service_name("dist-a")
+            secret_store.set_secret("token", "A-secret")
+
+            secret_store.configure_service_name("dist-b")
+            assert secret_store.get_secret("token") is None  # cannot read A's
+            secret_store.set_secret("token", "B-secret")
+            secret_store.delete_secret("token")  # only removes B's
+
+            secret_store.configure_service_name("dist-a")
+            assert secret_store.get_secret("token") == "A-secret"  # intact
+
+    def test_fallback_file_is_service_nested(self, missing_keyring, tmp_fallback):
+        import warnings as _w
+
+        with _w.catch_warnings():
+            _w.simplefilter("ignore")
+            secret_store.configure_service_name("dist-x")
+            secret_store.set_secret("k", "v")
+        doc = json.loads(tmp_fallback.read_text())
+        assert doc == {"dist-x": {"k": "v"}}
+
+    def test_legacy_flat_file_migrated_under_default(
+        self, missing_keyring, tmp_fallback
+    ):
+        """A pre-scoping flat file stays readable under the default service."""
+        tmp_fallback.write_text(json.dumps({"legacy": "old"}))
+        assert secret_store.get_service_name() == "code-puppy"
+        assert secret_store.get_secret("legacy") == "old"
