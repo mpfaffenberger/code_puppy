@@ -4,7 +4,7 @@ These specifically target the registered agent tool (not the bare helper),
 because that's where malformed payloads from a model would arrive.
 """
 
-from typing import Callable, Dict, Any
+from typing import Any, Awaitable, Callable, Dict
 
 from code_puppy.tools.file_modifications import register_replace_in_file
 
@@ -20,19 +20,19 @@ class _CapturingAgent:
         return func
 
 
-def _get_replace_in_file_tool() -> Callable[..., Dict[str, Any]]:
+def _get_replace_in_file_tool() -> Callable[..., Awaitable[Dict[str, Any]]]:
     agent = _CapturingAgent()
     register_replace_in_file(agent)
     return agent.captured["replace_in_file"]
 
 
-def test_replace_in_file_missing_new_str_returns_error(tmp_path):
+async def test_replace_in_file_missing_new_str_returns_error(tmp_path):
     """A replacement missing 'new_str' must NOT raise — return a clean error."""
     path = tmp_path / "x.txt"
     path.write_text("hello")
 
     tool = _get_replace_in_file_tool()
-    result = tool(
+    result = await tool(
         None,
         file_path=str(path),
         replacements=[{"old_str": "hello"}],  # oops, no new_str
@@ -45,12 +45,12 @@ def test_replace_in_file_missing_new_str_returns_error(tmp_path):
     assert path.read_text() == "hello"
 
 
-def test_replace_in_file_missing_old_str_returns_error(tmp_path):
+async def test_replace_in_file_missing_old_str_returns_error(tmp_path):
     path = tmp_path / "x.txt"
     path.write_text("hello")
 
     tool = _get_replace_in_file_tool()
-    result = tool(
+    result = await tool(
         None,
         file_path=str(path),
         replacements=[{"new_str": "world"}],
@@ -61,12 +61,12 @@ def test_replace_in_file_missing_old_str_returns_error(tmp_path):
     assert path.read_text() == "hello"
 
 
-def test_replace_in_file_non_dict_replacement_returns_error(tmp_path):
+async def test_replace_in_file_non_dict_replacement_returns_error(tmp_path):
     path = tmp_path / "x.txt"
     path.write_text("hello")
 
     tool = _get_replace_in_file_tool()
-    result = tool(
+    result = await tool(
         None,
         file_path=str(path),
         replacements=["not a dict"],  # type: ignore[list-item]
@@ -76,13 +76,13 @@ def test_replace_in_file_non_dict_replacement_returns_error(tmp_path):
     assert path.read_text() == "hello"
 
 
-def test_replace_in_file_happy_path_still_works(tmp_path):
+async def test_replace_in_file_happy_path_still_works(tmp_path):
     """Sanity: the validation layer didn't break the normal flow."""
     path = tmp_path / "x.txt"
     path.write_text("hello world")
 
     tool = _get_replace_in_file_tool()
-    result = tool(
+    result = await tool(
         None,
         file_path=str(path),
         replacements=[{"old_str": "world", "new_str": "biscuit"}],
@@ -92,13 +92,13 @@ def test_replace_in_file_happy_path_still_works(tmp_path):
     assert path.read_text() == "hello biscuit"
 
 
-def test_replace_in_file_repairs_stringified_item(tmp_path):
+async def test_replace_in_file_repairs_stringified_item(tmp_path):
     """Per-item json_repair: a JSON-string replacement gets healed in place."""
     path = tmp_path / "x.txt"
     path.write_text("hello world")
 
     tool = _get_replace_in_file_tool()
-    result = tool(
+    result = await tool(
         None,
         file_path=str(path),
         replacements=['{"old_str": "world", "new_str": "biscuit"}'],  # type: ignore[list-item]
@@ -108,14 +108,14 @@ def test_replace_in_file_repairs_stringified_item(tmp_path):
     assert path.read_text() == "hello biscuit"
 
 
-def test_replace_in_file_repairs_malformed_json_item(tmp_path):
+async def test_replace_in_file_repairs_malformed_json_item(tmp_path):
     """json_repair can handle slightly broken JSON (e.g. missing quote/brace)."""
     path = tmp_path / "x.txt"
     path.write_text("hello world")
 
     tool = _get_replace_in_file_tool()
     # Missing closing brace — json_repair fixes this.
-    result = tool(
+    result = await tool(
         None,
         file_path=str(path),
         replacements=['{"old_str": "world", "new_str": "biscuit"'],  # type: ignore[list-item]
