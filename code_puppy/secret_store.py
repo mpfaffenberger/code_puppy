@@ -259,8 +259,7 @@ def _keyring_set(name: str, value: str) -> bool:
 
     # --- Chunked write path ---
     chunks = [
-        normalized[i: i + _CHUNK_SIZE]
-        for i in range(0, len(normalized), _CHUNK_SIZE)
+        normalized[i : i + _CHUNK_SIZE] for i in range(0, len(normalized), _CHUNK_SIZE)
     ]
 
     # Write data entries first.

@@ -197,9 +197,7 @@ class TestKeyringPath:
         assert tmp_fallback.exists()
         assert json.loads(tmp_fallback.read_text())["k"] == "v"
 
-    def test_delete_also_cleans_fallback(
-        self, working_keyring, tmp_fallback
-    ):
+    def test_delete_also_cleans_fallback(self, working_keyring, tmp_fallback):
         """delete_secret always scrubs the fallback file, in case a prior write
         landed there as a last resort."""
         tmp_fallback.write_text(json.dumps({"k": "leftover", "other": "keep"}))
@@ -387,9 +385,7 @@ class TestCrossPlatform:
         """_ensure_backend must not crash when secret_store_backends is
         unimportable (e.g. Windows where fcntl doesn't exist)."""
         secret_store._backend_installed = False
-        with patch.dict(
-            "sys.modules", {"code_puppy.secret_store_backends": None}
-        ):
+        with patch.dict("sys.modules", {"code_puppy.secret_store_backends": None}):
             # Should complete without raising.
             secret_store._ensure_backend()
         assert secret_store._backend_installed is True
