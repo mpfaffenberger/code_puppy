@@ -670,7 +670,10 @@ def run_shell_command_streaming(
     start_time = time.time()
     last_output_time = [start_time]
 
-    ABSOLUTE_TIMEOUT_SECONDS = 270
+    # Get the user-configured absolute timeout for shell commands
+    from code_puppy.config import get_command_timeout_seconds
+
+    ABSOLUTE_TIMEOUT_SECONDS = get_command_timeout_seconds()
 
     stdout_lines = []
     stderr_lines = []
