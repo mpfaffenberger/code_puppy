@@ -12,7 +12,10 @@ Write strategy (three tiers, in order):
      this.  Chunking keeps the keyring as the source of truth.
   3. **Permission-hardened file fallback** -- used only when both keyring
      strategies fail (genuinely broken backend, backend crash, headless CI).
-     The file is ``0o600`` and written atomically.
+     Written atomically and restricted to the owner: ``0o600`` on POSIX, and
+     an owner-only NTFS DACL (via ``icacls``) on Windows.  If the Windows ACL
+     cannot be applied, the fallback warning says so plainly -- the file is
+     then plaintext with default inheritance, not owner-only protected.
 
 Read strategy:
   The keyring is queried first (with transparent chunk reassembly).  The
@@ -40,6 +43,8 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import threading
 import warnings
@@ -417,12 +422,82 @@ def _warn_fallback_active() -> None:
     if _warned_fallback:
         return
     _warned_fallback = True
+    if sys.platform == "win32" and _windows_acl_hardened is False:
+        detail = (
+            "secrets are stored in PLAINTEXT at "
+            f"{_FALLBACK_FILE}; an owner-only NTFS ACL could not be applied "
+            "(icacls unavailable on this system). Treat this file as sensitive."
+        )
+    elif sys.platform == "win32":
+        detail = (
+            "secrets are stored in the fallback file at "
+            f"{_FALLBACK_FILE}, restricted to your account by an owner-only "
+            "NTFS ACL."
+        )
+    else:
+        detail = (
+            "secrets are stored in the permission-hardened fallback file at "
+            f"{_FALLBACK_FILE} (mode 0o600)."
+        )
     warnings.warn(
-        "No OS keyring backend is available; secrets are stored in the "
-        f"permission-hardened fallback file at {_FALLBACK_FILE} "
-        "(mode 0o600). This is intended for headless/CI use only.",
+        "No OS keyring backend is available; "
+        + detail
+        + " This is intended for headless/CI use only.",
         stacklevel=2,
     )
+
+
+# Tracks whether the most recent Windows ACL hardening attempt succeeded, so
+# the fallback warning can be honest about the actual on-disk protection.
+# None until the first Windows hardening attempt.
+_windows_acl_hardened: bool | None = None
+
+
+def _harden_windows(path: str) -> bool:
+    """Apply an owner-only NTFS DACL to *path* via ``icacls`` (no extra deps).
+
+    Removes inherited ACEs and grants Full control to the current user only.
+    Best-effort: minimal or older Windows images -- exactly where this
+    fallback activates -- may lack a usable ``icacls``.
+    """
+    user = os.environ.get("USERNAME")
+    if not user:
+        return False
+    try:
+        subprocess.run(
+            ["icacls", path, "/inheritance:r"],
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
+        subprocess.run(
+            ["icacls", path, "/grant:r", f"{user}:F"],
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _harden_permissions(path: str) -> bool:
+    """Restrict *path* to the owner, honestly per platform.
+
+    POSIX: ``chmod 0o600``.  Windows: an owner-only NTFS DACL via ``icacls``,
+    because ``chmod(0o600)`` does **not** establish owner-only protection on
+    NTFS -- it only toggles the read-only attribute.  The Windows outcome is
+    recorded so ``_warn_fallback_active`` can tell the user the truth.
+    """
+    global _windows_acl_hardened
+    if sys.platform == "win32":
+        _windows_acl_hardened = _harden_windows(path)
+        return _windows_acl_hardened
+    try:
+        os.chmod(path, _FALLBACK_MODE)
+        return True
+    except OSError:
+        return False
 
 
 def _read_fallback_doc() -> dict[str, dict[str, str]]:
@@ -438,13 +513,16 @@ def _read_fallback_doc() -> dict[str, dict[str, str]]:
     """
     try:
         # Repair permissions on read: if the file leaked to a broader mode
-        # (bad umask, restored backup), tighten it back to 0o600.
-        try:
-            current = os.stat(_FALLBACK_FILE).st_mode & 0o777
-            if current != _FALLBACK_MODE:
-                os.chmod(_FALLBACK_FILE, _FALLBACK_MODE)
-        except OSError:
-            pass
+        # (bad umask, restored backup), tighten it back to owner-only.
+        if sys.platform == "win32":
+            _harden_permissions(_FALLBACK_FILE)
+        else:
+            try:
+                current = os.stat(_FALLBACK_FILE).st_mode & 0o777
+                if current != _FALLBACK_MODE:
+                    os.chmod(_FALLBACK_FILE, _FALLBACK_MODE)
+            except OSError:
+                pass
         with open(_FALLBACK_FILE, encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
@@ -484,7 +562,7 @@ def _write_fallback(data: dict[str, dict[str, str]]) -> bool:
     tmp = None
     try:
         fd, tmp = tempfile.mkstemp(dir=CONFIG_DIR, suffix=".tmp")
-        os.chmod(tmp, _FALLBACK_MODE)
+        _harden_permissions(tmp)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
             f.flush()

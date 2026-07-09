@@ -31,10 +31,12 @@ def _reset_state():
     secret_store._warned_fallback = False
     secret_store._service_name = "code-puppy"
     secret_store._backend_installed = True  # skip lazy install in these tests
+    secret_store._windows_acl_hardened = None
     yield
     secret_store._warned_fallback = False
     secret_store._service_name = "code-puppy"
     secret_store._backend_installed = False
+    secret_store._windows_acl_hardened = None
 
 
 @pytest.fixture
@@ -622,3 +624,66 @@ class TestFallbackServiceIsolation:
         tmp_fallback.write_text(json.dumps({"legacy": "old"}))
         assert secret_store.get_service_name() == "code-puppy"
         assert secret_store.get_secret("legacy") == "old"
+
+
+# ---------------------------------------------------------------------------
+# F1 -- Windows fallback hardening is honest (owner-only DACL, not chmod)
+# ---------------------------------------------------------------------------
+
+
+class TestWindowsHardening:
+    def test_harden_windows_invokes_icacls(self, monkeypatch, tmp_path):
+        """On Windows, _harden_permissions applies an owner-only DACL via
+        icacls rather than relying on chmod (which does nothing useful on
+        NTFS)."""
+        monkeypatch.setattr(secret_store.sys, "platform", "win32")
+        monkeypatch.setenv("USERNAME", "alice")
+        calls = []
+
+        def fake_run(cmd, **kw):
+            calls.append(cmd)
+            return MagicMock()
+
+        monkeypatch.setattr(secret_store.subprocess, "run", fake_run)
+        p = str(tmp_path / "secrets.json")
+        assert secret_store._harden_permissions(p) is True
+        assert secret_store._windows_acl_hardened is True
+        assert ["icacls", p, "/inheritance:r"] in calls
+        assert ["icacls", p, "/grant:r", "alice:F"] in calls
+
+    def test_harden_windows_false_when_icacls_missing(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(secret_store.sys, "platform", "win32")
+        monkeypatch.setenv("USERNAME", "alice")
+        monkeypatch.setattr(
+            secret_store.subprocess,
+            "run",
+            MagicMock(side_effect=FileNotFoundError("no icacls")),
+        )
+        assert secret_store._harden_permissions(str(tmp_path / "s.json")) is False
+        assert secret_store._windows_acl_hardened is False
+
+    def test_warning_is_plaintext_honest_when_acl_fails(self, monkeypatch):
+        """When the Windows ACL can't be applied, the warning must NOT claim
+        owner-only protection -- it must say the file is plaintext."""
+        monkeypatch.setattr(secret_store.sys, "platform", "win32")
+        secret_store._windows_acl_hardened = False
+        with pytest.warns(UserWarning, match="PLAINTEXT"):
+            secret_store._warn_fallback_active()
+
+    def test_warning_states_acl_when_hardened(self, monkeypatch):
+        monkeypatch.setattr(secret_store.sys, "platform", "win32")
+        secret_store._windows_acl_hardened = True
+        with pytest.warns(UserWarning, match="NTFS ACL"):
+            secret_store._warn_fallback_active()
+
+    def test_posix_uses_chmod_not_icacls(self, monkeypatch, tmp_path):
+        """Sanity: on POSIX the code path stays chmod-based."""
+        if sys.platform == "win32":
+            pytest.skip("POSIX-only assertion")
+        called = MagicMock()
+        monkeypatch.setattr(secret_store.subprocess, "run", called)
+        p = tmp_path / "s.json"
+        p.write_text("{}")
+        assert secret_store._harden_permissions(str(p)) is True
+        called.assert_not_called()
+        assert stat.S_IMODE(os.stat(p).st_mode) == 0o600
