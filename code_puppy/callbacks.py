@@ -26,6 +26,7 @@ PhaseType = Literal[
     "pre_tool_call",
     "post_tool_call",
     "stream_event",
+    "thinking_display_filter",
     "register_tools",
     "register_agent_tools",
     "register_agents",
@@ -81,6 +82,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "pre_tool_call": [],
     "post_tool_call": [],
     "stream_event": [],
+    "thinking_display_filter": [],
     "register_tools": [],
     "register_agent_tools": [],
     "register_agents": [],
@@ -513,6 +515,47 @@ async def on_post_tool_call(
     return await _trigger_callbacks(
         "post_tool_call", tool_name, tool_args, result, duration_ms, context
     )
+
+
+def on_thinking_display_filter(
+    text: str,
+    *,
+    stream_id: object,
+    part_index: int,
+    final: bool = False,
+) -> str:
+    """Synchronously chain filters before thinking text reaches the display.
+
+    Filters may retain incomplete streaming syntax between calls, keyed by
+    ``stream_id`` and ``part_index``. They must release or discard that state
+    when ``final`` is true. A callback failure or non-string return leaves the
+    current text unchanged so display plugins can never break agent runs.
+    """
+    current = text
+    for callback in get_callbacks("thinking_display_filter"):
+        try:
+            result = callback(
+                current,
+                stream_id=stream_id,
+                part_index=part_index,
+                final=final,
+            )
+            if isinstance(result, str):
+                current = result
+            else:
+                logger.warning(
+                    "Thinking display filter %s returned %s; ignoring it",
+                    callback.__name__,
+                    type(result).__name__,
+                )
+        except Exception as exc:
+            logger.error(
+                "Thinking display filter %s failed: %s\n%s",
+                callback.__name__,
+                exc,
+                traceback.format_exc(),
+            )
+    return current
 
 
 async def on_stream_event(
