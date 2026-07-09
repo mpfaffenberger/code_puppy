@@ -1,23 +1,31 @@
 """Map code-puppy lifecycle events onto herdr's three semantic states.
 
 herdr models every agent as ``working`` / ``blocked`` / ``idle``. This
-reporter is the single writer of that state for the pane, so it keeps the
-edge-triggering and arbitration rules in one place:
+reporter is the single writer of that state for the pane, and code-puppy
+reports it *authoritatively* -- herdr never has to infer our state from the
+screen.
 
-* **working**  -- a top-level run or a tool call is in flight.
-* **blocked**  -- code-puppy is waiting on the human (permission prompt,
-  ``ask_user_question``). This is best-effort: not every interactive
-  prompt routes through a callback (shell-command approval does not), so
-  herdr's screen manifest remains the authority that can override a stale
-  ``working`` when a prompt is visible. We deliberately do **not** claim
-  herdr full-lifecycle authority for exactly this reason.
-* **idle**     -- the turn handed control back to the human.
+State is a pure function of two facts we own directly:
 
-Sub-agents fire the same ``agent_run_start`` / ``agent_run_end`` hooks as
-the root agent, so a naive "end == idle" mapping would flip the pane idle
-while the root run is still going. We refcount active runs (the same
-pattern the puppy_spinner plugin uses) and only trust the interactive
-turn boundary for idle.
+* **run depth** -- how many agent runs are in flight (root + sub-agents).
+  ``> 0`` means the model is doing work.
+* **awaiting** -- whether code-puppy is parked on the human. This comes from
+  the ``awaiting_user_input`` callback, which fires from the *one*
+  process-wide choke-point every interactive wait passes through
+  (shell-command approval, file-permission approval, ``ask_user_question``,
+  and every menu/picker). Because that single source covers every prompt --
+  including shell-command approval, which prompts from inside the tool -- the
+  plugin sees every block directly. There is nothing left for herdr to guess.
+
+Effective state::
+
+    blocked   if awaiting              (parked on the human)
+    working   elif run_depth > 0       (a run is in flight)
+    idle      otherwise                (control is the human's)
+
+Sub-agents fire the same ``agent_run_start`` / ``agent_run_end`` hooks as the
+root agent, so we refcount active runs (the same pattern the puppy_spinner
+plugin uses) rather than flipping idle when a sub-agent finishes.
 """
 
 from __future__ import annotations
@@ -42,6 +50,7 @@ class HerdrReporter:
         self._client = client
         self._lock = threading.Lock()
         self._run_depth = 0
+        self._awaiting = False
         self._last_state: Optional[str] = None
         self._session_id: Optional[str] = None
 
@@ -49,11 +58,20 @@ class HerdrReporter:
     def active(self) -> bool:
         return self._client.active
 
-    # -- state emission -------------------------------------------------
+    # -- state derivation ----------------------------------------------
 
-    def _emit(self, state: str) -> None:
-        """Send *state* only when it changes (edge-triggered)."""
+    def _recompute_locked(self) -> Optional[str]:
+        """Return the effective state from the facts we hold. Caller holds lock."""
+        if self._awaiting:
+            return BLOCKED
+        if self._run_depth > 0:
+            return WORKING
+        return IDLE
+
+    def _sync(self) -> None:
+        """Recompute the effective state and emit it if it changed (edge)."""
         with self._lock:
+            state = self._recompute_locked()
             if state == self._last_state:
                 return
             self._last_state = state
@@ -72,58 +90,51 @@ class HerdrReporter:
     # -- lifecycle handlers (all sync; safe from async or worker threads) --
 
     def on_startup(self) -> None:
-        self._emit(IDLE)
+        self._sync()  # depth 0, not awaiting -> idle
 
     def on_user_prompt(self, session_id: Optional[str] = None) -> None:
+        # Capture native session identity as early as possible; the run
+        # starting (below) is what actually flips us to working.
         self._remember_session(session_id)
-        self._emit(WORKING)
 
     def on_run_start(self, session_id: Optional[str] = None) -> None:
         self._remember_session(session_id)
         with self._lock:
             self._run_depth += 1
-        self._emit(WORKING)
+        self._sync()
 
     def on_run_end(self, session_id: Optional[str] = None) -> None:
         self._remember_session(session_id)
         with self._lock:
             self._run_depth = max(0, self._run_depth - 1)
-            depth = self._run_depth
-        # Only the outermost run finishing means the model stopped. The
-        # interactive turn boundary is the true idle signal, but headless
-        # (`-p`) runs never fire it, so falling idle at depth 0 keeps
-        # non-interactive panes honest too.
-        if depth == 0:
-            self._emit(IDLE)
+        # At depth 0 the model has stopped. The interactive turn boundary is
+        # the canonical idle signal, but headless (`-p`) runs never fire it,
+        # so falling idle at depth 0 keeps non-interactive panes honest too.
+        self._sync()
 
     def on_run_cancel(self) -> None:
         with self._lock:
             self._run_depth = 0
-        self._emit(IDLE)
+            self._awaiting = False
+        self._sync()
 
     def on_turn_end(self) -> None:
         with self._lock:
             self._run_depth = 0
-        self._emit(IDLE)
+            self._awaiting = False
+        self._sync()
 
-    def on_tool_call(self, tool_name: str) -> None:
-        # ask_user_question parks the agent on the human -> blocked.
-        # Everything else is active work.
-        if tool_name == "ask_user_question":
-            self._emit(BLOCKED)
-        else:
-            self._emit(WORKING)
-
-    def on_tool_done(self) -> None:
-        # A tool completing means we are moving again (this is also what
-        # clears a blocked ask_user_question / a resolved file prompt).
-        self._emit(WORKING)
-
-    def on_permission_prompt(self) -> None:
-        self._emit(BLOCKED)
+    def on_awaiting_user_input(self, awaiting: bool) -> None:
+        """The authoritative block signal: parked on the human iff ``awaiting``."""
+        with self._lock:
+            self._awaiting = bool(awaiting)
+        self._sync()
 
     def on_shutdown(self) -> None:
-        self._emit(IDLE)
+        with self._lock:
+            self._run_depth = 0
+            self._awaiting = False
+        self._sync()  # idle
         self._client.close()
 
 

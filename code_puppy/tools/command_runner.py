@@ -303,11 +303,26 @@ def set_awaiting_user_input(awaiting=True):
     the terminal for input (approval prompts, ask_user_question TUI) are
     responsible for wrapping themselves in
     ``code_puppy.messaging.run_ui.suspended_run_ui()``.
+
+    This is also the single authoritative source for "the agent is parked on
+    a human": it fires the ``awaiting_user_input`` callback so observers (the
+    herdr state reporter, notifiers, status bars) learn about *every*
+    interactive wait -- shell-command approval, file approval,
+    ``ask_user_question``, and every menu/picker -- from one place, rather
+    than each prompt having to announce itself (or an external watcher having
+    to guess from the screen).
     """
     if awaiting:
         _AWAITING_USER_INPUT.set()
     else:
         _AWAITING_USER_INPUT.clear()
+    # Best-effort notification; never let an observer disturb the prompt path.
+    try:
+        from code_puppy.callbacks import on_awaiting_user_input
+
+        on_awaiting_user_input(bool(awaiting))
+    except Exception:
+        pass
 
 
 class ShellCommandOutput(BaseModel):

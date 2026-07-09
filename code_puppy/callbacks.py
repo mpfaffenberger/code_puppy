@@ -58,6 +58,7 @@ PhaseType = Literal[
     "session_end",
     "post_autosave",
     "notification",
+    "awaiting_user_input",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -116,6 +117,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "session_end": [],
     "post_autosave": [],
     "notification": [],
+    "awaiting_user_input": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -490,6 +492,23 @@ def on_file_permission(
         message_group,
         operation_data,
     )
+
+
+def on_awaiting_user_input(awaiting: bool) -> List[Any]:
+    """Fired whenever code-puppy starts or stops waiting on the human.
+
+    This is the single, authoritative signal for "the agent is parked on a
+    human" -- it fires from ``command_runner.set_awaiting_user_input()``, the
+    one process-wide choke-point every interactive wait already passes through
+    (shell-command approval, file-permission approval, ``ask_user_question``,
+    and every menu/picker). ``awaiting`` is ``True`` when a prompt takes over
+    the terminal and ``False`` the instant control returns to the agent.
+
+    Observers only (e.g. the herdr reporter mapping it to blocked/working);
+    return values are ignored. Sync, because the callers are sync and on hot
+    paths.
+    """
+    return _trigger_callbacks_sync("awaiting_user_input", awaiting)
 
 
 async def on_file_permission_async(

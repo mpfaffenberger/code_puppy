@@ -7,24 +7,33 @@ injects). When it is, it reports semantic agent state -- ``working`` /
 ``blocked`` / ``idle`` -- over herdr's local socket so herdr's sidebar
 can roll code-puppy up alongside every other agent in the fleet.
 
-Because the integration ships with code-puppy and self-activates, there
-is nothing to install on the herdr side: ``herdr integration install``
-is not needed for code-puppy.
+code-puppy reports its state **authoritatively**: herdr never infers it from
+the screen. State is a pure function of two facts the plugin observes
+directly (see reporter.py):
 
-Callback -> state mapping (see reporter.py for the arbitration rules):
+* run depth, from ``agent_run_start`` / ``agent_run_end`` -> ``working``
+* awaiting-human, from the ``awaiting_user_input`` callback -> ``blocked``
 
-* ``startup`` / ``session_end`` / ``shutdown`` .......... idle
-* ``user_prompt_submit`` / ``agent_run_start`` ......... working
-* ``pre_tool_call`` (non-ask) / ``post_tool_call`` ..... working
-* ``pre_tool_call`` (ask_user_question) / permission ... blocked
-* ``interactive_turn_end`` / ``interactive_turn_cancel`` idle
-* ``agent_run_cancel`` ................................. idle
-* ``agent_run_end`` ................................... idle (depth 0)
+The ``awaiting_user_input`` callback is the key: it fires from the single
+process-wide choke-point (``command_runner.set_awaiting_user_input``) that
+*every* interactive wait already passes through -- shell-command approval,
+file-permission approval, ``ask_user_question``, and every menu/picker -- so
+one hook captures every block. There is no per-prompt special-casing and
+nothing for herdr to guess.
 
-Handlers are plain sync functions that swallow every argument: the
-callback dispatcher passes hook args positionally and runs sync
-callbacks happily from both async and worker-thread contexts, so
-signature-proofing with ``*args`` is the robust choice.
+Callback -> effect:
+
+* ``startup`` / ``session_end`` / ``shutdown`` ......... resync (-> idle)
+* ``user_prompt_submit`` .............................. capture session id
+* ``agent_run_start`` / ``agent_run_end`` ............. run-depth +/- 1
+* ``agent_run_cancel`` / ``interactive_turn_end`` ..... reset -> idle
+* ``interactive_turn_cancel`` ......................... reset -> idle
+* ``awaiting_user_input`` ............................. blocked <-> not
+
+Handlers are plain sync functions that swallow every argument: the callback
+dispatcher passes hook args positionally and runs sync callbacks happily
+from both async and worker-thread contexts, so ``*args`` is the robust
+choice.
 """
 
 from __future__ import annotations
@@ -73,22 +82,9 @@ def _on_turn_end(*_args, **_kw) -> None:
     _reporter.on_turn_end()
 
 
-def _on_pre_tool_call(*args, **_kw) -> None:
-    # (tool_name, tool_args, context=None)
-    tool_name = _arg(args, 0) or ""
-    _reporter.on_tool_call(str(tool_name))
-
-
-def _on_post_tool_call(*_args, **_kw) -> None:
-    _reporter.on_tool_done()
-
-
-def _on_file_permission(*_args, **_kw):
-    # SYNC callback. code-puppy treats every non-None result as a
-    # grant/deny vote (``any(not r for r in results if r is not None)``),
-    # so we MUST return None -- we only observe, never veto.
-    _reporter.on_permission_prompt()
-    return None
+def _on_awaiting_user_input(*args, **_kw) -> None:
+    # (awaiting: bool)
+    _reporter.on_awaiting_user_input(bool(_arg(args, 0)))
 
 
 def _on_shutdown(*_args, **_kw) -> None:
@@ -103,9 +99,7 @@ if _reporter.active:
     register_callback("agent_run_cancel", _on_run_cancel)
     register_callback("interactive_turn_end", _on_turn_end)
     register_callback("interactive_turn_cancel", _on_turn_end)
-    register_callback("pre_tool_call", _on_pre_tool_call)
-    register_callback("post_tool_call", _on_post_tool_call)
-    register_callback("file_permission", _on_file_permission)
+    register_callback("awaiting_user_input", _on_awaiting_user_input)
     register_callback("session_end", _on_shutdown)
     register_callback("shutdown", _on_shutdown)
     logger.debug("herdr plugin active for pane %s", _client._pane_id)
