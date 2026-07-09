@@ -1,5 +1,6 @@
 # file_operations.py
 
+import math
 import os
 import shutil
 import subprocess
@@ -193,10 +194,12 @@ def _list_files(
                     break
 
         if not rg_path and recursive:
-            # Only need ripgrep for recursive listings
-            error_msg = "Error: ripgrep (rg) not found. Please install ripgrep to use this tool."
-            return ListFileOutput(content=error_msg, error=error_msg)
-
+            # Fall back to non-recursive listing when ripgrep is not available
+            output_lines.append(
+                "Warning: ripgrep (rg) not found. Falling back to non-recursive listing. "
+                "Install ripgrep for full recursive support."
+            )
+            recursive = False
         # Only use ripgrep for recursive listings
         if recursive:
             # Build command for ripgrep --files
@@ -512,8 +515,8 @@ def _read_file(
                     for char in content
                 )
 
-            # Simple approximation: ~4 characters per token
-            num_tokens = len(content) // 4
+            # Token estimation consistent with BaseAgent (~2.5 characters per token)
+            num_tokens = max(1, math.floor(len(content) / 2.5))
             if num_tokens > 10000:
                 return ReadFileOutput(
                     content=None,
