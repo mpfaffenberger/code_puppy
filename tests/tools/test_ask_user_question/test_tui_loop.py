@@ -543,6 +543,80 @@ class TestKeyHandlers:
         await _run_with_handler_callback(state, action)
 
     @pytest.mark.asyncio
+    async def test_paste_in_other_mode_appends_full_string(self):
+        """Bracketed paste dumps the full clipboard payload into the buffer."""
+        state = _make_state()
+        state.entering_other_text = True
+        state.other_text_buffer = "prefix-"
+
+        def action(kb, app):
+            e = _make_event()
+            e.app = app
+            e.data = "https://example.com/some/path?x=1&y=2"
+            _find_handler(kb, "<bracketed-paste>")(e)
+            assert (
+                state.other_text_buffer
+                == "prefix-https://example.com/some/path?x=1&y=2"
+            )
+            _find_handler(kb, "escape")(e)
+            _find_handler(kb, "c-c")(e)
+
+        await _run_with_handler_callback(state, action)
+
+    @pytest.mark.asyncio
+    async def test_paste_strips_control_chars_and_collapses_whitespace(self):
+        """Newlines/tabs become spaces; other control chars are dropped."""
+        state = _make_state()
+        state.entering_other_text = True
+        state.other_text_buffer = ""
+
+        def action(kb, app):
+            e = _make_event()
+            e.app = app
+            # Contains newline, tab, carriage return, and a bell (0x07)
+            e.data = "hello\nworld\there\r\x07end"
+            _find_handler(kb, "<bracketed-paste>")(e)
+            assert state.other_text_buffer == "hello world here end"
+            _find_handler(kb, "escape")(e)
+            _find_handler(kb, "c-c")(e)
+
+        await _run_with_handler_callback(state, action)
+
+    @pytest.mark.asyncio
+    async def test_paste_ignored_outside_other_mode(self):
+        """Pasting while browsing options is a no-op (no unintended input)."""
+        state = _make_state()
+        # entering_other_text intentionally False
+
+        def action(kb, app):
+            e = _make_event()
+            e.app = app
+            e.data = "should be ignored"
+            _find_handler(kb, "<bracketed-paste>")(e)
+            assert state.other_text_buffer == ""
+            _find_handler(kb, "c-c")(e)
+
+        await _run_with_handler_callback(state, action)
+
+    @pytest.mark.asyncio
+    async def test_paste_empty_payload_is_noop(self):
+        """Empty/whitespace-only paste doesn't mutate the buffer."""
+        state = _make_state()
+        state.entering_other_text = True
+        state.other_text_buffer = "keep-me"
+
+        def action(kb, app):
+            e = _make_event()
+            e.app = app
+            e.data = ""
+            _find_handler(kb, "<bracketed-paste>")(e)
+            assert state.other_text_buffer == "keep-me"
+            _find_handler(kb, "escape")(e)
+            _find_handler(kb, "c-c")(e)
+
+        await _run_with_handler_callback(state, action)
+
+    @pytest.mark.asyncio
     async def test_backspace_in_other_mode(self):
         state = _make_state()
         state.entering_other_text = True
