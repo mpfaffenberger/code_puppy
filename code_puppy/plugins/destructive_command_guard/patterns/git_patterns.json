@@ -1,0 +1,60 @@
+{
+    "groups": [
+        {
+            "name": "Git destructive commands",
+            "cheap_substrings": ["git push", "git clean", "git reset", "git checkout", "git restore", "--force", "--mirror", "--hard"],
+            "expensive_patterns": [
+                {
+                    "regex": "\\bgit\\s+push\\b.*--force-with-lease",
+                    "name": "--force-with-lease",
+                    "description": "force push with lease (safer, but still rewrites history)"
+                },
+                {
+                    "regex": "\\bgit\\s+push\\b.*--force-if-includes",
+                    "name": "--force-if-includes",
+                    "description": "force push with includes check (still rewrites history)"
+                },
+                {
+                    "regex": "\\bgit\\s+push\\b.*--force",
+                    "name": "--force",
+                    "description": "force push (rewrites remote history)"
+                },
+                {
+                    "regex": "\\bgit\\s+push\\b.*\\s-f\\b",
+                    "name": "-f",
+                    "description": "force push shorthand (rewrites remote history)"
+                },
+                {
+                    "regex": "\\bgit\\s+push\\b.*\\s-F\\b",
+                    "name": "-F",
+                    "description": "force push shorthand (rewrites remote history)"
+                },
+                {
+                    "regex": "\\bgit\\s+push\\b.*\\s\\+",
+                    "name": "+refspec",
+                    "description": "force push via +refspec prefix (rewrites remote history)"
+                },
+                {
+                    "regex": "\\bgit\\s+push\\b.*--mirror\\b",
+                    "name": "git push --mirror",
+                    "description": "deletes remote branches not present locally"
+                },
+                {
+                    "regex": "\\bgit\\s+clean\\b.*-f(?:[dxf]|\\s+-?[dxf])",
+                    "name": "git clean -fd",
+                    "description": "deletes untracked files and directories"
+                },
+                {
+                    "regex": "\\bgit\\s+reset\\b.*--hard\\b",
+                    "name": "git reset --hard",
+                    "description": "destroys all uncommitted changes"
+                },
+                {
+                    "regex": "\\bgit\\s+(?:checkout|restore)\\b.*\\s--?\\s*\\.\\s*$",
+                    "name": "git checkout/restore .",
+                    "description": "discards all working directory changes"
+                }
+            ]
+        }
+    ]
+}

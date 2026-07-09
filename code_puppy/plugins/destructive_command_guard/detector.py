@@ -5,8 +5,7 @@ calls, no caching, no yolo-mode checks. Covers:
 - Unix/Linux: rm -rf root/home, SQL DROP via clients, docker prune, accidental package publishes
 - Windows PowerShell: Remove-Item, rmdir, del, Format-Volume, Clear-Disk, registry operations
 - Windows CMD: rd, rmdir, del, erase with /s /q flags, format, diskpart
-- Netsh firewall commands that disable the firewall or open ports
-The patterns are defined in SON fia Jle (patterns.json) and loaded at first call
+The patterns are defined in patterns directory as JSON files and loaded at first call
 """
 
 import re
@@ -28,35 +27,39 @@ class SearchGroup:
         self.cheap_substrings = substrings
         self.expensive_patterns = patterns
 
-# Load data from JSON file and compile regex patterns
+# Load data from JSON files inside patterns directory and compile regex patterns
 def load_guardrails_data() -> list[SearchGroup]:
-    data_path = Path(__file__).parent / "patterns.json"
-    try:
-        with open(data_path, "r") as f:
-            data = json.load(f)
-    except FileNotFoundError as e:
-        raise FileNotFoundError(f"Guardrails data file not found at {data_path}") from e
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Failed to parse guardrails data JSON: {e}") from e
+    data_dir = Path(__file__).parent / "patterns"
+    json_files = sorted(data_dir.glob("*.json"))
+    all_groups = []
 
-    groups = []
-    for group_data in data["groups"]:
+    for data_path in json_files:
         try:
-            group = SearchGroup(
-                name=group_data["name"],
-                substrings=tuple(group_data["cheap_substrings"]),
-                patterns=tuple(
-                    (re.compile(pattern_info["regex"], re.MULTILINE | re.IGNORECASE), pattern_info["name"], pattern_info["description"])
-                    for pattern_info in group_data["expensive_patterns"]
-                ),
-            )
-            groups.append(group)
-        except KeyError as e:
-            raise KeyError(f"Guardrails group '{group_data.get('name', '<unknown>')}' is missing required field: {e}")
-        except re.error as e:
-            raise ValueError(f"Invalid regex in guardrails group '{group_data.get('name', '<unknown>')}': {e}")
+            with open(data_path, "r", encoding = "utf-8") as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Failed to parse guardrails data JSON: {e}") from e
 
-    return groups
+        if "groups" not in data:
+            raise KeyError(f"Guardrails file '{data_path.name}' is missing required top-level 'groups' key")
+
+        for group_data in data["groups"]:
+            try:   
+                group = SearchGroup(
+                    name=group_data["name"],
+                    substrings=tuple(group_data["cheap_substrings"]),
+                    patterns=tuple(
+                        (re.compile(pattern_info["regex"], re.MULTILINE | re.IGNORECASE), pattern_info["name"], pattern_info["description"])
+                        for pattern_info in group_data["expensive_patterns"]
+                    ),
+                )
+                all_groups.append(group)
+            except KeyError as e:
+                raise KeyError(f"Guardrails group '{group_data.get('name', '<unknown>')}' is missing required field: {e}")
+            except re.error as e:
+                raise ValueError(f"Invalid regex in guardrails group '{group_data.get('name', '<unknown>')}': {e}")
+                
+    return all_groups
 
 #regex pattern to split on
 _CMD_SPLIT_RE = re.compile(r"\s*(?:&&|\|\||;|&)\s*")
@@ -118,9 +121,7 @@ def detect_destructive_command(command: str) ->  DestructiveCommandMatch | None:
 
         #If no keywords are found, skip expensive regex checks for this subcommand
         if not found_groups:
-            print("didnt find a keyword") #cleanup
             continue
-        print("found a key word") #cleanup
         # Use expensive regex patterns to check for destructive commands, return first match found
         for pattern, name, description in found_groups:
             if pattern.search(subcommand):
