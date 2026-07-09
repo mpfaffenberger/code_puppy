@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from pydantic_ai import RunContext
 from rich.text import Text
 
+from code_puppy.callbacks import on_run_shell_command_output
 from code_puppy.messaging import (  # Structured messaging types
     AgentReasoningMessage,
     ShellOutputMessage,
@@ -1456,7 +1457,9 @@ def register_agent_run_shell_command(agent):
 
         Supports streaming output, timeout handling, and background execution.
         """
-        return await run_shell_command(context, command, cwd, timeout, background)
+        result = await run_shell_command(context, command, cwd, timeout, background)
+        await on_run_shell_command_output(result)
+        return result
 
 
 def register_agent_share_your_reasoning(agent):
