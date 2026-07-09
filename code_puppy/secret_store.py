@@ -180,13 +180,58 @@ def _validate_value(value: str) -> str:
 
 
 def _chunk_count_key(name: str) -> str:
-    """Keyring entry name for the chunk-count (commit) marker."""
+    """Keyring entry name for the commit pointer.
+
+    The pointer value is ``"<gen>:<count>"`` for generation-numbered writes,
+    or a bare ``"<count>"`` for legacy (pre-generation) writes.
+    """
     return f"{name}{_COUNT_SUFFIX}"
 
 
-def _chunk_key(name: str, i: int) -> str:
-    """Keyring entry name for chunk *i* of *name*."""
+def _chunk_key(name: str, gen: str, i: int) -> str:
+    """Keyring entry name for chunk *i* of generation *gen* of *name*."""
+    return f"{name}{_CHUNK_NS}{gen}:{i}"
+
+
+def _legacy_chunk_key(name: str, i: int) -> str:
+    """Keyring entry name for chunk *i* under the pre-generation layout."""
     return f"{name}{_CHUNK_NS}{i}"
+
+
+def _new_generation() -> str:
+    """A short random generation token (8 hex chars).
+
+    Random rather than incrementing so two concurrent writers never pick the
+    same generation and corrupt each other's chunk set: each writes under its
+    own namespace and the single atomic pointer flip decides the winner.
+    """
+    return os.urandom(4).hex()
+
+
+def _parse_pointer(raw: str | None) -> tuple[str | None, int] | None:
+    """Parse a commit pointer into ``(generation, count)``.
+
+    ``generation`` is ``None`` for legacy bare-count pointers.  Returns
+    ``None`` when the pointer is absent or corrupt (treated as no value).
+    """
+    if raw is None:
+        return None
+    if ":" in raw:
+        gen, _, count = raw.partition(":")
+        try:
+            return (gen, int(count))
+        except ValueError:
+            return None
+    try:
+        return (None, int(raw))
+    except ValueError:
+        return None
+
+
+def _gen_chunk_key(name: str, parsed: tuple[str | None, int], i: int) -> str:
+    """Chunk key for index *i* given a parsed pointer (handles legacy)."""
+    gen = parsed[0]
+    return _legacy_chunk_key(name, i) if gen is None else _chunk_key(name, gen, i)
 
 
 # ---------------------------------------------------------------------------
@@ -257,21 +302,19 @@ def _kr_del_raw(name: str) -> bool:
 def _keyring_get(name: str) -> str | None:
     """Read a logical secret, transparently reassembling chunks if present.
 
-    Checks for a chunk-count key first.  When found, reads and concatenates
-    all chunks in order.  Falls back to a direct single-entry read for values
-    written by older builds or that never needed chunking.
+    Reads the commit pointer first.  When present, reassembles the chunks of
+    the generation it names (new layout) or the legacy flat chunk layout.
+    Falls back to a direct single-entry read for values that never needed
+    chunking.
     """
-    count_raw = _kr_get_raw(_chunk_count_key(name))
-    if count_raw is not None:
-        try:
-            n = int(count_raw)
-        except ValueError:
-            return None  # corrupt count -- treat as absent
+    parsed = _parse_pointer(_kr_get_raw(_chunk_count_key(name)))
+    if parsed is not None:
+        n = parsed[1]
         parts: list[str] = []
         for i in range(n):
-            chunk = _kr_get_raw(_chunk_key(name, i))
+            chunk = _kr_get_raw(_gen_chunk_key(name, parsed, i))
             if chunk is None:
-                return None  # partial write -- treat as absent
+                return None  # partial/torn read -- treat as absent
             parts.append(chunk)
         assembled = "".join(parts)
         return assembled or None
@@ -281,38 +324,51 @@ def _keyring_get(name: str) -> str | None:
 
 
 def _delete_chunks(name: str) -> None:
-    """Best-effort removal of all chunk entries for *name*."""
-    count_raw = _kr_get_raw(_chunk_count_key(name))
-    if count_raw is None:
+    """Best-effort removal of the committed chunk set (pointer + its chunks).
+
+    Only removes the generation named by the current pointer plus the pointer
+    itself; orphaned generations from crashed writers are swept by
+    ``_gc_generations``.
+    """
+    parsed = _parse_pointer(_kr_get_raw(_chunk_count_key(name)))
+    if parsed is None:
         return
-    try:
-        n = int(count_raw)
-    except ValueError:
-        n = 0
-    for i in range(n):
-        _kr_del_raw(_chunk_key(name, i))
+    for i in range(parsed[1]):
+        _kr_del_raw(_gen_chunk_key(name, parsed, i))
     _kr_del_raw(_chunk_count_key(name))
+
+
+def _gc_generation(name: str, gen: str, count: int) -> None:
+    """Best-effort removal of one generation's chunk entries."""
+    i = 0
+    # Delete the known count, then keep going while stray higher chunks exist
+    # (defensive against a prior larger write of the same generation).
+    while i < count or _kr_get_raw(_chunk_key(name, gen, i)) is not None:
+        _kr_del_raw(_chunk_key(name, gen, i))
+        i += 1
 
 
 def _keyring_set(name: str, value: str) -> bool:
     """Write a logical secret, chunking automatically when it exceeds _CHUNK_SIZE.
 
-    **Small values** (len <= _CHUNK_SIZE):
-      - Written as a single keyring entry under *name*.
-      - Any stale chunk entries from a prior oversized write are removed.
+    **Small values** (len <= _CHUNK_SIZE): written as a single entry under
+    *name*; any prior chunk set is removed.
 
-    **Large values** (len > _CHUNK_SIZE):
-      - Split into ceil(len / _CHUNK_SIZE) pieces.
-      - Chunk data entries are written first, then the count key last so a
-        mid-write crash never leaves a partially-readable value behind.
-      - Excess chunks from a prior write with more pieces are pruned.
-      - The direct *name* entry is removed to avoid ambiguity on read.
+    **Large values** (len > _CHUNK_SIZE): written with a *generation-numbered*
+    scheme that is crash-safe without relying on a lock (the chunked path only
+    activates on Windows, where the cross-process flock does not exist):
 
-    Returns ``True`` on success, ``False`` if any keyring write fails.
+      1. Pick a fresh random generation and write every chunk under
+         ``name:cp:<gen>:<i>``.  The previously committed value is untouched.
+      2. Atomically flip the single pointer key to ``"<gen>:<count>"``.  Until
+         this instant a crash leaves the old value fully readable; after it,
+         the new value is fully readable.  There is no window where the
+         pointer names a half-written or mixed ("Frankenstein") value.
+      3. Best-effort GC of the previously committed generation and the stale
+         direct entry.
 
-    The value is stored verbatim; callers reject empty/whitespace-only input
-    at the public boundary (``set_secret``), so a ``False`` here always means
-    a genuine backend failure -- never "you passed an empty string."
+    Returns ``True`` on success, ``False`` if any keyring write fails.  The
+    value is stored verbatim; empty input is rejected at the public boundary.
     """
     if len(value) <= _CHUNK_SIZE:
         if not _kr_set_raw(name, value):
@@ -320,30 +376,32 @@ def _keyring_set(name: str, value: str) -> bool:
         _delete_chunks(name)  # clean up any old chunked write
         return True
 
-    # --- Chunked write path ---
+    # --- Chunked write path (generation-numbered) ---
+    prev = _parse_pointer(_kr_get_raw(_chunk_count_key(name)))
+    gen = _new_generation()
     chunks = [value[i : i + _CHUNK_SIZE] for i in range(0, len(value), _CHUNK_SIZE)]
 
-    # Write data entries first.
+    # 1. Write the new generation's chunks. Old value stays intact.
     for idx, chunk in enumerate(chunks):
-        if not _kr_set_raw(_chunk_key(name, idx), chunk):
-            # Partial write -- roll back what we managed.
+        if not _kr_set_raw(_chunk_key(name, gen, idx), chunk):
+            # Roll back only our own (uncommitted) generation.
             for j in range(idx):
-                _kr_del_raw(_chunk_key(name, j))
+                _kr_del_raw(_chunk_key(name, gen, j))
             return False
 
-    # Prune stale trailing chunks from a prior larger write.
-    stale = len(chunks)
-    while _kr_get_raw(_chunk_key(name, stale)) is not None:
-        _kr_del_raw(_chunk_key(name, stale))
-        stale += 1
-
-    # Commit: write the count key last as the atomic marker.
-    if not _kr_set_raw(_chunk_count_key(name), str(len(chunks))):
+    # 2. Commit: atomically flip the pointer to the new generation.
+    if not _kr_set_raw(_chunk_count_key(name), f"{gen}:{len(chunks)}"):
         for idx in range(len(chunks)):
-            _kr_del_raw(_chunk_key(name, idx))
+            _kr_del_raw(_chunk_key(name, gen, idx))
         return False
 
-    _kr_del_raw(name)  # remove any stale single-entry write
+    # 3. Best-effort GC of the old generation and any stale direct entry.
+    if prev is not None and prev[0] is not None and prev[0] != gen:
+        _gc_generation(name, prev[0], prev[1])
+    elif prev is not None and prev[0] is None:
+        for i in range(prev[1]):
+            _kr_del_raw(_legacy_chunk_key(name, i))
+    _kr_del_raw(name)
     return True
 
 

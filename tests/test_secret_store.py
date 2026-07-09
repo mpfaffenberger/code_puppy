@@ -25,6 +25,24 @@ def _slice(fb, service=None):
     return doc.get(service or secret_store._service_name, {})
 
 
+def _chunk_entries(store, name, service=None):
+    """All chunk-data entry names for *name* in the fake keyring store (F7)."""
+    svc = service or secret_store._service_name
+    prefix = f"{name}{secret_store._CHUNK_NS}"
+    cnt = secret_store._chunk_count_key(name)
+    return {
+        k[1] for k in store if k[0] == svc and k[1].startswith(prefix) and k[1] != cnt
+    }
+
+
+def _pointer(store, name, service=None):
+    """The parsed commit pointer (gen, count) for *name*, or None."""
+    svc = service or secret_store._service_name
+    return secret_store._parse_pointer(
+        store.get((svc, secret_store._chunk_count_key(name)))
+    )
+
+
 @pytest.fixture(autouse=True)
 def _reset_state():
     """Reset process-global state between tests."""
@@ -251,10 +269,9 @@ class TestChunking:
         big = "A" * (secret_store._CHUNK_SIZE * 2 + 100)  # 3 chunks
         secret_store.set_secret("tok", big)
 
-        count_key = secret_store._chunk_count_key("tok")
-        assert store.get((svc, count_key)) == "3"
-        for i in range(3):
-            assert (svc, secret_store._chunk_key("tok", i)) in store
+        assert _pointer(store, "tok") is not None
+        assert _pointer(store, "tok")[1] == 3
+        assert len(_chunk_entries(store, "tok")) == 3
         # Direct entry must NOT exist (unambiguous read path)
         assert (svc, "tok") not in store
 
@@ -273,21 +290,21 @@ class TestChunking:
         assert (svc, secret_store._chunk_count_key("small")) not in store
 
     def test_stale_chunks_pruned_on_smaller_write(self, working_keyring):
-        """If a secret shrinks from 3 chunks to 2, the 3rd chunk is removed."""
+        """If a secret shrinks from 3 chunks to 2, the old generation is GC'd."""
         _, store = working_keyring
-        svc = secret_store._service_name
         big3 = "B" * (secret_store._CHUNK_SIZE * 2 + 100)  # 3 chunks
         secret_store.set_secret("tok", big3)
-        assert store.get((svc, secret_store._chunk_count_key("tok"))) == "3"
+        assert _pointer(store, "tok")[1] == 3
 
         big2 = "C" * (secret_store._CHUNK_SIZE + 100)  # 2 chunks
         secret_store.set_secret("tok", big2)
-        assert store.get((svc, secret_store._chunk_count_key("tok"))) == "2"
-        assert (svc, secret_store._chunk_key("tok", 2)) not in store
+        assert _pointer(store, "tok")[1] == 2
+        # Only the new generation's 2 chunks remain -- no orphans.
+        assert len(_chunk_entries(store, "tok")) == 2
         assert secret_store.get_secret("tok") == big2
 
     def test_delete_removes_all_chunk_keys(self, working_keyring):
-        """delete_secret wipes the count key and every chunk entry."""
+        """delete_secret wipes the pointer and every chunk entry."""
         _, store = working_keyring
         svc = secret_store._service_name
         big = "D" * (secret_store._CHUNK_SIZE * 2 + 1)  # 3 chunks
@@ -295,8 +312,7 @@ class TestChunking:
         secret_store.delete_secret("tok")
 
         assert (svc, secret_store._chunk_count_key("tok")) not in store
-        for i in range(3):
-            assert (svc, secret_store._chunk_key("tok", i)) not in store
+        assert len(_chunk_entries(store, "tok")) == 0
 
     def test_old_single_entry_still_readable(self, working_keyring):
         """Pre-chunking entries written without a count key are still readable."""
@@ -306,12 +322,12 @@ class TestChunking:
         assert secret_store.get_secret("legacy") == "old-value"
 
     def test_missing_chunk_returns_none(self, working_keyring):
-        """A partially-written chunk sequence (count present, chunk missing)
-        is treated as absent rather than returning corrupt data."""
+        """A committed pointer whose chunk is missing (torn read) is treated as
+        absent rather than returning corrupt data. Uses the legacy layout."""
         _, store = working_keyring
         svc = secret_store._service_name
-        store[(svc, secret_store._chunk_count_key("tok"))] = "3"
-        store[(svc, secret_store._chunk_key("tok", 0))] = "part0"
+        store[(svc, secret_store._chunk_count_key("tok"))] = "3"  # legacy pointer
+        store[(svc, secret_store._legacy_chunk_key("tok", 0))] = "part0"
         # chunk 1 and 2 missing
         assert secret_store.get_secret("tok") is None
 
@@ -720,3 +736,83 @@ class TestNotifyRouting:
         monkeypatch.setattr(_msg, "emit_warning", boom)
         with pytest.warns(UserWarning, match="last resort"):
             secret_store._notify("last resort notice")
+
+
+# ---------------------------------------------------------------------------
+# F7 -- generation-numbered chunking is crash-safe (old value never torn)
+# ---------------------------------------------------------------------------
+
+
+class TestGenerationChunking:
+    def _big(self, mult, ch="X"):
+        return ch * (secret_store._CHUNK_SIZE * mult + 10)
+
+    def test_overwrite_uses_new_generation_and_gcs_old(self, working_keyring):
+        _, store = working_keyring
+        secret_store.set_secret("tok", self._big(2, "1"))  # gen1, 3 chunks
+        gen1 = _pointer(store, "tok")[0]
+        assert gen1 is not None
+
+        secret_store.set_secret("tok", self._big(3, "2"))  # gen2, 4 chunks
+        gen2 = _pointer(store, "tok")[0]
+        assert gen2 is not None and gen2 != gen1
+        assert secret_store.get_secret("tok") == self._big(3, "2")
+        # Old generation swept; only the new generation's 4 chunks remain.
+        assert len(_chunk_entries(store, "tok")) == 4
+
+    def test_crash_before_pointer_flip_keeps_old_value(self, working_keyring):
+        """The core F7 guarantee: if the commit (pointer flip) fails mid-write,
+        the previously committed value is still fully readable -- no torn or
+        'Frankenstein' value."""
+        big1 = self._big(2, "1")
+        secret_store.set_secret("tok", big1)
+        orig = secret_store._kr_set_raw
+
+        def flaky(name, value):
+            if name.endswith(secret_store._COUNT_SUFFIX):
+                return False  # simulate a crash exactly at the commit point
+            return orig(name, value)
+
+        with patch.object(secret_store, "_kr_set_raw", side_effect=flaky):
+            assert secret_store._keyring_set("tok", self._big(3, "2")) is False
+
+        # Old value intact and reassembles correctly.
+        assert secret_store.get_secret("tok") == big1
+
+    def test_crash_before_flip_leaves_no_orphan_after_next_write(self, working_keyring):
+        _, store = working_keyring
+        secret_store.set_secret("tok", self._big(2, "1"))
+        orig = secret_store._kr_set_raw
+
+        def flaky(name, value):
+            if name.endswith(secret_store._COUNT_SUFFIX):
+                return False
+            return orig(name, value)
+
+        with patch.object(secret_store, "_kr_set_raw", side_effect=flaky):
+            secret_store._keyring_set("tok", self._big(3, "2"))
+        # The failed write rolled back its own generation's chunks.
+        assert len(_chunk_entries(store, "tok")) == 3  # only the committed gen1
+
+    def test_legacy_chunked_value_readable(self, working_keyring):
+        """A value written under the pre-generation layout is still readable."""
+        _, store = working_keyring
+        svc = secret_store._service_name
+        store[(svc, secret_store._chunk_count_key("tok"))] = "2"  # bare count
+        store[(svc, secret_store._legacy_chunk_key("tok", 0))] = "AAA"
+        store[(svc, secret_store._legacy_chunk_key("tok", 1))] = "BBB"
+        assert secret_store.get_secret("tok") == "AAABBB"
+
+    def test_overwrite_of_legacy_cleans_old_chunks(self, working_keyring):
+        _, store = working_keyring
+        svc = secret_store._service_name
+        store[(svc, secret_store._chunk_count_key("tok"))] = "2"
+        store[(svc, secret_store._legacy_chunk_key("tok", 0))] = (
+            "A" * secret_store._CHUNK_SIZE
+        )
+        store[(svc, secret_store._legacy_chunk_key("tok", 1))] = "B" * 10
+        big = self._big(2, "C")
+        secret_store.set_secret("tok", big)
+        assert secret_store.get_secret("tok") == big
+        assert (svc, secret_store._legacy_chunk_key("tok", 0)) not in store
+        assert (svc, secret_store._legacy_chunk_key("tok", 1)) not in store
