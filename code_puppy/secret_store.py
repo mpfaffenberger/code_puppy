@@ -37,9 +37,11 @@ Public API
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
+import threading
 import warnings
 
 import keyring
@@ -347,6 +349,64 @@ def _keyring_delete(name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+# Cross-process advisory lock guarding the fallback read-modify-write. Atomic
+# os.replace() prevents truncated reads but not *lost updates*: two processes
+# (e.g. the main app and an MCP subprocess) can each read the document, add a
+# different key, and the second writer clobbers the first. The lock serializes
+# the whole read->mutate->write cycle. The chunked keyring path activates on
+# Windows, so this lock is cross-platform (fcntl on POSIX, msvcrt on Windows).
+_FALLBACK_LOCK_FILE = os.path.join(CONFIG_DIR, ".secrets.lock")
+_fallback_thread_lock = threading.RLock()
+
+try:
+    import fcntl
+
+    def _lock_fd(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+
+    def _unlock_fd(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+except ImportError:  # pragma: no cover - platform-specific (Windows)
+    import msvcrt
+
+    def _lock_fd(fd: int) -> None:
+        # Byte-range lock on the first byte; blocks until acquired.
+        msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+
+    def _unlock_fd(fd: int) -> None:
+        try:
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+
+
+@contextlib.contextmanager
+def _fallback_lock():
+    """Serialize the fallback read-modify-write across threads and processes.
+
+    Best-effort: if the lock file cannot be created (e.g. read-only config
+    dir), we degrade to the in-process thread lock alone rather than wedge
+    secret operations. The subsequent _write_fallback will surface any real
+    persistence failure.
+    """
+    with _fallback_thread_lock:
+        try:
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+            fd = os.open(_FALLBACK_LOCK_FILE, os.O_CREAT | os.O_RDWR, _FALLBACK_MODE)
+        except OSError:
+            yield
+            return
+        try:
+            _lock_fd(fd)
+            yield
+        finally:
+            try:
+                _unlock_fd(fd)
+            finally:
+                os.close(fd)
+
+
 def _warn_fallback_active() -> None:
     global _warned_fallback
     if _warned_fallback:
@@ -413,6 +473,52 @@ def _write_fallback(data: dict[str, str]) -> bool:
     return True
 
 
+def _fallback_set(name: str, value: str) -> bool:
+    """Add/update a fallback entry under the cross-process lock (F5)."""
+    with _fallback_lock():
+        data = _read_fallback()
+        data[name] = value
+        return _write_fallback(data)
+
+
+def _fallback_delete(name: str) -> bool | None:
+    """Remove a fallback entry under the lock.
+
+    Returns ``True`` on a successful scrub, ``False`` if the rewrite failed,
+    and ``None`` when there was nothing to remove (so callers don't treat a
+    no-op as a failure).
+    """
+    with _fallback_lock():
+        data = _read_fallback()
+        if name not in data:
+            return None
+        del data[name]
+        return _write_fallback(data)
+
+
+def _fallback_scrub(name: str) -> None:
+    """Best-effort removal of a stale fallback entry after a healthy keyring
+    write (F6).
+
+    A successful keyring write must not leave a rotated-out secret sitting in
+    plaintext on disk, where it could later be resurrected if the keyring
+    entry vanishes. The keyring already holds the source of truth here, so a
+    failure to rewrite the file is not fatal -- but it is worth surfacing.
+    """
+    with _fallback_lock():
+        data = _read_fallback()
+        if name not in data:
+            return
+        del data[name]
+        if not _write_fallback(data):
+            warnings.warn(
+                f"Secret {name!r} was written to the keyring but its stale "
+                f"plaintext copy in {_FALLBACK_FILE} could not be removed "
+                "(read-only or full filesystem?).",
+                stacklevel=2,
+            )
+
+
 # ---------------------------------------------------------------------------
 # Public high-level API
 # ---------------------------------------------------------------------------
@@ -457,6 +563,9 @@ def set_secret(name: str, value: str) -> None:
     _validate_value(value)
     _ensure_backend()
     if _keyring_set(name, value):
+        # F6: scrub any stale plaintext copy so a rotated secret can't linger
+        # on disk and be resurrected later if the keyring entry vanishes.
+        _fallback_scrub(name)
         return
 
     if keyring_available():
@@ -473,9 +582,7 @@ def set_secret(name: str, value: str) -> None:
     else:
         _warn_fallback_active()
 
-    data = _read_fallback()
-    data[name] = value
-    if not _write_fallback(data):
+    if not _fallback_set(name, value):
         raise SecretStoreError(
             f"Failed to persist secret {name!r}: the OS keyring is unavailable "
             f"and the fallback file at {_FALLBACK_FILE} could not be written "
@@ -496,12 +603,9 @@ def delete_secret(name: str) -> None:
 
     # Always scrub the fallback file: a prior write may have ended up there
     # even on a system where the keyring is now healthy.
-    data = _read_fallback()
-    if name in data:
-        del data[name]
-        if not _write_fallback(data):
-            raise SecretStoreError(
-                f"Failed to remove secret {name!r} from the fallback file at "
-                f"{_FALLBACK_FILE} (read-only or full filesystem?). The "
-                "plaintext secret may still be present on disk."
-            )
+    if _fallback_delete(name) is False:
+        raise SecretStoreError(
+            f"Failed to remove secret {name!r} from the fallback file at "
+            f"{_FALLBACK_FILE} (read-only or full filesystem?). The "
+            "plaintext secret may still be present on disk."
+        )

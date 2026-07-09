@@ -510,3 +510,64 @@ class TestFallbackFailureContract:
         tmp_fallback.write_text(json.dumps({"other": "keep"}))
         with patch.object(secret_store, "_write_fallback", return_value=False):
             secret_store.delete_secret("k")  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# F5 -- locked read-modify-write; F6 -- scrub stale fallback on healthy set
+# ---------------------------------------------------------------------------
+
+
+class TestFallbackLockingAndScrub:
+    def test_concurrent_writers_no_lost_update(self, missing_keyring, tmp_fallback):
+        """F5: many threads each add a distinct key; the lock must prevent
+        lost updates so every key survives the read-modify-write races."""
+        import threading
+
+        import warnings as _w
+
+        def writer(i):
+            with _w.catch_warnings():
+                _w.simplefilter("ignore")
+                secret_store.set_secret(f"key{i}", f"val{i}")
+
+        threads = [threading.Thread(target=writer, args=(i,)) for i in range(25)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        data = json.loads(tmp_fallback.read_text())
+        for i in range(25):
+            assert data[f"key{i}"] == f"val{i}"
+
+    def test_healthy_set_scrubs_fallback(self, working_keyring, tmp_fallback):
+        """F6: a successful keyring write removes any stale plaintext copy."""
+        tmp_fallback.write_text(json.dumps({"tok": "OLD", "other": "keep"}))
+        secret_store.set_secret("tok", "NEW")
+
+        # keyring now holds the new value...
+        assert secret_store.get_secret("tok") == "NEW"
+        # ...and the stale plaintext copy is gone, unrelated entries preserved.
+        data = json.loads(tmp_fallback.read_text())
+        assert "tok" not in data
+        assert data["other"] == "keep"
+
+    def test_healthy_set_no_resurrection(self, working_keyring, tmp_fallback):
+        """F6: after a healthy set scrubs the file, a vanished keyring entry
+        must not resurrect the old plaintext value."""
+        _, store = working_keyring
+        tmp_fallback.write_text(json.dumps({"tok": "OLD"}))
+        secret_store.set_secret("tok", "NEW")
+        # Simulate the keyring entry vanishing (reset keychain / new profile).
+        store.clear()
+        assert secret_store.get_secret("tok") is None
+
+    def test_scrub_failure_warns_but_does_not_raise(
+        self, working_keyring, tmp_fallback
+    ):
+        """F6: if the stale-copy scrub can't be written, warn -- but the set
+        still succeeded (keyring holds the truth), so don't raise."""
+        tmp_fallback.write_text(json.dumps({"tok": "OLD"}))
+        with patch.object(secret_store, "_write_fallback", return_value=False):
+            with pytest.warns(UserWarning, match="stale"):
+                secret_store.set_secret("tok", "NEW")  # must not raise
