@@ -150,6 +150,23 @@ def _validate_name(name: str) -> str:
     return name
 
 
+def _validate_value(value: str) -> str:
+    """Validate a caller-supplied secret value.
+
+    Empty or whitespace-only values are rejected with a ``ValueError`` so an
+    empty write can never be confused with a backend failure (the old code
+    silently no-oped and then emitted a misleading "keyring write failed"
+    warning).  Values with *content* plus surrounding whitespace are allowed
+    and stored verbatim -- secrets with significant leading/trailing
+    whitespace exist and must not be silently mutated.
+    """
+    if not isinstance(value, str):
+        raise ValueError("secret value must be a string")
+    if not value.strip():
+        raise ValueError("secret value must be non-empty")
+    return value
+
+
 def _chunk_count_key(name: str) -> str:
     """Keyring entry name for the chunk-count (commit) marker."""
     return f"{name}{_COUNT_SUFFIX}"
@@ -187,15 +204,19 @@ def keyring_available() -> bool:
 
 
 def _kr_get_raw(name: str) -> str | None:
-    """Read one keyring entry; ``None`` on any error or absence."""
+    """Read one keyring entry verbatim; ``None`` on error or absence.
+
+    The stored value is returned byte-for-byte (no ``.strip()``): a secret
+    with legitimate leading/trailing whitespace must round-trip unchanged.
+    A truly empty string is treated as absence.
+    """
     try:
         value = keyring.get_password(_service_name, name)
     except Exception:
         return None
-    if value is None:
+    if not value:
         return None
-    normalized = str(value).strip()
-    return normalized or None
+    return str(value)
 
 
 def _kr_set_raw(name: str, value: str) -> bool:
@@ -276,21 +297,19 @@ def _keyring_set(name: str, value: str) -> bool:
       - The direct *name* entry is removed to avoid ambiguity on read.
 
     Returns ``True`` on success, ``False`` if any keyring write fails.
-    """
-    normalized = str(value).strip()
-    if not normalized:
-        return False
 
-    if len(normalized) <= _CHUNK_SIZE:
-        if not _kr_set_raw(name, normalized):
+    The value is stored verbatim; callers reject empty/whitespace-only input
+    at the public boundary (``set_secret``), so a ``False`` here always means
+    a genuine backend failure -- never "you passed an empty string."
+    """
+    if len(value) <= _CHUNK_SIZE:
+        if not _kr_set_raw(name, value):
             return False
         _delete_chunks(name)  # clean up any old chunked write
         return True
 
     # --- Chunked write path ---
-    chunks = [
-        normalized[i : i + _CHUNK_SIZE] for i in range(0, len(normalized), _CHUNK_SIZE)
-    ]
+    chunks = [value[i : i + _CHUNK_SIZE] for i in range(0, len(value), _CHUNK_SIZE)]
 
     # Write data entries first.
     for idx, chunk in enumerate(chunks):
@@ -414,10 +433,9 @@ def get_secret(name: str) -> str | None:
     if not keyring_available():
         _warn_fallback_active()
     stored = _read_fallback().get(name)
-    if stored is None:
+    if not stored:
         return None
-    normalized = str(stored).strip()
-    return normalized or None
+    return str(stored)
 
 
 def set_secret(name: str, value: str) -> None:
@@ -430,6 +448,7 @@ def set_secret(name: str, value: str) -> None:
          strategies fail -- unexpected backend error or no keyring at all).
     """
     _validate_name(name)
+    _validate_value(value)
     _ensure_backend()
     if _keyring_set(name, value):
         return
@@ -448,11 +467,8 @@ def set_secret(name: str, value: str) -> None:
     else:
         _warn_fallback_active()
 
-    normalized = str(value).strip()
-    if not normalized:
-        return
     data = _read_fallback()
-    data[name] = normalized
+    data[name] = value
     _write_fallback(data)
 
 

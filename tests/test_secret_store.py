@@ -146,10 +146,12 @@ class TestKeyringPath:
     def test_get_missing_returns_none(self, working_keyring):
         assert secret_store.get_secret("nope") is None
 
-    def test_get_strips_whitespace(self, working_keyring):
+    def test_get_preserves_whitespace(self, working_keyring):
+        """Secrets are stored/returned verbatim -- leading/trailing whitespace
+        that is part of the value must survive the round-trip (F8)."""
         _, store = working_keyring
         store[(secret_store._service_name, "k")] = "  spaced  "
-        assert secret_store.get_secret("k") == "spaced"
+        assert secret_store.get_secret("k") == "  spaced  "
 
     def test_delete_removes_from_keyring(self, working_keyring):
         _, store = working_keyring
@@ -347,8 +349,11 @@ class TestFallbackPath:
         assert secret_store.get_secret("k") == "v"
         assert stat.S_IMODE(os.stat(tmp_fallback).st_mode) == 0o600
 
-    def test_set_blank_is_ignored(self, missing_keyring, tmp_fallback):
-        secret_store.set_secret("k", "   ")
+    def test_set_blank_raises(self, missing_keyring, tmp_fallback):
+        """Empty/whitespace-only values raise ValueError instead of silently
+        no-oping and emitting a misleading backend-failure warning (F8)."""
+        with pytest.raises(ValueError, match="non-empty"):
+            secret_store.set_secret("k", "   ")
         assert not tmp_fallback.exists()
 
     def test_delete_removes_from_fallback(self, missing_keyring, tmp_fallback):
@@ -434,3 +439,38 @@ class TestReservedNamespace:
         with pytest.raises(ValueError):
             secret_store.set_secret("foo:cp:n", "3")
         assert secret_store.get_secret("foo") == "legit"
+
+
+# ---------------------------------------------------------------------------
+# F8 -- empty value raises; whitespace-bearing values are preserved verbatim
+# ---------------------------------------------------------------------------
+
+
+class TestValueNormalization:
+    def test_empty_string_raises(self, working_keyring):
+        with pytest.raises(ValueError, match="non-empty"):
+            secret_store.set_secret("k", "")
+
+    def test_whitespace_only_raises(self, working_keyring):
+        with pytest.raises(ValueError, match="non-empty"):
+            secret_store.set_secret("k", "\t \n")
+
+    def test_surrounding_whitespace_preserved_keyring(self, working_keyring):
+        secret_store.set_secret("k", "  tok-with-spaces  ")
+        assert secret_store.get_secret("k") == "  tok-with-spaces  "
+
+    def test_surrounding_whitespace_preserved_fallback(
+        self, missing_keyring, tmp_fallback
+    ):
+        with pytest.warns(UserWarning):
+            secret_store.set_secret("k", "  tok  ")
+        assert secret_store.get_secret("k") == "  tok  "
+
+    def test_no_false_alarm_warning_on_empty(self, working_keyring, tmp_fallback):
+        """An empty value must not reach the 'keyring write failed' path."""
+        import warnings as _w
+
+        with _w.catch_warnings():
+            _w.simplefilter("error")
+            with pytest.raises(ValueError):
+                secret_store.set_secret("k", "  ")
