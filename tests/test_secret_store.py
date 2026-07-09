@@ -39,6 +39,22 @@ def _reset_state():
     secret_store._windows_acl_hardened = None
 
 
+@pytest.fixture(autouse=True)
+def notices(monkeypatch):
+    """Capture user-facing notices routed through the messaging bus (F11).
+
+    Autouse so no test hits the real bus; request it by name to assert on the
+    captured messages.
+    """
+    captured: list[str] = []
+    import code_puppy.messaging as _msg
+
+    monkeypatch.setattr(
+        _msg, "emit_warning", lambda m, *a, **k: captured.append(str(m))
+    )
+    return captured
+
+
 @pytest.fixture
 def tmp_fallback(tmp_path, monkeypatch):
     cfg_dir = tmp_path / "cfg"
@@ -193,16 +209,16 @@ class TestKeyringPath:
         assert secret_store.get_secret("k") == "from-keyring"
 
     def test_set_warns_and_writes_file_when_keyring_fails(
-        self, working_keyring, tmp_fallback
+        self, working_keyring, tmp_fallback, notices
     ):
         """When all keyring writes fail despite a healthy backend, set_secret
-        emits a warning then persists to the fallback file so the secret is
+        emits a bus notice then persists to the fallback file so the secret is
         not lost."""
         fake, _ = working_keyring
         fake.set_password.side_effect = Exception("backend crash")
 
-        with pytest.warns(UserWarning, match="despite a healthy backend"):
-            secret_store.set_secret("k", "v")
+        secret_store.set_secret("k", "v")
+        assert any("despite a healthy backend" in m for m in notices)
 
         assert tmp_fallback.exists()
         assert _slice(tmp_fallback)["k"] == "v"
@@ -378,14 +394,12 @@ class TestFallbackPath:
         secret_store.set_secret("k", "v")
         assert secret_store.get_secret("k") == "v"
 
-    def test_fallback_warns_once(self, missing_keyring, tmp_fallback):
-        import warnings as _w
-
-        with pytest.warns(UserWarning, match="fallback"):
-            secret_store.set_secret("k", "v")
-        with _w.catch_warnings():
-            _w.simplefilter("error")
-            secret_store.set_secret("k2", "v2")
+    def test_fallback_warns_once(self, missing_keyring, tmp_fallback, notices):
+        secret_store.set_secret("k", "v")
+        assert sum("fallback" in m for m in notices) == 1
+        # A second fallback write must not re-emit the notice (dedup).
+        secret_store.set_secret("k2", "v2")
+        assert sum("fallback" in m for m in notices) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -470,18 +484,16 @@ class TestValueNormalization:
     def test_surrounding_whitespace_preserved_fallback(
         self, missing_keyring, tmp_fallback
     ):
-        with pytest.warns(UserWarning):
-            secret_store.set_secret("k", "  tok  ")
+        secret_store.set_secret("k", "  tok  ")
         assert secret_store.get_secret("k") == "  tok  "
 
-    def test_no_false_alarm_warning_on_empty(self, working_keyring, tmp_fallback):
+    def test_no_false_alarm_warning_on_empty(
+        self, working_keyring, tmp_fallback, notices
+    ):
         """An empty value must not reach the 'keyring write failed' path."""
-        import warnings as _w
-
-        with _w.catch_warnings():
-            _w.simplefilter("error")
-            with pytest.raises(ValueError):
-                secret_store.set_secret("k", "  ")
+        with pytest.raises(ValueError):
+            secret_store.set_secret("k", "  ")
+        assert notices == []
 
 
 # ---------------------------------------------------------------------------
@@ -502,9 +514,8 @@ class TestFallbackFailureContract:
     def test_set_raises_when_fallback_write_fails(self, missing_keyring, tmp_fallback):
         """F4: a lost credential must not report success."""
         with patch.object(secret_store, "_write_fallback", return_value=False):
-            with pytest.warns(UserWarning):
-                with pytest.raises(secret_store.SecretStoreError, match="NOT saved"):
-                    secret_store.set_secret("k", "v")
+            with pytest.raises(secret_store.SecretStoreError, match="NOT saved"):
+                secret_store.set_secret("k", "v")
 
     def test_delete_raises_when_scrub_write_fails(self, missing_keyring, tmp_fallback):
         """F10: a failed scrub must not report a successful delete."""
@@ -531,12 +542,8 @@ class TestFallbackLockingAndScrub:
         lost updates so every key survives the read-modify-write races."""
         import threading
 
-        import warnings as _w
-
         def writer(i):
-            with _w.catch_warnings():
-                _w.simplefilter("ignore")
-                secret_store.set_secret(f"key{i}", f"val{i}")
+            secret_store.set_secret(f"key{i}", f"val{i}")
 
         threads = [threading.Thread(target=writer, args=(i,)) for i in range(25)]
         for t in threads:
@@ -571,14 +578,14 @@ class TestFallbackLockingAndScrub:
         assert secret_store.get_secret("tok") is None
 
     def test_scrub_failure_warns_but_does_not_raise(
-        self, working_keyring, tmp_fallback
+        self, working_keyring, tmp_fallback, notices
     ):
         """F6: if the stale-copy scrub can't be written, warn -- but the set
         still succeeded (keyring holds the truth), so don't raise."""
         tmp_fallback.write_text(json.dumps({"tok": "OLD"}))
         with patch.object(secret_store, "_write_fallback", return_value=False):
-            with pytest.warns(UserWarning, match="stale"):
-                secret_store.set_secret("tok", "NEW")  # must not raise
+            secret_store.set_secret("tok", "NEW")  # must not raise
+        assert any("stale" in m for m in notices)
 
 
 # ---------------------------------------------------------------------------
@@ -662,19 +669,19 @@ class TestWindowsHardening:
         assert secret_store._harden_permissions(str(tmp_path / "s.json")) is False
         assert secret_store._windows_acl_hardened is False
 
-    def test_warning_is_plaintext_honest_when_acl_fails(self, monkeypatch):
-        """When the Windows ACL can't be applied, the warning must NOT claim
+    def test_warning_is_plaintext_honest_when_acl_fails(self, monkeypatch, notices):
+        """When the Windows ACL can't be applied, the notice must NOT claim
         owner-only protection -- it must say the file is plaintext."""
         monkeypatch.setattr(secret_store.sys, "platform", "win32")
         secret_store._windows_acl_hardened = False
-        with pytest.warns(UserWarning, match="PLAINTEXT"):
-            secret_store._warn_fallback_active()
+        secret_store._warn_fallback_active()
+        assert any("PLAINTEXT" in m for m in notices)
 
-    def test_warning_states_acl_when_hardened(self, monkeypatch):
+    def test_warning_states_acl_when_hardened(self, monkeypatch, notices):
         monkeypatch.setattr(secret_store.sys, "platform", "win32")
         secret_store._windows_acl_hardened = True
-        with pytest.warns(UserWarning, match="NTFS ACL"):
-            secret_store._warn_fallback_active()
+        secret_store._warn_fallback_active()
+        assert any("NTFS ACL" in m for m in notices)
 
     def test_posix_uses_chmod_not_icacls(self, monkeypatch, tmp_path):
         """Sanity: on POSIX the code path stays chmod-based."""
@@ -687,3 +694,29 @@ class TestWindowsHardening:
         assert secret_store._harden_permissions(str(p)) is True
         called.assert_not_called()
         assert stat.S_IMODE(os.stat(p).st_mode) == 0o600
+
+
+# ---------------------------------------------------------------------------
+# F11 -- user-facing notices route through the messaging bus (visible in TUI)
+# ---------------------------------------------------------------------------
+
+
+class TestNotifyRouting:
+    def test_notify_uses_messaging_bus(self, monkeypatch):
+        seen = []
+        import code_puppy.messaging as _msg
+
+        monkeypatch.setattr(_msg, "emit_warning", lambda m, *a, **k: seen.append(m))
+        secret_store._notify("hello human")
+        assert seen == ["hello human"]
+
+    def test_notify_falls_back_to_warnings_when_bus_unavailable(self, monkeypatch):
+        """If the bus raises/imports fail, the notice must not be lost."""
+        import code_puppy.messaging as _msg
+
+        def boom(*a, **k):
+            raise RuntimeError("bus down")
+
+        monkeypatch.setattr(_msg, "emit_warning", boom)
+        with pytest.warns(UserWarning, match="last resort"):
+            secret_store._notify("last resort notice")

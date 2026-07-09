@@ -417,6 +417,24 @@ def _fallback_lock():
                 os.close(fd)
 
 
+def _notify(message: str) -> None:
+    """Surface a user-facing notice through the messaging bus.
+
+    ``warnings.warn`` is effectively invisible inside the TUI and is
+    deduplicated by the default warnings filter, so the headless-fallback and
+    write-failure notices never reached a human.  Routing through the bus makes
+    them render.  Falls back to ``warnings.warn`` when the bus is unavailable
+    (early startup, non-TUI callers, or an import failure) so a notice is never
+    silently dropped.
+    """
+    try:
+        from code_puppy.messaging import emit_warning
+
+        emit_warning(message)
+    except Exception:
+        warnings.warn(message, stacklevel=2)
+
+
 def _warn_fallback_active() -> None:
     global _warned_fallback
     if _warned_fallback:
@@ -439,12 +457,12 @@ def _warn_fallback_active() -> None:
             "secrets are stored in the permission-hardened fallback file at "
             f"{_FALLBACK_FILE} (mode 0o600)."
         )
-    warnings.warn(
+    warnings_msg = (
         "No OS keyring backend is available; "
         + detail
-        + " This is intended for headless/CI use only.",
-        stacklevel=2,
+        + " This is intended for headless/CI use only."
     )
+    _notify(warnings_msg)
 
 
 # Tracks whether the most recent Windows ACL hardening attempt succeeded, so
@@ -623,11 +641,10 @@ def _fallback_scrub(name: str) -> None:
         if not slice_:
             doc.pop(_service_name, None)
         if not _write_fallback(doc):
-            warnings.warn(
+            _notify(
                 f"Secret {name!r} was written to the keyring but its stale "
                 f"plaintext copy in {_FALLBACK_FILE} could not be removed "
-                "(read-only or full filesystem?).",
-                stacklevel=2,
+                "(read-only or full filesystem?)."
             )
 
 
@@ -685,11 +702,10 @@ def set_secret(name: str, value: str) -> None:
         # Unexpected (transient error, backend crash, prompt dismissed).
         # Warn so it's diagnosable, then persist to the file so the secret
         # is not lost.
-        warnings.warn(
+        _notify(
             f"Keyring write failed for {name!r} despite a healthy backend "
             "(transient error or backend crash). Storing in the secure file "
-            f"fallback at {_FALLBACK_FILE}.",
-            stacklevel=2,
+            f"fallback at {_FALLBACK_FILE}."
         )
     else:
         _warn_fallback_active()
