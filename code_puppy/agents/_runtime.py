@@ -113,6 +113,8 @@ _RETRYABLE_SNIPPETS = (
     "rate limited",
     "overloaded",
     "service unavailable",
+    "bad gateway",
+    "gateway timeout",
     "server had an error processing your request",
     "retry your request",
     "internal server error",
@@ -194,6 +196,16 @@ def _is_retryable_one(exc: BaseException) -> bool:
         return _matches_retryable_snippet(msg)
 
     if OpenAIAPIError is not None and isinstance(exc, OpenAIAPIError):
+        # 5xx gateway/server errors (502/503/504) and 429 rate limits are
+        # transient regardless of message wording. The OpenAI SDK exposes the
+        # HTTP status on APIStatusError subclasses; APIConnectionError /
+        # APITimeoutError have no status_code and are already covered by the
+        # transport-exception branch above. This mirrors the ModelHTTPError and
+        # Anthropic branches so an OpenAI-compatible 502 gets the same slow
+        # 1-2-3 retry instead of a raw REPL traceback.
+        status_code = getattr(exc, "status_code", None)
+        if status_code == 429 or (isinstance(status_code, int) and status_code >= 500):
+            return True
         if _matches_retryable_snippet(msg):
             return True
         body = getattr(exc, "body", None)
@@ -255,16 +267,54 @@ def _is_retryable_one(exc: BaseException) -> bool:
     return False
 
 
+def _group_members(exc: BaseException) -> tuple:
+    """Return an ExceptionGroup's sub-exceptions, or ``()`` for a plain error.
+
+    Guards against the 3.10 fallback where ``BaseExceptionGroup`` aliases
+    ``Exception`` -- there we'd otherwise treat *every* exception as a group.
+    On 3.11+ (and 3.10 with the backport) real groups expose ``.exceptions``.
+    """
+    if BaseExceptionGroup is Exception:  # 3.10 without exceptiongroup backport
+        return ()
+    if isinstance(exc, BaseExceptionGroup):
+        return tuple(exc.exceptions)
+    return ()
+
+
 def should_retry_streaming(exc: Exception) -> bool:
     """Decide whether ``exc`` (or anything it wraps) is a transient hiccup.
 
     Walks the ``__cause__`` / ``__context__`` chain so wrapper exception types
     like :class:`pydantic_ai.exceptions.ModelAPIError` -- which hide the
     real httpx/anthropic transport error in ``__cause__`` -- still get
-    classified correctly. Returns ``True`` if *any* link in the chain is
-    transient.
+    classified correctly.
+
+    Also descends into :class:`ExceptionGroup` members. pydantic-ai runs the
+    model stream inside an anyio task group, so a transient provider error
+    (e.g. ``anthropic.APIStatusError`` HTTP 502 from a gateway) reaches us
+    wrapped in an ``ExceptionGroup`` -- which is why ``run_agent_task`` catches
+    it with ``except*``. The linear cause walker alone can't see inside
+    ``.exceptions``, so a retryable 5xx used to look opaque and crash the REPL
+    with a full traceback instead of getting the slow 1-2-3 retry.
+
+    Returns ``True`` if *any* reachable exception is transient. Cycle-safe via
+    an ``id`` set; the per-chain depth cap of :func:`_walk_cause_chain` is
+    preserved (group membership is a separate traversal axis).
     """
-    return any(_is_retryable_one(e) for e in _walk_cause_chain(exc))
+    seen: set[int] = set()
+    stack: list[BaseException] = [exc]
+    while stack:
+        node = stack.pop()
+        if node is None or id(node) in seen:
+            continue
+        for link in _walk_cause_chain(node):
+            if id(link) in seen:
+                continue
+            seen.add(id(link))
+            if _is_retryable_one(link):
+                return True
+            stack.extend(_group_members(link))
+    return False
 
 
 def streaming_retry(
