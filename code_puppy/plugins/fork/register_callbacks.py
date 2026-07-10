@@ -119,7 +119,7 @@ def _response_message(fork_id: int, agent_name: str, response: str):
     )
     header.append(" ")
     header.append(agent_name, style=f"bold {DEFAULT_STYLES[MessageLevel.INFO]}")
-    return Group(header, Markdown(response))
+    return Group(Text(""), header, Markdown(response))
 
 
 # ---------------------------------------------------------------------------
@@ -164,16 +164,34 @@ def _resolve_agent_name(requested: Optional[str]) -> Optional[str]:
 # Fork lifecycle
 # ---------------------------------------------------------------------------
 async def _run_fork(agent_name: str, prompt: str):
-    """Run the sub-agent. Reuses the invoke_agent implementation wholesale."""
+    """Run the sub-agent and publish its tool-equivalent completion signal."""
+    from code_puppy.callbacks import on_post_tool_call
     from code_puppy.tools.subagent_invocation import _invoke_agent_impl
 
-    # ``context`` is unused by the implementation; forks have no RunContext.
-    return await _invoke_agent_impl(
-        context=None,
-        agent_name=agent_name,
-        prompt=prompt,
-        emit_response_message=False,
-    )
+    started_at = time.monotonic()
+    result = None
+    try:
+        # ``context`` is unused by the implementation; forks have no RunContext.
+        result = await _invoke_agent_impl(
+            context=None,
+            agent_name=agent_name,
+            prompt=prompt,
+            emit_response_message=False,
+        )
+        return result
+    finally:
+        # /fork deliberately calls the shared implementation directly rather than
+        # entering through pydantic-ai's tool wrapper. Publish the same completion
+        # lifecycle event so observers (notably the sub-agent panel) can retire
+        # the row instead of displaying "writing response" forever.
+        if result is not None:
+            await on_post_tool_call(
+                "invoke_agent",
+                {"agent_name": agent_name, "prompt": prompt},
+                result,
+                (time.monotonic() - started_at) * 1000,
+                {"detached_fork": True},
+            )
 
 
 def _on_fork_done(fork_id: int, task: asyncio.Task) -> None:

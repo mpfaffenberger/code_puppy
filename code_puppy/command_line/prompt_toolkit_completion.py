@@ -142,7 +142,7 @@ class SetCompleter(Completer):
         # Extract the input after /set and space (up to cursor)
         trigger_end = actual_trigger_pos + len(self.trigger) + 1  # +1 for the space
         text_after_trigger = text_before_cursor[trigger_end:cursor_position].lstrip()
-        start_position = -(len(text_after_trigger))
+        start_position = -len(text_after_trigger)
 
         # --- SPECIAL HANDLING FOR 'model' KEY ---
         if text_after_trigger == "model":
@@ -354,8 +354,9 @@ class AgentCompleter(Completer):
     Usage: /agent <agent-name>
     """
 
-    def __init__(self, trigger: str = "/agent"):
+    def __init__(self, trigger: str = "/agent", prefix: str = ""):
         self.trigger = trigger
+        self.prefix = prefix
 
     def get_completions(self, document, complete_event):
         cursor_position = document.cursor_position
@@ -370,7 +371,11 @@ class AgentCompleter(Completer):
         trigger_pos = text_before_cursor.find(self.trigger)
         trigger_end = trigger_pos + len(self.trigger) + 1  # +1 for the space
         text_after_trigger = text_before_cursor[trigger_end:cursor_position].lstrip()
-        start_position = -(len(text_after_trigger))
+        if self.prefix:
+            if not text_after_trigger.startswith(self.prefix):
+                return
+            text_after_trigger = text_after_trigger[len(self.prefix) :]
+        start_position = -len(text_after_trigger)
 
         # Load all available agent names
         try:
@@ -710,6 +715,7 @@ async def get_input_with_combined_completion(
             AgentCompleter(trigger="/a"),
             AgentCompleter(trigger="/switch-agent"),
             AgentCompleter(trigger="/sa"),
+            AgentCompleter(trigger="/fork", prefix="@"),
             MCPCompleter(trigger="/mcp"),
             SkillsCompleter(trigger="/skills"),
             OllamaSetupCompleter(),

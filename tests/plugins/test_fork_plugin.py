@@ -181,6 +181,7 @@ def test_response_message_identifies_fork_and_renders_markdown():
 
     assert isinstance(message, Group)
     rendered = output.getvalue()
+    assert rendered.startswith("\n FORK #7 RESPONSE")
     assert "FORK #7 RESPONSE" in rendered
     assert "qa-kitten" in rendered
     assert "did the thing" in rendered
@@ -212,6 +213,36 @@ async def test_fork_success_emits_response_and_completion_banner():
     assert len(responses) == 1
     assert isinstance(responses[0], Group)
     assert any("finished" in str(m) for m in successes)
+
+
+async def test_fork_publishes_completion_lifecycle_event():
+    lifecycle_events = []
+
+    async def capture(*args):
+        lifecycle_events.append(args)
+
+    with (
+        patch(
+            "code_puppy.tools.subagent_invocation._invoke_agent_impl",
+            new=_fake_impl(),
+        ),
+        patch("code_puppy.callbacks.on_post_tool_call", new=capture),
+        patch.object(rc, "_emit_info"),
+        patch.object(rc, "_emit_success"),
+    ):
+        rc._handle_fork("/fork @qa-kitten inspect lifecycle")
+        await _wait_for_forks()
+
+    assert len(lifecycle_events) == 1
+    tool_name, tool_args, result, duration_ms, context = lifecycle_events[0]
+    assert tool_name == "invoke_agent"
+    assert tool_args == {
+        "agent_name": "qa-kitten",
+        "prompt": "inspect lifecycle",
+    }
+    assert result.session_id == "sess-abc123"
+    assert duration_ms >= 0
+    assert context == {"detached_fork": True}
 
 
 async def test_fork_defaults_to_current_agent():

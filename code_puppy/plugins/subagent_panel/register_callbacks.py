@@ -569,11 +569,18 @@ async def _on_post_tool_call(tool_name, tool_args, result, duration_ms, context=
     if not sid:
         return
     try:
-        err = getattr(result, "error", None)
-        if err:
-            state.mark_failed(sid)
+        # Ordinary tool invocations stay frozen until their foreground root
+        # flushes, preserving nested tree structure. A detached /fork has no
+        # foreground root, so keeping it would leave a completed row hitched to
+        # every subsequent prompt. Remove detached forks at their own boundary.
+        if isinstance(context, dict) and context.get("detached_fork"):
+            state.finish(sid)
         else:
-            state.mark_done(sid)
+            err = getattr(result, "error", None)
+            if err:
+                state.mark_failed(sid)
+            else:
+                state.mark_done(sid)
     except Exception:
         pass
     _push_panel(force=True)

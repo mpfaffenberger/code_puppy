@@ -67,6 +67,27 @@ async def test_success_marks_done():
     assert not entry.get("failed")
 
 
+async def test_detached_fork_completion_removes_panel_row(monkeypatch):
+    state.register("agent-fork-abc123", "fork-agent", model="gpt-5.4")
+    pushes = []
+    monkeypatch.setattr(
+        register_callbacks,
+        "_push_panel",
+        lambda force=False: pushes.append(force),
+    )
+
+    await register_callbacks._on_post_tool_call(
+        tool_name="invoke_agent",
+        tool_args={},
+        result=_StubInvokeResult(session_id="agent-fork-abc123"),
+        duration_ms=42,
+        context={"detached_fork": True},
+    )
+
+    assert "agent-fork-abc123" not in state._AGENTS
+    assert pushes == [True]
+
+
 async def test_failure_marks_failed():
     """Regression guard: the existing failure-renders-as-red behavior must
     survive any future edit to ``_on_post_tool_call`` that sits next to the

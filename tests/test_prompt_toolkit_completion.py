@@ -13,6 +13,7 @@ from prompt_toolkit.layout.controls import BufferControl
 from prompt_toolkit.layout.processors import TransformationInput
 
 from code_puppy.command_line.prompt_toolkit_completion import (
+    AgentCompleter,
     AttachmentPlaceholderProcessor,
     CDCompleter,
     FilePathCompleter,
@@ -33,6 +34,31 @@ def setup_files(tmp_path):
     (tmp_path / "file3.txt").write_text("hi")
     (tmp_path / ".hiddenfile").write_text("sneaky")
     return d
+
+
+def test_fork_agent_completion_owns_at_slot():
+    document = Document(text="/fork @qa", cursor_position=len("/fork @qa"))
+
+    with patch(
+        "code_puppy.command_line.pin_command_completion.load_agent_names",
+        return_value=["code-puppy", "qa-kitten"],
+    ):
+        agents = list(
+            AgentCompleter(trigger="/fork", prefix="@").get_completions(document, None)
+        )
+
+    files = list(FilePathCompleter(symbol="@").get_completions(document, None))
+    assert [completion.text for completion in agents] == ["qa-kitten"]
+    assert agents[0].start_position == -2
+    assert files == []
+
+
+def test_fork_agent_completion_requires_at_prefix():
+    document = Document(text="/fork qa", cursor_position=len("/fork qa"))
+    completions = AgentCompleter(trigger="/fork", prefix="@").get_completions(
+        document, None
+    )
+    assert list(completions) == []
 
 
 def test_no_symbol(tmp_path):
