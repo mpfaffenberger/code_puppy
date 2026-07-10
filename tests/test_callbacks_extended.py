@@ -15,11 +15,15 @@ from code_puppy.callbacks import (
     on_edit_file,
     on_load_model_config,
     on_post_tool_call,
+    on_prompt_text_color,
+    on_shutdown,
     on_pre_tool_call,
     on_register_cli_args,
     on_replace_in_file,
     on_startup,
     on_stream_event,
+    on_termflow_highlighter,
+    on_termflow_style,
     register_callback,
     unregister_callback,
 )
@@ -148,6 +152,40 @@ class TestCallbacksExtended:
 
         assert len(results) == 1
         assert results[0] == "test_result"
+
+    def test_theme_value_callbacks_are_chained(self):
+        register_callback("prompt_text_color", lambda _color: "#123456")
+        register_callback("termflow_highlighter", lambda value: value + "-themed")
+
+        assert on_prompt_text_color() == "#123456"
+        assert on_termflow_highlighter("default") == "default-themed"
+
+    def test_termflow_style_callbacks_are_chained(self):
+        register_callback("termflow_style", lambda style: style + "-first")
+        register_callback("termflow_style", lambda style: style + "-second")
+
+        assert on_termflow_style("default") == "default-first-second"
+
+    def test_termflow_style_ignores_none_results(self):
+        register_callback("termflow_style", lambda _style: None)
+
+        assert on_termflow_style("default") == "default"
+
+    @pytest.mark.asyncio
+    async def test_shutdown_executes_sync_and_async_callbacks(self):
+        """Shutdown supports both callback styles through its async contract."""
+
+        def sync_callback():
+            return "sync_result"
+
+        async def async_callback():
+            await asyncio.sleep(0)
+            return "async_result"
+
+        register_callback("shutdown", sync_callback)
+        register_callback("shutdown", async_callback)
+
+        assert await on_shutdown() == ["sync_result", "async_result"]
 
     @pytest.mark.asyncio
     async def test_execute_multiple_callbacks_async(self):

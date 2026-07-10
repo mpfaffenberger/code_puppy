@@ -1,6 +1,7 @@
 """Tests for code_puppy.messaging.bottom_bar - the scroll-region manager."""
 
 import io
+from unittest.mock import patch
 
 import pytest
 
@@ -52,6 +53,17 @@ def drain(stream):
     stream.truncate(0)
     stream.seek(0)
     return value
+
+
+def test_prompt_buffer_uses_theme_foreground(bar, tty):
+    with patch("code_puppy.callbacks.on_prompt_text_color", return_value="#6a9955"):
+        bar.start()
+        drain(tty)
+        bar.set_prompt_text("> ", "puppies", len("puppies"))
+
+    output = written(tty)
+    assert "\x1b[38;2;106;153;85m" in output
+    assert "\x1b[39m" in output
 
 
 # =========================================================================

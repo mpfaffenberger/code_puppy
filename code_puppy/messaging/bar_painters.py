@@ -27,6 +27,8 @@ or empties (``_total_reserved`` changes → region grows/shrinks).
 
 from __future__ import annotations
 
+import re
+
 from .bar_rendering import (
     CLEAR_LINE as _CLEAR_LINE,
 )
@@ -77,6 +79,23 @@ _DIM_OFF = "\x1b[22m"
 #: the repo-wide "bold cyan" brand accent (rich_renderer et al.).
 _SELECT_ON = "\x1b[1;36m"
 _SELECT_OFF = "\x1b[22;39m"  # reset weight + foreground only
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _prompt_color_sgr() -> str:
+    """Resolve a plugin-provided truecolor foreground for prompt text."""
+    try:
+        from code_puppy.callbacks import on_prompt_text_color
+
+        color = on_prompt_text_color()
+        if color and _HEX_COLOR_RE.fullmatch(color):
+            red, green, blue = (
+                int(color[index : index + 2], 16) for index in (1, 3, 5)
+            )
+            return f"\x1b[38;2;{red};{green};{blue}m"
+    except Exception:
+        pass
+    return ""
 
 
 def _dim(text: str) -> str:
@@ -264,8 +283,13 @@ class BarPainterMixin:
             prefix_sgrs=getattr(self, "_prompt_prefix_sgrs", None),
         )
         parts = [_SAVE_CURSOR, _WRAP_OFF]
+        prompt_sgr = _prompt_color_sgr()
+        prompt_reset = "\x1b[39m" if prompt_sgr else ""
         for i, rendered in enumerate(rendered_rows):
-            parts.append(f"\x1b[{prompt_top + i};1H{_CLEAR_LINE}{rendered}")
+            parts.append(
+                f"\x1b[{prompt_top + i};1H{_CLEAR_LINE}"
+                f"{prompt_sgr}{rendered}{prompt_reset}"
+            )
         parts.append(_WRAP_ON)
         parts.append(_RESTORE_CURSOR)
         return "".join(parts)

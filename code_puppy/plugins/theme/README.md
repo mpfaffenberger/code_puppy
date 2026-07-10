@@ -10,7 +10,7 @@ escape sequences (mure-style).
 ```
 /theme
 ```
-Launches a split-panel TUI with 15 themes (6 neon/dark themes, 7 palette-first/light themes, surprise, reset).
+Launches a paginated split-panel TUI with 16 themes (7 neon/dark themes, 7 palette-first/light themes, surprise, reset). Five themes are shown per page; use Up/Down for item navigation and PgUp/PgDn to change pages.
 
 
 ## What gets themed
@@ -24,7 +24,7 @@ Launches a split-panel TUI with 15 themes (6 neon/dark themes, 7 palette-first/l
 
 **Semantic colors are preserved** at Level 2 (red errors stay angry, yellow warnings warn). Level 3 OSC remap is broader — it changes how *your terminal itself* interprets every ANSI color, so e.g. an `ls` ran after `/theme tokyo-night` will also look Tokyo Night. Pure terminal-level magic.
 
-Themes persist to your Code Puppy config and survive restarts. The OSC palette auto-resets on Code Puppy exit (via `atexit`) so you never get a stuck-pink terminal.
+Tokyo Night is applied by default on first run. Themes persist to your Code Puppy config and survive restarts; existing or explicitly restored choices are never overwritten by the default. The OSC palette auto-resets on Code Puppy exit (via `atexit`) so you never get a stuck-pink terminal.
 
 ## Bundled themes
 
@@ -39,19 +39,22 @@ Themes persist to your Code Puppy config and survive restarts. The OSC palette a
 | 7 | 🐱 Catppuccin Mocha | soothing pastel dark (mure default) |
 | 8 | ☕ Catppuccin Latte | soothing pastel light |
 | 9 | 🌃 Tokyo Night | neon-on-navy night |
-| 10 | 🌑 Deep Black | inky noir with subtle neon edge |
-| 11 | ☀️ Solarized Light | classic warm beige with calm accents |
-| 12 | 📄 GitHub Light | crisp white, familiar code colors |
-| 13 | 🌸 Rose Pine Dawn | soft pastel rose light |
-| 14 | 🎲 Surprise Me | a fresh random remix every time |
-| 15 | 🔄 Restore Defaults | back to Code Puppy + terminal factory |
+| 10 | [CRT] Green Screen | llxprt's radioactive green phosphor CRT |
+| 11 |  Deep Black | inky noir with subtle neon edge |
+| 12 |  Solarized Light | classic warm beige with calm accents |
+| 13 |  GitHub Light | crisp white, familiar code colors |
+| 14 |  Rose Pine Dawn | soft pastel rose light |
+| 15 |  Surprise Me | a fresh random remix every time |
+| 16 |  Restore Defaults | back to Code Puppy + terminal factory |
+
+Green Screen ports the canonical phosphor colors from [vybestack/llxprt-code](https://github.com/vybestack/llxprt-code), whose theme is licensed under Apache-2.0.
 
 ## Power-user shortcuts
 
 ```
 /theme 5            apply theme #5 (Bubblegum Pink)
 /theme bubblegum    apply by alias (also: pink, puppy, purple, mocha,
-                    latte, tokyo, solarized, github, rose-pine)
+                    latte, tokyo, green, crt, solarized, github, rose-pine)
 /theme tokyo-night  apply by canonical name
 /theme surprise     re-roll a random palette
 /theme default      restore Code Puppy + terminal factory colors

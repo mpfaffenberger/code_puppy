@@ -344,6 +344,38 @@ CURATED_THEMES: dict[str, dict] = {
         "color_remap": {},
         "terminal_palette": bp.TOKYO_NIGHT,
     },
+    "green-screen": {
+        "icon": "[CRT]",
+        "label": "Green Screen",
+        "blurb": "llxprt's radioactive green phosphor CRT",
+        # Banner labels render as white, which this theme remaps to #6a9955.
+        # Keep their backgrounds dark enough for readable phosphor-on-glass.
+        "colors": [
+            "#071507",
+            "#0b1f0b",
+            "#102510",
+        ],
+        "content_styles": {
+            "info": "#6a9955",
+            "warning": "#6a9955",
+            "success": "#00ff00",
+            "error": "bold #6a9955",
+            "debug": "dim #4a7035",
+            "diff_add": "#00ff00",
+            "diff_remove": "#6a9955",
+            "diff_context": "dim #4a7035",
+        },
+        "color_remap": rt.make_remap(
+            cyan="#6a9955",
+            blue="#6a9955",
+            magenta="#6a9955",
+            bright_cyan="#6a9955",
+            bright_blue="#6a9955",
+            bright_magenta="#6a9955",
+            white="#6a9955",
+        ),
+        "terminal_palette": bp.GREEN_SCREEN,
+    },
     "deep-black": {
         "icon": "🌑",
         "label": "Deep Black",
@@ -464,7 +496,7 @@ CURATED_THEMES: dict[str, dict] = {
     },
 }
 
-# The 13th option: surprise me — special case, regenerated each preview/apply.
+# Surprise Me is a special case, regenerated each preview/apply.
 SURPRISE = {
     "icon": "🎲",
     "label": "Surprise Me",
@@ -475,7 +507,7 @@ SURPRISE = {
     "terminal_palette": None,  # randomized at apply time
 }
 
-# The 15th option: restore Code Puppy defaults (banners + content).
+# Restore Code Puppy defaults (banners + content).
 DEFAULT = {
     "icon": "🔄",
     "label": "Restore Defaults",
@@ -486,7 +518,7 @@ DEFAULT = {
     "terminal_palette": None,  # handled specially (OSC reset)
 }
 
-# Ordered menu: 6 vivid/dark themes, 7 palette-first/light themes, surprise, default.
+# Ordered menu: 7 vivid/dark themes, 7 palette-first/light themes, surprise, default.
 MENU: list[tuple[str, dict]] = [
     ("ocean", CURATED_THEMES["ocean"]),
     ("forest", CURATED_THEMES["forest"]),
@@ -497,6 +529,7 @@ MENU: list[tuple[str, dict]] = [
     ("catppuccin-mocha", CURATED_THEMES["catppuccin-mocha"]),
     ("catppuccin-latte", CURATED_THEMES["catppuccin-latte"]),
     ("tokyo-night", CURATED_THEMES["tokyo-night"]),
+    ("green-screen", CURATED_THEMES["green-screen"]),
     ("deep-black", CURATED_THEMES["deep-black"]),
     ("solarized-light", CURATED_THEMES["solarized-light"]),
     ("github-light", CURATED_THEMES["github-light"]),
@@ -514,6 +547,8 @@ MENU_BY_NAME["defaults"] = DEFAULT
 MENU_BY_NAME["mocha"] = CURATED_THEMES["catppuccin-mocha"]
 MENU_BY_NAME["latte"] = CURATED_THEMES["catppuccin-latte"]
 MENU_BY_NAME["tokyo"] = CURATED_THEMES["tokyo-night"]
+MENU_BY_NAME["green"] = CURATED_THEMES["green-screen"]
+MENU_BY_NAME["crt"] = CURATED_THEMES["green-screen"]
 MENU_BY_NAME["bubblegum"] = CURATED_THEMES["bubblegum-pink"]
 MENU_BY_NAME["pink"] = CURATED_THEMES["bubblegum-pink"]
 MENU_BY_NAME["puppy"] = CURATED_THEMES["purple-puppy"]

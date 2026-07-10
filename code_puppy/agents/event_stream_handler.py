@@ -151,7 +151,10 @@ async def event_stream_handler(
 
     from termflow import Parser as TermflowParser
     from termflow import Renderer as TermflowRenderer
-    from termflow.render.style import RenderFeatures
+    from termflow.render.style import RenderFeatures, RenderStyle
+    from termflow.syntax import Highlighter
+
+    from code_puppy.callbacks import on_termflow_highlighter, on_termflow_style
 
     # Use the module-level console (set via set_streaming_console)
     console = get_streaming_console()
@@ -187,7 +190,9 @@ async def event_stream_handler(
         return TermflowRenderer(
             output=output,
             width=console.width,
+            style=on_termflow_style(RenderStyle.default()),
             features=RenderFeatures(clipboard=False),
+            highlighter=on_termflow_highlighter(Highlighter()),
         )
 
     # Smooth-stream state for thinking parts. Each index maps to a smoother
