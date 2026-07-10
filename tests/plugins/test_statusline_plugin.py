@@ -681,11 +681,15 @@ class TestCrossPlatform:
         """The PowerShell starter template must be valid-looking PS1."""
         from code_puppy.plugins.statusline.statusline_command import _STARTER_SCRIPT_PS1
 
-        assert "ConvertFrom-Json" in _STARTER_SCRIPT_PS1, "Must parse JSON via ConvertFrom-Json"
+        assert "ConvertFrom-Json" in _STARTER_SCRIPT_PS1, (
+            "Must parse JSON via ConvertFrom-Json"
+        )
         # Must use Write-Output, NOT Write-Host.
         # Write-Host writes to the console host only; subprocess.run(capture_output=True)
         # captures stdout, so Write-Host produces empty output for the parent process.
-        assert "Write-Output" in _STARTER_SCRIPT_PS1, "Must output via Write-Output (not Write-Host)"
+        assert "Write-Output" in _STARTER_SCRIPT_PS1, (
+            "Must output via Write-Output (not Write-Host)"
+        )
         assert "Write-Host" not in _STARTER_SCRIPT_PS1, (
             "Write-Host goes to the console, not stdout — parent process captures nothing"
         )
@@ -732,9 +736,7 @@ class TestCrossPlatform:
         mock_reset.assert_called_once()
 
         # jq warning must NOT be emitted on Windows (no jq dependency)
-        jq_warned = any(
-            "jq" in str(c) for c in mock_warn.call_args_list
-        )
+        jq_warned = any("jq" in str(c) for c in mock_warn.call_args_list)
         assert not jq_warned, "Windows init must not emit jq warning (PS1 needs no jq)"
 
     def test_do_init_posix_sets_bare_path_command(self, tmp_path):
@@ -805,8 +807,14 @@ class TestCrossPlatform:
             return result
 
         with (
-            patch("code_puppy.plugins.statusline.runner.subprocess.run", side_effect=fake_run),
-            patch("code_puppy.plugins.statusline.runner.build_payload_json", return_value="{}"),
+            patch(
+                "code_puppy.plugins.statusline.runner.subprocess.run",
+                side_effect=fake_run,
+            ),
+            patch(
+                "code_puppy.plugins.statusline.runner.build_payload_json",
+                return_value="{}",
+            ),
         ):
             _run_command_blocking("echo erklären")
 
@@ -828,8 +836,14 @@ class TestCrossPlatform:
         mock_proc.stdout = umlaut_output
 
         with (
-            patch("code_puppy.plugins.statusline.runner.subprocess.run", return_value=mock_proc),
-            patch("code_puppy.plugins.statusline.runner.build_payload_json", return_value="{}"),
+            patch(
+                "code_puppy.plugins.statusline.runner.subprocess.run",
+                return_value=mock_proc,
+            ),
+            patch(
+                "code_puppy.plugins.statusline.runner.build_payload_json",
+                return_value="{}",
+            ),
         ):
             result = _run_command_blocking("echo test")
 
@@ -854,7 +868,9 @@ class TestCrossPlatform:
             result.stdout = "main\n"
             return result
 
-        with patch("code_puppy.plugins.statusline.payload.subprocess.run", side_effect=fake_run):
+        with patch(
+            "code_puppy.plugins.statusline.payload.subprocess.run", side_effect=fake_run
+        ):
             detect_git_branch("/tmp")
 
         assert captured_kwargs.get("encoding") == "utf-8", (

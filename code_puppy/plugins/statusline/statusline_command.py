@@ -112,14 +112,18 @@ def _do_init() -> None:
         config.set_command(ps1_cmd)
         runner.reset_cache()
         emit_success(f"Wrote starter status line script: {path}")
-        emit_info("Enabled. Edit that file to customize. Preview with /statusline show.")
+        emit_info(
+            "Enabled. Edit that file to customize. Preview with /statusline show."
+        )
     else:
         path.write_text(_STARTER_SCRIPT, encoding="utf-8")
         path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         config.set_command(str(path))
         runner.reset_cache()
         emit_success(f"Wrote starter status line script: {path}")
-        emit_info("Enabled. Edit that file to customize. Preview with /statusline show.")
+        emit_info(
+            "Enabled. Edit that file to customize. Preview with /statusline show."
+        )
         if not _has_jq():
             emit_warning(
                 "Note: the starter script uses `jq` (not found on PATH). Install jq "
