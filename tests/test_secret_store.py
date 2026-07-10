@@ -122,6 +122,26 @@ def missing_keyring():
         yield fake
 
 
+@pytest.fixture
+def null_keyring():
+    """Model the null backend (F12): priority <= 0 AND writes silently no-op.
+
+    Unlike ``missing_keyring`` (fail backend, set_password *raises*), the null
+    backend's set_password/delete_password return None without raising and
+    get_password always returns None -- a black hole that must NOT be mistaken
+    for a successful write. Mirrors keyring.backends.null.Keyring (priority -1).
+    """
+    fake = MagicMock()
+    fake.get_password = MagicMock(return_value=None)
+    fake.set_password = MagicMock(return_value=None)  # silent no-op, no raise
+    fake.delete_password = MagicMock(return_value=None)
+    backend = MagicMock()
+    backend.priority = -1
+    fake.get_keyring = MagicMock(return_value=backend)
+    with patch.object(secret_store, "keyring", fake):
+        yield fake
+
+
 # ---------------------------------------------------------------------------
 # configure_service_name
 # ---------------------------------------------------------------------------
@@ -416,6 +436,60 @@ class TestFallbackPath:
         # A second fallback write must not re-emit the notice (dedup).
         secret_store.set_secret("k2", "v2")
         assert sum("fallback" in m for m in notices) == 1
+
+
+# ---------------------------------------------------------------------------
+# F12: null-backend silent-loss guard
+# ---------------------------------------------------------------------------
+
+
+class TestNullBackendNoSilentLoss:
+    """A backend that accepts-and-discards (null.Keyring, priority -1) must not
+    be mistaken for a successful keyring write. set_secret must route to the
+    hardened fallback so the credential is never silently lost.
+    """
+
+    def test_set_persists_to_fallback_not_the_void(self, null_keyring, tmp_fallback):
+        secret_store.set_secret("puppy_token", "REAL-TOKEN")
+        # The null backend's set_password is a no-op; the secret must have
+        # landed in the fallback file instead of vanishing.
+        assert tmp_fallback.exists()
+        assert _slice(tmp_fallback)["puppy_token"] == "REAL-TOKEN"
+
+    def test_set_then_get_roundtrip(self, null_keyring, tmp_fallback):
+        secret_store.set_secret("puppy_token", "REAL-TOKEN")
+        assert secret_store.get_secret("puppy_token") == "REAL-TOKEN"
+
+    def test_keyring_set_not_attempted_when_unavailable(
+        self, null_keyring, tmp_fallback
+    ):
+        # The availability gate must short-circuit before any keyring write,
+        # so the null backend's set_password is never even called.
+        secret_store.set_secret("puppy_token", "REAL-TOKEN")
+        null_keyring.set_password.assert_not_called()
+
+    def test_emits_fallback_active_notice(self, null_keyring, tmp_fallback, notices):
+        secret_store.set_secret("puppy_token", "REAL-TOKEN")
+        assert any("fallback" in m for m in notices)
+
+    def test_does_not_scrub_the_fresh_fallback_write(self, null_keyring, tmp_fallback):
+        # Regression: the old code took the keyring-success path and scrubbed
+        # the fallback -- guaranteeing loss. Ensure the value survives.
+        secret_store.set_secret("puppy_token", "REAL-TOKEN")
+        assert _slice(tmp_fallback).get("puppy_token") == "REAL-TOKEN"
+
+
+class TestFailBackendFallsBack:
+    """The fail backend (priority 0, every op raises) is the authentic
+    'no keyring on this box' case that keyring auto-selects on a headless
+    machine. It must route to the hardened fallback (companion to the null
+    guard so the two contracts stay pinned independently).
+    """
+
+    def test_set_persists_to_fallback(self, missing_keyring, tmp_fallback):
+        secret_store.set_secret("puppy_token", "REAL-TOKEN")
+        assert _slice(tmp_fallback)["puppy_token"] == "REAL-TOKEN"
+        assert secret_store.get_secret("puppy_token") == "REAL-TOKEN"
 
 
 # ---------------------------------------------------------------------------

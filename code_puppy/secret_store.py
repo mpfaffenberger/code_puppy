@@ -740,20 +740,37 @@ def get_secret(name: str) -> str | None:
 def set_secret(name: str, value: str) -> None:
     """Persist a secret by name.
 
-    Attempts three strategies in order:
+    When a usable keyring backend is present (``keyring_available()``)
+    attempts, in order:
       1. Direct keyring write (small values).
       2. Chunked keyring write (oversized values, e.g. Windows CM cap).
-      3. Permission-hardened JSON file fallback (only when both keyring
-         strategies fail -- unexpected backend error or no keyring at all).
+    If the backend is unavailable (priority <= 0, e.g. the null/fail
+    backends or a headless box) the keyring is skipped entirely and the
+    secret goes straight to the permission-hardened JSON file fallback --
+    never trusting a no-op backend's silent "success".
+      3. Permission-hardened JSON file fallback (backend unavailable, or
+         both keyring strategies failed despite a healthy backend).
     """
     _validate_name(name)
     _validate_value(value)
     _ensure_backend()
-    if _keyring_set(name, value):
-        # F6: scrub any stale plaintext copy so a rotated secret can't linger
-        # on disk and be resurrected later if the keyring entry vanishes.
-        _fallback_scrub(name)
-        return
+
+    # F12: Only trust the keyring when a usable backend is present. A backend
+    # with priority <= 0 (e.g. keyring.backends.null.Keyring) is treated as
+    # unavailable -- crucially, its set_password is a *silent no-op* that
+    # returns without raising, so an unconditional _keyring_set() would report
+    # success while the credential is discarded (and, worse, then scrub the
+    # fallback). Gating on keyring_available() routes straight to the hardened
+    # fallback instead of losing the secret. The fail backend (priority 0,
+    # raises) already fell through correctly; this closes the null-backend
+    # silent-loss hole and honors the availability contract for both.
+    if keyring_available():
+        if _keyring_set(name, value):
+            # F6: scrub any stale plaintext copy so a rotated secret can't
+            # linger on disk and be resurrected later if the keyring entry
+            # vanishes.
+            _fallback_scrub(name)
+            return
 
     if keyring_available():
         # Both direct and chunked writes failed despite a healthy backend.
