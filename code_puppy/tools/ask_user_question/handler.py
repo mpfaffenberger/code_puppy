@@ -213,7 +213,7 @@ def ask_user_question(
     except (CancelledException, KeyboardInterrupt):
         return _cancelled_response()
 
-    except OSError as e:
+    except (OSError, EOFError) as e:
         return AskUserQuestionOutput.error_response(f"Interaction error: {e!s}")
 
 

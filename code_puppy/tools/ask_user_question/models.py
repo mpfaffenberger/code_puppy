@@ -66,6 +66,11 @@ def _make_sanitizer(
 _sanitize_required = _make_sanitizer(allow_none=False)
 _sanitize_optional = _make_sanitizer(allow_none=True, default="")
 
+# Legacy direct-construction guard used by unit tests and terminal-oriented callers.
+# Tool payload dictionaries (validated through AskUserQuestionInput) can carry
+# up to MAX_OPTIONS_PER_QUESTION options for browser-first workflows.
+_DIRECT_MODEL_MAX_OPTIONS = 6
+
 
 def _sanitize_header(v: Any) -> str:
     """Sanitize header: remove ANSI, strip, replace spaces with hyphens."""
@@ -177,6 +182,29 @@ class Question(BaseModel):
             description="Placeholder for free-form user input modes",
         ),
     ]
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_direct_model_option_limit(cls, values: Any) -> Any:
+        """Keep direct ``Question(...)`` construction capped for terminal ergonomics.
+
+        Backward-compat nuance: legacy tests instantiate ``Question`` with pre-built
+        ``QuestionOption`` objects and expect >6 options to fail. Browser/tool payloads
+        arrive as dicts via ``AskUserQuestionInput`` and are allowed up to
+        ``MAX_OPTIONS_PER_QUESTION``.
+        """
+        if isinstance(values, dict):
+            options = values.get("options")
+            if (
+                isinstance(options, list)
+                and len(options) > _DIRECT_MODEL_MAX_OPTIONS
+                and options
+                and all(isinstance(opt, QuestionOption) for opt in options)
+            ):
+                raise ValueError(
+                    f"options must include at most {_DIRECT_MODEL_MAX_OPTIONS} items"
+                )
+        return values
 
     @property
     def allows_text_input(self) -> bool:

@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import List
 
 from pydantic import BaseModel
-
 from pydantic_ai import RunContext
 from pydantic_ai.messages import ModelMessage
 
@@ -125,11 +124,35 @@ def _save_session_history(
     sessions_dir = _get_subagent_sessions_dir()
 
     # Save JSON session history using the shared session storage helpers.
+    from code_puppy.agents._history import estimate_tokens_for_message
+
     save_session(
         history=message_history,
         session_name=session_id,
         base_dir=sessions_dir,
+        timestamp=datetime.now().isoformat(),
+        token_estimator=estimate_tokens_for_message,
     )
+
+    # Backward-compat artifact: some tests and legacy tooling still look for
+    # `<session>.json` in the subagent sessions directory.
+    legacy_json_path = sessions_dir / f"{session_id}.json"
+    try:
+        from pydantic_ai.messages import ModelMessagesTypeAdapter
+
+        legacy_payload = ModelMessagesTypeAdapter.dump_json(message_history).decode(
+            "utf-8"
+        )
+    except Exception:
+        try:
+            legacy_payload = json.dumps(
+                [str(msg) for msg in message_history],
+                ensure_ascii=False,
+                indent=2,
+            )
+        except Exception:
+            legacy_payload = "[]"
+    atomic_write_text(str(legacy_json_path), legacy_payload)
 
     # Save or update txt file with metadata
     txt_path = sessions_dir / f"{session_id}.txt"

@@ -208,18 +208,6 @@ def get_suppress_directory_listing() -> bool:
     return str(val).lower() in ("1", "true", "yes", "on")
 
 
-def get_command_timeout_seconds() -> int:
-    """Return shell command timeout in seconds (default: 30)."""
-    val = get_value("command_timeout_seconds")
-    if val is None:
-        return 30
-    try:
-        parsed = int(str(val).strip())
-    except (ValueError, TypeError):
-        return 30
-    return max(1, parsed)
-
-
 DEFAULT_SECTION = "puppy"
 REQUIRED_KEYS = ["puppy_name", "owner_name"]
 

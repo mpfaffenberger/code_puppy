@@ -111,6 +111,7 @@ _AWAITING_USER_INPUT = threading.Event()
 
 _CONFIRMATION_LOCK = threading.Lock()
 
+
 # Track running shell processes so we can kill them on Ctrl-C from the UI
 _RUNNING_PROCESSES: Set[subprocess.Popen] = set()
 _RUNNING_PROCESSES_LOCK = threading.Lock()
@@ -1383,8 +1384,6 @@ async def run_shell_command(
     # Check if we're running as a sub-agent (skip confirmation and run silently)
     running_as_subagent = is_subagent()
 
-    confirmation_lock_acquired = False
-
     # Check if WebSocket mode is active (permission handled via WebSocket callbacks)
     websocket_mode_active = False
     try:
@@ -1402,13 +1401,9 @@ async def run_shell_command(
         and not websocket_mode_active
         and sys.stdin.isatty()
     ):
-        confirmation_lock_acquired = _CONFIRMATION_LOCK.acquire(blocking=False)
-        if not confirmation_lock_acquired:
-            return ShellCommandOutput(
-                success=False,
-                command=command,
-                error="Another command is currently awaiting confirmation",
-            )
+        # Queue concurrent confirmations instead of rejecting parallel callers.
+        while not _CONFIRMATION_LOCK.acquire(blocking=False):
+            await asyncio.sleep(0.01)
 
         # Get puppy name for personalized messages
         from code_puppy.config import get_puppy_name
@@ -1436,9 +1431,7 @@ async def run_shell_command(
                 puppy_name=puppy_name,
             )
         finally:
-            if confirmation_lock_acquired:
-                _CONFIRMATION_LOCK.release()
-                confirmation_lock_acquired = False
+            _CONFIRMATION_LOCK.release()
 
         if not confirmed:
             if user_feedback:
