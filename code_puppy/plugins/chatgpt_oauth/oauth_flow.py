@@ -325,5 +325,5 @@ def run_oauth_flow() -> None:
         if models:
             if add_models_to_extra_config(models):
                 emit_success(
-                    "ChatGPT models registered. Use the `chatgpt-` prefix in /model."
+                    "Codex models registered. Use the `codex-` prefix in /model."
                 )

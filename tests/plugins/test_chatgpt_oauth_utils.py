@@ -647,12 +647,12 @@ class TestModelStorage:
         mock_get_path.return_value = temp_models_file
 
         test_models = {
-            "chatgpt-gpt-4": {
+            "codex-gpt-4": {
                 "type": "openai",
                 "name": "gpt-4",
                 "context_length": 8192,
             },
-            "chatgpt-gpt-3.5-turbo": {
+            "codex-gpt-3.5-turbo": {
                 "type": "openai",
                 "name": "gpt-3.5-turbo",
                 "context_length": 4096,
@@ -1034,10 +1034,10 @@ class TestAddModelsToConfig:
         assert "existing-model" in saved_config
 
         # Should contain new models with correct structure
-        assert "chatgpt-gpt-4" in saved_config
-        assert "chatgpt-gpt-3.5-turbo" in saved_config
+        assert "codex-gpt-4" in saved_config
+        assert "codex-gpt-3.5-turbo" in saved_config
 
-        gpt4_config = saved_config["chatgpt-gpt-4"]
+        gpt4_config = saved_config["codex-gpt-4"]
         assert gpt4_config["type"] == "chatgpt_oauth"
         assert gpt4_config["name"] == "gpt-4"
         assert (
@@ -1061,7 +1061,7 @@ class TestAddModelsToConfig:
     @patch("code_puppy.plugins.chatgpt_oauth.utils.load_chatgpt_models")
     def test_add_models_removes_stale_plugin_models(self, mock_load, mock_save):
         mock_load.return_value = {
-            "chatgpt-gpt-5.6": {
+            "codex-gpt-5.6": {
                 "oauth_source": "chatgpt-oauth-plugin",
                 "name": "gpt-5.6",
             },
@@ -1072,8 +1072,8 @@ class TestAddModelsToConfig:
         assert add_models_to_extra_config(["gpt-5.6-luna"]) is True
 
         saved_config = mock_save.call_args[0][0]
-        assert "chatgpt-gpt-5.6" not in saved_config
-        assert "chatgpt-gpt-5.6-luna" in saved_config
+        assert "codex-gpt-5.6" not in saved_config
+        assert "codex-gpt-5.6-luna" in saved_config
         assert "custom-model" in saved_config
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.save_chatgpt_models")
@@ -1098,11 +1098,11 @@ class TestAddModelsToConfig:
         assert result is True
         saved_config = mock_save.call_args[0][0]
         for model_name in (
-            "chatgpt-gpt-5.6-sol",
-            "chatgpt-gpt-5.6-terra",
-            "chatgpt-gpt-5.6-luna",
-            "chatgpt-gpt-5.5",
-            "chatgpt-gpt-5.4",
+            "codex-gpt-5.6-sol",
+            "codex-gpt-5.6-terra",
+            "codex-gpt-5.6-luna",
+            "codex-gpt-5.5",
+            "codex-gpt-5.4",
         ):
             model_config = saved_config[model_name]
             assert model_config["supported_settings"] == [
@@ -1112,7 +1112,7 @@ class TestAddModelsToConfig:
             ]
             assert model_config["supports_xhigh_reasoning"] is True
             assert model_config["supports_ultra_reasoning"] is model_name.startswith(
-                "chatgpt-gpt-5.6-"
+                "codex-gpt-5.6-"
             )
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.save_chatgpt_models")
@@ -1140,7 +1140,7 @@ class TestAddModelsToConfig:
         # Should still save the new models
         mock_save.assert_called_once()
         saved_config = mock_save.call_args[0][0]
-        assert "chatgpt-gpt-4" in saved_config
+        assert "codex-gpt-4" in saved_config
 
 
 class TestRemoveChatGPTModels:
@@ -1151,11 +1151,11 @@ class TestRemoveChatGPTModels:
     def test_remove_chatgpt_models_success(self, mock_load, mock_save):
         """Test successful removal of ChatGPT models."""
         mock_load.return_value = {
-            "chatgpt-gpt-4": {
+            "codex-gpt-4": {
                 "name": "gpt-4",
                 "oauth_source": "chatgpt-oauth-plugin",
             },
-            "chatgpt-gpt-3.5-turbo": {
+            "codex-gpt-3.5-turbo": {
                 "name": "gpt-3.5-turbo",
                 "oauth_source": "chatgpt-oauth-plugin",
             },
@@ -1175,8 +1175,8 @@ class TestRemoveChatGPTModels:
         saved_config = mock_save.call_args[0][0]
 
         # Should only contain non-OAuth models
-        assert "chatgpt-gpt-4" not in saved_config
-        assert "chatgpt-gpt-3.5-turbo" not in saved_config
+        assert "codex-gpt-4" not in saved_config
+        assert "codex-gpt-3.5-turbo" not in saved_config
         assert "custom-model" in saved_config
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.save_chatgpt_models")
@@ -1209,7 +1209,7 @@ class TestRemoveChatGPTModels:
     def test_remove_chatgpt_models_save_failure(self, mock_load, mock_save):
         """Test model removal fails when save fails."""
         mock_load.return_value = {
-            "chatgpt-gpt-4": {
+            "codex-gpt-4": {
                 "name": "gpt-4",
                 "oauth_source": "chatgpt-oauth-plugin",
             },

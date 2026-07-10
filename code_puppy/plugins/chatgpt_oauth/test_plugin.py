@@ -29,7 +29,7 @@ def test_oauth_config():
     """Test OAuth configuration values."""
     assert config.CHATGPT_OAUTH_CONFIG["issuer"] == "https://auth.openai.com"
     assert config.CHATGPT_OAUTH_CONFIG["client_id"] == "app_EMoamEEZ73f0CkXaXp7hrann"
-    assert config.CHATGPT_OAUTH_CONFIG["prefix"] == "chatgpt-"
+    assert config.CHATGPT_OAUTH_CONFIG["prefix"] == "codex-"
 
 
 def test_jwt_parsing_with_nested_org():
@@ -148,7 +148,7 @@ def test_parse_jwt_claims():
 def test_save_and_load_tokens(tmp_path):
     """Test token storage and retrieval."""
     with patch.object(
-        config, "get_token_storage_path", return_value=tmp_path / "tokens.json"
+        utils, "get_token_storage_path", return_value=tmp_path / "tokens.json"
     ):
         tokens = {
             "access_token": "test_access",
@@ -167,10 +167,10 @@ def test_save_and_load_tokens(tmp_path):
 def test_save_and_load_chatgpt_models(tmp_path):
     """Test ChatGPT models configuration."""
     with patch.object(
-        config, "get_chatgpt_models_path", return_value=tmp_path / "chatgpt_models.json"
+        utils, "get_chatgpt_models_path", return_value=tmp_path / "chatgpt_models.json"
     ):
         models = {
-            "chatgpt-gpt-4o": {
+            "codex-gpt-4o": {
                 "type": "openai",
                 "name": "gpt-4o",
                 "oauth_source": "chatgpt-oauth-plugin",
@@ -188,10 +188,10 @@ def test_save_and_load_chatgpt_models(tmp_path):
 def test_remove_chatgpt_models(tmp_path):
     """Test removal of ChatGPT models from config."""
     with patch.object(
-        config, "get_chatgpt_models_path", return_value=tmp_path / "chatgpt_models.json"
+        utils, "get_chatgpt_models_path", return_value=tmp_path / "chatgpt_models.json"
     ):
         models = {
-            "chatgpt-gpt-4o": {
+            "codex-gpt-4o": {
                 "type": "openai",
                 "oauth_source": "chatgpt-oauth-plugin",
             },
@@ -208,7 +208,7 @@ def test_remove_chatgpt_models(tmp_path):
 
         # Verify only ChatGPT model was removed
         remaining = utils.load_chatgpt_models()
-        assert "chatgpt-gpt-4o" not in remaining
+        assert "codex-gpt-4o" not in remaining
         assert "claude-3-opus" in remaining
 
 
@@ -251,10 +251,11 @@ def test_fetch_chatgpt_models(mock_get):
 
     models = utils.fetch_chatgpt_models("test_access_token", "test_account_id")
     assert models is not None
-    # Required models always injected
-    assert "gpt-5.4" in models
-    assert "gpt-5.3-instant" in models
-    # API-returned models present too
+    # A successful endpoint response is authoritative; fallback models are
+    # used only when discovery fails.
+    assert "gpt-5.4" not in models
+    assert "gpt-5.4-mini" not in models
+    # API-returned models are preserved.
     assert "gpt-4o" in models
     assert "gpt-3.5-turbo" in models
     assert "o1-preview" in models
@@ -271,30 +272,32 @@ def test_fetch_chatgpt_models_fallback(mock_get):
 
     models = utils.fetch_chatgpt_models("test_access_token", "test_account_id")
     assert models is not None
-    # Should return default models (including new required ones)
+    # Keep the fallback aligned with the models currently exposed by Codex.
     assert "gpt-5.4" in models
-    assert "gpt-5.3-instant" in models
+    assert "gpt-5.4-mini" in models
     assert "gpt-5.3-codex-spark" in models
-    assert "gpt-5.3-codex" in models
-    assert "gpt-5.2-codex" in models
-    assert "gpt-5.2" in models
+    assert "codex-auto-review" in models
+    assert "gpt-5.3-instant" not in models
+    assert "gpt-5.3-codex" not in models
+    assert "gpt-5.2-codex" not in models
+    assert "gpt-5.2" not in models
 
 
 def test_add_models_to_chatgpt_config(tmp_path):
     """Test adding models to chatgpt_models.json."""
     with patch.object(
-        config, "get_chatgpt_models_path", return_value=tmp_path / "chatgpt_models.json"
+        utils, "get_chatgpt_models_path", return_value=tmp_path / "chatgpt_models.json"
     ):
         models = ["gpt-4o", "gpt-3.5-turbo"]
 
         assert utils.add_models_to_extra_config(models)
 
         loaded = utils.load_chatgpt_models()
-        assert "chatgpt-gpt-4o" in loaded
-        assert "chatgpt-gpt-3.5-turbo" in loaded
-        assert loaded["chatgpt-gpt-4o"]["type"] == "chatgpt_oauth"
-        assert loaded["chatgpt-gpt-4o"]["name"] == "gpt-4o"
-        assert loaded["chatgpt-gpt-4o"]["oauth_source"] == "chatgpt-oauth-plugin"
+        assert "codex-gpt-4o" in loaded
+        assert "codex-gpt-3.5-turbo" in loaded
+        assert loaded["codex-gpt-4o"]["type"] == "chatgpt_oauth"
+        assert loaded["codex-gpt-4o"]["name"] == "gpt-4o"
+        assert loaded["codex-gpt-4o"]["oauth_source"] == "chatgpt-oauth-plugin"
 
 
 if __name__ == "__main__":

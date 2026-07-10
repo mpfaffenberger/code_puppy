@@ -59,18 +59,34 @@ def _compact_count(n: int) -> str:
     return str(n)
 
 
-def format_context_info(total_tokens: int, capacity: int, proportion: float) -> str:
-    """Create a compact context summary for the status line.
+def _codex_usage_suffix() -> str:
+    """Return cached Codex limits only while a Codex OAuth model is active."""
+    try:
+        from code_puppy.config import get_global_model_name
+        from code_puppy.plugins.chatgpt_oauth.usage import get_usage_status
 
-    e.g. ``150.3k/500k tokens (30%)`` — the old long form
-    (``Tokens: 150,329/500,000 (30.1% used)``) ate half the row.
+        if not (get_global_model_name() or "").startswith("codex-"):
+            return ""
+        usage = get_usage_status()
+        return f" · Codex {usage}" if usage else ""
+    except Exception:
+        logger.debug("Codex usage status unavailable", exc_info=True)
+        return ""
+
+
+def format_context_info(total_tokens: int, capacity: int, proportion: float) -> str:
+    """Create a compact context summary, plus cached provider usage if relevant.
+
+    e.g. ``150.3k/500k tokens (30%) · Codex 5h 66% remaining · week 90% remaining``.
+    Provider usage is read from an in-memory cache; rendering never performs I/O.
     """
     if capacity <= 0:
         return ""
-    return (
+    context = (
         f"{_compact_count(total_tokens)}/{_compact_count(capacity)} "
         f"tokens ({proportion * 100:.0f}%)"
     )
+    return f"{context}{_codex_usage_suffix()}"
 
 
 def update_spinner_context(info: str) -> None:

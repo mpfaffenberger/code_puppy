@@ -47,8 +47,8 @@ class TestModelManagement:
         """Test loading ChatGPT models from storage."""
         models_file = tmp_path / "models.json"
         models_data = {
-            "chatgpt-gpt-5.2": {"type": "chatgpt_oauth", "name": "gpt-5.2"},
-            "chatgpt-gpt-5.2-codex": {"type": "chatgpt_oauth", "name": "gpt-5.2-codex"},
+            "codex-gpt-5.2": {"type": "chatgpt_oauth", "name": "gpt-5.2"},
+            "codex-gpt-5.2-codex": {"type": "chatgpt_oauth", "name": "gpt-5.2-codex"},
         }
         models_file.write_text(json.dumps(models_data))
         mock_path.return_value = models_file
@@ -72,7 +72,7 @@ class TestModelManagement:
         """Test saving ChatGPT models to storage."""
         models_file = tmp_path / "models.json"
         mock_path.return_value = models_file
-        models_data = {"chatgpt-gpt-5.2": {"type": "chatgpt_oauth"}}
+        models_data = {"codex-gpt-5.2": {"type": "chatgpt_oauth"}}
 
         result = save_chatgpt_models(models_data)
 
@@ -99,20 +99,20 @@ class TestModelManagement:
 
         assert result is True
         models = json.loads(models_file.read_text())
-        assert "chatgpt-gpt-5.6" not in models
-        assert "chatgpt-gpt-5.6-sol" in models
-        assert "chatgpt-gpt-5.6-terra" in models
-        assert "chatgpt-gpt-5.6-luna" in models
-        assert "chatgpt-gpt-5.5" in models
-        assert "chatgpt-gpt-5.2" in models
-        assert "chatgpt-gpt-5.2-codex" in models
-        assert models["chatgpt-gpt-5.6-sol"]["context_length"] == 1050000
-        assert models["chatgpt-gpt-5.6-terra"]["context_length"] == 1050000
-        assert models["chatgpt-gpt-5.6-luna"]["context_length"] == 1050000
-        assert models["chatgpt-gpt-5.6-sol"]["supports_xhigh_reasoning"] is True
-        assert models["chatgpt-gpt-5.6-sol"]["supports_ultra_reasoning"] is True
-        assert models["chatgpt-gpt-5.5"]["supports_xhigh_reasoning"] is True
-        assert models["chatgpt-gpt-5.5"]["supports_ultra_reasoning"] is False
+        assert "codex-gpt-5.6" not in models
+        assert "codex-gpt-5.6-sol" in models
+        assert "codex-gpt-5.6-terra" in models
+        assert "codex-gpt-5.6-luna" in models
+        assert "codex-gpt-5.5" in models
+        assert "codex-gpt-5.2" in models
+        assert "codex-gpt-5.2-codex" in models
+        assert models["codex-gpt-5.6-sol"]["context_length"] == 1050000
+        assert models["codex-gpt-5.6-terra"]["context_length"] == 1050000
+        assert models["codex-gpt-5.6-luna"]["context_length"] == 1050000
+        assert models["codex-gpt-5.6-sol"]["supports_xhigh_reasoning"] is True
+        assert models["codex-gpt-5.6-sol"]["supports_ultra_reasoning"] is True
+        assert models["codex-gpt-5.5"]["supports_xhigh_reasoning"] is True
+        assert models["codex-gpt-5.5"]["supports_ultra_reasoning"] is False
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.get_chatgpt_models_path")
     def test_add_models_with_context_settings(self, mock_path, tmp_path):
@@ -123,7 +123,7 @@ class TestModelManagement:
         add_models_to_extra_config(["gpt-5.2"])
 
         models = json.loads(models_file.read_text())
-        model_config = models["chatgpt-gpt-5.2"]
+        model_config = models["codex-gpt-5.2"]
 
         assert model_config["type"] == "chatgpt_oauth"
         assert (
@@ -148,7 +148,7 @@ class TestModelManagement:
                 result = add_models_to_extra_config(["gpt-5.3-codex-spark"])
                 assert result is True
                 models = load_chatgpt_models()
-                spark_config = models["chatgpt-gpt-5.3-codex-spark"]
+                spark_config = models["codex-gpt-5.3-codex-spark"]
                 assert spark_config["context_length"] == 131000
                 assert spark_config["supports_xhigh_reasoning"] is True
                 assert "summary" in spark_config["supported_settings"]
@@ -158,7 +158,7 @@ class TestModelManagement:
         """Test removing ChatGPT models from configuration."""
         models_file = tmp_path / "models.json"
         models_data = {
-            "chatgpt-gpt-5.2": {
+            "codex-gpt-5.2": {
                 "type": "chatgpt_oauth",
                 "oauth_source": "chatgpt-oauth-plugin",
             },
@@ -171,7 +171,7 @@ class TestModelManagement:
 
         assert removed == 1
         models = json.loads(models_file.read_text())
-        assert "chatgpt-gpt-5.2" not in models
+        assert "codex-gpt-5.2" not in models
         assert "other-model" in models
 
     @patch("requests.get")
@@ -309,7 +309,7 @@ class TestCustomCommands:
 
         assert result is True
         mock_oauth.assert_called_once()
-        mock_set_model.assert_called_once_with("chatgpt-gpt-5.4")
+        mock_set_model.assert_called_once_with("codex-gpt-5.6-sol")
 
     @patch("code_puppy.plugins.chatgpt_oauth.register_callbacks.load_stored_tokens")
     def test_handle_custom_command_status(self, mock_load):

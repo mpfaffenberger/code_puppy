@@ -41,7 +41,7 @@ from code_puppy.config import (
     get_compaction_threshold,
     get_protected_token_count,
 )
-from code_puppy.messaging import emit_error, emit_info, emit_warning
+from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.messaging.spinner import format_context_info, update_spinner_context
 from code_puppy.summarization_agent import SummarizationError, run_summarization_sync
 
@@ -282,6 +282,8 @@ def compact(
     messages: List[ModelMessage],
     model_max: int,
     context_overhead: int,
+    *,
+    force: bool = False,
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
     """Unified compaction entrypoint. Replaces ``message_history_processor``.
 
@@ -291,6 +293,8 @@ def compact(
         messages: Current message history (already accumulated by the caller).
         model_max: Effective model context window in tokens.
         context_overhead: Estimated overhead for system prompt + tool schemas.
+        force: Compact regardless of the configured context threshold. Used by
+            mid-run ``/compact`` at the next safe model-call boundary.
 
     Returns:
         ``(new_messages, dropped_messages_for_hash_tracking)``.
@@ -312,7 +316,7 @@ def compact(
     update_spinner_context(context_summary)
 
     threshold = get_compaction_threshold()
-    if proportion_used <= threshold:
+    if not force and proportion_used <= threshold:
         return messages, []
 
     strategy = get_compaction_strategy()
@@ -473,12 +477,20 @@ def make_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
                 history.append(msg)
                 messages_added += 1
 
+        from code_puppy.messaging.pause_controller import get_pause_controller
+
+        pause_controller = get_pause_controller()
+        force_compaction = pause_controller.take_compaction_request()
         new_history, dropped = compact(
             agent,
             history,
             agent._get_model_context_length(),
             agent._estimate_context_overhead(),
+            force=force_compaction,
         )
+        if force_compaction:
+            detail = "" if dropped else " History was already minimal."
+            emit_success(f"Mid-run compaction complete.{detail}")
         agent._message_history = new_history
         for m in dropped:
             compacted_hashes.add(hash_message(m))

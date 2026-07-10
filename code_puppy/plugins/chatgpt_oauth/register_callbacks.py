@@ -15,6 +15,7 @@ from code_puppy.model_switching import set_model_and_reload_agent
 
 from .config import CHATGPT_OAUTH_CONFIG, get_token_storage_path
 from .oauth_flow import run_oauth_flow
+from .usage import refresh_usage_in_background
 from .utils import (
     get_valid_access_token,
     load_chatgpt_models,
@@ -29,11 +30,14 @@ def _custom_help() -> List[Tuple[str, str]]:
             "chatgpt-auth",
             "Authenticate with ChatGPT via OAuth and import available models",
         ),
+        ("codex-auth", "Alias for /chatgpt-auth"),
         (
             "chatgpt-status",
             "Check ChatGPT OAuth authentication status and configured models",
         ),
+        ("codex-status", "Alias for /chatgpt-status"),
         ("chatgpt-logout", "Remove ChatGPT OAuth tokens and imported models"),
+        ("codex-logout", "Alias for /chatgpt-logout"),
     ]
 
 
@@ -83,16 +87,16 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     if not name:
         return None
 
-    if name == "chatgpt-auth":
+    if name in {"chatgpt-auth", "codex-auth"}:
         run_oauth_flow()
-        set_model_and_reload_agent("chatgpt-gpt-5.4")
+        set_model_and_reload_agent("codex-gpt-5.6-sol")
         return True
 
-    if name == "chatgpt-status":
+    if name in {"chatgpt-status", "codex-status"}:
         _handle_chatgpt_status()
         return True
 
-    if name == "chatgpt-logout":
+    if name in {"chatgpt-logout", "codex-logout"}:
         _handle_chatgpt_logout()
         return True
 
@@ -132,6 +136,9 @@ def _create_chatgpt_oauth_model(
         )
         return None
 
+    # Refresh plan limits without delaying model creation or terminal rendering.
+    refresh_usage_in_background(access_token, account_id)
+
     # Build headers for ChatGPT Codex API
     originator = CHATGPT_OAUTH_CONFIG.get("originator", "codex_cli_rs")
     client_version = CHATGPT_OAUTH_CONFIG.get("client_version", "0.144.1")
@@ -169,6 +176,20 @@ def _register_model_types() -> List[Dict[str, Any]]:
     return [{"type": "chatgpt_oauth", "handler": _create_chatgpt_oauth_model}]
 
 
+def _refresh_usage_on_agent_run(
+    agent_name: str, model_name: str, session_id: str | None = None
+) -> None:
+    """Keep limits fresh for Codex runs; the actual HTTP request is asynchronous."""
+    del agent_name, session_id
+    if not model_name.startswith("codex-"):
+        return
+    tokens = load_stored_tokens() or {}
+    refresh_usage_in_background(
+        tokens.get("access_token", ""), tokens.get("account_id", "")
+    )
+
+
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
 register_callback("register_model_type", _register_model_types)
+register_callback("agent_run_start", _refresh_usage_on_agent_run)

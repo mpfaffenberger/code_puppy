@@ -53,6 +53,10 @@ class PauseController:
         # Two queues, one per delivery mode (see ``request_steer`` docs).
         self._steer_queue_now: List[str] = []
         self._steer_queue_queued: List[str] = []
+        # One-shot requests consumed by the compaction history processor at
+        # the next model-call boundary. A counter (rather than a bool) avoids
+        # losing a second request racing with consumption of the first.
+        self._compaction_requests: int = 0
         self._resume_event: Optional[asyncio.Event] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         # Rendezvous flag: set when a waiter actually parks inside
@@ -195,6 +199,30 @@ class PauseController:
                 listener(count)
             except Exception:
                 pass
+
+    # =========================================================================
+    # Deferred compaction
+    # =========================================================================
+
+    def request_compaction(self) -> None:
+        """Request forced compaction at the next history-processor boundary."""
+        with self._lock:
+            self._compaction_requests += 1
+
+    def take_compaction_request(self) -> bool:
+        """Atomically consume one pending forced-compaction request."""
+        with self._lock:
+            if not self._compaction_requests:
+                return False
+            self._compaction_requests -= 1
+            return True
+
+    def drain_compaction_requests(self) -> int:
+        """Clear and return all pending requests (run-start hygiene)."""
+        with self._lock:
+            count = self._compaction_requests
+            self._compaction_requests = 0
+            return count
 
     # =========================================================================
     # Steering queue

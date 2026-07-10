@@ -22,7 +22,7 @@ CHATGPT_OAUTH_CONFIG: Dict[str, Any] = {
     # Local configuration (uses XDG_DATA_HOME)
     "token_storage": None,  # Set dynamically in get_token_storage_path()
     # Model configuration
-    "prefix": "chatgpt-",
+    "prefix": "codex-",
     "default_context_length": 272000,
     "api_key_env_var": "CHATGPT_OAUTH_API_KEY",
     # Codex CLI version info (for User-Agent header)

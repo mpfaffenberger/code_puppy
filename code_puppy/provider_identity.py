@@ -53,6 +53,7 @@ _TYPE_PROVIDER_OVERRIDES = {
 
 _KEY_PREFIX_OVERRIDES = (
     ("claude-code-", "claude_code"),
+    ("codex-", "chatgpt"),
     ("chatgpt-", "chatgpt"),
     ("azure-openai-", "azure_openai"),
     ("openrouter-", "openrouter"),

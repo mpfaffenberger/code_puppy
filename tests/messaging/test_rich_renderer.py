@@ -441,13 +441,13 @@ def test_render_subagent_invocation_continuing(mock_sub, renderer, console):
         prompt="short",
         is_new_session=False,
         message_count=5,
-        model_name="chatgpt-gpt-5.2",
+        model_name="codex-gpt-5.2",
     )
     renderer._render_subagent_invocation(msg)
     out = output(console)
     assert "Continuing" in out
     assert "Requested model override:" in out
-    assert "chatgpt-gpt-5.2" in out
+    assert "codex-gpt-5.2" in out
 
 
 def test_render_subagent_response(renderer, console):

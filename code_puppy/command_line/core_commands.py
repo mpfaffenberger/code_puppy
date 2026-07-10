@@ -207,7 +207,7 @@ def handle_tutorial_command(command: str) -> bool:
         from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
 
         run_oauth_flow()
-        set_model_and_reload_agent("chatgpt-gpt-5.4")
+        set_model_and_reload_agent("codex-gpt-5.6-sol")
     elif result == "claude":
         emit_info("🔐 Starting Claude Code OAuth flow...")
         from code_puppy.plugins.claude_code_oauth.register_callbacks import (

@@ -1137,7 +1137,7 @@ class TestProviderIdentityResolution:
             == "claude_code"
         )
         assert resolve_provider_identity("openrouter-foo", {}) == "openrouter"
-        assert resolve_provider_identity("chatgpt-gpt-5", {}) == "chatgpt"
+        assert resolve_provider_identity("codex-gpt-5", {}) == "chatgpt"
         assert (
             resolve_provider_identity("custom-model", {"type": "custom_openai"})
             == "custom_openai"
@@ -1466,11 +1466,11 @@ class TestOpenAICodexModels:
                         mock_responses.assert_called_once()
 
     def test_custom_openai_chatgpt_codex(self):
-        """Test chatgpt-gpt-5-codex uses OpenAIResponsesModel."""
+        """Test codex-gpt-5-codex uses OpenAIResponsesModel."""
         from code_puppy.model_factory import ModelFactory
 
         config = {
-            "chatgpt-gpt-5-codex": {
+            "codex-gpt-5-codex": {
                 "type": "custom_openai",
                 "name": "gpt-5-codex",
                 "custom_endpoint": {
@@ -1484,7 +1484,7 @@ class TestOpenAICodexModels:
                 with patch(
                     "code_puppy.model_factory.OpenAIResponsesModel"
                 ) as mock_responses:
-                    ModelFactory.get_model("chatgpt-gpt-5-codex", config)
+                    ModelFactory.get_model("codex-gpt-5-codex", config)
                     mock_responses.assert_called_once()
 
 

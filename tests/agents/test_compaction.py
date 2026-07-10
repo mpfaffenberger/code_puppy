@@ -248,6 +248,25 @@ class TestCompact:
         assert new_msgs is msgs, "under threshold must return the input unchanged"
         assert dropped == []
 
+    def test_force_bypasses_threshold(self):
+        msgs = _build_long_history(n_turns=20)
+        with patch.multiple(
+            _compaction,
+            get_compaction_threshold=lambda: 0.95,
+            get_compaction_strategy=lambda: "truncation",
+            get_protected_token_count=lambda: 500,
+        ):
+            new_msgs, dropped = compact(
+                agent=None,
+                messages=msgs,
+                model_max=1_000_000,
+                context_overhead=0,
+                force=True,
+            )
+
+        assert len(new_msgs) < len(msgs)
+        assert dropped
+
     def test_over_threshold_truncation_strategy(self):
         msgs = _build_long_history(n_turns=20)
         with patch.multiple(

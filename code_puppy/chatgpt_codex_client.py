@@ -87,6 +87,13 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
         except Exception as e:
             logger.debug("Failed to inject Codex fields into request: %s", e)
 
+        # The OpenAI SDK replaces the client's User-Agent while building each
+        # request. ChatGPT's Codex backend uses the Codex User-Agent for model
+        # routing, so newer models can otherwise return a misleading 404.
+        configured_user_agent = self.headers.get("User-Agent")
+        if configured_user_agent:
+            request.headers["User-Agent"] = configured_user_agent
+
         # Make the actual request
         response = await super().send(request, *args, **kwargs)
 

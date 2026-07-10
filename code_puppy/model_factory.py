@@ -814,7 +814,7 @@ class ModelFactory:
                 provider=provider,
                 profile=_thinking_tags_profile(model_name, model_config),
             )
-            if model_name == "chatgpt-gpt-5-codex":
+            if model_name == "codex-gpt-5-codex":
                 model = OpenAIResponsesModel(model_config["name"], provider=provider)
             return model
         elif model_type == "zai_coding":

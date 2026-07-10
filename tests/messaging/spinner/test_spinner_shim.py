@@ -126,3 +126,29 @@ def test_format_context_info_compact_counts():
 def test_format_context_info_zero_or_negative_capacity():
     assert format_context_info(100, 0, 0.0) == ""
     assert format_context_info(100, -5, 0.0) == ""
+
+
+def test_format_context_info_appends_usage_for_codex_model(monkeypatch):
+    monkeypatch.setattr(
+        "code_puppy.config.get_global_model_name", lambda: "codex-gpt-5.4"
+    )
+    monkeypatch.setattr(
+        "code_puppy.plugins.chatgpt_oauth.usage.get_usage_status",
+        lambda: "5h 66% remaining · week 90% remaining",
+    )
+
+    assert format_context_info(5000, 10000, 0.5) == (
+        "5k/10k tokens (50%) · Codex 5h 66% remaining · week 90% remaining"
+    )
+
+
+def test_format_context_info_hides_codex_usage_for_other_models(monkeypatch):
+    monkeypatch.setattr(
+        "code_puppy.config.get_global_model_name", lambda: "openai-gpt-5"
+    )
+    monkeypatch.setattr(
+        "code_puppy.plugins.chatgpt_oauth.usage.get_usage_status",
+        lambda: "5h 66% remaining",
+    )
+
+    assert format_context_info(5000, 10000, 0.5) == "5k/10k tokens (50%)"

@@ -127,6 +127,11 @@ def reset_pause_state_at_run_start() -> None:
     # Clear any stale paused state (e.g. from a prior run that crashed
     # mid-pause). Safe / idempotent if already resumed.
     pc.resume()
+    stale_compactions = pc.drain_compaction_requests()
+    if stale_compactions:
+        emit_warning(
+            f"Discarded {stale_compactions} stale compaction request(s) from a previous run."
+        )
     stale_steers = pc.drain_pending_steer()
     if stale_steers:
         emit_warning(

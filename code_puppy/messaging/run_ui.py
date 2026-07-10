@@ -88,7 +88,6 @@ MID_RUN_DENYLIST: Dict[str, str] = {
     "quit": "terminates the app; cancel the run first (Ctrl+C)",
     "agent": "switches/reloads the active agent while agent.run() is in flight",
     "clear": "wipes message history the in-flight run will commit at turn end",
-    "compact": "mutates message history mid-run (history processors own it)",
     "truncate": "mutates message history mid-run",
     "autosave_load": "returns the __AUTOSAVE_LOAD__ sentinel only the idle REPL can service",
     "quick-resume": "loads a saved session into message history mid-run",

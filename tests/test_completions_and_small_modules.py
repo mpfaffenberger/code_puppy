@@ -261,6 +261,35 @@ class TestModelSwitching:
         agent.get_model_name.side_effect = Exception("fail")
         assert _get_effective_agent_model(agent) is None
 
+    def test_refresh_context_status_uses_effective_model_capacity(self):
+        from code_puppy.model_switching import _refresh_context_status
+
+        agent = MagicMock()
+        agent._get_model_context_length.return_value = 1_050_000
+        agent.get_message_history.return_value = ["first", "second"]
+        agent.estimate_tokens_for_message.side_effect = [20_000, 10_000]
+        agent._estimate_context_overhead.return_value = 2_000
+
+        with patch(
+            "code_puppy.messaging.spinner.update_spinner_context"
+        ) as update_status:
+            _refresh_context_status(agent)
+
+        update_status.assert_called_once_with("32k/1.1M tokens (3%)")
+
+    def test_refresh_context_status_clears_stale_value_on_failure(self):
+        from code_puppy.model_switching import _refresh_context_status
+
+        agent = MagicMock()
+        agent._get_model_context_length.side_effect = RuntimeError("missing config")
+
+        with patch(
+            "code_puppy.messaging.spinner.update_spinner_context"
+        ) as update_status:
+            _refresh_context_status(agent)
+
+        update_status.assert_called_once_with("")
+
     def _run(self, model_name, agent=None):
         """Helper to call set_model_and_reload_agent with proper patches."""
         from code_puppy.model_switching import set_model_and_reload_agent
@@ -294,6 +323,13 @@ class TestModelSwitching:
         self._run("model-x", agent=agent)
         agent.refresh_config.assert_called_once()
         agent.reload_code_generation_agent.assert_called_once()
+
+    def test_reload_refreshes_context_status(self):
+        agent = MagicMock()
+        agent.get_model_name.return_value = "model-x"
+        with patch("code_puppy.model_switching._refresh_context_status") as refresh:
+            self._run("model-x", agent=agent)
+        refresh.assert_called_once_with(agent)
 
     def test_refresh_config_exception_nonfatal(self):
         agent = MagicMock()

@@ -21,7 +21,7 @@ from code_puppy.plugins.subagent_panel.register_callbacks import (
         # The reported bug: nano tier must survive, not collapse to "GPT 5.4".
         ("gpt-5-4-nano", "GPT 5.4-Nano"),
         ("gpt-5.4-nano", "GPT 5.4-Nano"),
-        ("chatgpt-gpt-5.4-nano", "GPT 5.4-Nano"),
+        ("codex-gpt-5.4-nano", "GPT 5.4-Nano"),
         ("gpt-5.4-mini", "GPT 5.4-Mini"),
         ("gpt-5.4", "GPT 5.4"),
         ("gpt-4.1-nano", "GPT 4.1-Nano"),

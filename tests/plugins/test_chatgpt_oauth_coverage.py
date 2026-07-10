@@ -15,6 +15,9 @@ class TestChatgptCustomHelp:
         assert "chatgpt-auth" in names
         assert "chatgpt-status" in names
         assert "chatgpt-logout" in names
+        assert "codex-auth" in names
+        assert "codex-status" in names
+        assert "codex-logout" in names
 
 
 class TestHandleChatgptStatus:
@@ -157,6 +160,7 @@ class TestHandleCustomCommand:
             ),
         ):
             assert _handle_custom_command("/chatgpt-auth", "chatgpt-auth") is True
+            assert _handle_custom_command("/codex-auth", "codex-auth") is True
 
     def test_status(self):
         from code_puppy.plugins.chatgpt_oauth.register_callbacks import (
@@ -167,6 +171,7 @@ class TestHandleCustomCommand:
             "code_puppy.plugins.chatgpt_oauth.register_callbacks._handle_chatgpt_status"
         ):
             assert _handle_custom_command("/chatgpt-status", "chatgpt-status") is True
+            assert _handle_custom_command("/codex-status", "codex-status") is True
 
     def test_logout(self):
         from code_puppy.plugins.chatgpt_oauth.register_callbacks import (
@@ -177,6 +182,7 @@ class TestHandleCustomCommand:
             "code_puppy.plugins.chatgpt_oauth.register_callbacks._handle_chatgpt_logout"
         ):
             assert _handle_custom_command("/chatgpt-logout", "chatgpt-logout") is True
+            assert _handle_custom_command("/codex-logout", "codex-logout") is True
 
 
 class TestCreateChatgptOauthModel:
