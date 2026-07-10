@@ -728,8 +728,8 @@ def set_puppy_token(token: str):
 
 
 def get_openai_reasoning_effort() -> str:
-    """Return the configured OpenAI reasoning effort (minimal, low, medium, high, xhigh)."""
-    allowed_values = {"minimal", "low", "medium", "high", "xhigh"}
+    """Return the configured OpenAI reasoning effort."""
+    allowed_values = {"minimal", "low", "medium", "high", "xhigh", "ultra"}
     configured = (get_value("openai_reasoning_effort") or "medium").strip().lower()
     if configured not in allowed_values:
         return "medium"
@@ -738,7 +738,7 @@ def get_openai_reasoning_effort() -> str:
 
 def set_openai_reasoning_effort(value: str) -> None:
     """Persist the OpenAI reasoning effort ensuring it remains within allowed values."""
-    allowed_values = {"minimal", "low", "medium", "high", "xhigh"}
+    allowed_values = {"minimal", "low", "medium", "high", "xhigh", "ultra"}
     normalized = (value or "").strip().lower()
     if normalized not in allowed_values:
         raise ValueError(

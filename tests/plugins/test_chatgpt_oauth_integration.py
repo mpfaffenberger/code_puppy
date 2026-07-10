@@ -88,7 +88,6 @@ class TestModelManagement:
 
         result = add_models_to_extra_config(
             [
-                "gpt-5.6",
                 "gpt-5.6-sol",
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
@@ -100,19 +99,20 @@ class TestModelManagement:
 
         assert result is True
         models = json.loads(models_file.read_text())
-        assert "chatgpt-gpt-5.6" in models
+        assert "chatgpt-gpt-5.6" not in models
         assert "chatgpt-gpt-5.6-sol" in models
         assert "chatgpt-gpt-5.6-terra" in models
         assert "chatgpt-gpt-5.6-luna" in models
         assert "chatgpt-gpt-5.5" in models
         assert "chatgpt-gpt-5.2" in models
         assert "chatgpt-gpt-5.2-codex" in models
-        assert models["chatgpt-gpt-5.6"]["context_length"] == 1050000
         assert models["chatgpt-gpt-5.6-sol"]["context_length"] == 1050000
         assert models["chatgpt-gpt-5.6-terra"]["context_length"] == 1050000
         assert models["chatgpt-gpt-5.6-luna"]["context_length"] == 1050000
-        assert models["chatgpt-gpt-5.6"]["supports_xhigh_reasoning"] is True
+        assert models["chatgpt-gpt-5.6-sol"]["supports_xhigh_reasoning"] is True
+        assert models["chatgpt-gpt-5.6-sol"]["supports_ultra_reasoning"] is True
         assert models["chatgpt-gpt-5.5"]["supports_xhigh_reasoning"] is True
+        assert models["chatgpt-gpt-5.5"]["supports_ultra_reasoning"] is False
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.get_chatgpt_models_path")
     def test_add_models_with_context_settings(self, mock_path, tmp_path):
@@ -189,16 +189,7 @@ class TestModelManagement:
 
         models = fetch_chatgpt_models("test_token", "test_account")
 
-        # Required models are prepended if not in API response
-        assert "gpt-5.6" in models
-        assert "gpt-5.6-sol" in models
-        assert "gpt-5.6-terra" in models
-        assert "gpt-5.6-luna" in models
-        assert "gpt-5.5" in models
-        assert "gpt-5.4" in models
-        assert "gpt-5.3-instant" in models
-        assert "gpt-5.2" in models
-        assert "gpt-5.2-codex" in models
+        assert models == ["gpt-5.2", "gpt-5.2-codex"]
 
     @patch("requests.get")
     def test_fetch_chatgpt_models_api_error(self, mock_get):

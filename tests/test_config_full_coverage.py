@@ -321,6 +321,10 @@ class TestOpenAISettings:
         cp_config.set_openai_reasoning_effort("high")
         assert cp_config.get_openai_reasoning_effort() == "high"
 
+    def test_set_openai_reasoning_effort_ultra(self):
+        cp_config.set_openai_reasoning_effort("ULTRA")
+        assert cp_config.get_openai_reasoning_effort() == "ultra"
+
     def test_set_openai_reasoning_effort_invalid(self):
         with pytest.raises(ValueError):
             cp_config.set_openai_reasoning_effort("bogus")

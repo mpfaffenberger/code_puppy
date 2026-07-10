@@ -231,7 +231,7 @@ class TestCreateChatgptOauthModel:
                 "code_puppy.plugins.chatgpt_oauth.register_callbacks.CHATGPT_OAUTH_CONFIG",
                 {
                     "originator": "codex_cli_rs",
-                    "client_version": "0.72.0",
+                    "client_version": "0.144.1",
                     "api_base_url": "https://api.example.com",
                 },
             ),

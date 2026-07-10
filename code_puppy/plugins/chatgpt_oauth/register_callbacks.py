@@ -134,7 +134,7 @@ def _create_chatgpt_oauth_model(
 
     # Build headers for ChatGPT Codex API
     originator = CHATGPT_OAUTH_CONFIG.get("originator", "codex_cli_rs")
-    client_version = CHATGPT_OAUTH_CONFIG.get("client_version", "0.72.0")
+    client_version = CHATGPT_OAUTH_CONFIG.get("client_version", "0.144.1")
 
     headers = {
         "ChatGPT-Account-Id": account_id,

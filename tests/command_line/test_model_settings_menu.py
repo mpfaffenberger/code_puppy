@@ -80,6 +80,7 @@ class TestSettingDefinitions:
         assert reason_def["type"] == "choice"
         assert "minimal" in reason_def["choices"]
         assert "high" in reason_def["choices"]
+        assert "ultra" in reason_def["choices"]
 
     def test_summary_setting_definition(self):
         """Test reasoning summary setting has correct choices."""
@@ -270,7 +271,7 @@ class TestChoiceSettingValidation:
         """Test reasoning effort accepts valid choices."""
         reason_def = SETTING_DEFINITIONS["reasoning_effort"]
         valid_choices = reason_def["choices"]
-        for choice in ["minimal", "low", "medium", "high", "xhigh"]:
+        for choice in ["minimal", "low", "medium", "high", "xhigh", "ultra"]:
             if choice in valid_choices:
                 assert True
                 break
@@ -278,7 +279,7 @@ class TestChoiceSettingValidation:
     def test_reasoning_effort_rejects_invalid_choice(self):
         """Test reasoning effort rejects invalid choice."""
         reason_def = SETTING_DEFINITIONS["reasoning_effort"]
-        invalid_choice = "ultra"
+        invalid_choice = "ludicrous-speed"
         assert invalid_choice not in reason_def["choices"]
 
     def test_verbosity_valid_choices(self):

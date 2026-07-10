@@ -850,16 +850,13 @@ class TestFetchChatGPTModels:
 
         result = fetch_chatgpt_models("test_access_token", "test_account_id")
 
-        # Required models are prepended, then API models follow
-        assert "gpt-5.4" in result
-        assert "gpt-5.3-instant" in result
-        assert "gpt-4" in result
-        assert "gpt-3.5-turbo" in result
-        assert "gpt-4-32k" in result
-        assert "o1-preview" in result
-        assert "o1-mini" in result
-        # Required models come first
-        assert result.index("gpt-5.4") < result.index("gpt-4")
+        assert result == [
+            "gpt-4",
+            "gpt-3.5-turbo",
+            "gpt-4-32k",
+            "o1-preview",
+            "o1-mini",
+        ]
 
         # Verify request was made correctly
         mock_get.assert_called_once()
@@ -887,11 +884,7 @@ class TestFetchChatGPTModels:
 
         result = fetch_chatgpt_models("test_access_token", "test_account_id")
 
-        # Should preserve order (but implementation may not dedupe)
-        # The actual implementation doesn't dedupe, so we just check it returns models
-        assert "gpt-4" in result
-        assert "gpt-3.5-turbo" in result
-        assert "o1-preview" in result
+        assert result == ["gpt-4", "gpt-3.5-turbo", "o1-preview"]
 
     @patch("requests.get")
     def test_fetch_chatgpt_models_filtering(self, mock_get):
@@ -910,16 +903,7 @@ class TestFetchChatGPTModels:
 
         result = fetch_chatgpt_models("test_access_token", "test_account_id")
 
-        # Required models prepended + API models
-        for m in [
-            "gpt-5.4",
-            "gpt-5.3-instant",
-            "gpt-4",
-            "gpt-3.5-turbo",
-            "o1-preview",
-            "o1-mini",
-        ]:
-            assert m in result
+        assert result == ["gpt-4", "gpt-3.5-turbo", "o1-preview", "o1-mini"]
 
     @patch("requests.get")
     def test_fetch_chatgpt_models_http_error(self, mock_get):
@@ -1075,6 +1059,25 @@ class TestAddModelsToConfig:
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.save_chatgpt_models")
     @patch("code_puppy.plugins.chatgpt_oauth.utils.load_chatgpt_models")
+    def test_add_models_removes_stale_plugin_models(self, mock_load, mock_save):
+        mock_load.return_value = {
+            "chatgpt-gpt-5.6": {
+                "oauth_source": "chatgpt-oauth-plugin",
+                "name": "gpt-5.6",
+            },
+            "custom-model": {"type": "openai", "name": "keep-me"},
+        }
+        mock_save.return_value = True
+
+        assert add_models_to_extra_config(["gpt-5.6-luna"]) is True
+
+        saved_config = mock_save.call_args[0][0]
+        assert "chatgpt-gpt-5.6" not in saved_config
+        assert "chatgpt-gpt-5.6-luna" in saved_config
+        assert "custom-model" in saved_config
+
+    @patch("code_puppy.plugins.chatgpt_oauth.utils.save_chatgpt_models")
+    @patch("code_puppy.plugins.chatgpt_oauth.utils.load_chatgpt_models")
     def test_add_models_to_extra_config_gpt54_and_newer_support_xhigh(
         self, mock_load, mock_save
     ):
@@ -1084,7 +1087,6 @@ class TestAddModelsToConfig:
 
         result = add_models_to_extra_config(
             [
-                "gpt-5.6",
                 "gpt-5.6-sol",
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
@@ -1096,7 +1098,6 @@ class TestAddModelsToConfig:
         assert result is True
         saved_config = mock_save.call_args[0][0]
         for model_name in (
-            "chatgpt-gpt-5.6",
             "chatgpt-gpt-5.6-sol",
             "chatgpt-gpt-5.6-terra",
             "chatgpt-gpt-5.6-luna",
@@ -1110,6 +1111,9 @@ class TestAddModelsToConfig:
                 "verbosity",
             ]
             assert model_config["supports_xhigh_reasoning"] is True
+            assert model_config["supports_ultra_reasoning"] is model_name.startswith(
+                "chatgpt-gpt-5.6-"
+            )
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.save_chatgpt_models")
     @patch("code_puppy.plugins.chatgpt_oauth.utils.load_chatgpt_models")
@@ -1297,23 +1301,20 @@ class TestErrorHandling:
 
     def test_model_filtering_edge_cases(self):
         """Test model filtering with edge cases."""
-        from code_puppy.plugins.chatgpt_oauth.utils import (
-            DEFAULT_CODEX_MODELS,
-            REQUIRED_CODEX_MODELS,
-        )
+        from code_puppy.plugins.chatgpt_oauth.utils import DEFAULT_CODEX_MODELS
 
         test_cases = [
             # Empty models list - returns default models (no merge needed)
-            ([], DEFAULT_CODEX_MODELS, True),
-            # Models without slug field but with name - uses name + required prepended
-            ([{"name": "test"}], ["test"], False),
+            ([], DEFAULT_CODEX_MODELS),
+            # Models without slug field but with name use the advertised name
+            ([{"name": "test"}], ["test"]),
             # None model entries - skipped, returns default if no valid models
-            ([None], DEFAULT_CODEX_MODELS, True),
-            # Valid slug entries - required models prepended
-            ([{"slug": "gpt-4"}], ["gpt-4"], False),
+            ([None], DEFAULT_CODEX_MODELS),
+            # Valid slug entries are returned unchanged
+            ([{"slug": "gpt-4"}], ["gpt-4"]),
         ]
 
-        for input_models, base_expected, is_fallback in test_cases:
+        for input_models, expected in test_cases:
             with patch("requests.get") as mock_get:
                 mock_response = Mock()
                 mock_response.status_code = 200
@@ -1321,13 +1322,4 @@ class TestErrorHandling:
                 mock_get.return_value = mock_response
 
                 result = fetch_chatgpt_models("test_access_token", "test_account_id")
-                if is_fallback:
-                    assert result == base_expected, f"Failed for input: {input_models}"
-                else:
-                    # Required models are prepended to API results
-                    for m in REQUIRED_CODEX_MODELS:
-                        assert m in result, (
-                            f"Missing required {m} for input: {input_models}"
-                        )
-                    for m in base_expected:
-                        assert m in result, f"Missing {m} for input: {input_models}"
+                assert result == expected, f"Failed for input: {input_models}"

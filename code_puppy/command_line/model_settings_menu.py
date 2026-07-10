@@ -76,7 +76,7 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "name": "Reasoning Effort",
         "description": "Controls how much effort GPT-5 models spend on reasoning. Higher = more thorough but slower.",
         "type": "choice",
-        "choices": ["minimal", "low", "medium", "high", "xhigh"],
+        "choices": ["minimal", "low", "medium", "high", "xhigh", "ultra"],
         "default": "medium",
     },
     "summary": {
@@ -184,8 +184,8 @@ def _get_setting_choices(
 ) -> List[str]:
     """Get the available choices for a setting, filtered by model capabilities.
 
-    For reasoning_effort, only codex models support 'xhigh' - regular GPT-5.2
-    models are capped at 'high'.
+    Reasoning effort is capability-gated: xhigh is available to codex and
+    GPT-5.4+ models, while ultra is reserved for GPT-5.6+ variants.
 
     Args:
         setting_key: The setting name (e.g., 'reasoning_effort', 'verbosity')
@@ -200,17 +200,15 @@ def _get_setting_choices(
 
     base_choices = setting_def.get("choices", [])
 
-    # For reasoning_effort, filter 'xhigh' based on model support
     if setting_key == "reasoning_effort" and model_name:
         models_config = ModelFactory.load_config()
         model_config = models_config.get(model_name, {})
-
-        # Check if model supports xhigh reasoning
-        supports_xhigh = model_config.get("supports_xhigh_reasoning", False)
-
-        if not supports_xhigh:
-            # Remove xhigh from choices for non-codex models
-            return [c for c in base_choices if c != "xhigh"]
+        unsupported_choices = set()
+        if not model_config.get("supports_xhigh_reasoning", False):
+            unsupported_choices.add("xhigh")
+        if not model_config.get("supports_ultra_reasoning", False):
+            unsupported_choices.add("ultra")
+        return [choice for choice in base_choices if choice not in unsupported_choices]
 
     return base_choices
 

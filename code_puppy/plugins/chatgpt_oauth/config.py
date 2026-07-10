@@ -26,7 +26,7 @@ CHATGPT_OAUTH_CONFIG: Dict[str, Any] = {
     "default_context_length": 272000,
     "api_key_env_var": "CHATGPT_OAUTH_API_KEY",
     # Codex CLI version info (for User-Agent header)
-    "client_version": "0.72.0",
+    "client_version": "0.144.1",
     "originator": "codex_cli_rs",
 }
 
