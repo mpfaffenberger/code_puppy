@@ -23,6 +23,7 @@ class MessageType(Enum):
 
     # Basic content types
     INFO = "info"
+    QUEUED = "queued"
     SUCCESS = "success"
     WARNING = "warning"
     ERROR = "error"
@@ -313,6 +314,11 @@ def emit_message(message_type: MessageType, content: Any, **metadata):
 def emit_info(content: Any, **metadata):
     """Emit an info message."""
     emit_message(MessageType.INFO, content, **metadata)
+
+
+def emit_queued(content: Any, **metadata):
+    """Emit a queued-for-next-turn acknowledgement."""
+    emit_message(MessageType.QUEUED, content, **metadata)
 
 
 def emit_success(content: Any, **metadata):

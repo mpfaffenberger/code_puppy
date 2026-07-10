@@ -289,6 +289,27 @@ class PauseController:
             self._fire_steer_queue_listeners(total)
         return drained
 
+    def defer_pending_steer_now(self) -> int:
+        """Atomically move undelivered ``now`` steers to the queued queue.
+
+        A ``/steer`` can race with the final model call: once that call has
+        finished there is no next history-processor boundary at which to
+        inject it. Preserving it as a normal queued turn is less surprising
+        than silently discarding the user's message.
+
+        Returns the number of messages moved. Existing queued messages keep
+        priority because they were already waiting for a future turn.
+        """
+        with self._lock:
+            moved = len(self._steer_queue_now)
+            if not moved:
+                return 0
+            self._steer_queue_queued.extend(self._steer_queue_now)
+            self._steer_queue_now = []
+            total = len(self._steer_queue_queued)
+        self._fire_steer_queue_listeners(total)
+        return moved
+
     def pop_next_steer_queued(self) -> Optional[str]:
         """Atomically pop the OLDEST queued-mode steer (None when empty).
 

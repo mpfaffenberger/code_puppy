@@ -149,9 +149,11 @@ def stop_run_ui() -> None:
     """Tear down the run UI: unhook the editor, restore the terminal.
 
     Idempotent; never raises (runs in ``finally`` blocks on cancel and
-    exception paths).
+    exception paths). Any ``/steer`` message that missed the run's final
+    model-call boundary is converted to a queued turn instead of discarded.
     """
     global _editor, _loop, _run_active
+    persistent_run_ended = False
     with _lock:
         if _persistent:
             # The UI outlives the run — just drop back to idle routing.
@@ -161,10 +163,15 @@ def stop_run_ui() -> None:
             # thread crashed, or a per-run listener replaced-then-stopped
             # it), typing at the idle prompt would be dead forever.
             _ensure_persistent_listener_locked()
-            return
-        editor = _editor
-        _editor = None
-        _loop = None
+            persistent_run_ended = True
+            editor = None
+        else:
+            editor = _editor
+            _editor = None
+            _loop = None
+    _defer_undelivered_steers()
+    if persistent_run_ended:
+        return
     if editor is not None:
         _set_feed_target(None)
     unregister_chord("\x05")  # the handler closes over the dead editor
@@ -174,6 +181,20 @@ def stop_run_ui() -> None:
     except Exception:
         # Terminal restore is best-effort on teardown paths.
         logger.debug("bottom bar stop failed", exc_info=True)
+
+
+def _defer_undelivered_steers() -> None:
+    """Preserve ``/steer`` input that arrived after the last model call."""
+    try:
+        from .pause_controller import get_pause_controller
+
+        moved = get_pause_controller().defer_pending_steer_now()
+        if moved:
+            from . import emit_info
+
+            emit_info(f"⏭ Queued {moved} steering message(s) for the next turn.")
+    except Exception:
+        logger.debug("undelivered steer deferral failed", exc_info=True)
 
 
 def _clear_status_row() -> None:

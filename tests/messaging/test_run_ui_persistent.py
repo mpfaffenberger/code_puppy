@@ -162,6 +162,19 @@ async def test_running_steer_command_injects_now():
     assert editor.get_pending_command() is None
 
 
+async def test_run_end_defers_undelivered_steer_to_queue():
+    install_tty_bar()
+    run_ui_mod.start_persistent_ui()
+    run_ui_mod.start_run_ui()
+    pc = get_pause_controller()
+    pc.request_steer("too late to inject", mode="now")
+
+    run_ui_mod.stop_run_ui()
+
+    assert pc.drain_pending_steer_now() == []
+    assert pc.drain_pending_steer_queued() == ["too late to inject"]
+
+
 async def test_running_slash_goes_to_drain_queue():
     install_tty_bar()
     run_ui_mod.start_persistent_ui()

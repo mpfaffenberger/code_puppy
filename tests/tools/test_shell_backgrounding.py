@@ -81,6 +81,37 @@ def test_background_request_detaches_streaming_command():
             pass
 
 
+def test_foreground_limit_auto_backgrounds_instead_of_killing(monkeypatch):
+    process = _spawn_slow_process()
+    command_runner._register_process(process)
+    result = None
+    monkeypatch.setattr("code_puppy.config.get_command_timeout_seconds", lambda: 0)
+
+    try:
+        result = run_shell_command_streaming(
+            process, timeout=30, command="long test suite", silent=True
+        )
+
+        assert result.background is True
+        assert result.success is True
+        assert result.timeout is False
+        assert result.exit_code is None
+        assert result.pid == process.pid
+        assert result.log_file and os.path.exists(result.log_file)
+        assert "Automatically backgrounded after 0s" in result.user_feedback
+        assert process.poll() is None
+        with command_runner._RUNNING_PROCESSES_LOCK:
+            assert process not in command_runner._RUNNING_PROCESSES
+    finally:
+        command_runner._kill_process_group(process)
+        if result and result.log_file:
+            time.sleep(0.2)
+            try:
+                os.unlink(result.log_file)
+            except OSError:
+                pass
+
+
 def test_full_tool_path_returns_promptly_on_background():
     """End to end through _execute_shell_command (executor + keyboard
     context): the tool call must return within a couple of poll ticks of

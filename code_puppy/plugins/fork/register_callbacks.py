@@ -12,10 +12,11 @@ Commands:
     /fork cancel <id>         cancel a running fork
     /forks                    show status of all forks this session
 
-Results: ``_invoke_agent_impl`` already emits a ``SubAgentResponseMessage``
-which the renderer displays as a full "AGENT RESPONSE" markdown panel, so
-this plugin only adds a compact completion banner (id, agent, duration,
-session) rather than re-printing the response.
+Results are explicitly bridged onto the interactive transcript queue when
+the fork completes. Forks suppress ``_invoke_agent_impl``'s generic structured
+response and emit one fork-specific, theme-aware banner plus Markdown body;
+detached tasks cannot rely on the invocation renderer still owning the active
+transcript. The completion banner then adds duration and resumable session id.
 
 Note: Ctrl+C's cancel sweep clears ``_active_subagent_tasks``, which
 includes forked runs — cancelling the agent takes forks down with it.
@@ -69,6 +70,12 @@ def _emit_success(content) -> None:
     emit_success(content)
 
 
+def _emit_agent_response(content) -> None:
+    from code_puppy.messaging import emit_agent_response
+
+    emit_agent_response(content)
+
+
 def _emit_warning(content) -> None:
     from code_puppy.messaging import emit_warning
 
@@ -79,6 +86,40 @@ def _emit_error(content) -> None:
     from code_puppy.messaging import emit_error
 
     emit_error(content)
+
+
+def _started_message(fork_id: int, agent_name: str):
+    """Build a Rich, theme-aware acknowledgement for a newly started fork."""
+    from rich.text import Text
+
+    from code_puppy.messaging.messages import MessageLevel
+    from code_puppy.messaging.rich_renderer import DEFAULT_STYLES
+
+    message = Text(f"fork #{fork_id}: ", style=DEFAULT_STYLES[MessageLevel.INFO])
+    message.append(agent_name, style="bold")
+    message.append(" started in the background — results land when it finishes (")
+    message.append("/forks", style=DEFAULT_STYLES[MessageLevel.DEBUG])
+    message.append(" for status)")
+    return message
+
+
+def _response_message(fork_id: int, agent_name: str, response: str):
+    """Build the distinct, theme-aware banner and Markdown body for a fork."""
+    from rich.console import Group
+    from rich.markdown import Markdown
+    from rich.text import Text
+
+    from code_puppy.config import get_banner_color
+    from code_puppy.messaging.messages import MessageLevel
+    from code_puppy.messaging.rich_renderer import DEFAULT_STYLES
+
+    header = Text(
+        f" FORK #{fork_id} RESPONSE ",
+        style=f"bold white on {get_banner_color('subagent_response')}",
+    )
+    header.append(" ")
+    header.append(agent_name, style=f"bold {DEFAULT_STYLES[MessageLevel.INFO]}")
+    return Group(header, Markdown(response))
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +172,7 @@ async def _run_fork(agent_name: str, prompt: str):
         context=None,
         agent_name=agent_name,
         prompt=prompt,
+        emit_response_message=False,
     )
 
 
@@ -160,7 +202,11 @@ def _on_fork_done(fork_id: int, task: asyncio.Task) -> None:
             _emit_error(f"{tag} failed after {record.elapsed:.1f}s: {first_line}")
             return
         record.status = "done"
-        # The response itself was already rendered via SubAgentResponseMessage.
+        response = getattr(result, "response", None)
+        if response:
+            _emit_agent_response(
+                _response_message(fork_id, record.agent_name, response)
+            )
         _emit_success(
             f"{tag} finished in {record.elapsed:.1f}s"
             + (f" — session '{record.session_id}'" if record.session_id else "")
@@ -182,10 +228,7 @@ def _start_fork(agent_name: str, prompt: str) -> None:
         fork_id=fork_id, agent_name=agent_name, prompt=prompt, task=task
     )
     task.add_done_callback(lambda t, fid=fork_id: _on_fork_done(fid, t))
-    _emit_info(
-        f"fork #{fork_id}: [bold cyan]{agent_name}[/bold cyan] started in the "
-        f"background — results land when it finishes ([dim]/forks[/dim] for status)"
-    )
+    _emit_info(_started_message(fork_id, agent_name))
 
 
 def _cancel_fork(raw_id: str) -> None:

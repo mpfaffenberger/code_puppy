@@ -406,7 +406,11 @@ def emitted(monkeypatch):
     lines = []
     monkeypatch.setattr(
         "code_puppy.messaging.message_queue.emit_info",
-        lambda text, **kwargs: lines.append(text),
+        lambda text, **kwargs: lines.append(("info", text)),
+    )
+    monkeypatch.setattr(
+        "code_puppy.messaging.message_queue.emit_queued",
+        lambda text, **kwargs: lines.append(("queued", text)),
     )
     return lines
 
@@ -416,7 +420,7 @@ def test_enter_submit_emits_queued_feedback(editor, emitted):
     # submit time (there's no later confirmation for them).
     feed_all(editor, "fix the tests")
     editor.feed("\r")
-    assert emitted == ["⏭ queued for next turn: fix the tests"]
+    assert emitted == [("queued", "for next turn: fix the tests")]
 
 
 def test_steer_command_emits_no_feedback(editor, emitted, controller):
@@ -433,7 +437,7 @@ def test_steer_command_emits_no_feedback(editor, emitted, controller):
 def test_bare_steer_command_emits_usage(editor, emitted, controller):
     feed_all(editor, "/steer")
     editor.feed("\r")
-    assert emitted == ["Usage: /steer <message>"]
+    assert emitted == [("info", "Usage: /steer <message>")]
     assert controller.steers == []
     assert editor.get_pending_command() is None
 
@@ -442,14 +446,14 @@ def test_queue_submit_emits_queued_feedback(editor, emitted):
     feed_all(editor, "do this after")
     editor.feed("\x1b")
     editor.feed("\r")
-    assert emitted == ["⏭ queued for next turn: do this after"]
+    assert emitted == [("queued", "for next turn: do this after")]
 
 
 def test_queue_feedback_preview_truncated_to_60_chars(editor, emitted):
     feed_all(editor, "x" * 100)
     editor.feed("\x1b")
     editor.feed("\r")
-    assert emitted == [f"⏭ queued for next turn: {'x' * 60}"]
+    assert emitted == [("queued", f"for next turn: {'x' * 60}")]
 
 
 def test_slash_command_emits_no_feedback(editor, emitted):

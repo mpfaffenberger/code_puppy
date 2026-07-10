@@ -234,6 +234,7 @@ def test_sync_renderer_render_messages(mq):
         (MessageType.ERROR, "err"),
         (MessageType.WARNING, "warn"),
         (MessageType.SUCCESS, "ok"),
+        (MessageType.QUEUED, "for next turn: later"),
         (MessageType.TOOL_OUTPUT, "tool"),
         (MessageType.AGENT_REASONING, "think"),
         (MessageType.AGENT_RESPONSE, "**bold**"),
@@ -244,6 +245,20 @@ def test_sync_renderer_render_messages(mq):
 
     output = console.file.getvalue()
     assert "err" in output
+
+
+def test_sync_renderer_queued_banner(mq):
+    console = make_console()
+    renderer = SynchronousInteractiveRenderer(mq, console=console)
+
+    renderer._render_message(
+        UIMessage(type=MessageType.QUEUED, content="for next turn: fix the tests")
+    )
+
+    output = console.file.getvalue()
+    assert "QUEUED" in output
+    assert "for next turn: fix the tests" in output
+    assert chr(0x23ED) not in output
 
 
 def test_sync_renderer_version_dim(mq):

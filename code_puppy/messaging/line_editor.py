@@ -68,6 +68,10 @@ SubmitListener = Callable[[str, str], None]
 SubmitRouter = Callable[[str, str], Optional[str]]
 
 
+class _QueuedFeedback(str):
+    """Marker for feedback that belongs in the dedicated queued renderer."""
+
+
 class RunningLineEditor:
     """Line editor fed by the key-listener thread.
 
@@ -616,7 +620,7 @@ class RunningLineEditor:
             return None
         if mode == "queue":
             # Queued steers get no later confirmation, so ack at submit time.
-            return f"⏭ queued for next turn: {stripped[:60]}"
+            return _QueuedFeedback(f"for next turn: {stripped[:60]}")
         # "now" steers: stay quiet here. The steer history processor emits
         # "Injecting steer mid-turn — model will see: ..." when the text
         # actually reaches the model; acking at submit time too was a lie
@@ -627,9 +631,12 @@ class RunningLineEditor:
     def _emit_feedback(note: str) -> None:
         """Best-effort transcript line for a successful steer submission."""
         try:
-            from code_puppy.messaging.message_queue import emit_info
+            from code_puppy.messaging.message_queue import emit_info, emit_queued
 
-            emit_info(note)
+            if isinstance(note, _QueuedFeedback):
+                emit_queued(str(note))
+            else:
+                emit_info(note)
         except Exception:
             logger.debug("feedback emit failed", exc_info=True)
 

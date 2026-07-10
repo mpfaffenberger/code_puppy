@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from rich.console import Console, Group
+from rich.text import Text
 
+from code_puppy.messaging.messages import MessageLevel
 from code_puppy.plugins.fork import register_callbacks as rc
 
 _AGENTS = {"code-puppy": "the default pup", "qa-kitten": "meow"}
@@ -39,7 +43,15 @@ def fake_agent_manager():
 
 
 def _fake_impl(response="did the thing", error=None, session_id="sess-abc123"):
-    async def impl(context, agent_name, prompt, session_id_=None, model_name=None):
+    async def impl(
+        context,
+        agent_name,
+        prompt,
+        session_id_=None,
+        model_name=None,
+        emit_response_message=True,
+    ):
+        assert emit_response_message is False
         return SimpleNamespace(
             response=response,
             agent_name=agent_name,
@@ -140,14 +152,50 @@ def test_fork_cancel_unknown_id_warns():
 # =========================================================================
 
 
-async def test_fork_success_emits_completion_banner():
-    infos, successes = [], []
+def test_started_message_is_rich_and_theme_aware():
+    from code_puppy.messaging.rich_renderer import DEFAULT_STYLES
+
+    with patch.dict(
+        DEFAULT_STYLES,
+        {MessageLevel.INFO: "#123456", MessageLevel.DEBUG: "dim #654321"},
+    ):
+        message = rc._started_message(7, "qa-kitten")
+
+    assert isinstance(message, Text)
+    assert message.plain == (
+        "fork #7: qa-kitten started in the background — results land when it "
+        "finishes (/forks for status)"
+    )
+    assert "[bold" not in message.plain
+    assert message.style == "#123456"
+    assert [span.style for span in message.spans] == ["bold", "dim #654321"]
+
+
+def test_response_message_identifies_fork_and_renders_markdown():
+    output = StringIO()
+    console = Console(file=output, force_terminal=False, width=100)
+
+    with patch("code_puppy.config.get_banner_color", return_value="dark_orange3"):
+        message = rc._response_message(7, "qa-kitten", "**did the thing**")
+        console.print(message)
+
+    assert isinstance(message, Group)
+    rendered = output.getvalue()
+    assert "FORK #7 RESPONSE" in rendered
+    assert "qa-kitten" in rendered
+    assert "did the thing" in rendered
+    assert "AGENT RESPONSE" not in rendered
+
+
+async def test_fork_success_emits_response_and_completion_banner():
+    infos, responses, successes = [], [], []
     with (
         patch(
             "code_puppy.tools.subagent_invocation._invoke_agent_impl",
             new=_fake_impl(),
         ),
         patch.object(rc, "_emit_info", infos.append),
+        patch.object(rc, "_emit_agent_response", responses.append),
         patch.object(rc, "_emit_success", successes.append),
     ):
         assert rc._handle_fork("/fork @qa-kitten test everything") is True
@@ -158,7 +206,11 @@ async def test_fork_success_emits_completion_banner():
     assert record.status == "done"
     assert record.agent_name == "qa-kitten"
     assert record.session_id == "sess-abc123"
-    assert any("started in the background" in str(m) for m in infos)
+    assert any(
+        isinstance(m, Text) and "started in the background" in m.plain for m in infos
+    )
+    assert len(responses) == 1
+    assert isinstance(responses[0], Group)
     assert any("finished" in str(m) for m in successes)
 
 
@@ -200,7 +252,15 @@ async def test_fork_reports_result_error_as_failure():
 
 
 async def test_fork_reports_crash_as_failure():
-    async def boom(context, agent_name, prompt, session_id=None, model_name=None):
+    async def boom(
+        context,
+        agent_name,
+        prompt,
+        session_id=None,
+        model_name=None,
+        emit_response_message=True,
+    ):
+        assert emit_response_message is False
         raise RuntimeError("kaboom")
 
     errors = []
@@ -220,7 +280,15 @@ async def test_fork_reports_crash_as_failure():
 async def test_fork_cancel_running_fork():
     started = asyncio.Event()
 
-    async def slow(context, agent_name, prompt, session_id=None, model_name=None):
+    async def slow(
+        context,
+        agent_name,
+        prompt,
+        session_id=None,
+        model_name=None,
+        emit_response_message=True,
+    ):
+        assert emit_response_message is False
         started.set()
         await asyncio.sleep(60)
 

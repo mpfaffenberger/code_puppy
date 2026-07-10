@@ -184,8 +184,14 @@ class TestEventStreamHandler:
                 ):
                     await event_stream_handler(mock_ctx, event_stream())
 
-        # Should print the initial content
+        # The banner and initial content should print without a redundant icon.
         assert console.print.called
+        thinking_banner = next(
+            call.args[0]
+            for call in console.print.call_args_list
+            if call.args and "THINKING" in str(call.args[0])
+        )
+        assert chr(0x26A1) not in str(thinking_banner)
 
     @pytest.mark.asyncio
     async def test_handles_text_part_with_initial_content(self, mock_ctx):

@@ -46,8 +46,9 @@ async def _invoke_agent_impl(
     prompt: str,
     session_id: str | None = None,
     model_name: str | None = None,
+    emit_response_message: bool = True,
 ) -> AgentInvokeOutput:
-    """Invoke a sub-agent, optionally with an explicit temporary model override."""
+    """Invoke a sub-agent, optionally suppressing its standard response message."""
     from code_puppy.agents.agent_manager import load_agent
 
     # Validate user-provided session_id if given
@@ -343,7 +344,7 @@ async def _invoke_agent_impl(
             # In high mode, skip the emit when streaming already rendered the
             # response to avoid a double-render if any future subscriber
             # starts rendering SubAgentResponseMessage.
-            if not (is_high_mode and streamed_text):
+            if emit_response_message and not (is_high_mode and streamed_text):
                 bus.emit(
                     SubAgentResponseMessage(
                         agent_name=agent_name,

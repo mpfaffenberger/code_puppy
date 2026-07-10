@@ -1421,8 +1421,8 @@ def get_message_limit(default: int = 1000) -> int:
 
 def get_command_timeout_seconds() -> int:
     """
-    Returns the user-configured absolute timeout for shell commands in seconds.
-    This is the maximum time any single command can run before being terminated.
+    Returns the user-configured foreground limit for shell commands in seconds.
+    Commands still running at the limit are automatically backgrounded, not killed.
     Defaults to 270 seconds if unset or misconfigured.
     Valid range: 60-900 seconds. Values outside this range default to 270.
     Configurable by 'command_timeout_seconds' key.

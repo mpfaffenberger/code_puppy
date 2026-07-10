@@ -309,44 +309,48 @@ def test_extra_models_json_decode_error(tmp_path, monkeypatch):
     # Create a temporary extra_models.json file with invalid JSON
     extra_models_file = tmp_path / "extra_models.json"
     extra_models_file.write_text("{ invalid json content }")
+    base_config = {"base-model": {"type": "openai", "name": "base"}}
 
-    # Patch the EXTRA_MODELS_FILE path to point to our temporary file
-    from code_puppy.model_factory import ModelFactory
-
+    # Use an explicit base config: bundled models.json may intentionally be empty.
+    monkeypatch.setattr(
+        "code_puppy.model_factory.callbacks.get_callbacks", lambda phase: [object()]
+    )
+    monkeypatch.setattr(
+        "code_puppy.model_factory.callbacks.on_load_model_config",
+        lambda: [base_config.copy()],
+    )
     monkeypatch.setattr(
         "code_puppy.model_factory.EXTRA_MODELS_FILE", str(extra_models_file)
     )
 
-    # This should not raise an exception despite the invalid JSON
+    # Invalid extra JSON should be ignored without discarding the base config.
     config = ModelFactory.load_config()
 
-    # The config should still be loaded, just without the extra models
-    assert isinstance(config, dict)
-    assert len(config) > 0
+    assert config["base-model"] == base_config["base-model"]
 
 
 def test_extra_models_exception_handling(tmp_path, monkeypatch, caplog):
-    # Create a temporary extra_models.json file that will raise a general exception
+    # Create a directory where a JSON file is expected to force an OSError.
     extra_models_file = tmp_path / "extra_models.json"
-    # Create a directory with the same name to cause an OSError when trying to read it
     extra_models_file.mkdir()
+    base_config = {"base-model": {"type": "openai", "name": "base"}}
 
-    # Patch the EXTRA_MODELS_FILE path
-    from code_puppy.model_factory import ModelFactory
-
+    # Use an explicit base config: bundled models.json may intentionally be empty.
+    monkeypatch.setattr(
+        "code_puppy.model_factory.callbacks.get_callbacks", lambda phase: [object()]
+    )
+    monkeypatch.setattr(
+        "code_puppy.model_factory.callbacks.on_load_model_config",
+        lambda: [base_config.copy()],
+    )
     monkeypatch.setattr(
         "code_puppy.model_factory.EXTRA_MODELS_FILE", str(extra_models_file)
     )
 
-    # This should not raise an exception despite the error
     with caplog.at_level("WARNING"):
         config = ModelFactory.load_config()
 
-    # The config should still be loaded
-    assert isinstance(config, dict)
-    assert len(config) > 0
-
-    # Check that warning was logged
+    assert config["base-model"] == base_config["base-model"]
     assert "Failed to load extra models config" in caplog.text
 
 

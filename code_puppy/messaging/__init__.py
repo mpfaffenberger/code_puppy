@@ -93,6 +93,7 @@ from .message_queue import (
     emit_message,
     emit_planned_next_steps,
     emit_prompt,
+    emit_queued,
     emit_success,
     emit_system_message,
     emit_tool_output,
@@ -187,6 +188,7 @@ __all__ = [
     # Legacy emit functions
     "emit_message",
     "emit_info",
+    "emit_queued",
     "emit_success",
     "emit_warning",
     "emit_divider",

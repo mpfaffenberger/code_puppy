@@ -238,12 +238,12 @@ async def event_stream_handler(
         # Clear any \r-repainted progress line, then move below it
         erase_progress_line(console)
         console.print()  # Newline before banner
-        # Bold banner with configurable color and lightning bolt
+        # Bold banner with configurable color.
         thinking_color = get_banner_color("thinking")
 
         console.print(
             Text.from_markup(
-                f"[bold white on {thinking_color}] THINKING [/bold white on {thinking_color}] [dim]\u26a1 "
+                f"[bold white on {thinking_color}] THINKING [/bold white on {thinking_color}] "
             ),
             end="",
         )

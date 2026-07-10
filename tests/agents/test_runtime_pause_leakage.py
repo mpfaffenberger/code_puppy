@@ -1,9 +1,8 @@
-"""Tests for cross-run PauseController leakage protection.
+"""Tests for cross-run PauseController state handling.
 
-The ``PauseController`` is a process-wide singleton. Without explicit
-hygiene at run start + on cancel, a Ctrl+C'd run can leave stale steering
-messages in the queue that get silently consumed by the NEXT (potentially
-totally different) agent run. These tests lock the hygiene down.
+The process-wide controller preserves late ``/steer`` input as queued turns,
+while explicit cancellation still discards undelivered input. These tests lock
+both lifecycle contracts down.
 """
 
 from __future__ import annotations
@@ -94,46 +93,38 @@ def _isolated_runtime(monkeypatch: pytest.MonkeyPatch):
 
 
 # =============================================================================
-# Bug A.1 — stale state is scrubbed at run start
+# Bug A.1 — late steering is deferred; stale pause state is scrubbed
 # =============================================================================
 
 
 @pytest.mark.asyncio
-async def test_stale_steer_drained_at_run_start(_isolated_runtime, monkeypatch):
-    """A stale steer left over from a prior cancelled run MUST NOT be
-    consumed as if the user had typed it in this run.
-    """
-    warnings: List[str] = []
-    # ``reset_pause_state_at_run_start`` lives in _run_signals and calls
-    # ``emit_warning`` imported there. Patch the imported reference.
+async def test_stale_now_steer_becomes_queued_turn_at_run_start(
+    _isolated_runtime, monkeypatch
+):
+    """A ``/steer`` that missed the prior run is preserved as a queued turn."""
+    infos: List[str] = []
     monkeypatch.setattr(
-        "code_puppy.agents._run_signals.emit_warning",
-        lambda msg, *_a, **_k: warnings.append(msg),
+        "code_puppy.agents._run_signals.emit_info",
+        lambda msg, *_a, **_k: infos.append(msg),
     )
 
-    only = _DummyResult("solo")
-    pydantic_agent = _ScriptedPydanticAgent(only)
+    first = _DummyResult("fresh-result")
+    after_steer = _DummyResult("steered-result")
+    pydantic_agent = _ScriptedPydanticAgent(first, after_steer)
     agent = _DummyAgent(pydantic_agent)
 
-    # Simulate the leak: someone's previous (cancelled) run queued a steer.
-    get_pause_controller().request_steer("stale msg from previous session")
+    # Simulate /steer landing after the previous run's final model call.
+    get_pause_controller().request_steer("late steer from previous run")
 
     result = await _runtime.run_with_mcp(agent, "fresh prompt")
 
-    # 1. The fresh run should have received the ORIGINAL prompt, not the steer.
-    assert len(pydantic_agent.calls) == 1, (
-        "Stale steer must NOT trigger a follow-up turn"
-    )
-    assert pydantic_agent.calls[0]["prompt"] == "fresh prompt"
-    assert result is only
-
-    # 2. Pause queue must be empty post-run.
+    assert [call["prompt"] for call in pydantic_agent.calls] == [
+        "fresh prompt",
+        "late steer from previous run",
+    ]
+    assert result is after_steer
     assert get_pause_controller().drain_pending_steer() == []
-
-    # 3. A warning must have fired so the user knows we scrubbed something.
-    assert any("stale steering message" in w for w in warnings), (
-        f"expected stale-steer warning, got: {warnings!r}"
-    )
+    assert any("missed the previous run" in message for message in infos)
 
 
 @pytest.mark.asyncio

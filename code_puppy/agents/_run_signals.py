@@ -105,9 +105,8 @@ def make_schedule_cancel(
 # =============================================================================
 #
 # ``PauseController`` is a process-wide singleton. Without explicit hygiene:
-#   - A cancelled run that left ``request_steer`` items in the queue would
-#     have those items consumed by the NEXT agent run (possibly a totally
-#     different session / agent), as if the user had typed them.
+#   - A ``now`` steer that missed the final model boundary would linger into
+#     the next run instead of becoming the queued turn the user still expects.
 #   - A run that crashed mid-pause would leave the controller in a paused
 #     state, freezing the next run's spinner + event stream.
 # Both bugs are bad. The two helpers below scrub that state.
@@ -117,9 +116,8 @@ def reset_pause_state_at_run_start() -> None:
     """Scrub stale ``PauseController`` state before a fresh agent run.
 
     Called from the top of ``run_with_mcp`` BEFORE any agent work begins.
-    If we find pending steers from a prior cancelled run, emit a warning
-    (with a preview of the first one) so the user knows we discarded
-    something rather than silently swallowing it.
+    Undelivered ``now`` steers are preserved as queued turns: they missed
+    their intended history-processor boundary, but they are still user input.
     """
     from code_puppy.messaging.pause_controller import get_pause_controller
 
@@ -132,10 +130,10 @@ def reset_pause_state_at_run_start() -> None:
         emit_warning(
             f"Discarded {stale_compactions} stale compaction request(s) from a previous run."
         )
-    stale_steers = pc.drain_pending_steer()
-    if stale_steers:
-        emit_warning(
-            f"Discarded {len(stale_steers)} stale steering message(s) from a previous run."
+    deferred_steers = pc.defer_pending_steer_now()
+    if deferred_steers:
+        emit_info(
+            f"Queued {deferred_steers} steering message(s) that missed the previous run."
         )
 
 

@@ -217,6 +217,21 @@ def test_drain_queued_does_not_touch_now(controller):
     assert controller.drain_pending_steer_now() == ["now-one"]
 
 
+def test_defer_pending_now_moves_messages_after_existing_queued(controller):
+    controller.request_steer("now-one", mode="now")
+    controller.request_steer("queue-one", mode="queue")
+    controller.request_steer("now-two", mode="now")
+
+    assert controller.defer_pending_steer_now() == 2
+    assert controller.drain_pending_steer_now() == []
+    assert controller.drain_pending_steer_queued() == [
+        "queue-one",
+        "now-one",
+        "now-two",
+    ]
+    assert controller.defer_pending_steer_now() == 0
+
+
 def test_drain_pending_steer_combines_both_queues_queued_first(controller):
     """Backwards-compat: the cancel-path uses drain_pending_steer() to wipe
     everything. Queued first matches the order the runtime would have

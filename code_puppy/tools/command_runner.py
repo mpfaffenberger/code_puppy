@@ -685,10 +685,11 @@ def run_shell_command_streaming(
     start_time = time.time()
     last_output_time = [start_time]
 
-    # Get the user-configured absolute timeout for shell commands
+    # Foreground duration limit. Reaching it detaches rather than killing;
+    # inactivity remains the guard for genuinely wedged commands.
     from code_puppy.config import get_command_timeout_seconds
 
-    ABSOLUTE_TIMEOUT_SECONDS = get_command_timeout_seconds()
+    foreground_limit_seconds = get_command_timeout_seconds()
 
     stdout_lines = []
     stderr_lines = []
@@ -911,8 +912,8 @@ def run_shell_command_streaming(
             }
         )
 
-    def detach_to_background():
-        """Ctrl+X Ctrl+B: stop streaming, keep the process running.
+    def detach_to_background(*, automatic: bool = False):
+        """Stop foreground streaming while keeping the process running.
 
         The reader threads stay alive and divert every further line into
         a log file (pipes keep draining -- a full pipe buffer would
@@ -929,9 +930,14 @@ def run_shell_command_streaming(
             target=close_divert_log_on_exit, args=(process, log), daemon=True
         ).start()
         execution_time = time.time() - start_time
+        cause = (
+            f"Automatically backgrounded after {foreground_limit_seconds}s"
+            if automatic
+            else "The user backgrounded this command"
+        )
         if not silent:
             emit_warning(
-                f"Backgrounded (PID {process.pid}) -- output continues in {log.path}"
+                f"{cause} (PID {process.pid}) -- output continues in {log.path}"
             )
         return ShellCommandOutput(
             success=True,
@@ -945,15 +951,14 @@ def run_shell_command_streaming(
             log_file=log.path,
             pid=process.pid,
             user_feedback=(
-                "The user backgrounded this command (Ctrl+X Ctrl+B) while it"
-                " was still running. It has NOT finished: stdout/stderr above"
-                " are partial, exit_code is unknown, and the process"
-                f" (PID {process.pid}) keeps running with further output"
-                f" appended to {log.path} (an exit-code footer is written"
-                " when it finishes). The user chose to stop waiting -- do NOT"
-                " wait, sleep, poll, or re-run the command. Acknowledge the"
-                " backgrounding and move on immediately; only read that log"
-                " file later if a subsequent task genuinely needs the result."
+                f"{cause} while the command was still running. It has NOT"
+                " finished: stdout/stderr above are partial, exit_code is"
+                f" unknown, and the process (PID {process.pid}) keeps running"
+                f" with further output appended to {log.path} (an exit-code"
+                " footer is written when it finishes). Do NOT wait, sleep,"
+                " poll, or re-run the command. Move on immediately; only read"
+                " that log later if a subsequent task genuinely needs the"
+                " result."
             ),
         )
 
@@ -970,13 +975,8 @@ def run_shell_command_streaming(
             if background_generation() != bg_generation_at_start:
                 return detach_to_background()
 
-            if current_time - start_time > ABSOLUTE_TIMEOUT_SECONDS:
-                if not silent:
-                    emit_error(
-                        "Process killed: absolute timeout reached",
-                        message_group=group_id,
-                    )
-                return cleanup_process_and_threads("absolute")
+            if current_time - start_time > foreground_limit_seconds:
+                return detach_to_background(automatic=True)
 
             if current_time - last_output_time[0] > timeout:
                 if not silent:
