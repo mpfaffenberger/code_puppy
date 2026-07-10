@@ -135,7 +135,7 @@ async def create_new_page(url: Optional[str] = None) -> Dict[str, Any]:
     """Create a new browser page/tab."""
     group_id = generate_group_id("browser_new_page", url or "blank")
     emit_info(
-        f"BROWSER NEW PAGE 📄 {url or 'blank page'}",
+        f"BROWSER NEW PAGE {url or 'blank page'}",
         message_group=group_id,
     )
     try:
@@ -164,7 +164,7 @@ async def list_pages() -> Dict[str, Any]:
     """List all open browser pages/tabs."""
     group_id = generate_group_id("browser_list_pages")
     emit_info(
-        "BROWSER LIST PAGES 📋",
+        "BROWSER LIST PAGES",
         message_group=group_id,
     )
     try:

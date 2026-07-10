@@ -951,7 +951,7 @@ async def get_input_with_combined_completion(
                 event.app.current_buffer.insert_text("[no image in clipboard] ")
                 event.app.output.bell()
         except Exception:
-            event.app.current_buffer.insert_text("[❌ clipboard error] ")
+            event.app.current_buffer.insert_text("[clipboard error] ")
             event.app.output.bell()
 
     session = _NoGhostLinesPromptSession(

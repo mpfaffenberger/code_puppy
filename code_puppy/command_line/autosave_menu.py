@@ -135,11 +135,9 @@ def _extract_message_content(msg) -> Tuple[str, str]:
                 args_preview = str(args)[:100]
                 if len(str(args)) > 100:
                     args_preview += "..."
-                content_parts.append(
-                    f"🔧 Tool Call: {tool_name}\n   Args: {args_preview}"
-                )
+                content_parts.append(f"Tool Call: {tool_name}\n   Args: {args_preview}")
             else:
-                content_parts.append(f"🔧 Tool Call: {tool_name}")
+                content_parts.append(f"Tool Call: {tool_name}")
 
         elif part_kind == "tool-return":
             # Tool result being returned - show tool name and truncated result
@@ -314,7 +312,7 @@ def _render_message_browser_panel(
     if role == "user":
         lines.append(("fg:ansicyan bold", "  🧑 USER"))
     elif role == "tool":
-        lines.append(("fg:ansiyellow bold", "  🔧 TOOL"))
+        lines.append(("fg:ansiyellow bold", "  TOOL"))
     else:
         lines.append(("fg:ansigreen bold", "  🤖 ASSISTANT"))
     lines.append(("", "\n"))

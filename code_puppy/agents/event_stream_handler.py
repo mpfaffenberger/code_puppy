@@ -440,15 +440,15 @@ async def event_stream_handler(
                         if not _suppress_tool_progress():
                             tool_name = tool_names.get(event.index, "")
                             count = token_count[event.index]
-                            # Display with tool wrench icon and tool name
+                            # Display tool progress without decorative icons.
                             if tool_name:
                                 console.print(
-                                    f"  \U0001f527 Calling {tool_name}... {count} token(s)   ",
+                                    f"  Calling {tool_name}... {count} token(s)   ",
                                     end="\r",
                                 )
                             else:
                                 console.print(
-                                    f"  \U0001f527 Calling tool... {count} token(s)   ",
+                                    f"  Calling tool... {count} token(s)   ",
                                     end="\r",
                                 )
 

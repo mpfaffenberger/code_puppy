@@ -62,7 +62,7 @@ class AttachmentParsingError(RuntimeError):
 
 
 # Matches the placeholders inserted by ClipboardManager.add_image().
-CLIPBOARD_PLACEHOLDER_RE = re.compile(r"\[\U0001f4cb clipboard image \d+\]\s*")
+CLIPBOARD_PLACEHOLDER_RE = re.compile(r"\[(?:\U0001f4cb )?clipboard image \d+\]\s*")
 
 
 @dataclass
@@ -96,7 +96,7 @@ def resolve_user_prompt(raw_prompt: str) -> ResolvedUserPrompt:
     """Resolve a raw prompt into cleaned text and all attachment content.
 
     Combines :func:`parse_prompt_attachments` (file paths / URLs) with the
-    pending clipboard-image queue, stripping ``[\U0001f4cb clipboard image N]``
+    pending clipboard-image queue, stripping ``[clipboard image N]``
     placeholders from the text. Drains (and clears) the clipboard queue.
     """
     processed = parse_prompt_attachments(raw_prompt)

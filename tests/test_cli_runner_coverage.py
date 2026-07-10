@@ -121,7 +121,7 @@ class TestRunPromptWithAttachments:
         # End-to-end through the REAL resolver: only the clipboard manager
         # is stubbed, so this covers placeholder stripping in
         # resolve_user_prompt as consumed by run_prompt_with_attachments.
-        placeholder = "[\U0001f4cb clipboard image 1]"
+        placeholder = "[clipboard image 1]"
         with (
             patch(
                 "code_puppy.command_line.clipboard.get_clipboard_manager"

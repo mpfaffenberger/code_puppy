@@ -163,7 +163,7 @@ def handle_paste_command(command: str) -> bool:
     if placeholder:
         manager = get_clipboard_manager()
         count = manager.get_pending_count()
-        emit_success(f"📋 {placeholder}")
+        emit_success(placeholder)
         emit_info(f"Total pending clipboard images: {count}")
         emit_info("Type your prompt and press Enter to send with the image(s)")
     else:

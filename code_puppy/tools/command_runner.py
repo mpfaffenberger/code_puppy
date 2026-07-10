@@ -1151,9 +1151,9 @@ async def run_shell_command(
 
             # Emit info about background execution
             emit_info(
-                f"🚀 Background process started (PID: {process.pid}) - no timeout, runs until complete"
+                f"Background process started (PID: {process.pid}) - no timeout, runs until complete"
             )
-            emit_info(f"📄 Output logging to: {log_file.name}")
+            emit_info(f"Output logging to: {log_file.name}")
 
             # Return immediately - don't wait, don't block
             return ShellCommandOutput(
@@ -1178,7 +1178,7 @@ async def run_shell_command(
             except OSError:
                 pass
             # Emit error message so user sees what happened
-            emit_error(f"❌ Failed to start background process: {e}")
+            emit_error(f"Failed to start background process: {e}")
             return ShellCommandOutput(
                 success=False,
                 command=command,
@@ -1218,13 +1218,13 @@ async def run_shell_command(
 
         # Build panel content
         panel_content = Text()
-        panel_content.append("⚡ Requesting permission to run:\n", style="bold yellow")
+        panel_content.append("Requesting permission to run:\n", style="bold yellow")
         panel_content.append("$ ", style="bold green")
         panel_content.append(command, style="bold white")
 
         if cwd:
             panel_content.append("\n\n", style="")
-            panel_content.append("📂 Working directory: ", style="dim")
+            panel_content.append("Working directory: ", style="dim")
             panel_content.append(cwd, style="dim cyan")
 
         # Use the common approval function (async version).

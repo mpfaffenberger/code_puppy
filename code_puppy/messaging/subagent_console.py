@@ -40,7 +40,7 @@ STATUS_STYLES = {
     "starting": {"color": "cyan", "spinner": "dots", "emoji": "🚀"},
     "running": {"color": "green", "spinner": "dots", "emoji": "🐕"},
     "thinking": {"color": "magenta", "spinner": "dots", "emoji": "🤔"},
-    "tool_calling": {"color": "yellow", "spinner": "dots12", "emoji": "🔧"},
+    "tool_calling": {"color": "yellow", "spinner": "dots12", "emoji": ""},
     "completed": {"color": "green", "spinner": None, "emoji": "✅"},
     "error": {"color": "red", "spinner": None, "emoji": "❌"},
 }

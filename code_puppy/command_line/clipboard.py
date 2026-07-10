@@ -444,7 +444,7 @@ class ClipboardAttachmentManager:
             image_bytes: PNG image bytes to add.
 
         Returns:
-            Placeholder ID string like '[📋 clipboard image 1]'
+            Placeholder ID string like '[clipboard image 1]'
 
         Raises:
             ValueError: If MAX_PENDING_IMAGES limit is reached.
@@ -458,7 +458,7 @@ class ClipboardAttachmentManager:
                 )
             self._counter += 1
             self._pending_images.append(image_bytes)
-            placeholder = f"[📋 clipboard image {self._counter}]"
+            placeholder = f"[clipboard image {self._counter}]"
             logger.debug(
                 f"Added clipboard image {self._counter} "
                 f"({len(image_bytes) / 1024:.1f}KB)"

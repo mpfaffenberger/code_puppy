@@ -19,46 +19,46 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 from rich.console import Console
 
-# Banner display names with icons
+# Banner display names; decorative icons are intentionally omitted.
 BANNER_DISPLAY_INFO = {
-    "thinking": ("THINKING", "⚡"),
+    "thinking": ("THINKING", ""),
     "agent_response": ("AGENT RESPONSE", ""),
-    "shell_command": ("SHELL COMMAND", "🚀"),
-    "read_file": ("READ FILE", "📂"),
-    "edit_file": ("EDIT FILE", "✏️"),
-    "create_file": ("CREATE FILE", "📝"),
-    "replace_in_file": ("REPLACE IN FILE", "✏️"),
-    "delete_snippet": ("DELETE SNIPPET", "✂️"),
-    "grep": ("GREP", "📂"),
-    "directory_listing": ("DIRECTORY LISTING", "📂"),
+    "shell_command": ("SHELL COMMAND", ""),
+    "read_file": ("READ FILE", ""),
+    "edit_file": ("EDIT FILE", ""),
+    "create_file": ("CREATE FILE", ""),
+    "replace_in_file": ("REPLACE IN FILE", ""),
+    "delete_snippet": ("DELETE SNIPPET", ""),
+    "grep": ("GREP", ""),
+    "directory_listing": ("DIRECTORY LISTING", ""),
     "agent_reasoning": ("AGENT REASONING", ""),
-    "invoke_agent": ("🤖 INVOKE AGENT", ""),
+    "invoke_agent": ("INVOKE AGENT", ""),
     "subagent_response": ("✓ AGENT RESPONSE", ""),
     "list_agents": ("LIST AGENTS", ""),
-    "universal_constructor": ("UNIVERSAL CONSTRUCTOR", "🔧"),
-    "terminal_tool": ("TERMINAL TOOL", "🖥️"),
-    "llm_judge": ("LLM JUDGE", "⚖️"),
+    "universal_constructor": ("UNIVERSAL CONSTRUCTOR", ""),
+    "terminal_tool": ("TERMINAL TOOL", ""),
+    "llm_judge": ("LLM JUDGE", ""),
 }
 
 # Sample content to show after each banner
 BANNER_SAMPLE_CONTENT = {
     "thinking": "Let me analyze this code structure and figure out the best approach...",
     "agent_response": "I've implemented the feature you requested. The changes include...",
-    "shell_command": "$ npm run test -- --silent\n⏱ Timeout: 60s",
+    "shell_command": "$ npm run test -- --silent\nTimeout: 60s",
     "read_file": "/path/to/file.py (lines 1-50)",
     "edit_file": "MODIFY /path/to/file.py\n--- a/file.py\n+++ b/file.py",
     "create_file": "CREATE /path/to/new_file.py\nFile created successfully.",
     "replace_in_file": "MODIFY /path/to/file.py\n--- a/file.py\n+++ b/file.py",
     "delete_snippet": "MODIFY /path/to/file.py\nSnippet deleted from file.",
-    "grep": "/src for 'handleClick'\n📄 Button.tsx (3 matches)",
-    "directory_listing": "/src (recursive=True)\n📁 components/\n   └── Button.tsx",
+    "grep": "/src for 'handleClick'\nButton.tsx (3 matches)",
+    "directory_listing": "/src (recursive=True)\ncomponents/\n   └── Button.tsx",
     "agent_reasoning": "Current reasoning:\nI need to refactor this function...",
     "invoke_agent": "code-reviewer (New session)\nSession: review-auth-abc123",
     "subagent_response": "code-reviewer\nThe code looks good overall...",
-    "list_agents": "- code-puppy: Code Puppy 🐶\n- planning-agent: Planning Agent",
-    "universal_constructor": "action=create tool_name=api.weather\n✅ Created successfully",
+    "list_agents": "- code-puppy: Code Puppy\n- planning-agent: Planning Agent",
+    "universal_constructor": "action=create tool_name=api.weather\nCreated successfully",
     "terminal_tool": "$ chromium --headless\nBrowser terminal session started",
-    "llm_judge": "🎯 Verdict: Complete ✅\nGoal verified — all tests pass.",
+    "llm_judge": "Verdict: Complete\nGoal verified — all tests pass.",
 }
 
 # Available background colors grouped by theme
