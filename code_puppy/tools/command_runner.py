@@ -1096,6 +1096,23 @@ async def run_shell_command(
                 execution_time=None,
             )
 
+    # Apply any command rewrites requested by callbacks.
+    # A callback can return {"rewrite": "<new command>"} to transparently
+    # transform the command before execution (e.g. inject a git trailer,
+    # redact a secret, prepend a corporate proxy). Rewrites are applied in
+    # callback registration order; each one sees whatever the previous ones
+    # produced. A visible info line surfaces the change so users always know
+    # what actually ran -- rewriting must never be sneaky.
+    for result in callback_results:
+        if result and isinstance(result, dict) and "rewrite" in result:
+            new_command = result["rewrite"]
+            if not isinstance(new_command, str) or not new_command.strip():
+                continue  # ignore empty / non-string rewrites defensively
+            if new_command != command:
+                reason = result.get("rewrite_reason", "plugin")
+                emit_info(f"[dim]\U0001f527 command rewritten by {reason}[/dim]")
+                command = new_command
+
     # Handle background execution - runs command detached and returns immediately
     # This happens BEFORE user confirmation since we don't wait for the command
     if background:

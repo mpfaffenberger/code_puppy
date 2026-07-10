@@ -545,6 +545,115 @@ class TestRunShellCommand:
         assert "nope" in result.error
 
     @pytest.mark.asyncio
+    async def test_rewrite_from_callback_replaces_command(self):
+        """A callback that returns {"rewrite": ...} transforms the command.
+
+        Proves the new hook contract: infrastructure for plugins that want
+        to transparently transform commands (secret redaction, proxy
+        injection, attribution trailers) instead of merely blocking them.
+        """
+        from code_puppy.tools.command_runner import run_shell_command
+
+        ctx = MagicMock(spec=RunContext)
+        rewrite_result = {"rewrite": "echo rewritten", "rewrite_reason": "unit test"}
+        mock_output = MagicMock()
+        mock_output.success = True
+
+        with patch(
+            "code_puppy.callbacks.on_run_shell_command",
+            new_callable=AsyncMock,
+            return_value=[rewrite_result],
+        ):
+            with patch("code_puppy.config.get_yolo_mode", return_value=True):
+                with patch(
+                    "code_puppy.tools.command_runner.is_subagent",
+                    return_value=False,
+                ):
+                    with patch(
+                        "code_puppy.tools.command_runner._execute_shell_command",
+                        new_callable=AsyncMock,
+                        return_value=mock_output,
+                    ) as mock_exec:
+                        with patch("code_puppy.tools.command_runner.emit_info"):
+                            result = await run_shell_command(
+                                ctx, "echo original", timeout=10
+                            )
+
+        assert result.success is True
+        # The rewritten command is what actually got executed.
+        executed = mock_exec.call_args.kwargs["command"]
+        assert executed == "echo rewritten", (
+            f"expected rewritten command to be executed, got {executed!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_rewrite_ignored_when_same_as_original(self):
+        """A no-op rewrite should not emit the visible info notice."""
+        from code_puppy.tools.command_runner import run_shell_command
+
+        ctx = MagicMock(spec=RunContext)
+        noop_result = {"rewrite": "echo same"}
+        mock_output = MagicMock()
+        mock_output.success = True
+
+        with patch(
+            "code_puppy.callbacks.on_run_shell_command",
+            new_callable=AsyncMock,
+            return_value=[noop_result],
+        ):
+            with patch("code_puppy.config.get_yolo_mode", return_value=True):
+                with patch(
+                    "code_puppy.tools.command_runner.is_subagent",
+                    return_value=False,
+                ):
+                    with patch(
+                        "code_puppy.tools.command_runner._execute_shell_command",
+                        new_callable=AsyncMock,
+                        return_value=mock_output,
+                    ):
+                        with patch(
+                            "code_puppy.tools.command_runner.emit_info"
+                        ) as mock_info:
+                            await run_shell_command(ctx, "echo same", timeout=10)
+
+        # No 'command rewritten' notice should fire when the string is identical.
+        for call in mock_info.call_args_list:
+            args = call.args or ()
+            payload = args[0] if args else ""
+            assert "command rewritten" not in str(payload)
+
+    @pytest.mark.asyncio
+    async def test_rewrite_ignored_for_empty_or_non_string(self):
+        """Defensively skip empty / non-string rewrite payloads."""
+        from code_puppy.tools.command_runner import run_shell_command
+
+        ctx = MagicMock(spec=RunContext)
+        bad_results = [{"rewrite": ""}, {"rewrite": None}, {"rewrite": 42}]
+        mock_output = MagicMock()
+        mock_output.success = True
+
+        with patch(
+            "code_puppy.callbacks.on_run_shell_command",
+            new_callable=AsyncMock,
+            return_value=bad_results,
+        ):
+            with patch("code_puppy.config.get_yolo_mode", return_value=True):
+                with patch(
+                    "code_puppy.tools.command_runner.is_subagent",
+                    return_value=False,
+                ):
+                    with patch(
+                        "code_puppy.tools.command_runner._execute_shell_command",
+                        new_callable=AsyncMock,
+                        return_value=mock_output,
+                    ) as mock_exec:
+                        with patch("code_puppy.tools.command_runner.emit_info"):
+                            await run_shell_command(ctx, "echo keep", timeout=10)
+
+        # Original command flows through unmutated.
+        assert mock_exec.call_args.kwargs["command"] == "echo keep"
+
+    @pytest.mark.asyncio
     async def test_yolo_mode_executes(self):
         from code_puppy.tools.command_runner import run_shell_command
 
