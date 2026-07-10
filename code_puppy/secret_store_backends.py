@@ -39,8 +39,8 @@ from keyring.backend import KeyringBackend
 from code_puppy.config import CONFIG_DIR
 
 # All secrets for a given service live under this single, fixed account.
-# The service name is supplied per call by secret_store, so the public and
-# enterprise builds (distinct service names) get distinct blob items.
+# The service name is supplied per call by secret_store, so different
+# distributions (with distinct service names) get distinct blob items.
 _BLOB_ACCOUNT = "__code_puppy_secret_blob__"
 
 # Cross-process lock file guarding the read-modify-write of the blob.

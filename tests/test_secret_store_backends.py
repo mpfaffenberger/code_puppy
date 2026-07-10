@@ -116,11 +116,11 @@ class TestBlobStorage:
 
     def test_distinct_services_get_distinct_items(self, backend):
         be, store = backend
-        be.set_password("code-puppy", "tok", "oss")
-        be.set_password("code-puppy-enterprise", "tok", "ent")
+        be.set_password("code-puppy", "tok", "one")
+        be.set_password("other-app", "tok", "two")
         assert len(store) == 2
-        assert be.get_password("code-puppy", "tok") == "oss"
-        assert be.get_password("code-puppy-enterprise", "tok") == "ent"
+        assert be.get_password("code-puppy", "tok") == "one"
+        assert be.get_password("other-app", "tok") == "two"
 
 
 class TestCorruptionSafety:
