@@ -677,6 +677,7 @@ async def interactive_autosave_picker() -> Optional[str]:
 
     @kb.add("up")
     @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
+    @kb.add("k")  # Vim-style
     def _(event):
         if in_search_mode[0]:
             return  # While typing the search buffer, arrows do nothing.
@@ -699,6 +700,7 @@ async def interactive_autosave_picker() -> Optional[str]:
 
     @kb.add("down")
     @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
+    @kb.add("j")  # Vim-style
     def _(event):
         if in_search_mode[0]:
             return

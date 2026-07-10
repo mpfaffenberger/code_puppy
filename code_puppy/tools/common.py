@@ -1041,12 +1041,14 @@ async def arrow_select_async(
 
     @kb.add("up")
     @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
+    @kb.add("k")  # Vim-style
     def move_up(event):
         selected_index[0] = (selected_index[0] - 1) % len(choices)
         event.app.invalidate()  # Force redraw to update preview
 
     @kb.add("down")
     @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
+    @kb.add("j")  # Vim-style
     def move_down(event):
         selected_index[0] = (selected_index[0] + 1) % len(choices)
         event.app.invalidate()  # Force redraw to update preview
@@ -1082,7 +1084,6 @@ async def arrow_select_async(
     from code_puppy.agents._key_listeners import suspended_key_listener
 
     with suspended_key_listener():
-        # Run the app asynchronously
         await app.run_async()
 
     if result[0] is None:
@@ -1127,12 +1128,14 @@ def arrow_select(message: str, choices: list[str]) -> str:
 
     @kb.add("up")
     @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
+    @kb.add("k")  # Vim-style
     def move_up(event):
         selected_index[0] = (selected_index[0] - 1) % len(choices)
         event.app.invalidate()  # Force redraw to update preview
 
     @kb.add("down")
     @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
+    @kb.add("j")  # Vim-style
     def move_down(event):
         selected_index[0] = (selected_index[0] + 1) % len(choices)
         event.app.invalidate()  # Force redraw to update preview

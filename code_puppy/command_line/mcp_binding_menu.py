@@ -171,12 +171,14 @@ async def interactive_mcp_binding_menu(agent_name: str) -> None:
     kb = KeyBindings()
 
     @kb.add("up")
+    @kb.add("k")
     def _(event):
         if selected_idx[0] > 0:
             selected_idx[0] -= 1
             refresh()
 
     @kb.add("down")
+    @kb.add("j")
     def _(event):
         if selected_idx[0] < len(servers) - 1:
             selected_idx[0] += 1
@@ -292,12 +294,14 @@ async def prompt_bind_after_install(server_name: str) -> None:
     kb = KeyBindings()
 
     @kb.add("up")
+    @kb.add("k")
     def _(event):
         if selected_idx[0] > 0:
             selected_idx[0] -= 1
             refresh()
 
     @kb.add("down")
+    @kb.add("j")
     def _(event):
         if selected_idx[0] < len(agents) - 1:
             selected_idx[0] += 1

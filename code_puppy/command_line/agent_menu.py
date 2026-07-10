@@ -353,7 +353,7 @@ def _render_menu_panel(
 
     # Navigation hints
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "  ↑↓ "))
+    lines.append(("fg:ansibrightblack", "  ↑↓/jk "))
     lines.append(("", "Navigate\n"))
     lines.append(("fg:ansibrightblack", "  ←→ "))
     lines.append(("", "Page\n"))
@@ -560,6 +560,7 @@ async def interactive_agent_picker() -> Optional[str]:
     kb = KeyBindings()
 
     @kb.add("up")
+    @kb.add("k")
     def _(event):
         if selected_idx[0] > 0:
             selected_idx[0] -= 1
@@ -572,6 +573,7 @@ async def interactive_agent_picker() -> Optional[str]:
             update_display()
 
     @kb.add("down")
+    @kb.add("j")
     def _(event):
         if selected_idx[0] < len(entries) - 1:
             selected_idx[0] += 1
