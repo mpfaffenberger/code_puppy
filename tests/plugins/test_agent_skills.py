@@ -548,11 +548,14 @@ class TestMetadataParsing:
         """Test parsing skill metadata from nonexistent path."""
         nonexistent = tmp_path / "does-not-exist"
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.DEBUG):
             metadata = parse_skill_metadata(nonexistent)
 
         assert metadata is None
         assert "Skill path does not exist" in caplog.text
+        # Missing paths are routine (e.g. project dirs without skills) —
+        # they must not emit user-visible warning noise.
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
     def test_parse_skill_metadata_with_file_io_error(self, tmp_path, monkeypatch):
         """Test parsing when file I/O fails."""
@@ -582,11 +585,12 @@ class TestMetadataParsing:
         """Test loading full skill content from nonexistent path."""
         nonexistent = tmp_path / "does-not-exist"
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.DEBUG):
             content = load_full_skill_content(nonexistent)
 
         assert content is None
         assert "Skill path does not exist" in caplog.text
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
     def test_get_skill_resources(self, skill_dir_with_resources):
         """Test getting resource files from skill directory."""
@@ -614,11 +618,12 @@ class TestMetadataParsing:
         """Test getting resources from nonexistent path."""
         nonexistent = tmp_path / "does-not-exist"
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.DEBUG):
             resources = get_skill_resources(nonexistent)
 
         assert len(resources) == 0
         assert "Skill path does not exist" in caplog.text
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 # Tests for Prompt Builder Module
