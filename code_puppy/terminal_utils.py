@@ -158,6 +158,12 @@ def ensure_windows_vt_processing() -> bool:
 _ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
 
 
+def _vt_input_host_is_broken() -> bool:
+    """Return whether Wave's Windows host must not receive VT input mode."""
+    term_program = os.environ.get("TERM_PROGRAM", "")
+    return term_program.strip().casefold() == "waveterm"
+
+
 def enable_windows_vt_input() -> bool:
     """Enable VT input (``ENABLE_VIRTUAL_TERMINAL_INPUT``) on stdin, verified.
 
@@ -180,6 +186,14 @@ def enable_windows_vt_input() -> bool:
     ancient hosts silently no-op ``SetConsoleMode``). Never raises.
     """
     if platform.system() != "Windows":
+        return False
+
+    # Wave uses the system conhost.exe as its ConPTY host. Its VT-input
+    # state machine fails fast on multibyte input, killing the PTY when a
+    # user types characters such as ä. Actively clear an inherited flag too;
+    # this compatibility path is gated solely on TERM_PROGRAM == "waveterm".
+    if _vt_input_host_is_broken():
+        disable_windows_vt_input()
         return False
 
     try:
