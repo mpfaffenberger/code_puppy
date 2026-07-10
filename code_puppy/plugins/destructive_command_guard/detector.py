@@ -22,7 +22,7 @@ class DestructiveCommandMatch:
     description: str
 
 class SearchGroup:
-    def __init__(self, name: str, substrings: tuple[str], patterns: tuple[str]):
+    def __init__(self, name: str, substrings: tuple[str], patterns: tuple[tuple[re.Pattern, str, str], ...]):
         self.name = name
         self.cheap_substrings = substrings
         self.expensive_patterns = patterns
@@ -37,7 +37,7 @@ def load_guardrails_data() -> list[SearchGroup]:
         try:
             with open(data_path, "r", encoding = "utf-8") as f:
                 data = json.load(f)
-        except json.JSONDecodeError as e:
+        except (OSError, json.JSONDecodeError) as e:
             raise ValueError(f"Failed to parse guardrails data JSON: {e}") from e
 
         if "groups" not in data:
@@ -49,7 +49,7 @@ def load_guardrails_data() -> list[SearchGroup]:
                     name=group_data["name"],
                     substrings=tuple(group_data["cheap_substrings"]),
                     patterns=tuple(
-                        (re.compile(pattern_info["regex"], re.MULTILINE | re.IGNORECASE), pattern_info["name"], pattern_info["description"])
+                        (re.compile(pattern_info["regex"], re.IGNORECASE), pattern_info["name"], pattern_info["description"])
                         for pattern_info in group_data["expensive_patterns"]
                     ),
                 )
@@ -58,20 +58,19 @@ def load_guardrails_data() -> list[SearchGroup]:
                 raise KeyError(f"Guardrails group '{group_data.get('name', '<unknown>')}' is missing required field: {e}")
             except re.error as e:
                 raise ValueError(f"Invalid regex in guardrails group '{group_data.get('name', '<unknown>')}': {e}")
-                
-    return all_groups
+    
+    if not all_groups:
+        raise ValueError("No guardrails groups found in any JSON files")
+    else:      
+        return all_groups
 
 #regex pattern to split on
 _CMD_SPLIT_RE = re.compile(r"\s*(?:&&|\|\||;|&)\s*")
 
 #Split a command string into subcommands based on shell operators.
 def split_command(command: str) -> list[str]:
-    try:
-        subcommands = _CMD_SPLIT_RE.split(command)
-        return subcommands
-    except ValueError:
-        # If the command can't be parsed, treat it as a single command
-        return [command]
+    return _CMD_SPLIT_RE.split(command)
+    
 
 
 # Regex patterns to remove simple obfuscations like empty quotes, backslash escapes, and caret escapes.
@@ -90,7 +89,7 @@ def normalize_command(command: str) -> str:
     return command
 
 
-GLOBAL_PATTERNS: list[SearchGroup] = []
+GLOBAL_PATTERNS: list[SearchGroup] = None
 
 
 def detect_destructive_command(command: str) ->  DestructiveCommandMatch | None:
@@ -103,7 +102,7 @@ def detect_destructive_command(command: str) ->  DestructiveCommandMatch | None:
 
     global GLOBAL_PATTERNS
 
-    if GLOBAL_PATTERNS == []:
+    if GLOBAL_PATTERNS is None:
         GLOBAL_PATTERNS = load_guardrails_data()
     
     #Split commands on operators Ex: &&, ||, ;, &, \n

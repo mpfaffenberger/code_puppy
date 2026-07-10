@@ -40,7 +40,7 @@
                     "description": "deletes remote branches not present locally"
                 },
                 {
-                    "regex": "\\bgit\\s+clean\\b.*-f(?:[dxf]|\\s+-?[dxf])",
+                    "regex": "\\bgit\\s+clean\\b.*-[fdxX]*f[fdxX]*",
                     "name": "git clean -fd",
                     "description": "deletes untracked files and directories"
                 },
