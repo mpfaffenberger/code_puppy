@@ -71,7 +71,7 @@ and skills (`<CWD>/.code_puppy/skills/`).
 | `agent_run_start` | Before agent task | `(agent_name, model_name, session_id=None) -> None` |
 | `agent_run_end` | After agent run | `(agent_name, model_name, session_id=None, success=True, error=None, response_text=None, metadata=None) -> None` |
 | `load_prompt` | System prompt assembly | `() -> str \| None` |
-| `run_shell_command` | Before shell exec | `(context, command, cwd=None, timeout=60) -> dict \| None` (return `{"blocked": True}` to block) |
+| `run_shell_command` | Before shell exec | `(context, command, cwd=None, timeout=60) -> dict \| None` (return `{"blocked": True}` to block, `{"rewrite": "<new cmd>"}` to transparently transform) |
 | `file_permission` | Before file op | `(context, file_path, operation, ...) -> bool` |
 | `pre_tool_call` | Before tool executes | `(tool_name, tool_args, context=None) -> Any` |
 | `post_tool_call` | After tool finishes | `(tool_name, tool_args, result, duration_ms, context=None) -> Any` |
