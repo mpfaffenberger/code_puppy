@@ -72,8 +72,9 @@ class TestAgentManagerErrors:
             ):
                 load_agent("agent@#$%^&*()")
 
+    @patch("code_puppy.agents.agent_manager.emit_warning")
     @patch("code_puppy.agents.agent_manager._discover_agents")
-    def test_load_agent_fallback_behavior(self, mock_discover):
+    def test_load_agent_fallback_behavior(self, mock_discover, mock_emit_warning):
         """Test load_agent fallback to code-puppy when requested agent not found."""
         mock_discover.return_value = None
 
@@ -89,6 +90,15 @@ class TestAgentManagerErrors:
             result = load_agent("nonexistent-agent")
             assert result is not None
             mock_agent_class.assert_called_once()
+            mock_emit_warning.assert_called_once()
+            warning_text = mock_emit_warning.call_args[0][0]
+            assert "nonexistent-agent" in warning_text
+            assert "list_agents" not in warning_text
+
+            # Known agent should not emit fallback warning
+            mock_emit_warning.reset_mock()
+            load_agent("code-puppy")
+            mock_emit_warning.assert_not_called()
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
     def test_load_agent_no_fallback_available(self, mock_discover):

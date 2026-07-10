@@ -49,7 +49,14 @@ async def _invoke_agent_impl(
     emit_response_message: bool = True,
 ) -> AgentInvokeOutput:
     """Invoke a sub-agent, optionally suppressing its standard response message."""
-    from code_puppy.agents.agent_manager import load_agent
+    from code_puppy.agents.agent_manager import (
+        get_registered_agent_names,
+        load_agent,
+    )
+
+    requested_agent_name = agent_name
+    actual_agent_name = requested_agent_name
+    fell_back = False
 
     # Validate user-provided session_id if given
     if session_id is not None:
@@ -65,6 +72,12 @@ async def _invoke_agent_impl(
                 model_name=model_name,
                 error=str(e),
             )
+
+    # Mirror load_agent() fallback behavior exactly:
+    # fallback only happens when requested agent is missing AND code-puppy exists.
+    registered = get_registered_agent_names()
+    fell_back = requested_agent_name not in registered and "code-puppy" in registered
+    actual_agent_name = "code-puppy" if fell_back else requested_agent_name
 
     # Generate a group ID for this tool execution
     group_id = generate_group_id("invoke_agent", agent_name)
@@ -105,7 +118,7 @@ async def _invoke_agent_impl(
     bus = get_message_bus()
     bus.emit(
         SubAgentInvocationMessage(
-            agent_name=agent_name,
+            agent_name=actual_agent_name,
             session_id=session_id,
             prompt=prompt,
             is_new_session=is_new_session,
@@ -288,7 +301,7 @@ async def _invoke_agent_impl(
                 stream_handler = partial(subagent_stream_handler, session_id=session_id)
 
             # Wrap the agent run in subagent context for tracking
-            with subagent_context(agent_name):
+            with subagent_context(actual_agent_name):
                 run_ctxs = on_agent_run_context(
                     agent_config, temp_agent, group_id, mcp_servers
                 )
@@ -328,6 +341,21 @@ async def _invoke_agent_impl(
             # Extract the response from the result
             response = result.output
 
+            if fell_back:
+                notice = (
+                    "[invoke_agent notice] The requested sub-agent "
+                    f"'{requested_agent_name}' is not installed/available, so "
+                    "this task was routed to the default 'code-puppy' agent "
+                    "instead. Before using this result, tell the user that "
+                    f"'{requested_agent_name}' doesn't exist, and offer to either "
+                    "(a) install/create it (e.g. via the agent marketplace or "
+                    "agent-creator) or (b) continue with a different existing "
+                    "agent. Do not attribute this output to "
+                    f"'{requested_agent_name}'.\n\n"
+                    "--- code-puppy output below ---\n\n"
+                )
+                response = f"{notice}{response}"
+
             # Update the session history with the new messages from this interaction
             # The result contains all_messages which includes the full conversation
             updated_history = result.all_messages()
@@ -336,7 +364,7 @@ async def _invoke_agent_impl(
             _save_session_history(
                 session_id=session_id,
                 message_history=updated_history,
-                agent_name=agent_name,
+                agent_name=actual_agent_name,
                 initial_prompt=prompt if is_new_session else None,
             )
 
@@ -347,7 +375,7 @@ async def _invoke_agent_impl(
             if emit_response_message and not (is_high_mode and streamed_text):
                 bus.emit(
                     SubAgentResponseMessage(
-                        agent_name=agent_name,
+                        agent_name=actual_agent_name,
                         session_id=session_id,
                         response=response,
                         message_count=len(updated_history),
@@ -356,23 +384,38 @@ async def _invoke_agent_impl(
 
             # Emit clean completion summary
             emit_success(
-                f"✓ {agent_name} completed successfully", message_group=group_id
+                f"\u2713 {actual_agent_name} completed successfully",
+                message_group=group_id,
             )
 
             return AgentInvokeOutput(
                 response=response,
-                agent_name=agent_name,
+                agent_name=actual_agent_name,
                 session_id=session_id,
                 model_name=effective_model_name,
+                requested_agent_name=requested_agent_name if fell_back else None,
+                fell_back=fell_back,
             )
 
     except Exception as e:
         # Emit clean failure summary
-        emit_error(f"✗ {agent_name} failed: {str(e)}", message_group=group_id)
+        emit_error(
+            f"{actual_agent_name} failed: {str(e)}",
+            message_group=group_id,
+        )
 
         # Full traceback for debugging
-        error_msg = f"Error invoking agent '{agent_name}': {traceback.format_exc()}"
+        error_msg = (
+            f"Error invoking agent '{actual_agent_name}': {traceback.format_exc()}"
+        )
         emit_error(error_msg, message_group=group_id)
+
+        if fell_back:
+            error_msg = (
+                "(requested agent "
+                f"'{requested_agent_name}' not found; ran 'code-puppy' instead) "
+                f"{error_msg}"
+            )
 
         # Save whatever progress the agent made before crashing. The history
         # processor keeps ``agent_config._message_history`` in sync with each
@@ -385,7 +428,7 @@ async def _invoke_agent_impl(
                 _save_session_history(
                     session_id=session_id,
                     message_history=partial_history,
-                    agent_name=agent_name,
+                    agent_name=actual_agent_name,
                     initial_prompt=prompt if is_new_session else None,
                 )
                 emit_info(
@@ -398,9 +441,11 @@ async def _invoke_agent_impl(
 
         return AgentInvokeOutput(
             response=None,
-            agent_name=agent_name,
+            agent_name=actual_agent_name,
             session_id=session_id,
             model_name=effective_model_name,
+            requested_agent_name=requested_agent_name if fell_back else None,
+            fell_back=fell_back,
             error=error_msg,
         )
 

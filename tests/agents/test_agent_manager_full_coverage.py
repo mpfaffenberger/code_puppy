@@ -841,13 +841,24 @@ class TestSetCurrentAgent:
 class TestLoadAgent:
     """Tests for load_agent."""
 
+    @patch("code_puppy.agents.agent_manager.emit_warning")
     @patch("code_puppy.agents.agent_manager._discover_agents")
-    def test_fallback_to_code_puppy(self, mock_discover):
+    def test_fallback_to_code_puppy(self, mock_discover, mock_emit_warning):
         from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
         am._AGENT_REGISTRY["code-puppy"] = CodePuppyAgent
         agent = am.load_agent("nonexistent")
         assert agent.name == "code-puppy"
+        mock_emit_warning.assert_called_once()
+        warning_text = mock_emit_warning.call_args[0][0]
+        assert "nonexistent" in warning_text
+        assert "list_agents" not in warning_text
+
+        # Known agent should not emit fallback warning
+        mock_emit_warning.reset_mock()
+        known_agent = am.load_agent("code-puppy")
+        assert known_agent.name == "code-puppy"
+        mock_emit_warning.assert_not_called()
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
     def test_no_fallback_raises(self, mock_discover):
