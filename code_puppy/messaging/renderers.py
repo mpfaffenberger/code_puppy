@@ -292,12 +292,14 @@ def _print_message(console: Console, message: UIMessage) -> None:
     if message.type == MessageType.QUEUED:
         from code_puppy.config import get_banner_color
 
-        queued = Text(
+        queued = Text()
+        queued.append(
             " QUEUED ",
             style=f"bold white on {get_banner_color('thinking')}",
         )
         queued.append(" ")
         queued.append(str(content), style="dim")
+        console.print()
         console.print(queued)
     elif isinstance(content, str):
         if message.type == MessageType.AGENT_RESPONSE:
