@@ -7,13 +7,19 @@ listener now drains the whole burst per tick and wraps large all-text
 bursts in a synthesized bracketed paste.
 """
 
+import pytest
+
 from code_puppy.agents._key_listeners import (
+    _PASTE_CLOSE,
+    _PASTE_OPEN,
     _SHIFT_ENTER_SEQ,
     _WIN_BURST_CAP,
     _WIN_PASTE_MIN_CHARS,
     _coalesce_paste_burst,
     _drain_windows_burst,
+    _route_windows_burst,
     _windows_char_to_seq,
+    set_line_editor,
 )
 
 
@@ -102,6 +108,34 @@ class TestCoalesce:
         assert _coalesce_paste_burst(items) == "abc"
 
 
+class TestCoalesceVtInput:
+    """With ENABLE_VIRTUAL_TERMINAL_INPUT, special keys arrive as VT
+    escape sequences (3+ chars in one tick) — they must classify as
+    typing, not paste, or arrows insert literal ESC garbage. Terminal
+    pastes are always bracketed while ?2004h is armed, so the markers
+    stay the paste discriminator."""
+
+    def test_single_arrow_seq_is_typing(self):
+        assert _coalesce_paste_burst([("char", c) for c in "\x1b[A"]) is None
+
+    def test_key_repeat_arrow_flood_is_typing(self):
+        items = [("char", c) for c in "\x1b[B" * 20]
+        assert _coalesce_paste_burst(items) is None
+
+    def test_chars_then_arrow_in_one_tick_is_typing(self):
+        items = [("char", c) for c in "ab\x1b[D"]
+        assert _coalesce_paste_burst(items) is None
+
+    def test_bracketed_burst_with_markers_still_coalesces(self):
+        wire = _PASTE_OPEN + "hello" + _PASTE_CLOSE
+        assert _coalesce_paste_burst([("char", c) for c in wire]) == wire
+
+    def test_empty_bracketed_paste_still_coalesces(self):
+        # The image-only Ctrl+V payload — must reach the editor verbatim.
+        wire = _PASTE_OPEN + _PASTE_CLOSE
+        assert _coalesce_paste_burst([("char", c) for c in wire]) == wire
+
+
 class TestShiftEnter:
     """Classic console input encodes Shift+Enter as a bare \\r — the
     listener disambiguates via the live Shift state and synthesizes the
@@ -132,3 +166,79 @@ class TestShiftEnter:
         from code_puppy.agents._key_listeners import _win_shift_is_down
 
         assert _win_shift_is_down() in (True, False)
+
+
+def _chars(wire: str) -> list:
+    return [("char", c) for c in wire]
+
+
+def _route(items: list) -> None:
+    _route_windows_burst(items, lambda: None, None, None)
+
+
+class TestRouteBurst:
+    """Terminal-bracketed pastes must pass through VERBATIM.
+
+    Windows Terminal honors the ?2004h arming the bottom bar emits and
+    ConPTY flattens the ESC[200~/201~ markers into the char flood. The
+    old lane re-wrapped that flood in a SECOND pair of markers, so the
+    editor's paste payload became the literal inner opener — classified
+    as "text", never as the empty payload that triggers clipboard-image
+    capture. That was the Windows-only Ctrl+V image-paste regression.
+    """
+
+    @pytest.fixture
+    def editor(self):
+        from code_puppy.messaging.line_editor import RunningLineEditor
+
+        ed = RunningLineEditor()
+        set_line_editor(ed)
+        try:
+            yield ed
+        finally:
+            set_line_editor(None)
+
+    @pytest.fixture
+    def clipboard_image(self, monkeypatch):
+        """Fake an image-bearing clipboard (never shell out in CI)."""
+        placeholder = "[ clipboard image 1]"
+        monkeypatch.setattr(
+            "code_puppy.command_line.clipboard.capture_clipboard_image_to_pending",
+            lambda: placeholder,
+        )
+        return placeholder
+
+    def test_image_only_paste_captures_clipboard_image(self, editor, clipboard_image):
+        # WT pastes an image-only clipboard as an EMPTY bracketed paste.
+        _route(_chars(_PASTE_OPEN + _PASTE_CLOSE))
+        assert editor._buffer == clipboard_image + " "
+
+    def test_bracketed_text_paste_is_not_double_wrapped(self, editor):
+        _route(_chars(_PASTE_OPEN + "hello world" + _PASTE_CLOSE))
+        assert editor._buffer == "hello world"
+        assert "\x1b" not in editor._buffer
+
+    def test_raw_flood_still_gets_synthesized_wrap(self, editor):
+        # Legacy conhost lane: no markers → newlines stay in the buffer.
+        _route(_chars("line one\rline two"))
+        assert editor._buffer == "line one\nline two"
+
+    def test_split_bracketed_paste_across_poll_ticks(self, editor):
+        _route(_chars(_PASTE_OPEN + "first "))
+        assert editor.paste_active
+        _route(_chars("second" + _PASTE_CLOSE))
+        assert not editor.paste_active
+        assert editor._buffer == "first second"
+
+    def test_small_typing_burst_dispatches_per_key(self, editor):
+        _route(_chars("a"))
+        assert editor._buffer == "a"
+
+    def test_vt_arrow_burst_moves_cursor_instead_of_pasting(self, editor):
+        # VT-input arrows arrive as a char burst; they must reach the
+        # editor's CSI state machine, not the buffer as literal text.
+        _route(_chars("ab"))
+        _route(_chars("\x1b[D\x1b[D"))
+        _route(_chars("X"))
+        assert editor._buffer == "Xab"
+        assert "\x1b" not in editor._buffer

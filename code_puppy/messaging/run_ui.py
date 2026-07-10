@@ -47,6 +47,8 @@ from typing import Dict, Iterator, Optional
 
 from .bottom_bar import get_bottom_bar
 from .line_editor import RunningLineEditor
+from .chords import register_chord, unregister_chord
+from .external_editor import make_external_edit_handler
 from .run_ui_wiring import attach_completion, make_clipboard_handler
 
 logger = logging.getLogger(__name__)
@@ -130,6 +132,14 @@ def start_run_ui() -> Optional[RunningLineEditor]:
             _loop = None
     editor.add_submit_listener(_make_slash_listener(editor))
     editor.set_clipboard_handler(make_clipboard_handler(editor, _get_loop))
+    # Ctrl+X Ctrl+E: edit the prompt in $EDITOR (chord registry — shell
+    # kill/background chords are registered by command_runner while
+    # shells run; this one lives for the UI's lifetime).
+    register_chord(
+        "\x05",
+        make_external_edit_handler(editor, _get_loop),
+        "Ctrl+E edit in $EDITOR",
+    )
     attach_completion(editor, _get_loop)
     _set_feed_target(editor)
     editor.repaint()
@@ -158,6 +168,7 @@ def stop_run_ui() -> None:
         _loop = None
     if editor is not None:
         _set_feed_target(None)
+    unregister_chord("\x05")  # the handler closes over the dead editor
     _clear_status_row()
     try:
         get_bottom_bar().stop()
@@ -345,16 +356,18 @@ def absorb_ctrl_c_if_composing() -> bool:
 def _cleared_hint() -> str:
     """Status hint after a buffer-first Ctrl+C — names the REAL cancel key.
 
-    "press ctrl+c again" is only true when SIGINT owns cancel; on
-    Windows (default ctrl+k) it would be a lie.
+    When the cancel key IS ctrl+c (the default everywhere — the press
+    that just cleared the buffer was the cancel gesture), say "again".
+    When cancel is remapped (ctrl+k/ctrl+q), "press ctrl+c again" would
+    be a lie — name the real key instead.
     """
     try:
         from code_puppy.keymap import (
-            cancel_agent_uses_signal,
             get_cancel_agent_display_name,
+            get_cancel_agent_key,
         )
 
-        if cancel_agent_uses_signal():
+        if get_cancel_agent_key() == "ctrl+c":
             return "input cleared — press ctrl+c again to cancel the agent"
         key = get_cancel_agent_display_name().lower()
         return f"input cleared — press {key} to cancel the agent"

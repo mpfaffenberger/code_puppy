@@ -10,10 +10,12 @@ environment variables:
 
 This module speaks herdr's newline-delimited JSON socket protocol just
 far enough to call ``pane.report_agent`` / ``pane.report_agent_session``.
-It never reads a reply and never raises into the caller: reporting agent
-state must never be able to disturb the agent itself. Delivery happens on
-a single daemon worker thread so the (sync) permission hot-path and the
-async run loop both enqueue in O(1) and move on.
+It reads herdr's ack (and retries a few times if it doesn't come) so an
+authoritative state edge is never silently lost, but it never raises into
+the caller: reporting agent state must never be able to disturb the agent
+itself. Delivery happens on a single daemon worker thread so the (sync)
+permission hot-path and the async run loop both enqueue in O(1) and move
+on.
 
 Windows named-pipe transport is intentionally out of scope; herdr's
 Windows build is beta and ``AF_UNIX`` is the contract everywhere else.
@@ -41,6 +43,15 @@ AGENT = "codepuppy"
 
 _CONNECT_TIMEOUT_S = 0.5
 _QUEUE_MAX = 256
+
+# Delivery is retried until herdr acks, because a silently-dropped report
+# strands the pane on a stale state (a lost ``working`` shows idle mid-turn; a
+# lost ``idle`` shows working after a Ctrl+C). Retrying the *same* envelope is
+# safe: herdr dedupes on ``seq`` (rejects seq <= last_seq), so a report that
+# already applied is harmlessly ignored on the retry.
+_SEND_ATTEMPTS = 3
+_SEND_BACKOFF_S = 0.05
+_ACK_BYTES = 4096
 
 
 class HerdrClient:
@@ -142,16 +153,30 @@ class HerdrClient:
             self._send(envelope)
 
     def _send(self, envelope: Dict[str, Any]) -> None:
-        try:
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-                sock.settimeout(_CONNECT_TIMEOUT_S)
-                sock.connect(self._socket_path)  # type: ignore[arg-type]
-                payload = (json.dumps(envelope) + "\n").encode("utf-8")
-                sock.sendall(payload)
-        except (OSError, ValueError) as exc:
-            # herdr may have exited, or the pane was closed. Neither is
-            # our problem to solve; stay quiet on the diagnostic channel.
-            logger.debug("herdr report failed: %s", exc)
+        payload = (json.dumps(envelope) + "\n").encode("utf-8")
+        last_exc: Optional[Exception] = None
+        for attempt in range(_SEND_ATTEMPTS):
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                    sock.settimeout(_CONNECT_TIMEOUT_S)
+                    sock.connect(self._socket_path)  # type: ignore[arg-type]
+                    sock.sendall(payload)
+                    # Read the ack so a report is only considered delivered
+                    # once herdr has actually taken it. No ack (closed or
+                    # timed-out) means it may not have applied -> retry.
+                    if sock.recv(_ACK_BYTES):
+                        return
+            except (OSError, ValueError) as exc:
+                last_exc = exc
+            if attempt + 1 < _SEND_ATTEMPTS:
+                time.sleep(_SEND_BACKOFF_S)
+        # herdr may have exited or the pane was closed. Nothing left to do but
+        # note it on the diagnostic channel -- never raise into the agent.
+        logger.debug(
+            "herdr report undelivered after %d attempts: %s",
+            _SEND_ATTEMPTS,
+            last_exc,
+        )
 
 
 __all__ = ["HerdrClient", "SOURCE", "AGENT"]

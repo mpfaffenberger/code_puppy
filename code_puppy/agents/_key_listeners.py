@@ -16,10 +16,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Optional
 
-from code_puppy.keymap import (
-    cancel_agent_uses_signal,
-    get_cancel_agent_char_code,
-)
+from code_puppy.keymap import get_cancel_agent_char_code
 from code_puppy.messaging import emit_info, emit_warning
 
 
@@ -79,45 +76,16 @@ _active_handle: Optional[KeyListenerHandle] = None
 _active_handle_lock = threading.Lock()
 
 # =============================================================================
-# Dynamic escape (Ctrl+X) handler
-# =============================================================================
-#
-# The shell-command runner needs Ctrl+X to kill running processes, but only
-# while commands are in flight. Rather than spawning a *second* cbreak
-# listener thread (two readers on one stdin -- the historical cause of
-# stolen CPR replies and the "terminal doesn't support cursor position
-# requests" warning), it registers a handler here and the single active
-# listener dispatches to it.
-
-_escape_handler: Optional[Callable[[], None]] = None
-_escape_handler_lock = threading.Lock()
-
-
-def set_escape_handler(handler: Optional[Callable[[], None]]) -> None:
-    """Install (or clear, with ``None``) the dynamic Ctrl+X handler.
-
-    While set, it takes precedence over the ``on_escape`` callback the
-    listener was spawned with.
-    """
-    global _escape_handler
-    with _escape_handler_lock:
-        _escape_handler = handler
-
-
-def _resolve_escape_handler(fallback: Callable[[], None]) -> Callable[[], None]:
-    """Return the dynamic Ctrl+X handler if set, else ``fallback``."""
-    with _escape_handler_lock:
-        return _escape_handler or fallback
-
-
 # =============================================================================
 # Line-editor feed target (Phase 3 of the bottom-bar rewrite)
 # =============================================================================
 #
 # The run UI installs a ``RunningLineEditor`` here; the single listener
 # thread routes every NON-hotkey character into it (one stdin reader,
-# dynamic dispatch — the ``set_escape_handler`` pattern). Ctrl+X and the
-# cancel-agent key keep priority and are never fed to the editor.
+# dynamic dispatch). The cancel-agent key keeps priority and is never
+# fed to the editor; Ctrl+X always flows INTO the editor as the chord
+# prefix (bindings live in ``messaging.chords``) — the spawn-time
+# ``on_escape`` fallback only fires when no editor is installed.
 
 _line_editor: Optional[Any] = None
 _line_editor_lock = threading.Lock()
@@ -165,7 +133,8 @@ def _tick_line_editor() -> None:
 #
 # The cancel-agent hotkey callback is per-RUN (closes over the agent
 # task + loop): the runtime arms it here while a run is active and
-# clears it afterwards — mirroring ``set_escape_handler``. With no
+# clears it afterwards — same dynamic-dispatch pattern as the
+# line-editor feed target above. With no
 # handler armed the cancel key is inert (never fed to the editor).
 
 _cancel_handler: Optional[Callable[[], None]] = None
@@ -244,9 +213,10 @@ def spawn_key_listener(
 ) -> Optional[KeyListenerHandle]:
     """Start a daemon thread that listens for Ctrl+X / cancel keys.
 
-    ``on_escape`` handles Ctrl+X (shell cancel); ``on_cancel_agent`` is
-    only used when ``cancel_agent_uses_signal()`` is False. Returns a
-    ``KeyListenerHandle``, or ``None`` if stdin isn't a TTY.
+    ``on_escape`` handles Ctrl+X (shell cancel); ``on_cancel_agent``
+    handles the cancel hotkey (Ctrl+C is a pure keybinding — the
+    listener always owns cancel). Returns a ``KeyListenerHandle``, or
+    ``None`` if stdin isn't a TTY.
     """
     try:
         import sys
@@ -308,21 +278,23 @@ def _resolve_cancel_char(
 ) -> Optional[str]:
     """Resolve the cancel character code once per listener start.
 
-    Returns ``None`` when SIGINT owns cancel. The char is resolved even
-    without a spawn-time callback: the persistent listener (Phase A)
-    receives its per-run handler later via ``set_cancel_handler``, and
-    dispatch re-checks handler presence per keystroke.
+    Ctrl+C is a pure keybinding on every platform, so the cancel char is
+    ALWAYS resolved (the key listener owns cancellation; SIGINT is only
+    an out-of-band fallback). The char is resolved even without a
+    spawn-time callback: the persistent listener (Phase A) receives its
+    per-run handler later via ``set_cancel_handler``, and dispatch
+    re-checks handler presence per keystroke.
     """
-    if cancel_agent_uses_signal():
-        return None
+    del on_cancel_agent  # handler presence is re-checked per keystroke
     try:
         return get_cancel_agent_char_code()
     except Exception:
         return None
 
 
-#: Raw Ctrl+C byte. On Windows the session strips ENABLE_PROCESSED_INPUT,
-#: so ^C reaches the listener as this byte instead of becoming a SIGINT.
+#: Raw Ctrl+C byte. ^C reaches the listener as this byte instead of
+#: becoming a signal: Windows strips ENABLE_PROCESSED_INPUT session-wide;
+#: POSIX disables the tty INTR char while the listener holds cbreak mode.
 _RAW_CTRL_C = "\x03"
 
 
@@ -349,17 +321,25 @@ def _dispatch_key(
 ) -> None:
     """Route one keystroke: hotkeys first, everything else to the editor.
 
-    Ctrl+X and the cancel-agent key keep PRIORITY and are never fed to
-    the line editor. Shared by the POSIX and Windows listener loops.
+    The cancel-agent key keeps PRIORITY and is never fed to the line
+    editor. Ctrl+X is NOT modal: with an editor installed it always
+    flows into it as the chord prefix and the ``messaging.chords``
+    registry decides what the follow-up key does (Ctrl+E $EDITOR,
+    Ctrl+X kill shells, Ctrl+B background shells). The spawn-time
+    ``on_escape`` callback only fires headless (no editor) — there a
+    bare Ctrl+X keeps its historical kill-the-shells meaning.
 
-    Raw ^C as the cancel char (the Windows default) keeps its universal
-    shell semantics, mirroring the POSIX SIGINT handler's contract:
+    Raw ^C as the cancel char (the default everywhere) keeps its
+    universal shell semantics, matching the old SIGINT handler contract:
     composing input absorbs the press (clear + hint); only an empty
     prompt cancels the run; idle ^C clears the typed line.
     """
     if data == "\x18":  # Ctrl+X
+        if get_line_editor() is not None:
+            _feed_line_editor(data)  # chord prefix — chords registry decides
+            return
         try:
-            _resolve_escape_handler(on_escape)()
+            on_escape()
         except Exception:
             emit_warning("Ctrl+X handler raised unexpectedly; Ctrl+C still works.")
         return
@@ -512,6 +492,13 @@ def _drain_windows_burst(msvcrt) -> list:
     return items
 
 
+#: Bracketed-paste markers a modern terminal (Windows Terminal ≥1.18
+#: honors the ?2004h arming the bottom bar emits) may ALREADY have put
+#: around a paste before ConPTY flattens it into a char flood.
+_PASTE_OPEN = "\x1b[200~"
+_PASTE_CLOSE = "\x1b[201~"
+
+
 def _coalesce_paste_burst(items: list) -> Optional[str]:
     """Return the paste payload for a large all-text burst, else ``None``.
 
@@ -526,7 +513,75 @@ def _coalesce_paste_burst(items: list) -> Optional[str]:
         return None
     if any(kind != "char" for kind, _ in items):
         return None
-    return "".join(value for _, value in items)
+    payload = "".join(value for _, value in items)
+    if "\x1b" in payload and _PASTE_OPEN not in payload and _PASTE_CLOSE not in payload:
+        # With ENABLE_VIRTUAL_TERMINAL_INPUT, special keys arrive as VT
+        # escape sequences instead of \x00/\xe0 extended-key pairs — an
+        # arrow press (or a key-repeat flood of them) is a 3+ char all-
+        # text burst that would otherwise classify as a paste and land
+        # in the buffer as literal ESC garbage. Real terminal pastes are
+        # always bracketed while ?2004h is armed, so an ESC-bearing
+        # burst WITHOUT markers is typing: dispatch per key and let the
+        # editor's CSI state machine handle the sequences.
+        return None
+    return payload
+
+
+def _editor_paste_active() -> bool:
+    """True when the installed line editor is mid-bracketed-paste."""
+    editor = get_line_editor()
+    if editor is None:
+        return False
+    try:
+        return bool(getattr(editor, "paste_active", False))
+    except Exception:
+        return False
+
+
+def _route_windows_burst(
+    items: list,
+    on_escape: Callable[[], None],
+    cancel_agent_char: Optional[str],
+    on_cancel_agent: Optional[Callable[[], None]],
+) -> None:
+    """Route one drained console burst to the editor / hotkey dispatch.
+
+    Four lanes, in priority order:
+
+    1. Editor mid-paste — continuation of a terminal-bracketed paste
+       split across poll ticks: stream verbatim until the editor's
+       PasteBuffer sees the closer. Wrapping (or dispatching) here
+       would corrupt the payload.
+    2. Terminal-bracketed paste — Windows Terminal honors the ?2004h
+       arming and ConPTY delivers the ESC[200~/201~ markers as plain
+       chars. Feed verbatim: wrapping AGAIN nests the markers, the
+       inner opener classifies as "text", and an image-only paste
+       (empty payload: ESC[200~ESC[201~) never reaches the
+       clipboard-image capture — the Windows Ctrl+V image regression.
+    3. Raw char flood (legacy conhost / older WT) — synthesize a
+       bracketed paste so the editor inserts atomically and newlines
+       stay IN the buffer instead of submitting one prompt per line.
+    4. Real typing — per-key dispatch (hotkeys keep priority; ambiguous
+       classic-console encodings like Shift+Enter get translated).
+    """
+    payload = _coalesce_paste_burst(items)
+    if _editor_paste_active():
+        for _, value in items:
+            _feed_line_editor(value)
+    elif payload is not None and (_PASTE_OPEN in payload or _PASTE_CLOSE in payload):
+        _feed_line_editor(payload)
+    elif payload is not None:
+        _feed_line_editor(_PASTE_OPEN + payload + _PASTE_CLOSE)
+    else:
+        for kind, value in items:
+            if kind == "char":
+                translated = _windows_char_to_seq(value)
+                if translated is not None:
+                    kind, value = "seq", translated
+            if kind == "seq":
+                _feed_line_editor(value)
+            else:
+                _dispatch_key(value, on_escape, cancel_agent_char, on_cancel_agent)
 
 
 def _listen_windows(
@@ -536,22 +591,84 @@ def _listen_windows(
     suspend_event: Optional[threading.Event] = None,
     released_event: Optional[threading.Event] = None,
 ) -> None:
+    """Windows listener entry — wraps the loop so VT input is ALWAYS
+    released on the way out (the parent shell expects classic key
+    events; see ``enable_windows_vt_input`` for the scope contract)."""
+    from code_puppy.terminal_utils import disable_windows_vt_input
+
+    try:
+        _listen_windows_loop(
+            stop_event, on_escape, on_cancel_agent, suspend_event, released_event
+        )
+    finally:
+        disable_windows_vt_input()
+
+
+def _listen_windows_loop(
+    stop_event: threading.Event,
+    on_escape: Callable[[], None],
+    on_cancel_agent: Optional[Callable[[], None]] = None,
+    suspend_event: Optional[threading.Event] = None,
+    released_event: Optional[threading.Event] = None,
+) -> None:
     import msvcrt
     import time
+
+    from code_puppy.terminal_utils import (
+        disable_windows_vt_input,
+        enable_windows_vt_input,
+        ensure_ctrl_c_disabled,
+    )
 
     cancel_agent_char = _resolve_cancel_char(on_cancel_agent)
 
     backoff = _RECOVERY_INITIAL_BACKOFF_S
     in_outage = False
+    next_clamp_check = 0.0  # first lap re-clamps immediately
 
     while not stop_event.is_set():
-        # Honor suspend: msvcrt doesn't reconfigure the terminal, so the
-        # contract here is purely "don't read keystrokes while suspended."
+        # Honor suspend. Whoever suspended us (prompt_toolkit TUIs, the
+        # ask_user picker) reads via ReadConsoleInput and expects classic
+        # key events — hand the console back without VT input, and
+        # re-clamp immediately (not up to 1s later) on resume so a paste
+        # right after a menu closes isn't dropped.
         if suspend_event is not None and suspend_event.is_set():
+            disable_windows_vt_input()
             _wait_while_suspended(stop_event, suspend_event, released_event)
             if stop_event.is_set():
                 return
+            next_clamp_check = 0.0
             continue
+
+        # Self-healing console clamp. Anything sharing the console (shell
+        # children, conda hooks, full-screen TUIs) can flip
+        # ENABLE_PROCESSED_INPUT back on — then ^C stops arriving as a raw
+        # \x03 and instead fires console-wide CTRL_C_EVENTs that kill
+        # wrapper launchers (uvx.exe) and wake the parent shell into
+        # fighting us for stdin (the 2026-07-08 uvx incident). Re-clamp on
+        # a ~1s cadence so a regressed console heals even at idle, BEFORE
+        # the user presses ^C into it. ensure_ctrl_c_disabled() is a
+        # no-op unless the sticky startup clamp is set AND the mode
+        # actually regressed — one cheap GetConsoleMode per second.
+        # Deliberately NOT run while suspended: whoever suspended us
+        # (prompt_toolkit, ask_user TUI) owns the console mode then.
+        now = time.monotonic()
+        if now >= next_clamp_check:
+            next_clamp_check = now + 1.0
+            try:
+                ensure_ctrl_c_disabled()
+            except Exception:
+                pass
+            # VT-input clamp, same self-healing cadence: without
+            # ENABLE_VIRTUAL_TERMINAL_INPUT, ConPTY silently drops the
+            # bracketed-paste markers Windows Terminal sends for an
+            # image-only Ctrl+V (an EMPTY paste has no key events to
+            # synthesize) — the Windows image-paste-goes-dead bug.
+            # No-op (one GetConsoleMode) when the flag is already set.
+            try:
+                enable_windows_vt_input()
+            except Exception:
+                pass
 
         try:
             if msvcrt.kbhit():
@@ -568,24 +685,9 @@ def _listen_windows(
                 # layouts) is indistinguishable from the prefix and
                 # briefly blocks the read until the next keypress.
                 items = _drain_windows_burst(msvcrt)
-                payload = _coalesce_paste_burst(items)
-                if payload is not None:
-                    # Synthesize a bracketed paste: the editor inserts
-                    # it atomically and newlines stay IN the buffer
-                    # instead of submitting one prompt per line.
-                    _feed_line_editor("\x1b[200~" + payload + "\x1b[201~")
-                else:
-                    for kind, value in items:
-                        if kind == "char":
-                            translated = _windows_char_to_seq(value)
-                            if translated is not None:
-                                kind, value = "seq", translated
-                        if kind == "seq":
-                            _feed_line_editor(value)
-                        else:
-                            _dispatch_key(
-                                value, on_escape, cancel_agent_char, on_cancel_agent
-                            )
+                _route_windows_burst(
+                    items, on_escape, cancel_agent_char, on_cancel_agent
+                )
             else:
                 # Idle tick: let a pending bare ESC expire.
                 _tick_line_editor()
@@ -755,6 +857,7 @@ def _posix_read_session(
     ALWAYS restores the original termios attrs on the way out.
     """
     import codecs
+    import os
     import select
     import termios
     import time
@@ -781,10 +884,25 @@ def _posix_read_session(
             # VDISCARD (Ctrl+O) is likewise IEXTEN-gated. Clear IEXTEN so
             # every control char is delivered verbatim, exactly like the
             # raw mode (tty.setraw) the classic prompt_toolkit path used.
+            #
+            # Pure-keybinding Ctrl+C: disable the tty's INTR character so
+            # ^C is delivered as a raw \x03 byte instead of becoming a
+            # SIGINT — the POSIX mirror of Windows' session-wide
+            # ENABLE_PROCESSED_INPUT strip. Disabling just VINTR (set to
+            # _POSIX_VDISABLE, via fpathconf — '\0' on Linux, '\xff' on
+            # BSD/macOS) rather than clearing ISIG keeps ^Z (SIGTSTP) and
+            # ^\ (SIGQUIT) job control intact. Restored with the rest of
+            # the original attrs on suspend/exit, so plain SIGINT
+            # semantics return whenever we release stdin.
             try:
                 attrs = termios.tcgetattr(fd)
                 attrs[0] &= ~termios.ICRNL  # iflag
                 attrs[3] &= ~termios.IEXTEN  # lflag
+                try:
+                    vdisable = os.fpathconf(fd, "PC_VDISABLE")
+                except (OSError, ValueError, AttributeError):
+                    vdisable = 0
+                attrs[6][termios.VINTR] = bytes([vdisable])  # cc
                 termios.tcsetattr(fd, termios.TCSANOW, attrs)
             except Exception:
                 pass
@@ -932,7 +1050,6 @@ __all__ = [
     "get_line_editor",
     "set_active_handle",
     "set_cancel_handler",
-    "set_escape_handler",
     "set_line_editor",
     "spawn_key_listener",
     "suspended_key_listener",

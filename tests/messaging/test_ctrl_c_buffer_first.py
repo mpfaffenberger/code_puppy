@@ -132,9 +132,9 @@ def test_is_composing_reverse_search_counts_even_empty():
 def test_midrun_text_absorbs_clears_and_hints(persistent_ui, monkeypatch):
     import code_puppy.keymap as keymap
 
-    # Pin the SIGINT-owns-cancel config (POSIX default) so the hint text
-    # is deterministic regardless of the test host's platform.
-    monkeypatch.setattr(keymap, "cancel_agent_uses_signal", lambda: True)
+    # Pin ctrl+c as the cancel key so the hint text ("press ctrl+c
+    # again") is deterministic regardless of the test host's config.
+    monkeypatch.setattr(keymap, "get_cancel_agent_key", lambda: "ctrl+c")
     editor, tty = persistent_ui
     for ch in "half-typed steer":
         editor.feed(ch)
@@ -148,11 +148,11 @@ def test_midrun_text_absorbs_clears_and_hints(persistent_ui, monkeypatch):
 
 
 def test_hint_names_remapped_cancel_key(persistent_ui, monkeypatch):
-    """With cancel remapped (Windows default: ctrl+k), the hint must name
-    the REAL cancel key — 'press ctrl+c again' would be a lie."""
+    """With cancel remapped (ctrl+k), the hint must name the REAL cancel
+    key — 'press ctrl+c again' would be a lie."""
     import code_puppy.keymap as keymap
 
-    monkeypatch.setattr(keymap, "cancel_agent_uses_signal", lambda: False)
+    monkeypatch.setattr(keymap, "get_cancel_agent_key", lambda: "ctrl+k")
     monkeypatch.setattr(keymap, "get_cancel_agent_display_name", lambda: "Ctrl+K")
     editor, tty = persistent_ui
     for ch in "half-typed steer":

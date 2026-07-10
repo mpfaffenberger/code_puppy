@@ -133,6 +133,7 @@ class TestMessagingPackageExports:
             "SubAgentInvocationMessage",
             "SubAgentResponseMessage",
             "UserInputRequest",
+            "PromptEchoMessage",
             "ConfirmationRequest",
             "SelectionRequest",
             "QuestionRequest",

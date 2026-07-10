@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from pydantic_ai import RunContext
 from rich.text import Text
 
+from code_puppy.callbacks import on_run_shell_command_output
 from code_puppy.messaging import (  # Structured messaging types
     AgentReasoningMessage,
     ShellOutputMessage,
@@ -29,6 +30,12 @@ from code_puppy.messaging import (  # Structured messaging types
     get_message_bus,
 )
 from code_puppy.tools.common import generate_group_id, get_user_approval_async
+from code_puppy.tools.shell_backgrounding import (
+    DivertLog,
+    background_generation,
+    close_divert_log_on_exit,
+    request_background_all,
+)
 from code_puppy.tools.subagent_context import is_subagent
 
 # Maximum line length for shell command output to prevent massive token usage
@@ -135,6 +142,11 @@ _KEYBOARD_CONTEXT_LOCK = threading.Lock()
 _ACTIVE_STOP_EVENTS: Set[threading.Event] = set()
 _ACTIVE_STOP_EVENTS_LOCK = threading.Lock()
 
+# Mid-flight backgrounding (Ctrl+X Ctrl+B) machinery lives in
+# ``shell_backgrounding`` (600-line cap); re-exported here because the
+# chord handler and the streaming pumps are the consumers.
+
+
 # Thread pool for running blocking shell commands without blocking the event loop
 # This allows multiple sub-agents to run shell commands in parallel
 _SHELL_EXECUTOR = ThreadPoolExecutor(max_workers=16, thread_name_prefix="shell_cmd_")
@@ -187,6 +199,15 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
         pid = proc.pid
         try:
             pgid = os.getpgid(pid)
+            # SAFETY: never signal our OWN process group. Production spawns
+            # every child with start_new_session=True/os.setsid so it lands
+            # in its own group -- but a child spawned WITHOUT that isolation
+            # inherits our group, and killpg(our_pgid, SIGKILL) would take
+            # out this process (pytest, or the CI runner's step shell) too.
+            # That footgun is exactly what canceled CI. Fall back to a
+            # single-process kill when the group isn't isolated.
+            if pgid == os.getpgrp():
+                raise ProcessLookupError("refusing to killpg our own process group")
             os.killpg(pgid, signal.SIGTERM)
             time.sleep(1.0)
             if proc.poll() is None:
@@ -282,11 +303,26 @@ def set_awaiting_user_input(awaiting=True):
     the terminal for input (approval prompts, ask_user_question TUI) are
     responsible for wrapping themselves in
     ``code_puppy.messaging.run_ui.suspended_run_ui()``.
+
+    This is also the single authoritative source for "the agent is parked on
+    a human": it fires the ``awaiting_user_input`` callback so observers (the
+    herdr state reporter, notifiers, status bars) learn about *every*
+    interactive wait -- shell-command approval, file approval,
+    ``ask_user_question``, and every menu/picker -- from one place, rather
+    than each prompt having to announce itself (or an external watcher having
+    to guess from the screen).
     """
     if awaiting:
         _AWAITING_USER_INPUT.set()
     else:
         _AWAITING_USER_INPUT.clear()
+    # Best-effort notification; never let an observer disturb the prompt path.
+    try:
+        from code_puppy.callbacks import on_awaiting_user_input
+
+        on_awaiting_user_input(bool(awaiting))
+    except Exception:
+        pass
 
 
 class ShellCommandOutput(BaseModel):
@@ -344,8 +380,8 @@ def _spawn_ctrl_x_key_listener(
     could spawn a second reader on the same stdin.
 
     Returns the spawned listener's thread, or ``None`` when an existing
-    listener already owns stdin (it gets our Ctrl+X handler via
-    ``set_escape_handler``) or stdin isn't a TTY.
+    listener already owns stdin (shell actions ride the Ctrl+X chords
+    registered in ``messaging.chords``) or stdin isn't a TTY.
     """
     global _SHELL_CTRL_X_HANDLE
     from code_puppy.agents import _key_listeners
@@ -378,9 +414,46 @@ def _shell_command_keyboard_context():
 
 
 def _handle_ctrl_x_press() -> None:
-    """Handler for Ctrl-X: kill all running shell processes."""
-    emit_warning("\n🛑 Ctrl-X detected! Interrupting all shell commands...")
+    """Chord Ctrl+X Ctrl+X (bare Ctrl+X headless): kill all shells."""
+    emit_warning("\nCtrl+X -- interrupting all shell commands...")
     kill_all_running_shell_processes()
+
+
+def _handle_ctrl_b_press() -> None:
+    """Chord Ctrl+X Ctrl+B: background all running shell commands.
+
+    Every streaming pump detaches: the tool call returns a
+    ``background=True`` result immediately while the process keeps
+    running with its remaining output diverted to a log file.
+    """
+    emit_warning("\nCtrl+X Ctrl+B -- backgrounding all shell commands...")
+    request_background_all()
+
+
+def _register_shell_chords() -> None:
+    """Bind the shell chords for as long as commands are in flight.
+
+    Registered on the first command, unregistered after the last — the
+    armed-chord hint only advertises them when there's something to
+    act on.
+    """
+    try:
+        from code_puppy.messaging.chords import register_chord
+
+        register_chord("\x18", _handle_ctrl_x_press, "Ctrl+X kill shells")
+        register_chord("\x02", _handle_ctrl_b_press, "Ctrl+B background shells")
+    except ImportError:
+        pass  # exotic embeds without the messaging stack
+
+
+def _unregister_shell_chords() -> None:
+    try:
+        from code_puppy.messaging.chords import unregister_chord
+
+        unregister_chord("\x18")
+        unregister_chord("\x02")
+    except ImportError:
+        pass
 
 
 def _tear_down_live_panels() -> None:
@@ -403,7 +476,13 @@ def _tear_down_live_panels() -> None:
 
 
 def _shell_sigint_handler(_sig, _frame):
-    """Ctrl-C during shell execution: stop the swarm responsively.
+    """SIGINT during shell execution: stop the swarm responsively.
+
+    Ctrl+C is a pure keybinding — with a raw-mode key listener owning
+    stdin, ^C arrives as ``\\x03`` and cancels via the key-listener path
+    (``make_schedule_cancel``) instead of here. This handler is the
+    out-of-band fallback: ``kill -INT``, piped stdin (no TTY listener),
+    or ^C landing in a cooked-mode gap between raw readers.
 
     ORDER MATTERS, and it's the opposite of what you'd naively expect:
 
@@ -476,29 +555,29 @@ def clear_agent_cancel() -> None:
 
 
 def _start_keyboard_listener() -> None:
-    """Route Ctrl-X to the shell-kill handler and install SIGINT handler.
+    """Register the shell chords and install the SIGINT handler.
 
     Called when the first shell command starts.
 
-    If the agent run's key listener is already reading stdin, we just point
-    its Ctrl+X dispatch at our handler — spawning a second cbreak reader is
-    how CPR replies got eaten and the terminal ended up wedged. Only
-    headless invocations (no active listener) spawn their own.
+    Interactive sessions get Ctrl+X CHORDS via ``messaging.chords``
+    (Ctrl+X Ctrl+X kill, Ctrl+X Ctrl+B background); the listener/editor
+    already own stdin — spawning a second cbreak reader is how CPR
+    replies got eaten and the terminal ended up wedged. Only headless
+    invocations (no editor, no listener) spawn their own listener,
+    where a bare Ctrl+X keeps the historical kill-everything meaning.
     """
     global _SHELL_CTRL_X_STOP_EVENT, _SHELL_CTRL_X_THREAD, _ORIGINAL_SIGINT_HANDLER
 
-    from code_puppy.agents import _key_listeners
-
-    _key_listeners.set_escape_handler(_handle_ctrl_x_press)
+    _register_shell_chords()
 
     # In the Textual TUI, never spawn a raw cbreak reader -- it races Textual
     # for stdin. The app binds Ctrl+X to kill_all_running_shell_processes()
-    # directly, so the dynamic escape handler above is enough (and unused).
+    # directly, so the chords above are enough (and unused).
     from code_puppy.config import is_tui_mode
 
     if not is_tui_mode():
         # Reuse-or-spawn is atomic inside the shim: an agent-run/persistent
-        # listener is reused (our handler above owns Ctrl+X dispatch); only
+        # listener is reused (the chords above own Ctrl+X dispatch); only
         # headless / tool-only invocations actually spawn.
         _SHELL_CTRL_X_STOP_EVENT = threading.Event()
         _SHELL_CTRL_X_THREAD = _spawn_ctrl_x_key_listener(
@@ -527,7 +606,7 @@ def _stop_keyboard_listener() -> None:
 
     from code_puppy.agents import _key_listeners
 
-    _key_listeners.set_escape_handler(None)
+    _unregister_shell_chords()
 
     # Clean up: stop our own listener (only spawned in headless mode)
     if _SHELL_CTRL_X_STOP_EVENT:
@@ -613,13 +692,32 @@ def run_shell_command_streaming(
     start_time = time.time()
     last_output_time = [start_time]
 
-    ABSOLUTE_TIMEOUT_SECONDS = 270
+    # Get the user-configured absolute timeout for shell commands
+    from code_puppy.config import get_command_timeout_seconds
+
+    ABSOLUTE_TIMEOUT_SECONDS = get_command_timeout_seconds()
 
     stdout_lines = []
     stderr_lines = []
 
     stdout_thread = None
     stderr_thread = None
+
+    # Mid-flight backgrounding (Ctrl+X Ctrl+B): once the divert log is
+    # set, the reader threads pump every further line into it instead of
+    # the transcript -- keeping the pipes drained so the child can't
+    # block on a full pipe buffer after this function returns.
+    bg_generation_at_start = background_generation()
+    divert_log: list = [None]
+
+    def _sink(line, lines_list, stream):
+        log = divert_log[0]
+        if log is not None:
+            log.write_line(stream, line)
+            return
+        lines_list.append(line)
+        if not silent:
+            emit_shell_line(line, stream=stream)
 
     def read_stdout():
         try:
@@ -645,9 +743,7 @@ def run_shell_command_streaming(
                                 break
                             line = line.rstrip("\r\n")
                             line = _truncate_line(line)
-                            stdout_lines.append(line)
-                            if not silent:
-                                emit_shell_line(line, stream="stdout")
+                            _sink(line, stdout_lines, "stdout")
                             last_output_time[0] = time.time()
                         else:
                             # No data available, check if process has exited
@@ -664,9 +760,7 @@ def run_shell_command_streaming(
                                             # bypass.
                                             line = line.rstrip("\r\n")
                                             line = _truncate_line(line)
-                                            stdout_lines.append(line)
-                                            if not silent:
-                                                emit_shell_line(line, stream="stdout")
+                                            _sink(line, stdout_lines, "stdout")
                                 except (ValueError, OSError):
                                     pass
                                 break
@@ -687,9 +781,7 @@ def run_shell_command_streaming(
                             break
                         line = line.rstrip("\r\n")
                         line = _truncate_line(line)
-                        stdout_lines.append(line)
-                        if not silent:
-                            emit_shell_line(line, stream="stdout")
+                        _sink(line, stdout_lines, "stdout")
                         last_output_time[0] = time.time()
                     # If not ready, loop continues and checks stop event again
         except (ValueError, OSError):
@@ -720,9 +812,7 @@ def run_shell_command_streaming(
                                 break
                             line = line.rstrip("\r\n")
                             line = _truncate_line(line)
-                            stderr_lines.append(line)
-                            if not silent:
-                                emit_shell_line(line, stream="stderr")
+                            _sink(line, stderr_lines, "stderr")
                             last_output_time[0] = time.time()
                         else:
                             # No data available, check if process has exited
@@ -739,9 +829,7 @@ def run_shell_command_streaming(
                                             # bypass.
                                             line = line.rstrip("\r\n")
                                             line = _truncate_line(line)
-                                            stderr_lines.append(line)
-                                            if not silent:
-                                                emit_shell_line(line, stream="stderr")
+                                            _sink(line, stderr_lines, "stderr")
                                 except (ValueError, OSError):
                                     pass
                                 break
@@ -761,9 +849,7 @@ def run_shell_command_streaming(
                             break
                         line = line.rstrip("\r\n")
                         line = _truncate_line(line)
-                        stderr_lines.append(line)
-                        if not silent:
-                            emit_shell_line(line, stream="stderr")
+                        _sink(line, stderr_lines, "stderr")
                         last_output_time[0] = time.time()
         except (ValueError, OSError):
             pass
@@ -832,6 +918,52 @@ def run_shell_command_streaming(
             }
         )
 
+    def detach_to_background():
+        """Ctrl+X Ctrl+B: stop streaming, keep the process running.
+
+        The reader threads stay alive and divert every further line into
+        a log file (pipes keep draining -- a full pipe buffer would
+        block the child). The process leaves the kill-all registry: it's
+        a background job now, not a running shell. A daemon janitor
+        appends the exit footer and closes the log when it finishes.
+        """
+        log = DivertLog(command)
+        divert_log[0] = log
+        _unregister_process(process)
+        with _ACTIVE_STOP_EVENTS_LOCK:
+            _ACTIVE_STOP_EVENTS.discard(stop_event)
+        threading.Thread(
+            target=close_divert_log_on_exit, args=(process, log), daemon=True
+        ).start()
+        execution_time = time.time() - start_time
+        if not silent:
+            emit_warning(
+                f"Backgrounded (PID {process.pid}) -- output continues in {log.path}"
+            )
+        return ShellCommandOutput(
+            success=True,
+            command=command,
+            stdout="\n".join(stdout_lines[-256:]),
+            stderr="\n".join(stderr_lines[-256:]),
+            exit_code=None,
+            execution_time=execution_time,
+            timeout=False,
+            background=True,
+            log_file=log.path,
+            pid=process.pid,
+            user_feedback=(
+                "The user backgrounded this command (Ctrl+X Ctrl+B) while it"
+                " was still running. It has NOT finished: stdout/stderr above"
+                " are partial, exit_code is unknown, and the process"
+                f" (PID {process.pid}) keeps running with further output"
+                f" appended to {log.path} (an exit-code footer is written"
+                " when it finishes). The user chose to stop waiting -- do NOT"
+                " wait, sleep, poll, or re-run the command. Acknowledge the"
+                " backgrounding and move on immediately; only read that log"
+                " file later if a subsequent task genuinely needs the result."
+            ),
+        )
+
     try:
         stdout_thread = threading.Thread(target=read_stdout, daemon=True)
         stderr_thread = threading.Thread(target=read_stderr, daemon=True)
@@ -841,6 +973,9 @@ def run_shell_command_streaming(
 
         while process.poll() is None:
             current_time = time.time()
+
+            if background_generation() != bg_generation_at_start:
+                return detach_to_background()
 
             if current_time - start_time > ABSOLUTE_TIMEOUT_SECONDS:
                 if not silent:
@@ -981,9 +1116,13 @@ async def run_shell_command(
         log_file_path = log_file.name
 
         try:
-            # Platform-specific process detachment
+            # Platform-specific process detachment. CREATE_NO_WINDOW:
+            # own hidden console so the background tree can't stomp OUR
+            # console input mode (see _run_command_sync docstring).
             if sys.platform.startswith("win"):
-                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+                creationflags = (
+                    subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+                )
                 process = subprocess.Popen(
                     command,
                     shell=True,
@@ -1176,9 +1315,68 @@ async def _execute_shell_command(
     # This is reference-counted: listener starts on first command, stops on last
     _acquire_keyboard_context()
     try:
+        # When a command executor backend is installed (e.g. an editor host
+        # running commands in its own terminal), delegate execution to it.
+        # This runs on the event loop, so we can await the host directly.
+        from code_puppy.tools.io_backends import get_command_executor
+
+        executor = get_command_executor()
+        if executor is not None:
+            return await _execute_via_backend(
+                executor, command, cwd, timeout, group_id, silent
+            )
         return await _run_command_inner(command, cwd, timeout, group_id, silent=silent)
     finally:
         _release_keyboard_context()
+
+
+async def _execute_via_backend(
+    executor,
+    command: str,
+    cwd: str | None,
+    timeout: int,
+    group_id: str,
+    silent: bool,
+) -> ShellCommandOutput:
+    """Run a command through an installed ``CommandExecutor`` backend.
+
+    Streams the host's combined output to the UI as shell lines (so the run
+    still looks live inside Code Puppy) and maps the result to the standard
+    ``ShellCommandOutput``. Failures fall back to a structured error rather
+    than raising, matching ``_run_command_inner``.
+    """
+    start = time.perf_counter()
+    try:
+        result = await executor.run(command, cwd, timeout)
+    except Exception as e:
+        if not silent:
+            emit_error(traceback.format_exc(), message_group=group_id)
+        return ShellCommandOutput(
+            success=False,
+            command=command,
+            error=f"Error executing command {str(e)}",
+            stdout=None,
+            stderr=None,
+            exit_code=-1,
+            execution_time=time.perf_counter() - start,
+            timeout=False,
+        )
+
+    output = result.output or ""
+    if output and not silent:
+        bus = get_message_bus()
+        for line in output.splitlines():
+            bus.emit_shell_line(line)
+    truncated = "\n".join(_truncate_line(line) for line in output.split("\n")[-256:])
+    return ShellCommandOutput(
+        success=(result.exit_code == 0 and not result.timed_out),
+        command=command,
+        stdout=truncated or None,
+        stderr=None,
+        exit_code=result.exit_code,
+        execution_time=time.perf_counter() - start,
+        timeout=result.timed_out,
+    )
 
 
 def _run_command_sync(
@@ -1188,12 +1386,34 @@ def _run_command_sync(
     group_id: str,
     silent: bool = False,
 ) -> ShellCommandOutput:
-    """Synchronous command execution - runs in thread pool."""
+    """Synchronous command execution - runs in thread pool.
+
+    Console isolation (Windows): children get ``CREATE_NO_WINDOW`` — their
+    own HIDDEN console — plus ``stdin=DEVNULL``. Sharing our console let
+    the child tree stomp the shared input buffer: ``timeout /t`` and
+    ``powershell`` call ``SetConsoleMode`` and re-enable
+    ``ENABLE_PROCESSED_INPUT``, turning ^C back into console-wide
+    CTRL_C_EVENTs mid-command (killing wrapper launchers like uvx.exe and
+    waking the parent shell into fighting us for stdin), and children
+    could literally eat the user's keystrokes ('press a key to
+    continue'). With an isolated console their mode changes hit THEIR
+    console, keyboard ^C can never be delivered to them as an event, and
+    cancellation flows exclusively through the key listener →
+    ``kill_all_running_shell_processes`` (taskkill /T) path by design.
+
+    ``stdin=DEVNULL`` on every platform: agent shell commands are
+    non-interactive by contract — a child reading stdin used to compete
+    with the key listener for keystrokes (POSIX: also stomping termios);
+    now it gets instant EOF instead of hanging until timeout.
+    """
     creationflags = 0
     preexec_fn = None
     if sys.platform.startswith("win"):
         try:
-            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+            creationflags = (
+                subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+                | subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+            )
         except Exception:
             creationflags = 0
     else:
@@ -1206,6 +1426,7 @@ def _run_command_sync(
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
         cwd=cwd,
         bufsize=0,  # Unbuffered for real-time output
         preexec_fn=preexec_fn,
@@ -1320,7 +1541,9 @@ def register_agent_run_shell_command(agent):
 
         Supports streaming output, timeout handling, and background execution.
         """
-        return await run_shell_command(context, command, cwd, timeout, background)
+        result = await run_shell_command(context, command, cwd, timeout, background)
+        await on_run_shell_command_output(result)
+        return result
 
 
 def register_agent_share_your_reasoning(agent):

@@ -195,3 +195,28 @@ def test_set_active_handle_replaces_previous():
     set_active_handle(h1)
     set_active_handle(h2)
     assert get_active_handle() is h2
+
+
+# =============================================================================
+# Pure-keybinding Ctrl+C: the listener ALWAYS resolves the cancel char
+# =============================================================================
+
+
+def test_resolve_cancel_char_resolves_ctrl_c_on_every_platform(monkeypatch):
+    """Ctrl+C is a pure keybinding: SIGINT never owns cancel, so the
+    listener must resolve \\x03 as the cancel hotkey even on POSIX
+    (where the tty INTR char is disabled while the listener owns stdin)."""
+    import code_puppy.keymap as keymap
+    from code_puppy.agents._key_listeners import _resolve_cancel_char
+
+    monkeypatch.setattr(keymap, "get_cancel_agent_key", lambda: "ctrl+c")
+    assert _resolve_cancel_char(None) == "\x03"
+    assert _resolve_cancel_char(lambda: None) == "\x03"
+
+
+def test_resolve_cancel_char_resolves_remapped_key(monkeypatch):
+    import code_puppy.keymap as keymap
+    from code_puppy.agents._key_listeners import _resolve_cancel_char
+
+    monkeypatch.setattr(keymap, "get_cancel_agent_key", lambda: "ctrl+k")
+    assert _resolve_cancel_char(None) == "\x0b"

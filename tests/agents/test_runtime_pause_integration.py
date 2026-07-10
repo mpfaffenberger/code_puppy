@@ -268,7 +268,7 @@ class _DummyAgent:
 @pytest.fixture
 def _isolated_runtime(monkeypatch: pytest.MonkeyPatch):
     """Mirror test_agent_exception_recovery.py's isolation."""
-    monkeypatch.setattr(_runtime, "cancel_agent_uses_signal", lambda: True)
+    monkeypatch.setattr(_runtime, "sigint_fallback_cancels", lambda: True)
     monkeypatch.setattr(_runtime, "get_enable_streaming", lambda: False)
     monkeypatch.setattr(_runtime, "should_render_fallback", lambda *_, **__: False)
 

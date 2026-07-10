@@ -1082,11 +1082,27 @@ class TestAddModelsToConfig:
         mock_load.return_value = {}
         mock_save.return_value = True
 
-        result = add_models_to_extra_config(["gpt-5.5", "gpt-5.4"])
+        result = add_models_to_extra_config(
+            [
+                "gpt-5.6",
+                "gpt-5.6-sol",
+                "gpt-5.6-terra",
+                "gpt-5.6-luna",
+                "gpt-5.5",
+                "gpt-5.4",
+            ]
+        )
 
         assert result is True
         saved_config = mock_save.call_args[0][0]
-        for model_name in ("chatgpt-gpt-5.5", "chatgpt-gpt-5.4"):
+        for model_name in (
+            "chatgpt-gpt-5.6",
+            "chatgpt-gpt-5.6-sol",
+            "chatgpt-gpt-5.6-terra",
+            "chatgpt-gpt-5.6-luna",
+            "chatgpt-gpt-5.5",
+            "chatgpt-gpt-5.4",
+        ):
             model_config = saved_config[model_name]
             assert model_config["supported_settings"] == [
                 "reasoning_effort",
