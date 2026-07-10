@@ -4,7 +4,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.buffer import Buffer, CompletionState
+from prompt_toolkit.completion import Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.keys import Keys
@@ -16,6 +17,7 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     CDCompleter,
     FilePathCompleter,
     SetCompleter,
+    _complete_or_cycle,
     get_input_with_combined_completion,
 )
 
@@ -161,6 +163,28 @@ def test_set_completer_partial_key(monkeypatch):
     assert isinstance(completions[0].display_meta, FormattedText)
     assert len(completions[0].display_meta) == 1
     assert completions[0].display_meta[0][1] == ""
+
+
+def test_set_completer_excludes_model_settings_only_keys(monkeypatch):
+    monkeypatch.setattr(
+        "code_puppy.command_line.prompt_toolkit_completion.get_config_keys",
+        lambda: [
+            "openai_reasoning_effort",
+            "openai_verbosity",
+            "temperature",
+        ],
+    )
+    monkeypatch.setattr(
+        "code_puppy.command_line.prompt_toolkit_completion.get_value",
+        lambda key: "high",
+    )
+    completer = SetCompleter()
+
+    completions = list(completer.get_completions(Document(text="/set openai_"), None))
+    assert completions == []
+
+    completions = list(completer.get_completions(Document(text="/set temp"), None))
+    assert [completion.text for completion in completions] == ["temperature = high"]
 
 
 def test_set_completer_excludes_model_key(monkeypatch):
@@ -495,6 +519,40 @@ async def test_get_input_with_combined_completion_no_model_update(
     # NOTE: update_model_in_input is no longer called from the prompt layer.
     # The prompt layer now just returns the input as-is.
     assert result == raw_input
+
+
+def _buffer_with_completions(*completions: Completion) -> Buffer:
+    buffer = Buffer(document=Document("/he", cursor_position=3))
+    buffer.complete_state = CompletionState(buffer.document, list(completions))
+    return buffer
+
+
+def test_tab_applies_single_completion_immediately():
+    buffer = _buffer_with_completions(Completion("help", start_position=-2))
+
+    _complete_or_cycle(buffer)
+
+    assert buffer.text == "/help"
+    assert buffer.complete_state is None
+
+
+def test_tab_cycles_when_completion_is_ambiguous():
+    buffer = _buffer_with_completions(
+        Completion("help", start_position=-2),
+        Completion("hello", start_position=-2),
+    )
+
+    _complete_or_cycle(buffer)
+
+    assert buffer.text == "/help"
+    assert buffer.complete_state is not None
+    assert buffer.complete_state.current_completion is not None
+    assert buffer.complete_state.current_completion.text == "help"
+
+    _complete_or_cycle(buffer)
+
+    assert buffer.text == "/hello"
+    assert buffer.complete_state.current_completion.text == "hello"
 
 
 # To test key bindings, we need to inspect the KeyBindings object passed to PromptSession

@@ -43,9 +43,7 @@ from code_puppy.config import (
     get_mcp_disabled,
     get_mcp_unbound_warning_silenced,
     get_message_limit,
-    get_openai_reasoning_effort,
     get_openai_reasoning_summary,
-    get_openai_verbosity,
     get_output_level,
     get_owner_name,
     get_pack_agents_enabled,
@@ -267,28 +265,12 @@ _OPENAI = SettingsCategory(
     name="OpenAI",
     settings=(
         Setting(
-            key="openai_reasoning_effort",
-            display_name="Reasoning Effort",
-            description="How much reasoning effort GPT-5 models should use.",
-            type_hint="choice",
-            valid_values=("minimal", "low", "medium", "high", "xhigh"),
-            effective_getter=get_openai_reasoning_effort,
-        ),
-        Setting(
             key="openai_reasoning_summary",
             display_name="Reasoning Summary",
             description="Style of reasoning summary shown to the user.",
             type_hint="choice",
             valid_values=("auto", "concise", "detailed"),
             effective_getter=get_openai_reasoning_summary,
-        ),
-        Setting(
-            key="openai_verbosity",
-            display_name="Verbosity",
-            description="How verbose GPT-5 model responses should be.",
-            type_hint="choice",
-            valid_values=("low", "medium", "high"),
-            effective_getter=get_openai_verbosity,
         ),
     ),
 )

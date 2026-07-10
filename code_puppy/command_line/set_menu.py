@@ -23,7 +23,10 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
-from code_puppy.command_line.config_apply import apply_setting
+from code_puppy.command_line.config_apply import (
+    MODEL_SETTINGS_ONLY_KEYS,
+    apply_setting,
+)
 from code_puppy.command_line.pagination import (
     ensure_visible_page,
     get_page_bounds,
@@ -118,7 +121,7 @@ def _build_entries() -> List[_Entry]:
         curated_keys.add(setting.key)
 
     for key in get_config_keys():
-        if key in curated_keys:
+        if key in curated_keys or key in MODEL_SETTINGS_ONLY_KEYS:
             continue
         entries.append(
             _Entry(

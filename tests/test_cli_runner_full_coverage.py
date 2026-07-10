@@ -444,6 +444,34 @@ class TestInteractiveMode:
         )
 
     @pytest.mark.anyio
+    async def test_startup_instructions_describe_editor_shortcuts(self):
+        emit_system_message = MagicMock()
+
+        await _run_interactive(
+            _mock_renderer(),
+            _interactive_patches(),
+            AsyncMock(return_value="/exit"),
+            extra_patches={
+                "code_puppy.messaging.emit_system_message": emit_system_message,
+            },
+        )
+
+        messages = [call.args[0] for call in emit_system_message.call_args_list]
+        assert any("newline: Shift+Enter" in message for message in messages)
+        assert any(
+            "Ctrl+X Ctrl+E to open $EDITOR (Notepad on Windows)" in message
+            for message in messages
+        )
+        assert any(
+            "Ctrl+X Ctrl+B to background running shell commands" in message
+            for message in messages
+        )
+        assert any(
+            "Ctrl+X Ctrl+X to kill running shell commands" in message
+            for message in messages
+        )
+
+    @pytest.mark.anyio
     async def test_quit_command(self):
         agent = MagicMock()
         agent.get_user_prompt.return_value = None  # test None prompt branch

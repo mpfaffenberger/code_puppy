@@ -307,21 +307,30 @@ class TestSlashCompleter:
             )
             assert len(completions) >= 1
 
-    def test_just_slash_without_tab_stays_silent(self):
-        """Bare '/' must NOT auto-pop the menu while typing.
-
-        Auto-popping forces a terminal scroll for menu space; a typo'd
-        slash that gets erased would leave permanent ghost blank lines.
-        """
+    def test_just_slash_shows_menu_while_typing(self):
+        """Bare '/' immediately offers every slash command."""
         from prompt_toolkit.completion import CompleteEvent
 
         from code_puppy.command_line.prompt_toolkit_completion import SlashCompleter
 
         c = SlashCompleter()
+        mock_cmd = MagicMock()
+        mock_cmd.name = "help"
+        mock_cmd.description = "Show help"
+        mock_cmd.aliases = ["h"]
         typing_event = CompleteEvent(text_inserted=True)
-        assert list(c.get_completions(self._make_doc("/"), typing_event)) == []
-        # None event (defensive path) is treated as not-requested too.
-        assert list(c.get_completions(self._make_doc("/"), None)) == []
+
+        with (
+            patch(
+                "code_puppy.command_line.prompt_toolkit_completion.get_unique_commands",
+                return_value=[mock_cmd],
+            ),
+            patch("code_puppy.plugins.load_plugin_callbacks"),
+            patch("code_puppy.callbacks.on_custom_command_help", return_value=[]),
+        ):
+            for event in (typing_event, None):
+                completions = list(c.get_completions(self._make_doc("/"), event))
+                assert [completion.text for completion in completions] == ["h", "help"]
 
     def test_partial_command(self):
         from code_puppy.command_line.prompt_toolkit_completion import SlashCompleter

@@ -14,6 +14,14 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+MODEL_SETTINGS_ONLY_KEYS = frozenset(
+    {
+        "openai_reasoning_effort",
+        "openai_verbosity",
+    }
+)
+
+
 @dataclass(frozen=True)
 class ApplyResult:
     """Outcome of writing a single config key/value pair.
@@ -85,6 +93,11 @@ def apply_setting(
 
     if not key:
         return ApplyResult(ok=False, error="You must supply a key.")
+    if key in MODEL_SETTINGS_ONLY_KEYS:
+        return ApplyResult(
+            ok=False,
+            error=(f"'{key}' is managed per model. Use /model_settings to change it."),
+        )
 
     warning: Optional[str] = None
     requires_restart = False

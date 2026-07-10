@@ -667,7 +667,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     emit_system_message("Type 'clear' to reset the conversation history.")
     emit_system_message("Type /help to view all commands")
     emit_system_message(
-        "Type @ for path completion, or /model to pick a model. Toggle multiline with Alt+M or F2; newline: Ctrl+J."
+        "Type @ for path completion, or /model to pick a model. Toggle multiline with Alt+M or F2; newline: Shift+Enter."
     )
     emit_system_message("Paste images: Ctrl+V (even on Mac!), F3, or /paste command.")
     import platform
@@ -678,7 +678,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         )
     cancel_key = get_cancel_agent_display_name()
     emit_system_message(
-        f"Press {cancel_key} during processing to cancel the current task or inference. Use Ctrl+X to interrupt running shell commands."
+        f"Press {cancel_key} during processing to cancel the current task or inference."
+    )
+    emit_system_message(
+        "Use Ctrl+X Ctrl+E to open $EDITOR (Notepad on Windows); "
+        "Ctrl+X Ctrl+B to background running shell commands; "
+        "Ctrl+X Ctrl+X to kill running shell commands."
     )
     emit_system_message(
         "Use /autosave_load to manually load a previous autosave session."

@@ -149,11 +149,14 @@ class SetCompleter(Completer):
             # Don't return any completions -- let ModelNameCompleter handle it
             return
 
-        # Get config keys and sort them alphabetically for consistent display
+        # Get config keys and sort them alphabetically for consistent display.
+        # Per-model controls belong exclusively to /model_settings.
+        from code_puppy.command_line.config_apply import MODEL_SETTINGS_ONLY_KEYS
+
         config_keys = sorted(get_config_keys())
 
         for key in config_keys:
-            if key == "model" or key == "puppy_token":
+            if key in {"model", "puppy_token"} | MODEL_SETTINGS_ONLY_KEYS:
                 continue  # exclude 'model' and 'puppy_token' from regular /set completions
             if key.startswith(text_after_trigger):
                 prev_value = get_value(key)
@@ -410,25 +413,10 @@ class SlashCompleter(Completer):
         if not stripped_text.startswith("/"):
             return
 
-        # Get the text after the initial slash
-        if len(stripped_text) == 1:
-            # Bare '/': only show the full command menu on an EXPLICIT
-            # request (Tab). Auto-popping ~30 commands here forces the
-            # terminal to scroll for menu space, and when the user was
-            # just typo-ing a slash (type '/', erase it) that scroll
-            # leaves permanent ghost blank lines — terminals can't
-            # un-scroll. Typing any character after '/' still auto-opens
-            # the (filtered) menu as usual. getattr: defensive against
-            # callers passing None as the event.
-            if not getattr(complete_event, "completion_requested", False):
-                return
-            # User hit Tab on '/', show all commands
-            partial = ""
-            start_position = 0  # Don't replace anything, just insert at cursor
-        else:
-            # User is typing a command after the slash
-            partial = stripped_text[1:]  # text after '/'
-            start_position = -(len(partial))  # Replace what was typed after '/'
+        # Get the text after the initial slash. A bare slash intentionally
+        # yields every command so the menu appears immediately while typing.
+        partial = stripped_text[1:]
+        start_position = -len(partial)
 
         # Load all available commands
         try:
@@ -677,6 +665,29 @@ def _left_justify_completion_menu(session: PromptSession) -> None:
         pass
 
 
+def _complete_or_cycle(buffer) -> None:
+    """Apply an unambiguous completion, otherwise cycle the available choices.
+
+    ``complete_while_typing`` opens a completion state without selecting an
+    item. prompt_toolkit's default Tab binding selects even a sole candidate,
+    requiring a pointless second Tab to apply it. Start completion explicitly
+    when needed, then immediately apply a single candidate while preserving
+    normal cycling for ambiguous input.
+    """
+    if buffer.complete_state is None:
+        buffer.start_completion(select_first=False)
+
+    complete_state = buffer.complete_state
+    if complete_state is None:
+        return
+
+    completions = complete_state.completions
+    if len(completions) == 1:
+        buffer.apply_completion(completions[0])
+    elif completions:
+        buffer.complete_next()
+
+
 async def get_input_with_combined_completion(
     prompt_str=">>> ", history_file: Optional[str] = None
 ) -> str:
@@ -788,6 +799,12 @@ async def get_input_with_combined_completion(
             buffer.insert_text("\n")
         else:
             buffer.validate_and_handle()
+
+    # Tab: finish an unambiguous completion in one press. For multiple
+    # candidates, retain prompt_toolkit's familiar select/cycle behavior.
+    @bindings.add(Keys.Tab, eager=True)
+    def handle_tab_completion(event):
+        _complete_or_cycle(event.app.current_buffer)
 
     # Backspace/Delete: trigger completions after deletion.
     # By default, complete_while_typing only triggers on character insertion,
