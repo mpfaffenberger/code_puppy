@@ -596,14 +596,17 @@ class TestKeyboardListeners:
 
     @pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX only")
     def test_posix_listener_handles_stdin_error(self):
-        """Test POSIX listener handles stdin errors gracefully."""
+        """POSIX listener survives stdin errors: the self-healing
+        supervisor warns about the outage and keeps retrying (until
+        stopped) instead of dying and leaving the prompt dead."""
         from code_puppy.agents import _key_listeners
 
         stop_event = threading.Event()
-        escape_called = []
+        warnings = []
 
-        def on_escape():
-            escape_called.append(True)
+        def warn(msg):
+            warnings.append(msg)
+            stop_event.set()  # end the retry loop for the test
 
         # Mock select to raise exception
         with patch("select.select", side_effect=ValueError("Select error")):
@@ -611,9 +614,11 @@ class TestKeyboardListeners:
                 with patch("termios.tcgetattr", return_value=[]):
                     with patch("tty.setcbreak", MagicMock()):
                         with patch("termios.tcsetattr", MagicMock()):
-                            _key_listeners._listen_posix(stop_event, on_escape)
-                            # Should exit gracefully without raising
-                            assert True
+                            with patch.object(_key_listeners, "emit_warning", warn):
+                                _key_listeners._listen_posix(stop_event, lambda: None)
+        # Exited gracefully after announcing the outage — no silent death.
+        assert len(warnings) == 1
+        assert "select failed" in warnings[0]
 
     @pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX only")
     def test_posix_listener_handles_bad_stdin(self):

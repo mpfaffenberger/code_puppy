@@ -220,7 +220,15 @@ def _tokenise(prompt: str) -> Iterable[str]:
 def _strip_attachment_token(token: str) -> str:
     """Trim surrounding whitespace/punctuation terminals tack onto paths."""
 
-    return token.strip().strip(",;:()[]{}")
+    token = token.strip().strip(",;:()[]{}")
+    # Windows terminals paste copied files as fully-quoted paths
+    # ("C:\...\shot.png"). Non-POSIX shlex (used on Windows in
+    # _tokenise) keeps those quotes ON the token, so the path was never
+    # detected — peel one matching surrounding pair. POSIX shlex already
+    # strips quotes, making this a no-op elsewhere.
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
+        token = token[1:-1]
+    return token
 
 
 def _candidate_paths(

@@ -129,7 +129,12 @@ def test_is_composing_reverse_search_counts_even_empty():
 # =========================================================================
 
 
-def test_midrun_text_absorbs_clears_and_hints(persistent_ui):
+def test_midrun_text_absorbs_clears_and_hints(persistent_ui, monkeypatch):
+    import code_puppy.keymap as keymap
+
+    # Pin ctrl+c as the cancel key so the hint text ("press ctrl+c
+    # again") is deterministic regardless of the test host's config.
+    monkeypatch.setattr(keymap, "get_cancel_agent_key", lambda: "ctrl+c")
     editor, tty = persistent_ui
     for ch in "half-typed steer":
         editor.feed(ch)
@@ -140,6 +145,25 @@ def test_midrun_text_absorbs_clears_and_hints(persistent_ui):
     out = tty.getvalue()
     assert "input cleared" in out and "ctrl+c again" in out
     assert "\x1b[2minput cleared" in out  # hint rides the dim status row
+
+
+def test_hint_names_remapped_cancel_key(persistent_ui, monkeypatch):
+    """With cancel remapped (ctrl+k), the hint must name the REAL cancel
+    key — 'press ctrl+c again' would be a lie."""
+    import code_puppy.keymap as keymap
+
+    monkeypatch.setattr(keymap, "get_cancel_agent_key", lambda: "ctrl+k")
+    monkeypatch.setattr(keymap, "get_cancel_agent_display_name", lambda: "Ctrl+K")
+    editor, tty = persistent_ui
+    for ch in "half-typed steer":
+        editor.feed(ch)
+    tty.truncate(0)
+    tty.seek(0)
+    assert sigint_should_cancel() is False
+    assert editor.buffer == ""
+    out = tty.getvalue()
+    assert "press ctrl+k to cancel the agent" in out
+    assert "again" not in out
 
 
 def test_second_press_on_now_empty_buffer_cancels(persistent_ui):
@@ -203,14 +227,41 @@ def test_idle_empty_buffer_noop(persistent_ui):
 # =========================================================================
 
 
-def test_hotkey_cancel_path_is_unconditional():
+def test_remapped_hotkey_cancel_is_unconditional(persistent_ui):
     """A remapped cancel hotkey (ctrl+k/ctrl+q) never routes through the
-    buffer-first gate — only Ctrl+C/SIGINT does."""
+    buffer-first gate — it cancels immediately even while composing,
+    without touching typed text. Only raw ^C (and SIGINT) is gated."""
     from code_puppy.agents import _key_listeners
 
-    src = inspect.getsource(_key_listeners)
-    assert "absorb_ctrl_c" not in src
-    assert "sigint_should_cancel" not in src
+    editor, _tty = persistent_ui
+    cancels = []
+    for ch in "half-typed":
+        _key_listeners._dispatch_key(ch, lambda: None, "\x0b", None)
+    _key_listeners._dispatch_key(
+        "\x0b", lambda: None, "\x0b", lambda: cancels.append(1)
+    )
+    assert cancels == [1]
+    assert editor.buffer == "half-typed"
+
+
+def test_raw_ctrl_c_hotkey_is_buffer_first(persistent_ui):
+    """Raw ^C as the cancel char (Windows default) IS gated: composing
+    input absorbs the first press; the empty prompt cancels."""
+    from code_puppy.agents import _key_listeners
+
+    editor, _tty = persistent_ui
+    cancels = []
+    for ch in "half-typed":
+        _key_listeners._dispatch_key(ch, lambda: None, "\x03", None)
+    _key_listeners._dispatch_key(
+        "\x03", lambda: None, "\x03", lambda: cancels.append(1)
+    )
+    assert cancels == []
+    assert editor.buffer == ""
+    _key_listeners._dispatch_key(
+        "\x03", lambda: None, "\x03", lambda: cancels.append(2)
+    )
+    assert cancels == [2]
 
 
 def test_shell_tool_sigint_handler_untouched():

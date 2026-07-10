@@ -7,7 +7,8 @@ preserved verbatim:
 - Plugin-supplied async context managers wrap the run (see
   ``on_agent_run_context``); used e.g. by the DBOS plugin to set a workflow
   ID and swap MCP toolsets in/out.
-- Signal-vs-key-listener branch driven by ``cancel_agent_uses_signal()``
+- SIGINT fallback-handler choice driven by ``sigint_fallback_cancels()``
+  (the key listener always owns cancel; ^C is a pure keybinding)
 - Windows terminal reset on graceful SIGINT
 - ``is_awaiting_user_input()`` guards interrupt handling
 - Subagent task cancellation via ``_active_subagent_tasks``
@@ -81,7 +82,6 @@ from code_puppy.agents._run_signals import (
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
     on_agent_exception,
-    on_agent_retryable_exception,
     on_agent_run_cancel,
     on_agent_run_context,
     on_agent_run_end,
@@ -95,7 +95,7 @@ from code_puppy.config import (
     get_max_hook_retries,
     get_message_limit,
 )
-from code_puppy.keymap import cancel_agent_uses_signal
+from code_puppy.keymap import sigint_fallback_cancels
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.tools.command_runner import is_awaiting_user_input
 
@@ -267,36 +267,9 @@ def should_retry_streaming(exc: Exception) -> bool:
     return any(_is_retryable_one(e) for e in _walk_cause_chain(exc))
 
 
-async def _plugin_says_retry(
-    exc: Exception,
-    model_name: Optional[str],
-    attempt: int,
-    max_attempts: int,
-) -> bool:
-    """Ask ``agent_retryable_exception`` hooks whether ``exc`` is retryable.
-
-    Gives plugins a chance to (a) classify provider-specific failures the
-    core classifier can't know about and (b) perform recovery work (e.g. an
-    OAuth token refresh) before the retry fires. Any truthy result means
-    retry. Hook machinery failures are swallowed: a broken plugin must never
-    turn a genuine error into a hang, nor a retryable blip into a crash.
-    """
-    try:
-        results = await on_agent_retryable_exception(
-            exc,
-            model_name=model_name,
-            attempt=attempt,
-            max_attempts=max_attempts,
-        )
-    except Exception:  # pragma: no cover - defensive
-        return False
-    return any(bool(r) for r in results)
-
-
 def streaming_retry(
     max_attempts: int = 3,
     delays: Sequence[float] = (1, 2, 4),
-    model_name: Optional[str] = None,
 ) -> Callable[[Callable[[], Any]], Callable[[], Any]]:
     """Wrap a no-arg async callable with streaming-retry semantics.
 
@@ -306,11 +279,6 @@ def streaming_retry(
     get the exception type, message, traceback, and which attempt it was. The
     on-disk log is the only way to measure the upstream-blip rate after the
     classifier silently absorbs it.
-
-    Exceptions the built-in classifier rejects get one more chance via the
-    ``agent_retryable_exception`` hook, so plugins can opt provider-specific
-    failures (e.g. OAuth auth errors) into this same retry schedule.
-    ``model_name`` is forwarded to the hook so plugins can scope themselves.
     """
     from code_puppy.error_logging import log_error
 
@@ -321,9 +289,7 @@ def streaming_retry(
                 try:
                     return await factory()
                 except Exception as exc:
-                    if not should_retry_streaming(exc) and not await _plugin_says_retry(
-                        exc, model_name, attempt + 1, max_attempts
-                    ):
+                    if not should_retry_streaming(exc):
                         raise
                     last_exc = exc
                     log_error(
@@ -466,6 +432,16 @@ def _collect_exceptions(
 # ---- The main entry point ---------------------------------------------------
 
 
+# Depth of in-flight ``run_with_mcp`` calls. Only touched from the main
+# event loop's thread (every run is awaited on the same loop), so a plain
+# int is race-free. Depth > 0 at entry means a NESTED run — e.g. the
+# shell_safety plugin assessing a command while the primary agent runs.
+# Nested runs must NOT touch process-wide interactive state: the
+# PauseController (it would drain the user's queued steers!), the SIGINT
+# handler, the shell cancel bridge, or the key-listener cancel hotkey.
+_active_run_depth = 0
+
+
 async def run_with_mcp(
     agent: Any,
     prompt: str,
@@ -475,13 +451,48 @@ async def run_with_mcp(
     output_type: Optional[Type[Any]] = None,
     **kwargs: Any,
 ) -> Any:
-    """Run ``agent`` against ``prompt`` with full MCP + cancellation support."""
+    """Run ``agent`` against ``prompt`` with full MCP + cancellation support.
+
+    Thin depth-tracking wrapper: nested calls (a run started while another
+    run is already in flight on this loop) skip the interactive-state
+    plumbing — see ``_active_run_depth``.
+    """
+    global _active_run_depth
+    is_nested_run = _active_run_depth > 0
+    _active_run_depth += 1
+    try:
+        return await _run_with_mcp_impl(
+            agent,
+            prompt,
+            attachments=attachments,
+            link_attachments=link_attachments,
+            output_type=output_type,
+            is_nested_run=is_nested_run,
+            **kwargs,
+        )
+    finally:
+        _active_run_depth -= 1
+
+
+async def _run_with_mcp_impl(
+    agent: Any,
+    prompt: str,
+    *,
+    attachments: Optional[Sequence[BinaryContent]] = None,
+    link_attachments: Optional[Sequence[Union[ImageUrl, DocumentUrl]]] = None,
+    output_type: Optional[Type[Any]] = None,
+    is_nested_run: bool = False,
+    **kwargs: Any,
+) -> Any:
+    """Body of :func:`run_with_mcp` (depth bookkeeping lives in the wrapper)."""
 
     # Scrub any stale PauseController state from a previously-cancelled run
     # BEFORE we touch the prompt or build the agent. The controller is a
     # process-wide singleton; without this guard a leftover steer queue
-    # would silently poison this run.
-    reset_pause_state_at_run_start()
+    # would silently poison this run. NEVER from a nested run: the "stale"
+    # steers it would drain are the OUTER run's live ones.
+    if not is_nested_run:
+        reset_pause_state_at_run_start()
 
     prompt = _sanitize_prompt(prompt)
     group_id = str(uuid.uuid4())
@@ -526,7 +537,7 @@ async def run_with_mcp(
         # the non-streaming fallback render.
         skip_fallback_render = on_should_skip_fallback_render(agent)
 
-        @streaming_retry(model_name=agent.get_model_name())
+        @streaming_retry()
         async def _call() -> Any:
             return await pydantic_agent.run(
                 prompt_to_use,
@@ -566,7 +577,7 @@ async def run_with_mcp(
         # between ``agent.run()`` calls below — additive, won't interrupt
         # in-progress work.
         async def _follow_up_run(follow_up_prompt: Any) -> Any:
-            @streaming_retry(model_name=agent.get_model_name())
+            @streaming_retry()
             async def _call_follow_up() -> Any:
                 return await pydantic_agent.run(
                     follow_up_prompt,
@@ -660,11 +671,17 @@ async def run_with_mcp(
                 "McpError during agent run: %s", mcp_error
             )
         except* asyncio.CancelledError:
-            emit_info("Cancelled")
+            # Leading newline: a mid-stream cancel aborts the drain tasks
+            # (event_stream_handler) before the "final newline after
+            # streaming" runs, so the transcript cursor is usually parked
+            # mid-line on a half-streamed thinking/answer row. Without it
+            # the banner glues onto that text ("...AaronCancelled").
+            # Mirrors the classic cli_runner emit_warning("\nCancelled").
+            emit_info("\nCancelled")
             drain_pause_state_on_cancel()
             await on_agent_run_cancel(group_id)
         except* InterruptedError as ie:
-            emit_info(f"Interrupted: {ie}")
+            emit_info(f"\nInterrupted: {ie}")
             drain_pause_state_on_cancel()
             await on_agent_run_cancel(group_id)
         except* Exception as other:
@@ -744,10 +761,12 @@ async def run_with_mcp(
     # Bridge the cancel callback to the shell SIGINT handler so a single
     # Ctrl+C while shells are running stops the whole agent/sub-agent swarm
     # (kill shells, then cancel every task) instead of only killing the
-    # current batch of shells.
+    # current batch of shells. Nested runs must not clobber the outer
+    # run's bridge (clear_agent_cancel in their finally would disarm it).
     from code_puppy.tools import command_runner as _command_runner
 
-    _command_runner.register_agent_cancel(schedule_agent_cancel)
+    if not is_nested_run:
+        _command_runner.register_agent_cancel(schedule_agent_cancel)
 
     def keyboard_interrupt_handler(_sig, _frame):
         # Let input() handle its own KeyboardInterrupt if we're mid-prompt.
@@ -761,17 +780,19 @@ async def run_with_mcp(
 
     def graceful_sigint_handler(_sig, _frame):
         from code_puppy.keymap import get_cancel_agent_display_name
-        from code_puppy.terminal_utils import (
-            ensure_ctrl_c_disabled,
-            install_windows_ctrl_c_swallower,
-            reset_windows_terminal_full,
-        )
+        from code_puppy.terminal_utils import reset_windows_terminal_full
 
+        if is_awaiting_user_input():
+            return
+        # On Windows the full reset re-clamps raw-Ctrl+C mode itself
+        # (reset_windows_console_mode respects the sticky clamp), so a
+        # stray SIGINT can't regress the console into event-generating
+        # mode. No launcher-specific re-arming needed.
         reset_windows_terminal_full()
-        # On Windows+uvx, a SIGINT slipping through means a guard dropped.
-        # Re-arm both layers before continuing so the next Ctrl+C is a no-op.
-        ensure_ctrl_c_disabled()
-        install_windows_ctrl_c_swallower()
+        # Buffer-first: composing input absorbs the press (clear + hint),
+        # matching keyboard_interrupt_handler's contract.
+        if not sigint_should_cancel():
+            return
         emit_info(f"Use {get_cancel_agent_display_name()} to cancel the agent task.")
 
     original_handler = None
@@ -785,38 +806,55 @@ async def run_with_mcp(
     run_usage_output_tokens: Optional[int] = None
 
     try:
-        if cancel_agent_uses_signal():
-            original_handler = signal.signal(signal.SIGINT, keyboard_interrupt_handler)
-            cancel_cb: Optional[Callable[[], None]] = None  # SIGINT owns cancel
-        else:
-            original_handler = signal.signal(signal.SIGINT, graceful_sigint_handler)
-            cancel_cb = schedule_agent_cancel
-        # Key listener: with the persistent prompt (Phase A) a REPL-
-        # lifetime listener already owns stdin — just arm the per-run
-        # cancel hotkey on it. Otherwise (headless -r, classic prompt,
-        # embeds) spawn a per-run listener exactly as before.
-        existing_handle = _key_listeners.get_active_handle()
-        if (
-            existing_handle is not None
-            and existing_handle.thread.is_alive()
-            and not existing_handle.stop_event.is_set()
-        ):
-            using_persistent_listener = True
-            _key_listeners.set_cancel_handler(cancel_cb)
-        else:
+        # Nested runs (e.g. shell_safety mid-run) leave the SIGINT handler
+        # and cancel hotkey alone — the outer run owns them, and cancelling
+        # the outer task propagates into this awaited one anyway.
+        if not is_nested_run:
+            # Ctrl+C is a PURE keybinding: whenever a raw-mode reader owns
+            # stdin (key listener with VINTR disabled on POSIX; raw-Ctrl+C
+            # console clamp on Windows), ^C arrives as \x03 and the key
+            # listener handles cancellation. SIGINT only fires out-of-band
+            # (kill -INT, piped stdin with no listener, cooked-mode gaps
+            # between raw readers) -- the handler installed here is that
+            # fallback: it cancels when ^C IS the cancel gesture, and only
+            # hints at the real key when cancel is remapped.
+            #
+            # Off the main thread (ACP server, embeds, worker threads) we skip
+            # SIGINT wiring entirely: signal handlers are main-thread-only in
+            # CPython, so installing one there raises "signal only works in
+            # main thread". Cancellation still flows through
+            # schedule_agent_cancel, and the stdin key listener no-ops when
+            # stdin isn't a TTY, so no cancel affordance is lost.
+            if threading.current_thread() is not threading.main_thread():
+                pass  # original_handler stays None -> restore is a no-op
+            elif sigint_fallback_cancels():
+                original_handler = signal.signal(
+                    signal.SIGINT, keyboard_interrupt_handler
+                )
+            else:
+                original_handler = signal.signal(signal.SIGINT, graceful_sigint_handler)
+            cancel_cb: Optional[Callable[[], None]] = schedule_agent_cancel
+            # Key listener: with the persistent prompt (Phase A) a REPL-
+            # lifetime listener already owns stdin — just arm the per-run
+            # cancel hotkey on it. Otherwise (headless -r, classic prompt,
+            # embeds) spawn a per-run listener. ``acquire_listener`` makes
+            # the reuse-or-spawn decision atomic (no double-reader race).
             key_listener_stop_event = threading.Event()
-            key_listener_handle = _key_listeners.spawn_key_listener(
+            handle, spawned = _key_listeners.acquire_listener(
                 key_listener_stop_event,
-                # Ctrl+X: command_runner installs a dynamic handler via
-                # _key_listeners.set_escape_handler() while shell commands
-                # run; outside that window Ctrl+X is a no-op.
+                # Ctrl+X: with an editor installed it's the chord prefix
+                # (messaging.chords — command_runner registers shell
+                # kill/background bindings while commands run). This
+                # fallback only fires with NO editor; a no-op is right
+                # because chord targets don't exist headless either.
                 on_escape=lambda: None,
                 on_cancel_agent=cancel_cb,
             )
-            # Publish the handle so other stdin consumers (prompt_toolkit
-            # menus, TUIs) can suspend/resume the listener while they take
-            # over stdin.
-            _key_listeners.set_active_handle(key_listener_handle)
+            if spawned:
+                key_listener_handle = handle
+            else:
+                using_persistent_listener = True
+                _key_listeners.set_cancel_handler(cancel_cb)
 
         result = await agent_task
         run_success = True
@@ -833,22 +871,27 @@ async def run_with_mcp(
     except asyncio.CancelledError:
         run_response_text = ""
         agent_task.cancel()
-        drain_pause_state_on_cancel()
+        # Nested runs never drain: the pending steers belong to the outer
+        # run, whose own cancel path (or run end) handles them.
+        if not is_nested_run:
+            drain_pause_state_on_cancel()
     except KeyboardInterrupt:
         run_response_text = ""
         if not agent_task.done():
             agent_task.cancel()
-        drain_pause_state_on_cancel()
+        if not is_nested_run:
+            drain_pause_state_on_cancel()
     except Exception as e:
         run_error = e
         raise
     finally:
-        try:
-            from code_puppy.tools import command_runner as _command_runner
+        if not is_nested_run:
+            try:
+                from code_puppy.tools import command_runner as _command_runner
 
-            _command_runner.clear_agent_cancel()
-        except Exception:
-            pass
+                _command_runner.clear_agent_cancel()
+            except Exception:
+                pass
         try:
             await on_agent_run_end(
                 agent_name=agent.name,

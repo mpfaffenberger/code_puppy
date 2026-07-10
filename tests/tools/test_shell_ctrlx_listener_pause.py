@@ -9,9 +9,10 @@ The new contract, locked in here:
 
 * There is exactly ONE listener implementation
   (``code_puppy.agents._key_listeners``).
-* ``command_runner`` routes Ctrl+X through
-  ``_key_listeners.set_escape_handler()`` instead of spawning a rival
-  thread when an agent-run listener is already active.
+* ``command_runner`` binds its shell actions as Ctrl+X CHORDS in
+  ``messaging.chords`` (Ctrl+X Ctrl+X kill, Ctrl+X Ctrl+B background)
+  instead of spawning a rival thread when an agent-run listener is
+  already active.
 * The unified listener parks (drops cbreak, stops reading) while its
   ``suspend_event`` is set — replacing the old pause-controller polling.
 """
@@ -29,26 +30,31 @@ from code_puppy.agents import _key_listeners
 
 
 @pytest.fixture(autouse=True)
-def _reset_escape_handler():
-    _key_listeners.set_escape_handler(None)
+def _reset_chords():
+    from code_puppy.messaging import chords
+
+    for key in ("\x18", "\x02"):
+        chords.unregister_chord(key)
     yield
-    _key_listeners.set_escape_handler(None)
+    for key in ("\x18", "\x02"):
+        chords.unregister_chord(key)
 
 
 # =============================================================================
-# Dynamic escape-handler registry
+# Shell chord registration lifecycle
 # =============================================================================
 
 
-def test_resolve_escape_handler_prefers_dynamic():
-    fallback = MagicMock()
-    dynamic = MagicMock()
+def test_shell_chords_register_and_unregister():
+    from code_puppy.messaging import chords
+    from code_puppy.tools import command_runner
 
-    assert _key_listeners._resolve_escape_handler(fallback) is fallback
-    _key_listeners.set_escape_handler(dynamic)
-    assert _key_listeners._resolve_escape_handler(fallback) is dynamic
-    _key_listeners.set_escape_handler(None)
-    assert _key_listeners._resolve_escape_handler(fallback) is fallback
+    command_runner._register_shell_chords()
+    assert chords.get_chord("\x18") is command_runner._handle_ctrl_x_press
+    assert chords.get_chord("\x02") is command_runner._handle_ctrl_b_press
+    command_runner._unregister_shell_chords()
+    assert chords.get_chord("\x18") is None
+    assert chords.get_chord("\x02") is None
 
 
 # =============================================================================
@@ -59,29 +65,36 @@ def test_resolve_escape_handler_prefers_dynamic():
 def test_start_keyboard_listener_routes_instead_of_spawning():
     """With an active agent-run listener, _start_keyboard_listener must NOT
     spawn a second thread — it just points Ctrl+X dispatch at the shell
-    kill handler.
+    kill handler. The reuse-or-spawn decision is atomic inside
+    ``acquire_listener`` (spawned=False ⇒ reuse, no new reader).
     """
     from code_puppy.tools import command_runner
 
     fake_handle = MagicMock()
     with (
-        patch.object(_key_listeners, "get_active_handle", return_value=fake_handle),
-        patch.object(command_runner, "_spawn_ctrl_x_key_listener") as mock_spawn,
+        patch.object(
+            _key_listeners, "acquire_listener", return_value=(fake_handle, False)
+        ) as mock_acquire,
         patch("signal.signal", return_value=None),
     ):
         command_runner._start_keyboard_listener()
         try:
-            mock_spawn.assert_not_called()
-            assert (
-                _key_listeners._resolve_escape_handler(MagicMock())
-                is command_runner._handle_ctrl_x_press
-            )
+            mock_acquire.assert_called_once()
+            # Reused listener: no thread of our own, no handle to stop.
+            assert command_runner._SHELL_CTRL_X_THREAD is None
+            assert command_runner._SHELL_CTRL_X_HANDLE is None
+            from code_puppy.messaging import chords
+
+            assert chords.get_chord("\x18") is command_runner._handle_ctrl_x_press
+            assert chords.get_chord("\x02") is command_runner._handle_ctrl_b_press
         finally:
             command_runner._stop_keyboard_listener()
 
-    # Handler cleared on stop.
-    fallback = MagicMock()
-    assert _key_listeners._resolve_escape_handler(fallback) is fallback
+    # Chords cleared on stop.
+    from code_puppy.messaging import chords
+
+    assert chords.get_chord("\x18") is None
+    assert chords.get_chord("\x02") is None
 
 
 def test_start_keyboard_listener_spawns_when_headless():
@@ -103,7 +116,9 @@ def test_start_keyboard_listener_spawns_when_headless():
 
 
 def test_spawn_shim_delegates_to_unified_listener():
-    """The compat shim must delegate to _key_listeners.spawn_key_listener."""
+    """The compat shim must delegate to _key_listeners.acquire_listener
+    (atomic reuse-or-spawn + registration) and record the handle it owns.
+    """
     from code_puppy.tools import command_runner
 
     stop = threading.Event()
@@ -111,12 +126,33 @@ def test_spawn_shim_delegates_to_unified_listener():
 
     fake_handle = MagicMock()
     with patch.object(
-        _key_listeners, "spawn_key_listener", return_value=fake_handle
-    ) as mock_spawn:
+        _key_listeners, "acquire_listener", return_value=(fake_handle, True)
+    ) as mock_acquire:
         result = command_runner._spawn_ctrl_x_key_listener(stop, on_escape)
 
-    mock_spawn.assert_called_once_with(stop, on_escape=on_escape)
-    assert result is fake_handle.thread
+    try:
+        mock_acquire.assert_called_once_with(stop, on_escape=on_escape)
+        assert result is fake_handle.thread
+        assert command_runner._SHELL_CTRL_X_HANDLE is fake_handle
+    finally:
+        command_runner._SHELL_CTRL_X_HANDLE = None
+
+
+def test_spawn_shim_backs_off_when_listener_reused():
+    """spawned=False (someone else owns stdin) ⇒ shim returns None and
+    records nothing — stop must never touch a listener we didn't spawn."""
+    from code_puppy.tools import command_runner
+
+    fake_handle = MagicMock()
+    with patch.object(
+        _key_listeners, "acquire_listener", return_value=(fake_handle, False)
+    ):
+        result = command_runner._spawn_ctrl_x_key_listener(
+            threading.Event(), MagicMock()
+        )
+
+    assert result is None
+    assert command_runner._SHELL_CTRL_X_HANDLE is None
 
 
 def test_spawn_shim_returns_none_without_tty():
@@ -124,7 +160,7 @@ def test_spawn_shim_returns_none_without_tty():
     from code_puppy.tools import command_runner
 
     stop = threading.Event()
-    with patch.object(_key_listeners, "spawn_key_listener", return_value=None):
+    with patch.object(_key_listeners, "acquire_listener", return_value=(None, True)):
         assert command_runner._spawn_ctrl_x_key_listener(stop, MagicMock()) is None
 
 
@@ -182,16 +218,19 @@ def test_posix_listener_parks_while_suspended():
 
 
 @pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX-only test")
-def test_posix_listener_dispatches_ctrl_x_to_dynamic_handler():
-    """Ctrl+X must dispatch to the dynamically registered handler (shell
-    kill switch) in preference to the spawn-time on_escape callback.
+def test_posix_listener_feeds_ctrl_x_to_editor_as_chord_prefix():
+    """With an editor installed, Ctrl+X must flow INTO it (chord prefix)
+    instead of firing the spawn-time on_escape callback.
     """
     stop_event = threading.Event()
     fallback = MagicMock()
-    dynamic = MagicMock()
 
     fake_stdin = MagicMock()
     fake_stdin.fileno.return_value = 7
+
+    fed: list = []
+    editor = MagicMock()
+    editor.feed.side_effect = fed.append
 
     # The listener now reads the RAW fd via _read_chunk (os.read) — the
     # buffered stdin.read(1) path stranded escape-sequence tails (the
@@ -206,18 +245,21 @@ def test_posix_listener_dispatches_ctrl_x_to_dynamic_handler():
         finally:
             stop_event.set()
 
-    _key_listeners.set_escape_handler(dynamic)
-    with (
-        patch.object(sys, "stdin", fake_stdin),
-        patch.object(_key_listeners, "_read_chunk", fake_chunk),
-        patch("termios.tcgetattr", return_value=["original"]),
-        patch("termios.tcsetattr"),
-        patch("tty.setcbreak"),
-        patch("select.select", return_value=([fake_stdin], [], [])),
-    ):
-        _key_listeners._listen_posix(stop_event, fallback)
+    _key_listeners.set_line_editor(editor)
+    try:
+        with (
+            patch.object(sys, "stdin", fake_stdin),
+            patch.object(_key_listeners, "_read_chunk", fake_chunk),
+            patch("termios.tcgetattr", return_value=["original"]),
+            patch("termios.tcsetattr"),
+            patch("tty.setcbreak"),
+            patch("select.select", return_value=([fake_stdin], [], [])),
+        ):
+            _key_listeners._listen_posix(stop_event, fallback)
+    finally:
+        _key_listeners.set_line_editor(None)
 
-    dynamic.assert_called_once()
+    assert fed == ["\x18"]
     fallback.assert_not_called()
 
 

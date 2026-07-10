@@ -7,13 +7,15 @@ import os
 import platform
 import subprocess
 import sys
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from rich.console import Console
 
-# Store the original console ctrl handler so we can restore it if needed
-_original_ctrl_handler: Optional[Callable] = None
+# Original stdin console mode saved by disable_windows_ctrl_c() so
+# enable_windows_ctrl_c() can restore it. (Historic name kept: tests
+# and monkeypatches reference it.)
+_original_ctrl_handler: Optional[int] = None
 
 
 def reset_windows_terminal_ansi() -> None:
@@ -82,12 +84,13 @@ def reset_windows_console_mode() -> None:
         stdin_mode = ctypes.c_ulong()
         kernel32.GetConsoleMode(stdin_handle, ctypes.byref(stdin_mode))
 
-        new_stdin_mode = (
-            stdin_mode.value
-            | ENABLE_LINE_INPUT
-            | ENABLE_ECHO_INPUT
-            | ENABLE_PROCESSED_INPUT
-        )
+        new_stdin_mode = stdin_mode.value | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT
+        # Only restore processed input (Ctrl+C -> CTRL_C_EVENT) when the
+        # raw-Ctrl+C clamp isn't active. Re-enabling it would let Ctrl+C
+        # generate a console-wide event that kills wrapper launchers
+        # (uvx.exe, pipx shims) attached to the same console.
+        if not _keep_ctrl_c_disabled:
+            new_stdin_mode |= ENABLE_PROCESSED_INPUT
         kernel32.SetConsoleMode(stdin_handle, new_stdin_mode)
 
     except Exception:
@@ -151,6 +154,87 @@ def ensure_windows_vt_processing() -> bool:
         return False  # can't confirm VT -> fail safe, degrade to classic
 
 
+#: ENABLE_VIRTUAL_TERMINAL_INPUT — stdin delivers VT sequences verbatim.
+_ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
+
+
+def enable_windows_vt_input() -> bool:
+    """Enable VT input (``ENABLE_VIRTUAL_TERMINAL_INPUT``) on stdin, verified.
+
+    ConPTY only forwards terminal-side VT input sequences to a client
+    whose stdin carries this flag. Bracketed-paste markers
+    (``ESC[200~``/``ESC[201~``) have no key-event representation, so
+    without the flag ConPTY silently DROPS them — and Windows Terminal
+    pastes an image-only clipboard as an EMPTY bracketed paste, meaning
+    the app receives NOTHING and Ctrl+V image capture never fires.
+    (Text pastes still arrive as synthesized keystrokes, which is why
+    only image paste broke.) Verified live via console probe 2026-07-08:
+    mode ``0x1f7`` → 0 chars delivered; mode ``0x3f7`` → the 12-char
+    empty bracketed paste.
+
+    Scope contract: only the Windows key listener enables this, while it
+    owns stdin — and it disables it around suspensions, because
+    ``ReadConsoleInput``-based readers (prompt_toolkit TUIs) expect
+    classic key events. Returns True when the flag is CONFIRMED set via
+    a mode read-back (mirrors :func:`ensure_windows_vt_processing`;
+    ancient hosts silently no-op ``SetConsoleMode``). Never raises.
+    """
+    if platform.system() != "Windows":
+        return False
+
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        stdin_handle = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+
+        mode = ctypes.c_ulong()
+        if not kernel32.GetConsoleMode(stdin_handle, ctypes.byref(mode)):
+            return False
+        if mode.value & _ENABLE_VIRTUAL_TERMINAL_INPUT:
+            return True  # already on
+
+        if not kernel32.SetConsoleMode(
+            stdin_handle, mode.value | _ENABLE_VIRTUAL_TERMINAL_INPUT
+        ):
+            return False
+
+        verify = ctypes.c_ulong()
+        if not kernel32.GetConsoleMode(stdin_handle, ctypes.byref(verify)):
+            return False
+        return bool(verify.value & _ENABLE_VIRTUAL_TERMINAL_INPUT)
+    except Exception:
+        return False
+
+
+def disable_windows_vt_input() -> None:
+    """Clear ``ENABLE_VIRTUAL_TERMINAL_INPUT`` from stdin (best-effort).
+
+    Called by the Windows key listener before parking for a suspension
+    and on exit, so ``ReadConsoleInput``-based readers (prompt_toolkit
+    TUIs, the parent shell after we quit) get classic key events instead
+    of raw VT sequences. Never raises.
+    """
+    if platform.system() != "Windows":
+        return
+
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        stdin_handle = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+
+        mode = ctypes.c_ulong()
+        if not kernel32.GetConsoleMode(stdin_handle, ctypes.byref(mode)):
+            return
+        if mode.value & _ENABLE_VIRTUAL_TERMINAL_INPUT:
+            kernel32.SetConsoleMode(
+                stdin_handle, mode.value & ~_ENABLE_VIRTUAL_TERMINAL_INPUT
+            )
+    except Exception:
+        pass
+
+
 def flush_windows_keyboard_buffer() -> None:
     """Flush the Windows keyboard buffer.
 
@@ -198,6 +282,38 @@ def reset_unix_terminal() -> None:
         pass  # Silently fail if reset command isn't available
 
 
+#: Disable every xterm mouse-tracking mode plus bracketed paste.
+#: 1000=click, 1002=drag, 1003=any-motion, 1005/1006/1015=coordinate
+#: encodings, 2004=bracketed paste. Disabling a mode that was never
+#: enabled is a harmless no-op, so we always send the full set.
+_MOUSE_TRACKING_OFF = (
+    "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?2004l"
+)
+
+
+def disable_mouse_tracking(stream=None) -> None:
+    """Explicitly disable xterm mouse tracking and bracketed paste.
+
+    Safety net for TUI components that enable ``mouse_support``: if their
+    cleanup is interrupted (thread race, exception during alternate-screen
+    exit), mouse tracking stays armed and every click/scroll floods stdin
+    with escape sequences that leak into the prompt as garbage (#244).
+
+    Safe to call unconditionally on POSIX: prompt_toolkit re-arms
+    bracketed paste on the next prompt render. No-op on Windows, where
+    mouse reporting is a console-mode flag handled by
+    :func:`reset_windows_console_mode` instead of escape sequences.
+    """
+    if platform.system() == "Windows":
+        return
+    out = stream if stream is not None else sys.stdout
+    try:
+        out.write(_MOUSE_TRACKING_OFF)
+        out.flush()
+    except Exception:
+        pass  # Never let a cleanup helper crash the caller.
+
+
 def reset_terminal() -> None:
     """Cross-platform terminal reset.
 
@@ -213,12 +329,25 @@ def reset_terminal() -> None:
 def disable_windows_ctrl_c() -> bool:
     """Disable Ctrl+C processing at the Windows console input level.
 
-    This removes ENABLE_PROCESSED_INPUT from stdin, which prevents
-    Ctrl+C from being interpreted as a signal at all. Instead, it
-    becomes just a regular character (^C) that gets ignored.
+    This removes ENABLE_PROCESSED_INPUT from stdin, so the console never
+    turns Ctrl+C into a console-wide CTRL_C_EVENT (which would also kill
+    wrapper launchers like uvx.exe attached to the same console). Instead
+    Ctrl+C arrives as a plain ``\\x03`` byte that the key listener / line
+    editor handle like any other keystroke.
 
-    This is more reliable than SetConsoleCtrlHandler because it
-    prevents Ctrl+C from being processed before it reaches any handler.
+    This is more reliable than SetConsoleCtrlHandler because the event is
+    never generated in the first place — for ANY process on the console.
+
+    Deliberately NOT ``SetConsoleCtrlHandler(NULL, TRUE)``: the process-
+    level ignore flag silences the very SIGINT that triggers console-mode
+    REPAIR. Anything sharing the console (shell children, conda hooks)
+    can flip ENABLE_PROCESSED_INPUT back on; if we then ignore the
+    resulting CTRL_C_EVENTs, the console stays regressed forever while
+    each ^C kills wrapper launchers (uvx.exe) and wakes the parent shell
+    into fighting us for stdin (the 2026-07-08 uvx incident). Instead the
+    Windows key listener re-clamps the mode on a ~1s cadence and a stray
+    SIGINT still reaches the graceful handler, which repairs via
+    ``reset_windows_terminal_full()``.
 
     Returns:
         True if successfully disabled, False otherwise.
@@ -296,100 +425,6 @@ def enable_windows_ctrl_c() -> bool:
 
 # Flag to track if we should keep Ctrl+C disabled
 _keep_ctrl_c_disabled: bool = False
-
-# Keep a reference to the installed SetConsoleCtrlHandler callback so the
-# garbage collector doesn't yank it out from under the Windows kernel.
-# (If this gets collected mid-flight, you get a nice juicy access violation.)
-_ctrl_c_swallower_ref: Optional[Callable] = None
-
-
-def install_windows_ctrl_c_swallower() -> bool:
-    """Install an OS-level Windows console handler that swallows Ctrl+C.
-
-    This uses ``SetConsoleCtrlHandler`` to register a handler that returns
-    TRUE for ``CTRL_C_EVENT`` (and ``CTRL_BREAK_EVENT``), telling Windows
-    "yep, handled it, don't pass it on". The Python SIGINT handler never
-    fires. This is the belt to ``disable_windows_ctrl_c()``'s suspenders:
-
-    * ``disable_windows_ctrl_c()`` removes ``ENABLE_PROCESSED_INPUT`` so the
-      console doesn't translate Ctrl+C into a signal in the first place.
-    * ``install_windows_ctrl_c_swallower()`` registers a process-wide handler
-      that ignores the signal even if something re-enables processed input.
-
-    Together they make Ctrl+C an inert no-op for the lifetime of the process,
-    which is exactly what we want under Windows+uvx where Ctrl+C wrecks the
-    terminal.
-
-    Returns:
-        True if the handler was installed (or already installed), False on
-        non-Windows platforms or on failure.
-    """
-    global _ctrl_c_swallower_ref
-
-    if platform.system() != "Windows":
-        return False
-
-    if _ctrl_c_swallower_ref is not None:
-        return True  # Already installed — idempotent.
-
-    try:
-        import ctypes
-        from ctypes import wintypes
-
-        # Windows console control event codes
-        CTRL_C_EVENT = 0
-        CTRL_BREAK_EVENT = 1
-
-        HANDLER_ROUTINE = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
-
-        def _swallow(ctrl_type: int) -> bool:
-            # Return TRUE for Ctrl+C / Ctrl+Break to signal "handled, ignore".
-            # Return FALSE for everything else (close, logoff, shutdown) so
-            # the default handler still runs — we're not in the business of
-            # blocking system shutdown.
-            return ctrl_type in (CTRL_C_EVENT, CTRL_BREAK_EVENT)
-
-        handler = HANDLER_ROUTINE(_swallow)
-        kernel32 = ctypes.windll.kernel32
-
-        # SetConsoleCtrlHandler(handler, Add=TRUE)
-        if not kernel32.SetConsoleCtrlHandler(handler, True):
-            return False
-
-        # Pin the handler so it survives GC (kernel keeps a raw pointer).
-        _ctrl_c_swallower_ref = handler
-        return True
-
-    except Exception:
-        return False
-
-
-def uninstall_windows_ctrl_c_swallower() -> bool:
-    """Remove the Ctrl+C swallower installed by ``install_windows_ctrl_c_swallower``.
-
-    Mostly useful for tests and graceful shutdown. Idempotent.
-
-    Returns:
-        True if uninstalled (or nothing to do), False on failure.
-    """
-    global _ctrl_c_swallower_ref
-
-    if platform.system() != "Windows":
-        return False
-
-    if _ctrl_c_swallower_ref is None:
-        return True
-
-    try:
-        import ctypes
-
-        kernel32 = ctypes.windll.kernel32
-        # SetConsoleCtrlHandler(handler, Add=FALSE) removes it.
-        result = bool(kernel32.SetConsoleCtrlHandler(_ctrl_c_swallower_ref, False))
-        _ctrl_c_swallower_ref = None
-        return result
-    except Exception:
-        return False
 
 
 def set_keep_ctrl_c_disabled(value: bool) -> None:

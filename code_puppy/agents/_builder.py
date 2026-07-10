@@ -163,6 +163,12 @@ def load_mcp_servers(
     by the time the agent runs.
     """
     del extra_headers  # accepted for API compatibility; manager owns headers
+    from code_puppy.tools import tools_disabled
+
+    if tools_disabled():
+        # --no-tools implies no MCP toolsets either (issue #182).
+        return []
+
     mcp_disabled = get_value("disable_mcp_servers")
     if mcp_disabled and str(mcp_disabled).lower() in ("1", "true", "yes", "on"):
         return []

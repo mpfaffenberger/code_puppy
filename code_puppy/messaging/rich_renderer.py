@@ -458,6 +458,17 @@ class RichConsoleRenderer:
             if get_output_level() != "high" and get_suppress_thinking_messages():
                 return
 
+        # New transcript output is about to scroll (peek or full render):
+        # the bottom bar walks its completion-popup slack back one row
+        # per message so the prompt steps down with the flow. Guarded:
+        # bar geometry plumbing must NEVER break a render path.
+        try:
+            from .bottom_bar import get_bottom_bar
+
+            get_bottom_bar().notify_transcript_output()
+        except Exception:
+            pass
+
         # -- Output-level density gate --
         if self._should_collapse(message):
             self._render_peek(message)

@@ -4,6 +4,7 @@ import asyncio
 
 
 from code_puppy.messaging.editor_completion import (
+    DEBOUNCE_S,
     CompletionEngine,
     query_completions,
     should_autotrigger,
@@ -93,7 +94,30 @@ def make_engine(words, repaints=None):
 
 
 async def settle():
-    await asyncio.sleep(0.12)  # debounce (50ms) + executor round-trip
+    """Wait for the debounced completion query to fully drain.
+
+    The engine schedules a debounced (``DEBOUNCE_S``) query that then runs
+    the completer in the default thread-pool executor. A fixed sleep is
+    racy: under load (e.g. the full suite) the debounce + executor
+    round-trip can exceed the window, the menu never opens, and the test
+    sees a phantom failure. Instead, let the debounce timer fire, then
+    poll until the query task(s) have actually completed.
+    """
+    loop = asyncio.get_running_loop()
+    # Give the debounce timer time to fire and create the query task.
+    await asyncio.sleep(DEBOUNCE_S + 0.02)
+    # Drain the (one-shot) completion query task(s) - the executor
+    # round-trip keeps the task pending until the result lands.
+    deadline = loop.time() + 2.0
+    while loop.time() < deadline:
+        pending = [
+            t
+            for t in asyncio.all_tasks(loop)
+            if t is not asyncio.current_task() and not t.done()
+        ]
+        if not pending:
+            return
+        await asyncio.sleep(0.01)
 
 
 # =========================================================================
@@ -130,16 +154,92 @@ async def test_typing_slash_opens_menu():
     assert selected == 0
 
 
-async def test_tab_navigates_and_enter_accepts_without_submitting():
+async def test_tab_cycles_selection_without_accepting():
+    """Tab walks forward through the menu (shell menu-complete) — it
+    must NOT accept the highlighted item; Enter does that."""
     steers = []
     editor, engine = make_engine(["/help", "/hero"])
     editor.set_submit_router(lambda text, mode: steers.append(text) or None)
     editor.feed("/")
     await settle()
-    editor.feed("\t")  # next -> "/hero"
+    editor.feed("\t")  # cycle -> "/hero", NOT accept
+    assert editor.buffer == "/"  # buffer untouched
+    assert steers == []  # no submission happened
+    assert engine.is_open() is True  # menu stays open
+    _lines, selected = engine.popup_rows()
+    assert selected == 1
+
+
+async def test_tab_wraps_around_the_menu():
+    editor, engine = make_engine(["/help", "/hero"])
+    editor.feed("/")
+    await settle()
+    editor.feed("\t")  # -> 1
+    editor.feed("\t")  # wraps -> 0
+    _lines, selected = engine.popup_rows()
+    assert selected == 0
+    assert engine.is_open() is True
+
+
+async def test_tab_then_enter_accepts_cycled_selection():
+    steers = []
+    editor, engine = make_engine(["/help", "/hero"])
+    editor.set_submit_router(lambda text, mode: steers.append(text) or None)
+    editor.feed("/")
+    await settle()
+    editor.feed("\t")  # cycle -> "/hero"
+    editor.feed("\r")  # accept it
+    assert editor.buffer == "/hero"
+    assert steers == []
+    assert engine.is_open() is False
+
+
+async def test_enter_accepts_without_submitting():
+    steers = []
+    editor, engine = make_engine(["/help", "/hero"])
+    editor.set_submit_router(lambda text, mode: steers.append(text) or None)
+    editor.feed("/")
+    await settle()
+    editor.feed("\x1b[B")  # Down -> "/hero"
     editor.feed("\r")  # accept, NOT submit (classic behavior)
     assert editor.buffer == "/hero"
-    assert steers == []  # no submission happened
+    assert steers == []
+    assert engine.is_open() is False
+
+
+async def test_accept_after_cursor_moved_left_splices_correctly():
+    """Regression: completion offsets are anchored to the QUERY cursor.
+
+    Type "/he", arrow LEFT (menu stays open), then Enter: the completion
+    must replace the original "/he" cleanly — not splice against the
+    moved cursor and produce garbage like "/helpe" that later submits
+    as a plain prompt."""
+    steers = []
+    editor, engine = make_engine(["/help", "/hero"])
+    editor.set_submit_router(lambda text, mode: steers.append(text) or None)
+    for ch in "/he":
+        editor.feed(ch)
+    await settle()
+    assert engine.is_open() is True
+    editor.feed("\x1b[D")  # Left: cursor drifts, menu stays open
+    editor.feed("\r")  # accept — must use the query-time anchor
+    assert editor.buffer == "/help"
+    assert editor.cursor == len("/help")
+    assert steers == []  # accepted, never submitted
+    assert engine.is_open() is False
+
+
+async def test_tab_cycle_after_cursor_moved_then_enter_splices_correctly():
+    editor, engine = make_engine(["/help", "/hero"])
+    for ch in "/he":
+        editor.feed(ch)
+    await settle()
+    editor.feed("\x1b[D")  # Left
+    editor.feed("\x1b[D")  # Left again (cursor=1)
+    editor.feed("\t")  # cycle -> "/hero" (buffer untouched)
+    assert editor.buffer == "/he"
+    editor.feed("\r")  # accept — anchored to the QUERY cursor
+    assert editor.buffer == "/hero"
     assert engine.is_open() is False
 
 

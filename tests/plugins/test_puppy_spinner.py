@@ -71,8 +71,10 @@ async def test_run_start_spins_and_run_end_clears(bar):
     painted = [p for p in bar.prefixes if p]
     assert painted, "ticker never painted a frame"
     assert all(rc._PUPPY in p for p in painted)
-    # Frames only -- no "<puppy> is thinking..." chatter on the status row.
-    assert all(p in rc.FRAMES for p in painted)
+    # Frames only -- no "<puppy> is thinking..." chatter on the status
+    # row -- each followed by the gap that pads out the next element.
+    assert all(p.endswith(rc._PREFIX_GAP) for p in painted)
+    assert all(p.removesuffix(rc._PREFIX_GAP) in rc.FRAMES for p in painted)
 
     await rc._on_run_end(agent_name="a", model_name="m", success=True)
     await asyncio.sleep(0.02)  # let the cancelled task run its finally

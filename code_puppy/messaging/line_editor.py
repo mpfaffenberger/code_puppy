@@ -13,9 +13,10 @@ Meta-b/f), Up/Down (menu > multiline line-move > history), Enter
 POSIX listener clears ICRNL so Ctrl+J = ``\\n`` = newline), Shift/Ctrl+
 Enter (CSI-u + modifyOtherKeys → newline), Alt+Enter (queue-submit),
 Ctrl+D (EOF on empty), Ctrl+R (reverse search; Enter accepts WITHOUT
-submitting), Ctrl+V (async smart paste — image or text), Tab/Shift-Tab
-(completion), F2 / Alt+M (multiline), bracketed paste (atomic insert
-with image detection).
+submitting), Ctrl+V (async smart paste — image or text), Ctrl+X chords
+(registry-driven: Ctrl+E $EDITOR, shell kill/background — see chords),
+Tab/Shift-Tab
+(completion), F2 / Alt+M (multiline), bracketed paste (atomic insert).
 
 Unknown CSI/SS3 sequences are swallowed whole. ESC disambiguation uses
 a pending timestamp; bare ESC resolves on the next feed()/check_timeout.
@@ -31,7 +32,9 @@ from typing import Callable, List, Optional
 
 from . import editor_keys as ek
 from .bottom_bar import get_bottom_bar
-from .editor_actions import apply_action
+from .chords import clear_chord_hint
+from .editor_actions import apply_action, handle_chord
+from .editor_display import to_display
 from .editor_history import (
     HistoryNavigator,
     ReverseSearch,
@@ -52,7 +55,8 @@ DEFAULT_ESC_TIMEOUT = 0.05
 # Raw control chars live in editor_keys (see the Ctrl+K / Ctrl+V notes there).
 _ENTER, _CTRL_J, _TAB, _ESC = ek.ENTER, ek.CTRL_J, ek.TAB, ek.ESC
 _BACKSPACE_KEYS = ek.BACKSPACE_KEYS
-_CTRL_A, _CTRL_D, _CTRL_E, _CTRL_K = ek.CTRL_A, ek.CTRL_D, ek.CTRL_E, ek.CTRL_K
+_CTRL_A, _CTRL_C, _CTRL_D = ek.CTRL_A, ek.CTRL_C, ek.CTRL_D
+_CTRL_E, _CTRL_K = ek.CTRL_E, ek.CTRL_K
 _CTRL_R, _CTRL_U, _CTRL_V, _CTRL_W = ek.CTRL_R, ek.CTRL_U, ek.CTRL_V, ek.CTRL_W
 
 #: Callback signature: ``(text, mode)`` where mode is "now" or "queue".
@@ -105,6 +109,7 @@ class RunningLineEditor:
         self._router: Optional[SubmitRouter] = None
         self._eof_handler: Optional[Callable[[], None]] = None
         self._clipboard_handler: Optional[Callable[[], None]] = None
+        self._ctrl_x_pending = False  # Ctrl+X chord prefix armed (see chords)
         # Phase B feature state.
         self._history = history if history is not None else safe_navigator()
         self._rsearch = (
@@ -153,12 +158,30 @@ class RunningLineEditor:
         with self._lock:  # async Ctrl+V clipboard handler (run_ui)
             self._clipboard_handler = handler
 
+    @property
+    def paste_active(self) -> bool:
+        """True while a bracketed paste is streaming into the buffer.
+
+        The Windows key listener checks this so a paste split across
+        poll ticks isn't re-coalesced (and re-wrapped) mid-stream.
+        """
+        return self._paste.active
+
     def insert_paste_text(self, text: str) -> None:
         """Insert clipboard content (programmatic — no completion)."""
         if not text:
             return
         with self._lock:
             self._insert_text(text, typed=False)
+
+    def replace_buffer_text(self, text: str) -> None:
+        """Replace the whole buffer (external $EDITOR round-trip)."""
+        with self._lock:
+            self._buffer = text
+            self._cursor = len(text)
+            self._history.reset()
+            self._close_completion()
+            self._repaint()
 
     def attach_completion(self, engine) -> None:
         """Attach a CompletionEngine (or None to detach)."""
@@ -184,6 +207,9 @@ class RunningLineEditor:
         """Discard typed text + transient UI state (Ctrl+C-at-idle)."""
         with self._lock:
             self._esc_pending_at = None
+            if self._ctrl_x_pending:
+                self._ctrl_x_pending = False
+                clear_chord_hint()
             if self._rsearch.active:
                 self._rsearch.cancel()
                 self._set_completion_suppressed(False)
@@ -206,13 +232,17 @@ class RunningLineEditor:
             except ValueError:
                 pass
 
-    def apply_completion(self, start_position: int, replacement: str) -> None:
-        """Apply a completion: replace [cursor+start_position, cursor)."""
+    def apply_completion(self, start: int, end: int, replacement: str) -> None:
+        """Apply a completion: replace buffer[start:end) with ``replacement``.
+
+        Absolute indices (clamped) — the CompletionEngine anchors them to
+        the cursor AT QUERY TIME, so the splice stays correct even when
+        the user moved the cursor while the menu was open.
+        """
         with self._lock:
-            start = max(0, self._cursor + start_position)
-            self._buffer = (
-                self._buffer[:start] + replacement + self._buffer[self._cursor :]
-            )
+            start = max(0, min(start, len(self._buffer)))
+            end = max(start, min(end, len(self._buffer)))
+            self._buffer = self._buffer[:start] + replacement + self._buffer[end:]
             self._cursor = start + len(replacement)
             self._history.reset()
             self._repaint()
@@ -302,6 +332,9 @@ class RunningLineEditor:
             return None
 
         if ch == _ESC:
+            if self._ctrl_x_pending:  # Esc cancels an armed chord
+                self._ctrl_x_pending = False
+                clear_chord_hint()
             if self._rsearch.active:
                 # Cancel search immediately; keep ESC pending so a
                 # trailing sequence is still consumed safely.
@@ -311,8 +344,21 @@ class RunningLineEditor:
             self._esc_pending_at = self._now()
             return None
 
+        if ch == _CTRL_C:
+            # Raw ^C only reaches the editor when the console can't turn
+            # it into SIGINT (Windows clamps ENABLE_PROCESSED_INPUT for
+            # the whole session — see cli_runner startup).
+            # Mirror the SIGINT path: discard composed input / cancel
+            # reverse search, never submit or kill anything — cancel
+            # semantics stay with the hotkey/signal layers.
+            self.clear_buffer()
+            return None
+
         if self._rsearch.active:
             return self._feed_rsearch(ch)
+
+        if handle_chord(self, ch):  # Ctrl+X chord prefix (chords registry)
+            return None
 
         if ch == _ENTER:
             if self._completion_open():
@@ -338,11 +384,7 @@ class RunningLineEditor:
             return None
         if ch == _CTRL_V:
             # Raw-\x16 / image-only clipboard fallback; handler is async.
-            if self._clipboard_handler is not None:
-                try:
-                    self._clipboard_handler()
-                except Exception:
-                    logger.debug("clipboard handler failed", exc_info=True)
+            self._call_handler(self._clipboard_handler, "clipboard")
             return None
         if ch in _BACKSPACE_KEYS:
             if self._cursor > 0:
@@ -372,11 +414,8 @@ class RunningLineEditor:
             return None
         if ch == _CTRL_D:
             # EOF only on an EMPTY buffer (classic readline semantics).
-            if not self._buffer and self._eof_handler is not None:
-                try:
-                    self._eof_handler()
-                except Exception:
-                    logger.debug("EOF handler failed", exc_info=True)
+            if not self._buffer:
+                self._call_handler(self._eof_handler, "EOF")
             return None
         if ch.isprintable():
             self._insert_text(ch)
@@ -386,6 +425,16 @@ class RunningLineEditor:
     def _apply_action(self, action: Optional[str]) -> None:
         """Dispatch a classified CSI/SS3 action (see editor_actions)."""
         apply_action(self, action)
+
+    @staticmethod
+    def _call_handler(handler: Optional[Callable[[], None]], name: str) -> None:
+        """Best-effort invoke of an installed async handler (run_ui)."""
+        if handler is None:
+            return
+        try:
+            handler()
+        except Exception:
+            logger.debug("%s handler failed", name, exc_info=True)
 
     # =========================================================================
     # Internals — history / reverse search / completion / paste glue
@@ -593,8 +642,11 @@ class RunningLineEditor:
                 return
             # "[multiline] " suffix has no SGR entries: extra chars paint plain.
             prefix = self._prompt_prefix + ("[multiline] " if self._multiline else "")
+            # Attachment paths render as friendly tags ([png image]) —
+            # display only; the buffer keeps the real path for submit.
+            display_text, display_cursor = to_display(self._buffer, self._cursor)
             bar.set_prompt_text(
-                prefix, self._buffer, self._cursor, self._prompt_prefix_sgrs
+                prefix, display_text, display_cursor, self._prompt_prefix_sgrs
             )
         except Exception:
             # Painting is best-effort; the buffer state is the truth.

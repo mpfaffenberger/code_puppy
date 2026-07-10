@@ -156,10 +156,6 @@ claude_code_oauth/
 
 - The plugin assumes Anthropic continues to expose the shared `claude-cli` OAuth client
 - Tokens are refreshed on subsequent API calls if the service returns refresh tokens
-- Auth failures (401/403, or Cloudflare HTML 400s) that escape the HTTP client's
-  per-request refresh trigger an automatic token refresh and ride the main agent
-  retry loop via the `agent_retryable_exception` hook (see `auth_retry.py`) —
-  same delays and attempt cap as a 429, so users aren't interrupted
 - Models are prefixed with `claude-code-` to avoid collisions with other Anthropic models
 
 ## Contributing

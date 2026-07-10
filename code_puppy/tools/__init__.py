@@ -1,3 +1,5 @@
+import os
+
 from code_puppy.callbacks import on_register_agent_tools, on_register_tools
 from code_puppy.messaging import emit_warning
 from code_puppy.tools.agent_tools import register_list_agents
@@ -35,6 +37,14 @@ from code_puppy.tools.browser.browser_locators import (
     register_find_by_text,
     register_find_links,
     register_run_xpath_query,
+)
+from code_puppy.tools.browser.browser_page_snapshot import (
+    register_get_page_snapshot,
+)
+from code_puppy.tools.browser.browser_semantic_interactions import (
+    register_click_by_role,
+    register_click_by_text,
+    register_set_text_by_label,
 )
 from code_puppy.tools.browser.browser_navigation import (
     register_browser_go_back,
@@ -132,6 +142,11 @@ TOOL_REGISTRY = {
     "browser_xpath_query": register_run_xpath_query,
     "browser_find_buttons": register_find_buttons,
     "browser_find_links": register_find_links,
+    # Browser Semantic Interactions (accessibility-first, DOM progression)
+    "browser_page_snapshot": register_get_page_snapshot,
+    "browser_click_by_role": register_click_by_role,
+    "browser_click_by_text": register_click_by_text,
+    "browser_set_text_by_label": register_set_text_by_label,
     # Browser Element Interactions
     "browser_click": register_click_element,
     "browser_double_click": register_double_click_element,
@@ -176,6 +191,26 @@ TOOL_EXPANSIONS: dict[str, list[str]] = {
 # Keep this for truly removed tools only; backward-compatible tool aliases
 # that still work should stay in TOOL_REGISTRY.
 REMOVED_LEGACY_TOOLS: set[str] = set()
+
+# Process-wide tool kill-switch (issue #182). Set by the builtin ``no_tools``
+# plugin when ``--no-tools`` is passed, or directly by wrappers that spawn
+# Code Puppy as a subprocess. An env var (not puppy.cfg) on purpose: it's
+# scoped to this process and never persists.
+NO_TOOLS_ENV_VAR = "CODE_PUPPY_NO_TOOLS"
+
+
+def tools_disabled() -> bool:
+    """True when the ``CODE_PUPPY_NO_TOOLS`` kill-switch is active.
+
+    When active, no tools are registered on any agent and no MCP toolsets
+    are attached — the model runs pure text-in/text-out.
+    """
+    return os.environ.get(NO_TOOLS_ENV_VAR, "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 
 def _load_plugin_tools() -> None:
@@ -276,6 +311,11 @@ def register_tools_for_agent(
             advertise tools per-agent if they want.
     """
     from code_puppy.config import get_universal_constructor_enabled
+
+    if tools_disabled():
+        # --no-tools / CODE_PUPPY_NO_TOOLS: register nothing at all. This
+        # also keeps tool schemas out of the request, trimming token usage.
+        return
 
     _load_plugin_tools()
 

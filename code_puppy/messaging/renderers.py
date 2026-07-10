@@ -276,6 +276,17 @@ def _classify_style(message: UIMessage) -> Optional[str]:
 
 def _print_message(console: Console, message: UIMessage) -> None:
     """Print ``message`` to ``console`` using the standard styling rules."""
+    # New transcript output is about to scroll: the bottom bar walks
+    # its popup slack back one row per message so the prompt steps down
+    # with the flow (see BottomBar.notify_transcript_output). Guarded:
+    # bar geometry plumbing must NEVER break (or kill) a render thread.
+    try:
+        from .bottom_bar import get_bottom_bar
+
+        get_bottom_bar().notify_transcript_output()
+    except Exception:
+        pass
+
     style = _classify_style(message)
     content = message.content
     if isinstance(content, str):
@@ -421,11 +432,22 @@ class SynchronousInteractiveRenderer:
         self._flush_paused_buffer()
 
     def _consume_messages(self):
-        """Consume messages synchronously."""
+        """Consume messages synchronously.
+
+        Each render is exception-guarded: an unhandled error here would
+        otherwise kill this daemon thread SILENTLY and message rendering
+        would degrade with no symptom other than "output stopped".
+        """
         while self._running:
             message = self.queue.get_nowait()
             if message:
-                self._render_message(message)
+                try:
+                    self._render_message(message)
+                except Exception as e:
+                    # Can't use messaging in the renderer — stderr only.
+                    import sys
+
+                    sys.stderr.write(f"Error rendering message: {e}\n")
             else:
                 # No messages, sleep briefly
                 import time

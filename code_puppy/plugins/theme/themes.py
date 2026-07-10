@@ -218,6 +218,40 @@ CURATED_THEMES: dict[str, dict] = {
         ),
         "terminal_palette": bp.BUBBLEGUM_PINK,
     },
+    "purple-puppy": {
+        "icon": "\U0001f436",  # dog face
+        "label": "Purple Puppy",
+        "blurb": "vivid violet fur, white muzzle & pink tongue",
+        "colors": [
+            "#9b30d9",  # highlight fur
+            "#8408b0",  # body fur
+            "#b06be8",  # light fur
+            "#6a0dad",  # shade fur
+            "#d9a7f5",  # lilac glow
+            "#ff7fa8",  # tongue pink
+            "#e8ccff",  # muzzle lavender
+            "#4b1a6e",  # deep shade
+        ],
+        "content_styles": {
+            "info": "#c9a0f0",
+            "warning": "#f5c26b",
+            "success": "#ff8fb3",
+            "error": "bold red",
+            "debug": "dim #b8a0d0",
+            "diff_add": "#ff8fb3",
+            "diff_remove": "red",
+            "diff_context": "dim #9b7fc0",
+        },
+        "color_remap": rt.make_remap(
+            cyan="#c9a0f0",
+            blue="#9b30d9",
+            magenta="#ff7fa8",
+            bright_cyan="#e8ccff",
+            bright_blue="#b06be8",
+            bright_magenta="#ff9fd2",
+        ),
+        "terminal_palette": bp.PURPLE_PUPPY,
+    },
     # --- Mure-port "palette-first" themes ---------------------------------
     # These rely primarily on the OSC ANSI palette swap (slot 6 = cyan, etc.)
     # so Rich's own [cyan]/[blue]/[magenta] tags automatically render in the
@@ -309,6 +343,38 @@ CURATED_THEMES: dict[str, dict] = {
         },
         "color_remap": {},
         "terminal_palette": bp.TOKYO_NIGHT,
+    },
+    "green-screen": {
+        "icon": "[CRT]",
+        "label": "Green Screen",
+        "blurb": "llxprt's radioactive green phosphor CRT",
+        # Banner labels render as white, which this theme remaps to #6a9955.
+        # Keep their backgrounds dark enough for readable phosphor-on-glass.
+        "colors": [
+            "#071507",
+            "#0b1f0b",
+            "#102510",
+        ],
+        "content_styles": {
+            "info": "#6a9955",
+            "warning": "#6a9955",
+            "success": "#00ff00",
+            "error": "bold #6a9955",
+            "debug": "dim #4a7035",
+            "diff_add": "#00ff00",
+            "diff_remove": "#6a9955",
+            "diff_context": "dim #4a7035",
+        },
+        "color_remap": rt.make_remap(
+            cyan="#6a9955",
+            blue="#6a9955",
+            magenta="#6a9955",
+            bright_cyan="#6a9955",
+            bright_blue="#6a9955",
+            bright_magenta="#6a9955",
+            white="#6a9955",
+        ),
+        "terminal_palette": bp.GREEN_SCREEN,
     },
     "deep-black": {
         "icon": "🌑",
@@ -430,7 +496,7 @@ CURATED_THEMES: dict[str, dict] = {
     },
 }
 
-# The 13th option: surprise me — special case, regenerated each preview/apply.
+# Surprise Me is a special case, regenerated each preview/apply.
 SURPRISE = {
     "icon": "🎲",
     "label": "Surprise Me",
@@ -441,7 +507,7 @@ SURPRISE = {
     "terminal_palette": None,  # randomized at apply time
 }
 
-# The 14th option: restore Code Puppy defaults (banners + content).
+# Restore Code Puppy defaults (banners + content).
 DEFAULT = {
     "icon": "🔄",
     "label": "Restore Defaults",
@@ -452,16 +518,18 @@ DEFAULT = {
     "terminal_palette": None,  # handled specially (OSC reset)
 }
 
-# Ordered menu: 5 vivid/dark themes, 7 palette-first/light themes, surprise, default.
+# Ordered menu: 7 vivid/dark themes, 7 palette-first/light themes, surprise, default.
 MENU: list[tuple[str, dict]] = [
     ("ocean", CURATED_THEMES["ocean"]),
     ("forest", CURATED_THEMES["forest"]),
     ("sunset", CURATED_THEMES["sunset"]),
     ("vaporwave", CURATED_THEMES["vaporwave"]),
     ("bubblegum-pink", CURATED_THEMES["bubblegum-pink"]),
+    ("purple-puppy", CURATED_THEMES["purple-puppy"]),
     ("catppuccin-mocha", CURATED_THEMES["catppuccin-mocha"]),
     ("catppuccin-latte", CURATED_THEMES["catppuccin-latte"]),
     ("tokyo-night", CURATED_THEMES["tokyo-night"]),
+    ("green-screen", CURATED_THEMES["green-screen"]),
     ("deep-black", CURATED_THEMES["deep-black"]),
     ("solarized-light", CURATED_THEMES["solarized-light"]),
     ("github-light", CURATED_THEMES["github-light"]),
@@ -479,8 +547,12 @@ MENU_BY_NAME["defaults"] = DEFAULT
 MENU_BY_NAME["mocha"] = CURATED_THEMES["catppuccin-mocha"]
 MENU_BY_NAME["latte"] = CURATED_THEMES["catppuccin-latte"]
 MENU_BY_NAME["tokyo"] = CURATED_THEMES["tokyo-night"]
+MENU_BY_NAME["green"] = CURATED_THEMES["green-screen"]
+MENU_BY_NAME["crt"] = CURATED_THEMES["green-screen"]
 MENU_BY_NAME["bubblegum"] = CURATED_THEMES["bubblegum-pink"]
 MENU_BY_NAME["pink"] = CURATED_THEMES["bubblegum-pink"]
+MENU_BY_NAME["puppy"] = CURATED_THEMES["purple-puppy"]
+MENU_BY_NAME["purple"] = CURATED_THEMES["purple-puppy"]
 MENU_BY_NAME["solarized"] = CURATED_THEMES["solarized-light"]
 MENU_BY_NAME["github"] = CURATED_THEMES["github-light"]
 MENU_BY_NAME["rose-pine"] = CURATED_THEMES["rose-pine-dawn"]

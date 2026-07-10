@@ -47,6 +47,8 @@ from typing import Dict, Iterator, Optional
 
 from .bottom_bar import get_bottom_bar
 from .line_editor import RunningLineEditor
+from .chords import register_chord, unregister_chord
+from .external_editor import make_external_edit_handler
 from .run_ui_wiring import attach_completion, make_clipboard_handler
 
 logger = logging.getLogger(__name__)
@@ -130,6 +132,14 @@ def start_run_ui() -> Optional[RunningLineEditor]:
             _loop = None
     editor.add_submit_listener(_make_slash_listener(editor))
     editor.set_clipboard_handler(make_clipboard_handler(editor, _get_loop))
+    # Ctrl+X Ctrl+E: edit the prompt in $EDITOR (chord registry — shell
+    # kill/background chords are registered by command_runner while
+    # shells run; this one lives for the UI's lifetime).
+    register_chord(
+        "\x05",
+        make_external_edit_handler(editor, _get_loop),
+        "Ctrl+E edit in $EDITOR",
+    )
     attach_completion(editor, _get_loop)
     _set_feed_target(editor)
     editor.repaint()
@@ -148,12 +158,17 @@ def stop_run_ui() -> None:
             # The UI outlives the run — just drop back to idle routing.
             _run_active = False
             _clear_status_row()
+            # Self-heal: if the REPL-lifetime listener died mid-run (its
+            # thread crashed, or a per-run listener replaced-then-stopped
+            # it), typing at the idle prompt would be dead forever.
+            _ensure_persistent_listener_locked()
             return
         editor = _editor
         _editor = None
         _loop = None
     if editor is not None:
         _set_feed_target(None)
+    unregister_chord("\x05")  # the handler closes over the dead editor
     _clear_status_row()
     try:
         get_bottom_bar().stop()
@@ -332,12 +347,32 @@ def absorb_ctrl_c_if_composing() -> bool:
         return False
     editor.clear_buffer()
     try:
-        get_bottom_bar().set_status(
-            "input cleared — press ctrl+c again to cancel the agent"
-        )
+        get_bottom_bar().set_status(_cleared_hint())
     except Exception:
         logger.debug("ctrl+c hint paint failed", exc_info=True)
     return True
+
+
+def _cleared_hint() -> str:
+    """Status hint after a buffer-first Ctrl+C — names the REAL cancel key.
+
+    When the cancel key IS ctrl+c (the default everywhere — the press
+    that just cleared the buffer was the cancel gesture), say "again".
+    When cancel is remapped (ctrl+k/ctrl+q), "press ctrl+c again" would
+    be a lie — name the real key instead.
+    """
+    try:
+        from code_puppy.keymap import (
+            get_cancel_agent_display_name,
+            get_cancel_agent_key,
+        )
+
+        if get_cancel_agent_key() == "ctrl+c":
+            return "input cleared — press ctrl+c again to cancel the agent"
+        key = get_cancel_agent_display_name().lower()
+        return f"input cleared — press {key} to cancel the agent"
+    except Exception:
+        return "input cleared"
 
 
 def _persistent_router(text: str, mode: str) -> Optional[str]:
@@ -385,15 +420,50 @@ def _spawn_persistent_listener() -> None:
         from code_puppy.agents import _key_listeners
     except ImportError:
         return  # no listener infra: prompt still works via nothing-to-feed
-    if _key_listeners.get_active_handle() is not None:
-        return  # someone else owns stdin already
     stop_event = threading.Event()
-    handle = _key_listeners.spawn_key_listener(stop_event, on_escape=lambda: None)
-    if handle is None:
+    # Atomic reuse-or-spawn: if someone else already owns stdin we back
+    # off (spawned=False) and deliberately do NOT record their handle as
+    # ours — stop_persistent_ui must never stop a listener it didn't spawn.
+    handle, spawned = _key_listeners.acquire_listener(
+        stop_event, on_escape=lambda: None
+    )
+    if handle is None or not spawned:
         return
-    _key_listeners.set_active_handle(handle)
     with _lock:
         _listener_handle = handle
+
+
+def _ensure_persistent_listener_locked() -> None:
+    """Respawn the persistent listener if it died. Caller holds ``_lock``.
+
+    Never raises — this runs on ``finally`` teardown paths.
+    """
+    global _listener_handle
+    handle = _listener_handle
+    if (
+        handle is not None
+        and handle.thread.is_alive()
+        and not handle.stop_event.is_set()
+    ):
+        return  # healthy
+    try:
+        from code_puppy.agents import _key_listeners
+    except ImportError:
+        return
+    try:
+        # Drop the stale registration (if it's still ours) so
+        # acquire_listener doesn't refuse to spawn over a corpse.
+        if handle is not None and _key_listeners.get_active_handle() is handle:
+            _key_listeners.set_active_handle(None)
+        _listener_handle = None
+        stop_event = threading.Event()
+        new_handle, spawned = _key_listeners.acquire_listener(
+            stop_event, on_escape=lambda: None
+        )
+        if new_handle is not None and spawned:
+            _listener_handle = new_handle
+    except Exception:
+        logger.debug("persistent listener respawn failed", exc_info=True)
 
 
 # =============================================================================

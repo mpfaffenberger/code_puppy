@@ -17,10 +17,16 @@ import time
 from typing import List, Optional, Tuple
 
 from prompt_toolkit.application import Application
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
+from prompt_toolkit.application.current import get_app
+from prompt_toolkit.filters import Condition
+from prompt_toolkit.layout import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.widgets import Frame
+from prompt_toolkit.widgets import TextArea
+
+from code_puppy.plugins.plugin_list.plugins_menu_layout import (
+    build_key_bindings,
+    build_layout,
+)
 
 from code_puppy.command_line.pagination import (
     ensure_visible_page,
@@ -42,13 +48,20 @@ PAGE_SIZE = 20
 
 
 class _PluginEntry:
-    """Lightweight struct for a loaded plugin."""
+    """Lightweight struct for a plugin row.
 
-    __slots__ = ("name", "tier")
+    ``status`` is "loaded" for imported plugins; project plugins held back
+    by the trust gate carry their gate status instead ("untrusted",
+    "changed", "disabled", "error") so the TUI can show them without
+    pretending they're active.
+    """
 
-    def __init__(self, name: str, tier: str) -> None:
+    __slots__ = ("name", "tier", "status")
+
+    def __init__(self, name: str, tier: str, status: str = "loaded") -> None:
         self.name = name
         self.tier = tier
+        self.status = status
 
 
 class PluginsMenu:
@@ -58,14 +71,36 @@ class PluginsMenu:
     object — keep them stable to avoid breaking the render contract:
 
     * ``plugins``, ``disabled``, ``selected_idx``, ``current_page``, ``page_size``
+    * ``project_dir`` (posix string or None)
+    * ``trust_target``, ``trust_error``, ``trust_feedback`` (popup state)
     * ``_detail_cols``, ``_pane_rows``
     * ``_changed``
     * ``_current()``
+
+    Entries carry a ``status`` ("loaded" or a trust-gate status) — the
+    renderer branches on it, so keep it stable too.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, focus_plugin: Optional[str] = None) -> None:
+        """*focus_plugin* preselects that plugin; if it's trust-gated, the
+        risk-acceptance popup opens immediately (used by ``/plugins enable``
+        to bring the user straight to the ceremony)."""
         self.plugins: List[_PluginEntry] = []
         self.disabled: set[str] = set()
+        self.project_dir: Optional[str] = None
+        self.lock_builtin: bool = False
+        self.hidden_builtin_count: int = 0
+
+        # Trust popup state. While ``trust_target`` is set, the modal is
+        # visible, ALL list keybindings are filter-disabled (so typing the
+        # accept word can't trigger shortcuts), and focus sits on the input.
+        self.trust_target: Optional[_PluginEntry] = None
+        self.trust_error: str = ""
+        self.trust_feedback: str = ""
+        self.trust_input: TextArea = TextArea(
+            multiline=False, height=1, accept_handler=self._accept_trust
+        )
+        self._modal_open = Condition(lambda: self.trust_target is not None)
 
         self.selected_idx = 0
         self.current_page = 0
@@ -91,20 +126,61 @@ class PluginsMenu:
 
         self._refresh_data()
 
+        if focus_plugin:
+            for i, entry in enumerate(self.plugins):
+                if entry.name == focus_plugin:
+                    self.selected_idx = i
+                    self.current_page = ensure_visible_page(
+                        i, self.current_page, len(self.plugins), PAGE_SIZE
+                    )
+                    if entry.status in ("untrusted", "changed"):
+                        self._open_trust_modal(entry)
+                    break
+
     # -- data helpers ------------------------------------------------------
 
     def _refresh_data(self) -> None:
-        from code_puppy.plugins import get_loaded_plugins
+        from code_puppy.plugins import (
+            get_loaded_plugins,
+            get_project_plugin_status,
+            get_project_plugins_directory,
+        )
         from code_puppy.plugins.config import get_disabled_plugins
+        from code_puppy.plugins.config import (
+            get_lock_builtin_plugins,
+        )
 
         loaded = get_loaded_plugins()
         self.disabled = get_disabled_plugins()
+        self.lock_builtin = get_lock_builtin_plugins()
+
+        project_dir = get_project_plugins_directory()
+        self.project_dir = project_dir.as_posix() if project_dir else None
 
         entries: List[_PluginEntry] = []
+        self.hidden_builtin_count = 0
         for tier in ("builtin", "user", "project"):
             for name in sorted(loaded.get(tier, [])):
+                # When locked, builtins are managed/protected — hide them so
+                # they can't be toggled (the config layer refuses anyway).
+                if self.lock_builtin and tier == "builtin":
+                    self.hidden_builtin_count += 1
+                    continue
                 entries.append(_PluginEntry(name, tier))
+
+        # Project plugins held back by the trust gate — shown so Enter can
+        # open the ceremony popup on them.
+        statuses = get_project_plugin_status()
+        shown = {e.name for e in entries if e.tier == "project"}
+        for name in sorted(statuses):
+            if statuses[name] != "loaded" and name not in shown:
+                entries.append(_PluginEntry(name, "project", statuses[name]))
+
         self.plugins = entries
+
+        # Keep selection in range if the list shrank.
+        if self.selected_idx >= len(self.plugins):
+            self.selected_idx = max(0, len(self.plugins) - 1)
 
     def _current(self) -> Optional[_PluginEntry]:
         if 0 <= self.selected_idx < len(self.plugins):
@@ -115,14 +191,89 @@ class PluginsMenu:
         entry = self._current()
         if not entry:
             return
+        self.trust_feedback = ""
+
+        if entry.status in ("untrusted", "changed"):
+            # Ceremony required — open the risk-acceptance popup.
+            self._open_trust_modal(entry)
+            return
+        if entry.status in ("disabled", "error"):
+            # Already trusted; just (re)activate — no ceremony needed.
+            from code_puppy.plugins.plugin_list.project_trust_flow import (
+                activate_project_plugin,
+            )
+
+            _ok, message = activate_project_plugin(entry.name)
+            self.trust_feedback = message
+            self.detail_scroll = 0
+            self._refresh_data()
+            self.update_display()
+            return
+
         from code_puppy.plugins.config import set_plugin_disabled
 
         is_disabled = entry.name in self.disabled
-        set_plugin_disabled(entry.name, not is_disabled)
-        self._changed = True
-        self.detail_scroll = 0
+        changed = set_plugin_disabled(entry.name, not is_disabled)
+        if changed:
+            self._changed = True
+            self.detail_scroll = 0
         self._refresh_data()
         self.update_display()
+
+    # -- trust popup ---------------------------------------------------------
+
+    def _open_trust_modal(self, entry: _PluginEntry) -> None:
+        self.trust_target = entry
+        self.trust_error = ""
+        self.trust_input.text = ""
+        try:
+            get_app().layout.focus(self.trust_input)
+        except Exception:
+            pass  # no running app (tests) — state alone drives the logic
+        self.update_display()
+
+    def _close_trust_modal(self) -> None:
+        self.trust_target = None
+        self.trust_error = ""
+        self.trust_input.text = ""
+        try:
+            get_app().layout.focus(self.menu_control)
+        except Exception:
+            pass
+        self.update_display()
+
+    def _accept_trust(self, buff) -> bool:
+        """Accept-handler for the popup input. Returns False to clear the box."""
+        entry = self.trust_target
+        if entry is None:
+            return False
+        from code_puppy.plugins.plugin_list.project_trust_flow import (
+            ACCEPT_WORD,
+            grant_trust_and_load,
+        )
+
+        if buff.text.strip().lower() != ACCEPT_WORD:
+            self.trust_error = (
+                f"That isn't '{ACCEPT_WORD}' — type it exactly, or press Esc to cancel."
+            )
+            self.update_display()
+            return False
+
+        _ok, message = grant_trust_and_load(entry.name)
+        self.trust_feedback = message
+        self._refresh_data()
+        self._close_trust_modal()
+        return False
+
+    # -- render compatibility ---------------------------------------------
+
+    def _render_list(self) -> Fragments:
+        """Return rendered list fragments for existing tests/callers."""
+        return render_list(self)
+
+    def _render_detail(self) -> Fragments:
+        """Return rendered detail fragments for existing tests/callers."""
+        return render_detail(self)
 
     # -- display update ----------------------------------------------------
 
@@ -220,135 +371,21 @@ class PluginsMenu:
         self.current_page = new_page
         self._set_selection(self.current_page * PAGE_SIZE)
 
-    def _build_key_bindings(self) -> KeyBindings:
-        """Wire keys to match the ``inspect_history`` plugin's mental model.
-
-        Both plugins share the same split-pane shape (list + scrollable
-        detail). Keeping the bindings aligned means muscle memory carries
-        over. The mental model (lifted from inspect_history):
-
-        * Left-hand keys (``h``, ``j``) move things UP.
-        * Right-hand keys (``k``, ``l``) move things DOWN.
-        * ``h``/``l`` (and ``left``/``right``) scroll the *detail* pane.
-        * ``j``/``k`` (and ``up``/``down``, ``c-p``/``c-n``) move the
-          *selection* in the list.
-        * ``pageup``/``pagedown`` page through the list.
-        * ``g``/``home`` and ``G``/``end`` jump to first/last.
-        """
-        kb = KeyBindings()
-
-        # -- Selection (j = up, k = down -- inspect_history convention) ---
-        @kb.add("up")
-        @kb.add("c-p")
-        @kb.add("j")
-        def _(event):
-            self._move_selection(-1)
-            self.update_display()
-
-        @kb.add("down")
-        @kb.add("c-n")
-        @kb.add("k")
-        def _(event):
-            self._move_selection(+1)
-            self.update_display()
-
-        # -- Page through the list -----------------------------------------
-        @kb.add("pageup")
-        def _(event):
-            self._change_page(-1)
-            self.update_display()
-
-        @kb.add("pagedown")
-        def _(event):
-            self._change_page(+1)
-            self.update_display()
-
-        # -- Jump to first / last ------------------------------------------
-        @kb.add("home")
-        @kb.add("g")
-        def _(event):
-            self._set_selection(0)
-            self.update_display()
-
-        @kb.add("end")
-        @kb.add("G")
-        def _(event):
-            self._set_selection(len(self.plugins) - 1)
-            self.update_display()
-
-        # -- Detail pane scroll (h/left = up, l/right = down) --------------
-        @kb.add("h")
-        @kb.add("left")
-        def _(event):
-            self._scroll_detail(-1)
-
-        @kb.add("l")
-        @kb.add("right")
-        def _(event):
-            self._scroll_detail(+1)
-
-        # -- Actions / exit ------------------------------------------------
-        @kb.add("enter")
-        def _(event):
-            self._toggle_current()
-            self.result = "changed"
-
-        @kb.add("q")
-        @kb.add("escape")
-        @kb.add("c-c")
-        def _(event):
-            self.result = "quit"
-            event.app.exit()
-
-        return kb
-
-    def _build_layout(self) -> Layout:
-        """Build the side-by-side Plugins / Details layout.
-
-        Pane widths are *callables* so they track the live terminal: when the
-        window is resized, ``_recompute_dimensions`` updates the cached cols
-        and these closures hand prompt_toolkit the fresh numbers on the very
-        next render. ``wrap_lines=False`` is critical: auto-wrap bleeds
-        characters into the divider/border column and leaves stale glyphs on
-        redraw. Long lines (description, path) are pre-wrapped by the renderer.
-        """
-
-        def menu_width() -> Dimension:
-            return Dimension(min=20, max=self._menu_cols, preferred=self._menu_cols)
-
-        def detail_width() -> Dimension:
-            return Dimension(min=20, max=self._detail_cols, preferred=self._detail_cols)
-
-        def pane_height() -> Dimension:
-            return Dimension(min=5, max=self._pane_rows, preferred=self._pane_rows)
-
-        menu_window = Window(
-            content=self.menu_control,
-            wrap_lines=False,
-            width=menu_width,
-            height=pane_height,
-        )
-        detail_window = Window(
-            content=self.detail_control,
-            wrap_lines=False,
-            width=detail_width,
-            height=pane_height,
-        )
-        self.detail_window = detail_window
-
-        menu_frame = Frame(menu_window, title="Plugins")
-        detail_frame = Frame(detail_window, title="Details")
-
-        return Layout(VSplit([menu_frame, detail_frame]))
-
     def run(self) -> Optional[str]:
-        self.menu_control = FormattedTextControl(text="")
+        self.menu_control = FormattedTextControl(text="", focusable=True)
         self.detail_control = FormattedTextControl(text="")
 
         self._recompute_dimensions()
 
-        layout = self._build_layout()
-        kb = self._build_key_bindings()
+        layout = build_layout(self)
+        if self.trust_target is not None:
+            # Popup pre-opened (focus_plugin ceremony): focus its input now
+            # that the layout exists — _open_trust_modal ran before any app.
+            try:
+                layout.focus(self.trust_input)
+            except Exception:
+                pass
+        kb = build_key_bindings(self)
 
         app = Application(
             layout=layout,
@@ -402,11 +439,15 @@ class PluginsMenu:
         return self.result
 
 
-def run_plugins_menu() -> Optional[str]:
-    """Entry point: create and run the plugins TUI, return the result."""
+def run_plugins_menu(focus_plugin: Optional[str] = None) -> Optional[str]:
+    """Entry point: create and run the plugins TUI, return the result.
+
+    *focus_plugin* preselects a plugin and, when it's trust-gated, opens
+    the risk-acceptance popup straight away.
+    """
     from code_puppy.messaging import emit_warning
 
-    menu = PluginsMenu()
+    menu = PluginsMenu(focus_plugin=focus_plugin)
     result = menu.run()
 
     if menu._changed:

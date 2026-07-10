@@ -58,6 +58,8 @@ CONTENT_SAMPLES = [
 
 # Inline-markup samples to demonstrate the Level 2 color remap.
 # These mirror the kind of hardcoded tags scattered through the renderer.
+THEMES_PER_PAGE = 5
+
 INLINE_MARKUP_SAMPLES = [
     "[bold cyan]bold cyan headline[/bold cyan]",
     "[dim cyan]dim cyan detail[/dim cyan]",
@@ -189,13 +191,31 @@ def _render_preview(theme_name: str, surprise_seed: int) -> ANSI:
     return ANSI(buffer.getvalue())
 
 
+def _total_pages() -> int:
+    return max(1, (len(MENU) + THEMES_PER_PAGE - 1) // THEMES_PER_PAGE)
+
+
+def _page_for_index(selected_index: int) -> int:
+    return selected_index // THEMES_PER_PAGE
+
+
+def _move_page(selected_index: int, delta: int) -> int:
+    """Move one page while retaining the selected row where possible."""
+    return max(0, min(selected_index + delta * THEMES_PER_PAGE, len(MENU) - 1))
+
+
 def _format_menu(selected_index: int) -> FormattedText:
-    """Build the left-hand menu text with a highlighted selection."""
+    """Build the current page of the left-hand menu."""
+    page = _page_for_index(selected_index)
+    page_start = page * THEMES_PER_PAGE
+    page_end = min(page_start + THEMES_PER_PAGE, len(MENU))
     lines: list[tuple[str, str]] = [
         ("bold cyan", "Pick a Theme"),
+        ("fg:ansibrightblack", f"  Page {page + 1}/{_total_pages()}"),
         ("", "\n\n"),
     ]
-    for i, (name, theme) in enumerate(MENU):
+    for i in range(page_start, page_end):
+        _, theme = MENU[i]
         prefix = "> " if i == selected_index else "  "
         style = "fg:ansigreen bold" if i == selected_index else ""
         line = f"{prefix}{i + 1}. {theme['icon']} {theme['label']}"
@@ -208,7 +228,7 @@ def _format_menu(selected_index: int) -> FormattedText:
     lines.append(
         (
             "fg:ansicyan",
-            "Up/Down Navigate  |  Enter Apply  |  Esc / Ctrl-C Cancel",
+            "Up/Down Navigate  |  PgUp/PgDn Page\nEnter Apply  |  Esc / Ctrl-C Cancel",
         )
     )
     return FormattedText(lines)
@@ -250,6 +270,18 @@ async def interactive_theme_picker() -> Optional[str]:
     @kb.add("c-n")
     def _(event):
         selected[0] = (selected[0] + 1) % len(MENU)
+        _refresh_surprise_seed_if_focused()
+        event.app.invalidate()
+
+    @kb.add("pageup")
+    def _(event):
+        selected[0] = _move_page(selected[0], -1)
+        _refresh_surprise_seed_if_focused()
+        event.app.invalidate()
+
+    @kb.add("pagedown")
+    def _(event):
+        selected[0] = _move_page(selected[0], 1)
         _refresh_surprise_seed_if_focused()
         event.app.invalidate()
 

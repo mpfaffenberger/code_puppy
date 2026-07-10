@@ -19,6 +19,11 @@ Lifecycle:
 
 Headless (``-p`` / non-TTY) runs never start the ticker: the bar is
 inactive and output must stay byte-identical.
+
+Customization (``/spinner``): the tick loop reads the active spinner
+from ``spinners`` each iteration, so picking a new style in the TUI
+(or simply editing ``spinners.json`` -- its mtime is watched) takes
+effect on the very next frame, even mid-run.
 """
 
 from __future__ import annotations
@@ -30,15 +35,18 @@ from typing import Optional
 
 from code_puppy.callbacks import register_callback
 
+from . import commands, spinners
+
 logger = logging.getLogger(__name__)
 
-_PUPPY = "\U0001f436"  # DOG FACE emoji, escape-spelled (repo emoji filter)
+_PUPPY = spinners.PUPPY  # DOG FACE emoji, escape-spelled (repo emoji filter)
 
-#: The classic kennel-bounce, rebuilt from the old ``SpinnerBase.FRAMES``:
-#: positions 0..4 and back again, one cell per tick.
-FRAMES = [f"({' ' * i}{_PUPPY}{' ' * (4 - i)}) " for i in (0, 1, 2, 3, 4, 3, 2, 1)]
+#: The classic kennel-bounce (the ``puppy`` entry in the spinner catalogue).
+FRAMES = spinners.BUILTIN_SPINNERS[spinners.DEFAULT_SPINNER].frames
 
-_TICK_INTERVAL_S = 0.05  # 20 fps -- MAXIMUM ZOOMIES (4x the old Rich spinner)
+#: Sourced from the catalogue so the stock puppy's speed has exactly one
+#: home; kept as a module constant so tests can monkeypatch the tempo.
+_TICK_INTERVAL_S = spinners.BUILTIN_SPINNERS[spinners.DEFAULT_SPINNER].interval
 
 _lock = threading.Lock()
 _active_runs = 0
@@ -102,7 +110,7 @@ def _stop_ticker() -> None:
 async def _tick_loop() -> None:
     """Advance the puppy one cell per tick until no run is active.
 
-    Just the kennel-bounce -- no "<puppy> is thinking..." chatter. The
+    Just the animation -- no "<puppy> is thinking..." chatter. The
     status row is prime real estate; the token summary needs it more.
     """
     global _ticker_task
@@ -112,9 +120,10 @@ async def _tick_loop() -> None:
             with _lock:
                 if _active_runs <= 0:
                     break  # belt-and-braces: never outlive the run
-            _paint_prefix(FRAMES[frame % len(FRAMES)])
+            frames, interval = _current_frames_and_interval()
+            _paint_prefix(frames[frame % len(frames)])
             frame += 1
-            await asyncio.sleep(_TICK_INTERVAL_S)
+            await asyncio.sleep(interval)
     except asyncio.CancelledError:
         pass
     finally:
@@ -124,10 +133,45 @@ async def _tick_loop() -> None:
                 _ticker_task = None
 
 
-def _paint_prefix(text: str) -> None:
-    """Best-effort paint -- a broken bar must never kill the ticker."""
+def _current_frames_and_interval():
+    """The active spinner's frames + interval, re-read every tick.
+
+    The stock builtin puppy routes through the module constants so tests
+    (and nostalgic monkeypatchers) can tweak ``_TICK_INTERVAL_S``; any
+    other choice -- including a user-file override of "puppy" -- uses
+    the catalogue values. A broken catalogue degrades to the classic.
+    """
     try:
-        _bar().set_status_prefix(text)
+        active = spinners.get_active_spinner()
+        is_stock_puppy = (
+            active.name == spinners.DEFAULT_SPINNER
+            and active.source == "builtin"
+            and active.interval
+            == spinners.BUILTIN_SPINNERS[
+                spinners.DEFAULT_SPINNER
+            ].interval  # a speed override on the puppy still counts as custom
+        )
+        if not is_stock_puppy:
+            return active.frames, active.interval
+    except Exception:
+        logger.debug("active spinner lookup failed", exc_info=True)
+    return FRAMES, _TICK_INTERVAL_S
+
+
+#: Breathing room between the spinner frame and whatever the status bar
+#: renders next. Applied at paint time so every spinner -- builtin or
+#: user-authored -- gets the same gap without baking spaces into frames.
+_PREFIX_GAP = "  "
+
+
+def _paint_prefix(text: str) -> None:
+    """Best-effort paint -- a broken bar must never kill the ticker.
+
+    Non-empty frames get ``_PREFIX_GAP`` appended; clearing stays a
+    true empty string so nothing lingers in the prefix slot.
+    """
+    try:
+        _bar().set_status_prefix(text + _PREFIX_GAP if text else "")
     except Exception:
         logger.debug("puppy spinner paint failed", exc_info=True)
 
@@ -138,6 +182,8 @@ def _clear_prefix() -> None:
 
 register_callback("agent_run_start", _on_run_start)
 register_callback("agent_run_end", _on_run_end)
+register_callback("custom_command", commands.handle_spinner)
+register_callback("custom_command_help", commands.help_entries)
 
 
 __all__ = [

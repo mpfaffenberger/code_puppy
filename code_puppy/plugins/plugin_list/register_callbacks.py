@@ -5,7 +5,9 @@ Usage::
     /plugins                   -- open interactive TUI
     /plugins list              -- print loaded plugins with status
     /plugins disable <name>    -- disable a plugin (callbacks are skipped)
-    /plugins enable <name>     -- re-enable a disabled plugin
+    /plugins enable <name>     -- enable a plugin; untrusted project plugins
+                                  open the TUI trust ceremony directly
+    /plugins revoke <name>     -- revoke trust for a project plugin
 
 Dogfoods the plugin system by implementing itself as a builtin plugin that
 hooks into ``custom_command`` and ``custom_command_help``.
@@ -35,16 +37,50 @@ def _format_plugin_list(names: list[str], disabled: set[str]) -> str:
     return "\n".join(lines)
 
 
+_PROJECT_STATUS_LABELS = {
+    "untrusted": "(not enabled -- review & enable in the /plugins TUI)",
+    "changed": "(changed since accepted -- re-review in the /plugins TUI)",
+    "disabled": "(disabled)",
+    "error": "(failed to load -- see logs)",
+}
+
+
+def _format_project_plugin_list(
+    loaded_names: list[str],
+    statuses: dict[str, str],
+    disabled: set[str],
+) -> str:
+    """Project tier listing: loaded plugins plus skipped-by-trust ones.
+
+    Project plugins are disabled by default; unlike other tiers we also
+    show plugins that were discovered but NOT imported, with the reason.
+    """
+    names = sorted(set(loaded_names) | set(statuses))
+    if not names:
+        return "  (none)"
+    lines = []
+    for name in names:
+        status = statuses.get(name, "loaded" if name in loaded_names else "untrusted")
+        if status == "loaded":
+            suffix = "  (disabled)" if name in disabled else ""
+        else:
+            suffix = "  " + _PROJECT_STATUS_LABELS.get(status, f"({status})")
+        lines.append(f"   {name}{suffix}")
+    return "\n".join(lines)
+
+
 def _build_output() -> str:
     """Build the full /plugins list display string."""
     from code_puppy.plugins import (
         get_loaded_plugins,
         get_project_plugins_directory,
+        get_project_plugin_status,
     )
     from code_puppy.plugins.config import get_disabled_plugins
 
     loaded = get_loaded_plugins()
     disabled = get_disabled_plugins()
+    project_status = get_project_plugin_status()
 
     # Display paths with forward slashes regardless of OS so the output is
     # consistent across Windows / POSIX (and easier to copy-paste).
@@ -65,7 +101,7 @@ def _build_output() -> str:
         _format_plugin_list(loaded["user"], disabled),
         "",
         f"Project ({project_path}):",
-        _format_plugin_list(loaded["project"], disabled),
+        _format_project_plugin_list(loaded["project"], project_status, disabled),
     ]
 
     if disabled:
@@ -73,7 +109,7 @@ def _build_output() -> str:
             [
                 "",
                 f"Disabled: {', '.join(sorted(disabled))}",
-                "Use /plugins enable <name> to re-enable.",
+                "Re-enable it in the /plugins TUI.",
             ]
         )
 
@@ -117,11 +153,31 @@ def _handle_toggle(plugin_name: str, *, disabled: bool) -> bool:
     return True
 
 
+# -- startup hook ----------------------------------------------------------
+
+
+def _on_startup() -> None:
+    """Surface project plugins held back by the trust gate.
+
+    Runs via the ``startup`` callback, which fires after the renderers are
+    live — so the orange banner lands inline with the other startup
+    messages instead of rotting in the legacy queue's startup buffer
+    (which SynchronousInteractiveRenderer never replays).
+    """
+    try:
+        from code_puppy.plugins import get_project_plugin_status
+        from code_puppy.plugins.trust_notice import emit_skipped_plugin_notice
+
+        emit_skipped_plugin_notice(get_project_plugin_status())
+    except Exception as exc:
+        logger.debug(f"Trust-notice startup hook failed: {exc}")
+
+
 # -- custom_command hooks --------------------------------------------------
 
 
 def _custom_help() -> list[tuple[str, str]]:
-    return [("plugins", "List, enable, or disable plugins")]
+    return [("plugins", "List, enable/disable, or trust project plugins")]
 
 
 def _run_interactive_menu() -> None:
@@ -149,7 +205,35 @@ def _sub_disable(tokens: list[str]) -> bool:
 
 
 def _sub_enable(tokens: list[str]) -> bool:
-    return _sub_toggle(tokens, disabled=False)
+    from code_puppy.messaging import emit_error
+
+    if len(tokens) < 3:
+        emit_error("Usage: /plugins enable <plugin-name>")
+        return True
+
+    # Project plugins get the trust/risk-acceptance flow; anything else
+    # falls through to the regular enable toggle.
+    from code_puppy.plugins.plugin_list.project_trust_flow import (
+        try_enable_project_plugin,
+    )
+
+    if try_enable_project_plugin(tokens[2]):
+        return True
+    return _handle_toggle(tokens[2], disabled=False)
+
+
+def _sub_revoke(tokens: list[str]) -> bool:
+    from code_puppy.messaging import emit_error
+
+    if len(tokens) < 3:
+        emit_error("Usage: /plugins revoke <plugin-name>")
+        return True
+
+    from code_puppy.plugins.plugin_list.project_trust_flow import (
+        revoke_project_plugin,
+    )
+
+    return revoke_project_plugin(tokens[2])
 
 
 def _sub_toggle(tokens: list[str], *, disabled: bool) -> bool:
@@ -166,6 +250,7 @@ _SUBCOMMANDS = {
     "list": _sub_list,
     "disable": _sub_disable,
     "enable": _sub_enable,
+    "revoke": _sub_revoke,
 }
 
 
@@ -185,11 +270,12 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
 
         emit_error(
             f"Unknown subcommand: '{tokens[1]}'. "
-            "Usage: /plugins [list | enable <name> | disable <name>]"
+            "Usage: /plugins [list | enable <name> | disable <name> | revoke <name>]"
         )
         return True
     return handler(tokens)
 
 
+register_callback("startup", _on_startup)
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)

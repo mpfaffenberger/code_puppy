@@ -242,8 +242,10 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
             summary = (
                 f" and {remaining} more" if (remaining > 0 and not is_last_page) else ""
             )
-            label = "Return to first page" if is_last_page else f"Next page{summary}"
-            emit_system_message(f"  [6] {label}")
+            next_label = (
+                "Return to first page" if is_last_page else f"Next page{summary}"
+            )
+            emit_system_message(f"  [6] {next_label}")
         emit_system_message("  [Enter] Skip loading autosave")
 
     chosen_name: str | None = None

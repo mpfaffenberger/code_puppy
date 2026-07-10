@@ -16,17 +16,25 @@ CTRL_J = "\n"
 BACKSPACE_KEYS = ("\x7f", "\x08")
 TAB = "\t"
 CTRL_A = "\x01"  # beginning of (logical) line
+# NOTE: On POSIX, Ctrl+C normally never reaches the editor — the
+# terminal turns it into SIGINT and the REPL's handlers clear/cancel.
+# On Windows we strip ENABLE_PROCESSED_INPUT for the whole session (so
+# Ctrl+C can't become a console-wide event that kills wrapper launchers
+# like uvx.exe), so ^C arrives as this raw byte via the key listener.
+CTRL_C = "\x03"
 CTRL_D = "\x04"
 CTRL_E = "\x05"  # end of (logical) line
-# NOTE: Ctrl+K (\x0b) doubles as a configurable cancel-agent hotkey
-# (forced on Windows+uvx). The key listener's priority dispatch swallows
-# it BEFORE the editor in that configuration — kill-to-end simply won't
-# fire there; everywhere else it reaches us normally.
+# NOTE: Ctrl+K (\x0b) can be remapped as the cancel-agent hotkey via
+# cancel_agent_key in puppy.cfg. The key listener's priority dispatch
+# swallows it BEFORE the editor in that configuration — kill-to-end
+# simply won't fire there; with the ctrl+c default it reaches us
+# normally on every platform.
 CTRL_K = "\x0b"
 CTRL_R = "\x12"
 CTRL_U = "\x15"
 CTRL_V = "\x16"  # smart paste fallback (most terminals bracket-paste first)
 CTRL_W = "\x17"  # delete word backwards
+CTRL_X = "\x18"  # chord prefix: Ctrl+X Ctrl+E = edit buffer in $EDITOR
 ESC = "\x1b"
 
 #: CSI body (params + final byte) → editor action.
@@ -63,6 +71,9 @@ _CSI_ACTIONS = {
     # CSI-u (kitty-style / iTerm2 "CSI u") and xterm modifyOtherKeys
     # (armed via CSI >4;1m — see bottom_bar). Plain-\r terminals CANNOT
     # encode Shift+Enter at all; users there have Ctrl+J / F2 multiline.
+    # On Windows (where the console ignores modifyOtherKeys) the key
+    # listener synthesizes 13;2u itself via GetAsyncKeyState — see
+    # _key_listeners._windows_char_to_seq.
     "13;2u": "newline",  # Shift+Enter (CSI-u)
     "13;5u": "newline",  # Ctrl+Enter  (CSI-u)
     "27;2;13~": "newline",  # Shift+Enter (modifyOtherKeys)

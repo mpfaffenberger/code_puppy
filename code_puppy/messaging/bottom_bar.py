@@ -87,6 +87,7 @@ from .bar_rendering import (
 )
 
 from .bar_painters import PROMPT_MAX_ROWS, BarPainterMixin  # noqa: E402
+from .transcript_guard import TranscriptGuardMixin  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ SizeProvider = Callable[[], Tuple[int, int]]
 # =============================================================================
 
 
-class BottomBar(BarPainterMixin):
+class BottomBar(TranscriptGuardMixin, BarPainterMixin):
     """Scroll-region manager for the persistent bottom prompt.
 
     Use the module-level singleton via :func:`get_bottom_bar` in app code;
@@ -139,6 +140,12 @@ class BottomBar(BarPainterMixin):
         self._panel_lines: list[str] = []
         self._popup_lines: list[str] = []  # completion popup (over panel)
         self._popup_selected = -1
+        # Blank rows held below the prompt after the popup shrinks/closes
+        # (high-water residue). The prompt does NOT slide back down when
+        # the menu closes; the slack is reclaimed lazily by
+        # ``notify_transcript_output`` so the prompt falls back into
+        # place while output is scrolling anyway.
+        self._popup_slack = 0
         self._reserved = 0  # reserved-row count while the region is up
         self._paste_armed = False  # bracketed paste (ESC[?2004h) state
         self._modkeys_armed = False  # xterm modifyOtherKeys level 1
@@ -153,6 +160,9 @@ class BottomBar(BarPainterMixin):
         # without hiding, a second "rogue" cursor blinks wherever
         # streaming output last wrote inside the region).
         self._cursor_hidden = False
+        # Windows scrollback guard (no-op state on POSIX) — see
+        # transcript_guard.TranscriptGuardMixin.
+        self._init_transcript_guard_state()
 
     # =========================================================================
     # Public API
@@ -171,6 +181,7 @@ class BottomBar(BarPainterMixin):
             self._active = True
             if self._suspend_depth == 0:
                 self._establish()
+        self._install_transcript_guard()  # Windows-only; no-op elsewhere
         self._install_sigwinch()
         self._register_atexit()
 
@@ -186,6 +197,7 @@ class BottomBar(BarPainterMixin):
             self._active = False
             if self._region_up:
                 self._teardown()
+        self._uninstall_transcript_guard()
 
     def is_active(self) -> bool:
         """True between :meth:`start` and :meth:`stop`."""
@@ -204,6 +216,11 @@ class BottomBar(BarPainterMixin):
         with self._lock:
             self._status = text or ""
             self._sync_reserved(self._status_seq)
+
+    def get_status(self) -> str:
+        """Current status-line text (the cached :meth:`set_status` value)."""
+        with self._lock:
+            return self._status
 
     def set_status_prefix(self, text: str) -> None:
         """Update the spinner slot painted BEFORE the status text.
@@ -256,11 +273,36 @@ class BottomBar(BarPainterMixin):
         Up to ``POPUP_MAX_ROWS`` rows; the ``selected`` index renders in
         the brand accent. While non-empty the popup takes precedence
         over the sub-agent panel (cached and restored on close).
+
+        Shrinking/closing does NOT slide the prompt back down: the
+        vacated rows are kept as blank ``_popup_slack`` so the prompt
+        stays put, then :meth:`notify_transcript_output` walks them
+        back one row at a time as transcript output scrolls in.
         """
         cleaned = [_sanitize(str(line)) for line in (lines or [])][:POPUP_MAX_ROWS]
         with self._lock:
+            old_block = len(self._popup_lines) + self._popup_slack
             self._popup_lines = cleaned
             self._popup_selected = selected
+            self._popup_slack = max(0, old_block - len(cleaned))
+            self._sync_reserved(self._popup_seq)
+
+    def notify_transcript_output(self) -> None:
+        """Release ONE row of popup slack — called per rendered message.
+
+        The renderers poke this right before they print. Releasing the
+        whole slack at once would teleport the prompt down on the very
+        first message after the menu closed (e.g. the submit echo — the
+        exact jump we're avoiding), so instead the prompt steps down a
+        single row per message: amid the scrolling output each step is
+        imperceptible, and a normal burst of turn output walks it back
+        to the bottom almost immediately. Cheap no-op (one lock + int
+        check) when there is no slack.
+        """
+        with self._lock:
+            if self._popup_slack == 0:
+                return
+            self._popup_slack -= 1
             self._sync_reserved(self._popup_seq)
 
     def get_panel_lines(self) -> list:
@@ -407,7 +449,12 @@ class BottomBar(BarPainterMixin):
     def _establish(self) -> None:
         """Set the scroll region, park the cursor inside it, paint rows."""
         cols, rows = self._safe_size()
+        old_rows = self._rows
+        old_reserved = self._reserved if self._region_up else 0
         self._cols, self._rows = cols, rows
+        # Full rebuild = fresh geometry: leftover popup slack (the
+        # lazy-reclaim gap below the prompt) is meaningless here.
+        self._popup_slack = 0
         reserved = self._total_reserved()
         if rows < reserved + 1:
             # Terminal too small for a region + reserved rows; if one was
@@ -425,10 +472,26 @@ class BottomBar(BarPainterMixin):
                     parts.append(_MODKEYS_OFF)
                     self._modkeys_armed = False
                 self._write("".join(parts))
+            self._guard_on_teardown()
             self._region_up = False
             return
         top = rows - reserved
-        parts = [
+        parts = []
+        if old_reserved and old_rows > 0:
+            # Re-establish after a resize: the old bar rows were painted
+            # at the PREVIOUS geometry and nothing repaints over them —
+            # without an explicit erase they linger as ghost duplicates
+            # ("multiples of UI elements") at their old positions while
+            # the fresh bar paints at the new bottom. Reset the region
+            # first so the erases can reach rows outside the incoming
+            # one, then blank the old reserved band (clamped to the new
+            # screen height).
+            parts.append(_RESET_REGION)
+            for row in range(
+                max(1, old_rows - old_reserved + 1), min(old_rows, rows) + 1
+            ):
+                parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
+        parts += [
             # Push existing content up so the reserved rows start blank.
             "\n" * reserved,
             # DECSTBM: scrollable region = rows 1..H-reserved. Homes cursor.
@@ -455,6 +518,7 @@ class BottomBar(BarPainterMixin):
         self._reserved = reserved
         parts.append(self._reserved_rows_seq())
         self._write("".join(parts))
+        self._guard_on_establish(top)  # cursor parked at (top, 1)
 
     def _resize_reserved(self, old_reserved: int) -> None:
         """Grow/shrink the reserved area while the region is up.
@@ -488,7 +552,15 @@ class BottomBar(BarPainterMixin):
         if new_reserved > old_reserved:
             # Blank the soon-to-be-reserved rows by scrolling content up.
             delta_up = new_reserved - old_reserved
-            parts.append(f"\x1b[{delta_up}S")
+            if self._guard_scroll_fix:
+                # Windows: CSI S inside a restricted region DESTROYS the
+                # scrolled lines (they never reach scrollback). Reset the
+                # margins and feed LFs at the physical bottom row instead
+                # — visually identical, but the lines pan into history.
+                parts.append("\x1b[r")
+                parts.append(f"\x1b[{rows};1H" + "\n" * delta_up)
+            else:
+                parts.append(f"\x1b[{delta_up}S")
         else:
             # Clear rows being returned to the scroll region.
             for row in range(rows - old_reserved + 1, rows - new_reserved + 1):
@@ -504,6 +576,8 @@ class BottomBar(BarPainterMixin):
         self._reserved = new_reserved
         parts.append(self._reserved_rows_seq())
         self._write("".join(parts))
+        if delta_up:
+            self._guard_on_resize_scroll(delta_up)
 
     def _teardown(self) -> None:
         """Reset to a full-screen region and clear the reserved rows.
@@ -513,6 +587,7 @@ class BottomBar(BarPainterMixin):
         and clearing rows computed from stale height either misses the
         real reserved rows or clears mid-screen content.
         """
+        self._guard_on_teardown()  # flush withheld tail BEFORE our escapes
         rows = self._safe_size()[1]
         reserved = self._reserved or self._total_reserved()
         parts = [_RESET_REGION]
@@ -572,6 +647,7 @@ class BottomBar(BarPainterMixin):
                     self._cursor_hidden = False
                     self._paste_armed = False
                     self._modkeys_armed = False
+            self._uninstall_transcript_guard()
         except Exception:
             pass  # interpreter is dying; nothing sane left to do
 

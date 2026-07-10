@@ -151,7 +151,10 @@ async def event_stream_handler(
 
     from termflow import Parser as TermflowParser
     from termflow import Renderer as TermflowRenderer
-    from termflow.render.style import RenderFeatures
+    from termflow.render.style import RenderFeatures, RenderStyle
+    from termflow.syntax import Highlighter
+
+    from code_puppy.callbacks import on_termflow_highlighter, on_termflow_style
 
     # Use the module-level console (set via set_streaming_console)
     console = get_streaming_console()
@@ -187,7 +190,9 @@ async def event_stream_handler(
         return TermflowRenderer(
             output=output,
             width=console.width,
+            style=on_termflow_style(RenderStyle.default()),
             features=RenderFeatures(clipboard=False),
+            highlighter=on_termflow_highlighter(Highlighter()),
         )
 
     # Smooth-stream state for thinking parts. Each index maps to a smoother
@@ -195,9 +200,22 @@ async def event_stream_handler(
     # disabled and we should print deltas immediately.
     thinking_smoothers: dict[int, ThinkingStreamSmoother] = {}
     thinking_direct: set[int] = set()
+    thinking_stream_id = object()
 
-    def _emit_thinking(index: int, text: str) -> None:
-        """Render thinking text, smoothed via a per-part buffer when enabled."""
+    def _filter_thinking(index: int, text: str, *, final: bool = False) -> str:
+        """Apply synchronous display-only filters before rendering thinking."""
+        from code_puppy.callbacks import on_thinking_display_filter
+
+        return on_thinking_display_filter(
+            text,
+            stream_id=thinking_stream_id,
+            part_index=index,
+            final=final,
+        )
+
+    def _emit_thinking(index: int, text: str, *, final: bool = False) -> None:
+        """Filter and render thinking through the smooth or direct path."""
+        text = _filter_thinking(index, text, final=final)
         if not text:
             return
         smoother = thinking_smoothers.get(index)
@@ -251,6 +269,11 @@ async def event_stream_handler(
         for smoother in thinking_smoothers.values():
             smoother.abort()
         thinking_smoothers.clear()
+        for index in thinking_parts:
+            # Finalize callback state but discard any withheld display text:
+            # abort means the user explicitly asked output to stop.
+            _filter_thinking(index, "", final=True)
+        thinking_direct.clear()
         for writer in termflow_writers.values():
             writer.abort()
         termflow_writers.clear()
@@ -497,6 +520,7 @@ async def event_stream_handler(
                                     console.print(f"[dim]    {escape(arg_line)}[/dim]")
                     # For thinking parts, drain the smoother then print newline
                     elif event.index in thinking_parts:
+                        _emit_thinking(event.index, "", final=True)
                         smoother = thinking_smoothers.pop(event.index, None)
                         if smoother is not None:
                             await smoother.close()
@@ -524,9 +548,12 @@ async def event_stream_handler(
 
     # Drain any smoothers/writers that didn't see a PartEndEvent (e.g. the
     # stream ended abruptly) so we never lose buffered text or orphan tasks.
+    for index in list(thinking_parts):
+        _emit_thinking(index, "", final=True)
     for smoother in list(thinking_smoothers.values()):
         await smoother.close()
     thinking_smoothers.clear()
+    thinking_direct.clear()
     for writer in list(termflow_writers.values()):
         await writer.close()
     termflow_writers.clear()
