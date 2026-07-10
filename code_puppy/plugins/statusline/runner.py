@@ -33,6 +33,8 @@ def _run_command_blocking(command: str) -> str:
             input=payload,
             capture_output=True,
             text=True,
+            encoding="utf-8",  # explicit UTF-8: prevents cp1252 crash on Windows with umlauts
+            errors="replace",  # never raise UnicodeDecodeError — bad chars become '?'
             timeout=get_timeout_ms() / 1000.0,
         )
     except subprocess.TimeoutExpired:

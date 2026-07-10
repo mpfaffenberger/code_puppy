@@ -16,6 +16,8 @@ Subcommands:
 from __future__ import annotations
 
 import stat
+import subprocess as _sp
+import sys
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
@@ -24,6 +26,26 @@ from code_puppy.messaging import emit_info, emit_success, emit_warning
 from . import config, payload, runner
 
 _COMMAND_NAME = "statusline"
+
+# PowerShell equivalent for Windows — no bash, no jq required.
+_STARTER_SCRIPT_PS1 = """\
+# Code Puppy status line — PowerShell version.
+# Receives session JSON on stdin; prints one line to stdout.
+# Edit freely. Requires PowerShell 5+ (ships with Windows 10+).
+$input_text = $input | Out-String
+try {
+    $data = $input_text | ConvertFrom-Json
+} catch {
+    $data = [PSCustomObject]@{}
+}
+$puppy  = if ($data.puppy_name)                    { $data.puppy_name }                    else { "code-puppy" }
+$model  = if ($data.model.display_name)            { $data.model.display_name }            else { "model" }
+$dir    = if ($data.workspace.current_dir)         { $data.workspace.current_dir }         elseif ($data.cwd) { $data.cwd } else { "" }
+$branch = if ($data.workspace.git_branch)          { " ($($data.workspace.git_branch))" }  else { "" }
+$pct    = if ($null -ne $data.context_window.used_percentage) { $data.context_window.used_percentage } else { 0 }
+$base   = if ($dir) { Split-Path $dir -Leaf } else { "" }
+Write-Output "🐶 $puppy [$model] $base$branch ${pct}%ctx" # stdout, captured by parent process
+"""
 
 _STARTER_SCRIPT = """\
 #!/usr/bin/env bash
@@ -60,6 +82,8 @@ def statusline_command_help() -> List[Tuple[str, str]]:
 
 
 def _default_script_path() -> Path:
+    if sys.platform == "win32":
+        return Path.home() / ".code_puppy" / "statusline.ps1"
     return Path.home() / ".code_puppy" / "statusline.sh"
 
 
@@ -77,18 +101,31 @@ def _status_text() -> str:
 def _do_init() -> None:
     path = _default_script_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_STARTER_SCRIPT, encoding="utf-8")
-    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    config.set_command(str(path))
-    config.set_enabled(True)
-    runner.reset_cache()
-    emit_success(f"Wrote starter status line script: {path}")
-    emit_info("Enabled. Edit that file to customize. Preview with /statusline show.")
-    if not _has_jq():
-        emit_warning(
-            "Note: the starter script uses `jq` (not found on PATH). Install jq "
-            "or rewrite the script to parse JSON another way."
+    if sys.platform == "win32":
+        # Windows: write a PowerShell script; invoke via powershell.exe so no
+        # bash/jq dependency and no chmod needed.
+        path.write_text(_STARTER_SCRIPT_PS1, encoding="utf-8")
+        # list2cmdline handles cmd.exe quoting rules for paths with spaces
+        ps1_cmd = _sp.list2cmdline(
+            ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(path)]
         )
+        config.set_command(ps1_cmd)
+        runner.reset_cache()
+        emit_success(f"Wrote starter status line script: {path}")
+        emit_info("Enabled. Edit that file to customize. Preview with /statusline show.")
+    else:
+        path.write_text(_STARTER_SCRIPT, encoding="utf-8")
+        path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        config.set_command(str(path))
+        runner.reset_cache()
+        emit_success(f"Wrote starter status line script: {path}")
+        emit_info("Enabled. Edit that file to customize. Preview with /statusline show.")
+        if not _has_jq():
+            emit_warning(
+                "Note: the starter script uses `jq` (not found on PATH). Install jq "
+                "or rewrite the script to parse JSON another way."
+            )
+    config.set_enabled(True)
 
 
 def _has_jq() -> bool:
