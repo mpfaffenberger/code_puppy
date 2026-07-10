@@ -28,6 +28,9 @@ PhaseType = Literal[
     "post_tool_call",
     "stream_event",
     "thinking_display_filter",
+    "termflow_style",
+    "termflow_highlighter",
+    "prompt_text_color",
     "register_tools",
     "register_agent_tools",
     "register_agents",
@@ -89,6 +92,9 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "post_tool_call": [],
     "stream_event": [],
     "thinking_display_filter": [],
+    "termflow_style": [],
+    "termflow_highlighter": [],
+    "prompt_text_color": [],
     "register_tools": [],
     "register_agent_tools": [],
     "register_agents": [],
@@ -328,8 +334,8 @@ async def on_startup() -> List[Any]:
     return await _trigger_callbacks("startup")
 
 
-def on_shutdown() -> List[Any]:
-    return _trigger_callbacks_sync("shutdown")
+async def on_shutdown() -> List[Any]:
+    return await _trigger_callbacks("shutdown")
 
 
 async def on_invoke_agent(*args, **kwargs) -> List[Any]:
@@ -632,6 +638,44 @@ def on_thinking_display_filter(
                 traceback.format_exc(),
             )
     return current
+
+
+def _chain_value_callbacks(phase: PhaseType, default: Any) -> Any:
+    """Chain callbacks that optionally replace a single value."""
+    current = default
+    for callback in get_callbacks(phase):
+        try:
+            result = callback(current)
+            if result is not None:
+                current = result
+        except Exception as exc:
+            logger.error(
+                "%s callback %s failed: %s\n%s",
+                phase,
+                callback.__name__,
+                exc,
+                traceback.format_exc(),
+            )
+    return current
+
+
+def on_termflow_style(default_style: Any) -> Any:
+    """Let plugins replace Termflow's Markdown rendering style.
+
+    Callbacks are chained in registration order. Returning ``None`` leaves the
+    current style unchanged, and failures degrade safely to the prior style.
+    """
+    return _chain_value_callbacks("termflow_style", default_style)
+
+
+def on_termflow_highlighter(default_highlighter: Any) -> Any:
+    """Let plugins replace Termflow's syntax highlighter."""
+    return _chain_value_callbacks("termflow_highlighter", default_highlighter)
+
+
+def on_prompt_text_color(default_color: str | None = None) -> str | None:
+    """Resolve the persistent prompt buffer's truecolor foreground."""
+    return _chain_value_callbacks("prompt_text_color", default_color)
 
 
 async def on_stream_event(
