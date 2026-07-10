@@ -32,6 +32,7 @@ class TestMessagingPackageExports:
         emit_functions = [
             "emit_message",
             "emit_info",
+            "emit_queued",
             "emit_success",
             "emit_warning",
             "emit_divider",
@@ -90,6 +91,7 @@ class TestMessagingPackageExports:
             "get_global_queue",
             "emit_message",
             "emit_info",
+            "emit_queued",
             "emit_success",
             "emit_warning",
             "emit_divider",
