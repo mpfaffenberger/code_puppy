@@ -433,3 +433,110 @@ class TestWrappedTransientErrors:
         # If this assertion ever flips, the cap moved -- intentional or not,
         # the change deserves to be looked at deliberately.
         assert not should_retry_streaming_exception(chain[0])
+
+
+def _make_anthropic_502() -> "BaseException":
+    """Reproduce the production 502: a Google-gateway HTML error page bubbled
+    up by the Anthropic SDK as APIStatusError(status_code=502).
+
+    The message is a giant HTML blob (``[HTTP 502] <!DOCTYPE html>...``) that
+    matches NO retry snippet -- the only reliable signal is ``status_code``.
+    """
+    from anthropic import APIStatusError
+
+    err = APIStatusError.__new__(APIStatusError)
+    err.status_code = 502
+    err.body = {"message": "[HTTP 502] <!DOCTYPE html> ... 502. That's an error."}
+    err.message = "[HTTP 502] <!DOCTYPE html> ... 502. That's an error."
+    return err
+
+
+class TestExceptionGroupUnwrapping:
+    """Regression coverage for the real-world 502 crash.
+
+    pydantic-ai streams the model response inside an anyio task group, so a
+    transient provider error (e.g. anthropic.APIStatusError HTTP 502 from a
+    gateway) reaches ``run_agent_task`` wrapped in an ExceptionGroup -- which
+    is why that code path uses ``except*``. The classifier used to only walk
+    ``__cause__``/``__context__`` and never descended into ``.exceptions``, so
+    a perfectly retryable 5xx looked opaque and crashed the REPL with a
+    60-line traceback instead of getting the slow 1-2-3 retry.
+    """
+
+    def test_bare_anthropic_502_is_retryable(self):
+        # Sanity: even outside a group, an HTML-body 502 must retry purely on
+        # status_code (its message matches no snippet).
+        assert should_retry_streaming_exception(_make_anthropic_502())
+
+    def test_exception_group_wrapping_502_is_retryable(self):
+        # The exact production shape: ExceptionGroup([APIStatusError(502)]).
+        group = ExceptionGroup(
+            "unhandled errors in a TaskGroup", [_make_anthropic_502()]
+        )
+        assert should_retry_streaming_exception(group)
+
+    def test_nested_exception_groups_are_retryable(self):
+        # anyio can nest groups when tasks spawn sub-tasks. Descend all the way.
+        inner = ExceptionGroup("inner", [_make_anthropic_502()])
+        outer = ExceptionGroup("outer", [ValueError("noise"), inner])
+        assert should_retry_streaming_exception(outer)
+
+    def test_exception_group_member_via_cause_chain(self):
+        # A group member that hides its transient origin in __cause__ must still
+        # be caught -- we walk each member's cause chain, not just the member.
+        wrapper = RuntimeError("opaque wrapper")
+        wrapper.__cause__ = httpx.ConnectError("dropped socket")
+        group = ExceptionGroup("grp", [ValueError("noise"), wrapper])
+        assert should_retry_streaming_exception(group)
+
+    def test_exception_group_of_only_non_transient_is_not_retryable(self):
+        # Belt-and-braces: a group of genuine bugs must NOT be retried.
+        group = ExceptionGroup("grp", [ValueError("bug"), TypeError("also bug")])
+        assert not should_retry_streaming_exception(group)
+
+    def test_exception_group_is_cycle_safe(self):
+        # A member whose cause points back at a sibling must still terminate.
+        a = ValueError("a")
+        b = httpx.ConnectError("transient")
+        a.__cause__ = b
+        b.__cause__ = a
+        group = ExceptionGroup("grp", [a])
+        assert should_retry_streaming_exception(group)
+
+
+class TestOpenAIStatusCodeRetry:
+    """The OpenAI branch must retry 5xx/429 on status_code alone.
+
+    Mirrors the Anthropic and ModelHTTPError branches. An OpenAI-compatible
+    gateway 502 whose body is an HTML error page matches no snippet -- the only
+    reliable signal is the HTTP status the SDK exposes on APIStatusError.
+    """
+
+    def _make_openai_status_error(self, status_code: int, message: str | None = None):
+        try:
+            from openai import APIStatusError
+        except ImportError:  # pragma: no cover
+            pytest.skip("openai is not installed in this test environment")
+        if message is None:
+            message = "<!DOCTYPE html> 502 Bad Gateway"
+        err = APIStatusError.__new__(APIStatusError)
+        err.status_code = status_code
+        err.body = {"message": message}
+        err.message = message
+        return err
+
+    @pytest.mark.parametrize("status_code", [500, 502, 503, 504, 429])
+    def test_transient_status_codes_retry(self, status_code):
+        assert should_retry_streaming_exception(
+            self._make_openai_status_error(status_code)
+        )
+
+    @pytest.mark.parametrize("status_code", [400, 401, 403, 404, 422])
+    def test_client_errors_do_not_retry(self, status_code):
+        # A snippet-free client-error body -- status_code is the only signal,
+        # and 4xx (other than 429) must NOT retry.
+        assert not should_retry_streaming_exception(
+            self._make_openai_status_error(
+                status_code, message="invalid request payload"
+            )
+        )
