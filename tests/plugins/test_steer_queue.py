@@ -16,6 +16,11 @@ from code_puppy.messaging.pause_controller import (
     reset_pause_controller,
 )
 from code_puppy.plugins.steer_queue import register_callbacks as rc
+from code_puppy.plugins.steer_queue.queue_menu import (
+    QueueMenuApp,
+    QueueMenuState,
+    _preview,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -133,6 +138,82 @@ def test_broken_listener_does_not_break_mutations():
     pc.add_steer_queue_listener(boom)
     pc.request_steer("still fine", mode="queue")  # must not raise
     assert pc.peek_pending_steer_queued() == ["still fine"]
+
+
+# =========================================================================
+# Full-screen queue menu state
+# =========================================================================
+
+
+def test_queue_preview_collapses_whitespace_and_truncates():
+    assert _preview("one\n\n two", width=20) == "one two"
+    assert _preview("abcdefghijklmnopqrstuvwxyz", width=10) == "abcdefghi…"
+
+
+def test_queue_state_adds_and_edits_prompts():
+    pc = PauseController()
+    state = QueueMenuState(pc)
+
+    state.begin_add()
+    assert state.save("  first prompt  ") is True
+    assert pc.peek_pending_steer_queued() == ["first prompt"]
+    assert state.selected == 0
+
+    assert state.begin_edit() is True
+    assert state.save("updated prompt") is True
+    assert pc.peek_pending_steer_queued() == ["updated prompt"]
+    assert state.notice == "Prompt updated"
+
+
+def test_queue_state_rejects_blank_prompt_without_leaving_editor():
+    state = QueueMenuState(PauseController())
+    state.begin_add()
+    assert state.save("  \n ") is False
+    assert state.editing is True
+    assert state.notice == "Prompt cannot be blank"
+
+
+def test_queue_state_delete_requires_second_press_and_clamps_selection():
+    pc = PauseController()
+    pc.replace_pending_steer_queued(["one", "two"])
+    state = QueueMenuState(pc, selected=1)
+
+    assert state.request_delete() is False
+    assert pc.peek_pending_steer_queued() == ["one", "two"]
+    assert state.request_delete() is True
+    assert pc.peek_pending_steer_queued() == ["one"]
+    assert state.selected == 0
+
+
+def test_queue_state_selection_change_disarms_delete():
+    pc = PauseController()
+    pc.replace_pending_steer_queued(["one", "two"])
+    state = QueueMenuState(pc)
+    state.request_delete()
+    state.move_selection(1)
+    assert state.delete_armed is None
+
+
+def test_queue_state_reorders_items_and_tracks_selection():
+    pc = PauseController()
+    pc.replace_pending_steer_queued(["one", "two", "three"])
+    state = QueueMenuState(pc, selected=1)
+
+    assert state.reorder(-1) is True
+    assert pc.peek_pending_steer_queued() == ["two", "one", "three"]
+    assert state.selected == 0
+    assert state.reorder(-1) is False
+
+
+def test_queue_menu_app_constructs_with_empty_and_populated_queue():
+    empty_app = QueueMenuApp(PauseController())
+    assert empty_app.application.full_screen is True
+
+    pc = PauseController()
+    pc.replace_pending_steer_queued(["inspect this", "then do that"])
+    app = QueueMenuApp(pc)
+    assert app.state.selected_text == "inspect this"
+    assert "inspect this" in app._editor_buffer.text
 
 
 # =========================================================================

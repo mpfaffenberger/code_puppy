@@ -1,114 +1,441 @@
-"""The /queue TUI: view / add / edit / delete queued prompts.
+"""Full-screen queue manager for ``/queue``.
 
-Runs as an async coroutine driven by ``asyncio.run`` on a worker thread
-(the same pattern as ``interactive_set_picker``), while the caller has
-already released the terminal via ``suspended_run_ui`` -- both the idle
-REPL and the mid-run drain wrap command execution in it.
-
-Mutations write back through
-``PauseController.replace_pending_steer_queued`` / ``request_steer`` so
-the '(N queued)' status suffix updates via the controller's listeners.
-Concurrent drains aren't a concern while the menu is open: mid-run the
-agent is paused at its boundary, and at idle nothing consumes the queue.
+The application owns presentation state only. Queue mutations continue to flow
+through :class:`PauseController`, keeping listeners and the bottom status bar in
+sync with edits made here.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-_ADD = "[ Add prompt ]"
-_DONE = "[ Done ]"
-_EDIT = "Edit"
-_DELETE = "Delete"
-_BACK = "Back"
-
-_PREVIEW_CELLS = 56  # menu-row preview length for long prompts
+_PREVIEW_CELLS = 58
 
 
-def _preview(text: str) -> str:
-    flat = " ".join(text.split())  # collapse newlines for the menu row
-    if len(flat) <= _PREVIEW_CELLS:
+def _preview(text: str, width: int = _PREVIEW_CELLS) -> str:
+    """Return a compact single-line preview for a queued prompt."""
+    flat = " ".join(text.split())
+    if len(flat) <= width:
         return flat
-    return flat[: _PREVIEW_CELLS - 1] + "\u2026"
+    return flat[: max(0, width - 1)] + "…"
 
 
-async def _input_line(prompt_text: str, default: str = "") -> Optional[str]:
-    """One line of input with editing; None on Ctrl+C / Ctrl+D."""
-    from prompt_toolkit import PromptSession
+@dataclass
+class QueueMenuState:
+    """Small, testable state adapter around ``PauseController``."""
 
-    try:
-        return await PromptSession().prompt_async(prompt_text, default=default)
-    except (KeyboardInterrupt, EOFError):
-        return None
+    controller: object
+    selected: int = 0
+    editing: bool = False
+    adding: bool = False
+    delete_armed: Optional[int] = None
+    notice: str = ""
+
+    @property
+    def items(self) -> List[str]:
+        return self.controller.peek_pending_steer_queued()
+
+    @property
+    def selected_text(self) -> str:
+        items = self.items
+        if not items:
+            return ""
+        self.selected = min(max(self.selected, 0), len(items) - 1)
+        return items[self.selected]
+
+    def clamp_selection(self) -> None:
+        self.selected = min(max(self.selected, 0), max(0, len(self.items) - 1))
+
+    def move_selection(self, delta: int) -> None:
+        if not self.items:
+            self.selected = 0
+            return
+        self.selected = min(max(self.selected + delta, 0), len(self.items) - 1)
+        self.delete_armed = None
+        self.notice = ""
+
+    def begin_add(self) -> None:
+        self.editing = True
+        self.adding = True
+        self.delete_armed = None
+        self.notice = "Adding prompt — Ctrl+S save · Esc cancel"
+
+    def begin_edit(self) -> bool:
+        if not self.items:
+            self.notice = "Queue is empty — press A to add a prompt"
+            return False
+        self.editing = True
+        self.adding = False
+        self.delete_armed = None
+        self.notice = "Editing prompt — Ctrl+S save · Esc cancel"
+        return True
+
+    def cancel_edit(self) -> None:
+        self.editing = False
+        self.adding = False
+        self.notice = "Edit cancelled"
+
+    def save(self, text: str) -> bool:
+        normalized = text.strip()
+        if not normalized:
+            self.notice = "Prompt cannot be blank"
+            return False
+
+        items = self.items
+        if self.adding:
+            self.controller.request_steer(normalized, mode="queue")
+            self.selected = len(items)
+            self.notice = "Prompt added"
+        elif self.selected < len(items):
+            items[self.selected] = normalized
+            self.controller.replace_pending_steer_queued(items)
+            self.notice = "Prompt updated"
+        else:
+            self.notice = "That queue item no longer exists"
+            return False
+
+        self.editing = False
+        self.adding = False
+        self.delete_armed = None
+        self.clamp_selection()
+        return True
+
+    def request_delete(self) -> bool:
+        if not self.items:
+            self.notice = "Queue is already empty"
+            return False
+        if self.delete_armed != self.selected:
+            self.delete_armed = self.selected
+            self.notice = "Press D again to delete this prompt"
+            return False
+
+        items = self.items
+        del items[self.selected]
+        self.controller.replace_pending_steer_queued(items)
+        self.delete_armed = None
+        self.clamp_selection()
+        self.notice = "Prompt deleted"
+        return True
+
+    def reorder(self, delta: int) -> bool:
+        items = self.items
+        destination = self.selected + delta
+        if not items or destination < 0 or destination >= len(items):
+            return False
+        items[self.selected], items[destination] = (
+            items[destination],
+            items[self.selected],
+        )
+        self.controller.replace_pending_steer_queued(items)
+        self.selected = destination
+        self.delete_armed = None
+        self.notice = "Prompt moved"
+        return True
+
+
+class QueueMenuApp:
+    """Persistent full-screen prompt queue manager."""
+
+    def __init__(self, controller):
+        from prompt_toolkit import Application
+        from prompt_toolkit.buffer import Buffer
+        from prompt_toolkit.filters import Condition
+        from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
+        from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+        from prompt_toolkit.layout.dimension import Dimension
+        from prompt_toolkit.layout.processors import BeforeInput
+        from prompt_toolkit.styles import Style
+        from prompt_toolkit.widgets import Frame
+
+        self.state = QueueMenuState(controller)
+        self._list_control = FormattedTextControl(
+            self._render_list, focusable=True, show_cursor=False
+        )
+        self._editor_buffer = Buffer(multiline=True)
+        self._editor_control = BufferControl(
+            buffer=self._editor_buffer,
+            input_processors=[BeforeInput(self._editor_prefix)],
+            focusable=Condition(lambda: self.state.editing),
+        )
+        self._detail_frame = Frame(
+            Window(
+                self._editor_control,
+                wrap_lines=True,
+                always_hide_cursor=Condition(lambda: not self.state.editing),
+            ),
+            title=self._detail_title,
+            style="class:detail",
+        )
+
+        body = VSplit(
+            [
+                Frame(
+                    Window(
+                        self._list_control,
+                        wrap_lines=False,
+                        width=Dimension(weight=2),
+                    ),
+                    title="Queued prompts",
+                    style="class:list",
+                ),
+                Window(width=1, char=" "),
+                self._detail_frame,
+            ],
+            padding=0,
+        )
+        root = HSplit(
+            [
+                Window(
+                    FormattedTextControl(self._render_header),
+                    height=2,
+                    style="class:header",
+                ),
+                body,
+                Window(
+                    FormattedTextControl(self._render_notice),
+                    height=1,
+                    style="class:notice",
+                ),
+                Window(
+                    FormattedTextControl(self._render_footer),
+                    height=2,
+                    style="class:footer",
+                ),
+            ]
+        )
+
+        self._bindings = KeyBindings()
+        self._register_bindings()
+        self.application = Application(
+            layout=Layout(root, focused_element=self._list_control),
+            key_bindings=self._bindings,
+            full_screen=True,
+            mouse_support=True,
+            style=Style.from_dict(
+                {
+                    "header": "bg:#173b22 #f3fff5 bold",
+                    "header.title": "#63e677 bold",
+                    "list": "bg:#101510 #d3dfd5",
+                    "list.selected": "bg:#285c36 #ffffff bold",
+                    "list.index": "#6f9478",
+                    "list.empty": "#718077 italic",
+                    "detail": "bg:#0c120d #e5eee7",
+                    "detail.label": "#63e677 bold",
+                    "notice": "bg:#172019 #f2c96d",
+                    "footer": "bg:#111811 #9fb4a4",
+                    "footer.key": "#63e677 bold",
+                }
+            ),
+        )
+        self._sync_editor()
+
+    def _editor_prefix(self):
+        return [("class:detail.label", "EDIT  " if self.state.editing else "")]
+
+    def _detail_title(self) -> str:
+        if self.state.adding:
+            return "New prompt"
+        if self.state.editing:
+            return f"Edit prompt {self.state.selected + 1}"
+        return "Prompt preview"
+
+    def _render_header(self):
+        count = len(self.state.items)
+        return [
+            ("class:header.title", "  PROMPT QUEUE\n"),
+            ("class:header", f"  {count} item{'s' if count != 1 else ''} waiting"),
+        ]
+
+    def _render_list(self):
+        items = self.state.items
+        if not items:
+            return [
+                (
+                    "class:list.empty",
+                    "\n  Queue is empty.\n\n  Press A to add a prompt.",
+                )
+            ]
+        fragments = []
+        for index, text in enumerate(items):
+            style = (
+                "class:list.selected" if index == self.state.selected else "class:list"
+            )
+            marker = "▶" if index == self.state.selected else " "
+            fragments.extend(
+                [
+                    (style, f" {marker} "),
+                    (f"{style} class:list.index", f"{index + 1:>2}  "),
+                    (style, _preview(text)),
+                    (style, "\n"),
+                ]
+            )
+        return fragments
+
+    def _render_notice(self):
+        return [("class:notice", f"  {self.state.notice}")]
+
+    def _render_footer(self):
+        if self.state.editing:
+            return [
+                ("class:footer", "  "),
+                ("class:footer.key", "Ctrl+S"),
+                ("class:footer", " save   "),
+                ("class:footer.key", "Esc"),
+                ("class:footer", " cancel   Multi-line editing enabled"),
+            ]
+        return [
+            ("class:footer", "  "),
+            ("class:footer.key", "↑↓/JK"),
+            ("class:footer", " select   "),
+            ("class:footer.key", "Enter/E"),
+            ("class:footer", " edit   "),
+            ("class:footer.key", "A"),
+            ("class:footer", " add   "),
+            ("class:footer.key", "D D"),
+            ("class:footer", " delete\n  "),
+            ("class:footer.key", "[ ]"),
+            ("class:footer", " reorder   "),
+            ("class:footer.key", "Q/Esc"),
+            ("class:footer", " done"),
+        ]
+
+    def _sync_editor(self, text: Optional[str] = None) -> None:
+        value = self.state.selected_text if text is None else text
+        self._editor_buffer.set_document(
+            self._editor_buffer.document.__class__(value, cursor_position=len(value)),
+            bypass_readonly=True,
+        )
+
+    def _refresh(self) -> None:
+        self.application.invalidate()
+
+    def _focus_list(self) -> None:
+        self.application.layout.focus(self._list_control)
+
+    def _begin_add(self) -> None:
+        self.state.begin_add()
+        self._sync_editor("")
+        self.application.layout.focus(self._editor_control)
+
+    def _begin_edit(self) -> None:
+        if self.state.begin_edit():
+            self._sync_editor()
+            self.application.layout.focus(self._editor_control)
+
+    def _cancel_edit(self) -> None:
+        self.state.cancel_edit()
+        self._sync_editor()
+        self._focus_list()
+
+    def _save_edit(self) -> None:
+        if self.state.save(self._editor_buffer.text):
+            self._sync_editor()
+            self._focus_list()
+
+    def _move_selection(self, delta: int) -> None:
+        self.state.move_selection(delta)
+        self._sync_editor()
+
+    def _register_bindings(self) -> None:
+        kb = self._bindings
+
+        @kb.add("up")
+        @kb.add("k")
+        def _up(event):
+            if not self.state.editing:
+                self._move_selection(-1)
+
+        @kb.add("down")
+        @kb.add("j")
+        def _down(event):
+            if not self.state.editing:
+                self._move_selection(1)
+
+        @kb.add("home")
+        def _home(event):
+            if not self.state.editing:
+                self.state.selected = 0
+                self._sync_editor()
+
+        @kb.add("end")
+        def _end(event):
+            if not self.state.editing and self.state.items:
+                self.state.selected = len(self.state.items) - 1
+                self._sync_editor()
+
+        @kb.add("a")
+        def _add(event):
+            if not self.state.editing:
+                self._begin_add()
+
+        @kb.add("e")
+        @kb.add("enter")
+        def _edit(event):
+            if not self.state.editing:
+                self._begin_edit()
+            else:
+                self._editor_buffer.insert_text("\n")
+
+        @kb.add("d")
+        def _delete(event):
+            if not self.state.editing:
+                deleted = self.state.request_delete()
+                if deleted:
+                    self._sync_editor()
+                self._refresh()
+
+        @kb.add("[")
+        def _move_up(event):
+            if not self.state.editing and self.state.reorder(-1):
+                self._sync_editor()
+
+        @kb.add("]")
+        def _move_down(event):
+            if not self.state.editing and self.state.reorder(1):
+                self._sync_editor()
+
+        @kb.add("c-s")
+        def _save(event):
+            if self.state.editing:
+                self._save_edit()
+
+        @kb.add("escape")
+        def _escape(event):
+            if self.state.editing:
+                self._cancel_edit()
+            else:
+                event.app.exit()
+
+        @kb.add("q")
+        def _quit(event):
+            if not self.state.editing:
+                event.app.exit()
+
+        @kb.add("c-c")
+        def _ctrl_c(event):
+            if self.state.editing:
+                self._cancel_edit()
+            else:
+                event.app.exit()
+
+    async def run(self) -> None:
+        await self.application.run_async()
 
 
 async def run_queue_menu() -> None:
-    """Main loop: list -> item actions -> back, until Done / Ctrl+C."""
+    """Run the full-screen queue manager."""
     from code_puppy.messaging.pause_controller import get_pause_controller
-    from code_puppy.tools.common import arrow_select_async
 
-    pc = get_pause_controller()
-    while True:
-        items = pc.peek_pending_steer_queued()
-        choices = [f"{i + 1}. {_preview(text)}" for i, text in enumerate(items)]
-        choices += [_ADD, _DONE]
-
-        def _full_text(index: int, _items: List[str] = items) -> str:
-            return _items[index] if index < len(_items) else ""
-
-        try:
-            selection = await arrow_select_async(
-                f"Prompt queue \u2014 {len(items)} item(s)",
-                choices,
-                preview_callback=_full_text,
-            )
-        except KeyboardInterrupt:
-            return
-
-        if selection == _DONE:
-            return
-        if selection == _ADD:
-            text = await _input_line("(add) > ")
-            if text and text.strip():
-                pc.request_steer(text, mode="queue")
-            continue
-
-        index = choices.index(selection)
-        await _item_menu(pc, index)
-
-
-async def _item_menu(pc, index: int) -> None:
-    """Actions for one queued prompt: edit / delete / back."""
-    from code_puppy.tools.common import arrow_select_async
-
-    items = pc.peek_pending_steer_queued()
-    if index >= len(items):
-        return  # queue changed underneath us; back to the list
-    try:
-        action = await arrow_select_async(items[index], [_EDIT, _DELETE, _BACK])
-    except KeyboardInterrupt:
-        return
-
-    if action == _EDIT:
-        text = await _input_line("(edit) > ", default=items[index])
-        if text is not None and text.strip():
-            items[index] = text
-            pc.replace_pending_steer_queued(items)
-    elif action == _DELETE:
-        del items[index]
-        pc.replace_pending_steer_queued(items)
+    await QueueMenuApp(get_pause_controller()).run()
 
 
 def open_queue_menu_blocking(timeout_s: float = 600.0) -> None:
-    """Run the menu on a worker thread with its own event loop.
-
-    Same pattern as ``interactive_set_picker``'s caller: prompt_toolkit
-    apps can't ``run()`` inside the already-running main loop, so hop to
-    a thread and ``asyncio.run`` there. Never raises.
-    """
+    """Run the menu on a worker thread with an isolated event loop."""
     import asyncio
     import concurrent.futures
 
@@ -121,4 +448,9 @@ def open_queue_menu_blocking(timeout_s: float = 600.0) -> None:
         logger.debug("queue menu failed", exc_info=True)
 
 
-__all__ = ["open_queue_menu_blocking", "run_queue_menu"]
+__all__ = [
+    "QueueMenuApp",
+    "QueueMenuState",
+    "open_queue_menu_blocking",
+    "run_queue_menu",
+]

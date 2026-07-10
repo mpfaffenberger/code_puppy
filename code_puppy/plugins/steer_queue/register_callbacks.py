@@ -6,8 +6,8 @@ supplies the rest of the feature:
 * ``/steer <text>`` -- inject guidance mid-turn, interrupting the
   agent's current train of thought ASAP (the old Enter default). At
   idle it's a no-op with a hint: just type at the prompt.
-* ``/queue`` -- arrow-key TUI over the queued prompts (view via the
-  preview pane, add, edit, delete). Works at idle and mid-run: both
+* ``/queue`` -- full-screen queue manager with prompt preview, multiline
+  add/edit, guarded delete, and reordering. Works at idle and mid-run: both
   paths already release the terminal around command execution.
 * Status suffix -- a ``(N queued)`` tag rides the bottom bar's status
   row, updated live via the PauseController's steer-queue listeners
@@ -130,7 +130,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
 def _custom_help() -> List[Tuple[str, str]]:
     return [
         (_STEER, "Inject guidance mid-turn while the agent is running"),
-        (_QUEUE, "View/add/edit/delete queued prompts (TUI)"),
+        (_QUEUE, "Manage queued prompts in a full-screen TUI"),
     ]
 
 
