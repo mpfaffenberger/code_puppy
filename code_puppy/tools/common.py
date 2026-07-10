@@ -920,18 +920,24 @@ def _format_diff_with_syntax_highlighting(
     return result
 
 
-def format_diff_with_colors(diff_text: str) -> Text:
+def format_diff_with_colors(
+    diff_text: str,
+    addition_color: str | None = None,
+    deletion_color: str | None = None,
+) -> Text:
     """Format diff text with beautiful syntax highlighting.
 
     This is the canonical diff formatting function used across the codebase.
     It applies user-configurable color coding with full syntax highlighting using Pygments.
 
-    The function respects user preferences from config:
-    - get_diff_addition_color(): Color for added lines (markers and backgrounds)
-    - get_diff_deletion_color(): Color for deleted lines (markers and backgrounds)
+    Colors default to the effective theme-aware/user-configured preferences.
+    Callers rendering a preview may pass colors directly, avoiding config
+    mutations just to draw transient UI.
 
     Args:
         diff_text: Raw diff text to format
+        addition_color: Optional addition background override.
+        deletion_color: Optional deletion background override.
 
     Returns:
         Rich Text object with syntax highlighting
@@ -944,8 +950,8 @@ def format_diff_with_colors(diff_text: str) -> Text:
     if not diff_text or not diff_text.strip():
         return Text("-- no diff available --", style="dim")
 
-    addition_base_color = get_diff_addition_color()
-    deletion_base_color = get_diff_deletion_color()
+    addition_base_color = addition_color or get_diff_addition_color()
+    deletion_base_color = deletion_color or get_diff_deletion_color()
 
     # Always use beautiful syntax highlighting!
     if not PYGMENTS_AVAILABLE:

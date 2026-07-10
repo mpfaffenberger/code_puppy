@@ -1600,9 +1600,55 @@ def set_diff_highlight_style(style: str):
     pass
 
 
-# Defaults for diff highlight colors — single source of truth.
+# Diff colors use these only when no curated terminal palette is active.
 _DEFAULT_DIFF_ADDITION_HEX = "#0b1f0b"  # darker green
 _DEFAULT_DIFF_DELETION_HEX = "#390e1a"  # wine
+_THEME_PALETTE_CONFIG_KEY = "osc_palette_json"
+
+
+def _blend_hex(background: str, accent: str, accent_weight: float) -> str:
+    """Blend an accent into a background, returning a subtle highlight."""
+    background_rgb = tuple(
+        int(background[index : index + 2], 16) for index in (1, 3, 5)
+    )
+    accent_rgb = tuple(int(accent[index : index + 2], 16) for index in (1, 3, 5))
+    channels = (
+        round(base * (1 - accent_weight) + highlight * accent_weight)
+        for base, highlight in zip(background_rgb, accent_rgb)
+    )
+    return "#" + "".join(f"{channel:02x}" for channel in channels)
+
+
+def _theme_diff_defaults() -> tuple[str, str]:
+    """Derive quiet add/remove backgrounds from the active terminal theme.
+
+    ANSI slots 2 and 1 are the theme's semantic green and red. Blending them
+    into the terminal background keeps highlights legible on both dark and
+    light themes instead of dropping a dark green rectangle onto everything.
+    """
+    raw_palette = get_value(_THEME_PALETTE_CONFIG_KEY)
+    if not raw_palette:
+        return _DEFAULT_DIFF_ADDITION_HEX, _DEFAULT_DIFF_DELETION_HEX
+
+    try:
+        palette = json.loads(raw_palette)
+        background = _coerce_to_hex(palette.get("bg"), "")
+        if not background:
+            raise ValueError("theme has no valid background")
+        ansi = palette.get("ansi") or []
+        addition = _coerce_to_hex(ansi[2] if len(ansi) > 2 else "#2ea043", "#2ea043")
+        deletion = _coerce_to_hex(ansi[1] if len(ansi) > 1 else "#cf222e", "#cf222e")
+        red, green, blue = (
+            int(background[index : index + 2], 16) for index in (1, 3, 5)
+        )
+        luminance = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255
+        accent_weight = 0.14 if luminance > 0.5 else 0.20
+        return (
+            _blend_hex(background, addition, accent_weight),
+            _blend_hex(background, deletion, accent_weight),
+        )
+    except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+        return _DEFAULT_DIFF_ADDITION_HEX, _DEFAULT_DIFF_DELETION_HEX
 
 
 def _coerce_to_hex(value: Optional[str], fallback: str) -> str:
@@ -1640,12 +1686,12 @@ def _coerce_to_hex(value: Optional[str], fallback: str) -> str:
 def get_diff_addition_color() -> str:
     """Get the base color for diff additions, always as a valid '#RRGGBB' hex.
 
-    Falls back to the default darker green if the configured value is missing
-    or unparseable.
+    An explicit ``/diff`` choice wins. When unset, the color is derived from
+    the active theme's background and semantic green.
     """
-    return _coerce_to_hex(
-        get_value("highlight_addition_color"), _DEFAULT_DIFF_ADDITION_HEX
-    )
+    configured = get_value("highlight_addition_color")
+    theme_default, _ = _theme_diff_defaults()
+    return _coerce_to_hex(configured, theme_default)
 
 
 def set_diff_addition_color(color: str):
@@ -1664,12 +1710,12 @@ def set_diff_addition_color(color: str):
 def get_diff_deletion_color() -> str:
     """Get the base color for diff deletions, always as a valid '#RRGGBB' hex.
 
-    Falls back to the default wine if the configured value is missing or
-    unparseable.
+    An explicit ``/diff`` choice wins. When unset, the color is derived from
+    the active theme's background and semantic red.
     """
-    return _coerce_to_hex(
-        get_value("highlight_deletion_color"), _DEFAULT_DIFF_DELETION_HEX
-    )
+    configured = get_value("highlight_deletion_color")
+    _, theme_default = _theme_diff_defaults()
+    return _coerce_to_hex(configured, theme_default)
 
 
 def set_diff_deletion_color(color: str):

@@ -759,53 +759,35 @@ def _get_preview_text_for_prompt_toolkit(config: DiffConfiguration) -> ANSI:
 
     header_text = "\n".join(header_parts)
 
-    # Temporarily override config to use current preview settings
-    from code_puppy.config import (
-        get_diff_addition_color,
-        get_diff_deletion_color,
-        set_diff_addition_color,
-        set_diff_deletion_color,
+    # Pass preview colors directly. A preview should not scribble in puppy.cfg.
+    formatted_diff = format_diff_with_colors(
+        sample_diff,
+        addition_color=config.current_add_color,
+        deletion_color=config.current_del_color,
     )
 
-    # Save original values
-    original_add_color = get_diff_addition_color()
-    original_del_color = get_diff_deletion_color()
+    # Render everything with Rich Console to get ANSI output with proper color support
+    buffer = io.StringIO()
+    console = Console(
+        file=buffer,
+        force_terminal=True,
+        width=90,
+        legacy_windows=False,
+        color_system="truecolor",
+        no_color=False,
+        force_interactive=True,  # Force interactive mode for better color support
+    )
 
-    try:
-        # Temporarily set config to preview values
-        set_diff_addition_color(config.current_add_color)
-        set_diff_deletion_color(config.current_del_color)
+    # Print header
+    console.print(header_text, end="\n")
 
-        # Get the formatted diff (either Rich Text or Rich markup string)
-        formatted_diff = format_diff_with_colors(sample_diff)
+    # Print diff (handles both Text objects and markup strings)
+    console.print(formatted_diff, end="\n\n")
 
-        # Render everything with Rich Console to get ANSI output with proper color support
-        buffer = io.StringIO()
-        console = Console(
-            file=buffer,
-            force_terminal=True,
-            width=90,
-            legacy_windows=False,
-            color_system="truecolor",
-            no_color=False,
-            force_interactive=True,  # Force interactive mode for better color support
-        )
+    # Print footer
+    console.print("[bold]═" * 50 + "[/bold]", end="")
 
-        # Print header
-        console.print(header_text, end="\n")
-
-        # Print diff (handles both Text objects and markup strings)
-        console.print(formatted_diff, end="\n\n")
-
-        # Print footer
-        console.print("[bold]═" * 50 + "[/bold]", end="")
-
-        ansi_output = buffer.getvalue()
-
-    finally:
-        # Restore original config values
-        set_diff_addition_color(original_add_color)
-        set_diff_deletion_color(original_del_color)
+    ansi_output = buffer.getvalue()
 
     # Wrap in ANSI() so prompt_toolkit can render it
     return ANSI(ansi_output)

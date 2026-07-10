@@ -826,6 +826,49 @@ class TestDiffColors:
         cp_config.set_diff_deletion_color("red")
         assert cp_config.get_diff_deletion_color() == "#800000"
 
+    def test_unset_colors_are_derived_from_dark_theme_palette(self):
+        cp_config.set_config_value(
+            "osc_palette_json",
+            json.dumps(
+                {
+                    "bg": "#000000",
+                    "ansi": ["#000000", "#ff0000", "#00ff00"],
+                }
+            ),
+        )
+
+        assert cp_config.get_diff_addition_color() == "#003300"
+        assert cp_config.get_diff_deletion_color() == "#330000"
+
+    def test_unset_colors_are_subtle_on_light_themes(self):
+        cp_config.set_config_value(
+            "osc_palette_json",
+            json.dumps(
+                {
+                    "bg": "#ffffff",
+                    "ansi": ["#000000", "#ff0000", "#00ff00"],
+                }
+            ),
+        )
+
+        assert cp_config.get_diff_addition_color() == "#dbffdb"
+        assert cp_config.get_diff_deletion_color() == "#ffdbdb"
+
+    def test_explicit_diff_color_wins_over_theme(self):
+        cp_config.set_config_value(
+            "osc_palette_json",
+            json.dumps({"bg": "#000000", "ansi": ["#000000", "#ff0000"]}),
+        )
+        cp_config.set_diff_addition_color("#123456")
+
+        assert cp_config.get_diff_addition_color() == "#123456"
+
+    def test_malformed_theme_palette_uses_legacy_defaults(self):
+        cp_config.set_config_value("osc_palette_json", "not json")
+
+        assert cp_config.get_diff_addition_color() == "#0b1f0b"
+        assert cp_config.get_diff_deletion_color() == "#390e1a"
+
     def test_set_diff_highlight_style_noop(self):
         # Should not raise
         cp_config.set_diff_highlight_style("anything")
