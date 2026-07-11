@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, Optional, Tuple
 
 from prompt_toolkit import Application
-from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
@@ -970,6 +970,60 @@ def format_diff_with_colors(
     )
 
 
+def _format_selector(
+    message: str,
+    choices: list[str],
+    selected_index: int,
+    preview_callback: Optional[Callable[[int], str]] = None,
+) -> FormattedText:
+    """Build shared selector content from semantic, literal-text fragments."""
+    import textwrap
+
+    fragments: list[tuple[str, str]] = [
+        ("class:tui.header", message),
+        ("", "\n\n"),
+    ]
+    for index, choice in enumerate(choices):
+        style = "class:tui.selected" if index == selected_index else "class:tui.body"
+        marker = "\u276f " if index == selected_index else "  "
+        fragments.extend([(style, marker + choice), ("", "\n")])
+    fragments.append(("", "\n"))
+
+    preview_text = preview_callback(selected_index) if preview_callback else ""
+    if preview_text:
+        box_width = 60
+        fragments.extend(
+            [
+                (
+                    "class:tui.border",
+                    "┌─ Preview " + "─" * (box_width - 10) + "┐\n",
+                )
+            ]
+        )
+        wrapped_lines = textwrap.wrap(preview_text, width=box_width - 2) or [""]
+        for wrapped_line in wrapped_lines:
+            fragments.append(
+                ("class:tui.muted", f"│ {wrapped_line.ljust(box_width - 2)} │\n")
+            )
+        fragments.extend(
+            [
+                ("class:tui.border", "└" + "─" * box_width + "┘\n"),
+                ("", "\n"),
+            ]
+        )
+
+    fragments.extend(
+        [
+            ("class:tui.help", "("),
+            ("class:tui.help-key", "↑↓ or Ctrl+P/N"),
+            ("class:tui.help", " to select, "),
+            ("class:tui.help-key", "Enter"),
+            ("class:tui.help", " to confirm)"),
+        ]
+    )
+    return FormattedText(fragments)
+
+
 async def arrow_select_async(
     message: str,
     choices: list[str],
@@ -989,61 +1043,14 @@ async def arrow_select_async(
     Raises:
         KeyboardInterrupt: If user cancels with Ctrl-C
     """
-    import html
-
     selected_index = [0]  # Mutable container for selected index
     result = [None]  # Mutable container for result
 
-    def get_formatted_text():
-        """Generate the formatted text for display."""
-        # Escape XML special characters to prevent parsing errors
-        safe_message = html.escape(message)
-        lines = [f"<b>{safe_message}</b>", ""]
-        for i, choice in enumerate(choices):
-            safe_choice = html.escape(choice)
-            if i == selected_index[0]:
-                lines.append(f"<ansigreen>❯ {safe_choice}</ansigreen>")
-            else:
-                lines.append(f"  {safe_choice}")
-        lines.append("")
-
-        # Add preview section if callback provided
-        if preview_callback is not None:
-            preview_text = preview_callback(selected_index[0])
-            if preview_text:
-                import textwrap
-
-                # Box width (excluding borders and padding)
-                box_width = 60
-                border_top = (
-                    "<ansiyellow>┌─ Preview "
-                    + "─" * (box_width - 10)
-                    + "┐</ansiyellow>"
-                )
-                border_bottom = "<ansiyellow>└" + "─" * box_width + "┘</ansiyellow>"
-
-                lines.append(border_top)
-
-                # Wrap text to fit within box width (minus padding)
-                wrapped_lines = textwrap.wrap(preview_text, width=box_width - 2)
-
-                # If no wrapped lines (empty text), add empty line
-                if not wrapped_lines:
-                    wrapped_lines = [""]
-
-                for wrapped_line in wrapped_lines:
-                    safe_preview = html.escape(wrapped_line)
-                    # Pad line to box width for consistent appearance
-                    padded_line = safe_preview.ljust(box_width - 2)
-                    lines.append(f"<dim>│ {padded_line} │</dim>")
-
-                lines.append(border_bottom)
-                lines.append("")
-
-        lines.append(
-            "<ansicyan>(Use ↑↓ or Ctrl+P/N to select, Enter to confirm)</ansicyan>"
+    def get_formatted_text() -> FormattedText:
+        """Generate semantic formatted text for display."""
+        return _format_selector(
+            message, choices, selected_index[0], preview_callback=preview_callback
         )
-        return HTML("\n".join(lines))
 
     # Key bindings
     kb = KeyBindings()
@@ -1118,19 +1125,9 @@ def arrow_select(message: str, choices: list[str]) -> str:
     selected_index = [0]  # Mutable container for selected index
     result = [None]  # Mutable container for result
 
-    def get_formatted_text():
-        """Generate the formatted text for display."""
-        lines = [f"<b>{message}</b>", ""]
-        for i, choice in enumerate(choices):
-            if i == selected_index[0]:
-                lines.append(f"<ansigreen>❯ {choice}</ansigreen>")
-            else:
-                lines.append(f"  {choice}")
-        lines.append("")
-        lines.append(
-            "<ansicyan>(Use ↑↓ or Ctrl+P/N to select, Enter to confirm)</ansicyan>"
-        )
-        return HTML("\n".join(lines))
+    def get_formatted_text() -> FormattedText:
+        """Generate semantic formatted text for display."""
+        return _format_selector(message, choices, selected_index[0])
 
     # Key bindings
     kb = KeyBindings()
