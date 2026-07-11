@@ -173,7 +173,6 @@ def resolve_path(file_path: str) -> str:
 
 # Syntax highlighting imports for "syntax" diff mode
 try:
-    from pygments import lex
     from pygments.lexers import TextLexer, get_lexer_by_name
     from pygments.token import Token
 
@@ -741,41 +740,43 @@ def _get_token_color(token_type) -> str:
     return "#cccccc"  # Default light-grey for unmatched tokens
 
 
-def _highlight_code_line(code: str, bg_color: str | None, lexer) -> Text:
-    """Highlight a line of code with syntax highlighting and optional background color.
-
-    Args:
-        code: The code string to highlight
-        bg_color: Background color in hex format, or None for no background
-        lexer: Pygments lexer instance to use
-
-    Returns:
-        Rich Text object with styling applied
-    """
+def _highlight_code_line(
+    code: str, bg_color: str | None, lexer, line_type: str = "context"
+) -> Text:
+    """Highlight code using TermFlow's theme-aware highlighter."""
     if not PYGMENTS_AVAILABLE or lexer is None:
-        # Fallback: just return text with optional background
-        if bg_color:
-            return Text(code, style=f"on {bg_color}")
-        return Text(code)
+        return Text(code, style=f"on {bg_color}" if bg_color else None)
 
-    text = Text()
+    from code_puppy.callbacks import on_termflow_highlighter
+    from termflow.syntax import Highlighter
 
-    for token_type, value in lex(code, lexer):
-        # Strip trailing newlines that Pygments adds
-        # Pygments lexer always adds a \n at the end of the last token
-        value = value.rstrip("\n")
+    highlighter = on_termflow_highlighter(Highlighter())
+    language = (getattr(lexer, "aliases", None) or ["text"])[0]
+    text = Text.from_ansi(highlighter.highlight_line(code, language))
 
-        # Skip if the value is now empty (was only whitespace/newlines)
-        if not value:
-            continue
+    # Themes may provide subtle per-diff-line RGB shifts. Keeping this metadata
+    # on the themed highlighter avoids hard-coding theme knowledge in tools.
+    tint = getattr(highlighter, "diff_line_tints", {}).get(line_type)
+    if tint:
+        from rich.style import Style
+        from rich.text import Span
 
-        fg_color = _get_token_color(token_type)
-        # Apply foreground color and optional background
-        if bg_color:
-            text.append(value, style=f"{fg_color} on {bg_color}")
-        else:
-            text.append(value, style=fg_color)
+        for index, span in enumerate(text.spans):
+            style = span.style
+            color = getattr(style, "color", None)
+            triplet = color.get_truecolor() if color else None
+            if triplet:
+                shifted = tuple(
+                    max(0, min(255, channel + delta))
+                    for channel, delta in zip(triplet, tint, strict=True)
+                )
+                text.spans[index] = Span(
+                    span.start, span.end, style + Style(color=f"rgb{shifted}")
+                )
 
+    if bg_color:
+        # Applying only a background preserves each token's themed foreground.
+        text.stylize(f"on {bg_color}")
     return text
 
 
@@ -833,12 +834,11 @@ def _format_diff_with_syntax_highlighting(
     addition_color: str | None = None,
     deletion_color: str | None = None,
 ) -> Text:
-    """Format diff with full syntax highlighting using Pygments.
+    """Format a diff with theme-aware syntax highlighting via TermFlow.
 
     This renders diffs with:
-    - Syntax highlighting for code tokens
+    - Theme-aware syntax highlighting for code tokens
     - Colored backgrounds for context/added/removed lines
-    - Monokai color scheme
     - Optional custom colors for additions/deletions
 
     Args:
@@ -910,7 +910,9 @@ def _format_diff_with_syntax_highlighting(
                 result.append(prefix)
 
             # Add syntax-highlighted code
-            highlighted = _highlight_code_line(code, bg_colors[line_type], lexer)
+            highlighted = _highlight_code_line(
+                code, bg_colors[line_type], lexer, line_type
+            )
             result.append_text(highlighted)
 
         # Add newline after each line except the last
@@ -928,7 +930,7 @@ def format_diff_with_colors(
     """Format diff text with beautiful syntax highlighting.
 
     This is the canonical diff formatting function used across the codebase.
-    It applies user-configurable color coding with full syntax highlighting using Pygments.
+    It applies user-configurable colors and TermFlow's theme-aware syntax highlighting.
 
     Colors default to the effective theme-aware/user-configured preferences.
     Callers rendering a preview may pass colors directly, avoiding config

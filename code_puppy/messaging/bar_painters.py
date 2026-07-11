@@ -286,6 +286,11 @@ class BarPainterMixin:
         prompt_sgr = _prompt_color_sgr()
         prompt_reset = "\x1b[39m" if prompt_sgr else ""
         for i, rendered in enumerate(rendered_rows):
+            if prompt_sgr:
+                # Prefix styling uses full SGR resets between color runs. Restore
+                # the theme foreground after each reset so user text doesn't
+                # fall back to terminal-default white on light themes.
+                rendered = rendered.replace("\x1b[0m", f"\x1b[0m{prompt_sgr}")
             parts.append(
                 f"\x1b[{prompt_top + i};1H{_CLEAR_LINE}"
                 f"{prompt_sgr}{rendered}{prompt_reset}"

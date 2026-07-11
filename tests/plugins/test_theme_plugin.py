@@ -527,8 +527,26 @@ class TestRegisterCallbacks:
             highlighter = _termflow_highlighter(Highlighter())
 
         rendered = highlighter.highlight_line("plain code", "text")
-        assert "38;2;106;153;85" in rendered
+        assert "38;2;114;168;91" in rendered
         assert "38;2;255;255;255" not in rendered
+
+    def test_green_screen_highlighter_uses_phosphor_intensities(self):
+        from termflow.syntax import Highlighter
+
+        from code_puppy.plugins.theme.register_callbacks import _termflow_highlighter
+
+        with patch(
+            "code_puppy.plugins.theme.register_callbacks._active_terminal_palette",
+            return_value=("green-screen", GREEN_SCREEN),
+        ):
+            highlighter = _termflow_highlighter(Highlighter())
+
+        rendered = highlighter.highlight_line(
+            "# dim comment\ndef glowing():\n    return 42", "python"
+        )
+        assert "38;2;69;107;79" in rendered  # dark phosphor comment
+        assert "38;2;57;231;95" in rendered  # bright keyword
+        assert "38;2;138;203;114" in rendered  # normal literal
 
     def test_termflow_style_uses_active_terminal_palette(self):
         from termflow.render.style import RenderStyle

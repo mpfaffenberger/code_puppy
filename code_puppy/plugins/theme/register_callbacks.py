@@ -178,7 +178,18 @@ def _termflow_highlighter(default_highlighter):
     from termflow.syntax import Highlighter
 
     if active_theme in {"green-screen", "green", "crt"}:
-        token_styles = {Token: palette["fg"]}
+        # Preserve monochrome phosphor while giving token classes enough
+        # separation to remain useful on both addition and deletion lines.
+        token_styles = {
+            Token: "#72a85b",
+            Comment: "#456b4f",
+            Error: "#7dff68",
+            Keyword: "#39e75f",
+            Name.Function: "#75ff87",
+            Number: "#8acb72",
+            Operator: "#63b96a",
+            String: "#9bdc79",
+        }
     else:
         token_styles = {
             Token: ansi[7],
@@ -198,6 +209,13 @@ def _termflow_highlighter(default_highlighter):
     )
     highlighter = Highlighter()
     highlighter._formatter = TerminalTrueColorFormatter(style=theme_style)
+    if active_theme in {"green-screen", "green", "crt"}:
+        # Added lines lean brighter/yellower; removed lines become cooler and
+        # more muted. Small shifts retain the token palette's internal contrast.
+        highlighter.diff_line_tints = {
+            "added": (10, 14, -8),
+            "removed": (-18, -4, 10),
+        }
     return highlighter
 
 
