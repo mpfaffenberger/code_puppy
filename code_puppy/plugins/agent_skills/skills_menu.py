@@ -120,19 +120,19 @@ class SkillsMenu:
         lines = []
 
         # Header with status
-        status_color = "fg:ansigreen" if self.skills_enabled else "fg:ansired"
+        status_style = "class:tui.success" if self.skills_enabled else "class:tui.error"
         status_text = "ENABLED" if self.skills_enabled else "DISABLED"
-        lines.append((status_color, f" Skills: {status_text}"))
+        lines.append((status_style, f" Skills: {status_text}"))
         lines.append(("", "\n\n"))
 
         if not self.skills:
-            lines.append(("fg:ansiyellow", "  No skills found."))
+            lines.append(("class:tui.warning", "  No skills found."))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", "  Create skills in:"))
+            lines.append(("class:tui.muted", "  Create skills in:"))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", "    ~/.code_puppy/skills/"))
+            lines.append(("class:tui.muted", "    ~/.code_puppy/skills/"))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", "    ./skills/"))
+            lines.append(("class:tui.muted", "    ./skills/"))
             lines.append(("", "\n\n"))
             self._render_navigation_hints(lines)
             return lines
@@ -151,7 +151,7 @@ class SkillsMenu:
 
             # Status icon
             status_icon = "✗" if is_disabled else "✓"
-            status_style = "fg:ansired" if is_disabled else "fg:ansigreen"
+            status_style = "class:tui.error" if is_disabled else "class:tui.success"
 
             # Get skill name from metadata if available
             metadata = self._get_skill_metadata(skill)
@@ -161,20 +161,20 @@ class SkillsMenu:
             prefix = " > " if is_selected else "   "
 
             if is_selected:
-                lines.append(("bold", prefix))
-                lines.append((status_style + " bold", status_icon))
-                lines.append(("bold", f" {display_name}"))
+                lines.append(("class:tui.selected", prefix))
+                lines.append(("class:tui.selected", status_icon))
+                lines.append(("class:tui.selected", f" {display_name}"))
             else:
                 lines.append(("", prefix))
                 lines.append((status_style, status_icon))
-                lines.append(("fg:ansibrightblack", f" {display_name}"))
+                lines.append(("class:tui.muted", f" {display_name}"))
 
             lines.append(("", "\n"))
 
         # Pagination info
         lines.append(("", "\n"))
         lines.append(
-            ("fg:ansibrightblack", f" Page {self.current_page + 1}/{total_pages}")
+            ("class:tui.muted", f" Page {self.current_page + 1}/{total_pages}")
         )
         lines.append(("", "\n"))
 
@@ -184,39 +184,39 @@ class SkillsMenu:
     def _render_navigation_hints(self, lines: List) -> None:
         """Render navigation hints at the bottom."""
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "  ↑/↓ or j/k "))
+        lines.append(("class:tui.help-key", "  ↑/↓ or j/k "))
         lines.append(("", "Navigate  "))
-        lines.append(("fg:ansibrightblack", "←/→ "))
+        lines.append(("class:tui.help-key", "←/→ "))
         lines.append(("", "Page\n"))
-        lines.append(("fg:ansigreen", "  Enter  "))
+        lines.append(("class:tui.help-key", "  Enter  "))
         lines.append(("", "Toggle  "))
-        lines.append(("fg:ansicyan", "  t  "))
+        lines.append(("class:tui.help-key", "  t  "))
         lines.append(("", "Toggle System\n"))
-        lines.append(("fg:ansimagenta", "  Ctrl+A  "))
+        lines.append(("class:tui.help-key", "  Ctrl+A  "))
         lines.append(("", "Add Dir  "))
-        lines.append(("fg:ansiyellow", "  Ctrl+D  "))
+        lines.append(("class:tui.help-key", "  Ctrl+D  "))
         lines.append(("", "Show Dirs\n"))
-        lines.append(("fg:ansimagenta", "  i  "))
+        lines.append(("class:tui.help-key", "  i  "))
         lines.append(("", "Install from catalog\n"))
-        lines.append(("fg:ansiyellow", "  r  "))
+        lines.append(("class:tui.help-key", "  r  "))
         lines.append(("", "Refresh  "))
-        lines.append(("fg:ansired", "  q  "))
+        lines.append(("class:tui.help-key", "  q  "))
         lines.append(("", "Exit"))
 
     def _render_skill_details(self) -> List:
         """Render the skill details panel."""
         lines = []
 
-        lines.append(("dim cyan", " SKILL DETAILS"))
+        lines.append(("class:tui.title dim", " SKILL DETAILS"))
         lines.append(("", "\n\n"))
 
         skill = self._get_current_skill()
         if not skill:
-            lines.append(("fg:ansiyellow", "  No skill selected."))
+            lines.append(("class:tui.warning", "  No skill selected."))
             lines.append(("", "\n\n"))
-            lines.append(("fg:ansibrightblack", "  Select a skill from the list"))
+            lines.append(("class:tui.muted", "  Select a skill from the list"))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", "  to view its details."))
+            lines.append(("class:tui.muted", "  to view its details."))
             return lines
 
         metadata = self._get_skill_metadata(skill)
@@ -224,7 +224,7 @@ class SkillsMenu:
 
         # Status
         status_text = "Disabled" if is_disabled else "Enabled"
-        status_style = "fg:ansired bold" if is_disabled else "fg:ansigreen bold"
+        status_style = "class:tui.error" if is_disabled else "class:tui.success"
         lines.append(("bold", "  Status: "))
         lines.append((status_style, status_text))
         lines.append(("", "\n\n"))
@@ -242,7 +242,7 @@ class SkillsMenu:
                 desc = metadata.description
                 wrapped = self._wrap_text(desc, 50)
                 for line in wrapped:
-                    lines.append(("fg:ansibrightblack", f"    {line}"))
+                    lines.append(("class:tui.muted", f"    {line}"))
                     lines.append(("", "\n"))
                 lines.append(("", "\n"))
 
@@ -251,7 +251,7 @@ class SkillsMenu:
                 lines.append(("bold", "  Tags:"))
                 lines.append(("", "\n"))
                 tags_str = ", ".join(metadata.tags)
-                lines.append(("fg:ansicyan", f"    {tags_str}"))
+                lines.append(("class:tui.header", f"    {tags_str}"))
                 lines.append(("", "\n\n"))
 
             # Resources
@@ -261,11 +261,11 @@ class SkillsMenu:
                 lines.append(("", "\n"))
                 for resource in resources[:5]:  # Show first 5
                     resource_name = getattr(resource, "name", str(resource))
-                    lines.append(("fg:ansiyellow", f"    • {resource_name}"))
+                    lines.append(("class:tui.warning", f"    • {resource_name}"))
                     lines.append(("", "\n"))
                 if len(resources) > 5:
                     lines.append(
-                        ("fg:ansibrightblack", f"    ... and {len(resources) - 5} more")
+                        ("class:tui.muted", f"    ... and {len(resources) - 5} more")
                     )
                     lines.append(("", "\n"))
                 lines.append(("", "\n"))
@@ -274,13 +274,11 @@ class SkillsMenu:
             # No metadata available
             lines.append(("bold", f"  {skill.name}"))
             lines.append(("", "\n\n"))
-            lines.append(("fg:ansiyellow", "  No metadata available"))
+            lines.append(("class:tui.warning", "  No metadata available"))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", "  Add a SKILL.md with frontmatter to"))
+            lines.append(("class:tui.muted", "  Add a SKILL.md with frontmatter to"))
             lines.append(("", "\n"))
-            lines.append(
-                ("fg:ansibrightblack", "  define name, description, and tags.")
-            )
+            lines.append(("class:tui.muted", "  define name, description, and tags."))
             lines.append(("", "\n\n"))
 
         # Path
@@ -289,7 +287,7 @@ class SkillsMenu:
         path_str = str(skill.path)
         if len(path_str) > 45:
             path_str = "..." + path_str[-42:]
-        lines.append(("fg:ansibrightblack", f"    {path_str}"))
+        lines.append(("class:tui.muted", f"    {path_str}"))
         lines.append(("", "\n"))
 
         return lines
