@@ -356,18 +356,18 @@ class ModelSettingsMenu:
 
         if self.view_mode == "models":
             # Header with page indicator
-            lines.append(("bold cyan", " 🐕 Select a Model to Configure"))
+            lines.append(("class:tui.header", " 🐕 Select a Model to Configure"))
             if self.total_pages > 1:
                 lines.append(
                     (
-                        "fg:ansibrightblack",
+                        "class:tui.muted",
                         f"  (Page {self.page + 1}/{self.total_pages})",
                     )
                 )
             lines.append(("", "\n\n"))
 
             if not self.all_models:
-                lines.append(("fg:ansiyellow", "  No models available."))
+                lines.append(("class:tui.warning", "  No models available."))
                 lines.append(("", "\n\n"))
                 self._add_model_nav_hints(lines)
                 return lines
@@ -383,7 +383,7 @@ class ModelSettingsMenu:
                 is_current = model_name == self.current_model_name
 
                 prefix = " › " if is_selected else "   "
-                style = "fg:ansiwhite bold" if is_selected else "fg:ansibrightblack"
+                style = "class:tui.selected" if is_selected else "class:tui.body"
 
                 # Check if model has any custom settings
                 model_settings = get_all_model_settings(model_name)
@@ -393,26 +393,26 @@ class ModelSettingsMenu:
 
                 # Show indicators
                 if is_current:
-                    lines.append(("fg:ansigreen", " (active)"))
+                    lines.append(("class:tui.success", " (active)"))
                 if has_settings:
-                    lines.append(("fg:ansicyan", " ⚙"))
+                    lines.append(("class:tui.body", " ⚙"))
 
                 lines.append(("", "\n"))
 
                 if is_selected:
                     description = get_model_description(models_config, model_name)
-                    lines.append(("fg:ansiyellow italic", f"      {description}\n"))
+                    lines.append(("class:tui.body", f"      {description}\n"))
 
             lines.append(("", "\n"))
             self._add_model_nav_hints(lines)
         else:
             # Settings view
-            lines.append(("bold cyan", f" ⚙ Settings for {self.selected_model}"))
+            lines.append(("class:tui.header", f" ⚙ Settings for {self.selected_model}"))
             lines.append(("", "\n\n"))
 
             if not self.supported_settings:
                 lines.append(
-                    ("fg:ansiyellow", "  No configurable settings for this model.")
+                    ("class:tui.warning", "  No configurable settings for this model.")
                 )
                 lines.append(("", "\n\n"))
                 self._add_settings_nav_hints(lines)
@@ -427,18 +427,18 @@ class ModelSettingsMenu:
                 if is_selected and self.editing_mode:
                     display_value = self._format_value(setting_key, self.edit_value)
                     prefix = " ✏️ "
-                    style = "fg:ansigreen bold"
+                    style = "class:tui.success"
                 else:
                     display_value = self._format_value(setting_key, current_value)
                     prefix = " › " if is_selected else "   "
-                    style = "fg:ansiwhite" if is_selected else "fg:ansibrightblack"
+                    style = "class:tui.selected" if is_selected else "class:tui.body"
 
                 # Setting name and value
                 lines.append((style, f"{prefix}{setting_def['name']}: "))
                 if current_value is not None or (is_selected and self.editing_mode):
-                    lines.append(("fg:ansicyan", display_value))
+                    lines.append(("class:tui.body", display_value))
                 else:
-                    lines.append(("fg:ansibrightblack dim", display_value))
+                    lines.append(("class:tui.muted", display_value))
                 lines.append(("", "\n"))
 
             lines.append(("", "\n"))
@@ -449,89 +449,89 @@ class ModelSettingsMenu:
     def _add_model_nav_hints(self, lines: List):
         """Add navigation hints for model list view."""
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "  ↑/↓  "))
-        lines.append(("", "Navigate models\n"))
+        lines.append(("class:tui.help-key", "  ↑/↓  "))
+        lines.append(("class:tui.help", "Navigate models\n"))
         if self.total_pages > 1:
-            lines.append(("fg:ansibrightblack", "  PgUp/PgDn  "))
-            lines.append(("", "Change page\n"))
-        lines.append(("fg:ansigreen", "  Enter  "))
-        lines.append(("", "Configure model\n"))
-        lines.append(("fg:ansiyellow", "  Esc  "))
-        lines.append(("", "Exit\n"))
+            lines.append(("class:tui.help-key", "  PgUp/PgDn  "))
+            lines.append(("class:tui.help", "Change page\n"))
+        lines.append(("class:tui.help-key", "  Enter  "))
+        lines.append(("class:tui.help", "Configure model\n"))
+        lines.append(("class:tui.help-key", "  Esc  "))
+        lines.append(("class:tui.help", "Exit\n"))
 
     def _add_settings_nav_hints(self, lines: List):
         """Add navigation hints for settings view."""
         lines.append(("", "\n"))
 
         if self.editing_mode:
-            lines.append(("fg:ansibrightblack", "  ←/→  "))
-            lines.append(("", "Adjust value\n"))
-            lines.append(("fg:ansigreen", "  Enter  "))
-            lines.append(("", "Save\n"))
-            lines.append(("fg:ansiyellow", "  Esc  "))
-            lines.append(("", "Cancel edit\n"))
-            lines.append(("fg:ansired", "  d  "))
-            lines.append(("", "Reset to default\n"))
+            lines.append(("class:tui.help-key", "  ←/→  "))
+            lines.append(("class:tui.help", "Adjust value\n"))
+            lines.append(("class:tui.help-key", "  Enter  "))
+            lines.append(("class:tui.help", "Save\n"))
+            lines.append(("class:tui.help-key", "  Esc  "))
+            lines.append(("class:tui.help", "Cancel edit\n"))
+            lines.append(("class:tui.help-key", "  d  "))
+            lines.append(("class:tui.help", "Reset to default\n"))
         else:
-            lines.append(("fg:ansibrightblack", "  ↑/↓  "))
-            lines.append(("", "Navigate settings\n"))
-            lines.append(("fg:ansigreen", "  Enter  "))
-            lines.append(("", "Edit setting\n"))
-            lines.append(("fg:ansired", "  d  "))
-            lines.append(("", "Reset to default\n"))
-            lines.append(("fg:ansiyellow", "  Esc  "))
-            lines.append(("", "Back to models\n"))
+            lines.append(("class:tui.help-key", "  ↑/↓  "))
+            lines.append(("class:tui.help", "Navigate settings\n"))
+            lines.append(("class:tui.help-key", "  Enter  "))
+            lines.append(("class:tui.help", "Edit setting\n"))
+            lines.append(("class:tui.help-key", "  d  "))
+            lines.append(("class:tui.help", "Reset to default\n"))
+            lines.append(("class:tui.help-key", "  Esc  "))
+            lines.append(("class:tui.help", "Back to models\n"))
 
     def _render_details_panel(self) -> List:
         """Render the details/help panel."""
         lines = []
 
         if self.view_mode == "models":
-            lines.append(("bold cyan", " Model Info"))
+            lines.append(("class:tui.title", " Model Info"))
             lines.append(("", "\n\n"))
 
             if not self.all_models:
-                lines.append(("fg:ansibrightblack", "  No models available."))
+                lines.append(("class:tui.muted", "  No models available."))
                 return lines
 
             model_name = self.all_models[self.model_index]
             is_current = model_name == self.current_model_name
 
-            lines.append(("bold", f"  {model_name}"))
+            lines.append(("class:tui.label", f"  {model_name}"))
             lines.append(("", "\n\n"))
 
             if is_current:
-                lines.append(("fg:ansigreen", "  ✓ Currently active model"))
+                lines.append(("class:tui.success", "  ✓ Currently active model"))
                 lines.append(("", "\n\n"))
 
             # Show current settings for this model
             model_settings = _get_model_display_settings(model_name)
             if model_settings:
-                lines.append(("bold", "  Effective Settings:"))
+                lines.append(("class:tui.label", "  Effective Settings:"))
                 lines.append(("", "\n"))
                 for setting_key, value in model_settings.items():
                     setting_def = SETTING_DEFINITIONS.get(setting_key, {})
                     name = setting_def.get("name", setting_key)
                     display = self._format_value(setting_key, value)
-                    lines.append(("fg:ansicyan", f"    {name}: {display}"))
+                    lines.append(("class:tui.body", f"    {name}: {display}"))
                     lines.append(("", "\n"))
             else:
-                lines.append(("fg:ansibrightblack", "  Using all default settings"))
+                lines.append(("class:tui.muted", "  Using all default settings"))
                 lines.append(("", "\n"))
 
             # Show supported settings
             supported = self._get_supported_settings(model_name)
             lines.append(("", "\n"))
-            lines.append(("bold", "  Configurable Settings:"))
+            lines.append(("class:tui.label", "  Configurable Settings:"))
             lines.append(("", "\n"))
             if supported:
                 for s in supported:
                     setting_def = SETTING_DEFINITIONS.get(s, {})
                     name = setting_def.get("name", s)
-                    lines.append(("fg:ansibrightblack", f"    • {name}"))
+                    lines.append(("class:tui.muted", f"    • {name}"))
                     lines.append(("", "\n"))
             else:
-                lines.append(("fg:ansibrightblack dim", "    None"))
+                lines.append(("class:tui.muted", "    None"))
                 lines.append(("", "\n"))
 
             # Show pagination info at the bottom of details
@@ -539,7 +539,7 @@ class ModelSettingsMenu:
                 lines.append(("", "\n"))
                 lines.append(
                     (
-                        "fg:ansibrightblack dim",
+                        "class:tui.muted",
                         f"  Model {self.model_index + 1} of {len(self.all_models)}",
                     )
                 )
@@ -547,12 +547,12 @@ class ModelSettingsMenu:
 
         else:
             # Settings detail view
-            lines.append(("bold cyan", " Setting Details"))
+            lines.append(("class:tui.title", " Setting Details"))
             lines.append(("", "\n\n"))
 
             if not self.supported_settings:
                 lines.append(
-                    ("fg:ansibrightblack", "  This model doesn't expose any settings.")
+                    ("class:tui.muted", "  This model doesn't expose any settings.")
                 )
                 return lines
 
@@ -561,84 +561,82 @@ class ModelSettingsMenu:
             current_value = self._get_current_value(setting_key)
 
             # Setting name
-            lines.append(("bold", f"  {setting_def['name']}"))
+            lines.append(("class:tui.label", f"  {setting_def['name']}"))
             lines.append(("", "\n"))
 
             # Show if this is a global setting
             if setting_key in ("reasoning_effort", "verbosity"):
                 lines.append(
                     (
-                        "fg:ansiyellow",
+                        "class:tui.warning",
                         "  ⚠ Global setting (applies to all GPT-5 models)",
                     )
                 )
             lines.append(("", "\n\n"))
 
             # Description
-            lines.append(("fg:ansibrightblack", f"  {setting_def['description']}"))
+            lines.append(("class:tui.muted", f"  {setting_def['description']}"))
             lines.append(("", "\n\n"))
 
             # Range/choices info
             if setting_def.get("type") == "choice":
-                lines.append(("bold", "  Options:"))
+                lines.append(("class:tui.label", "  Options:"))
                 lines.append(("", "\n"))
                 # Get filtered choices based on model capabilities
                 choices = _get_setting_choices(setting_key, self.selected_model)
                 lines.append(
                     (
-                        "fg:ansibrightblack",
+                        "class:tui.muted",
                         f"    {' | '.join(choices)}",
                     )
                 )
             elif setting_def.get("type") == "boolean":
-                lines.append(("bold", "  Options:"))
+                lines.append(("class:tui.label", "  Options:"))
                 lines.append(("", "\n"))
                 lines.append(
                     (
-                        "fg:ansibrightblack",
+                        "class:tui.muted",
                         "    Enabled | Disabled",
                     )
                 )
             else:
-                lines.append(("bold", "  Range:"))
+                lines.append(("class:tui.label", "  Range:"))
                 lines.append(("", "\n"))
                 lines.append(
                     (
-                        "fg:ansibrightblack",
+                        "class:tui.muted",
                         f"    Min: {setting_def['min']}  Max: {setting_def['max']}  Step: {setting_def['step']}",
                     )
                 )
             lines.append(("", "\n\n"))
 
             # Current value
-            lines.append(("bold", "  Current Value:"))
+            lines.append(("class:tui.label", "  Current Value:"))
             lines.append(("", "\n"))
             if current_value is not None:
                 lines.append(
                     (
-                        "fg:ansicyan",
+                        "class:tui.body",
                         f"    {self._format_value(setting_key, current_value)}",
                     )
                 )
             else:
-                lines.append(("fg:ansibrightblack dim", "    (using model default)"))
+                lines.append(("class:tui.muted", "    (using model default)"))
             lines.append(("", "\n\n"))
 
             # Editing hint
             if self.editing_mode:
-                lines.append(("fg:ansigreen bold", "  ✏️  EDITING MODE"))
+                lines.append(("class:tui.success", "  ✏️  EDITING MODE"))
                 lines.append(("", "\n"))
                 if self.edit_value is not None:
                     lines.append(
                         (
-                            "fg:ansicyan",
+                            "class:tui.body",
                             f"    New value: {self._format_value(setting_key, self.edit_value)}",
                         )
                     )
                 else:
-                    lines.append(
-                        ("fg:ansibrightblack", "    New value: (model default)")
-                    )
+                    lines.append(("class:tui.muted", "    New value: (model default)"))
                 lines.append(("", "\n"))
 
         return lines
