@@ -13,23 +13,21 @@ Usage:
 """
 
 import asyncio
-import io
 import os
 import sys
 from typing import List, Optional, Tuple
 
 from prompt_toolkit import Application
-from prompt_toolkit.formatted_text import ANSI
+from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
-from rich.console import Console
-
 from code_puppy.config import CONFIG_DIR
 
 from .onboarding_slides import (
     MODEL_OPTIONS,
+    SlideContent,
     slide_done,
     slide_mcp,
     slide_models,
@@ -110,7 +108,7 @@ class OnboardingWizard:
             "●" if i == self.current_slide else "○" for i in range(self.TOTAL_SLIDES)
         )
 
-    def get_slide_content(self) -> str:
+    def get_slide_content(self) -> SlideContent:
         """Get content for current slide."""
         if self.current_slide == 0:
             return slide_welcome()
@@ -176,30 +174,18 @@ class OnboardingWizard:
 # ============================================================================
 
 
-def _get_slide_panel_content(wizard: OnboardingWizard) -> ANSI:
-    """Generate slide content for display."""
-    buffer = io.StringIO()
-    console = Console(
-        file=buffer,
-        force_terminal=True,
-        width=80,
-        legacy_windows=False,
-        color_system="truecolor",
-        no_color=False,
-        force_interactive=True,
-    )
-
-    # Progress indicator
+def _get_slide_panel_content(wizard: OnboardingWizard) -> FormattedText:
+    """Generate semantically styled slide content for display."""
     progress = wizard.get_progress_indicator()
-    console.print(f"[dim]{progress}[/dim]")
-    console.print(
-        f"[dim]Slide {wizard.current_slide + 1} of {wizard.TOTAL_SLIDES}[/dim]\n"
-    )
-
-    # Slide content (includes nav footer)
-    console.print(wizard.get_slide_content())
-
-    return ANSI(buffer.getvalue())
+    content: SlideContent = [
+        ("class:tui.muted", f"{progress}\n"),
+        (
+            "class:tui.muted",
+            f"Slide {wizard.current_slide + 1} of {wizard.TOTAL_SLIDES}\n\n",
+        ),
+    ]
+    content.extend(wizard.get_slide_content())
+    return FormattedText(content)
 
 
 # ============================================================================
