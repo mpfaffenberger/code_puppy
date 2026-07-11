@@ -316,12 +316,12 @@ def _render_menu_panel(
     total_pages = get_total_pages(len(entries), PAGE_SIZE)
     start_idx, end_idx = get_page_bounds(page, len(entries), PAGE_SIZE)
 
-    lines.append(("bold", "Agents"))
-    lines.append(("fg:ansibrightblack", f" (Page {page + 1}/{total_pages})"))
+    lines.append(("class:tui.header", "Agents"))
+    lines.append(("class:tui.muted", f" (Page {page + 1}/{total_pages})"))
     lines.append(("", "\n\n"))
 
     if not entries:
-        lines.append(("fg:yellow", "  No agents found."))
+        lines.append(("class:tui.warning", "  No agents found."))
         lines.append(("", "\n\n"))
     else:
         # Show agents for current page
@@ -336,40 +336,38 @@ def _render_menu_panel(
 
             # Build the line
             if is_selected:
-                lines.append(("fg:ansigreen", "▶ "))
-                lines.append(("fg:ansigreen bold", safe_display_name))
+                lines.append(("class:tui.selected", f"▶ {safe_display_name}"))
             else:
-                lines.append(("", "  "))
-                lines.append(("", safe_display_name))
+                lines.append(("class:tui.body", f"  {safe_display_name}"))
 
             if pinned_model:
                 safe_pinned_model = _sanitize_display_text(pinned_model)
-                lines.append(("fg:ansiyellow", f" → {safe_pinned_model}"))
+                lines.append(("class:tui.label", f" → {safe_pinned_model}"))
 
             # Add current marker
             if is_current:
-                lines.append(("fg:ansicyan", " ← current"))
+                lines.append(("class:tui.success", " ← current"))
 
             lines.append(("", "\n"))
 
     # Navigation hints
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "  ↑↓ "))
-    lines.append(("", "Navigate\n"))
-    lines.append(("fg:ansibrightblack", "  ←→ "))
-    lines.append(("", "Page\n"))
-    lines.append(("fg:green", "  Enter  "))
-    lines.append(("", "Select\n"))
-    lines.append(("fg:ansibrightblack", "  P "))
-    lines.append(("", "Pin model\n"))
-    lines.append(("fg:ansibrightblack", "  B "))
-    lines.append(("", "Bind MCP servers\n"))
-    lines.append(("fg:ansibrightblack", "  C "))
-    lines.append(("", "Clone\n"))
-    lines.append(("fg:ansibrightblack", "  D "))
-    lines.append(("", "Delete clone\n"))
-    lines.append(("fg:ansibrightred", "  Ctrl+C "))
-    lines.append(("", "Cancel"))
+    lines.append(("class:tui.help-key", "  ↑↓ "))
+    lines.append(("class:tui.help", "Navigate\n"))
+    lines.append(("class:tui.help-key", "  ←→ "))
+    lines.append(("class:tui.help", "Page\n"))
+    lines.append(("class:tui.help-key", "  Enter  "))
+    lines.append(("class:tui.help", "Select\n"))
+    lines.append(("class:tui.help-key", "  P "))
+    lines.append(("class:tui.help", "Pin model\n"))
+    lines.append(("class:tui.help-key", "  B "))
+    lines.append(("class:tui.help", "Bind MCP servers\n"))
+    lines.append(("class:tui.help-key", "  C "))
+    lines.append(("class:tui.help", "Clone\n"))
+    lines.append(("class:tui.help-key", "  D "))
+    lines.append(("class:tui.help", "Delete clone\n"))
+    lines.append(("class:tui.help-key", "  Ctrl+C "))
+    lines.append(("class:tui.help", "Cancel"))
 
     return lines
 
@@ -389,11 +387,11 @@ def _render_preview_panel(
     """
     lines = []
 
-    lines.append(("dim cyan", " AGENT DETAILS"))
+    lines.append(("class:tui.title", " AGENT DETAILS"))
     lines.append(("", "\n\n"))
 
     if not entry:
-        lines.append(("fg:yellow", "  No agent selected."))
+        lines.append(("class:tui.warning", "  No agent selected."))
         lines.append(("", "\n"))
         return lines
 
@@ -406,22 +404,22 @@ def _render_preview_panel(
     safe_description = _sanitize_display_text(description)
 
     # Agent name (identifier)
-    lines.append(("bold", "Name: "))
+    lines.append(("class:tui.label", "Name: "))
     lines.append(("", name))
     lines.append(("", "\n\n"))
 
     # Display name
-    lines.append(("bold", "Display Name: "))
-    lines.append(("fg:ansicyan", safe_display_name))
+    lines.append(("class:tui.label", "Display Name: "))
+    lines.append(("class:tui.body", safe_display_name))
     lines.append(("", "\n\n"))
 
     # Pinned model
-    lines.append(("bold", "Pinned Model: "))
+    lines.append(("class:tui.label", "Pinned Model: "))
     if pinned_model:
         safe_pinned_model = _sanitize_display_text(pinned_model)
-        lines.append(("fg:ansiyellow", safe_pinned_model))
+        lines.append(("class:tui.body", safe_pinned_model))
     else:
-        lines.append(("fg:ansibrightblack", "default"))
+        lines.append(("class:tui.muted", "default"))
     lines.append(("", "\n\n"))
 
     # MCP bindings summary
@@ -429,19 +427,19 @@ def _render_preview_panel(
         bound = get_bound_servers(name)
     except Exception:
         bound = {}
-    lines.append(("bold", "MCP Servers: "))
+    lines.append(("class:tui.label", "MCP Servers: "))
     if bound:
         auto_count = sum(1 for opts in bound.values() if opts.get("auto_start"))
         summary = f"{len(bound)} bound"
         if auto_count:
             summary += f" ({auto_count} auto-start)"
-        lines.append(("fg:ansigreen", summary))
+        lines.append(("class:tui.success", summary))
     else:
-        lines.append(("fg:ansibrightblack", "none bound (strict opt-in)"))
+        lines.append(("class:tui.muted", "none bound (strict opt-in)"))
     lines.append(("", "\n\n"))
 
     # Description
-    lines.append(("bold", "Description:"))
+    lines.append(("class:tui.label", "Description:"))
     lines.append(("", "\n"))
 
     # Wrap description to fit panel
@@ -452,7 +450,7 @@ def _render_preview_panel(
         current_line = ""
         for word in words:
             if len(current_line) + len(word) + 1 > 55:
-                lines.append(("fg:ansibrightblack", current_line))
+                lines.append(("class:tui.body", current_line))
                 lines.append(("", "\n"))
                 current_line = word
             else:
@@ -461,17 +459,17 @@ def _render_preview_panel(
                 else:
                     current_line += " " + word
         if current_line.strip():
-            lines.append(("fg:ansibrightblack", current_line))
+            lines.append(("class:tui.body", current_line))
             lines.append(("", "\n"))
 
     lines.append(("", "\n"))
 
     # Current status
-    lines.append(("bold", "  Status: "))
+    lines.append(("class:tui.label", "  Status: "))
     if is_current:
-        lines.append(("fg:ansigreen bold", "✓ Currently Active"))
+        lines.append(("class:tui.success", "✓ Currently Active"))
     else:
-        lines.append(("fg:ansibrightblack", "Not active"))
+        lines.append(("class:tui.muted", "Not active"))
     lines.append(("", "\n"))
 
     return lines
