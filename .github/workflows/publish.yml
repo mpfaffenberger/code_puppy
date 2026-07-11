@@ -62,7 +62,11 @@ jobs:
             }
           }
           JSON
-          echo "Wrote $HOME/.code_puppy/extra_models.json"
+          # Tests isolate user config, and several fallback contracts require a
+          # non-empty bundled catalog. Keep this test-only copy out of releases:
+          # the publish job starts from a fresh checkout.
+          cp "$HOME/.code_puppy/extra_models.json" code_puppy/models.json
+          echo "Wrote CI model catalog and test-only bundled fallback"
 
       - name: Debug environment variables
         env:
