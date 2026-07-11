@@ -55,50 +55,36 @@ def _apply_config_overrides(default: _T, config_map: Mapping[str, str]) -> _T:
 class TUIColors(NamedTuple):
     """Color scheme for the ask_user_question TUI."""
 
-    # Header and title colors
-    header_bold: str = "bold cyan"
-    header_dim: str = "fg:ansicyan dim"
+    # Compatibility field names; values are shared prompt-toolkit semantic roles.
+    header_bold: str = "class:tui.header"
+    header_dim: str = "class:tui.help"
 
-    # Cursor and selection colors
-    cursor_active: str = "fg:ansigreen bold"
-    cursor_inactive: str = "fg:ansiwhite"
-    selected: str = "fg:ansicyan"
-    selected_check: str = "fg:ansigreen"
+    cursor_active: str = "class:tui.success"
+    cursor_inactive: str = "class:tui.body"
+    selected: str = "class:tui.selected"
+    selected_check: str = "class:tui.success"
 
-    # Text colors
-    text_normal: str = ""
-    text_dim: str = "fg:ansiwhite dim"
-    text_warning: str = "fg:ansiyellow bold"
+    text_normal: str = "class:tui.body"
+    text_dim: str = "class:tui.muted"
+    text_warning: str = "class:tui.warning"
 
-    # Help text colors
-    help_key: str = "fg:ansigreen"
-    help_text: str = "fg:ansiwhite dim"
+    help_key: str = "class:tui.help-key"
+    help_text: str = "class:tui.help"
 
-    # Error colors
-    error: str = "fg:ansired"
+    error: str = "class:tui.error"
 
 
 # Create defaults after class definitions
 _DEFAULT_TUI = TUIColors()
 
-# Mapping of configurable TUI color fields to config keys
-_TUI_CONFIG_MAP: dict[str, str] = {
-    "header_bold": "tui_header_color",
-    "cursor_active": "tui_cursor_color",
-    "selected": "tui_selected_color",
-}
-
 
 def get_tui_colors() -> TUIColors:
-    """Get the current TUI color scheme.
+    """Return shared semantic roles for prompt-toolkit rendering.
 
-    Loads colors from code-puppy's configuration system for custom theming.
-    Falls back to defaults for any missing config values.
-
-    Returns:
-        TUIColors instance with the current theme.
+    The active theme resolves these classes centrally. Legacy per-tool color
+    configuration must not override that shared palette.
     """
-    return _apply_config_overrides(_DEFAULT_TUI, _TUI_CONFIG_MAP)
+    return _DEFAULT_TUI
 
 
 # Rich console color mappings for the right panel
@@ -107,29 +93,29 @@ class RichColors(NamedTuple):
 
     # Header colors (Rich markup format)
     header: str = "bold cyan"
-    progress: str = "dim"
+    progress: str = "italic"
 
     # Question text
     question: str = "bold"
-    question_hint: str = "dim"
+    question_hint: str = "italic"
 
     # Option colors
     cursor: str = "green bold"
     selected: str = "cyan"
     normal: str = ""
-    description: str = "dim"
+    description: str = "italic"
 
     # Input field
     input_label: str = "bold yellow"
     input_text: str = "green"
-    input_hint: str = "dim"
+    input_hint: str = "italic"
 
     # Help overlay
     help_border: str = "bold cyan"
     help_title: str = "bold cyan"
     help_section: str = "bold"
     help_key: str = "green"
-    help_close: str = "dim"
+    help_close: str = "italic"
 
     # Timeout warning
     timeout_warning: str = "bold yellow"
@@ -137,19 +123,21 @@ class RichColors(NamedTuple):
 
 _DEFAULT_RICH = RichColors()
 
-# Mapping of configurable Rich color fields to config keys
-_RICH_CONFIG_MAP: dict[str, str] = {
-    "header": "tui_rich_header_color",
-    "cursor": "tui_rich_cursor_color",
-}
-
 
 def get_rich_colors() -> RichColors:
-    """Get Rich console colors for the question panel.
+    """Return Rich styles backed by the shared prompt-toolkit palette."""
+    from code_puppy.plugins.theme.prompt_toolkit_theme import get_style_rules
 
-    Falls back to defaults for any missing config values.
+    muted_rule = get_style_rules().get("tui.muted", "").removeprefix("fg:")
+    if not muted_rule:
+        return _DEFAULT_RICH
+    muted = muted_rule.split(maxsplit=1)[0]
 
-    Returns:
-        RichColors instance with current theme.
-    """
-    return _apply_config_overrides(_DEFAULT_RICH, _RICH_CONFIG_MAP)
+    muted_style = f"{muted} italic"
+    return _DEFAULT_RICH._replace(
+        progress=muted_style,
+        question_hint=muted_style,
+        description=muted_style,
+        input_hint=muted_style,
+        help_close=muted_style,
+    )
