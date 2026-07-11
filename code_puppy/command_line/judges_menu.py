@@ -138,11 +138,11 @@ def _render_model_list(
     lines: list = []
 
     if not models:
-        lines.append(("fg:yellow", "  No models available."))
+        lines.append(("class:tui.warning", "  No models available."))
         lines.append(("", "\n"))
         lines.append(
             (
-                "fg:ansibrightblack",
+                "class:tui.muted",
                 "  Configure models first — see /model in the main CLI.",
             )
         )
@@ -153,12 +153,12 @@ def _render_model_list(
 
     # Header: (Page x/y, focused indicator)
     if focused:
-        lines.append(("fg:ansigreen bold", "▼ "))
+        lines.append(("class:tui.selected", "▼ "))
     else:
-        lines.append(("fg:ansibrightblack", "  "))
+        lines.append(("class:tui.muted", "  "))
     lines.append(
         (
-            "fg:ansibrightblack",
+            "class:tui.muted",
             f"Page {page + 1}/{max(total_pages, 1)}   "
             f"(↑↓ to move, ←→ / PgUp PgDn to page)\n",
         )
@@ -168,11 +168,11 @@ def _render_model_list(
         is_sel = i == selected_idx
         name = _sanitize(models[i])
         if is_sel and focused:
-            lines.append(("fg:ansigreen bold", "  ▶ "))
-            lines.append(("fg:ansigreen bold", name))
+            lines.append(("class:tui.selected", "  ▶ "))
+            lines.append(("class:tui.selected", name))
         elif is_sel:
-            lines.append(("fg:ansiyellow", "  · "))
-            lines.append(("fg:ansiyellow", name))
+            lines.append(("class:tui.warning", "  · "))
+            lines.append(("class:tui.warning", name))
         else:
             lines.append(("", "    "))
             lines.append(("", name))
@@ -295,22 +295,22 @@ async def _run_judge_form(
             focused=is_model_focused(),
         )
         if status_line[0]:
-            status_control.text = [("fg:ansired", status_line[0])]
+            status_control.text = [("class:tui.error", status_line[0])]
         else:
             # Hint at the bottom of the form: show current model selection.
             current = current_model() or "(no models available)"
             status_control.text = [
-                ("fg:ansibrightblack", "Selected model: "),
-                ("fg:ansiyellow", _sanitize(current)),
+                ("class:tui.muted", "Selected model: "),
+                ("class:tui.warning", _sanitize(current)),
             ]
         help_control.text = [
-            ("fg:ansibrightblack", "  Tab "),
+            ("class:tui.help-key", "  Tab "),
             ("", "next field    "),
-            ("fg:ansigreen", "  ↑↓ "),
+            ("class:tui.help-key", "  ↑↓ "),
             ("", "select model    "),
-            ("fg:ansigreen", "  Ctrl+S "),
+            ("class:tui.help-key", "  Ctrl+S "),
             ("", "save    "),
-            ("fg:ansibrightred", "  Esc/Ctrl+C "),
+            ("class:tui.error", "  Esc/Ctrl+C "),
             ("", "cancel"),
         ]
 
@@ -478,80 +478,80 @@ def _render_menu(
     total_pages = get_total_pages(len(judges), PAGE_SIZE)
     start, end = get_page_bounds(page, len(judges), PAGE_SIZE)
 
-    lines.append(("bold", "Goal Judges"))
-    lines.append(("fg:ansibrightblack", f" (Page {page + 1}/{max(total_pages, 1)})"))
+    lines.append(("class:tui.header", "Goal Judges"))
+    lines.append(("class:tui.muted", f" (Page {page + 1}/{max(total_pages, 1)})"))
     lines.append(("", "\n\n"))
 
     if not judges:
-        lines.append(("fg:yellow", "  No judges configured."))
+        lines.append(("class:tui.warning", "  No judges configured."))
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "  Press "))
-        lines.append(("fg:ansigreen bold", "N"))
-        lines.append(("fg:ansibrightblack", " to add one."))
+        lines.append(("class:tui.muted", "  Press "))
+        lines.append(("class:tui.help-key", "N"))
+        lines.append(("class:tui.muted", " to add one."))
         lines.append(("", "\n\n"))
     else:
         for i in range(start, end):
             judge = judges[i]
             is_selected = i == selected_idx
             marker = "▶ " if is_selected else "  "
-            row_style = "fg:ansigreen bold" if is_selected else ""
+            row_style = "class:tui.selected" if is_selected else ""
             enabled_glyph = "[on] " if judge.enabled else "[off]"
-            enabled_style = "fg:ansigreen" if judge.enabled else "fg:ansibrightblack"
+            enabled_style = "class:tui.success" if judge.enabled else "class:tui.muted"
 
-            lines.append((row_style or "fg:ansigreen", marker))
+            lines.append((row_style or "class:tui.success", marker))
             lines.append((enabled_style, enabled_glyph + " "))
             lines.append((row_style, _sanitize(judge.name)))
-            lines.append(("fg:ansibrightblack", "  "))
-            lines.append(("fg:ansiyellow", _sanitize(judge.model)))
+            lines.append(("class:tui.muted", "  "))
+            lines.append(("class:tui.warning", _sanitize(judge.model)))
             lines.append(("", "\n"))
 
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "  ↑↓ "))
+    lines.append(("class:tui.help-key", "  ↑↓ "))
     lines.append(("", "Navigate\n"))
-    lines.append(("fg:ansibrightblack", "  ←→ "))
+    lines.append(("class:tui.help-key", "  ←→ "))
     lines.append(("", "Page\n"))
-    lines.append(("fg:ansigreen", "  N "))
+    lines.append(("class:tui.help-key", "  N "))
     lines.append(("", "New judge\n"))
-    lines.append(("fg:ansigreen", "  Enter "))
+    lines.append(("class:tui.help-key", "  Enter "))
     lines.append(("", "Edit (or E)\n"))
-    lines.append(("fg:ansibrightblack", "  T "))
+    lines.append(("class:tui.help-key", "  T "))
     lines.append(("", "Toggle enabled\n"))
-    lines.append(("fg:ansibrightred", "  D "))
+    lines.append(("class:tui.error", "  D "))
     lines.append(("", "Delete\n"))
-    lines.append(("fg:ansibrightblack", "  Esc "))
+    lines.append(("class:tui.help-key", "  Esc "))
     lines.append(("", "Close (or Ctrl+C)"))
     return lines
 
 
 def _render_preview(judge: Optional[JudgeConfig]) -> list:
     lines = []
-    lines.append(("dim cyan", " JUDGE DETAILS"))
+    lines.append(("class:tui.title", " JUDGE DETAILS"))
     lines.append(("", "\n\n"))
 
     if judge is None:
-        lines.append(("fg:yellow", "  No judge selected."))
+        lines.append(("class:tui.warning", "  No judge selected."))
         lines.append(("", "\n"))
         return lines
 
-    lines.append(("bold", "Name: "))
+    lines.append(("class:tui.label", "Name: "))
     lines.append(("", _sanitize(judge.name)))
     lines.append(("", "\n\n"))
 
-    lines.append(("bold", "Model: "))
-    lines.append(("fg:ansiyellow", _sanitize(judge.model)))
+    lines.append(("class:tui.label", "Model: "))
+    lines.append(("class:tui.warning", _sanitize(judge.model)))
     lines.append(("", "\n\n"))
 
-    lines.append(("bold", "Enabled: "))
+    lines.append(("class:tui.label", "Enabled: "))
     if judge.enabled:
-        lines.append(("fg:ansigreen", "yes"))
+        lines.append(("class:tui.success", "yes"))
     else:
-        lines.append(("fg:ansibrightblack", "no"))
+        lines.append(("class:tui.muted", "no"))
     lines.append(("", "\n\n"))
 
-    lines.append(("bold", "Prompt:"))
+    lines.append(("class:tui.label", "Prompt:"))
     lines.append(("", "\n"))
     for wrapped in _wrap(judge.prompt or "", width=58):
-        lines.append(("fg:ansibrightblack", wrapped or " "))
+        lines.append(("class:tui.muted", wrapped or " "))
         lines.append(("", "\n"))
 
     return lines
