@@ -7,7 +7,6 @@ list/detail render smoke tests over a representative menu.
 
 from __future__ import annotations
 
-from code_puppy.plugins.prune import prune_model
 from code_puppy.plugins.prune.prune_menu import PruneMenu
 from code_puppy.plugins.prune.prune_model import (
     ContextBudget,
@@ -120,27 +119,26 @@ class TestRenderBudgetLine:
         out = render_budget_line(b)
         assert "unavailable" in out[0][1]
 
-    def test_green_under_70(self):
+    def test_success_under_70(self):
         b = ContextBudget(
             used_tokens=10, overhead_tokens=10, context_length=100, available=True
         )  # 20% used
         out = render_budget_line(b)
-        # Style is "fg:ansigreen" (matches C_FOOTER_OK)
-        assert out[0][0] == prune_model.C_FOOTER_OK
+        assert out[0][0] == "class:tui.success"
 
-    def test_yellow_70_to_90(self):
+    def test_warning_70_to_90(self):
         b = ContextBudget(
             used_tokens=40, overhead_tokens=40, context_length=100, available=True
         )  # 80%
         out = render_budget_line(b)
-        assert out[0][0] == prune_model.C_FOOTER_WARN
+        assert out[0][0] == "class:tui.warning"
 
-    def test_red_over_90(self):
+    def test_error_over_90(self):
         b = ContextBudget(
             used_tokens=50, overhead_tokens=45, context_length=100, available=True
         )  # 95%
         out = render_budget_line(b)
-        assert out[0][0] == prune_model.C_SHELL
+        assert out[0][0] == "class:tui.error"
 
     def test_shows_overflow_when_messages_dont_fit(self):
         b = ContextBudget(
@@ -216,11 +214,11 @@ class TestRenderLegend:
         assert "removed" not in flat
         assert "gone" not in flat
 
-    def test_legend_uses_in_context_color_for_filled_dot(self):
+    def test_legend_uses_success_role_for_filled_dot(self):
         out = render_legend()
-        green_segments = [seg for seg in out if "●" in seg[1]]
-        assert green_segments, "Expected a segment containing the green dot"
-        assert green_segments[0][0] == prune_model.C_FOOTER_OK
+        success_segments = [seg for seg in out if "●" in seg[1]]
+        assert success_segments, "Expected a segment containing the filled dot"
+        assert success_segments[0][0] == "class:tui.success"
 
 
 # ───────────────────────────────────────────────────────────────────────────

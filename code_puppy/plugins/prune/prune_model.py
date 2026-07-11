@@ -9,24 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Set
 
-# ── palette ────────────────────────────────────────────────────────────────
-# Style strings for prompt_toolkit's formatted-text tuples. Centralised here
-# so prune_menu.py and prune_render.py reference one source of truth.
-
-C_CURSOR = "bold fg:ansicyan"
-C_USER = "fg:ansigreen"
-C_ASSISTANT = "fg:ansiblue"
-C_TOOL = "fg:ansiyellow"
-C_WRITE = "fg:ansimagenta"
-C_SHELL = "fg:ansired"
-C_DIM = "fg:ansibrightblack"
-C_HEADER = "dim cyan"
-C_FOOTER_OK = "fg:ansigreen"
-C_FOOTER_WARN = "fg:ansiyellow"
-C_CHECKED = "bold fg:ansired"
-C_IMPLIED = "fg:ansibrightblack"
-C_SYSTEM = "bold fg:ansicyan"
-
 # ── tool-name → side-effect classification ─────────────────────────────────
 
 _WRITE_TOOLS = {
@@ -116,14 +98,14 @@ class MessageEntry:
     @property
     def role_color(self) -> str:
         if self.role == "system":
-            return C_SYSTEM
+            return "class:tui.title"
         if self.role == "user":
-            return C_USER
+            return "class:tui.success"
         if self.role == "assistant":
-            return C_ASSISTANT
+            return "class:tui.header"
         if self.role == "tool-return":
-            return C_TOOL
-        return C_DIM
+            return "class:tui.warning"
+        return "class:tui.muted"
 
 
 @dataclass
@@ -542,19 +524,6 @@ def annotate_context_window(
 
 
 __all__ = [
-    "C_ASSISTANT",
-    "C_CHECKED",
-    "C_CURSOR",
-    "C_DIM",
-    "C_FOOTER_OK",
-    "C_FOOTER_WARN",
-    "C_HEADER",
-    "C_IMPLIED",
-    "C_SHELL",
-    "C_SYSTEM",
-    "C_TOOL",
-    "C_USER",
-    "C_WRITE",
     "ContextBudget",
     "MessageEntry",
     "PruneSelection",
