@@ -1,15 +1,13 @@
-"""Slide content for the onboarding wizard.
+"""Semantic slide content for the onboarding wizard.
 
-🐶 Lean, mean, ADHD-friendly slides. 5 slides max!
+ Lean, mean, ADHD-friendly slides. Five slides max, because this is
+onboarding rather than a hostage situation.
 """
 
 from typing import List, Tuple
 
-# ============================================================================
-# Slide Data Constants
-# ============================================================================
+SlideContent = list[tuple[str, str]]
 
-# Model subscription options
 MODEL_OPTIONS: List[Tuple[str, str, str]] = [
     ("chatgpt", "ChatGPT Plus/Pro/Max", "OAuth login - no API key needed"),
     ("claude", "Claude Code Pro/Max", "OAuth login - no API key needed"),
@@ -19,161 +17,172 @@ MODEL_OPTIONS: List[Tuple[str, str, str]] = [
 ]
 
 
-# ============================================================================
-# Navigation Footer (shown on ALL slides)
-# ============================================================================
+def _add(content: SlideContent, style: str, text: str) -> None:
+    content.append((style, text))
 
 
-def get_nav_footer() -> str:
-    """Navigation hints shown at bottom of every slide."""
-    return (
-        "\n[dim]─────────────────────────────────────[/dim]\n"
-        "[green]→/l[/green] Next  "
-        "[green]←/h[/green] Back  "
-        "[green]↑↓/jk[/green] Options  "
-        "[green]Enter[/green] Select  "
-        "[yellow]ESC[/yellow] Skip"
-    )
+def get_nav_footer() -> SlideContent:
+    """Return semantic navigation hints shown on every slide."""
+    return [
+        ("class:tui.muted", "\n─────────────────────────────────────\n"),
+        ("class:tui.help-key", "→/l"),
+        ("class:tui.help", " Next  "),
+        ("class:tui.help-key", "←/h"),
+        ("class:tui.help", " Back  "),
+        ("class:tui.help-key", "↑↓/jk"),
+        ("class:tui.help", " Options  "),
+        ("class:tui.help-key", "Enter"),
+        ("class:tui.help", " Select  "),
+        ("class:tui.warning", "ESC"),
+        ("class:tui.help", " Skip"),
+    ]
 
 
-# ============================================================================
-# Gradient Banner
-# ============================================================================
-
-
-def get_gradient_banner() -> str:
-    """Generate the gradient CODE PUPPY banner."""
+def get_gradient_banner() -> SlideContent:
+    """Generate the CODE PUPPY banner using the semantic header style."""
     try:
         import pyfiglet
 
-        lines = pyfiglet.figlet_format("CODE PUPPY", font="ansi_shadow").split("\n")
-        colors = ["bright_blue", "bright_cyan", "bright_green"]
-        result = []
-        for i, line in enumerate(lines):
-            if line.strip():
-                color = colors[min(i // 2, len(colors) - 1)]
-                result.append(f"[{color}]{line}[/{color}]")
-        return "\n".join(result)
+        banner = pyfiglet.figlet_format("CODE PUPPY", font="ansi_shadow").rstrip()
     except ImportError:
-        return "[bold bright_cyan]═══ CODE PUPPY 🐶 ═══[/bold bright_cyan]"
+        banner = "═══ CODE PUPPY  ═══"
+    return [("class:tui.header", banner)]
 
 
-# ============================================================================
-# Slide Content (5 slides total)
-# ============================================================================
-
-
-def slide_welcome() -> str:
-    """Slide 1: Welcome - quick intro."""
+def slide_welcome() -> SlideContent:
+    """Slide 1: welcome and quick intro."""
     content = get_gradient_banner()
-    content += "\n\n"
-    content += "[bold white]Welcome! 🐶[/bold white]\n\n"
-    content += "[cyan]Quick setup:[/cyan]\n"
-    content += "  1. Pick your model provider\n"
-    content += "  2. Optional: MCP servers\n"
-    content += "  3. Learn when to use which agent\n"
-    content += "  4. Start coding!\n\n"
-    content += "[dim]Takes ~1 minute. Let's go![/dim]"
-    content += get_nav_footer()
+    content.extend(
+        [
+            ("class:tui.header", "\n\nWelcome! \n\n"),
+            ("class:tui.title", "Quick setup:\n"),
+            ("class:tui.body", "  1. Pick your model provider\n"),
+            ("class:tui.body", "  2. Optional: MCP servers\n"),
+            ("class:tui.body", "  3. Learn when to use which agent\n"),
+            ("class:tui.body", "  4. Start coding!\n\n"),
+            ("class:tui.muted", "Takes ~1 minute. Let's go!"),
+        ]
+    )
+    content.extend(get_nav_footer())
     return content
 
 
-def slide_models(selected_option: int, options: List[Tuple[str, str]]) -> str:
-    """Slide 2: Model selection."""
-    content = "[bold cyan]📦 Pick Your Models[/bold cyan]\n\n"
-    content += "[white]How do you want to access LLMs?[/white]\n\n"
-
+def slide_models(selected_option: int, options: List[Tuple[str, str]]) -> SlideContent:
+    """Slide 2: model selection."""
+    content: SlideContent = [
+        ("class:tui.header", " Pick Your Models\n\n"),
+        ("class:tui.body", "How do you want to access LLMs?\n\n"),
+    ]
     for i, (_, label) in enumerate(options):
-        if i == selected_option:
-            content += f"[bold green]▶ {label}[/bold green]\n"
-        else:
-            content += f"[dim]  {label}[/dim]\n"
+        style = "class:tui.selected" if i == selected_option else "class:tui.muted"
+        marker = "▶ " if i == selected_option else "  "
+        _add(content, style, f"{marker}{label}\n")
+    _add(content, "", "\n")
 
-    content += "\n"
-
-    # Context based on selection
     opt = options[selected_option][0] if options else None
     if opt == "chatgpt":
-        content += "[yellow]💡 ChatGPT OAuth[/yellow]\n"
-        content += "  Uses your existing subscription\n"
-        content += "  GPT-5.2, GPT-5.2-codex\n"
+        _add(content, "class:tui.warning", " ChatGPT OAuth\n")
+        _add(
+            content,
+            "class:tui.body",
+            "  Uses your existing subscription\n  GPT-5.2, GPT-5.2-codex\n",
+        )
     elif opt == "claude":
-        content += "[yellow]💡 Claude OAuth[/yellow]\n"
-        content += "  Uses your existing subscription\n"
-        content += "  Opus/Sonnet/Haiku 4.5\n"
+        _add(content, "class:tui.warning", " Claude OAuth\n")
+        _add(
+            content,
+            "class:tui.body",
+            "  Uses your existing subscription\n  Opus/Sonnet/Haiku 4.5\n",
+        )
     elif opt == "api_keys":
-        content += "[yellow]💡 API Keys[/yellow]\n"
-        content += "  [cyan]/set OPENAI_API_KEY=sk-...[/cyan]\n"
-        content += "  [cyan]/add_model[/cyan] to browse 1500+ models\n"
+        _add(content, "class:tui.warning", " API Keys\n")
+        _add(
+            content, "class:tui.help-key", "  /set OPENAI_API_KEY=sk-...\n  /add_model"
+        )
+        _add(content, "class:tui.body", " to browse 1500+ models\n")
     elif opt == "openrouter":
-        content += "[yellow]💡 OpenRouter[/yellow]\n"
-        content += "  One API key, all providers\n"
-        content += "  [cyan]/set OPENROUTER_API_KEY=...[/cyan]\n"
+        _add(content, "class:tui.warning", " OpenRouter\n")
+        _add(content, "class:tui.body", "  One API key, all providers\n")
+        _add(content, "class:tui.help-key", "  /set OPENROUTER_API_KEY=...\n")
     else:
-        content += "[dim]No worries! Use /set or /add_model later[/dim]\n"
+        _add(content, "class:tui.muted", "No worries! Use /set or /add_model later\n")
 
-    content += get_nav_footer()
+    content.extend(get_nav_footer())
     return content
 
 
-def slide_mcp() -> str:
-    """Slide 3: MCP servers (optional power-ups)."""
-    content = "[bold cyan]🔌 MCP Servers (Optional)[/bold cyan]\n\n"
-    content += "[white]Supercharge with external tools![/white]\n\n"
-    content += "[green]Commands:[/green]\n"
-    content += "  [cyan]/mcp install[/cyan]  Browse catalog\n"
-    content += "  [cyan]/mcp list[/cyan]     See your servers\n\n"
-    content += "[yellow]🌟 Popular picks:[/yellow]\n"
-    content += "  • GitHub integration\n"
-    content += "  • Postgres/databases\n"
-    content += "  • Slack, Linear, etc.\n\n"
-    content += "[dim]Skip this if you just want to code![/dim]"
-    content += get_nav_footer()
+def slide_mcp() -> SlideContent:
+    """Slide 3: optional MCP server power-ups."""
+    content: SlideContent = [
+        ("class:tui.header", " MCP Servers (Optional)\n\n"),
+        ("class:tui.body", "Supercharge with external tools!\n\n"),
+        ("class:tui.title", "Commands:\n"),
+        ("class:tui.help-key", "  /mcp install"),
+        ("class:tui.body", "  Browse catalog\n"),
+        ("class:tui.help-key", "  /mcp list"),
+        ("class:tui.body", "     See your servers\n\n"),
+        ("class:tui.warning", " Popular picks:\n"),
+        (
+            "class:tui.body",
+            "  • GitHub integration\n  • Postgres/databases\n  • Slack, Linear, etc.\n\n",
+        ),
+        ("class:tui.muted", "Skip this if you just want to code!"),
+    ]
+    content.extend(get_nav_footer())
     return content
 
 
-def slide_use_cases() -> str:
-    """Slide 4: When to use which agent - THE IMPORTANT ONE."""
-    content = "[bold cyan]🎯 When to Use What[/bold cyan]\n\n"
-
-    content += "[bold yellow]🐶 Code Puppy (default)[/bold yellow]\n"
-    content += "  [green]USE FOR:[/green] Direct coding tasks\n"
-    content += "  • Fix this bug\n"
-    content += "  • Add a feature to this file\n"
-    content += "  • Refactor this function\n"
-    content += "  • Write tests for X\n\n"
-
-    content += "[bold yellow]📋 Planning Agent[/bold yellow]\n"
-    content += "  [green]USE FOR:[/green] Complex multi-step projects\n"
-    content += "  • Build me a REST API with auth\n"
-    content += "  • Create a CLI tool from scratch\n"
-    content += "  • Refactor entire codebase\n"
-    content += "  • Multi-file architectural changes\n\n"
-
-    content += "[cyan]Switch: /agent planning-agent[/cyan]\n"
-    content += "[dim]Planning breaks big tasks into steps,[/dim]\n"
-    content += "[dim]then delegates to specialists.[/dim]"
-    content += get_nav_footer()
+def slide_use_cases() -> SlideContent:
+    """Slide 4: when to use each agent."""
+    content: SlideContent = [
+        ("class:tui.header", " When to Use What\n\n"),
+        ("class:tui.warning", " Code Puppy (default)\n"),
+        ("class:tui.success", "  USE FOR:"),
+        (
+            "class:tui.body",
+            " Direct coding tasks\n  • Fix this bug\n  • Add a feature to this file\n  • Refactor this function\n  • Write tests for X\n\n",
+        ),
+        ("class:tui.warning", " Planning Agent\n"),
+        ("class:tui.success", "  USE FOR:"),
+        (
+            "class:tui.body",
+            " Complex multi-step projects\n  • Build me a REST API with auth\n  • Create a CLI tool from scratch\n  • Refactor entire codebase\n  • Multi-file architectural changes\n\n",
+        ),
+        ("class:tui.help-key", "Switch: /agent planning-agent\n"),
+        (
+            "class:tui.muted",
+            "Planning breaks big tasks into steps,\nthen delegates to specialists.",
+        ),
+    ]
+    content.extend(get_nav_footer())
     return content
 
 
-def slide_done(trigger_oauth: str | None) -> str:
-    """Slide 5: You're ready!"""
-    content = "[bold green]🎉 Ready to Roll![/bold green]\n\n"
-    content += "[bold cyan]Essential commands:[/bold cyan]\n"
-    content += "  [cyan]/model[/cyan]   Switch models\n"
-    content += "  [cyan]/agent[/cyan]   Switch agents\n"
-    content += "  [cyan]/help[/cyan]    All commands\n\n"
-
-    content += "[bold yellow]Pro tips:[/bold yellow]\n"
-    content += "  • Be specific in prompts\n"
-    content += "  • Use Planning Agent for big tasks\n"
-    content += "  • @ for file path completion\n\n"
-
+def slide_done(trigger_oauth: str | None) -> SlideContent:
+    """Slide 5: ready to roll."""
+    content: SlideContent = [
+        ("class:tui.success", " Ready to Roll!\n\n"),
+        ("class:tui.header", "Essential commands:\n"),
+        ("class:tui.help-key", "  /model"),
+        ("class:tui.body", "   Switch models\n"),
+        ("class:tui.help-key", "  /agent"),
+        ("class:tui.body", "   Switch agents\n"),
+        ("class:tui.help-key", "  /help"),
+        ("class:tui.body", "    All commands\n\n"),
+        ("class:tui.warning", "Pro tips:\n"),
+        (
+            "class:tui.body",
+            "  • Be specific in prompts\n  • Use Planning Agent for big tasks\n  • @ for file path completion\n\n",
+        ),
+    ]
     if trigger_oauth:
-        content += f"[bold cyan]→ {trigger_oauth.title()} OAuth next![/bold cyan]\n\n"
-
-    content += "[dim]Re-run anytime: [/dim][cyan]/tutorial[/cyan]\n"
-    content += "\n[bold yellow]Press Enter to start coding! 🐶[/bold yellow]"
-    content += get_nav_footer()
+        _add(content, "class:tui.header", f"→ {trigger_oauth.title()} OAuth next!\n\n")
+    content.extend(
+        [
+            ("class:tui.muted", "Re-run anytime: "),
+            ("class:tui.help-key", "/tutorial\n\n"),
+            ("class:tui.warning", "Press Enter to start coding! "),
+        ]
+    )
+    content.extend(get_nav_footer())
     return content
