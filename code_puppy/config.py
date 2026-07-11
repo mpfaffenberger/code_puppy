@@ -1193,12 +1193,25 @@ def initialize_command_history_file():
             )
 
 
+_yolo_mode_override: bool | None = None
+
+
+def set_yolo_mode_override(value: bool | None) -> None:
+    """Set a process-local YOLO mode override without changing puppy.cfg."""
+    global _yolo_mode_override
+    _yolo_mode_override = value
+
+
 def get_yolo_mode():
     """
-    Checks puppy.cfg for 'yolo_mode' (case-insensitive in value only).
-    Defaults to True if not set.
-    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
+    Return the process override, configured YOLO mode, or default of True.
+
+    Config values enabling YOLO mode: 1, '1', 'true', 'yes', and 'on'
+    (case-insensitive).
     """
+    if _yolo_mode_override is not None:
+        return _yolo_mode_override
+
     true_vals = {"1", "true", "yes", "on"}
     cfg_val = get_value("yolo_mode")
     if cfg_val is not None:
