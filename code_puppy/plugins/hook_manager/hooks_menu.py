@@ -34,18 +34,6 @@ from code_puppy.callbacks import on_prompt_toolkit_style
 
 PAGE_SIZE = 12
 
-# Colour palette (matches skills_menu palette)
-_C_ENABLED = "fg:ansigreen"
-_C_DISABLED = "fg:ansired"
-_C_SELECTED_BG = "bold"
-_C_DIM = "fg:ansibrightblack"
-_C_CYAN = "fg:ansicyan"
-_C_YELLOW = "fg:ansiyellow"
-_C_MAGENTA = "fg:ansimagenta"
-_C_HEADER = "dim cyan"
-_C_GLOBAL = "fg:ansiblue"
-_C_PROJECT = "fg:ansigreen"
-
 
 class HooksMenu:
     """Interactive TUI for managing hooks from both global and project sources."""
@@ -231,16 +219,18 @@ class HooksMenu:
         project_count = sum(1 for e in self.entries if e.source == "project")
         global_count = sum(1 for e in self.entries if e.source == "global")
 
-        header_color = _C_ENABLED if enabled_count > 0 else _C_DISABLED
+        header_color = "class:tui.success" if enabled_count > 0 else "class:tui.error"
         lines.append((header_color, f" Hooks: {enabled_count}/{total} enabled"))
         lines.append(("", f"  ({project_count} project, {global_count} global)\n\n"))
 
         if not self.entries:
-            lines.append((_C_YELLOW, "  No hooks configured."))
+            lines.append(("class:tui.warning", "  No hooks configured."))
             lines.append(("", "\n"))
-            lines.append((_C_DIM, "  Add hooks to .claude/settings.json (project)"))
+            lines.append(
+                ("class:tui.muted", "  Add hooks to .claude/settings.json (project)")
+            )
             lines.append(("", "\n"))
-            lines.append((_C_DIM, "  or ~/.code_puppy/hooks.json (global)"))
+            lines.append(("class:tui.muted", "  or ~/.code_puppy/hooks.json (global)"))
             lines.append(("", "\n\n"))
             self._render_nav_hints(lines)
             return lines
@@ -252,34 +242,40 @@ class HooksMenu:
             entry = self.entries[i]
             is_selected = i == self.selected_idx
             status_icon = "✓" if entry.enabled else "✗"
-            status_style = _C_ENABLED if entry.enabled else _C_DISABLED
+            status_style = "class:tui.success" if entry.enabled else "class:tui.error"
             source_indicator = "🌍" if entry.source == "global" else "📁"
             prefix = " > " if is_selected else "   "
 
             if is_selected:
-                lines.append((_C_SELECTED_BG, prefix))
+                lines.append(("class:tui.selected", prefix))
                 lines.append((status_style + " bold", status_icon))
                 lines.append(
-                    (_C_SELECTED_BG, f" {source_indicator} [{entry.event_type}]")
+                    ("class:tui.selected", f" {source_indicator} [{entry.event_type}]")
                 )
-                lines.append((_C_SELECTED_BG, f" {entry.display_matcher}"))
+                lines.append(("class:tui.selected", f" {entry.display_matcher}"))
             else:
                 lines.append(("", prefix))
                 lines.append((status_style, status_icon))
-                source_color = _C_GLOBAL if entry.source == "global" else _C_PROJECT
+                source_color = (
+                    "class:tui.header"
+                    if entry.source == "global"
+                    else "class:tui.success"
+                )
                 lines.append((source_color, f" {source_indicator}"))
-                lines.append((_C_DIM, f" [{entry.event_type}]"))
+                lines.append(("class:tui.muted", f" [{entry.event_type}]"))
                 lines.append(("", f" {entry.display_matcher}"))
             lines.append(("", "\n"))
 
         lines.append(("", "\n"))
-        lines.append((_C_DIM, f" Page {self.current_page + 1}/{total_pages}"))
+        lines.append(
+            ("class:tui.muted", f" Page {self.current_page + 1}/{total_pages}")
+        )
         lines.append(("", "\n"))
 
         # Status message (shows result of last action)
         if self.status_message:
             lines.append(("", "\n"))
-            lines.append((_C_CYAN, f" {self.status_message}"))
+            lines.append(("class:tui.header", f" {self.status_message}"))
             lines.append(("", "\n"))
 
         self._render_nav_hints(lines)
@@ -288,39 +284,43 @@ class HooksMenu:
     def _render_nav_hints(self, lines: List) -> None:
         """Append keyboard shortcut hints to lines."""
         lines.append(("", "\n"))
-        lines.append((_C_DIM, "  ↑/↓ j/k "))
+        lines.append(("class:tui.help-key", "  ↑/↓ j/k "))
         lines.append(("", "Navigate\n"))
-        lines.append((_C_ENABLED, "  Enter   "))
+        lines.append(("class:tui.help-key", "  Enter   "))
         lines.append(("", "Toggle enable/disable\n"))
-        lines.append((_C_DISABLED, "  d       "))
+        lines.append(("class:tui.help-key", "  d       "))
         lines.append(("", "Delete hook\n"))
-        lines.append((_C_YELLOW, "  A       "))
+        lines.append(("class:tui.help-key", "  A       "))
         lines.append(("", "Enable all\n"))
-        lines.append((_C_MAGENTA, "  D       "))
+        lines.append(("class:tui.help-key", "  D       "))
         lines.append(("", "Disable all\n"))
-        lines.append((_C_YELLOW, "  r       "))
+        lines.append(("class:tui.help-key", "  r       "))
         lines.append(("", "Refresh\n"))
-        lines.append((_C_DISABLED, "  q/Esc   "))
+        lines.append(("class:tui.help-key", "  q/Esc   "))
         lines.append(("", "Exit"))
 
     def _render_detail(self) -> List:
         """Render the right-hand hook detail panel."""
         lines: List = []
-        lines.append((_C_HEADER, " HOOK DETAILS"))
+        lines.append(("class:tui.title dim", " HOOK DETAILS"))
         lines.append(("", "\n\n"))
 
         entry = self._current_entry()
         if entry is None:
-            lines.append((_C_YELLOW, "  No hook selected."))
+            lines.append(("class:tui.warning", "  No hook selected."))
             lines.append(("", "\n\n"))
-            lines.append((_C_DIM, "  Select a hook from the list"))
+            lines.append(("class:tui.muted", "  Select a hook from the list"))
             lines.append(("", "\n"))
-            lines.append((_C_DIM, "  to view its details."))
+            lines.append(("class:tui.muted", "  to view its details."))
             return lines
 
         # Status badge
         status_text = "Enabled" if entry.enabled else "Disabled"
-        status_style = _C_ENABLED + " bold" if entry.enabled else _C_DISABLED + " bold"
+        status_style = (
+            "class:tui.success" + " bold"
+            if entry.enabled
+            else "class:tui.error" + " bold"
+        )
         lines.append(("bold", "  Status:  "))
         lines.append((status_style, status_text))
         lines.append(("", "\n\n"))
@@ -331,27 +331,29 @@ class HooksMenu:
             if entry.source == "global"
             else "Project (.claude/settings.json)"
         )
-        source_color = _C_GLOBAL if entry.source == "global" else _C_PROJECT
+        source_color = (
+            "class:tui.header" if entry.source == "global" else "class:tui.success"
+        )
         lines.append(("bold", "  Source:  "))
         lines.append((source_color, source_label))
         lines.append(("", "\n\n"))
 
         # Event type
         lines.append(("bold", "  Event:   "))
-        lines.append((_C_CYAN, entry.event_type))
+        lines.append(("class:tui.header", entry.event_type))
         lines.append(("", "\n\n"))
 
         # Matcher
         lines.append(("bold", "  Matcher: "))
         lines.append(("", "\n"))
         for chunk in _wrap(entry.matcher, 50):
-            lines.append((_C_YELLOW, f"    {chunk}"))
+            lines.append(("class:tui.warning", f"    {chunk}"))
             lines.append(("", "\n"))
         lines.append(("", "\n"))
 
         # Type
         lines.append(("bold", "  Type:    "))
-        lines.append((_C_DIM, entry.hook_type))
+        lines.append(("class:tui.muted", entry.hook_type))
         lines.append(("", "\n\n"))
 
         # Command / prompt
@@ -359,26 +361,29 @@ class HooksMenu:
         lines.append(("bold", f"  {label}"))
         lines.append(("", "\n"))
         for chunk in _wrap(entry.command, 50):
-            lines.append((_C_DIM, f"    {chunk}"))
+            lines.append(("class:tui.muted", f"    {chunk}"))
             lines.append(("", "\n"))
         lines.append(("", "\n"))
 
         # Timeout
         lines.append(("bold", "  Timeout: "))
-        lines.append((_C_DIM, f"{entry.timeout} ms"))
+        lines.append(("class:tui.muted", f"{entry.timeout} ms"))
         lines.append(("", "\n\n"))
 
         # Hook ID
         if entry.hook_id:
             lines.append(("bold", "  ID:      "))
-            lines.append((_C_DIM, entry.hook_id))
+            lines.append(("class:tui.muted", entry.hook_id))
             lines.append(("", "\n\n"))
 
         # Config location hint
-        lines.append((_C_DIM, f"  Stored in {source_label}"))
+        lines.append(("class:tui.muted", f"  Stored in {source_label}"))
         lines.append(("", "\n"))
         lines.append(
-            (_C_DIM, f"  group #{entry._group_index}  hook #{entry._hook_index}")
+            (
+                "class:tui.muted",
+                f"  group #{entry._group_index}  hook #{entry._hook_index}",
+            )
         )
         lines.append(("", "\n"))
 
