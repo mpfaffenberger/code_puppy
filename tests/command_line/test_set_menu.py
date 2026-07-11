@@ -210,6 +210,7 @@ class TestPromptForValue:
         class _FakeSession:
             def __init__(self, message, **kwargs):
                 captured["is_password"] = kwargs.get("is_password")
+                captured["style"] = kwargs.get("style")
 
             async def prompt_async(self):
                 return "secret"
@@ -218,6 +219,7 @@ class TestPromptForValue:
             result = await _prompt_for_value(sensitive_setting, current_val=None)
         assert result == "secret"
         assert captured["is_password"] is True
+        assert "style" in captured
 
     @pytest.mark.asyncio
     async def test_prompt_no_password_for_non_sensitive(self):

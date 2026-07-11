@@ -15,7 +15,7 @@ from code_puppy.command_line.set_menu_values import display_value, is_default_va
 KeyValueLine = Tuple[str, str]
 
 _DEFAULT_PREFIX = "(Default) "
-_DEFAULT_STYLE = "fg:ansibrightblack italic"
+_DEFAULT_STYLE = "class:tui.muted"
 
 
 def truncate(text: str, max_len: int = 30) -> str:
@@ -50,13 +50,13 @@ def wrap(text: str, width: int = 55) -> List[str]:
 
 
 _KEY_HELP = (
-    ("up/down", "Navigate", "fg:ansibrightblack"),
-    ("left/right", "Page", "fg:ansibrightblack"),
-    ("Enter", "Edit value", "fg:green"),
-    ("/", "Search", "fg:ansibrightblack"),
-    ("r", "Reset to default", "fg:ansibrightblack"),
-    ("Esc", "Save & Exit", "fg:ansicyan"),
-    ("Ctrl+C", "Cancel (discard)", "fg:ansired"),
+    ("up/down", "Navigate", "class:tui.help-key"),
+    ("left/right", "Page", "class:tui.help-key"),
+    ("Enter", "Edit value", "class:tui.help-key"),
+    ("/", "Search", "class:tui.help-key"),
+    ("r", "Reset to default", "class:tui.help-key"),
+    ("Esc", "Save & Exit", "class:tui.help-key"),
+    ("Ctrl+C", "Cancel (discard)", "class:tui.error"),
 )
 
 
@@ -77,12 +77,12 @@ def render_left_panel(
     total_pages = total_pages_fn(len(entries), page_size)
     start_idx, end_idx = page_bounds(page, len(entries), page_size)
 
-    lines.append(("bold cyan", " Puppy Config Settings"))
-    lines.append(("fg:ansibrightblack", f"  (Page {page + 1}/{max(total_pages, 1)})"))
+    lines.append(("class:tui.header", " Puppy Config Settings"))
+    lines.append(("class:tui.muted", f"  (Page {page + 1}/{max(total_pages, 1)})"))
     if in_search_mode:
-        lines.append(("fg:ansiyellow", f"  Searching: '{search_buffer}'"))
+        lines.append(("class:tui.warning", f"  Searching: '{search_buffer}'"))
     elif search_text:
-        lines.append(("fg:ansiyellow", f"  Filter: '{search_text}'"))
+        lines.append(("class:tui.warning", f"  Filter: '{search_text}'"))
     lines.append(("", "\n\n"))
 
     current_category = ""
@@ -91,7 +91,7 @@ def render_left_panel(
         if entry.category.name != current_category:
             if current_category:
                 lines.append(("", "\n"))
-            lines.append(("bold fg:ansiblue", f"  {entry.category.name}"))
+            lines.append(("class:tui.title", f"  {entry.category.name}"))
             lines.append(("", "\n"))
             current_category = entry.category.name
 
@@ -99,17 +99,17 @@ def render_left_panel(
         val_display = truncate(value_for_display(entry.setting))
         from_default = is_default_value(entry.setting)
         if is_selected:
-            lines.append(("fg:ansigreen bold", f"> {entry.setting.display_name}"))
-            lines.append(("fg:ansigreen", "  = "))
+            lines.append(("class:tui.selected", f"> {entry.setting.display_name}"))
+            lines.append(("class:tui.selected", "  = "))
             if from_default:
                 lines.append((_DEFAULT_STYLE, _DEFAULT_PREFIX))
-            lines.append(("fg:ansigreen", val_display))
+            lines.append(("class:tui.selected", val_display))
         else:
             lines.append(("", f"  {entry.setting.display_name}"))
-            lines.append(("fg:ansibrightblack", "    = "))
+            lines.append(("class:tui.muted", "    = "))
             if from_default:
                 lines.append((_DEFAULT_STYLE, _DEFAULT_PREFIX))
-            lines.append(("fg:ansibrightblack", val_display))
+            lines.append(("class:tui.muted", val_display))
         lines.append(("", "\n"))
 
     lines.append(("", "\n"))
@@ -136,11 +136,11 @@ def _type_display(setting: Setting, valid_values_str: str) -> str:
 def render_right_panel(entry: Optional[object]) -> List[KeyValueLine]:
     """Render the right details panel for the currently-selected entry."""
     lines: List[KeyValueLine] = [
-        ("bold cyan", " Setting Details"),
+        ("class:tui.header", " Setting Details"),
         ("", "\n\n"),
     ]
     if entry is None:
-        lines.append(("fg:ansiyellow", "  No setting selected."))
+        lines.append(("class:tui.warning", "  No setting selected."))
         lines.append(("", "\n"))
         return lines
 
@@ -148,47 +148,47 @@ def render_right_panel(entry: Optional[object]) -> List[KeyValueLine]:
     valid_values_str = ", ".join(setting.valid_values)
 
     for label, value, style in (
-        ("Key: ", setting.key, "fg:ansicyan"),
-        ("Name: ", setting.display_name, "fg:ansigreen"),
-        ("Category: ", entry.category.name, "fg:ansiblue"),
+        ("Key: ", setting.key, "class:tui.help-key"),
+        ("Name: ", setting.display_name, "class:tui.success"),
+        ("Category: ", entry.category.name, "class:tui.title"),
     ):
-        lines.append(("bold", label))
+        lines.append(("class:tui.label", label))
         lines.append((style, value))
         lines.append(("", "\n\n"))
 
-    lines.append(("bold", "Type: "))
-    lines.append(("fg:ansiyellow", _type_display(setting, valid_values_str)))
+    lines.append(("class:tui.label", "Type: "))
+    lines.append(("class:tui.warning", _type_display(setting, valid_values_str)))
     lines.append(("", "\n\n"))
 
-    lines.append(("bold", "Current Value: "))
+    lines.append(("class:tui.label", "Current Value: "))
     current = display_value(setting)
     from_default = is_default_value(setting)
     if current:
         if from_default:
             lines.append((_DEFAULT_STYLE, _DEFAULT_PREFIX))
-        lines.append(("fg:ansigreen", current))
+        lines.append(("class:tui.success", current))
     else:
-        lines.append(("fg:ansibrightblack", "(not set)"))
+        lines.append(("class:tui.muted", "(not set)"))
     if setting.requires_restart:
-        lines.append(("fg:ansiyellow", "  (restart required)"))
+        lines.append(("class:tui.warning", "  (restart required)"))
     lines.append(("", "\n\n"))
 
-    lines.append(("bold", "Description:"))
+    lines.append(("class:tui.label", "Description:"))
     lines.append(("", "\n"))
     for wrapped in wrap(setting.description):
-        lines.append(("fg:ansibrightblack", "  " + wrapped))
+        lines.append(("class:tui.muted", "  " + wrapped))
         lines.append(("", "\n"))
     lines.append(("", "\n"))
 
     if setting.type_hint == "choice" and setting.valid_values:
-        lines.append(("bold", "Valid Values:"))
+        lines.append(("class:tui.label", "Valid Values:"))
         lines.append(("", "\n"))
         for val in setting.valid_values:
             if val == current:
-                lines.append(("fg:ansigreen", f"   {val}  (current)"))
+                lines.append(("class:tui.success", f"   {val}  (current)"))
             else:
-                lines.append(("fg:ansibrightblack", f"    {val}"))
+                lines.append(("class:tui.muted", f"    {val}"))
             lines.append(("", "\n"))
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", " Tip: Press Enter to edit this setting."))
+    lines.append(("class:tui.muted", " Tip: Press Enter to edit this setting."))
     return lines
