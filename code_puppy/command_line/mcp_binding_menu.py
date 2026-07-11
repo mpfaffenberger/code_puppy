@@ -60,13 +60,13 @@ def _render_menu(
     """Format the left binding panel."""
     bindings = get_bound_servers(agent_name)
     lines: List = []
-    lines.append(("bold", "MCP bindings for agent: "))
-    lines.append(("fg:ansicyan bold", agent_name))
+    lines.append(("class:tui.label", "MCP bindings for agent: "))
+    lines.append(("class:tui.title", agent_name))
     lines.append(("", "\n\n"))
 
     if not servers:
-        lines.append(("fg:yellow", "  No MCP servers installed yet.\n"))
-        lines.append(("fg:ansibrightblack", "  Run /mcp install to add some.\n"))
+        lines.append(("class:tui.warning", "  No MCP servers installed yet.\n"))
+        lines.append(("class:tui.help", "  Run /mcp install to add some.\n"))
     else:
         for i, (name, _type, _state) in enumerate(servers):
             bound = name in bindings
@@ -74,25 +74,25 @@ def _render_menu(
             checkbox = "[x]" if bound else "[ ]"
             auto_marker = " ⚡auto" if auto else ""
             prefix = "▶ " if i == selected_idx else "  "
-            style_prefix = "fg:ansigreen bold" if i == selected_idx else ""
-            style_box = "fg:ansigreen" if bound else "fg:ansibrightblack"
+            style_prefix = "class:tui.selected" if i == selected_idx else ""
+            style_box = "class:tui.success" if bound else "class:tui.muted"
             lines.append((style_prefix, prefix))
             lines.append((style_box, f"{checkbox} "))
             lines.append((style_prefix or "", name))
             if auto_marker:
-                lines.append(("fg:ansiyellow", auto_marker))
+                lines.append(("class:tui.warning", auto_marker))
             lines.append(("", "\n"))
 
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "  ↑↓ "))
+    lines.append(("class:tui.help-key", "  ↑↓ "))
     lines.append(("", "Navigate\n"))
-    lines.append(("fg:green", "  Space "))
+    lines.append(("class:tui.help-key", "  Space "))
     lines.append(("", "Toggle bind\n"))
-    lines.append(("fg:ansiyellow", "  A "))
+    lines.append(("class:tui.help-key", "  A "))
     lines.append(("", "Toggle auto-start\n"))
-    lines.append(("fg:ansicyan", "  Enter / Q "))
+    lines.append(("class:tui.help-key", "  Enter / Q "))
     lines.append(("", "Done\n"))
-    lines.append(("fg:ansibrightred", "  Ctrl+C "))
+    lines.append(("class:tui.help-key", "  Ctrl+C "))
     lines.append(("", "Cancel"))
     return lines
 
@@ -104,10 +104,10 @@ def _render_preview(
 ) -> List:
     """Format the right detail panel."""
     lines: List = []
-    lines.append(("dim cyan", " SERVER DETAILS"))
+    lines.append(("class:tui.title", " SERVER DETAILS"))
     lines.append(("", "\n\n"))
     if not servers or not (0 <= selected_idx < len(servers)):
-        lines.append(("fg:ansibrightblack", "  Nothing to preview.\n"))
+        lines.append(("class:tui.muted", "  Nothing to preview.\n"))
         return lines
 
     name, type_, state = servers[selected_idx]
@@ -115,25 +115,25 @@ def _render_preview(
     bound = name in bindings
     auto = bool(bindings.get(name, {}).get("auto_start"))
 
-    lines.append(("bold", "Name: "))
-    lines.append(("fg:ansicyan", name))
+    lines.append(("class:tui.label", "Name: "))
+    lines.append(("class:tui.body", name))
     lines.append(("", "\n\n"))
-    lines.append(("bold", "Type: "))
+    lines.append(("class:tui.label", "Type: "))
     lines.append(("", type_))
     lines.append(("", "\n\n"))
-    lines.append(("bold", "State: "))
+    lines.append(("class:tui.label", "State: "))
     lines.append(
-        ("fg:ansigreen" if state == "running" else "fg:ansibrightblack", state)
+        ("class:tui.success" if state == "running" else "class:tui.muted", state)
     )
     lines.append(("", "\n\n"))
-    lines.append(("bold", "Bound: "))
+    lines.append(("class:tui.label", "Bound: "))
     lines.append(
-        ("fg:ansigreen" if bound else "fg:ansibrightblack", "yes" if bound else "no"),
+        ("class:tui.success" if bound else "class:tui.muted", "yes" if bound else "no"),
     )
     lines.append(("", "\n\n"))
-    lines.append(("bold", "Auto-start: "))
+    lines.append(("class:tui.label", "Auto-start: "))
     lines.append(
-        ("fg:ansiyellow" if auto else "fg:ansibrightblack", "yes" if auto else "no"),
+        ("class:tui.warning" if auto else "class:tui.muted", "yes" if auto else "no"),
     )
     lines.append(("", "\n"))
     return lines
@@ -258,31 +258,31 @@ async def prompt_bind_after_install(server_name: str) -> None:
 
     def render() -> List:
         lines: List = []
-        lines.append(("bold", "Bind '"))
-        lines.append(("fg:ansicyan bold", server_name))
-        lines.append(("bold", "' to which agents?"))
+        lines.append(("class:tui.label", "Bind '"))
+        lines.append(("class:tui.title", server_name))
+        lines.append(("class:tui.label", "' to which agents?"))
         lines.append(("", "\n\n"))
         for i, agent in enumerate(agents):
             bound = is_bound(agent, server_name)
             auto = get_auto_start(agent, server_name) if bound else False
             checkbox = "[x]" if bound else "[ ]"
             prefix = "▶ " if i == selected_idx[0] else "  "
-            style_prefix = "fg:ansigreen bold" if i == selected_idx[0] else ""
-            style_box = "fg:ansigreen" if bound else "fg:ansibrightblack"
+            style_prefix = "class:tui.selected" if i == selected_idx[0] else ""
+            style_box = "class:tui.success" if bound else "class:tui.muted"
             lines.append((style_prefix, prefix))
             lines.append((style_box, f"{checkbox} "))
             lines.append((style_prefix or "", agent))
             if auto:
-                lines.append(("fg:ansiyellow", " ⚡auto"))
+                lines.append(("class:tui.warning", " \u26a1auto"))
             lines.append(("", "\n"))
         lines.append(("", "\n"))
-        lines.append(("fg:green", "  Space "))
+        lines.append(("class:tui.help-key", "  Space "))
         lines.append(("", "Toggle bind   "))
-        lines.append(("fg:ansiyellow", "A "))
+        lines.append(("class:tui.help-key", "A "))
         lines.append(("", "Toggle auto-start\n"))
-        lines.append(("fg:ansicyan", "  Enter / Q "))
+        lines.append(("class:tui.help-key", "  Enter / Q "))
         lines.append(("", "Done   "))
-        lines.append(("fg:ansibrightred", "Ctrl+C "))
+        lines.append(("class:tui.help-key", "Ctrl+C "))
         lines.append(("", "Skip"))
         return lines
 
