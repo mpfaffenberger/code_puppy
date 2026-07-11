@@ -490,17 +490,17 @@ async def _split_panel_selector(
         """Generate the selector menu text."""
         try:
             lines = []
-            lines.append(("bold cyan", title))
+            lines.append(("class:tui.header", title))
             lines.append(("", "\n\n"))
 
             if not choices:
-                lines.append(("fg:ansiyellow", "No choices available"))
+                lines.append(("class:tui.warning", "No choices available"))
                 lines.append(("", "\n"))
             else:
                 for i, choice in enumerate(choices):
                     if i == selected_index[0]:
-                        lines.append(("fg:ansigreen", "▶ "))
-                        lines.append(("fg:ansigreen bold", choice))
+                        lines.append(("class:tui.selected", "▶ "))
+                        lines.append(("class:tui.selected", choice))
                     else:
                         lines.append(("", "  "))
                         lines.append(("", choice))
@@ -512,15 +512,18 @@ async def _split_panel_selector(
             if config is not None:
                 current_lang = config.get_current_language()
                 lang_hint = f"Language: {current_lang.upper()}  (←→ to change)"
-                lines.append(("fg:ansiyellow", lang_hint))
+                lines.append(("class:tui.warning", lang_hint))
                 lines.append(("", "\n"))
 
             lines.append(
-                ("fg:ansicyan", "↑↓ Navigate  │  Enter Confirm  │  Ctrl-C Cancel")
+                (
+                    "class:tui.help-key",
+                    "↑↓ Navigate  │  Enter Confirm  │  Ctrl-C Cancel",
+                )
             )
             return FormattedText(lines)
         except Exception as e:
-            return FormattedText([("fg:ansired", f"Error: {e}")])
+            return FormattedText([("class:tui.error", f"Error: {e}")])
 
     def get_right_panel_text():
         """Generate the preview panel text."""
@@ -529,7 +532,7 @@ async def _split_panel_selector(
             # get_preview() now returns ANSI, which is already FormattedText-compatible
             return preview
         except Exception as e:
-            return FormattedText([("fg:ansired", f"Preview error: {e}")])
+            return FormattedText([("class:tui.error", f"Preview error: {e}")])
 
     kb = KeyBindings()
 
