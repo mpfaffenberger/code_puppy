@@ -211,26 +211,32 @@ def _format_menu(selected_index: int) -> FormattedText:
     page_start = page * THEMES_PER_PAGE
     page_end = min(page_start + THEMES_PER_PAGE, len(MENU))
     lines: list[tuple[str, str]] = [
-        ("bold cyan", "Pick a Theme"),
-        ("fg:ansibrightblack", f"  Page {page + 1}/{_total_pages()}"),
+        ("class:tui.header", "Pick a Theme"),
+        ("class:tui.muted", f"  Page {page + 1}/{_total_pages()}"),
         ("", "\n\n"),
     ]
     for i in range(page_start, page_end):
         _, theme = MENU[i]
         prefix = "> " if i == selected_index else "  "
-        style = "fg:ansigreen bold" if i == selected_index else ""
+        style = "class:tui.selected" if i == selected_index else "class:tui.body"
         line = f"{prefix}{i + 1}. {theme['icon']} {theme['label']}"
         lines.append((style, line))
         lines.append(("", "\n"))
-        lines.append(("fg:ansigray", f"     {theme['blurb']}"))
+        lines.append(("class:tui.muted", f"     {theme['blurb']}"))
         lines.append(("", "\n\n"))
 
     lines.append(("", "\n"))
-    lines.append(
-        (
-            "fg:ansicyan",
-            "Up/Down Navigate  |  PgUp/PgDn Page\nEnter Apply  |  Esc / Ctrl-C Cancel",
-        )
+    lines.extend(
+        [
+            ("class:tui.help-key", "Up/Down"),
+            ("class:tui.help", " Navigate  |  "),
+            ("class:tui.help-key", "PgUp/PgDn"),
+            ("class:tui.help", " Page\n"),
+            ("class:tui.help-key", "Enter"),
+            ("class:tui.help", " Apply  |  "),
+            ("class:tui.help-key", "Esc / Ctrl-C"),
+            ("class:tui.help", " Cancel"),
+        ]
     )
     return FormattedText(lines)
 
