@@ -78,7 +78,7 @@ def _format_menu(
     start, end = get_page_bounds(page, len(entries), PAGE_SIZE)
 
     lines: list[tuple[str, str]] = [
-        ("bold", " Spinners"),
+        ("class:tui.header", " Spinners"),
         ("", "\n\n"),
     ]
     for i in range(start, end):
@@ -88,17 +88,17 @@ def _format_menu(
         prefix = " > " if is_selected else "   "
 
         if is_selected:
-            lines.append(("bold", prefix))
-            lines.append(("fg:ansigreen bold", icon))
-            lines.append(("bold", f" {spinner.name}"))
+            lines.append(("class:tui.selected", prefix))
+            lines.append(("class:tui.selected", icon))
+            lines.append(("class:tui.selected", f" {spinner.name}"))
         else:
-            lines.append(("", prefix))
-            lines.append(("fg:ansigreen", icon))
-            lines.append(("fg:ansibrightblack", f" {spinner.name}"))
+            lines.append(("class:tui.body", prefix))
+            lines.append(("class:tui.success", icon))
+            lines.append(("class:tui.muted", f" {spinner.name}"))
         lines.append(("", "\n"))
 
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", f" Page {page + 1}/{total_pages}"))
+    lines.append(("class:tui.muted", f" Page {page + 1}/{total_pages}"))
     lines.append(("", "\n"))
 
     _render_hints(lines)
@@ -109,13 +109,13 @@ def _format_menu(
 #: common cell width in ``_render_hints`` so the action column always
 #: lines up -- hand-padding drifted the moment a row gained an arrow.
 _HINTS = [
-    ("fg:ansibrightblack", "up/down or j/k", "Navigate"),
-    ("fg:ansibrightblack", "PgUp/PgDn", "Page"),
-    ("fg:ansibrightblack", "g / G", "First / Last"),
-    ("fg:ansibrightblack", "-/+ or \u2190/\u2192", "Slower / Faster"),
-    ("fg:ansibrightblack", "i", "Init spinners.json"),
-    ("fg:ansigreen", "Enter", "Apply"),
-    ("fg:ansired", "q / Esc", "Exit"),
+    ("class:tui.help-key", "up/down or j/k", "Navigate"),
+    ("class:tui.help-key", "PgUp/PgDn", "Page"),
+    ("class:tui.help-key", "g / G", "First / Last"),
+    ("class:tui.help-key", "-/+ or \u2190/\u2192", "Slower / Faster"),
+    ("class:tui.help-key", "i", "Init spinners.json"),
+    ("class:tui.success", "Enter", "Apply"),
+    ("class:tui.error", "q / Esc", "Exit"),
 ]
 
 
@@ -127,7 +127,9 @@ def _render_hints(lines: list[tuple[str, str]]) -> None:
     lines.append(("", "\n"))
     for i, (style, keys, label) in enumerate(_HINTS):
         lines.append((style, f"  {keys.ljust(key_col)}"))
-        lines.append(("", label if i == len(_HINTS) - 1 else f"{label}\n"))
+        lines.append(
+            ("class:tui.help", label if i == len(_HINTS) - 1 else f"{label}\n")
+        )
 
 
 def _format_preview(
@@ -146,9 +148,9 @@ def _format_preview(
     elapsed = time.monotonic() - started_at
     frame = spinner.frames[int(elapsed / effective) % len(spinner.frames)]
     lines: list[tuple[str, str]] = [
-        ("dim cyan", " LIVE PREVIEW"),
+        ("class:tui.title", " LIVE PREVIEW"),
         ("", "\n\n"),
-        ("bold", f"  {spinner.name}"),
+        ("class:tui.label", f"  {spinner.name}"),
         ("", "\n\n"),
     ]
     if spinner.description:
@@ -156,32 +158,32 @@ def _format_preview(
         lines.append(("", "\n\n"))
     lines.extend(
         [
-            ("bold", f"  {frame}"),
+            ("class:tui.label", f"  {frame}"),
             ("", "\n\n"),
-            ("bold", "  Source: "),
-            ("", spinner.source),
+            ("class:tui.label", "  Source: "),
+            ("class:tui.body", spinner.source),
             ("", "\n"),
-            ("bold", "  Frames: "),
-            ("", str(len(spinner.frames))),
+            ("class:tui.label", "  Frames: "),
+            ("class:tui.body", str(len(spinner.frames))),
             ("", "\n"),
-            ("bold", "  Interval: "),
-            ("", f"{effective:.2f}s"),
+            ("class:tui.label", "  Interval: "),
+            ("class:tui.body", f"{effective:.2f}s"),
             (
-                "fg:ansiyellow",
+                "class:tui.warning",
                 "  (custom -- Enter saves it)" if interval is not None else "",
             ),
             ("", "\n\n"),
-            ("bold", "  Custom spinners:"),
+            ("class:tui.label", "  Custom spinners:"),
             ("", "\n"),
-            ("fg:ansibrightblack", f"    {sp.USER_SPINNERS_FILE}"),
+            ("class:tui.muted", f"    {sp.USER_SPINNERS_FILE}"),
             ("", "\n"),
-            ("fg:ansibrightblack", "    (press i to write a starter file)"),
+            ("class:tui.muted", "    (press i to write a starter file)"),
             ("", "\n"),
         ]
     )
     if notice:
         lines.append(("", "\n"))
-        lines.append(("fg:ansiyellow", f"  {notice}"))
+        lines.append(("class:tui.warning", f"  {notice}"))
         lines.append(("", "\n"))
     return FormattedText(lines)
 

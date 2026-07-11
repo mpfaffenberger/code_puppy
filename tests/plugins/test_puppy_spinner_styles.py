@@ -544,12 +544,36 @@ def test_hint_block_aligns_and_fits_the_pane():
     """
     lines: list[tuple[str, str]] = []
     picker._render_hints(lines)
-    keys = [t for s, t in lines if s]  # styled fragments = key column
-    labels = [t.rstrip("\n") for s, t in lines if not s and t != "\n"]
+    keys = [text for _, text in lines[1::2]]
+    labels = [text.rstrip("\n") for _, text in lines[2::2]]
     assert len(keys) == len(labels) == len(picker._HINTS)
+    assert all(style == "class:tui.help" for style, _ in lines[2::2])
+    assert [style for style, _ in lines[1::2]][-2:] == [
+        "class:tui.success",
+        "class:tui.error",
+    ]
     assert len({cell_len(k) for k in keys}) == 1  # one aligned column
     widest = max(cell_len(k) + cell_len(lbl) for k, lbl in zip(keys, labels))
     assert widest <= 36  # the left Window's width -- no guillotined labels
+
+
+def test_picker_fragments_use_shared_semantic_roles():
+    entries = _many_spinners(2)
+    menu = list(picker._format_menu(entries, 0, 0, active=entries[1].name))
+    assert ("class:tui.header", " Spinners") in menu
+    assert any(style == "class:tui.selected" for style, _ in menu)
+    assert any(style == "class:tui.success" for style, _ in menu)
+    assert any(style == "class:tui.muted" for style, _ in menu)
+
+    preview = list(picker._format_preview(entries[0], 0, interval=0.2, notice="Saved"))
+    styles = {style for style, _ in preview}
+    assert {
+        "class:tui.title",
+        "class:tui.label",
+        "class:tui.body",
+        "class:tui.muted",
+        "class:tui.warning",
+    } <= styles
 
 
 def test_speed_step_matches_the_clamp_floor():
