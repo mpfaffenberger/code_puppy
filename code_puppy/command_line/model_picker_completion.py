@@ -341,12 +341,12 @@ class ModelSelectionMenu:
             self.selected_index = self.page_start
 
     def _render(self):
-        lines = [("bold cyan", " 🤖 Select Active Model")]
+        lines = [("class:tui.header", " 🤖 Select Active Model")]
         filter_label = self.filter_text or "type to filter"
-        lines.append(("fg:ansibrightblack", f"\n  Filter: {filter_label}"))
+        lines.append(("class:tui.muted", f"\n  Filter: {filter_label}"))
         if self.total_pages > 1:
             lines.append(
-                ("fg:ansibrightblack", f"  (Page {self.page + 1}/{self.total_pages})")
+                ("class:tui.muted", f"  (Page {self.page + 1}/{self.total_pages})")
             )
         lines.append(("", "\n"))
 
@@ -356,19 +356,19 @@ class ModelSelectionMenu:
                 if self.filter_text
                 else "No models available."
             )
-            lines.append(("fg:ansiyellow", f"\n  {empty_message}\n"))
-            lines.append(("fg:ansibrightblack", "  Type  "))
-            lines.append(("", "Adjust filter\n"))
-            lines.append(("fg:ansibrightblack", "  Backspace  "))
-            lines.append(("", "Delete filter char\n"))
+            lines.append(("class:tui.warning", f"\n  {empty_message}\n"))
+            lines.append(("class:tui.help-key", "  Type  "))
+            lines.append(("class:tui.help", "Adjust filter\n"))
+            lines.append(("class:tui.help-key", "  Backspace  "))
+            lines.append(("class:tui.help", "Delete filter char\n"))
             if self.filter_text:
-                lines.append(("fg:ansibrightblack", "  Ctrl+U  "))
-                lines.append(("", "Clear filter\n"))
-            lines.append(("fg:ansiyellow", "  Esc  "))
-            lines.append(("", "Exit\n"))
+                lines.append(("class:tui.help-key", "  Ctrl+U  "))
+                lines.append(("class:tui.help", "Clear filter\n"))
+            lines.append(("class:tui.help-key", "  Esc  "))
+            lines.append(("class:tui.help", "Exit\n"))
             return lines
 
-        lines.append(("fg:ansibrightblack", f"\n  Current: {self.current_model}\n\n"))
+        lines.append(("class:tui.muted", f"\n  Current: {self.current_model}\n\n"))
 
         for offset, model_name in enumerate(self.models_on_page):
             absolute_index = self.page_start + offset
@@ -376,30 +376,30 @@ class ModelSelectionMenu:
             is_current = model_name == self.current_model
 
             prefix = " › " if is_selected else "   "
-            style = "fg:ansiwhite bold" if is_selected else "fg:ansibrightblack"
+            style = "class:tui.selected" if is_selected else "class:tui.body"
             lines.append((style, f"{prefix}{model_name}"))
             if is_current:
-                lines.append(("fg:ansigreen", " (active)"))
+                lines.append(("class:tui.success", " (active)"))
             lines.append(("", "\n"))
 
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "  ↑/↓  "))
-        lines.append(("", "Navigate\n"))
+        lines.append(("class:tui.help-key", "  ↑/↓  "))
+        lines.append(("class:tui.help", "Navigate\n"))
         if self.total_pages > 1:
-            lines.append(("fg:ansibrightblack", "  PgUp/PgDn  "))
-            lines.append(("", "Change page\n"))
-        lines.append(("fg:ansibrightblack", "  Type  "))
-        lines.append(("", "Filter models\n"))
-        lines.append(("fg:ansibrightblack", "  Backspace  "))
-        lines.append(("", "Delete filter char\n"))
-        lines.append(("fg:ansibrightblack", "  Ctrl+U  "))
-        lines.append(("", "Clear filter\n"))
-        lines.append(("fg:ansigreen", "  Enter  "))
-        lines.append(("", "Select model\n"))
-        lines.append(("fg:cyan", "  Ctrl+E  "))
-        lines.append(("", "Edit credentials\n"))
-        lines.append(("fg:ansiyellow", "  Esc  "))
-        lines.append(("", "Cancel\n"))
+            lines.append(("class:tui.help-key", "  PgUp/PgDn  "))
+            lines.append(("class:tui.help", "Change page\n"))
+        lines.append(("class:tui.help-key", "  Type  "))
+        lines.append(("class:tui.help", "Filter models\n"))
+        lines.append(("class:tui.help-key", "  Backspace  "))
+        lines.append(("class:tui.help", "Delete filter char\n"))
+        lines.append(("class:tui.help-key", "  Ctrl+U  "))
+        lines.append(("class:tui.help", "Clear filter\n"))
+        lines.append(("class:tui.help-key", "  Enter  "))
+        lines.append(("class:tui.help", "Select model\n"))
+        lines.append(("class:tui.help-key", "  Ctrl+E  "))
+        lines.append(("class:tui.help", "Edit credentials\n"))
+        lines.append(("class:tui.help-key", "  Esc  "))
+        lines.append(("class:tui.help", "Cancel\n"))
         return lines
 
     def _edit_credentials_for_model(self, model_name: str) -> None:
@@ -603,6 +603,7 @@ async def get_input_with_model_completion(
         completer=ModelNameCompleter(trigger),
         history=history,
         complete_while_typing=True,
+        style=on_prompt_toolkit_style(),
     )
     text = await session.prompt_async(prompt_str)
     possibly_stripped = update_model_in_input(text)
