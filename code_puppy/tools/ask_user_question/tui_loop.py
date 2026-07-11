@@ -358,19 +358,21 @@ async def run_question_tui(
             [
                 ("", "\n"),
                 ("", pad),
-                (tui_colors.header_dim, f"{ARROW_LEFT}{ARROW_RIGHT} Switch question"),
+                (tui_colors.help_key, f"{ARROW_LEFT}{ARROW_RIGHT}"),
+                (tui_colors.help_text, " Switch question"),
                 ("", "\n"),
                 ("", pad),
-                (tui_colors.header_dim, f"{ARROW_UP}{ARROW_DOWN} Navigate options"),
+                (tui_colors.help_key, f"{ARROW_UP}{ARROW_DOWN}"),
+                (tui_colors.help_text, " Navigate options"),
                 ("", "\n"),
                 ("", "\n"),
                 ("", pad),
                 (tui_colors.help_key, "Ctrl+S"),
-                (tui_colors.header_dim, " Submit"),
+                (tui_colors.help_text, " Submit"),
                 ("", "\n"),
                 ("", pad),
                 (tui_colors.help_key, "Tab"),
-                (tui_colors.header_dim, " Peek behind"),
+                (tui_colors.help_text, " Peek behind"),
             ]
         )
 
