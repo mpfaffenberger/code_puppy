@@ -150,7 +150,6 @@ class QueueMenuApp:
         from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
         from prompt_toolkit.layout.dimension import Dimension
         from prompt_toolkit.layout.processors import BeforeInput
-        from prompt_toolkit.styles import Style
         from prompt_toolkit.widgets import Frame
 
         self.state = QueueMenuState(controller)
@@ -170,7 +169,7 @@ class QueueMenuApp:
                 always_hide_cursor=Condition(lambda: not self.state.editing),
             ),
             title=self._detail_title,
-            style="class:detail",
+            style="class:tui.body",
         )
 
         body = VSplit(
@@ -182,7 +181,7 @@ class QueueMenuApp:
                         width=Dimension(weight=2),
                     ),
                     title="Queued prompts",
-                    style="class:list",
+                    style="class:tui.body",
                 ),
                 Window(width=1, char=" "),
                 self._detail_frame,
@@ -194,18 +193,18 @@ class QueueMenuApp:
                 Window(
                     FormattedTextControl(self._render_header),
                     height=2,
-                    style="class:header",
+                    style="class:tui.header",
                 ),
                 body,
                 Window(
                     FormattedTextControl(self._render_notice),
                     height=1,
-                    style="class:notice",
+                    style="class:tui.warning",
                 ),
                 Window(
                     FormattedTextControl(self._render_footer),
                     height=2,
-                    style="class:footer",
+                    style="class:tui.help",
                 ),
             ]
         )
@@ -217,28 +216,12 @@ class QueueMenuApp:
             key_bindings=self._bindings,
             full_screen=True,
             mouse_support=True,
-            style=on_prompt_toolkit_style(
-                Style.from_dict(
-                    {
-                        "header": "bg:#173b22 #f3fff5 bold",
-                        "header.title": "#63e677 bold",
-                        "list": "bg:#101510 #d3dfd5",
-                        "list.selected": "bg:#285c36 #ffffff bold",
-                        "list.index": "#6f9478",
-                        "list.empty": "#718077 italic",
-                        "detail": "bg:#0c120d #e5eee7",
-                        "detail.label": "#63e677 bold",
-                        "notice": "bg:#172019 #f2c96d",
-                        "footer": "bg:#111811 #9fb4a4",
-                        "footer.key": "#63e677 bold",
-                    }
-                )
-            ),
+            style=on_prompt_toolkit_style(),
         )
         self._sync_editor()
 
     def _editor_prefix(self):
-        return [("class:detail.label", "EDIT  " if self.state.editing else "")]
+        return [("class:tui.label", "EDIT  " if self.state.editing else "")]
 
     def _detail_title(self) -> str:
         if self.state.adding:
@@ -250,8 +233,8 @@ class QueueMenuApp:
     def _render_header(self):
         count = len(self.state.items)
         return [
-            ("class:header.title", "  PROMPT QUEUE\n"),
-            ("class:header", f"  {count} item{'s' if count != 1 else ''} waiting"),
+            ("class:tui.title", "  PROMPT QUEUE\n"),
+            ("class:tui.header", f"  {count} item{'s' if count != 1 else ''} waiting"),
         ]
 
     def _render_list(self):
@@ -259,20 +242,22 @@ class QueueMenuApp:
         if not items:
             return [
                 (
-                    "class:list.empty",
+                    "class:tui.muted",
                     "\n  Queue is empty.\n\n  Press A to add a prompt.",
                 )
             ]
         fragments = []
         for index, text in enumerate(items):
             style = (
-                "class:list.selected" if index == self.state.selected else "class:list"
+                "class:tui.selected"
+                if index == self.state.selected
+                else "class:tui.body"
             )
             marker = "▶" if index == self.state.selected else " "
             fragments.extend(
                 [
                     (style, f" {marker} "),
-                    (f"{style} class:list.index", f"{index + 1:>2}  "),
+                    (f"{style} class:tui.muted", f"{index + 1:>2}  "),
                     (style, _preview(text)),
                     (style, "\n"),
                 ]
@@ -280,31 +265,31 @@ class QueueMenuApp:
         return fragments
 
     def _render_notice(self):
-        return [("class:notice", f"  {self.state.notice}")]
+        return [("class:tui.warning", f"  {self.state.notice}")]
 
     def _render_footer(self):
         if self.state.editing:
             return [
-                ("class:footer", "  "),
-                ("class:footer.key", "Ctrl+S"),
-                ("class:footer", " save   "),
-                ("class:footer.key", "Esc"),
-                ("class:footer", " cancel   Multi-line editing enabled"),
+                ("class:tui.help", "  "),
+                ("class:tui.help-key", "Ctrl+S"),
+                ("class:tui.help", " save   "),
+                ("class:tui.help-key", "Esc"),
+                ("class:tui.help", " cancel   Multi-line editing enabled"),
             ]
         return [
-            ("class:footer", "  "),
-            ("class:footer.key", "↑↓/JK"),
-            ("class:footer", " select   "),
-            ("class:footer.key", "Enter/E"),
-            ("class:footer", " edit   "),
-            ("class:footer.key", "A"),
-            ("class:footer", " add   "),
-            ("class:footer.key", "D D"),
-            ("class:footer", " delete\n  "),
-            ("class:footer.key", "[ ]"),
-            ("class:footer", " reorder   "),
-            ("class:footer.key", "Q/Esc"),
-            ("class:footer", " done"),
+            ("class:tui.help", "  "),
+            ("class:tui.help-key", "↑↓/JK"),
+            ("class:tui.help", " select   "),
+            ("class:tui.help-key", "Enter/E"),
+            ("class:tui.help", " edit   "),
+            ("class:tui.help-key", "A"),
+            ("class:tui.help", " add   "),
+            ("class:tui.help-key", "D D"),
+            ("class:tui.help", " delete\n  "),
+            ("class:tui.help-key", "[ ]"),
+            ("class:tui.help", " reorder   "),
+            ("class:tui.help-key", "Q/Esc"),
+            ("class:tui.help", " done"),
         ]
 
     def _sync_editor(self, text: Optional[str] = None) -> None:

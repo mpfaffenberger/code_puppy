@@ -216,6 +216,27 @@ def test_queue_menu_app_constructs_with_empty_and_populated_queue():
     assert "inspect this" in app._editor_buffer.text
 
 
+def test_queue_menu_uses_shared_semantic_roles_without_local_palette():
+    pc = PauseController()
+    pc.replace_pending_steer_queued(["one", "two"])
+    app = QueueMenuApp(pc)
+
+    assert app._render_header()[0][0] == "class:tui.title"
+    assert {style for style, _ in app._render_list()} >= {
+        "class:tui.selected",
+        "class:tui.selected class:tui.muted",
+        "class:tui.body",
+        "class:tui.body class:tui.muted",
+    }
+    assert app._render_notice()[0][0] == "class:tui.warning"
+    assert {style for style, _ in app._render_footer()} == {
+        "class:tui.help",
+        "class:tui.help-key",
+    }
+    app.state.editing = True
+    assert app._editor_prefix()[0][0] == "class:tui.label"
+
+
 # =========================================================================
 # /steer command handler
 # =========================================================================
