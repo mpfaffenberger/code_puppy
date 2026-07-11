@@ -162,12 +162,16 @@ class TestRenderProviderList:
         assert "Bedrock" in text
         assert "Page" in text
 
-    def test_render_unsupported_provider_dimmed(self):
-        p = _make_provider(pid="amazon-bedrock", name="Bedrock")
-        menu = _make_menu_with_providers([p])
+    def test_render_unsupported_provider_muted(self):
+        supported = _make_provider(pid="openai", name="OpenAI")
+        unsupported = _make_provider(pid="amazon-bedrock", name="Bedrock")
+        menu = _make_menu_with_providers([supported, unsupported])
         lines = menu._render_provider_list()
-        styles = [s for s, _ in lines]
-        assert any("dim" in s for s in styles)
+        styles_by_text = {text: style for style, text in lines}
+        bedrock_style = next(
+            style for text, style in styles_by_text.items() if "Bedrock" in text
+        )
+        assert bedrock_style == "class:tui.muted"
 
 
 # --------------- Render model list ---------------

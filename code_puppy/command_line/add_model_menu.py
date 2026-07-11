@@ -344,22 +344,24 @@ class AddModelMenu:
         """Render the provider list panel."""
         lines = []
 
-        lines.append(("", " Providers"))
+        lines.append(("class:tui.header", " Providers"))
         lines.append(("", "\n\n"))
 
         if not self.providers:
-            lines.append(("fg:yellow", "  No providers available."))
+            lines.append(("class:tui.warning", "  No providers available."))
             lines.append(("", "\n\n"))
             self._render_navigation_hints(lines)
             return lines
 
         filter_label = getattr(self, "provider_filter", "") or "type to filter"
-        lines.append(("fg:ansibrightblack", f" Filter: {filter_label}"))
+        lines.append(("class:tui.muted", f" Filter: {filter_label}"))
         lines.append(("", "\n\n"))
 
         filtered_providers = self._filtered_providers()
         if not filtered_providers:
-            lines.append(("fg:yellow", "  No providers match the current filter."))
+            lines.append(
+                ("class:tui.warning", "  No providers match the current filter.")
+            )
             lines.append(("", "\n\n"))
             self._render_navigation_hints(lines)
             return lines
@@ -382,19 +384,18 @@ class AddModelMenu:
             suffix = " ⚠️" if is_unsupported else ""
             label = f"{prefix}{provider.name} ({provider.model_count} models){suffix}"
 
-            # Use dimmed color for unsupported providers
-            if is_unsupported:
-                lines.append(("fg:ansibrightblack dim", label))
-            elif is_selected:
-                lines.append(("fg:ansibrightblack", label))
+            if is_selected:
+                lines.append(("class:tui.selected", label))
+            elif is_unsupported:
+                lines.append(("class:tui.muted", label))
             else:
-                lines.append(("fg:ansibrightblack", label))
+                lines.append(("class:tui.body", label))
 
             lines.append(("", "\n"))
 
         lines.append(("", "\n"))
         lines.append(
-            ("fg:ansibrightblack", f" Page {self.current_page + 1}/{total_pages}")
+            ("class:tui.muted", f" Page {self.current_page + 1}/{total_pages}")
         )
         lines.append(("", "\n"))
 
@@ -406,21 +407,21 @@ class AddModelMenu:
         lines = []
 
         if not self.current_provider:
-            lines.append(("fg:yellow", "  No provider selected."))
+            lines.append(("class:tui.warning", "  No provider selected."))
             lines.append(("", "\n\n"))
             self._render_navigation_hints(lines)
             return lines
 
-        lines.append(("", f" {self.current_provider.name} Models"))
+        lines.append(("class:tui.header", f" {self.current_provider.name} Models"))
         lines.append(("", "\n"))
         filter_label = getattr(self, "model_filter", "") or "type to filter"
-        lines.append(("fg:ansibrightblack", f" Filter: {filter_label}"))
+        lines.append(("class:tui.muted", f" Filter: {filter_label}"))
         lines.append(("", "\n\n"))
 
         filtered_models = self._filtered_models()
         custom_visible = self._should_show_custom_model()
         if not filtered_models and not custom_visible:
-            lines.append(("fg:yellow", "  No models match the current filter."))
+            lines.append(("class:tui.warning", "  No models match the current filter."))
             lines.append(("", "\n\n"))
             self._render_navigation_hints(lines)
             return lines
@@ -436,9 +437,9 @@ class AddModelMenu:
             if custom_visible and i == len(filtered_models):
                 is_selected = i == self.selected_model_idx
                 if is_selected:
-                    lines.append(("fg:ansicyan bold", " > ✨ Custom model..."))
+                    lines.append(("class:tui.selected", " > ✨ Custom model..."))
                 else:
-                    lines.append(("fg:ansicyan", "   ✨ Custom model..."))
+                    lines.append(("class:tui.body", "   ✨ Custom model..."))
                 lines.append(("", "\n"))
                 continue
 
@@ -457,15 +458,15 @@ class AddModelMenu:
             icon_str = " ".join(icons) + " " if icons else ""
 
             if is_selected:
-                lines.append(("fg:ansibrightblack", f" > {icon_str}{model.name}"))
+                lines.append(("class:tui.selected", f" > {icon_str}{model.name}"))
             else:
-                lines.append(("fg:ansibrightblack", f"   {icon_str}{model.name}"))
+                lines.append(("class:tui.body", f"   {icon_str}{model.name}"))
 
             lines.append(("", "\n"))
 
         lines.append(("", "\n"))
         lines.append(
-            ("fg:ansibrightblack", f" Page {self.current_page + 1}/{total_pages}")
+            ("class:tui.muted", f" Page {self.current_page + 1}/{total_pages}")
         )
         lines.append(("", "\n"))
 
@@ -475,61 +476,63 @@ class AddModelMenu:
     def _render_navigation_hints(self, lines: List):
         """Render navigation hints at the bottom of the list panel."""
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "  ↑/↓ "))
-        lines.append(("", "Navigate  "))
-        lines.append(("fg:ansibrightblack", "←/→ "))
-        lines.append(("", "Page\n"))
-        lines.append(("fg:ansibrightblack", "  Type "))
-        lines.append(("", "Filter list\n"))
-        lines.append(("fg:ansibrightblack", "  Backspace "))
-        lines.append(("", "Delete filter char\n"))
-        lines.append(("fg:ansibrightblack", "  Ctrl+U "))
-        lines.append(("", "Clear filter\n"))
+        lines.append(("class:tui.help-key", "  ↑/↓ "))
+        lines.append(("class:tui.help", "Navigate  "))
+        lines.append(("class:tui.help-key", "←/→ "))
+        lines.append(("class:tui.help", "Page\n"))
+        lines.append(("class:tui.help-key", "  Type "))
+        lines.append(("class:tui.help", "Filter list\n"))
+        lines.append(("class:tui.help-key", "  Backspace "))
+        lines.append(("class:tui.help", "Delete filter char\n"))
+        lines.append(("class:tui.help-key", "  Ctrl+U "))
+        lines.append(("class:tui.help", "Clear filter\n"))
         if self.view_mode == "providers":
-            lines.append(("fg:green", "  Enter  "))
-            lines.append(("", "Select\n"))
-            lines.append(("fg:cyan", "  Ctrl+E  "))
-            lines.append(("", "Edit credentials\n"))
+            lines.append(("class:tui.help-key", "  Enter  "))
+            lines.append(("class:tui.help", "Select\n"))
+            lines.append(("class:tui.help-key", "  Ctrl+E  "))
+            lines.append(("class:tui.help", "Edit credentials\n"))
         else:
-            lines.append(("fg:green", "  Enter  "))
-            lines.append(("", "Add Model\n"))
-            lines.append(("fg:ansibrightblack", "  Esc/Back  "))
-            lines.append(("", "Back\n"))
-        lines.append(("fg:ansibrightred", "  Ctrl+C "))
-        lines.append(("", "Cancel"))
+            lines.append(("class:tui.help-key", "  Enter  "))
+            lines.append(("class:tui.help", "Add Model\n"))
+            lines.append(("class:tui.help-key", "  Esc/Back  "))
+            lines.append(("class:tui.help", "Back\n"))
+        lines.append(("class:tui.help-key", "  Ctrl+C "))
+        lines.append(("class:tui.help", "Cancel"))
 
     def _render_model_details(self) -> List:
         """Render the model details panel."""
         lines = []
 
-        lines.append(("dim cyan", " MODEL DETAILS"))
+        lines.append(("class:tui.title", " MODEL DETAILS"))
         lines.append(("", "\n\n"))
 
         if self.view_mode == "providers":
             provider = self._get_current_provider()
             if not provider:
-                lines.append(("fg:yellow", "  No provider selected."))
+                lines.append(("class:tui.warning", "  No provider selected."))
                 return lines
 
-            lines.append(("bold", f"  {provider.name}"))
+            lines.append(("class:tui.label", f"  {provider.name}"))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", f"  ID: {provider.id}"))
+            lines.append(("class:tui.body", f"  ID: {provider.id}"))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", f"  Models: {provider.model_count}"))
+            lines.append(("class:tui.body", f"  Models: {provider.model_count}"))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", f"  API: {provider.api}"))
+            lines.append(("class:tui.body", f"  API: {provider.api}"))
             lines.append(("", "\n"))
 
             # Show unsupported warning if applicable
             if provider.id in UNSUPPORTED_PROVIDERS:
                 lines.append(("", "\n"))
-                lines.append(("fg:ansired bold", "  ⚠️  UNSUPPORTED PROVIDER"))
+                lines.append(("class:tui.error", "  ⚠️  UNSUPPORTED PROVIDER"))
                 lines.append(("", "\n"))
-                lines.append(("fg:ansired", f"  {UNSUPPORTED_PROVIDERS[provider.id]}"))
+                lines.append(
+                    ("class:tui.error", f"  {UNSUPPORTED_PROVIDERS[provider.id]}")
+                )
                 lines.append(("", "\n"))
                 lines.append(
                     (
-                        "fg:ansibrightblack",
+                        "class:tui.muted",
                         "  Models from this provider cannot be added.",
                     )
                 )
@@ -537,27 +540,27 @@ class AddModelMenu:
 
             if provider.env:
                 lines.append(("", "\n"))
-                lines.append(("bold", "  Credentials:"))
+                lines.append(("class:tui.label", "  Credentials:"))
                 lines.append(("", "\n"))
                 for env_var in provider.env:
                     status = credential_display(env_var)
                     hint = credential_hint(env_var)
                     color = (
-                        "fg:ansigreen"
+                        "class:tui.success"
                         if is_credential_set(env_var)
-                        else "fg:ansiyellow"
+                        else "class:tui.warning"
                     )
                     lines.append((color, f"    • {env_var}: {status}"))
                     lines.append(("", "\n"))
                     if hint:
-                        lines.append(("fg:ansibrightblack", f"      {hint}"))
+                        lines.append(("class:tui.muted", f"      {hint}"))
                         lines.append(("", "\n"))
 
             if provider.doc:
                 lines.append(("", "\n"))
-                lines.append(("bold", "  Documentation:"))
+                lines.append(("class:tui.label", "  Documentation:"))
                 lines.append(("", "\n"))
-                lines.append(("fg:ansibrightblack", f"    {provider.doc}"))
+                lines.append(("class:tui.body", f"    {provider.doc}"))
                 lines.append(("", "\n"))
 
         else:  # models view
@@ -565,67 +568,69 @@ class AddModelMenu:
             provider = self.current_provider
 
             if not provider:
-                lines.append(("fg:yellow", "  No model selected."))
+                lines.append(("class:tui.warning", "  No model selected."))
                 return lines
 
             # Handle custom model option
             if self._is_custom_model_selected():
-                lines.append(("bold", "  ✨ Custom Model"))
+                lines.append(("class:tui.label", "  ✨ Custom Model"))
                 lines.append(("", "\n\n"))
-                lines.append(("fg:ansicyan", "  Add a model not listed in models.dev"))
-                lines.append(("", "\n\n"))
-                lines.append(("bold", "  How it works:"))
-                lines.append(("", "\n"))
-                lines.append(("fg:ansibrightblack", "  1. Press Enter to select"))
-                lines.append(("", "\n"))
-                lines.append(("fg:ansibrightblack", "  2. Enter the model ID/name"))
-                lines.append(("", "\n"))
                 lines.append(
-                    ("fg:ansibrightblack", f"  3. Uses {provider.name}'s API endpoint")
+                    ("class:tui.body", "  Add a model not listed in models.dev")
                 )
                 lines.append(("", "\n\n"))
-                lines.append(("bold", "  Use cases:"))
+                lines.append(("class:tui.label", "  How it works:"))
                 lines.append(("", "\n"))
-                lines.append(("fg:ansibrightblack", "  • Newly released models"))
+                lines.append(("class:tui.muted", "  1. Press Enter to select"))
                 lines.append(("", "\n"))
-                lines.append(("fg:ansibrightblack", "  • Fine-tuned models"))
+                lines.append(("class:tui.muted", "  2. Enter the model ID/name"))
                 lines.append(("", "\n"))
-                lines.append(("fg:ansibrightblack", "  • Preview/beta models"))
+                lines.append(
+                    ("class:tui.muted", f"  3. Uses {provider.name}'s API endpoint")
+                )
+                lines.append(("", "\n\n"))
+                lines.append(("class:tui.label", "  Use cases:"))
                 lines.append(("", "\n"))
-                lines.append(("fg:ansibrightblack", "  • Custom deployments"))
+                lines.append(("class:tui.muted", "  • Newly released models"))
+                lines.append(("", "\n"))
+                lines.append(("class:tui.muted", "  • Fine-tuned models"))
+                lines.append(("", "\n"))
+                lines.append(("class:tui.muted", "  • Preview/beta models"))
+                lines.append(("", "\n"))
+                lines.append(("class:tui.muted", "  • Custom deployments"))
                 lines.append(("", "\n\n"))
                 if provider.env:
-                    lines.append(("bold", "  Required credentials:"))
+                    lines.append(("class:tui.label", "  Required credentials:"))
                     lines.append(("", "\n"))
                     for env_var in provider.env:
-                        lines.append(("fg:ansibrightblack", f"    • {env_var}"))
+                        lines.append(("class:tui.muted", f"    • {env_var}"))
                         lines.append(("", "\n"))
                 return lines
 
             if not model:
-                lines.append(("fg:yellow", "  No model selected."))
+                lines.append(("class:tui.warning", "  No model selected."))
                 return lines
 
-            lines.append(("bold", f"  {provider.name} - {model.name}"))
+            lines.append(("class:tui.label", f"  {provider.name} - {model.name}"))
             lines.append(("", "\n\n"))
 
             # BIG WARNING for models without tool calling
             if not model.tool_call:
-                lines.append(("fg:ansiyellow bold", "  ⚠️  NO TOOL CALLING SUPPORT"))
+                lines.append(("class:tui.warning", "  ⚠️  NO TOOL CALLING SUPPORT"))
                 lines.append(("", "\n"))
                 lines.append(
-                    ("fg:ansiyellow", "  This model cannot use tools (file ops,")
+                    ("class:tui.warning", "  This model cannot use tools (file ops,")
                 )
                 lines.append(("", "\n"))
                 lines.append(
-                    ("fg:ansiyellow", "  shell commands, etc). It will be very")
+                    ("class:tui.warning", "  shell commands, etc). It will be very")
                 )
                 lines.append(("", "\n"))
-                lines.append(("fg:ansiyellow", "  limited for coding tasks!"))
+                lines.append(("class:tui.warning", "  limited for coding tasks!"))
                 lines.append(("", "\n\n"))
 
             # Capabilities
-            lines.append(("bold", "  Capabilities:"))
+            lines.append(("class:tui.label", "  Capabilities:"))
             lines.append(("", "\n"))
 
             capabilities = [
@@ -639,21 +644,21 @@ class AddModelMenu:
 
             for cap_name, has_cap in capabilities:
                 if has_cap:
-                    lines.append(("fg:green", f"    ✓ {cap_name}"))
+                    lines.append(("class:tui.success", f"    ✓ {cap_name}"))
                 else:
-                    lines.append(("fg:ansibrightblack", f"    ✗ {cap_name}"))
+                    lines.append(("class:tui.muted", f"    ✗ {cap_name}"))
                 lines.append(("", "\n"))
 
             # Pricing
             lines.append(("", "\n"))
-            lines.append(("bold", "  Pricing:"))
+            lines.append(("class:tui.label", "  Pricing:"))
             lines.append(("", "\n"))
 
             if model.cost_input is not None or model.cost_output is not None:
                 if model.cost_input is not None:
                     lines.append(
                         (
-                            "fg:ansibrightblack",
+                            "class:tui.muted",
                             f"    Input: ${model.cost_input:.6f}/token",
                         )
                     )
@@ -661,7 +666,7 @@ class AddModelMenu:
                 if model.cost_output is not None:
                     lines.append(
                         (
-                            "fg:ansibrightblack",
+                            "class:tui.muted",
                             f"    Output: ${model.cost_output:.6f}/token",
                         )
                     )
@@ -669,24 +674,24 @@ class AddModelMenu:
                 if model.cost_cache_read is not None:
                     lines.append(
                         (
-                            "fg:ansibrightblack",
+                            "class:tui.muted",
                             f"    Cache Read: ${model.cost_cache_read:.6f}/token",
                         )
                     )
                     lines.append(("", "\n"))
             else:
-                lines.append(("fg:ansibrightblack", "    Pricing not available"))
+                lines.append(("class:tui.muted", "    Pricing not available"))
                 lines.append(("", "\n"))
 
             # Limits
             lines.append(("", "\n"))
-            lines.append(("bold", "  Limits:"))
+            lines.append(("class:tui.label", "  Limits:"))
             lines.append(("", "\n"))
 
             if model.context_length > 0:
                 lines.append(
                     (
-                        "fg:ansibrightblack",
+                        "class:tui.muted",
                         f"    Context: {model.context_length:,} tokens",
                     )
                 )
@@ -694,7 +699,7 @@ class AddModelMenu:
             if model.max_output > 0:
                 lines.append(
                     (
-                        "fg:ansibrightblack",
+                        "class:tui.muted",
                         f"    Max Output: {model.max_output:,} tokens",
                     )
                 )
@@ -703,13 +708,13 @@ class AddModelMenu:
             # Modalities
             if model.input_modalities or model.output_modalities:
                 lines.append(("", "\n"))
-                lines.append(("bold", "  Modalities:"))
+                lines.append(("class:tui.label", "  Modalities:"))
                 lines.append(("", "\n"))
 
                 if model.input_modalities:
                     lines.append(
                         (
-                            "fg:ansibrightblack",
+                            "class:tui.muted",
                             f"    Input: {', '.join(model.input_modalities)}",
                         )
                     )
@@ -717,7 +722,7 @@ class AddModelMenu:
                 if model.output_modalities:
                     lines.append(
                         (
-                            "fg:ansibrightblack",
+                            "class:tui.muted",
                             f"    Output: {', '.join(model.output_modalities)}",
                         )
                     )
@@ -725,29 +730,23 @@ class AddModelMenu:
 
             # Metadata
             lines.append(("", "\n"))
-            lines.append(("bold", "  Metadata:"))
+            lines.append(("class:tui.label", "  Metadata:"))
             lines.append(("", "\n"))
 
-            lines.append(("fg:ansibrightblack", f"    Model ID: {model.model_id}"))
+            lines.append(("class:tui.muted", f"    Model ID: {model.model_id}"))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", f"    Full ID: {model.full_id}"))
+            lines.append(("class:tui.muted", f"    Full ID: {model.full_id}"))
             lines.append(("", "\n"))
 
             if model.knowledge:
-                lines.append(
-                    ("fg:ansibrightblack", f"    Knowledge: {model.knowledge}")
-                )
+                lines.append(("class:tui.muted", f"    Knowledge: {model.knowledge}"))
                 lines.append(("", "\n"))
 
             if model.release_date:
-                lines.append(
-                    ("fg:ansibrightblack", f"    Released: {model.release_date}")
-                )
+                lines.append(("class:tui.muted", f"    Released: {model.release_date}"))
                 lines.append(("", "\n"))
 
-            lines.append(
-                ("fg:ansibrightblack", f"    Open Weights: {model.open_weights}")
-            )
+            lines.append(("class:tui.muted", f"    Open Weights: {model.open_weights}"))
             lines.append(("", "\n"))
 
         return lines
