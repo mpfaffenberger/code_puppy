@@ -202,6 +202,11 @@ class TestColorRemapFor:
         assert isinstance(r, dict)
         assert len(r) > 0
 
+    def test_green_screen_remaps_both_white_slots(self):
+        r = color_remap_for("green-screen")
+        assert r["white"] == "#6a9955"
+        assert r["bright_white"] == "#00ff00"
+
     def test_unknown_theme_raises(self):
         with pytest.raises(KeyError):
             color_remap_for("nonexistent")

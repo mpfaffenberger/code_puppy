@@ -32,6 +32,28 @@ def erase_progress_line(console: Console) -> None:
     console.control(_ERASE_LINE_CONTROL)
 
 
+def render_markdown(content: str, console: Console) -> None:
+    """Render complete Markdown through the configured Termflow pipeline."""
+    from termflow import Parser as TermflowParser
+    from termflow import Renderer as TermflowRenderer
+    from termflow.render.style import RenderFeatures, RenderStyle
+    from termflow.syntax import Highlighter
+
+    from code_puppy.callbacks import on_termflow_highlighter, on_termflow_style
+
+    parser = TermflowParser()
+    renderer = TermflowRenderer(
+        output=console.file,
+        width=console.width,
+        style=on_termflow_style(RenderStyle.default()),
+        features=RenderFeatures(clipboard=False),
+        highlighter=on_termflow_highlighter(Highlighter()),
+    )
+    for line in content.split("\n"):
+        renderer.render_all(parser.parse_line(line))
+    renderer.render_all(parser.finalize())
+
+
 def display_non_streamed_result(
     content: str,
     console: Optional[Console] = None,
@@ -61,9 +83,6 @@ def display_non_streamed_result(
         return
 
     from rich.text import Text
-    from termflow import Parser as TermflowParser
-    from termflow import Renderer as TermflowRenderer
-    from termflow.render.style import RenderFeatures
 
     if console is None:
         console = Console()
@@ -79,22 +98,7 @@ def display_non_streamed_result(
         )
     )
 
-    # Use termflow for markdown rendering
-    parser = TermflowParser()
-    renderer = TermflowRenderer(
-        output=console.file,
-        width=console.width,
-        features=RenderFeatures(clipboard=False),
-    )
-
-    # Process content line by line
-    for line in content.split("\n"):
-        events = parser.parse_line(line)
-        renderer.render_all(events)
-
-    # Finalize to close any open markdown blocks
-    final_events = parser.finalize()
-    renderer.render_all(final_events)
+    render_markdown(content, console)
 
 
-__all__ = ["display_non_streamed_result", "erase_progress_line"]
+__all__ = ["display_non_streamed_result", "erase_progress_line", "render_markdown"]

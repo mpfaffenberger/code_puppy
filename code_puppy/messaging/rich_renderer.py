@@ -150,7 +150,12 @@ class RichConsoleRenderer:
         import threading
 
         self._bus = bus
-        self._console = console or Console()
+        self._console = console or Console(highlight=False)
+        # ReprHighlighter is useful in a Python REPL, but this is a themed
+        # message bus: it unpredictably recolors numbers, parentheses, paths,
+        # and shell/grep output. Explicit markup and syntax renderables still
+        # carry their own styles, so disable only the console's implicit pass.
+        self._console.highlighter = None
         self._styles = styles or DEFAULT_STYLES.copy()
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -563,7 +568,9 @@ class RichConsoleRenderer:
         prefix = self._get_level_prefix(msg.level)
         # Escape Rich markup to prevent crashes from malformed tags
         safe_text = escape_rich_markup(msg.text)
-        self._console.print(f"{prefix}{safe_text}", style=style)
+        # Rich's default repr highlighter restyles numbers and parentheses,
+        # leaking terminal-profile white through otherwise themed info lines.
+        self._console.print(f"{prefix}{safe_text}", style=style, highlight=False)
 
     def _get_level_prefix(self, level: MessageLevel) -> str:
         """Get a prefix icon for the message level."""
@@ -995,7 +1002,12 @@ class RichConsoleRenderer:
         # Content (markdown or plain)
         if msg.is_markdown:
             md = Markdown(msg.content)
-            self._console.print(md)
+            # Give colorless Markdown styles (bold/headings) an explicit base
+            # foreground. Some terminals ignore OSC 10, making Rich resets leak
+            # the terminal profile's white into otherwise themed responses.
+            from code_puppy.callbacks import on_prompt_text_color
+
+            self._console.print(md, style=on_prompt_text_color())
         else:
             self._console.print(msg.content)
 

@@ -972,8 +972,17 @@ async def get_input_with_combined_completion(
     # NOTE: the style field must be a str — `None` crashes `to_formatted_text`.
     if isinstance(prompt_str, str):
         prompt_str = FormattedText([("", prompt_str)])
+    from code_puppy.callbacks import on_prompt_text_color
+
+    prompt_text_color = on_prompt_text_color()
+    default_input_style = (
+        f"fg:{prompt_text_color}" if prompt_text_color else "fg:default"
+    )
     style = Style.from_dict(
         {
+            # Explicitly color unclassified input text. Relying on the terminal's
+            # default foreground leaks white in terminals that ignore OSC 10.
+            "": default_input_style,
             # Keys must AVOID the 'class:' prefix – that prefix is used only when
             # tagging tokens in `FormattedText`. See prompt_toolkit docs.
             **PROMPT_STYLES,

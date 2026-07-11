@@ -154,7 +154,11 @@ async def event_stream_handler(
     from termflow.render.style import RenderFeatures, RenderStyle
     from termflow.syntax import Highlighter
 
-    from code_puppy.callbacks import on_termflow_highlighter, on_termflow_style
+    from code_puppy.callbacks import (
+        on_prompt_text_color,
+        on_termflow_highlighter,
+        on_termflow_style,
+    )
 
     # Use the module-level console (set via set_streaming_console)
     console = get_streaming_console()
@@ -178,6 +182,21 @@ async def event_stream_handler(
     # Optional smooth (typewriter) writers wrapping the console for text parts.
     termflow_writers: dict[int, SmoothTermflowWriter] = {}
 
+    class _ThemedBoldWriter:
+        """Keep terminal bold from brightening default text to profile white."""
+
+        def __init__(self, target, color: str) -> None:
+            self._target = target
+            self._color_sgr = f"\x1b[38;2;{int(color[1:3], 16)};{int(color[3:5], 16)};{int(color[5:7], 16)}m"
+
+        def write(self, text):
+            return self._target.write(
+                text.replace("\x1b[1m", f"\x1b[1m{self._color_sgr}")
+            )
+
+        def flush(self):
+            return self._target.flush()
+
     def _make_text_renderer(index: int) -> TermflowRenderer:
         """Build a termflow renderer, optionally typed out smoothly."""
         writer = make_smooth_termflow_writer(console.file)
@@ -187,6 +206,9 @@ async def event_stream_handler(
             output = writer
         else:
             output = console.file
+        prompt_color = on_prompt_text_color()
+        if prompt_color and len(prompt_color) == 7 and prompt_color.startswith("#"):
+            output = _ThemedBoldWriter(output, prompt_color)
         return TermflowRenderer(
             output=output,
             width=console.width,

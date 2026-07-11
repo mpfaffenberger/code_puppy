@@ -593,6 +593,17 @@ def _persistent_prompt_parts() -> tuple:
         return ">>> ", []
 
 
+def _prompt_echo_text(task: str):
+    """Build a transcript echo using the active prompt foreground."""
+    from rich.text import Text
+
+    from code_puppy.callbacks import on_prompt_text_color
+
+    prompt_color = on_prompt_text_color()
+    style = f"bold {prompt_color}" if prompt_color else "bold"
+    return Text(f"\n> {task}", style=style)
+
+
 def _interactive_sigint_guard(_sig, _frame):
     """Baseline SIGINT handler for the interactive REPL.
 
@@ -846,8 +857,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         try:
             if persistent_prompt:
-                from rich.text import Text as _EchoText
-
                 from code_puppy.messaging.run_ui import (
                     set_idle_prompt_prefix,
                     wait_for_idle_submission,
@@ -867,7 +876,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 queued_task = _get_pc().pop_next_steer_queued()
                 if queued_task is not None:
                     task = queued_task
-                    emit_info(_EchoText(f"\n> {task}", style="bold"))
+                    emit_info(_prompt_echo_text(task))
                     emit_info("⏭ running queued prompt")
                 else:
                     # Raises EOFError on Ctrl+D-with-empty-buffer, which the
@@ -879,7 +888,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     # repeating the whole prompt chrome doubled every
                     # line's noise. Text() (not markup) so bracket-y input
                     # renders as-is.
-                    emit_info(_EchoText(f"\n> {task}", style="bold"))
+                    emit_info(_prompt_echo_text(task))
             else:
                 # Use prompt_toolkit for enhanced input with path completion
                 try:

@@ -455,10 +455,10 @@ def display_resumed_history(
                       Configurable via: /set resume_message_count=50
     """
     from rich.console import Console
-    from rich.markdown import Markdown
     from rich.rule import Rule
 
     from code_puppy.config import get_banner_color, get_resume_message_count
+    from code_puppy.tools.display import render_markdown
 
     if not history:
         return
@@ -521,9 +521,8 @@ def display_resumed_history(
             # Use the exact same banner format as normal AGENT RESPONSE
             banner = f"[bold white on {response_color}] AGENT RESPONSE [/bold white on {response_color}]"
             console.print(f"\n{banner}")
-            # Render content as markdown (same as normal chat)
-            md = Markdown(content)
-            console.print(md)
+            # Resume uses the same Termflow pipeline as live agent output.
+            render_markdown(content, console)
 
         console.print()  # Blank line between messages
 
