@@ -264,13 +264,16 @@ def test_posix_listener_feeds_ctrl_x_to_editor_as_chord_prefix():
 
 
 @pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX-only test")
-def test_posix_listener_clears_iexten_so_first_ctrl_v_arrives():
-    """cbreak leaves IEXTEN set; on BSD/macOS the tty driver then honors
-    VLNEXT (Ctrl+V = literal-next) even in non-canonical mode, so the
-    kernel EATS the first ^V as a quote-prefix and only a SECOND press
-    reaches the app — the live 'press Ctrl+V twice to paste an image'
-    bug. The listener must clear IEXTEN (and ICRNL) on its tty, and a
-    single ^V written to a real pty must reach dispatch exactly once.
+def test_posix_listener_disables_tty_control_char_interception():
+    """The persistent editor must receive control bytes itself.
+
+    cbreak leaves IEXTEN set, so BSD/macOS honors VLNEXT (Ctrl+V) and
+    eats the first press. It also leaves IXON set, so Ctrl+S becomes
+    XOFF: the next synchronous prompt flush blocks the key-listener
+    thread, which then cannot read Ctrl+Q to resume output — a perfect
+    self-deadlock reproduced live in 2026-07. The listener must clear
+    IEXTEN, ICRNL, IXON, and IXOFF (where available), and one Ctrl+V plus
+    one Ctrl+S written to a real PTY must both reach dispatch.
     """
     import os
     import pty
@@ -314,17 +317,21 @@ def test_posix_listener_clears_iexten_so_first_ctrl_v_arrives():
                     break
                 time.sleep(0.01)
             assert cleared, "listener never cleared IEXTEN on its tty"
-            assert not termios.tcgetattr(slave)[0] & termios.ICRNL
+            attrs = termios.tcgetattr(slave)
+            assert not attrs[0] & termios.ICRNL
+            assert not attrs[0] & termios.IXON
+            if hasattr(termios, "IXOFF"):
+                assert not attrs[0] & termios.IXOFF
 
-            os.write(master, b"\x16")  # ONE Ctrl+V press
-            assert stop_event.wait(timeout=2.0), "first ^V never dispatched"
+            os.write(master, b"\x16\x13")  # ONE Ctrl+V, then ONE Ctrl+S
+            assert stop_event.wait(timeout=2.0), "control bytes never dispatched"
         finally:
             stop_event.set()
             listener.join(timeout=2.0)
             os.close(master)
             os.close(slave)
 
-    assert received == ["\x16"]
+    assert received == ["\x16", "\x13"]
 
 
 @pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX-only test")

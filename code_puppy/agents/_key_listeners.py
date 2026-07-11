@@ -885,6 +885,15 @@ def _posix_read_session(
             # every control char is delivered verbatim, exactly like the
             # raw mode (tty.setraw) the classic prompt_toolkit path used.
             #
+            # setcbreak ALSO leaves software flow control enabled. With
+            # IXON set, an accidental Ctrl+S tells the tty to STOP output;
+            # the next editor repaint then blocks forever in stdout.flush()
+            # ON THE KEY-LISTENER THREAD. Input is alive but can't dispatch
+            # another key (including Ctrl+Q) because it is trapped writing
+            # the prompt — indistinguishable from a bricked terminal. This
+            # exact stack was captured live on 2026-07-11. Clear IXON/IXOFF
+            # while we own stdin; original attrs restore on suspend/exit.
+            #
             # Pure-keybinding Ctrl+C: disable the tty's INTR character so
             # ^C is delivered as a raw \x03 byte instead of becoming a
             # SIGINT — the POSIX mirror of Windows' session-wide
@@ -896,8 +905,11 @@ def _posix_read_session(
             # semantics return whenever we release stdin.
             try:
                 attrs = termios.tcgetattr(fd)
-                attrs[0] &= ~termios.ICRNL  # iflag
-                attrs[3] &= ~termios.IEXTEN  # lflag
+                attrs[0] &= ~termios.ICRNL  # preserve Ctrl+J vs Enter
+                attrs[0] &= ~termios.IXON  # Ctrl+S must reach the editor
+                if hasattr(termios, "IXOFF"):
+                    attrs[0] &= ~termios.IXOFF
+                attrs[3] &= ~termios.IEXTEN  # deliver Ctrl+V/Ctrl+O raw
                 try:
                     vdisable = os.fpathconf(fd, "PC_VDISABLE")
                 except (OSError, ValueError, AttributeError):
