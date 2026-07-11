@@ -130,28 +130,32 @@ class CustomServerForm:
         lines = []
 
         title = " ✏️ EDIT MCP SERVER" if self.edit_mode else " ➕ ADD CUSTOM MCP SERVER"
-        lines.append(("bold cyan", title))
+        lines.append(("class:tui.header", title))
         lines.append(("", "\n\n"))
 
         # Server Name field - now in separate frame below
-        name_style = "fg:ansibrightcyan bold" if self.focused_field == 0 else "bold"
+        name_style = (
+            "class:tui.input.focused" if self.focused_field == 0 else "class:tui.label"
+        )
         lines.append((name_style, "  1. Server Name:"))
         lines.append(("", "\n"))
         if self.focused_field == 0:
-            lines.append(("fg:ansibrightgreen", "     ▶ Type in the box below"))
+            lines.append(("class:tui.input.focused", "     ▶ Type in the box below"))
         else:
             name_display = self.server_name if self.server_name else "(not set)"
-            lines.append(("fg:ansibrightblack", f"     {name_display}"))
+            lines.append(("class:tui.muted", f"     {name_display}"))
 
         # Show name validation hint inline
         name_error = self._validate_server_name(self.server_name)
         if name_error and self.server_name:  # Only show if there's input
             lines.append(("", "\n"))
-            lines.append(("fg:ansiyellow", f"     ⚠ {name_error}"))
+            lines.append(("class:tui.warning", f"     \u26a0 {name_error}"))
         lines.append(("", "\n\n"))
 
         # Server Type field
-        type_style = "fg:ansibrightcyan bold" if self.focused_field == 1 else "bold"
+        type_style = (
+            "class:tui.input.focused" if self.focused_field == 1 else "class:tui.label"
+        )
         lines.append((type_style, "  2. Server Type:"))
         lines.append(("", "\n"))
 
@@ -166,62 +170,66 @@ class CustomServerForm:
             icon = type_icons.get(server_type, "")
 
             if self.focused_field == 1 and is_selected:
-                lines.append(("fg:ansibrightgreen", "  ▶ "))
+                lines.append(("class:tui.selected", "  ▶ "))
             elif is_selected:
-                lines.append(("fg:ansigreen", "  ✓ "))
+                lines.append(("class:tui.success", "  \u2713 "))
             else:
                 lines.append(("", "    "))
 
             if is_selected:
-                lines.append(("fg:ansibrightcyan bold", f"{icon} {server_type}"))
+                lines.append(("class:tui.selected", f"{icon} {server_type}"))
             else:
-                lines.append(("fg:ansibrightblack", f"{icon} {server_type}"))
+                lines.append(("class:tui.muted", f"{icon} {server_type}"))
             lines.append(("", "\n"))
 
         lines.append(("", "\n"))
 
         # JSON Configuration field
-        json_style = "fg:ansibrightcyan bold" if self.focused_field == 2 else "bold"
+        json_style = (
+            "class:tui.input.focused" if self.focused_field == 2 else "class:tui.label"
+        )
         lines.append((json_style, "  3. JSON Configuration:"))
         lines.append(("", "\n"))
 
         if self.focused_field == 2:
-            lines.append(("fg:ansibrightgreen", "     ▶ Editing in box below"))
+            lines.append(("class:tui.input.focused", "     ▶ Editing in box below"))
         else:
-            lines.append(("fg:ansibrightblack", "     (Tab to edit)"))
+            lines.append(("class:tui.muted", "     (Tab to edit)"))
         lines.append(("", "\n\n"))
 
         # Validation status
         if self.validation_error:
-            lines.append(("fg:ansired bold", f"  ❌ {self.validation_error}"))
+            lines.append(("class:tui.error", f"  \u274c {self.validation_error}"))
         else:
-            lines.append(("fg:ansigreen", "  ✓ Valid JSON"))
+            lines.append(("class:tui.success", "  \u2713 Valid JSON"))
         lines.append(("", "\n\n"))
 
         # Navigation hints
-        lines.append(("fg:ansibrightblack", "  Tab "))
+        lines.append(("class:tui.help-key", "  Tab "))
         lines.append(("", "Next field  "))
-        lines.append(("fg:ansibrightblack", "Shift+Tab "))
+        lines.append(("class:tui.help-key", "Shift+Tab "))
         lines.append(("", "Prev\n"))
 
         if self.focused_field == 1:
-            lines.append(("fg:ansibrightblack", "  ↑/↓ "))
+            lines.append(("class:tui.help-key", "  ↑/↓ "))
             lines.append(("", "Change type\n"))
 
-        lines.append(("fg:green bold", "  Ctrl+S "))
+        lines.append(("class:tui.help-key", "  Ctrl+S "))
         lines.append(("", "Save & Install\n"))
-        lines.append(("fg:ansired", "  Ctrl+C/Esc "))
+        lines.append(("class:tui.help-key", "  Ctrl+C/Esc "))
         lines.append(("", "Cancel"))
 
         # Status message bar - shows feedback for user actions
         if self.status_message:
             lines.append(("", "\n\n"))
-            lines.append(("bold", "  ─" * 20))
+            lines.append(("class:tui.border", "  ─" * 20))
             lines.append(("", "\n"))
             if self.status_is_error:
-                lines.append(("fg:ansired bold", f"  ⚠️  {self.status_message}"))
+                lines.append(
+                    ("class:tui.error", f"  \u26a0\ufe0f  {self.status_message}")
+                )
             else:
-                lines.append(("fg:ansigreen bold", f"  ✓ {self.status_message}"))
+                lines.append(("class:tui.success", f"  \u2713 {self.status_message}"))
 
         return lines
 
@@ -231,62 +239,62 @@ class CustomServerForm:
 
         current_type = self._get_current_type()
 
-        lines.append(("bold cyan", " 📝 HELP & PREVIEW"))
+        lines.append(("class:tui.header", " \U0001f4dd HELP & PREVIEW"))
         lines.append(("", "\n\n"))
 
         # Type description
-        lines.append(("bold", f"  {current_type.upper()} Server"))
+        lines.append(("class:tui.label", f"  {current_type.upper()} Server"))
         lines.append(("", "\n"))
         desc = SERVER_TYPE_DESCRIPTIONS.get(current_type, "")
-        lines.append(("fg:ansibrightblack", f"  {desc}"))
+        lines.append(("class:tui.muted", f"  {desc}"))
         lines.append(("", "\n\n"))
 
         # Required fields
-        lines.append(("bold", "  Required Fields:"))
+        lines.append(("class:tui.label", "  Required Fields:"))
         lines.append(("", "\n"))
 
         if current_type == "stdio":
-            lines.append(("fg:ansicyan", '    • "command"'))
-            lines.append(("fg:ansibrightblack", " - executable to run"))
+            lines.append(("class:tui.title", '    • "command"'))
+            lines.append(("class:tui.muted", " - executable to run"))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", "  Optional:"))
+            lines.append(("class:tui.muted", "  Optional:"))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", '    • "args" - command arguments'))
+            lines.append(("class:tui.muted", '    • "args" - command arguments'))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", '    • "env" - environment variables'))
+            lines.append(("class:tui.muted", '    • "env" - environment variables'))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", '    • "timeout" - seconds'))
+            lines.append(("class:tui.muted", '    • "timeout" - seconds'))
             lines.append(("", "\n"))
         else:  # http or sse
-            lines.append(("fg:ansicyan", '    • "url"'))
-            lines.append(("fg:ansibrightblack", " - server endpoint"))
+            lines.append(("class:tui.title", '    • "url"'))
+            lines.append(("class:tui.muted", " - server endpoint"))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", "  Optional:"))
+            lines.append(("class:tui.muted", "  Optional:"))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", '    • "headers" - HTTP headers'))
+            lines.append(("class:tui.muted", '    • "headers" - HTTP headers'))
             lines.append(("", "\n"))
-            lines.append(("fg:ansibrightblack", '    • "timeout" - seconds'))
+            lines.append(("class:tui.muted", '    • "timeout" - seconds'))
             lines.append(("", "\n"))
 
         lines.append(("", "\n"))
 
         # Example
-        lines.append(("bold", "  Example:"))
+        lines.append(("class:tui.label", "  Example:"))
         lines.append(("", "\n"))
 
         example = CUSTOM_SERVER_EXAMPLES.get(current_type, "{}")
         for line in example.split("\n"):
-            lines.append(("fg:ansibrightblack", f"  {line}"))
+            lines.append(("class:tui.muted", f"  {line}"))
             lines.append(("", "\n"))
 
         lines.append(("", "\n"))
 
         # Tips
-        lines.append(("bold", "  💡 Tips:"))
+        lines.append(("class:tui.label", "  💡 Tips:"))
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "  • Use $ENV_VAR for secrets"))
+        lines.append(("class:tui.muted", "  • Use $ENV_VAR for secrets"))
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "  • Ctrl+N loads example"))
+        lines.append(("class:tui.muted", "  • Ctrl+N loads example"))
         lines.append(("", "\n"))
 
         return lines
@@ -475,6 +483,7 @@ class CustomServerForm:
             wrap_lines=False,
             focusable=True,
             height=1,
+            style="class:tui.input",
         )
 
         # Create JSON text area with syntax highlighting
@@ -486,6 +495,7 @@ class CustomServerForm:
             focusable=True,
             height=Dimension(min=8, max=15),
             lexer=PygmentsLexer(JsonLexer),
+            style="class:tui.input",
         )
 
         # Layout with form on left, preview on right
