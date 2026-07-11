@@ -1193,18 +1193,29 @@ def initialize_command_history_file():
             )
 
 
-def get_yolo_mode():
-    """
-    Checks puppy.cfg for 'yolo_mode' (case-insensitive in value only).
-    Defaults to True if not set.
-    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
-    """
+_cli_yolo_override: Optional[bool] = None
+
+
+def set_cli_yolo_override(value: Optional[bool]) -> None:
+    """Set a process-local YOLO value supplied by the CLI."""
+    global _cli_yolo_override
+    _cli_yolo_override = value
+
+
+def get_cli_yolo_override() -> Optional[bool]:
+    """Return the process-local CLI override, if one was supplied."""
+    return _cli_yolo_override
+
+
+def get_yolo_mode() -> bool:
+    """Return effective YOLO mode using CLI > persisted config precedence."""
+    if _cli_yolo_override is not None:
+        return _cli_yolo_override
+
     true_vals = {"1", "true", "yes", "on"}
     cfg_val = get_value("yolo_mode")
     if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
+        return str(cfg_val).strip().lower() in true_vals
     return True
 
 
