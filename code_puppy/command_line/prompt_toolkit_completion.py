@@ -42,6 +42,7 @@ from code_puppy.command_line.model_picker_completion import (
 from code_puppy.command_line.pin_command_completion import PinCompleter, UnpinCompleter
 from code_puppy.command_line.skills_completion import SkillsCompleter
 from code_puppy.command_line.utils import list_directory
+from code_puppy.callbacks import on_prompt_text_color, on_prompt_toolkit_style
 from code_puppy.config import (
     COMMAND_HISTORY_FILE,
     get_config_keys,
@@ -173,7 +174,7 @@ class SetCompleter(Completer):
 class AttachmentPlaceholderProcessor(Processor):
     """Display friendly placeholders for recognised attachments."""
 
-    _PLACEHOLDER_STYLE = "class:attachment-placeholder"
+    _PLACEHOLDER_STYLE = "class:attachment-placeholder class:tui.title"
     # Skip expensive path detection for very long input (likely pasted content)
     _MAX_TEXT_LENGTH_FOR_REALTIME = 500
 
@@ -557,7 +558,6 @@ def _normalize_emoji_spacing(text: str) -> str:
 # palette remap (Level 3) restyles the prompt to the chosen theme.
 PROMPT_STYLES = {
     "puppy": "bold ansimagenta",
-    "owner": "bold ansiwhite",
     "agent": "bold ansiblue",
     "model": "bold ansicyan",
     "cwd": "bold ansigreen",
@@ -602,12 +602,15 @@ def get_prompt_with_active_model(base: str = ">>> "):
         cwd_display = cwd
     return FormattedText(
         [
-            ("class:puppy", f"{puppy}"),
+            ("class:puppy class:tui.header", f"{puppy}"),
             ("", " "),
-            ("class:agent", f"[{_normalize_emoji_spacing(agent_display)}] "),
-            ("class:model", model_display + " "),
-            ("class:cwd", "(" + str(cwd_display) + ") "),
-            ("class:arrow", str(base)),
+            (
+                "class:agent class:tui.label",
+                f"[{_normalize_emoji_spacing(agent_display)}] ",
+            ),
+            ("class:model class:tui.title", model_display + " "),
+            ("class:cwd class:tui.muted", "(" + str(cwd_display) + ") "),
+            ("class:arrow class:tui.help-key", str(base)),
         ]
     )
 
@@ -972,45 +975,29 @@ async def get_input_with_combined_completion(
     # NOTE: the style field must be a str — `None` crashes `to_formatted_text`.
     if isinstance(prompt_str, str):
         prompt_str = FormattedText([("", prompt_str)])
-    from code_puppy.callbacks import on_prompt_text_color
-
     prompt_text_color = on_prompt_text_color()
-    default_input_style = (
-        f"fg:{prompt_text_color}" if prompt_text_color else "fg:default"
-    )
-    style = Style.from_dict(
+    default_input_style = f"fg:{prompt_text_color}" if prompt_text_color else ""
+    local_style = Style.from_dict(
         {
-            # Explicitly color unclassified input text. Relying on the terminal's
-            # default foreground leaks white in terminals that ignore OSC 10.
+            # Keep the prompt useful without the theme plugin. With the plugin
+            # active, its semantic root supplies the palette underneath these
+            # structural rules while an explicit prompt-text override still wins.
             "": default_input_style,
-            # Keys must AVOID the 'class:' prefix – that prefix is used only when
-            # tagging tokens in `FormattedText`. See prompt_toolkit docs.
-            **PROMPT_STYLES,
-            "attachment-placeholder": "italic ansicyan",
-            # ── Completion menu (pi-inspired minimal look) ────────────────
-            # Drop the chunky default highlight bar. Use terminal-default bg
-            # so the menu blends, then `ansibrightblack` for a soft "dim"
-            # look that stays readable on both light and dark themes (since
-            # ANSI bright-black gets remapped to a mid-grey by most terms).
-            "completion-menu": "bg:default fg:ansibrightblack",
-            "completion-menu.completion": "bg:default fg:ansibrightblack",
-            # Selection highlight: use cyan to match the puppy/model banner
-            # colors (green is already the `cwd` color, and the bright-green
-            # bold variant was way too loud — Mike's eyeballs filed a complaint).
-            # `noreverse` is critical: prompt_toolkit's default for this class
-            # is `fg:#888888 bg:#ffffff reverse`, which would otherwise swap
-            # our fg/bg and paint a chunky cyan block behind the left column.
-            "completion-menu.completion.current": "noreverse bg:default fg:ansibrightcyan bold",
-            # `display_meta` is the right-hand path column — same dim treatment,
-            # italicized to differentiate it from the primary column.
-            "completion-menu.meta.completion": "bg:default fg:ansibrightblack italic",
-            "completion-menu.meta.completion.current": "bg:default fg:ansicyan italic",
-            # Scrollbar — keep it subtle so it doesn't reintroduce a bar.
-            "completion-menu.multi-column-meta": "bg:default",
-            "scrollbar.background": "bg:default",
-            "scrollbar.button": "bg:ansibrightblack",
+            "attachment-placeholder": "italic",
+            # Suppress prompt_toolkit's fixed white/grey/reverse completion
+            # presentation. Colors now inherit from the semantic theme root;
+            # only hierarchy and emphasis belong to this local component.
+            "completion-menu": "noreverse",
+            "completion-menu.completion": "noreverse",
+            "completion-menu.completion.current": "noreverse bold underline",
+            "completion-menu.meta.completion": "noreverse italic",
+            "completion-menu.meta.completion.current": "noreverse italic bold",
+            "completion-menu.multi-column-meta": "noreverse",
+            "scrollbar.background": "noreverse",
+            "scrollbar.button": "noreverse bold",
         }
     )
+    style = on_prompt_toolkit_style(local_style)
     text = await session.prompt_async(prompt_str, style=style)
     # NOTE: We used to call update_model_in_input(text) here to handle /model and /m
     # commands at the prompt level, but that prevented the command handler from running

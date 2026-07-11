@@ -20,6 +20,7 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     SetCompleter,
     _complete_or_cycle,
     get_input_with_combined_completion,
+    get_prompt_with_active_model,
 )
 
 # Skip some path-format sensitive tests on Windows where backslashes are expected
@@ -486,6 +487,71 @@ async def test_get_input_with_combined_completion_defaults(
     # The prompt layer now just returns the input as-is.
     assert result == "test input"
     mock_file_history.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession")
+async def test_prompt_session_style_uses_central_theme_adapter(
+    mock_prompt_session_cls,
+):
+    mock_session = MagicMock()
+    mock_session.prompt_async = AsyncMock(return_value="themed input")
+    mock_prompt_session_cls.return_value = mock_session
+    themed_style = MagicMock(name="themed-style")
+
+    with (
+        patch(
+            "code_puppy.command_line.prompt_toolkit_completion.on_prompt_text_color",
+            return_value=None,
+        ),
+        patch(
+            "code_puppy.command_line.prompt_toolkit_completion.on_prompt_toolkit_style",
+            return_value=themed_style,
+        ) as mock_theme_adapter,
+    ):
+        await get_input_with_combined_completion()
+
+    local_style = mock_theme_adapter.call_args.args[0]
+    local_rules = dict(local_style.style_rules)
+    assert mock_session.prompt_async.call_args.kwargs["style"] is themed_style
+    assert "ansiwhite" not in repr(local_rules)
+    assert "ansibrightblack" not in repr(local_rules)
+    assert "#ffffff" not in repr(local_rules)
+    assert "#000000" not in repr(local_rules)
+    assert local_rules["completion-menu.completion.current"] == (
+        "noreverse bold underline"
+    )
+
+
+def test_meaningful_prompt_fragments_include_semantic_roles():
+    agent = MagicMock(display_name="Code Puppy")
+    agent.get_model_name.return_value = "test-model"
+
+    with (
+        patch(
+            "code_puppy.command_line.prompt_toolkit_completion.get_puppy_name",
+            return_value="Biscuit",
+        ),
+        patch(
+            "code_puppy.command_line.prompt_toolkit_completion.get_active_model",
+            return_value="test-model",
+        ),
+        patch(
+            "code_puppy.agents.agent_manager.get_current_agent",
+            return_value=agent,
+        ),
+    ):
+        prompt = get_prompt_with_active_model()
+
+    styles = [style for style, _text in prompt]
+    rendered = "".join(text for _style, text in prompt)
+    assert "class:puppy class:tui.header" in styles
+    assert "class:agent class:tui.label" in styles
+    assert "class:model class:tui.title" in styles
+    assert "class:cwd class:tui.muted" in styles
+    assert "class:arrow class:tui.help-key" in styles
+    assert rendered.startswith("Biscuit [Code Puppy] [test-model] ")
+    assert rendered.endswith(">>> ")
 
 
 @pytest.mark.asyncio

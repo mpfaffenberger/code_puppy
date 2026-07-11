@@ -23,6 +23,36 @@ def _active_palette() -> dict[str, Any] | None:
     return palette
 
 
+def _relative_luminance(color: str) -> float:
+    """Return WCAG relative luminance for a ``#rrggbb`` color."""
+    channels = [int(color[index : index + 2], 16) / 255 for index in (1, 3, 5)]
+    linear = [
+        value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+        for value in channels
+    ]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def _contrast_ratio(first: str, second: str) -> float:
+    lighter, darker = sorted(
+        (_relative_luminance(first), _relative_luminance(second)), reverse=True
+    )
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _muted_foreground(ansi: list[str], foreground: str, background: str) -> str:
+    """Choose the least-prominent candidate that still meets WCAG AA."""
+    candidates = (ansi[8], ansi[14], ansi[15], foreground)
+    readable = [
+        color for color in candidates if _contrast_ratio(color, background) >= 4.5
+    ]
+    return min(
+        readable,
+        key=lambda color: _contrast_ratio(color, background),
+        default=foreground,
+    )
+
+
 def get_style_rules() -> dict[str, str]:
     """Return semantic prompt-toolkit rules for the active theme."""
     palette = _active_palette()
@@ -32,9 +62,7 @@ def get_style_rules() -> dict[str, str]:
     ansi = palette["ansi"]
     foreground = palette.get("fg", ansi[7])
     background = palette.get("bg", ansi[0])
-    # Some light palettes reserve bright-black for their background. It is not
-    # a usable muted foreground in that case (Solarized base3, hello again).
-    muted = ansi[14] if ansi[8].lower() == background.lower() else ansi[8]
+    muted = _muted_foreground(ansi, foreground, background)
     return {
         "": f"fg:{foreground} bg:{background}",
         "tui": f"fg:{foreground} bg:{background}",
@@ -51,7 +79,24 @@ def get_style_rules() -> dict[str, str]:
         "tui.warning": f"fg:{ansi[11]} bold",
         "tui.error": f"fg:{ansi[9]} bold",
         "tui.input": f"fg:{foreground}",
-        "tui.input.focused": f"fg:{foreground} bg:{muted}",
+        "tui.input.focused": f"fg:{background} bg:{ansi[12]} bold noreverse",
+        # prompt_toolkit's defaults hard-code grey on white for completion
+        # menus. Root semantic rules cannot beat those more-specific selectors,
+        # so adapt the standard widget classes here as part of the shared theme.
+        "completion-menu": f"fg:{muted} bg:{background} noreverse",
+        "completion-menu.completion": f"fg:{muted} bg:{background} noreverse",
+        "completion-menu.completion.current": (
+            f"fg:{ansi[12]} bg:{background} bold noreverse"
+        ),
+        "completion-menu.meta.completion": (
+            f"fg:{muted} bg:{background} italic noreverse"
+        ),
+        "completion-menu.meta.completion.current": (
+            f"fg:{ansi[14]} bg:{background} italic noreverse"
+        ),
+        "completion-menu.multi-column-meta": f"bg:{background}",
+        "scrollbar.background": f"fg:{muted} bg:{background}",
+        "scrollbar.button": f"fg:{muted} bg:{background}",
     }
 
 
