@@ -199,7 +199,11 @@ async def _prompt_for_value(
         prompt = (
             f"New value for '{setting.key}' (current: {current_val or '(not set)'}): "
         )
-        session = PromptSession(prompt, is_password=setting.sensitive)
+        session = PromptSession(
+            prompt,
+            is_password=setting.sensitive,
+            style=on_prompt_toolkit_style(),
+        )
         try:
             new_val = await session.prompt_async()
         except KeyboardInterrupt:

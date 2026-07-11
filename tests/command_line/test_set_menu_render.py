@@ -92,7 +92,7 @@ class TestLeftPanelDefaultPrefix:
             )
         assert "(Default) " not in _flatten(panel)
 
-    def test_prefix_uses_dim_italic_style(self):
+    def test_prefix_uses_semantic_muted_style(self):
         entry = self._entry_for("true")
         with patch(
             "code_puppy.command_line.set_menu_render.is_default_value",
@@ -110,7 +110,7 @@ class TestLeftPanelDefaultPrefix:
                 total_pages_fn=get_total_pages,
             )
         styles = _styles_with(panel, "(Default) ")
-        assert any("ansibrightblack" in s and "italic" in s for s in styles)
+        assert styles == ["class:tui.muted"]
 
 
 # ---------------------------------------------------------------------------
