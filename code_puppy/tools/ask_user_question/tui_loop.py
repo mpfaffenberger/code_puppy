@@ -34,6 +34,7 @@ from .constants import (
 )
 from .renderers import render_question_panel
 from .theme import get_rich_colors, get_tui_colors
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 if TYPE_CHECKING:
     from .models import QuestionAnswer
@@ -418,6 +419,7 @@ async def run_question_tui(
         mouse_support=False,
         color_depth=ColorDepth.DEPTH_24_BIT,
         output=output,
+        style=on_prompt_toolkit_style(),
     )
 
     # Timeout checker background task

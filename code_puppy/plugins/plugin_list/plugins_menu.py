@@ -43,6 +43,7 @@ from code_puppy.plugins.plugin_list.plugins_menu_render import (
     render_list,
 )
 from code_puppy.tools.command_runner import set_awaiting_user_input
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 PAGE_SIZE = 20
 
@@ -392,6 +393,7 @@ class PluginsMenu:
             key_bindings=kb,
             full_screen=False,
             mouse_support=False,
+            style=on_prompt_toolkit_style(),
         )
 
         # Live resize: prompt_toolkit re-renders on SIGWINCH automatically, but

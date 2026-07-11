@@ -20,6 +20,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.text import Text
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 # =============================================================================
 # Approval queueing locks
@@ -1078,6 +1079,7 @@ async def arrow_select_async(
         layout=layout,
         key_bindings=kb,
         full_screen=False,
+        style=on_prompt_toolkit_style(),
     )
 
     # Flush output before prompt_toolkit takes control
@@ -1164,6 +1166,7 @@ def arrow_select(message: str, choices: list[str]) -> str:
         layout=layout,
         key_bindings=kb,
         full_screen=False,
+        style=on_prompt_toolkit_style(),
     )
 
     # Flush output before prompt_toolkit takes control

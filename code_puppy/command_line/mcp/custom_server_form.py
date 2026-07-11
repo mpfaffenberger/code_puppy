@@ -27,6 +27,7 @@ from pygments.lexers.data import JsonLexer
 
 from code_puppy.messaging import emit_info, emit_success
 from code_puppy.tools.command_runner import set_awaiting_user_input
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 # Example configurations for each server type
 CUSTOM_SERVER_EXAMPLES = {
@@ -616,6 +617,7 @@ class CustomServerForm:
             key_bindings=kb,
             full_screen=False,
             mouse_support=False,
+            style=on_prompt_toolkit_style(),
         )
 
         set_awaiting_user_input(True)

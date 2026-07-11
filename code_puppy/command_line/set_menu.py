@@ -49,6 +49,7 @@ from code_puppy.config import (
     reset_value,
 )
 from code_puppy.tools.command_runner import set_awaiting_user_input
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 PAGE_SIZE = 12
 
@@ -343,6 +344,7 @@ async def interactive_set_picker() -> Optional[PickerResult]:
         key_bindings=kb,
         full_screen=False,
         mouse_support=False,
+        style=on_prompt_toolkit_style(),
     )
 
     set_awaiting_user_input(True)

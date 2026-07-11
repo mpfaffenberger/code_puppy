@@ -29,6 +29,7 @@ PhaseType = Literal[
     "stream_event",
     "thinking_display_filter",
     "termflow_style",
+    "prompt_toolkit_style",
     "termflow_highlighter",
     "prompt_text_color",
     "register_tools",
@@ -91,6 +92,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "stream_event": [],
     "thinking_display_filter": [],
     "termflow_style": [],
+    "prompt_toolkit_style": [],
     "termflow_highlighter": [],
     "prompt_text_color": [],
     "register_tools": [],
@@ -662,6 +664,11 @@ def on_termflow_style(default_style: Any) -> Any:
     current style unchanged, and failures degrade safely to the prior style.
     """
     return _chain_value_callbacks("termflow_style", default_style)
+
+
+def on_prompt_toolkit_style(default_style: Any = None) -> Any:
+    """Let plugins replace a prompt_toolkit Application style."""
+    return _chain_value_callbacks("prompt_toolkit_style", default_style)
 
 
 def on_termflow_highlighter(default_highlighter: Any) -> Any:

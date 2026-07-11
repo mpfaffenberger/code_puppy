@@ -16,6 +16,7 @@ from code_puppy.callbacks import (
     on_load_model_config,
     on_post_tool_call,
     on_prompt_text_color,
+    on_prompt_toolkit_style,
     on_shutdown,
     on_pre_tool_call,
     on_register_cli_args,
@@ -35,6 +36,12 @@ class TestCallbacksExtended:
     def setup_method(self):
         """Clean up callbacks before each test."""
         clear_callbacks()
+
+    def test_prompt_toolkit_style_callbacks_chain(self):
+        register_callback("prompt_toolkit_style", lambda style: [*style, "theme"])
+        register_callback("prompt_toolkit_style", lambda style: [*style, "menu"])
+
+        assert on_prompt_toolkit_style(["base"]) == ["base", "theme", "menu"]
 
     def test_register_callback(self):
         """Test callback registration."""

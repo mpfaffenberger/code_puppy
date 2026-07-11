@@ -24,6 +24,7 @@ from .catalog_server_installer import (
     prompt_for_server_config,
 )
 from .custom_server_form import run_custom_server_form
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 logger = logging.getLogger(__name__)
 
@@ -639,6 +640,7 @@ class MCPInstallMenu:
             key_bindings=kb,
             full_screen=False,
             mouse_support=False,
+            style=on_prompt_toolkit_style(),
         )
 
         set_awaiting_user_input(True)

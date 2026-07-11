@@ -30,6 +30,7 @@ from .config import (
     save_hooks_config,
     toggle_hook_enabled,
 )
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 PAGE_SIZE = 12
 
@@ -493,6 +494,7 @@ class HooksMenu:
             key_bindings=kb,
             full_screen=False,
             mouse_support=False,
+            style=on_prompt_toolkit_style(),
         )
 
         try:

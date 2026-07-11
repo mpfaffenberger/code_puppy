@@ -16,6 +16,7 @@ from prompt_toolkit.layout import Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 from rich.console import Console
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 # Sample code snippets for each language
 LANGUAGE_SAMPLES = {
@@ -598,6 +599,7 @@ async def _split_panel_selector(
         full_screen=False,  # Don't use full_screen to avoid buffer issues
         mouse_support=False,
         color_depth="DEPTH_24_BIT",  # Enable truecolor support
+        style=on_prompt_toolkit_style(),
     )
 
     sys.stdout.flush()

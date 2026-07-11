@@ -36,6 +36,7 @@ from .onboarding_slides import (
     slide_use_cases,
     slide_welcome,
 )
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 # ============================================================================
 # State Tracking
@@ -300,6 +301,7 @@ async def run_onboarding_wizard() -> Optional[str]:
             full_screen=False,
             mouse_support=False,
             color_depth="DEPTH_24_BIT",
+            style=on_prompt_toolkit_style(),
         )
 
         sys.stdout.write("\033[2J\033[H")

@@ -553,6 +553,21 @@ class TestRegisterCallbacks:
         assert "38;2;57;231;95" in rendered  # bright keyword
         assert "38;2;138;203;114" in rendered  # normal literal
 
+    def test_solarized_light_code_uses_dark_default_foreground(self):
+        from termflow.syntax import Highlighter
+
+        from code_puppy.plugins.theme.register_callbacks import _termflow_highlighter
+
+        with patch(
+            "code_puppy.plugins.theme.register_callbacks._active_terminal_palette",
+            return_value=("solarized-light", SOLARIZED_LIGHT),
+        ):
+            highlighter = _termflow_highlighter(Highlighter())
+
+        rendered = highlighter.highlight_line("palette = Palette()", "python")
+        assert "38;2;101;123;131" in rendered  # dark base foreground
+        assert "38;2;238;232;213" not in rendered  # near-background ANSI white
+
     def test_termflow_style_uses_active_terminal_palette(self):
         from termflow.render.style import RenderStyle
 

@@ -52,6 +52,7 @@ from code_puppy.plugins.wiggum.judge_config import (
     validate_name,
 )
 from code_puppy.tools.command_runner import set_awaiting_user_input
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 PAGE_SIZE = 10
 
@@ -451,6 +452,7 @@ async def _run_judge_form(
         key_bindings=kb,
         full_screen=False,
         mouse_support=False,
+        style=on_prompt_toolkit_style(),
     )
     layout.focus(name_area)
 
@@ -742,7 +744,11 @@ async def interactive_judges_menu() -> None:
 
     layout = Layout(root)
     app = Application(
-        layout=layout, key_bindings=kb, full_screen=False, mouse_support=False
+        layout=layout,
+        key_bindings=kb,
+        full_screen=False,
+        mouse_support=False,
+        style=on_prompt_toolkit_style(),
     )
 
     set_awaiting_user_input(True)

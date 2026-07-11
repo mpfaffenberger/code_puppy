@@ -34,6 +34,7 @@ from .themes import (
     content_styles_for,
     terminal_palette_for,
 )
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 # A few representative banners to show in the preview pane (keeps it readable).
 PREVIEW_BANNERS = [
@@ -339,6 +340,7 @@ async def interactive_theme_picker() -> Optional[str]:
         full_screen=False,
         mouse_support=False,
         color_depth="DEPTH_24_BIT",
+        style=on_prompt_toolkit_style(),
     )
 
     try:

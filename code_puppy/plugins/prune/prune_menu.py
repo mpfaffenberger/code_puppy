@@ -39,6 +39,7 @@ from code_puppy.plugins.prune.prune_model import (
     Row,
 )
 from code_puppy.plugins.prune.prune_render import render_detail, render_list
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 
 class PruneMenu:
@@ -274,6 +275,7 @@ class PruneMenu:
             key_bindings=self._build_keybindings(),
             full_screen=False,
             mouse_support=False,
+            style=on_prompt_toolkit_style(),
         )
 
         try:

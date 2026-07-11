@@ -36,6 +36,7 @@ from code_puppy.plugins.agent_skills.downloader import download_and_install_skil
 from code_puppy.plugins.agent_skills.installer import InstallResult
 from code_puppy.plugins.agent_skills.skill_catalog import SkillCatalogEntry, catalog
 from code_puppy.tools.command_runner import set_awaiting_user_input
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 logger = logging.getLogger(__name__)
 
@@ -587,6 +588,7 @@ class SkillsInstallMenu:
             key_bindings=kb,
             full_screen=False,
             mouse_support=False,
+            style=on_prompt_toolkit_style(),
         )
 
         set_awaiting_user_input(True)

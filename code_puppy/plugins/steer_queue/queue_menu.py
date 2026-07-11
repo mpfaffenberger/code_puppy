@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import List, Optional
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 logger = logging.getLogger(__name__)
 
@@ -216,20 +217,22 @@ class QueueMenuApp:
             key_bindings=self._bindings,
             full_screen=True,
             mouse_support=True,
-            style=Style.from_dict(
-                {
-                    "header": "bg:#173b22 #f3fff5 bold",
-                    "header.title": "#63e677 bold",
-                    "list": "bg:#101510 #d3dfd5",
-                    "list.selected": "bg:#285c36 #ffffff bold",
-                    "list.index": "#6f9478",
-                    "list.empty": "#718077 italic",
-                    "detail": "bg:#0c120d #e5eee7",
-                    "detail.label": "#63e677 bold",
-                    "notice": "bg:#172019 #f2c96d",
-                    "footer": "bg:#111811 #9fb4a4",
-                    "footer.key": "#63e677 bold",
-                }
+            style=on_prompt_toolkit_style(
+                Style.from_dict(
+                    {
+                        "header": "bg:#173b22 #f3fff5 bold",
+                        "header.title": "#63e677 bold",
+                        "list": "bg:#101510 #d3dfd5",
+                        "list.selected": "bg:#285c36 #ffffff bold",
+                        "list.index": "#6f9478",
+                        "list.empty": "#718077 italic",
+                        "detail": "bg:#0c120d #e5eee7",
+                        "detail.label": "#63e677 bold",
+                        "notice": "bg:#172019 #f2c96d",
+                        "footer": "bg:#111811 #9fb4a4",
+                        "footer.key": "#63e677 bold",
+                    }
+                )
             ),
         )
         self._sync_editor()

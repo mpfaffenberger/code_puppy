@@ -34,6 +34,7 @@ from code_puppy.mcp_.agent_bindings import (
 )
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.command_runner import set_awaiting_user_input
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 
 def _list_servers() -> List[Tuple[str, str, str]]:
@@ -211,6 +212,7 @@ async def interactive_mcp_binding_menu(agent_name: str) -> None:
         key_bindings=kb,
         full_screen=False,
         mouse_support=False,
+        style=on_prompt_toolkit_style(),
     )
 
     set_awaiting_user_input(True)
@@ -325,7 +327,11 @@ async def prompt_bind_after_install(server_name: str) -> None:
     window = Window(content=menu_control, wrap_lines=False)
     frame = Frame(window, title=f"Bind {server_name}")
     app = Application(
-        layout=Layout(frame), key_bindings=kb, full_screen=False, mouse_support=False
+        layout=Layout(frame),
+        key_bindings=kb,
+        full_screen=False,
+        mouse_support=False,
+        style=on_prompt_toolkit_style(),
     )
 
     set_awaiting_user_input(True)

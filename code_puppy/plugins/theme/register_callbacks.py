@@ -35,6 +35,7 @@ from . import content_styles as cs
 from . import osc_palette as osc
 from . import rich_themes as rt
 from .picker import interactive_theme_picker
+from .prompt_toolkit_theme import merge_with_active_style
 from .themes import (
     MENU_BY_NAME,
     apply,
@@ -190,6 +191,17 @@ def _termflow_highlighter(default_highlighter):
             Operator: "#63b96a",
             String: "#9bdc79",
         }
+    elif active_theme in {"solarized-light", "solarized"}:
+        token_styles = {
+            Token: "#657b83",
+            Comment: "#586e75",
+            Error: "#dc322f",
+            Keyword: "#859900",
+            Name.Function: "#268bd2",
+            Number: "#2aa198",
+            Operator: "#657b83",
+            String: "#2aa198",
+        }
     else:
         token_styles = {
             Token: ansi[7],
@@ -288,5 +300,6 @@ register_callback("startup", _apply_default_theme_on_first_run)
 register_callback("termflow_style", _termflow_style)
 register_callback("termflow_highlighter", _termflow_highlighter)
 register_callback("prompt_text_color", _prompt_text_color)
+register_callback("prompt_toolkit_style", merge_with_active_style)
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_theme)

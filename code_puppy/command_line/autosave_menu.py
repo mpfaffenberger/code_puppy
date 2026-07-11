@@ -31,6 +31,7 @@ from code_puppy.command_line.pagination import (
     get_page_for_index,
     get_total_pages,
 )
+from code_puppy.callbacks import on_prompt_toolkit_style
 from code_puppy.config import AUTOSAVE_DIR
 from code_puppy.session_storage import list_sessions, load_session
 from code_puppy.tools.command_runner import set_awaiting_user_input
@@ -204,9 +205,9 @@ def _render_menu_panel(
         lines.append(("", "\n\n"))
         # Navigation hints (always show)
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "  ↑/↓ "))
+        lines.append(("class:tui.muted", "  ↑/↓ "))
         lines.append(("", "Navigate\n"))
-        lines.append(("fg:ansibrightblack", "  ←/→ "))
+        lines.append(("class:tui.muted", "  ←/→ "))
         lines.append(("", "Page\n"))
         lines.append(("fg:green", "  Enter  "))
         lines.append(("", "Load\n"))
@@ -236,9 +237,9 @@ def _render_menu_panel(
 
         # Highlight selected item
         if is_selected:
-            lines.append(("fg:ansibrightblack", f" > {label}"))
+            lines.append(("class:tui.muted", f" > {label}"))
         else:
-            lines.append(("fg:ansibrightblack", f"   {label}"))
+            lines.append(("class:tui.muted", f"   {label}"))
 
         lines.append(("", "\n"))
 
@@ -250,13 +251,13 @@ def _render_menu_panel(
         lines.append(("fg:ansiyellow", "  Esc "))
         lines.append(("", "Exit browser\n"))
     else:
-        lines.append(("fg:ansibrightblack", "  ↑/↓ "))
+        lines.append(("class:tui.muted", "  ↑/↓ "))
         lines.append(("", "Navigate\n"))
-        lines.append(("fg:ansibrightblack", "  ←/→ "))
+        lines.append(("class:tui.muted", "  ←/→ "))
         lines.append(("", "Page\n"))
         lines.append(("fg:ansicyan", "  e   "))
         lines.append(("", "Browse msgs\n"))
-        lines.append(("fg:ansibrightblack", "  /   "))
+        lines.append(("class:tui.muted", "  /   "))
         lines.append(("", "Search content\n"))
     lines.append(("fg:green", "  Enter  "))
     lines.append(("", "Load\n"))
@@ -300,7 +301,7 @@ def _render_message_browser_panel(
     role, content = _extract_message_content(msg)
 
     # Session info
-    lines.append(("fg:ansibrightblack", f"  Session: {session_name}"))
+    lines.append(("class:tui.muted", f"  Session: {session_name}"))
     lines.append(("", "\n"))
 
     # Message position indicator
@@ -318,7 +319,7 @@ def _render_message_browser_panel(
     lines.append(("", "\n"))
 
     # Separator line
-    lines.append(("fg:ansibrightblack", "  " + "─" * 40))
+    lines.append(("class:tui.muted", "  " + "─" * 40))
     lines.append(("", "\n"))
 
     # Render content - use markdown for user/assistant, plain text for tool
@@ -357,7 +358,7 @@ def _render_message_browser_panel(
 
     # Navigation hint at bottom
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "  ↑ older  ↓ newer  Esc exit"))
+    lines.append(("class:tui.muted", "  ↑ older  ↓ newer  Esc exit"))
     lines.append(("", "\n"))
 
     return lines
@@ -367,7 +368,7 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
     """Render the right preview panel with message content using rich markdown."""
     lines = []
 
-    lines.append(("dim cyan", " PREVIEW"))
+    lines.append(("class:tui.title", " PREVIEW"))
     lines.append(("", "\n\n"))
 
     if not entry:
@@ -388,18 +389,16 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
         time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         time_str = timestamp
-    lines.append(("fg:ansibrightblack", f"  Saved: {time_str}"))
+    lines.append(("class:tui.muted", f"  Saved: {time_str}"))
     lines.append(("", "\n"))
 
     msg_count = metadata.get("message_count", 0)
     tokens = metadata.get("total_tokens", 0)
-    lines.append(
-        ("fg:ansibrightblack", f"  Messages: {msg_count} • Tokens: {tokens:,}")
-    )
+    lines.append(("class:tui.muted", f"  Messages: {msg_count} • Tokens: {tokens:,}"))
     lines.append(("", "\n\n"))
 
     lines.append(("bold", "  Last Message:"))
-    lines.append(("fg:ansibrightblack", "  (press 'e' to browse full history)"))
+    lines.append(("class:tui.muted", "  (press 'e' to browse full history)"))
     lines.append(("", "\n"))
 
     # Try to load and preview the last message
@@ -424,7 +423,7 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
 
         for line in message_lines:
             # Rich already rendered the markdown, just display it dimmed
-            lines.append(("fg:ansibrightblack", f"  {line}"))
+            lines.append(("class:tui.muted", f"  {line}"))
             lines.append(("", "\n"))
 
     except Exception as e:
@@ -624,7 +623,7 @@ async def interactive_autosave_picker() -> Optional[str]:
         cached = content_index.count()
         if 0 < cached < total_to_index:
             return (
-                "fg:ansibrightblack",
+                "class:tui.muted",
                 f"  Indexing {cached}/{total_to_index}...",
             )
         return None
@@ -850,6 +849,7 @@ async def interactive_autosave_picker() -> Optional[str]:
 
     layout = Layout(root_container)
     app = Application(
+        style=on_prompt_toolkit_style(),
         layout=layout,
         key_bindings=kb,
         full_screen=False,

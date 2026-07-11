@@ -27,6 +27,7 @@ from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.plugins.universal_constructor.models import UCToolInfo
 from code_puppy.plugins.universal_constructor.registry import get_registry
 from code_puppy.tools.command_runner import set_awaiting_user_input
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 PAGE_SIZE = 10  # Tools per page
 SOURCE_PAGE_SIZE = 30  # Lines of source per page
@@ -815,6 +816,7 @@ async def interactive_uc_picker() -> Optional[str]:
                     key_bindings=list_kb,
                     full_screen=False,
                     mouse_support=False,
+                    style=on_prompt_toolkit_style(),
                 )
             else:
                 # Source view
@@ -825,6 +827,7 @@ async def interactive_uc_picker() -> Optional[str]:
                     key_bindings=source_kb,
                     full_screen=False,
                     mouse_support=False,
+                    style=on_prompt_toolkit_style(),
                 )
 
             await app.run_async()

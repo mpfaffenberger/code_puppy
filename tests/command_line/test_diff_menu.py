@@ -405,6 +405,7 @@ class TestSplitPanelSelector:
                 full_screen=False,
                 mouse_support=False,
                 color_depth=None,
+                style=None,
             ):
                 # Get the formatted text from the layout
                 return mock_instance

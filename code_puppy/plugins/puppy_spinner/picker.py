@@ -38,6 +38,7 @@ from code_puppy.command_line.pagination import (
 )
 
 from . import spinners as sp
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 #: Invalidation cadence for the preview animation. Pinned to the speed
 #: floor so even a spinner dialed all the way down to MIN_INTERVAL
@@ -349,6 +350,7 @@ async def interactive_spinner_picker() -> Optional[Tuple[str, Optional[float]]]:
         key_bindings=kb,
         full_screen=False,
         mouse_support=False,
+        style=on_prompt_toolkit_style(),
     )
 
     async def _animate() -> None:

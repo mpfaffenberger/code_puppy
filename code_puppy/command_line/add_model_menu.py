@@ -35,6 +35,7 @@ from code_puppy.provider_credentials import (
     save_credential,
 )
 from code_puppy.tools.command_runner import set_awaiting_user_input
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 PAGE_SIZE = 15  # Items per page
 
@@ -1307,6 +1308,7 @@ class AddModelMenu:
                     key_bindings=kb,
                     full_screen=False,
                     mouse_support=False,
+                    style=on_prompt_toolkit_style(),
                 )
 
                 # Run application in a background thread to avoid event loop conflicts

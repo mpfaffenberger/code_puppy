@@ -27,6 +27,7 @@ from code_puppy.provider_credentials import (
     save_credential,
 )
 from code_puppy.command_line.utils import safe_input
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 logger = logging.getLogger(__name__)
 
@@ -530,6 +531,7 @@ class ModelSelectionMenu:
                 layout=Layout(Window(content=control, wrap_lines=True)),
                 key_bindings=kb,
                 full_screen=False,
+                style=on_prompt_toolkit_style(),
             )
             await app.run_async()
 

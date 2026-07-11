@@ -18,6 +18,7 @@ from prompt_toolkit.layout import Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 from rich.console import Console
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 # Banner display names; decorative icons are intentionally omitted.
 BANNER_DISPLAY_INFO = {
@@ -370,6 +371,7 @@ async def _split_panel_selector(
         full_screen=False,
         mouse_support=False,
         color_depth="DEPTH_24_BIT",
+        style=on_prompt_toolkit_style(),
     )
 
     sys.stdout.flush()

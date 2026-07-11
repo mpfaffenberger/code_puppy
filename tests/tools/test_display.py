@@ -4,7 +4,7 @@ Tests all functions and code paths with edge cases and error handling.
 """
 
 from io import StringIO
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 import pytest
 from rich.console import Console
@@ -76,7 +76,9 @@ class TestDisplayNonStreamedResult:
         mock_renderer_class.assert_called_once_with(
             output=mock_console.file,
             width=mock_console.width,
+            style=ANY,
             features=RenderFeatures(clipboard=False),
+            highlighter=ANY,
         )
 
     @patch("code_puppy.messaging.spinner.pause_all_spinners")
@@ -522,7 +524,9 @@ class TestDisplayNonStreamedResult:
         mock_renderer_class.assert_called_once_with(
             output=test_file,
             width=100,
+            style=ANY,
             features=RenderFeatures(clipboard=False),
+            highlighter=ANY,
         )
 
     @patch("code_puppy.messaging.spinner.pause_all_spinners")
