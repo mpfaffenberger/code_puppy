@@ -293,6 +293,20 @@ class TestThemePickerPagination:
         assert "Ocean" not in rendered
         assert "Deep Black" not in rendered
 
+    def test_menu_uses_semantic_roles_for_chrome(self):
+        fragments = list(_format_menu(0))
+        styles = {style for style, _ in fragments}
+
+        assert {
+            "class:tui.header",
+            "class:tui.muted",
+            "class:tui.selected",
+            "class:tui.body",
+            "class:tui.help",
+            "class:tui.help-key",
+        } <= styles
+        assert not any("ansi" in style for style in styles)
+
     def test_page_navigation_clamps_at_catalog_edges(self):
         assert _move_page(2, 1) == 7
         assert _move_page(7, -1) == 2
