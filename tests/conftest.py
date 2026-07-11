@@ -9,14 +9,39 @@ import asyncio
 import inspect
 import os
 import subprocess
+import tempfile
 from copy import deepcopy
 from unittest.mock import MagicMock
 
 import pytest
 
-from code_puppy import config as cp_config
-from code_puppy import callbacks as cp_callbacks
-from code_puppy.messaging import bottom_bar as cp_bottom_bar
+# Config paths are resolved while code_puppy.config is imported, before any
+# fixture can run. Point every XDG category at one session-scoped temp root now
+# so collection, plugin imports, and tests cannot touch the developer's config.
+_XDG_TEMP_DIR = tempfile.TemporaryDirectory(prefix="code_puppy_pytest_xdg_")
+_XDG_ENV_VARS = (
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_STATE_HOME",
+)
+_ORIGINAL_XDG_ENV = {name: os.environ.get(name) for name in _XDG_ENV_VARS}
+for _xdg_name in _XDG_ENV_VARS:
+    os.environ[_xdg_name] = os.path.join(_XDG_TEMP_DIR.name, _xdg_name.lower())
+
+from code_puppy import config as cp_config  # noqa: E402
+from code_puppy import callbacks as cp_callbacks  # noqa: E402
+from code_puppy.messaging import bottom_bar as cp_bottom_bar  # noqa: E402
+
+
+def pytest_unconfigure(config):
+    """Restore the invoking shell's XDG environment and remove test state."""
+    for name, original_value in _ORIGINAL_XDG_ENV.items():
+        if original_value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = original_value
+    _XDG_TEMP_DIR.cleanup()
 
 
 class _InertStream:
