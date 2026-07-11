@@ -142,16 +142,16 @@ class TestGetters:
 class TestCategoryIcon:
     def test_custom_server_icon(self):
         menu = make_menu()
-        assert menu._get_category_icon("➕ Custom Server") == "➕"
+        assert menu._get_category_icon(menu.categories[0]) == "[+]"
 
     def test_known_category_icon(self):
         menu = make_menu()
-        assert menu._get_category_icon("Code") == "💻"
-        assert menu._get_category_icon("Storage") == "💾"
+        assert menu._get_category_icon("Code") == "[C]"
+        assert menu._get_category_icon("Storage") == "[S]"
 
     def test_unknown_category_icon(self):
         menu = make_menu()
-        assert menu._get_category_icon("Unknown") == "📁"
+        assert menu._get_category_icon("Unknown") == "[ ]"
 
 
 class TestIsCustomServerSelected:
@@ -207,6 +207,19 @@ class TestRenderCategoryList:
         text = "".join(str(t[1]) for t in lines)
         assert "(0)" in text  # zero server count when catalog is None
 
+    def test_uses_semantic_tui_roles(self):
+        menu = make_menu()
+        menu.selected_category_idx = 1
+
+        styles = {style for style, _text in menu._render_category_list() if style}
+
+        assert {
+            "class:tui.header",
+            "class:tui.selected",
+            "class:tui.help-key",
+        } <= styles
+        assert not any("fg:" in style or "ansi" in style for style in styles)
+
 
 class TestRenderServerList:
     def test_no_category_selected(self):
@@ -251,6 +264,18 @@ class TestRenderServerList:
         lines = menu._render_server_list()
         text = "".join(str(t[1]) for t in lines)
         assert "Page" in text
+
+    def test_server_details_use_semantic_status_roles(self, monkeypatch):
+        menu = make_menu()
+        menu.view_mode = "servers"
+        menu.current_servers = [FakeServer()]
+        menu.selected_server_idx = 0
+        monkeypatch.delenv("API_KEY", raising=False)
+
+        styles = {style for style, _text in menu._render_details() if style}
+
+        assert {"class:tui.label", "class:tui.muted", "class:tui.warning"} <= styles
+        assert not any("fg:" in style or "ansi" in style for style in styles)
 
 
 class TestRenderDetails:
