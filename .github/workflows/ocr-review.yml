@@ -1,0 +1,77 @@
+name: OpenCodeReview
+
+on:
+  issue_comment:
+    types: [created]
+
+# Only an authorized /open-code-review comment shares the PR's concurrency
+# group. Unrelated comments must not cancel a review already in progress.
+concurrency:
+  group: >-
+    ${{
+      (
+        github.event.issue.pull_request
+        && github.event.comment.user.type != 'Bot'
+        && (
+          github.event.comment.author_association == 'MEMBER'
+          || github.event.comment.author_association == 'OWNER'
+          || github.event.comment.author_association == 'COLLABORATOR'
+        )
+        && startsWith(github.event.comment.body, '/open-code-review')
+      )
+      && format('ocr-{0}', github.event.issue.number)
+      || format('ocr-noop-{0}', github.run_id)
+    }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Review pull request
+    if: |
+      github.event.issue.pull_request
+      && github.event.comment.user.type != 'Bot'
+      && (
+        github.event.comment.author_association == 'MEMBER'
+        || github.event.comment.author_association == 'OWNER'
+        || github.event.comment.author_association == 'COLLABORATOR'
+      )
+      && startsWith(github.event.comment.body, '/open-code-review')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Resolve pull request
+        id: pr
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            core.setOutput('base_ref', pullRequest.base.ref);
+            core.setOutput('head_sha', pullRequest.head.sha);
+            core.setOutput('title', pullRequest.title);
+
+      - name: Run OpenCodeReview
+        uses: alibaba/open-code-review@c3da87885086ff41ed8f2f77b65c7a3c471e01aa
+        with:
+          llm_url: ${{ secrets.OCR_LLM_URL }}
+          llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
+          llm_model: ${{ vars.OCR_LLM_MODEL }}
+          llm_use_anthropic: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
+          llm_extra_body: "{}"
+          llm_timeout: "120"
+          base_ref: ${{ steps.pr.outputs.base_ref }}
+          head_sha: ${{ steps.pr.outputs.head_sha }}
+          background: ${{ steps.pr.outputs.title }}
+          ocr_version: "1.7.7"
+          review_concurrency: "2"
+          sticky_summary: "true"
+          incremental: "true"
+          upload_artifacts: "true"
