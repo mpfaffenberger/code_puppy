@@ -65,7 +65,7 @@ jobs:
           llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
           llm_model: ${{ vars.OCR_LLM_MODEL }}
           llm_use_anthropic: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
-          llm_extra_body: "{}"
+          llm_extra_body: '{"chat_template_kwargs":{"thinking_mode":"disabled"}}'
           llm_timeout: "900"
           base_ref: ${{ steps.pr.outputs.base_ref }}
           head_sha: ${{ steps.pr.outputs.head_sha }}
