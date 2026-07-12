@@ -22,7 +22,7 @@ from pydantic_ai.mcp import (
     ToolResult,
 )
 
-from code_puppy.http_utils import create_async_client
+from code_puppy.http_utils import create_async_client, get_cert_bundle_path
 from code_puppy.mcp_.blocking_startup import BlockingMCPServerStdio
 from code_puppy.mcp_.tool_arg_coercion import coerce_tool_args
 
@@ -58,6 +58,44 @@ def _build_tool_prefix(server_name: str, config: Dict[str, Any]) -> str:
     if configured_prefix:
         return f"{server_name}_{configured_prefix}"
     return server_name
+
+
+def _with_inherited_ca_bundle(
+    env: Optional[Dict[str, str]],
+) -> Optional[Dict[str, str]]:
+    """Propagate our CA bundle into a stdio server's child environment.
+
+    A stdio MCP server is a subprocess (often ``uvx``/``npx`` launching a
+    Python or Node program) that makes its own HTTPS calls. pydantic-ai's
+    ``MCPServerStdio`` does NOT pass code_puppy's environment to that child
+    -- it runs with only the ``env`` dict we hand it (plus a minimal set the
+    MCP SDK adds back). So a ``SSL_CERT_FILE`` that lets code_puppy itself
+    reach the internet (see ``get_cert_bundle_path``) never reaches the
+    child, and the child falls back to certifi's bundle.
+
+    Behind a corporate TLS-interception proxy (Zscaler/Netskope/etc.) that
+    certifi bundle is missing the proxy's private root, so the child dies on
+    its first request with::
+
+        ssl.SSLCertVerificationError: [SSL: CERTIFICATE_VERIFY_FAILED]
+        self-signed certificate in certificate chain
+
+    even though code_puppy, curl, and the browser all work. This copies our
+    resolved bundle into the child env as ``SSL_CERT_FILE`` (honored by
+    Python's ``ssl``) and ``REQUESTS_CA_BUNDLE`` (honored by ``requests`` and
+    friends), so the child trusts exactly what the parent trusts.
+
+    It is additive and non-destructive: a value the user already set in the
+    server's ``env`` config always wins, and if no bundle is resolvable we
+    return ``env`` unchanged. We never disable verification.
+    """
+    bundle = get_cert_bundle_path()
+    if not bundle:
+        return env
+    out: Dict[str, str] = dict(env or {})
+    out.setdefault("SSL_CERT_FILE", bundle)
+    out.setdefault("REQUESTS_CA_BUNDLE", bundle)
+    return out
 
 
 class ServerState(Enum):
@@ -262,6 +300,9 @@ class ManagedMCPServer:
                 # Add optional parameters if provided (expand env vars in env and cwd)
                 if "env" in config:
                     stdio_kwargs["env"] = _expand_env_vars(config["env"])
+                # Always run (even with no configured env) so the child trusts
+                # our CA bundle; see _with_inherited_ca_bundle for why.
+                stdio_kwargs["env"] = _with_inherited_ca_bundle(stdio_kwargs.get("env"))
                 if "cwd" in config:
                     stdio_kwargs["cwd"] = _expand_env_vars(config["cwd"])
                 # Default timeout of 60s for stdio servers - some servers like Serena take a while to start
