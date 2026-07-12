@@ -18,6 +18,7 @@ preserved verbatim:
 from __future__ import annotations
 
 import asyncio
+import re
 import signal
 import threading
 import uuid
@@ -158,6 +159,34 @@ def _matches_retryable_snippet(msg: str) -> bool:
     return "stream" in msg and "ended" in msg
 
 
+# Matches a ``[HTTP 502]`` style marker some gateways embed in the message.
+_EMBEDDED_HTTP_STATUS_RE = re.compile(r"\[HTTP\s+(\d{3})\]", re.IGNORECASE)
+
+
+def _is_transient_status(status_code: object) -> bool:
+    """True for HTTP statuses worth a silent retry: 429 or any 5xx."""
+    return status_code == 429 or (isinstance(status_code, int) and status_code >= 500)
+
+
+def _embedded_http_status(text: str) -> Optional[int]:
+    """Dig a real upstream HTTP status out of a ``[HTTP NNN]`` message marker.
+
+    A gateway (e.g. the puppy-backend ``custom_anthropic`` proxy) can deliver an
+    upstream failure as an *in-band SSE ``error`` event* over a connection that
+    itself returned HTTP 200. The Anthropic SDK then builds an ``APIStatusError``
+    whose ``.status_code`` is 200 -- the stream's status, not the failure's --
+    and whose ``body.error.type`` is a generic ``"internal_error"``. The only
+    faithful trace of the real failure is a ``[HTTP 502]`` prefix baked into the
+    message/body text. Without recovering it, the classifier sees a 200 with no
+    matching snippet and refuses to retry, so a transient gateway 5xx crashes
+    the REPL instead of getting the slow spaced-out retry.
+
+    Returns the embedded status as an int, or ``None`` if no marker is present.
+    """
+    match = _EMBEDDED_HTTP_STATUS_RE.search(text or "")
+    return int(match.group(1)) if match else None
+
+
 def _walk_cause_chain(
     exc: BaseException, max_depth: int = 5
 ) -> "Iterator[BaseException]":
@@ -192,6 +221,12 @@ def _is_retryable_one(exc: BaseException) -> bool:
 
     msg = str(exc)
 
+    # Provider-agnostic: an in-band SSE 5xx surfaces with a 200 status_code and
+    # only a "[HTTP 5xx]" marker in the text (see _embedded_http_status). A 4xx
+    # marker (e.g. [HTTP 400]) is a genuine client error and must NOT retry.
+    if _is_transient_status(_embedded_http_status(msg)):
+        return True
+
     if isinstance(exc, UnexpectedModelBehavior):
         return _matches_retryable_snippet(msg)
 
@@ -202,7 +237,7 @@ def _is_retryable_one(exc: BaseException) -> bool:
         # APITimeoutError have no status_code and are already covered by the
         # transport-exception branch above. This mirrors the ModelHTTPError and
         # Anthropic branches so an OpenAI-compatible 502 gets the same slow
-        # 1-2-3 retry instead of a raw REPL traceback.
+        # spaced-out retry instead of a raw REPL traceback.
         status_code = getattr(exc, "status_code", None)
         if status_code == 429 or (isinstance(status_code, int) and status_code >= 500):
             return True
@@ -239,10 +274,18 @@ def _is_retryable_one(exc: BaseException) -> bool:
             if isinstance(err, dict):
                 if _matches_retryable_snippet(str(err.get("message", ""))):
                     return True
+                # A gateway 5xx wrapped in an SSE error event over a 200 stream
+                # lands here with status_code=200 and type "internal_error"; its
+                # real status survives only as a "[HTTP 5xx]" marker in the msg.
+                if _is_transient_status(
+                    _embedded_http_status(str(err.get("message", "")))
+                ):
+                    return True
                 if str(err.get("type", "")).lower() in {
                     "api_error",
                     "server_error",
                     "internal_server_error",
+                    "internal_error",
                 }:
                     return True
 
@@ -295,7 +338,7 @@ def should_retry_streaming(exc: Exception) -> bool:
     wrapped in an ``ExceptionGroup`` -- which is why ``run_agent_task`` catches
     it with ``except*``. The linear cause walker alone can't see inside
     ``.exceptions``, so a retryable 5xx used to look opaque and crash the REPL
-    with a full traceback instead of getting the slow 1-2-3 retry.
+    with a full traceback instead of getting the slow spaced-out retry.
 
     Returns ``True`` if *any* reachable exception is transient. Cycle-safe via
     an ``id`` set; the per-chain depth cap of :func:`_walk_cause_chain` is
@@ -319,9 +362,18 @@ def should_retry_streaming(exc: Exception) -> bool:
 
 def streaming_retry(
     max_attempts: int = 3,
-    delays: Sequence[float] = (1, 2, 4),
+    delays: Sequence[float] = (5, 30),
 ) -> Callable[[Callable[[], Any]], Callable[[], Any]]:
     """Wrap a no-arg async callable with streaming-retry semantics.
+
+    Budget: 3 attempts spaced ``(5, 30)`` seconds apart. With N attempts only
+    the first N-1 delays fire, so this waits ~5s before retry #2 and ~30s before
+    retry #3 -- a ~35s total window. That spacing is deliberate: gateway 5xx
+    outages (the Google "502 ... try again in 30 seconds" page the puppy-backend
+    proxy surfaces) routinely outlast a tight 1-2-4s window, so a fast burst of
+    retries just exhausts the budget before the upstream recovers. The quick
+    first retry still catches instantaneous SSE blips; the long second gap rides
+    out the advertised ~30s outage before giving up.
 
     Every retry (and the final exhaustion, if it happens) is logged with full
     detail to the on-disk error log via ``log_error``. Users only see a short

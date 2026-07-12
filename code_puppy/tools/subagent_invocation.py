@@ -295,14 +295,26 @@ async def _invoke_agent_impl(
                 async with AsyncExitStack() as stack:
                     for cm in run_ctxs:
                         await stack.enter_async_context(cm)
-                    task = asyncio.create_task(
-                        temp_agent.run(
+                    # Wrap the model stream in streaming_retry so a transient
+                    # provider hiccup (gateway 5xx delivered as an in-band SSE
+                    # error, a dropped SSE socket, an overloaded upstream) gets
+                    # the same slow spaced-out retry the top-level agent loop gets
+                    # instead of crashing the whole sub-agent invocation. This
+                    # path was previously the ONLY unprotected model-stream
+                    # call -- run_agent_task uses @streaming_retry, but a raw
+                    # temp_agent.run() here surfaced the 5xx straight to the REPL.
+                    from code_puppy.agents._runtime import streaming_retry
+
+                    @streaming_retry()
+                    async def _run_subagent():
+                        return await temp_agent.run(
                             prompt,
                             message_history=message_history,
                             usage_limits=UsageLimits(request_limit=get_message_limit()),
                             event_stream_handler=stream_handler,
                         )
-                    )
+
+                    task = asyncio.create_task(_run_subagent())
                     _active_subagent_tasks.add(task)
 
                     try:
