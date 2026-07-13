@@ -370,12 +370,16 @@ def load_model_with_fallback(
                 continue
             try:
                 model = ModelFactory.get_model(candidate, models_config)
-                emit_info(
-                    f"Using fallback model: {candidate}", message_group=message_group
-                )
-                return model, candidate
             except ValueError:
                 continue
+            if model is None:
+                # Missing credentials/provider reachability can make a model
+                # "configured" but unavailable at runtime. Keep searching for
+                # a *real* fallback instead of returning a None model that only
+                # explodes later in pydantic-ai run().
+                continue
+            emit_info(f"Using fallback model: {candidate}", message_group=message_group)
+            return model, candidate
 
         friendly = (
             "No valid model could be loaded. Update the model configuration or "

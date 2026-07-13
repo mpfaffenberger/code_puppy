@@ -49,21 +49,21 @@ class TestLoadContextCompleter:
                 contexts_dir.mkdir()
 
                 # Create test context files
-                (contexts_dir / "session1.pkl").touch()
-                (contexts_dir / "session2.pkl").touch()
-                (contexts_dir / "another_session.pkl").touch()
-                (contexts_dir / "not_a_pkl.txt").touch()  # Should be ignored
+                (contexts_dir / "session1.json").touch()
+                (contexts_dir / "session2.json").touch()
+                (contexts_dir / "another_session.json").touch()
+                (contexts_dir / "not_a_session.txt").touch()  # Should be ignored
 
                 # Test completion with space
                 doc = Document("/load_context ")
                 completions = list(self.completer.get_completions(doc, None))
 
-                # Should suggest all .pkl files (without extension)
+                # Should suggest all .json files (without extension)
                 completion_texts = [c.text for c in completions]
                 assert "session1" in completion_texts
                 assert "session2" in completion_texts
                 assert "another_session" in completion_texts
-                assert "not_a_pkl" not in completion_texts  # .txt files ignored
+                assert "not_a_session" not in completion_texts  # .txt files ignored
 
                 # All should have proper metadata
                 for completion in completions:
@@ -81,9 +81,9 @@ class TestLoadContextCompleter:
                 contexts_dir.mkdir()
 
                 # Create test context files
-                (contexts_dir / "session1.pkl").touch()
-                (contexts_dir / "session2.pkl").touch()
-                (contexts_dir / "another_session.pkl").touch()
+                (contexts_dir / "session1.json").touch()
+                (contexts_dir / "session2.json").touch()
+                (contexts_dir / "another_session.json").touch()
 
                 # Test completion with partial match
                 doc = Document("/load_context sess")

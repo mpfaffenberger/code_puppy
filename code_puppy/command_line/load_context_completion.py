@@ -38,8 +38,13 @@ class LoadContextCompleter(Completer):
         try:
             contexts_dir = Path(CONFIG_DIR) / "contexts"
             if contexts_dir.exists():
-                for pkl_file in contexts_dir.glob("*.pkl"):
-                    session_name = pkl_file.stem  # removes .pkl extension
+                # Support both legacy .pkl and newer .json session artifacts.
+                session_names = set()
+                for pattern in ("*.pkl", "*.json"):
+                    for session_file in contexts_dir.glob(pattern):
+                        session_names.add(session_file.stem)
+
+                for session_name in sorted(session_names):
                     if session_name.startswith(session_filter):
                         yield Completion(
                             session_name,
