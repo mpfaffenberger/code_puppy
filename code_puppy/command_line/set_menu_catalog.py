@@ -51,6 +51,10 @@ from code_puppy.config import (
     get_puppy_name,
     get_puppy_token,
     get_resume_message_count,
+    get_retry_main_max_attempts,
+    get_retry_main_strategy,
+    get_retry_subagent_max_attempts,
+    get_retry_subagent_strategy,
     get_safety_permission_level,
     get_smooth_response_stream,
     get_smooth_thinking_stream,
@@ -402,6 +406,61 @@ _DIFF = SettingsCategory(
 )
 
 
+_RETRY = SettingsCategory(
+    name="Retry",
+    settings=(
+        Setting(
+            key="retry_main_strategy",
+            display_name="Main Backoff Strategy",
+            description=(
+                "Backoff curve for the main agent loop when a transient "
+                "provider error (rate limit, gateway 5xx, dropped stream) is "
+                "retried. All strategies are exponential-with-jitter, capped at "
+                "30s between retries. 'gentle' eases up slowly, 'balanced' is "
+                "the default, 'aggressive' jumps to the 30s cap fast (best for "
+                "hard rate limits). Per-model overrides take precedence."
+            ),
+            type_hint="choice",
+            valid_values=("gentle", "balanced", "aggressive"),
+            effective_getter=get_retry_main_strategy,
+        ),
+        Setting(
+            key="retry_main_max_attempts",
+            display_name="Main Max Attempts",
+            description=(
+                "How many times the main agent loop attempts a streaming call "
+                "before giving up (1-100, clamped). Includes the first try."
+            ),
+            type_hint="int",
+            effective_getter=get_retry_main_max_attempts,
+        ),
+        Setting(
+            key="retry_subagent_strategy",
+            display_name="Sub-agent Backoff Strategy",
+            description=(
+                "Backoff curve for sub-agent runs. Same three strategies as the "
+                "main loop, capped at 30s between retries. Sub-agents default to "
+                "more attempts because losing their accumulated work to a "
+                "transient blip is never acceptable. Per-model overrides apply."
+            ),
+            type_hint="choice",
+            valid_values=("gentle", "balanced", "aggressive"),
+            effective_getter=get_retry_subagent_strategy,
+        ),
+        Setting(
+            key="retry_subagent_max_attempts",
+            display_name="Sub-agent Max Attempts",
+            description=(
+                "How many times a sub-agent run is attempted before giving up "
+                "(1-100, clamped). Includes the first try."
+            ),
+            type_hint="int",
+            effective_getter=get_retry_subagent_max_attempts,
+        ),
+    ),
+)
+
+
 _HOOKS = SettingsCategory(
     name="Hooks",
     settings=(
@@ -576,6 +635,7 @@ SETTINGS_CATEGORIES: Tuple[SettingsCategory, ...] = (
     _GOAL,
     _KEYBOARD,
     _DIFF,
+    _RETRY,
     _HOOKS,
     _API_KEYS,
 )

@@ -188,6 +188,51 @@ def get_enable_streaming() -> bool:
     return str(val).lower() in ("1", "true", "yes", "on")
 
 
+def get_retry_main_strategy() -> str:
+    """Effective backoff strategy for the main agent loop.
+
+    Delegates to :func:`code_puppy.agents.retry_profiles.resolve` so the value
+    shown in ``/set`` is exactly what the retry mechanism will use (clamped and
+    validated). Falls back gracefully if the module can't be imported.
+    """
+    try:
+        from code_puppy.agents.retry_profiles import resolve
+
+        return resolve("main").strategy
+    except Exception:
+        return "balanced"
+
+
+def get_retry_main_max_attempts() -> int:
+    """Effective max retry attempts for the main agent loop (clamped)."""
+    try:
+        from code_puppy.agents.retry_profiles import resolve
+
+        return resolve("main").max_attempts
+    except Exception:
+        return 5
+
+
+def get_retry_subagent_strategy() -> str:
+    """Effective backoff strategy for sub-agent runs."""
+    try:
+        from code_puppy.agents.retry_profiles import resolve
+
+        return resolve("subagent").strategy
+    except Exception:
+        return "balanced"
+
+
+def get_retry_subagent_max_attempts() -> int:
+    """Effective max retry attempts for sub-agent runs (clamped)."""
+    try:
+        from code_puppy.agents.retry_profiles import resolve
+
+        return resolve("subagent").max_attempts
+    except Exception:
+        return 9
+
+
 def get_suppress_directory_listing() -> bool:
     """
     Get the suppress_directory_listing configuration value.
@@ -374,6 +419,12 @@ def get_config_keys():
     default_keys.append("goal_max_iterations")
     # Add dangerous command guard disable (skips force push and destructive command guards)
     default_keys.append("disable_dangerous_command_guard")
+    # Add retry profile keys (backoff policy for streaming retries). Per-model
+    # overrides live under the model_settings_ namespace; these are the globals.
+    default_keys.append("retry_main_strategy")
+    default_keys.append("retry_main_max_attempts")
+    default_keys.append("retry_subagent_strategy")
+    default_keys.append("retry_subagent_max_attempts")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)

@@ -360,20 +360,40 @@ def should_retry_streaming(exc: Exception) -> bool:
     return False
 
 
+# Default retry budget for the raw ``streaming_retry`` mechanism when called
+# with no explicit policy. Gentle, *escalating* backoff -- deliberately not a
+# tight boom-boom-boom burst. In normal operation the main loop and sub-agents
+# do NOT rely on these: they pass an explicit, user-selectable policy resolved
+# by :mod:`code_puppy.agents.retry_profiles` (per-role, per-model). These
+# constants are the sensible standalone default for any direct/ defensive use of
+# the mechanism.
+DEFAULT_STREAMING_RETRY_MAX_ATTEMPTS: int = 5
+DEFAULT_STREAMING_RETRY_DELAYS: tuple[float, ...] = (5, 15, 30, 60)
+
+
 def streaming_retry(
-    max_attempts: int = 3,
-    delays: Sequence[float] = (5, 30),
+    max_attempts: int = DEFAULT_STREAMING_RETRY_MAX_ATTEMPTS,
+    delays: Sequence[float] = DEFAULT_STREAMING_RETRY_DELAYS,
 ) -> Callable[[Callable[[], Any]], Callable[[], Any]]:
     """Wrap a no-arg async callable with streaming-retry semantics.
 
-    Budget: 3 attempts spaced ``(5, 30)`` seconds apart. With N attempts only
-    the first N-1 delays fire, so this waits ~5s before retry #2 and ~30s before
-    retry #3 -- a ~35s total window. That spacing is deliberate: gateway 5xx
-    outages (the Google "502 ... try again in 30 seconds" page the puppy-backend
-    proxy surfaces) routinely outlast a tight 1-2-4s window, so a fast burst of
-    retries just exhausts the budget before the upstream recovers. The quick
-    first retry still catches instantaneous SSE blips; the long second gap rides
-    out the advertised ~30s outage before giving up.
+    This is the retry *mechanism* (loop + classify + sleep + log). The retry
+    *policy* -- how many attempts and how long to wait, per role and per model
+    -- lives in :mod:`code_puppy.agents.retry_profiles`; production call sites go
+    through ``retry_profiles.make_streaming_retry(role, model)`` rather than
+    calling this directly, so user-selected profiles are honoured.
+
+    Default budget (used only when called with no explicit policy):
+    ``DEFAULT_STREAMING_RETRY_MAX_ATTEMPTS`` attempts spaced by
+    ``DEFAULT_STREAMING_RETRY_DELAYS`` -- a gentle, escalating backoff
+    (5 -> 15 -> 30 -> 60s) rather than a tight burst. With N attempts only the
+    first N-1 delays fire; if ``max_attempts`` exceeds ``len(delays)`` the final
+    delay is reused for every extra attempt (so a longer budget just clamps at
+    the last spacing). That escalation is deliberate: gateway 5xx / rate-limit
+    outages routinely outlast a tight 1-2-4s window, so a fast burst just
+    exhausts the budget before the upstream recovers. The quick first retry
+    still catches instantaneous SSE blips; the long later gaps ride out a
+    sustained outage before giving up.
 
     Every retry (and the final exhaustion, if it happens) is logged with full
     detail to the on-disk error log via ``log_error``. Users only see a short
@@ -639,7 +659,14 @@ async def _run_with_mcp_impl(
         # the non-streaming fallback render.
         skip_fallback_render = on_should_skip_fallback_render(agent)
 
-        @streaming_retry()
+        # Resolve the user-selected retry profile for the MAIN role, honouring
+        # any per-model override. Built once and reused for the initial call and
+        # every follow-up so a single run has consistent backoff behaviour.
+        from code_puppy.agents.retry_profiles import make_streaming_retry
+
+        _main_retry = make_streaming_retry("main", agent.get_model_name())
+
+        @_main_retry
         async def _call() -> Any:
             return await pydantic_agent.run(
                 prompt_to_use,
@@ -679,7 +706,7 @@ async def _run_with_mcp_impl(
         # between ``agent.run()`` calls below — additive, won't interrupt
         # in-progress work.
         async def _follow_up_run(follow_up_prompt: Any) -> Any:
-            @streaming_retry()
+            @_main_retry
             async def _call_follow_up() -> Any:
                 return await pydantic_agent.run(
                     follow_up_prompt,

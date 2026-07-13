@@ -630,13 +630,12 @@ class TestInBandSSE5xx:
 
 
 class TestRetryBudgetSpacing:
-    """The retry budget must outlast a gateway 5xx outage, not just a blip.
+    """The retry budget must outlast a gateway 5xx / rate-limit outage.
 
-    A Google/gateway 502 ("try again in 30 seconds") outlasts a tight 1-2-4s
-    window, so a fast burst of retries just exhausts the budget before the
-    upstream recovers. The default is 3 attempts spaced (5, 30)s: a quick first
-    retry for instantaneous SSE blips, then a long gap that rides out the
-    advertised ~30s outage before giving up.
+    A tight 1-2-4s burst just exhausts the budget before the upstream recovers,
+    so the defaults use a gentle, *escalating* backoff (5 -> 15 -> 30 -> 60s)
+    over 5 attempts: a quick first retry for instantaneous SSE blips, then
+    progressively longer gaps that ride out a sustained outage before giving up.
     """
 
     def test_default_budget_is_spaced_out(self):
@@ -645,13 +644,14 @@ class TestRetryBudgetSpacing:
         from code_puppy.agents._runtime import streaming_retry
 
         params = inspect.signature(streaming_retry).parameters
-        assert params["max_attempts"].default == 3
-        assert tuple(params["delays"].default) == (5, 30)
+        assert params["max_attempts"].default == 5
+        assert tuple(params["delays"].default) == (5, 15, 30, 60)
 
     def test_runner_sleeps_the_spaced_delays_then_gives_up(self):
-        # 3 attempts against a persistent transient error -> two sleeps (5, 30)
-        # then re-raise. We patch asyncio.sleep so the test stays instant while
-        # asserting the *real* runner uses the spaced-out delays.
+        # 5 attempts against a persistent transient error -> four escalating
+        # sleeps (5, 15, 30, 60) then re-raise. We patch asyncio.sleep so the
+        # test stays instant while asserting the *real* runner uses the
+        # spaced-out delays.
         from unittest.mock import AsyncMock, patch
 
         from code_puppy.agents._runtime import streaming_retry
@@ -669,5 +669,5 @@ class TestRetryBudgetSpacing:
             with pytest.raises(httpx.ConnectError):
                 asyncio.run(_always_transient())
 
-        assert attempts["n"] == 3  # all attempts consumed
-        assert [c.args[0] for c in mock_sleep.await_args_list] == [5, 30]
+        assert attempts["n"] == 5  # all attempts consumed
+        assert [c.args[0] for c in mock_sleep.await_args_list] == [5, 15, 30, 60]
