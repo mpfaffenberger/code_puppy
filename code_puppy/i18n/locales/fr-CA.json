@@ -12,6 +12,12 @@
     "other": "{count} fichiers \u00e9crits."
   },
   "error.generic": "Une erreur s'est produite : {detail}",
+  "version.current": "Version actuelle : {version}",
+  "version.latest": "Derni\u00e8re version : {version}",
+  "version.update_available": "Une nouvelle version de code puppy est disponible : {version}",
+  "version.please_update": "Pensez \u00e0 faire la mise \u00e0 jour!",
+  "version.fetch_failed": "Erreur lors de la r\u00e9cup\u00e9ration de la version : {error}",
+  "version.undetected": "Impossible de d\u00e9tecter la version actuelle; utilisation d'une valeur par d\u00e9faut",
   "confirm.yes": "Oui",
   "confirm.no": "Non"
 }

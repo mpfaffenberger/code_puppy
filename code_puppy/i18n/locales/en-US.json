@@ -12,6 +12,12 @@
     "other": "Wrote {count} files."
   },
   "error.generic": "Something went wrong: {detail}",
+  "version.current": "Current version: {version}",
+  "version.latest": "Latest version: {version}",
+  "version.update_available": "A new version of code puppy is available: {version}",
+  "version.please_update": "Please consider updating!",
+  "version.fetch_failed": "Error fetching version: {error}",
+  "version.undetected": "Could not detect current version, using fallback",
   "confirm.yes": "Yes",
   "confirm.no": "No"
 }

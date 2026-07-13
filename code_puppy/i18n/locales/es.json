@@ -12,6 +12,12 @@
     "other": "Se escribieron {count} archivos."
   },
   "error.generic": "Algo sali\u00f3 mal: {detail}",
+  "version.current": "Versi\u00f3n actual: {version}",
+  "version.latest": "\u00daltima versi\u00f3n: {version}",
+  "version.update_available": "Hay una nueva versi\u00f3n de code puppy disponible: {version}",
+  "version.please_update": "\u00a1Considera actualizar!",
+  "version.fetch_failed": "Error al obtener la versi\u00f3n: {error}",
+  "version.undetected": "No se pudo detectar la versi\u00f3n actual, usando un valor de reserva",
   "confirm.yes": "S\u00ed",
   "confirm.no": "No"
 }
