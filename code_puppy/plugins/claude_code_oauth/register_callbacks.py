@@ -22,6 +22,7 @@ from code_puppy.provider_identity import (
     resolve_provider_identity,
 )
 
+from ..oauth_pasteback import parse_oauth_callback_input, read_available_stdin_line
 from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
 from .config import CLAUDE_CODE_OAUTH_CONFIG, get_token_storage_path
 from .fast_mode import (
@@ -123,28 +124,109 @@ def _start_callback_server(
     return None
 
 
+def _assign_manual_redirect_uri(context: OAuthContext) -> bool:
+    port_range = CLAUDE_CODE_OAUTH_CONFIG["callback_port_range"]
+    try:
+        assign_redirect_uri(context, port_range[0])
+    except Exception as exc:  # noqa: BLE001
+        emit_error(f"Failed to assign redirect URI for OAuth flow: {exc}")
+        return False
+    return True
+
+
+def _parse_pasted_callback(context: OAuthContext, raw_input: str) -> Optional[str]:
+    try:
+        parsed = parse_oauth_callback_input(raw_input)
+    except ValueError as exc:
+        emit_error(f"Could not parse pasted OAuth input: {exc}")
+        return None
+
+    if parsed.error:
+        emit_error(f"OAuth provider returned an error: {parsed.error_message}")
+        return None
+
+    if not parsed.code:
+        emit_error("Pasted OAuth input did not contain an authorization code.")
+        return None
+
+    if parsed.state:
+        if parsed.state != context.state:
+            emit_error("State mismatch detected; aborting authentication.")
+            return None
+    else:
+        emit_warning(
+            "Pasted OAuth input did not include state; continuing with this login attempt."
+        )
+
+    return parsed.code
+
+
+def _wait_for_callback_or_paste(
+    *,
+    context: OAuthContext,
+    result: Optional[_OAuthResult],
+    event: Optional[threading.Event],
+    timeout: float,
+) -> Optional[str]:
+    elapsed = 0.0
+    interval = 0.25
+
+    while elapsed < timeout:
+        if event and event.is_set() and result:
+            if result.error:
+                emit_error(f"OAuth callback error: {result.error}")
+                return None
+
+            if result.state != context.state:
+                emit_error("State mismatch detected; aborting authentication.")
+                return None
+
+            return result.code
+
+        pasted = read_available_stdin_line()
+        if pasted is not None and pasted.strip():
+            code = _parse_pasted_callback(context, pasted)
+            if code:
+                return code
+
+        time.sleep(interval)
+        elapsed += interval
+
+    emit_error("OAuth callback timed out. Please try again.")
+    return None
+
+
 def _await_callback(context: OAuthContext) -> Optional[str]:
     timeout = CLAUDE_CODE_OAUTH_CONFIG["callback_timeout"]
 
     started = _start_callback_server(context)
-    if not started:
-        return None
+    server: Optional[HTTPServer] = None
+    result: Optional[_OAuthResult] = None
+    event: Optional[threading.Event] = None
+    if started:
+        server, result, event = started
+    else:
+        emit_warning("Continuing Claude Code OAuth in paste-back mode.")
+        if not _assign_manual_redirect_uri(context):
+            return None
 
-    server, result, event = started
     redirect_uri = context.redirect_uri
     if not redirect_uri:
         emit_error("Failed to assign redirect URI for OAuth flow")
-        server.shutdown()
+        if server:
+            server.shutdown()
         return None
 
     auth_url = build_authorization_url(context)
 
+    suppress_browser = False
     try:
         import webbrowser
 
         from code_puppy.tools.common import should_suppress_browser
 
-        if should_suppress_browser():
+        suppress_browser = should_suppress_browser()
+        if suppress_browser:
             emit_info(
                 "[HEADLESS MODE] Would normally open browser for Claude Code OAuth…"
             )
@@ -154,32 +236,30 @@ def _await_callback(context: OAuthContext) -> Optional[str]:
             webbrowser.open(auth_url)
             emit_info(f"If it doesn't open automatically, visit: {auth_url}")
     except Exception as exc:  # pragma: no cover
-        if not should_suppress_browser():
+        if not suppress_browser:
             emit_warning(f"Failed to open browser automatically: {exc}")
             emit_info(f"Please open the URL manually: {auth_url}")
 
-    emit_info(f"Listening for callback on {redirect_uri}")
+    if server:
+        emit_info(f"Listening for callback on {redirect_uri}")
+    else:
+        emit_info(f"Using redirect URI for paste-back: {redirect_uri}")
     emit_info(
-        "If Claude redirects you to the console callback page, copy the full URL "
-        "and paste it back into Code Puppy."
+        "If localhost cannot be reached, paste the full callback URL or "
+        "authorization code here and press Enter."
     )
 
-    if not event.wait(timeout=timeout):
-        emit_error("OAuth callback timed out. Please try again.")
+    code = _wait_for_callback_or_paste(
+        context=context,
+        result=result,
+        event=event,
+        timeout=timeout,
+    )
+
+    if server:
         server.shutdown()
-        return None
 
-    server.shutdown()
-
-    if result.error:
-        emit_error(f"OAuth callback error: {result.error}")
-        return None
-
-    if result.state != context.state:
-        emit_error("State mismatch detected; aborting authentication.")
-        return None
-
-    return result.code
+    return code
 
 
 def _custom_help() -> List[Tuple[str, str]]:
