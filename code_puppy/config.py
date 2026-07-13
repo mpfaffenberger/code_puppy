@@ -53,17 +53,26 @@ AGENTS_DIR = os.path.join(DATA_DIR, "agents")
 SKILLS_DIR = os.path.join(DATA_DIR, "skills")
 CONTEXTS_DIR = os.path.join(DATA_DIR, "contexts")
 
+# Cache files (XDG_CACHE_HOME)
+AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
+WS_SESSION_DIR = os.path.join(CACHE_DIR, "ws_sessions")
+
+
+def get_ws_sessions_dir() -> pathlib.Path:
+    """Return the ws_sessions directory path and ensure it exists."""
+    p = pathlib.Path(WS_SESSION_DIR)
+    p.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return p
+
+
+# State files (XDG_STATE_HOME)
+COMMAND_HISTORY_FILE = os.path.join(STATE_DIR, "command_history.txt")
+
 # OAuth plugin model files (XDG_DATA_HOME)
 GEMINI_MODELS_FILE = os.path.join(DATA_DIR, "gemini_models.json")
 CHATGPT_MODELS_FILE = os.path.join(DATA_DIR, "chatgpt_models.json")
 CLAUDE_MODELS_FILE = os.path.join(DATA_DIR, "claude_models.json")
 COPILOT_MODELS_FILE = os.path.join(DATA_DIR, "copilot_models.json")
-
-# Cache files (XDG_CACHE_HOME)
-AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
-
-# State files (XDG_STATE_HOME)
-COMMAND_HISTORY_FILE = os.path.join(STATE_DIR, "command_history.txt")
 
 
 def get_subagent_verbose() -> bool:
