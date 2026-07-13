@@ -540,3 +540,134 @@ class TestOpenAIStatusCodeRetry:
                 status_code, message="invalid request payload"
             )
         )
+
+
+class TestInBandSSE5xx:
+    """Regression for the *real* production 502 that defeated every prior fix.
+
+    A gateway (puppy-backend ``custom_anthropic`` proxy) delivers an upstream
+    5xx as an **in-band SSE ``error`` event over a connection that was itself
+    HTTP 200**. The Anthropic SDK builds an ``APIStatusError`` from the *stream*
+    response, so:
+
+      * ``status_code`` is **200** (not 502),
+      * the exception is a plain ``APIStatusError`` (not ``InternalServerError``),
+      * ``body.error.type`` is a generic ``"internal_error"``,
+      * the only faithful trace of the failure is a ``[HTTP 502]`` marker baked
+        into the message text.
+
+    The classifier used to check ``status_code``, snippet matches, and a fixed
+    set of error ``type`` values -- all of which miss this shape -- so a
+    perfectly transient gateway 5xx crashed the REPL. This descends into the
+    ``[HTTP 5xx]`` marker instead.
+    """
+
+    def _make_anthropic_inband_5xx(self, http_code: int):
+        from anthropic import Anthropic
+
+        client = Anthropic(api_key="sk-fake")
+        req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        # The stream itself returned 200 -- the failure is in-band.
+        resp = httpx.Response(200, request=req)
+        body = {
+            "error": {
+                "message": f"[HTTP {http_code}] <!DOCTYPE html> ... {http_code}. "
+                "That's an error. The server encountered a temporary error ...",
+                "type": "internal_error",
+            },
+            "type": "error",
+        }
+        return client._make_status_error(f"{body}", body=body, response=resp)
+
+    @pytest.mark.parametrize("http_code", [500, 502, 503, 504, 529])
+    def test_inband_5xx_marker_retries(self, http_code):
+        # status_code is 200; the real status lives only in the [HTTP NNN] marker.
+        err = self._make_anthropic_inband_5xx(http_code)
+        assert err.status_code == 200  # sanity: proves the trap this guards
+        assert should_retry_streaming_exception(err)
+
+    def test_inband_5xx_wrapped_in_exception_group_retries(self):
+        # The exact production shape: anyio wraps it in an ExceptionGroup.
+        err = self._make_anthropic_inband_5xx(502)
+        group = ExceptionGroup("unhandled errors in a TaskGroup", [err])
+        assert should_retry_streaming_exception(group)
+
+    def test_inband_internal_error_type_retries(self):
+        # Even without a marker match, type "internal_error" is a server-side
+        # Anthropic failure and must retry (belt-and-braces).
+        from anthropic import Anthropic
+
+        client = Anthropic(api_key="sk-fake")
+        req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        resp = httpx.Response(200, request=req)
+        body = {
+            "error": {"message": "opaque", "type": "internal_error"},
+            "type": "error",
+        }
+        err = client._make_status_error(f"{body}", body=body, response=resp)
+        assert should_retry_streaming_exception(err)
+
+    @pytest.mark.parametrize("http_code", [400, 401, 403, 404, 422])
+    def test_inband_4xx_marker_does_not_retry(self, http_code):
+        # A [HTTP 4xx] marker is a genuine client error -- must NOT retry.
+        # Uses a clean client-error body (no server-error wording) so the
+        # assertion stays robust even if the retryable-snippet list grows.
+        from anthropic import Anthropic
+
+        client = Anthropic(api_key="sk-fake")
+        req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        resp = httpx.Response(200, request=req)
+        body = {
+            "error": {
+                "message": f"[HTTP {http_code}] invalid request payload",
+                "type": "invalid_request_error",
+            },
+            "type": "error",
+        }
+        err = client._make_status_error(f"{body}", body=body, response=resp)
+        assert err.status_code == 200  # sanity: same 200-stream trap, 4xx marker
+        assert not should_retry_streaming_exception(err)
+
+
+class TestRetryBudgetSpacing:
+    """The retry budget must outlast a gateway 5xx outage, not just a blip.
+
+    A Google/gateway 502 ("try again in 30 seconds") outlasts a tight 1-2-4s
+    window, so a fast burst of retries just exhausts the budget before the
+    upstream recovers. The default is 3 attempts spaced (5, 30)s: a quick first
+    retry for instantaneous SSE blips, then a long gap that rides out the
+    advertised ~30s outage before giving up.
+    """
+
+    def test_default_budget_is_spaced_out(self):
+        import inspect
+
+        from code_puppy.agents._runtime import streaming_retry
+
+        params = inspect.signature(streaming_retry).parameters
+        assert params["max_attempts"].default == 3
+        assert tuple(params["delays"].default) == (5, 30)
+
+    def test_runner_sleeps_the_spaced_delays_then_gives_up(self):
+        # 3 attempts against a persistent transient error -> two sleeps (5, 30)
+        # then re-raise. We patch asyncio.sleep so the test stays instant while
+        # asserting the *real* runner uses the spaced-out delays.
+        from unittest.mock import AsyncMock, patch
+
+        from code_puppy.agents._runtime import streaming_retry
+
+        attempts = {"n": 0}
+
+        @streaming_retry()
+        async def _always_transient():
+            attempts["n"] += 1
+            raise httpx.ConnectError("dropped socket")  # always retryable
+
+        with patch(
+            "code_puppy.agents._runtime.asyncio.sleep", new_callable=AsyncMock
+        ) as mock_sleep:
+            with pytest.raises(httpx.ConnectError):
+                asyncio.run(_always_transient())
+
+        assert attempts["n"] == 3  # all attempts consumed
+        assert [c.args[0] for c in mock_sleep.await_args_list] == [5, 30]
