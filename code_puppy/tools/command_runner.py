@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import ctypes
 import os
 import select
@@ -11,6 +12,7 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import partial
 from typing import Callable, List, Literal, Optional, Set
 
@@ -19,6 +21,7 @@ from pydantic_ai import RunContext
 from rich.text import Text
 
 from code_puppy.callbacks import on_run_shell_command_output
+from code_puppy.config import get_command_timeout_seconds
 from code_puppy.messaging import (  # Structured messaging types
     AgentReasoningMessage,
     ShellOutputMessage,
@@ -106,16 +109,104 @@ else:
 
 _AWAITING_USER_INPUT = threading.Event()
 
-# NOTE: The previous module-level ``_CONFIRMATION_LOCK`` was removed --
-# queueing of parallel approval prompts now lives inside
-# ``get_user_approval_async`` itself, so every caller (shell commands,
-# destructive-command guard, force-push guard, ...) benefits without
-# bolting on their own lock.
+_CONFIRMATION_LOCK = threading.Lock()
+
 
 # Track running shell processes so we can kill them on Ctrl-C from the UI
 _RUNNING_PROCESSES: Set[subprocess.Popen] = set()
 _RUNNING_PROCESSES_LOCK = threading.Lock()
 _USER_KILLED_PROCESSES = set()
+
+# Per-session process tracking via ContextVar
+_session_running_processes: ContextVar[Optional[Set[subprocess.Popen]]] = ContextVar(
+    "session_running_processes", default=None
+)
+_session_killed_processes: ContextVar[Optional[Set[int]]] = ContextVar(
+    "session_killed_processes", default=None
+)
+_session_awaiting_input: ContextVar[Optional[threading.Event]] = ContextVar(
+    "session_awaiting_input", default=None
+)
+
+
+def _get_running_processes() -> Set[subprocess.Popen]:
+    """Get the running processes set for the current session context."""
+    session_set = _session_running_processes.get(None)
+    if session_set is not None:
+        return session_set
+    return _RUNNING_PROCESSES
+
+
+def _get_killed_processes() -> Set[int]:
+    """Get the killed processes set for the current session context."""
+    session_set = _session_killed_processes.get(None)
+    if session_set is not None:
+        return session_set
+    return _USER_KILLED_PROCESSES
+
+
+def _get_awaiting_input_event() -> threading.Event:
+    """Get the awaiting-input event for the current session context."""
+    session_evt = _session_awaiting_input.get(None)
+    if session_evt is not None:
+        return session_evt
+    return _AWAITING_USER_INPUT
+
+
+def init_session_process_tracking() -> None:
+    """Initialize per-session process tracking. Call at WS session start."""
+    _session_running_processes.set(set())
+    _session_killed_processes.set(set())
+    _session_awaiting_input.set(threading.Event())
+    _session_active_stop_events.set(set())
+    _session_keyboard_refcount.set(0)
+    _session_ctrl_x_stop_event.set(None)
+    _session_ctrl_x_thread.set(None)
+
+
+def cleanup_session_process_tracking() -> None:
+    """Tear down per-session process tracking. Call at WS session end.
+
+    Kills any still-running session processes, then clears the per-session
+    process and killed-process sets to release any held Popen references.
+    """
+    # Kill any still-running session processes first
+    session_procs = _session_running_processes.get(None)
+    if session_procs is not None:
+        for p in list(session_procs):
+            try:
+                if p.poll() is None:
+                    _kill_process_group(p)
+            except Exception:
+                pass
+        session_procs.clear()
+    session_killed = _session_killed_processes.get(None)
+    if session_killed is not None:
+        session_killed.clear()
+    session_stop = _session_active_stop_events.get(None)
+    if session_stop is not None:
+        for evt in session_stop:
+            evt.set()  # Signal before discarding!
+        session_stop.clear()
+    # Clean up keyboard context
+    session_ctrl_x = _session_ctrl_x_stop_event.get(None)
+    if session_ctrl_x is not None:
+        session_ctrl_x.set()  # Signal stop
+    session_thread = _session_ctrl_x_thread.get(None)
+    if session_thread is not None and session_thread.is_alive():
+        try:
+            session_thread.join(timeout=0.2)
+        except Exception:
+            pass
+    _session_keyboard_refcount.set(None)
+    _session_ctrl_x_stop_event.set(None)
+    _session_ctrl_x_thread.set(None)
+    # Reset to None so subsequent calls fall back to global
+    _session_running_processes.set(None)
+    _session_killed_processes.set(None)
+    _session_awaiting_input.set(None)
+    _session_active_stop_events.set(None)
+
 
 # Global state for shell command keyboard handling
 _SHELL_CTRL_X_STOP_EVENT: Optional[threading.Event] = None
@@ -138,9 +229,81 @@ _SIGINT_CANCEL_REQUESTED = False
 _KEYBOARD_CONTEXT_REFCOUNT = 0
 _KEYBOARD_CONTEXT_LOCK = threading.Lock()
 
+# Per-session keyboard context refcount (ContextVar for WS session isolation)
+_session_keyboard_refcount: ContextVar[Optional[int]] = ContextVar(
+    "session_keyboard_refcount", default=None
+)
+_session_ctrl_x_stop_event: ContextVar[Optional[threading.Event]] = ContextVar(
+    "session_ctrl_x_stop_event", default=None
+)
+_session_ctrl_x_thread: ContextVar[Optional[threading.Thread]] = ContextVar(
+    "session_ctrl_x_thread", default=None
+)
+
 # Thread-safe registry of active stop events for concurrent shell commands
 _ACTIVE_STOP_EVENTS: Set[threading.Event] = set()
 _ACTIVE_STOP_EVENTS_LOCK = threading.Lock()
+
+# Per-session stop events (ContextVar for session isolation)
+_session_active_stop_events: ContextVar[Optional[Set[threading.Event]]] = ContextVar(
+    "session_active_stop_events", default=None
+)
+
+
+def _get_keyboard_refcount() -> int:
+    """Get keyboard context refcount for the current session."""
+    session_val = _session_keyboard_refcount.get(None)
+    if session_val is not None:
+        return session_val
+    return _KEYBOARD_CONTEXT_REFCOUNT
+
+
+def _set_keyboard_refcount(value: int) -> None:
+    """Set keyboard context refcount for the current session."""
+    if _session_keyboard_refcount.get(None) is not None:
+        _session_keyboard_refcount.set(value)
+    else:
+        global _KEYBOARD_CONTEXT_REFCOUNT
+        _KEYBOARD_CONTEXT_REFCOUNT = value
+
+
+def _get_ctrl_x_stop_event() -> Optional[threading.Event]:
+    """Get Ctrl+X stop event for the current session."""
+    session_evt = _session_ctrl_x_stop_event.get(None)
+    if session_evt is not None:
+        return session_evt
+    return _SHELL_CTRL_X_STOP_EVENT
+
+
+def _get_ctrl_x_thread() -> Optional[threading.Thread]:
+    """Get Ctrl+X thread for the current session."""
+    session_thread = _session_ctrl_x_thread.get(None)
+    if session_thread is not None:
+        return session_thread
+    return _SHELL_CTRL_X_THREAD
+
+
+def _get_active_stop_events() -> Set[threading.Event]:
+    """Get the active stop events set for the current session context."""
+    session_set = _session_active_stop_events.get(None)
+    if session_set is not None:
+        return session_set
+    return _ACTIVE_STOP_EVENTS
+
+
+@contextmanager
+def _guarded_set(collection, global_ref, lock):
+    """Acquire *lock* only when *collection* is the shared global *global_ref*.
+
+    Per-session sets (ContextVar-backed) are single-writer within their
+    asyncio task context and don't need locking.
+    """
+    if collection is global_ref:
+        with lock:
+            yield collection
+    else:
+        yield collection
+
 
 # Mid-flight backgrounding (Ctrl+X Ctrl+B) machinery lives in
 # ``shell_backgrounding`` (600-line cap); re-exported here because the
@@ -153,13 +316,15 @@ _SHELL_EXECUTOR = ThreadPoolExecutor(max_workers=16, thread_name_prefix="shell_c
 
 
 def _register_process(proc: subprocess.Popen) -> None:
-    with _RUNNING_PROCESSES_LOCK:
-        _RUNNING_PROCESSES.add(proc)
+    procs = _get_running_processes()
+    with _guarded_set(procs, _RUNNING_PROCESSES, _RUNNING_PROCESSES_LOCK):
+        procs.add(proc)
 
 
 def _unregister_process(proc: subprocess.Popen) -> None:
-    with _RUNNING_PROCESSES_LOCK:
-        _RUNNING_PROCESSES.discard(proc)
+    procs = _get_running_processes()
+    with _guarded_set(procs, _RUNNING_PROCESSES, _RUNNING_PROCESSES_LOCK):
+        procs.discard(proc)
 
 
 def _kill_process_group(proc: subprocess.Popen) -> None:
@@ -244,13 +409,16 @@ def kill_all_running_shell_processes() -> int:
     Returns the number of processes signaled.
     """
     # Signal all active reader threads to stop
-    with _ACTIVE_STOP_EVENTS_LOCK:
-        for evt in _ACTIVE_STOP_EVENTS:
+    active_stop = _get_active_stop_events()
+    with _guarded_set(active_stop, _ACTIVE_STOP_EVENTS, _ACTIVE_STOP_EVENTS_LOCK):
+        for evt in active_stop:
             evt.set()
 
     procs: list[subprocess.Popen]
-    with _RUNNING_PROCESSES_LOCK:
-        procs = list(_RUNNING_PROCESSES)
+    running = _get_running_processes()
+    killed = _get_killed_processes()
+    with _guarded_set(running, _RUNNING_PROCESSES, _RUNNING_PROCESSES_LOCK):
+        procs = list(running)
     count = 0
     for p in procs:
         try:
@@ -268,7 +436,7 @@ def kill_all_running_shell_processes() -> int:
             if p.poll() is None:
                 _kill_process_group(p)
                 count += 1
-                _USER_KILLED_PROCESSES.add(p.pid)
+                killed.add(p.pid)
         finally:
             _unregister_process(p)
     return count
@@ -276,23 +444,24 @@ def kill_all_running_shell_processes() -> int:
 
 def get_running_shell_process_count() -> int:
     """Return the number of currently-active shell processes being tracked."""
-    with _RUNNING_PROCESSES_LOCK:
+    running = _get_running_processes()
+    with _guarded_set(running, _RUNNING_PROCESSES, _RUNNING_PROCESSES_LOCK):
         alive = 0
         stale: Set[subprocess.Popen] = set()
-        for proc in _RUNNING_PROCESSES:
+        for proc in running:
             if proc.poll() is None:
                 alive += 1
             else:
                 stale.add(proc)
         for proc in stale:
-            _RUNNING_PROCESSES.discard(proc)
+            running.discard(proc)
     return alive
 
 
 # Function to check if user input is awaited
 def is_awaiting_user_input():
     """Check if command_runner is waiting for user input."""
-    return _AWAITING_USER_INPUT.is_set()
+    return _get_awaiting_input_event().is_set()
 
 
 # Function to set user input flag
@@ -313,9 +482,10 @@ def set_awaiting_user_input(awaiting=True):
     to guess from the screen).
     """
     if awaiting:
-        _AWAITING_USER_INPUT.set()
+        _get_awaiting_input_event().set()
     else:
-        _AWAITING_USER_INPUT.clear()
+        _get_awaiting_input_event().clear()
+
     # Best-effort notification; never let an observer disturb the prompt path.
     try:
         from code_puppy.callbacks import on_awaiting_user_input
@@ -679,16 +849,15 @@ def run_shell_command_streaming(
     silent: bool = False,
 ):
     stop_event = threading.Event()
-    with _ACTIVE_STOP_EVENTS_LOCK:
-        _ACTIVE_STOP_EVENTS.add(stop_event)
+    active_stop = _get_active_stop_events()
+    with _guarded_set(active_stop, _ACTIVE_STOP_EVENTS, _ACTIVE_STOP_EVENTS_LOCK):
+        active_stop.add(stop_event)
 
     start_time = time.time()
     last_output_time = [start_time]
 
     # Foreground duration limit. Reaching it detaches rather than killing;
     # inactivity remains the guard for genuinely wedged commands.
-    from code_puppy.config import get_command_timeout_seconds
-
     foreground_limit_seconds = get_command_timeout_seconds()
 
     stdout_lines = []
@@ -1023,8 +1192,9 @@ def run_shell_command_streaming(
             )
             get_message_bus().emit(shell_output_msg)
 
-        with _ACTIVE_STOP_EVENTS_LOCK:
-            _ACTIVE_STOP_EVENTS.discard(stop_event)
+        active_stop = _get_active_stop_events()
+        with _guarded_set(active_stop, _ACTIVE_STOP_EVENTS, _ACTIVE_STOP_EVENTS_LOCK):
+            active_stop.discard(stop_event)
 
         if exit_code != 0:
             time.sleep(1)
@@ -1038,7 +1208,7 @@ def run_shell_command_streaming(
                 exit_code=exit_code,
                 execution_time=execution_time,
                 timeout=False,
-                user_interrupted=process.pid in _USER_KILLED_PROCESSES,
+                user_interrupted=process.pid in _get_killed_processes(),
             )
 
         return ShellCommandOutput(
@@ -1052,8 +1222,9 @@ def run_shell_command_streaming(
         )
 
     except Exception as e:
-        with _ACTIVE_STOP_EVENTS_LOCK:
-            _ACTIVE_STOP_EVENTS.discard(stop_event)
+        active_stop = _get_active_stop_events()
+        with _guarded_set(active_stop, _ACTIVE_STOP_EVENTS, _ACTIVE_STOP_EVENTS_LOCK):
+            active_stop.discard(stop_event)
         return ShellCommandOutput(
             success=False,
             command=command,
@@ -1072,6 +1243,15 @@ async def run_shell_command(
     timeout: int = 60,
     background: bool = False,
 ) -> ShellCommandOutput:
+    # Resolve CWD from the session ContextVar when not explicitly provided.
+    # This supports concurrent WebSocket sessions where each session has its own CWD
+    # without relying on the process-global os.chdir().
+    # Returns None for CLI sessions (subprocess inherits process CWD as normal).
+    if cwd is None:
+        from code_puppy.api.session_cwd import get_session_working_directory
+
+        cwd = get_session_working_directory()
+
     # Generate unique group_id for this command execution
     group_id = generate_group_id("shell_command", command)
 
@@ -1221,12 +1401,26 @@ async def run_shell_command(
     # Check if we're running as a sub-agent (skip confirmation and run silently)
     running_as_subagent = is_subagent()
 
+    # Check if WebSocket mode is active (permission handled via WebSocket callbacks)
+    websocket_mode_active = False
+    try:
+        from code_puppy.api.permission_plugin import get_websocket_context
+
+        websocket_mode_active = get_websocket_context() is not None
+    except (ImportError, AttributeError):
+        pass
+
     # Only ask for confirmation if we're in an interactive TTY, not in yolo mode,
-    # and NOT running as a sub-agent (sub-agents run without user interaction)
-    if not yolo_mode and not running_as_subagent and sys.stdin.isatty():
-        # No local lock needed -- get_user_approval_async serializes
-        # parallel prompts internally so the 2nd, 3rd, 4th... destructive
-        # commands queue up cleanly instead of vanishing.
+    # NOT running as a sub-agent, and NOT in WebSocket mode (WebSocket has its own permission system)
+    if (
+        not yolo_mode
+        and not running_as_subagent
+        and not websocket_mode_active
+        and sys.stdin.isatty()
+    ):
+        # Queue concurrent confirmations instead of rejecting parallel callers.
+        while not _CONFIRMATION_LOCK.acquire(blocking=False):
+            await asyncio.sleep(0.01)
 
         # Get puppy name for personalized messages
         from code_puppy.config import get_puppy_name
@@ -1244,15 +1438,17 @@ async def run_shell_command(
             panel_content.append("Working directory: ", style="dim")
             panel_content.append(cwd, style="dim cyan")
 
-        # Use the common approval function (async version).
-        # Internal queueing means parallel calls wait their turn here.
-        confirmed, user_feedback = await get_user_approval_async(
-            title="Shell Command",
-            content=panel_content,
-            preview=None,
-            border_style="dim white",
-            puppy_name=puppy_name,
-        )
+        # Use the common approval function (async version)
+        try:
+            confirmed, user_feedback = await get_user_approval_async(
+                title="Shell Command",
+                content=panel_content,
+                preview=None,
+                border_style="dim white",
+                puppy_name=puppy_name,
+            )
+        finally:
+            _CONFIRMATION_LOCK.release()
 
         if not confirmed:
             if user_feedback:
@@ -1472,9 +1668,13 @@ async def _run_command_inner(
     try:
         # Run the blocking shell command in a thread pool to avoid blocking the event loop
         # This allows multiple sub-agents to run shell commands in parallel
+        # Copy context so ContextVar-based session tracking propagates to the worker thread
+        ctx = contextvars.copy_context()
         return await loop.run_in_executor(
             _SHELL_EXECUTOR,
-            partial(_run_command_sync, command, cwd, timeout, group_id, silent),
+            partial(
+                ctx.run, _run_command_sync, command, cwd, timeout, group_id, silent
+            ),
         )
     except Exception as e:
         if not silent:

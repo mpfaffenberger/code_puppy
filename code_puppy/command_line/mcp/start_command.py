@@ -10,9 +10,15 @@ from rich.text import Text
 from code_puppy.mcp_.agent_bindings import is_bound, set_session_binding
 from code_puppy.messaging import emit_error, emit_info, emit_success
 
-from ...agents import get_current_agent
+from ... import agents
 from .base import MCPCommandBase
 from .utils import find_server_id_by_name, suggest_similar_servers
+
+
+def get_current_agent():
+    """Compatibility wrapper for patching in tests."""
+    return agents.get_current_agent()
+
 
 # Configure logging
 logger = logging.getLogger(__name__)

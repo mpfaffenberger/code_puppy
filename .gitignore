@@ -47,3 +47,4 @@ code_puppy/bundled_skills/
 .json
 
 .state/
+.maestro/*

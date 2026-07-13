@@ -86,7 +86,7 @@ def _render_turn_exception(exc: Exception) -> None:
         emit_error(
             f"\U0001f50c The model connection hit a transient error "
             f"({type(exc).__name__}) and didn't recover after auto-retries. "
-            "This is almost always a VPN/WiFi/provider blip \u2014 just re-run "
+            "This is almost always a VPN/WiFi/provider blip — just re-run "
             "your last prompt. Your session history is intact."
         )
         return
@@ -184,7 +184,7 @@ async def main():
         "-r",
         type=str,
         metavar="PATH",
-        help="Resume a saved session from a .pkl file (e.g. ~/.code_puppy/contexts/foo.pkl)",
+        help="Resume a saved session from a .json file (e.g. ~/.code_puppy/contexts/foo.json)",
     )
     parser.add_argument(
         "--quick-resume",
@@ -1065,7 +1065,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 agent.estimate_tokens_for_message(msg)
                                 for msg in history
                             )
-                            session_path = base_dir / f"{chosen_session}.pkl"
+                            session_path = base_dir / f"{chosen_session}.json"
 
                             emit_success(
                                 f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"

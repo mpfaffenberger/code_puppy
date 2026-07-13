@@ -35,11 +35,13 @@ It also handles request/response correlation for user interactions:
 import asyncio
 import queue
 import threading
+from contextvars import ContextVar
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from .commands import (
     AnyCommand,
+    AskUserQuestionResponse,
     ConfirmationResponse,
     PauseAgentCommand,
     ResumeAgentCommand,
@@ -55,6 +57,7 @@ from .messages import (
     SelectionRequest,
     TextMessage,
     UserInputRequest,
+    AskUserQuestionRequest,
 )
 
 
@@ -89,8 +92,11 @@ class MessageBus:
         # Request/Response correlation: prompt_id → Future (for async usage)
         self._pending_requests: Dict[str, asyncio.Future[Any]] = {}
 
-        # Session context for multi-agent tracking
-        self._current_session_id: Optional[str] = None
+        # Session context for multi-agent tracking. This is task/thread-local so
+        # concurrent websocket sessions and CLI flows cannot overwrite each other.
+        self._session_context: ContextVar[Optional[str]] = ContextVar(
+            f"message_bus_session_id_{id(self)}", default=None
+        )
 
     # =========================================================================
     # Outgoing Messages (Agent → UI)
@@ -108,8 +114,9 @@ class MessageBus:
         """
         # Auto-tag message with current session if not already set
         with self._lock:
-            if message.session_id is None and self._current_session_id is not None:
-                message.session_id = self._current_session_id
+            current_session_id = self._session_context.get()
+            if message.session_id is None and current_session_id is not None:
+                message.session_id = current_session_id
 
             if not self._has_active_renderer:
                 self._startup_buffer.append(message)
@@ -190,8 +197,7 @@ class MessageBus:
         Args:
             session_id: The session ID to tag messages with, or None to clear.
         """
-        with self._lock:
-            self._current_session_id = session_id
+        self._session_context.set(session_id)
 
     def get_session_context(self) -> Optional[str]:
         """Get the current session context.
@@ -199,8 +205,7 @@ class MessageBus:
         Returns:
             The current session_id, or None if not set.
         """
-        with self._lock:
-            return self._current_session_id
+        return self._session_context.get()
 
     # =========================================================================
     # User Input Requests (Agent waits for UI response)
@@ -335,6 +340,43 @@ class MessageBus:
             with self._lock:
                 self._pending_requests.pop(prompt_id, None)
 
+    async def request_ask_user_question(
+        self,
+        questions: list[dict[str, object]],
+        timeout_seconds: int = 300,
+    ) -> tuple[list[dict[str, object]], bool]:
+        """Request structured ask_user_question answers from the UI.
+
+        Emits an AskUserQuestionRequest and waits for the browser to return the
+        full answer set. This is used by Desk/WebSocket sessions so the tool can
+        bypass terminal-only TUI input.
+
+        Returns:
+            Tuple of (answers, cancelled).
+        """
+        prompt_id = str(uuid4())
+
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[tuple[list[dict[str, object]], bool]] = (
+            loop.create_future()
+        )
+
+        with self._lock:
+            self._pending_requests[prompt_id] = future
+
+        request = AskUserQuestionRequest(
+            prompt_id=prompt_id,
+            questions=questions,
+            timeout_seconds=timeout_seconds,
+        )
+        self.emit(request)
+
+        try:
+            return await future
+        finally:
+            with self._lock:
+                self._pending_requests.pop(prompt_id, None)
+
     # =========================================================================
     # Incoming Commands (UI → Agent)
     # =========================================================================
@@ -358,6 +400,10 @@ class MessageBus:
         elif isinstance(command, SelectionResponse):
             self._complete_request(
                 command.prompt_id, (command.selected_index, command.selected_value)
+            )
+        elif isinstance(command, AskUserQuestionResponse):
+            self._complete_request(
+                command.prompt_id, (command.answers, command.cancelled)
             )
         elif isinstance(command, PauseAgentCommand):
             from .pause_controller import get_pause_controller

@@ -22,6 +22,75 @@ from .models import (
 from .terminal_ui import CancelledException, interactive_question_picker
 
 
+async def ask_user_question_async(
+    questions: list[Question | dict[str, Any]],
+    timeout: int = DEFAULT_TIMEOUT_SECONDS,
+) -> AskUserQuestionOutput:
+    """Async entry point used by WebSocket-capable agent runtimes.
+
+    Desk/WebSocket sessions have an active MessageBus renderer, so we bypass
+    the terminal TUI and wait for the browser to submit structured answers.
+    Non-WS sessions retain the original terminal behavior in a worker thread.
+    """
+    if is_subagent():
+        return AskUserQuestionOutput.error_response(
+            "Interactive tools are disabled for sub-agents. "
+            "Sub-agents should make reasonable decisions or return to the parent agent "
+            "if user input is required."
+        )
+
+    try:
+        validated_input = _validate_input(questions)
+    except ValidationError as e:
+        return AskUserQuestionOutput.error_response(_format_validation_error(e))
+    except (TypeError, ValueError) as e:
+        return AskUserQuestionOutput.error_response(f"Validation error: {e!s}")
+
+    if is_wiggum_active():
+        return AskUserQuestionOutput.error_response(
+            "Interactive tools are disabled during /wiggum mode. "
+            "The agent is running autonomously in a loop. "
+            "Make a reasonable decision to proceed, or stop and wait for user input "
+            "by completing the current task."
+        )
+
+    browser_result = await _run_browser_picker_async(validated_input.questions, timeout)
+    if browser_result is not None:
+        return browser_result
+
+    return await asyncio.to_thread(ask_user_question, questions, timeout)
+
+
+async def _run_browser_picker_async(
+    questions: list[Question], timeout: int
+) -> AskUserQuestionOutput | None:
+    """Collect ask_user_question answers through the active MessageBus renderer.
+
+    Returns None when no renderer is active so callers can fall back to the
+    terminal TUI.
+    """
+    try:
+        from code_puppy.messaging.bus import get_message_bus
+
+        bus = get_message_bus()
+        if not bus.has_active_renderer:
+            return None
+
+        payload = [q.model_dump(mode="json") for q in questions]
+        answers_payload, cancelled = await asyncio.wait_for(
+            bus.request_ask_user_question(payload, timeout_seconds=timeout),
+            timeout=max(timeout, 1) + 5,
+        )
+        if cancelled:
+            return AskUserQuestionOutput.cancelled_response()
+        answers = [QuestionAnswer.model_validate(answer) for answer in answers_payload]
+        return AskUserQuestionOutput(answers=answers)
+    except asyncio.TimeoutError:
+        return AskUserQuestionOutput.timeout_response(timeout)
+    except Exception as e:
+        return AskUserQuestionOutput.error_response(f"Browser interaction error: {e!s}")
+
+
 class AsyncContextError(RuntimeError):
     """Raised when TUI is called from async context without await."""
 
@@ -144,7 +213,7 @@ def ask_user_question(
     except (CancelledException, KeyboardInterrupt):
         return _cancelled_response()
 
-    except OSError as e:
+    except (OSError, EOFError) as e:
         return AskUserQuestionOutput.error_response(f"Interaction error: {e!s}")
 
 
