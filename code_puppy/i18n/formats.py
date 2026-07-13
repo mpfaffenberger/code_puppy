@@ -83,4 +83,8 @@ def format_datetime(
     _ = locale or get_locale()  # reserved for the Babel-backed upgrade
     if date_only or (isinstance(value, date) and not isinstance(value, datetime)):
         return value.strftime("%Y-%m-%d")
-    return value.strftime("%Y-%m-%d %H:%M")
+    rendered = value.strftime("%Y-%m-%d %H:%M")
+    # Don't silently drop the timezone on aware datetimes.
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        rendered += value.strftime("%z")
+    return rendered

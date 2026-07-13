@@ -281,15 +281,20 @@ def get_owner_name():
 
 
 def get_locale() -> str:
-    """Resolve the active locale for i18n.
+    """Return the active i18n locale (single source of truth).
 
-    Precedence (highest first): CODE_PUPPY_LOCALE env var, POSIX locale env
-    vars (LC_ALL/LC_MESSAGES/LANG/LANGUAGE), the persisted ``locale`` config
-    key, then the default (en-US). See ``code_puppy.i18n.locale``.
+    Delegates to the i18n translator, seeding it once from the environment
+    and the persisted ``locale`` config key on first use. After a runtime
+    ``/set locale`` (translator.set_locale), this reflects that override
+    rather than re-deriving from the environment.
+
+    Precedence when seeding: CODE_PUPPY_LOCALE env var > persisted ``locale``
+    config key > POSIX locale env vars > default (en-US). See
+    ``code_puppy.i18n.locale.detect_locale``.
     """
-    from code_puppy.i18n.locale import detect_locale
+    from code_puppy.i18n import ensure_detected
 
-    return detect_locale(get_value("locale"))
+    return ensure_detected(get_value("locale"))
 
 
 # Legacy function removed - message history limit is no longer used

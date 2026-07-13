@@ -77,8 +77,9 @@ _ACCENTS = {
     "Z": "\u017d",
 }
 
-# Split on {placeholders} so we never mangle interpolation keys.
-_PLACEHOLDER_RE = re.compile(r"(\{[^{}]*\})")
+# Split on {{ / }} escapes and {identifier} fields so we never accent
+# interpolation tokens. Mirrors the grammar in translate._FIELD_RE.
+_PLACEHOLDER_RE = re.compile(r"(\{\{|\}\}|\{\w+\})")
 
 
 def is_pseudo_locale(locale: str) -> bool:

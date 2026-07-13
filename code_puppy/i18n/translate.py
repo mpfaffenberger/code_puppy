@@ -17,6 +17,7 @@ Design notes:
 
 from __future__ import annotations
 
+import re
 import threading
 from typing import Any, Optional
 
@@ -25,12 +26,40 @@ from .locale import DEFAULT_LOCALE, detect_locale, normalize_locale
 from .plurals import plural_category
 from .pseudo import is_pseudo_locale, pseudolocalize
 
+# Safe interpolation grammar. We intentionally do NOT use str.format/format_map
+# on catalog strings: catalogs are untrusted input (add_catalog_dir is the
+# plugin/community/private-fork seam), and str.format honors attribute/index
+# access in the *template* (e.g. {x.__class__.__globals__}) plus format specs
+# (e.g. {n:99999999} memory bombs). This grammar matches ONLY {{ / }} escapes
+# and {identifier} fields -- no dots, no indexing, no format specs, no
+# conversions -- so a malicious or careless translation can neither reach
+# object internals nor blow up rendering.
+_FIELD_RE = re.compile(r"\{\{|\}\}|\{(\w+)\}")
 
-class _SafeDict(dict):
-    """dict that leaves unknown ``{keys}`` untouched during format_map."""
 
-    def __missing__(self, key: str) -> str:  # noqa: D401 - trivial
-        return "{" + key + "}"
+def _interpolate(text: str, params: dict) -> str:
+    """Substitute {name} fields from params, safely and forgivingly.
+
+    - ``{{`` / ``}}`` render as literal braces.
+    - A known ``{name}`` becomes ``str(params[name])``.
+    - An unknown ``{name}`` is left intact (forgiving; never raises).
+    - Anything that is not a bare ``{identifier}`` (``{x.y}``, ``{0}``,
+      ``{n:spec}``) is left untouched as a literal -- no attribute walking,
+      no format-spec DoS.
+    """
+
+    def _replace(match: "re.Match[str]") -> str:
+        token = match.group(0)
+        if token == "{{":
+            return "{"
+        if token == "}}":
+            return "}"
+        name = match.group(1)
+        if name in params:
+            return str(params[name])
+        return token  # unknown field: leave placeholder intact
+
+    return _FIELD_RE.sub(_replace, text)
 
 
 class Translator:
@@ -42,6 +71,10 @@ class Translator:
         self._default = normalize_locale(default_locale) or DEFAULT_LOCALE
         self._lock = threading.RLock()
         self._locale = normalize_locale(locale) or self._default
+        # True once the locale has been set explicitly (set_locale /
+        # use_detected_locale). Lets ensure_detected() seed exactly once from
+        # env+config without clobbering a later runtime override.
+        self._explicit = locale is not None
 
     # -- locale management -------------------------------------------------
     @property
@@ -54,11 +87,25 @@ class Translator:
         normalized = normalize_locale(locale) or self._default
         with self._lock:
             self._locale = normalized
+            self._explicit = True
         return normalized
 
     def use_detected_locale(self, config_value: Optional[str] = None) -> str:
         """Resolve via the env/config/default chain and apply it."""
         return self.set_locale(detect_locale(config_value, self._default))
+
+    def ensure_detected(self, config_value: Optional[str] = None) -> str:
+        """Seed the locale from env+config once, if not already set explicitly.
+
+        Idempotent: after any explicit set_locale/use_detected_locale (or a
+        prior ensure_detected), this is a no-op and simply returns the active
+        locale. This makes the translator the single source of truth for the
+        active locale while still honoring a runtime override.
+        """
+        with self._lock:
+            if self._explicit:
+                return self._locale
+        return self.use_detected_locale(config_value)
 
     # -- core lookup -------------------------------------------------------
     def _select_text(self, key: str, count: Optional[int]) -> str:
@@ -86,11 +133,7 @@ class Translator:
 
     def _render(self, text: str, params: dict) -> str:
         if params:
-            try:
-                text = text.format_map(_SafeDict(params))
-            except (IndexError, ValueError):
-                # Malformed template — surface the raw string rather than die.
-                pass
+            text = _interpolate(text, params)
         if is_pseudo_locale(self._locale):
             text = pseudolocalize(text)
         return text
@@ -114,6 +157,10 @@ def get_locale() -> str:
 
 def use_detected_locale(config_value: Optional[str] = None) -> str:
     return _translator.use_detected_locale(config_value)
+
+
+def ensure_detected(config_value: Optional[str] = None) -> str:
+    return _translator.ensure_detected(config_value)
 
 
 def t(key: str, /, **params: Any) -> str:

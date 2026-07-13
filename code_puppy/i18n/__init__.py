@@ -35,6 +35,7 @@ from .pseudo import PSEUDO_LOCALE, is_pseudo_locale, pseudolocalize
 from .translate import (
     LazyTranslation,
     Translator,
+    ensure_detected,
     get_locale,
     get_translator,
     lazy,
@@ -58,6 +59,7 @@ __all__ = [
     "get_locale",
     "set_locale",
     "use_detected_locale",
+    "ensure_detected",
     "detect_locale",
     "normalize_locale",
     "fallback_chain",

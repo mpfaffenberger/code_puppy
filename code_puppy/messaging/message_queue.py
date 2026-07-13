@@ -15,6 +15,8 @@ from typing import Any, Dict, Optional, Union
 
 from rich.text import Text
 
+from code_puppy.i18n import LazyTranslation
+
 logger = logging.getLogger(__name__)
 
 
@@ -316,8 +318,6 @@ def emit_message(message_type: MessageType, content: Any, **metadata):
     deferral — respecting a locale switch *after* emit — lands with the
     rich_renderer seam in PUP-485.)
     """
-    from code_puppy.i18n import LazyTranslation
-
     if isinstance(content, LazyTranslation):
         content = str(content)
     queue = get_global_queue()

@@ -24,6 +24,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import threading
 from typing import Dict, List, Optional, Union
 
 from .locale import DEFAULT_LOCALE, fallback_chain
@@ -44,6 +46,21 @@ _extra_dirs: List[str] = []
 # locale -> merged catalog. Cleared by reset() / add_catalog_dir().
 _cache: Dict[str, Catalog] = {}
 
+# Guards ALL access to _cache and _extra_dirs. lookup() runs on every t() call,
+# which the message queue can dispatch from both the main thread and its daemon
+# thread, so these globals are genuinely shared mutable state.
+_lock = threading.RLock()
+
+# A locale used to build a filename must be a plain BCP-47-ish tag. This is a
+# defense-in-depth guard so the exported load_catalog()/lookup() can't be
+# tricked into path traversal (e.g. "../../../../etc/passwd") even if a caller
+# skips normalize_locale().
+_SAFE_LOCALE_RE = re.compile(r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$")
+
+
+def _is_safe_locale(locale: str) -> bool:
+    return bool(locale) and _SAFE_LOCALE_RE.match(locale) is not None
+
 
 def add_catalog_dir(path: str) -> None:
     """Register an additional directory of ``<locale>.json`` catalogs.
@@ -51,20 +68,22 @@ def add_catalog_dir(path: str) -> None:
     Later-registered dirs win over earlier ones, and all registered dirs win
     over the builtin catalogs. Registering invalidates the cache.
     """
-    if path not in _extra_dirs:
-        _extra_dirs.append(path)
-        _cache.clear()
+    with _lock:
+        if path not in _extra_dirs:
+            _extra_dirs.append(path)
+            _cache.clear()
 
 
 def reset() -> None:
     """Drop cached catalogs (and registered dirs). Mostly for tests."""
-    _cache.clear()
-    _extra_dirs.clear()
+    with _lock:
+        _cache.clear()
+        _extra_dirs.clear()
 
 
 def _search_dirs() -> List[str]:
     # Extra dirs are searched last so their entries overwrite the builtins
-    # during the dict merge below.
+    # during the dict merge below. Caller must hold _lock.
     return [_BUILTIN_DIR, *_extra_dirs]
 
 
@@ -90,14 +109,27 @@ def load_catalog(locale: str) -> Catalog:
     key present in ``en`` but absent in ``fr`` still resolves. Cached per
     locale.
     """
-    if locale in _cache:
-        return _cache[locale]
+    if not _is_safe_locale(locale):
+        # Reject anything that could escape the locales dir (path traversal)
+        # or otherwise isn't a plain locale tag. Defense-in-depth for the
+        # exported API; the normal path already normalizes upstream.
+        logger.warning("Refusing to load unsafe locale name: %r", locale)
+        return {}
+
+    with _lock:
+        cached = _cache.get(locale)
+        if cached is not None:
+            return cached
+        dirs = _search_dirs()
 
     merged: Catalog = {}
-    for directory in _search_dirs():
+    for directory in dirs:
         merged.update(_load_file(os.path.join(directory, f"{locale}.json")))
-    _cache[locale] = merged
-    return merged
+
+    with _lock:
+        # Another thread may have populated it concurrently; either value is
+        # correct, prefer the already-cached one for identity stability.
+        return _cache.setdefault(locale, merged)
 
 
 def available_locales() -> List[str]:
@@ -107,7 +139,9 @@ def available_locales() -> List[str]:
     ``/set locale`` autocomplete and for validating the shipped catalogs.
     """
     found = set()
-    for directory in _search_dirs():
+    with _lock:
+        dirs = _search_dirs()
+    for directory in dirs:
         try:
             entries = os.listdir(directory)
         except OSError:

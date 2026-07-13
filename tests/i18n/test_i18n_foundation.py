@@ -58,9 +58,15 @@ def test_detect_precedence_env_override(monkeypatch):
     assert locale.detect_locale(config_value="es-ES") == "fr-FR"
 
 
-def test_detect_precedence_posix_then_config(monkeypatch):
+def test_detect_precedence_config_beats_posix(monkeypatch):
+    # An explicit persisted config choice must beat the ambient OS locale.
     monkeypatch.setenv("LANG", "de_DE.UTF-8")
-    assert locale.detect_locale(config_value="es-ES") == "de-DE"
+    assert locale.detect_locale(config_value="es-ES") == "es-ES"
+
+
+def test_detect_precedence_posix_used_when_no_config(monkeypatch):
+    monkeypatch.setenv("LANG", "de_DE.UTF-8")
+    assert locale.detect_locale(config_value=None) == "de-DE"
 
 
 def test_detect_falls_back_to_config_then_default(monkeypatch):
@@ -125,7 +131,12 @@ def test_interpolation():
 
 
 def test_missing_param_leaves_placeholder():
-    # Should not raise; unknown placeholder is preserved verbatim.
+    # A DIFFERENT param present -> the forgiving-missing path is exercised and
+    # the unknown {name} placeholder is preserved verbatim.
+    assert i18n.t("startup.welcome", unrelated="z") == "Welcome to Code Puppy, {name}!"
+
+
+def test_no_params_leaves_placeholder():
     assert i18n.t("startup.welcome") == "Welcome to Code Puppy, {name}!"
 
 
@@ -207,7 +218,11 @@ def test_pseudo_preserves_placeholders():
 def test_pseudo_expands_length():
     plain = "short"
     result = pseudo.pseudolocalize(plain)
-    # Brackets + accents + padding -> strictly longer than the original.
+    # Actually accented (not a no-op) ...
+    assert "\u0161" in result  # 's' -> š
+    # ... padded with em-space filler ...
+    assert "\u2003" in result
+    # ... and strictly longer than the original.
     assert len(result) > len(plain)
 
 

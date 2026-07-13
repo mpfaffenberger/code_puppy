@@ -3,8 +3,9 @@
 The active locale is resolved with the following precedence (highest first):
 
 1. ``CODE_PUPPY_LOCALE`` environment variable (explicit override)
-2. POSIX locale env vars: ``LC_ALL`` > ``LC_MESSAGES`` > ``LANG`` > ``LANGUAGE``
-3. The persisted ``locale`` config key (``puppy.cfg``)
+2. The persisted ``locale`` config key (``puppy.cfg``) — the in-app
+   ``/set locale`` preference, which beats the ambient OS locale
+3. POSIX locale env vars: ``LC_ALL`` > ``LC_MESSAGES`` > ``LANG`` > ``LANGUAGE``
 4. The default locale (``en-US``)
 
 Everything here is intentionally stdlib-only. Babel/CLDR-backed niceties
@@ -140,6 +141,16 @@ def detect_locale(
 ) -> str:
     """Resolve the active locale using the full precedence chain.
 
+    Precedence, highest first:
+
+    1. ``CODE_PUPPY_LOCALE`` env var (deliberate, explicit override)
+    2. The persisted ``locale`` config value (the in-app ``/set locale``
+       preference — an explicit user choice beats ambient OS locale, matching
+       git/VS Code/most CLIs)
+    3. POSIX locale env vars (``LC_ALL`` > ``LC_MESSAGES`` > ``LANG`` >
+       ``LANGUAGE``) — ambient OS default
+    4. ``default`` (``en-US``)
+
     Args:
         config_value: The persisted ``locale`` config value, if any. Passed
             in (rather than imported) to keep this module free of a hard
@@ -150,13 +161,13 @@ def detect_locale(
     if override:
         return override
 
+    from_config = normalize_locale(config_value)
+    if from_config:
+        return from_config
+
     for var in _POSIX_LOCALE_VARS:
         candidate = normalize_locale(os.environ.get(var))
         if candidate:
             return candidate
-
-    from_config = normalize_locale(config_value)
-    if from_config:
-        return from_config
 
     return normalize_locale(default) or DEFAULT_LOCALE

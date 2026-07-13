@@ -20,12 +20,12 @@ CATEGORIES = ("zero", "one", "two", "few", "many", "other")
 
 
 def _english(n: int) -> str:
-    # en, de, es, it, nl, pt, sv, ... : one when n == 1.
+    # en, de, es, it, nl, sv, ... : one when n == 1.
     return "one" if n == 1 else "other"
 
 
 def _french(n: int) -> str:
-    # fr, pt-BR-ish: 0 and 1 are "one".
+    # fr, pt: 0 and 1 are "one" (CLDR gives pt the same one/other split as fr).
     return "one" if n in (0, 1) else "other"
 
 
@@ -52,7 +52,7 @@ _RULES: Dict[str, Callable[[int], str]] = {
     "es": _english,
     "it": _english,
     "nl": _english,
-    "pt": _english,
+    "pt": _french,
     "sv": _english,
     "fr": _french,
     "zh": _no_plural,
