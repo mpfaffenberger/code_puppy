@@ -97,6 +97,49 @@ def test_load_catalog_rejects_unsafe_locale(bad):
     assert catalog.load_catalog(bad) == {}
 
 
+@pytest.mark.parametrize(
+    "reserved", ["con", "CON", "nul", "prn", "aux", "com1", "lpt9"]
+)
+def test_load_catalog_rejects_windows_device_names(reserved):
+    # open("con.json") resolves to the console device on Windows -> soft DoS.
+    assert catalog.load_catalog(reserved) == {}
+    assert not catalog._is_safe_locale(reserved)
+
+
+@pytest.mark.parametrize(
+    "good", ["en-US", "es-419", "fr-CA", "zh-Hans-CN", "sr-Latn-RS", "con-US"]
+)
+def test_safe_locale_accepts_legit_tags(good):
+    # The guard must not reject a single legitimate locale (would be a silent
+    # catalog miss). "con-US" is fine -- only the bare reserved stem is unsafe.
+    assert catalog._is_safe_locale(good)
+
+
+def test_cache_not_poisoned_when_dirs_change_mid_load(tmp_path, monkeypatch):
+    # Reproduces the N1 residual race: a dir registration lands while a loader
+    # is mid-file-I/O. The in-flight (now stale) result must NOT be cached.
+    import json
+
+    (tmp_path / "en-US.json").write_text(
+        json.dumps({"confirm.yes": "OVERRIDE"}), encoding="utf-8"
+    )
+    orig_load = catalog._load_file
+    state = {"tripped": False}
+
+    def racing_load(path):
+        if not state["tripped"]:
+            state["tripped"] = True
+            catalog.add_catalog_dir(str(tmp_path))  # invalidate mid-flight
+        return orig_load(path)
+
+    monkeypatch.setattr(catalog, "_load_file", racing_load)
+    catalog.load_catalog("en-US")  # stale result -> must not poison the cache
+    monkeypatch.setattr(catalog, "_load_file", orig_load)
+
+    # Next load recomputes against the new dir set and sees the override.
+    assert catalog.load_catalog("en-US")["confirm.yes"] == "OVERRIDE"
+
+
 def test_lookup_with_unsafe_locale_only_uses_safe_fallback(caplog):
     # An unsafe locale name is refused at the filesystem boundary (no traversal
     # read); resolution still falls back safely to the en-US default catalog.

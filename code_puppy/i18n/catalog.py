@@ -46,9 +46,15 @@ _extra_dirs: List[str] = []
 # locale -> merged catalog. Cleared by reset() / add_catalog_dir().
 _cache: Dict[str, Catalog] = {}
 
-# Guards ALL access to _cache and _extra_dirs. lookup() runs on every t() call,
-# which the message queue can dispatch from both the main thread and its daemon
-# thread, so these globals are genuinely shared mutable state.
+# Bumped whenever the search-dir set changes (reset/add_catalog_dir). A loader
+# that released the lock for file I/O uses this to detect that its result went
+# stale mid-flight and must not poison the cache (see load_catalog).
+_generation = 0
+
+# Guards ALL access to _cache, _extra_dirs, and _generation. lookup() runs on
+# every t() call, which the message queue can dispatch from both the main
+# thread and its daemon thread, so these globals are genuinely shared mutable
+# state.
 _lock = threading.RLock()
 
 # A locale used to build a filename must be a plain BCP-47-ish tag. This is a
@@ -57,9 +63,20 @@ _lock = threading.RLock()
 # skips normalize_locale().
 _SAFE_LOCALE_RE = re.compile(r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$")
 
+# Windows reserved device names: open("con.json") resolves to the CON console
+# device (extension ignored), which would hang json.load. normalize_locale
+# happily emits "con"/"nul"/etc. as 3-letter lang subtags, so reject them.
+_WIN_RESERVED = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{i}" for i in range(1, 10)}
+    | {f"lpt{i}" for i in range(1, 10)}
+)
+
 
 def _is_safe_locale(locale: str) -> bool:
-    return bool(locale) and _SAFE_LOCALE_RE.match(locale) is not None
+    if not locale or _SAFE_LOCALE_RE.match(locale) is None:
+        return False
+    return locale.lower() not in _WIN_RESERVED
 
 
 def add_catalog_dir(path: str) -> None:
@@ -68,17 +85,21 @@ def add_catalog_dir(path: str) -> None:
     Later-registered dirs win over earlier ones, and all registered dirs win
     over the builtin catalogs. Registering invalidates the cache.
     """
+    global _generation
     with _lock:
         if path not in _extra_dirs:
             _extra_dirs.append(path)
             _cache.clear()
+            _generation += 1
 
 
 def reset() -> None:
     """Drop cached catalogs (and registered dirs). Mostly for tests."""
+    global _generation
     with _lock:
         _cache.clear()
         _extra_dirs.clear()
+        _generation += 1
 
 
 def _search_dirs() -> List[str]:
@@ -121,14 +142,18 @@ def load_catalog(locale: str) -> Catalog:
         if cached is not None:
             return cached
         dirs = _search_dirs()
+        gen = _generation
 
     merged: Catalog = {}
     for directory in dirs:
         merged.update(_load_file(os.path.join(directory, f"{locale}.json")))
 
     with _lock:
-        # Another thread may have populated it concurrently; either value is
-        # correct, prefer the already-cached one for identity stability.
+        if gen != _generation:
+            # The dir set changed (reset/add_catalog_dir) while we were doing
+            # file I/O, so ``merged`` may be stale. Return it for this call but
+            # do NOT cache it -- the next call recomputes against current dirs.
+            return merged
         return _cache.setdefault(locale, merged)
 
 
