@@ -280,6 +280,18 @@ def get_owner_name():
     return get_value("owner_name") or "Master"
 
 
+def get_locale() -> str:
+    """Resolve the active locale for i18n.
+
+    Precedence (highest first): CODE_PUPPY_LOCALE env var, POSIX locale env
+    vars (LC_ALL/LC_MESSAGES/LANG/LANGUAGE), the persisted ``locale`` config
+    key, then the default (en-US). See ``code_puppy.i18n.locale``.
+    """
+    from code_puppy.i18n.locale import detect_locale
+
+    return detect_locale(get_value("locale"))
+
+
 # Legacy function removed - message history limit is no longer used
 # Message history is now managed by token-based compaction system
 # using get_protected_token_count() and get_summarization_threshold()
@@ -343,6 +355,7 @@ def get_config_keys():
         "frontend_emitter_enabled",
         "frontend_emitter_max_recent_events",
         "frontend_emitter_queue_size",
+        "locale",
     ]
     # 'enable_dbos' is reserved for the dbos_durable_exec plugin and is read
     # via the generic get_value API; intentionally not in default_keys.

@@ -1,0 +1,17 @@
+{
+  "startup.welcome": "Welcome to Code Puppy, {name}!",
+  "startup.ready": "Ready to fetch some code. \ud83d\udc36",
+  "locale.set": "Locale set to {locale}.",
+  "locale.current": "Current locale: {locale}",
+  "files.deleted": {
+    "one": "Deleted {count} file.",
+    "other": "Deleted {count} files."
+  },
+  "files.written": {
+    "one": "Wrote {count} file.",
+    "other": "Wrote {count} files."
+  },
+  "error.generic": "Something went wrong: {detail}",
+  "confirm.yes": "Yes",
+  "confirm.no": "No"
+}
