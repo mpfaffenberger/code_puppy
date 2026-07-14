@@ -311,11 +311,24 @@ async def _invoke_agent_impl(
                         make_streaming_retry,
                     )
 
-                    @make_streaming_retry("subagent", effective_model_name)
+                    @make_streaming_retry(
+                        "subagent",
+                        effective_model_name,
+                        # The history processor checkpoints completed steps into
+                        # agent_config._message_history in place, so a growing
+                        # history means real forward progress -> refresh the
+                        # no-progress retry budget.
+                        progress_fn=lambda: len(
+                            agent_config.get_message_history() or []
+                        ),
+                    )
                     async def _run_subagent():
+                        # Resume from the live checkpoint, not the stale pre-run
+                        # snapshot, so a retried turn picks up completed steps
+                        # instead of redoing them (matches the main-agent loop).
                         return await temp_agent.run(
                             prompt,
-                            message_history=message_history,
+                            message_history=agent_config.get_message_history(),
                             usage_limits=UsageLimits(request_limit=get_message_limit()),
                             event_stream_handler=stream_handler,
                         )

@@ -138,7 +138,7 @@ class TestResolution:
 
         stored = {
             "retry_main_strategy": "gentle",
-            "retry_model_gpt_5_strategy": "aggressive",
+            "retry_model_gpt_5_main_strategy": "aggressive",
         }
         monkeypatch.setattr(config, "get_value", lambda k: stored.get(k))
         monkeypatch.setattr(
@@ -150,22 +150,23 @@ class TestResolution:
         assert rp.resolve("main", "gpt-5").strategy == "aggressive"
         assert rp.resolve("main", "other-model").strategy == "gentle"
 
-    def test_per_model_override_is_role_agnostic(self, monkeypatch):
-        # One per-model override applies to BOTH main and sub-agent use of that
-        # model -- the "configure retries for a given model" mental model.
+    def test_per_model_override_is_role_specific(self, monkeypatch):
+        # Per-model overrides are role-SPECIFIC: a model can retry differently as
+        # the main agent vs. as a sub-agent. Only the overridden role changes.
         from code_puppy import config
 
         stored = {
             "retry_main_strategy": "gentle",
             "retry_subagent_strategy": "gentle",
-            "retry_model_gpt_5_strategy": "aggressive",
+            "retry_model_gpt_5_subagent_strategy": "aggressive",
         }
         monkeypatch.setattr(config, "get_value", lambda k: stored.get(k))
         monkeypatch.setattr(
             config, "_sanitize_model_name_for_key", lambda name: name.replace("-", "_")
         )
-        assert rp.resolve("main", "gpt-5").strategy == "aggressive"
+        # Only the sub-agent role was overridden for gpt-5.
         assert rp.resolve("subagent", "gpt-5").strategy == "aggressive"
+        assert rp.resolve("main", "gpt-5").strategy == "gentle"
 
     def test_per_model_key_format(self, monkeypatch):
         from code_puppy import config
@@ -173,13 +174,18 @@ class TestResolution:
         monkeypatch.setattr(
             config, "_sanitize_model_name_for_key", lambda name: name.replace("-", "_")
         )
-        assert rp.per_model_key("gpt-5", "strategy") == "retry_model_gpt_5_strategy"
         assert (
-            rp.per_model_key("gpt-5", "max_attempts")
-            == "retry_model_gpt_5_max_attempts"
+            rp.per_model_key("gpt-5", "main", "strategy")
+            == "retry_model_gpt_5_main_strategy"
+        )
+        assert (
+            rp.per_model_key("gpt-5", "subagent", "max_attempts")
+            == "retry_model_gpt_5_subagent_max_attempts"
         )
         # Must NOT collide with the model_settings_ namespace scraped by /model.
-        assert not rp.per_model_key("gpt-5", "strategy").startswith("model_settings_")
+        assert not rp.per_model_key("gpt-5", "main", "strategy").startswith(
+            "model_settings_"
+        )
 
     def test_garbage_int_config_falls_back_not_crashes(self, monkeypatch):
         def fake(role, field, model):
@@ -220,13 +226,13 @@ class TestAdversarialConfig:
         # dedicated retry_model_ namespace and NOT appear in model settings.
         from code_puppy import config
 
-        config.set_value("retry_model_gpt_5_strategy", "aggressive")
+        config.set_value("retry_model_gpt_5_main_strategy", "aggressive")
         try:
             assert rp.resolve("main", "gpt-5").strategy == "aggressive"
             leaked = config.get_all_model_settings("gpt-5")
             assert not any("retry" in k for k in leaked)
         finally:
-            config.reset_value("retry_model_gpt_5_strategy")
+            config.reset_value("retry_model_gpt_5_main_strategy")
 
     def test_make_streaming_retry_falls_back_when_resolve_explodes(self, monkeypatch):
         # Defense-in-depth: a retry-config problem must never crash the run the

@@ -160,24 +160,49 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "choices": ["low", "medium", "high", "max"],
         "default": "high",
     },
-    "retry_strategy": {
-        "name": "Retry Backoff Strategy",
+    "retry_main_strategy": {
+        "name": "Retry Strategy (main agent)",
         "description": (
-            "Per-model streaming-retry backoff (overrides the global /set retry "
-            "strategy for this model, in both main and sub-agent use). All are "
-            "exponential-with-jitter, capped at 30s between retries. Leave unset "
-            "to use the global setting."
+            "Per-model streaming-retry backoff when THIS model runs as the main "
+            "agent (overrides the global /set value). Exponential-with-jitter, "
+            "capped at 30s between retries. Leave unset to use the global setting."
         ),
         "type": "choice",
         "choices": ["gentle", "balanced", "aggressive"],
         "default": None,
     },
-    "retry_max_attempts": {
-        "name": "Retry Max Attempts",
+    "retry_main_max_attempts": {
+        "name": "Retry Max Attempts (main agent)",
         "description": (
-            "Per-model max streaming-retry attempts (1-100, clamped), including "
-            "the first try. Overrides the global /set value for this model. "
-            "Leave unset to use the global setting."
+            "Per-model max streaming-retry attempts (1-100) when THIS model runs "
+            "as the main agent, including the first try. Overrides the global "
+            "/set value. Leave unset to use the global setting."
+        ),
+        "type": "numeric",
+        "min": 1,
+        "max": 100,
+        "step": 1,
+        "default": None,
+        "format": "{:.0f}",
+    },
+    "retry_subagent_strategy": {
+        "name": "Retry Strategy (sub-agent)",
+        "description": (
+            "Per-model streaming-retry backoff when THIS model runs as a "
+            "sub-agent (overrides the global /set value). Sub-agents usually want "
+            "a longer budget -- losing their work to a blip is expensive. Leave "
+            "unset to use the global setting."
+        ),
+        "type": "choice",
+        "choices": ["gentle", "balanced", "aggressive"],
+        "default": None,
+    },
+    "retry_subagent_max_attempts": {
+        "name": "Retry Max Attempts (sub-agent)",
+        "description": (
+            "Per-model max streaming-retry attempts (1-100) when THIS model runs "
+            "as a sub-agent, including the first try. Overrides the global /set "
+            "value. Leave unset to use the global setting."
         ),
         "type": "numeric",
         "min": 1,
@@ -196,12 +221,15 @@ def _load_all_model_names() -> List[str]:
 
 
 # Per-model retry override keys are handled specially: they live in the dedicated
-# ``retry_model_<model>_<field>`` namespace (see retry_profiles.per_model_key),
-# NOT the generic ``model_settings_`` namespace, so they can never leak into the
-# ModelSettings sent to the provider. Maps the menu setting key -> config field.
-_RETRY_MENU_KEYS: Dict[str, str] = {
-    "retry_strategy": "strategy",
-    "retry_max_attempts": "max_attempts",
+# ``retry_model_<model>_<role>_<field>`` namespace (see
+# retry_profiles.per_model_key), NOT the generic ``model_settings_`` namespace, so
+# they can never leak into the ModelSettings sent to the provider. Maps the menu
+# setting key -> (role, config field).
+_RETRY_MENU_KEYS: Dict[str, tuple] = {
+    "retry_main_strategy": ("main", "strategy"),
+    "retry_main_max_attempts": ("main", "max_attempts"),
+    "retry_subagent_strategy": ("subagent", "strategy"),
+    "retry_subagent_max_attempts": ("subagent", "max_attempts"),
 }
 
 
@@ -209,8 +237,8 @@ def _read_per_model_retry(model_name: str, menu_key: str):
     """Read a per-model retry override, or None if unset. Parses ints."""
     from code_puppy.agents.retry_profiles import per_model_key
 
-    field = _RETRY_MENU_KEYS[menu_key]
-    raw = get_value(per_model_key(model_name, field))
+    role, field = _RETRY_MENU_KEYS[menu_key]
+    raw = get_value(per_model_key(model_name, role, field))
     if raw is None or not str(raw).strip():
         return None
     if field == "max_attempts":
@@ -225,7 +253,8 @@ def _write_per_model_retry(model_name: str, menu_key: str, value) -> None:
     """Write (or clear, when value is None) a per-model retry override."""
     from code_puppy.agents.retry_profiles import per_model_key
 
-    key = per_model_key(model_name, _RETRY_MENU_KEYS[menu_key])
+    role, field = _RETRY_MENU_KEYS[menu_key]
+    key = per_model_key(model_name, role, field)
     if value is None:
         reset_value(key)
     else:
@@ -766,6 +795,16 @@ class ModelSettingsMenu:
                 self.edit_value = 42
             elif setting_key == "budget_tokens":
                 self.edit_value = 10000
+            elif setting_key in _RETRY_MENU_KEYS:
+                # Seed from the effective (resolved) value as an INT -- never the
+                # (min+max)/2 midpoint, which produces a .5 float that {:.0f}
+                # banker's-rounds so +1 steps look like +2 and stall.
+                role, _ = _RETRY_MENU_KEYS[setting_key]
+                from code_puppy.agents.retry_profiles import resolve
+
+                self.edit_value = int(
+                    resolve(role, self.selected_model).max_attempts
+                )
             else:
                 self.edit_value = (setting_def["min"] + setting_def["max"]) / 2
 
@@ -796,6 +835,10 @@ class ModelSettingsMenu:
             new_value = self.edit_value + (direction * step)
             # Clamp to range
             new_value = max(setting_def["min"], min(setting_def["max"], new_value))
+            # Integer-step settings stay ints -- a stray float would make the
+            # {:.0f} display banker's-round and appear to step by 2 / stall.
+            if isinstance(step, int) and isinstance(setting_def["min"], int):
+                new_value = int(round(new_value))
             self.edit_value = new_value
 
     def _save_edit(self):

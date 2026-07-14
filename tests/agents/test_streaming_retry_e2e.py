@@ -224,10 +224,10 @@ async def test_streaming_retry_logs_each_transient_attempt_to_error_log(monkeypa
 
     assert result == "streamed-result"
     # 2 transient attempts (1 and 2) failed, attempt 3 succeeded -> 2 log calls.
-    attempt_logs = [c for c in captured if "attempt" in c[1]]
+    attempt_logs = [c for c in captured if "transient exception" in c[1]]
     assert len(attempt_logs) == 2
-    assert "attempt 1/5" in attempt_logs[0][1]
-    assert "attempt 2/5" in attempt_logs[1][1]
+    assert "streak 1/5" in attempt_logs[0][1]
+    assert "streak 2/5" in attempt_logs[1][1]
     # Verify it's the actual exception object, not just a stringified copy.
     assert type(attempt_logs[0][0]).__name__ == "APIStatusError"
 
@@ -251,7 +251,8 @@ async def test_streaming_retry_logs_exhaustion_to_error_log(monkeypatch):
 
     exhaustion_logs = [c for c in captured if "exhausted" in c[1]]
     assert len(exhaustion_logs) == 1
-    assert "exhausted all 2 attempts" in exhaustion_logs[0][1]
+    assert "budget exhausted" in exhaustion_logs[0][1]
+    assert "streak 2/2" in exhaustion_logs[0][1]
 
 
 @pytest.mark.asyncio

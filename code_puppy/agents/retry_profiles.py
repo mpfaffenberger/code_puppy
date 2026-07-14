@@ -48,6 +48,12 @@ MAX_DELAY_SECONDS: float = 30.0
 MAX_ATTEMPTS_CEILING: int = 100
 MIN_ATTEMPTS_FLOOR: int = 1
 
+# Absolute backstop on TOTAL retries within a single turn when progress-aware
+# reset is active. The per-turn no-progress budget refreshes on genuine forward
+# progress, so this only guards the pathological "one unit of progress, then
+# die, forever" cycle. Kept far below the ~2880-retry/24h runaway line.
+PROGRESS_RETRY_TOTAL_CEILING: int = 200
+
 # Strategy name -> (base_seconds, exponent). All exponential-with-equal-jitter,
 # all clamped to MAX_DELAY_SECONDS; they differ only in exponent aggressiveness.
 STRATEGIES: Dict[str, Tuple[float, float]] = {
@@ -157,18 +163,19 @@ def make(
 # this module is only pulled in lazily by the retry call sites.
 
 
-def per_model_key(model_name: str, field: str) -> str:
-    """Config key for a per-model retry override (role-agnostic).
+def per_model_key(model_name: str, role: str, field: str) -> str:
+    """Config key for a per-model, per-role retry override.
 
-    ``field`` is ``"strategy"`` or ``"max_attempts"``. Lives under a DEDICATED
-    ``retry_model_<sanitized>_...`` namespace -- deliberately NOT the shared
-    ``model_settings_<model>_...`` namespace, so it can never leak into the
-    ``ModelSettings`` actually sent to the provider. Centralised here so the
-    resolver and the /model settings UI agree on exactly one key format.
+    ``role`` is ``"main"`` or ``"subagent"``; ``field`` is ``"strategy"`` or
+    ``"max_attempts"``. Lives under a DEDICATED ``retry_model_<sanitized>_...``
+    namespace -- deliberately NOT the shared ``model_settings_<model>_...``
+    namespace, so it can never leak into the ``ModelSettings`` actually sent to
+    the provider. Centralised here so the resolver and the /model settings UI
+    agree on exactly one key format.
     """
     from code_puppy.config import _sanitize_model_name_for_key
 
-    return f"retry_model_{_sanitize_model_name_for_key(model_name)}_{field}"
+    return f"retry_model_{_sanitize_model_name_for_key(model_name)}_{role}_{field}"
 
 
 def _read_raw_setting(
@@ -176,16 +183,14 @@ def _read_raw_setting(
 ) -> Optional[str]:
     """Resolve a single retry setting: per-model override -> global -> None.
 
-    ``field`` is ``"strategy"`` or ``"max_attempts"``. The per-model override is
-    role-AGNOSTIC (one knob per model, applied to both main and sub-agent use of
-    that model) -- it beats the role-specific global setting. This matches the
-    "configure retries for a given model" mental model: a flaky model retries
-    the same way wherever it's used.
+    ``field`` is ``"strategy"`` or ``"max_attempts"``. Both the per-model override
+    and the global fall back are role-SPECIFIC, so a model can be tuned to retry
+    differently as the main agent vs. as a sub-agent.
     """
     from code_puppy.config import get_value
 
     if model_name:
-        per_model = get_value(per_model_key(model_name, field))
+        per_model = get_value(per_model_key(model_name, role, field))
         if per_model is not None and str(per_model).strip():
             return str(per_model).strip()
 
@@ -235,12 +240,20 @@ def make_streaming_retry(
     role: str,
     model_name: Optional[str] = None,
     rng: Optional[random.Random] = None,
+    progress_fn: Optional[Callable[[], object]] = None,
 ) -> Callable[[Callable[[], object]], Callable[[], object]]:
     """Resolve the profile for ``role`` and return a configured retry decorator.
 
     Thin bridge between the policy layer (this module) and the mechanism layer
     (``_runtime.streaming_retry``). Call sites use this instead of hard-coding
     ``streaming_retry(...)`` so per-role / per-model config is honoured.
+
+    ``progress_fn`` (optional) is a monotonic progress token source (e.g.
+    ``lambda: len(agent._message_history)``). When supplied, the resolved
+    ``max_attempts`` becomes the budget of consecutive *no-progress* retries,
+    and an absolute backstop of ``PROGRESS_RETRY_TOTAL_CEILING`` (or the profile
+    budget, whichever is larger) bounds a pathological "tiny progress then die"
+    cycle. Without it, behaviour is the classic flat budget.
 
     Defensive by construction: if resolution or delay computation ever raises
     (a corrupt config, a future bug), we fall back to the role's default
@@ -261,4 +274,13 @@ def make_streaming_retry(
             delays = [MIN_DELAY_SECONDS]
         max_attempts = fallback.max_attempts
 
-    return streaming_retry(max_attempts=max_attempts, delays=delays)
+    max_total_attempts = None
+    if progress_fn is not None:
+        max_total_attempts = max(max_attempts, PROGRESS_RETRY_TOTAL_CEILING)
+
+    return streaming_retry(
+        max_attempts=max_attempts,
+        delays=delays,
+        progress_fn=progress_fn,
+        max_total_attempts=max_total_attempts,
+    )
