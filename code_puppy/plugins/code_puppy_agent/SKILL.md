@@ -1,13 +1,33 @@
 ---
 name: code-puppy-agent
-description: Deep reference on Code Puppy's internal architecture — agents, tools, plugins, models, MCP, sessions, and how to extend it correctly.
-version: "1.0"
+description: How Code Puppy itself is built — its internal architecture, structure, codebase layout, and source modules. Explains agents, tools, the plugin/callback hook system, models, MCP, sessions and history/context windows, skills, slash commands, config, messaging/UI, system-prompt assembly, and i18n. Activate for ANY question about how Code Puppy works internally, why it behaves a certain way, where something lives in the code, how a feature is implemented, or how to navigate, debug, or extend the codebase (add a tool, agent, plugin, command, skill, model, or MCP server).
+version: "1.1"
 author: code-puppy
 tags:
   - code-puppy
   - architecture
+  - structure
   - internals
+  - codebase
+  - source
+  - how-it-works
+  - self-awareness
+  - agents
+  - tools
   - plugins
+  - hooks
+  - callbacks
+  - models
+  - mcp
+  - sessions
+  - history
+  - skills
+  - commands
+  - config
+  - messaging
+  - i18n
+  - extend
+  - debug
   - reference
 ---
 
