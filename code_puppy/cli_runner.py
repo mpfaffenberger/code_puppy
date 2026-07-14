@@ -267,7 +267,32 @@ async def main():
             # Print directly to console to avoid the 'dim' style from emit_system_message
             display_console.print("\n".join(lines))
         except ImportError:
-            emit_system_message("🐶 Code Puppy is Loading...")
+            emit_system_message("Code Puppy is Loading...")
+
+        # Right after the logo, tell the user which project this puppy
+        # session is pointing to. Multi-terminal users can then eyeball
+        # each tab's opening banner instead of scrolling scrollback to
+        # figure out where each pup ended up.
+        try:
+            from code_puppy.command_line.prompt_toolkit_completion import (
+                _get_project_name,
+            )
+
+            _cwd = os.getcwd()
+            _project = _get_project_name(_cwd)
+            _home = os.path.expanduser("~")
+            _cwd_display = (
+                "~" + _cwd[len(_home):] if _cwd.startswith(_home) else _cwd
+            )
+            display_console.print(
+                f"\n[bold bright_yellow]Working in project:[/bold bright_yellow] "
+                f"[bold bright_red]{_project}[/bold bright_red] "
+                f"[dim]({_cwd_display})[/dim]"
+            )
+        except Exception:
+            # Banner is best-effort — never let a display quirk break
+            # startup.
+            pass
 
         # Truecolor warning moved to interactive_mode() so it prints LAST
         # after all the help stuff - max visibility for the ugly red box!

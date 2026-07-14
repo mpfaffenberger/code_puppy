@@ -19,6 +19,7 @@ from code_puppy.command_line.prompt_toolkit_completion import (
     FilePathCompleter,
     SetCompleter,
     _complete_or_cycle,
+    _get_project_name,
     get_input_with_combined_completion,
     get_prompt_with_active_model,
 )
@@ -548,10 +549,90 @@ def test_meaningful_prompt_fragments_include_semantic_roles():
     assert "class:puppy class:tui.header" in styles
     assert "class:agent class:tui.label" in styles
     assert "class:model class:tui.title" in styles
+    assert "class:project class:tui.warning" in styles
     assert "class:cwd class:tui.muted" in styles
     assert "class:arrow class:tui.help-key" in styles
     assert rendered.startswith("Biscuit [Code Puppy] [test-model] ")
     assert rendered.endswith(">>> ")
+
+
+def test_get_project_name_prefers_git_root(tmp_path, monkeypatch):
+    # When we're inside a git repo, the project name is the repo's basename
+    # regardless of how deep we've cd'd. This is the whole point of the
+    # feature: 'which project am I in' at a glance.
+    repo_root = tmp_path / "my-awesome-project"
+    nested = repo_root / "packages" / "api" / "src"
+    nested.mkdir(parents=True)
+    monkeypatch.setattr(
+        "code_puppy.config._detect_git_toplevel",
+        lambda path: str(repo_root),
+    )
+    assert _get_project_name(str(nested)) == "my-awesome-project"
+
+
+def test_get_project_name_falls_back_to_cwd_basename(tmp_path, monkeypatch):
+    # Outside a git repo, the folder name is the best we can do.
+    folder = tmp_path / "loose-scripts"
+    folder.mkdir()
+    monkeypatch.setattr(
+        "code_puppy.config._detect_git_toplevel",
+        lambda path: None,
+    )
+    assert _get_project_name(str(folder)) == "loose-scripts"
+
+
+def test_get_project_name_shows_tilde_in_home(monkeypatch):
+    monkeypatch.setattr(
+        "code_puppy.config._detect_git_toplevel",
+        lambda path: None,
+    )
+    assert _get_project_name(os.path.expanduser("~")) == "~"
+
+
+def test_get_project_name_survives_git_detection_error(tmp_path, monkeypatch):
+    # Any exception from git detection must fall back to the folder name
+    # rather than crash the prompt render.
+    folder = tmp_path / "resilient"
+    folder.mkdir()
+
+    def _boom(path):
+        raise RuntimeError("git broke, oh no")
+
+    monkeypatch.setattr("code_puppy.config._detect_git_toplevel", _boom)
+    assert _get_project_name(str(folder)) == "resilient"
+
+
+def test_project_name_appears_in_rendered_prompt(tmp_path, monkeypatch):
+    project_dir = tmp_path / "puppy-town"
+    project_dir.mkdir()
+    monkeypatch.chdir(project_dir)
+    # Force the no-git fallback so the project name is deterministic even
+    # when the test runner's cwd happens to be inside an unrelated repo.
+    monkeypatch.setattr(
+        "code_puppy.config._detect_git_toplevel",
+        lambda path: None,
+    )
+
+    agent = MagicMock(display_name="Code Puppy")
+    agent.get_model_name.return_value = "test-model"
+    with (
+        patch(
+            "code_puppy.command_line.prompt_toolkit_completion.get_puppy_name",
+            return_value="Biscuit",
+        ),
+        patch(
+            "code_puppy.command_line.prompt_toolkit_completion.get_active_model",
+            return_value="test-model",
+        ),
+        patch(
+            "code_puppy.agents.agent_manager.get_current_agent",
+            return_value=agent,
+        ),
+    ):
+        prompt = get_prompt_with_active_model()
+
+    rendered = "".join(text for _style, text in prompt)
+    assert "puppy-town" in rendered
 
 
 @pytest.mark.asyncio
