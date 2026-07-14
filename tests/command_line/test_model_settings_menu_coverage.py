@@ -320,6 +320,9 @@ class TestRenderMainList:
         "code_puppy.command_line.model_settings_menu.get_all_model_settings",
         return_value={},
     )
+    @patch.dict(
+        "code_puppy.command_line.model_settings_menu._RETRY_MENU_KEYS", {}, clear=True
+    )
     def test_render_settings_view_no_settings(self, mock_settings, mock_supports):
         menu = _make_menu()
         menu._load_model_settings("gpt-5")
@@ -393,6 +396,9 @@ class TestRenderDetailsPanel:
     @patch(
         "code_puppy.command_line.model_settings_menu.get_all_model_settings",
         return_value={},
+    )
+    @patch.dict(
+        "code_puppy.command_line.model_settings_menu._RETRY_MENU_KEYS", {}, clear=True
     )
     def test_models_view_no_supported_settings(self, mock_settings, mock_supports):
         menu = _make_menu(models=["m1"])
@@ -480,6 +486,9 @@ class TestRenderDetailsPanel:
     @patch(
         "code_puppy.command_line.model_settings_menu.get_all_model_settings",
         return_value={},
+    )
+    @patch.dict(
+        "code_puppy.command_line.model_settings_menu._RETRY_MENU_KEYS", {}, clear=True
     )
     def test_settings_view_no_settings(self, mock_settings, mock_supports):
         mock_supports.return_value = False
@@ -674,6 +683,9 @@ class TestEditing:
     @patch(
         "code_puppy.command_line.model_settings_menu.get_all_model_settings",
         return_value={},
+    )
+    @patch.dict(
+        "code_puppy.command_line.model_settings_menu._RETRY_MENU_KEYS", {}, clear=True
     )
     def test_start_editing_generic_numeric_default(self, mock_settings, mock_supports):
         """Test fallback for unknown numeric setting."""

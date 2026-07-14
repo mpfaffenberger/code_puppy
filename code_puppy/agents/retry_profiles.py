@@ -157,30 +157,39 @@ def make(
 # this module is only pulled in lazily by the retry call sites.
 
 
+def per_model_key(model_name: str, field: str) -> str:
+    """Config key for a per-model retry override (role-agnostic).
+
+    ``field`` is ``"strategy"`` or ``"max_attempts"``. Lives under a DEDICATED
+    ``retry_model_<sanitized>_...`` namespace -- deliberately NOT the shared
+    ``model_settings_<model>_...`` namespace, so it can never leak into the
+    ``ModelSettings`` actually sent to the provider. Centralised here so the
+    resolver and the /model settings UI agree on exactly one key format.
+    """
+    from code_puppy.config import _sanitize_model_name_for_key
+
+    return f"retry_model_{_sanitize_model_name_for_key(model_name)}_{field}"
+
+
 def _read_raw_setting(
     role: str, field: str, model_name: Optional[str]
 ) -> Optional[str]:
     """Resolve a single retry setting: per-model override -> global -> None.
 
-    ``field`` is ``"strategy"`` or ``"max_attempts"``. Per-model overrides live
-    under a DEDICATED ``retry_model_<sanitized>_...`` namespace -- deliberately
-    NOT the shared ``model_settings_<model>_...`` namespace, because the latter
-    is scraped wholesale by the ``/model`` settings editor and would render
-    retry knobs as bogus editable model settings.
+    ``field`` is ``"strategy"`` or ``"max_attempts"``. The per-model override is
+    role-AGNOSTIC (one knob per model, applied to both main and sub-agent use of
+    that model) -- it beats the role-specific global setting. This matches the
+    "configure retries for a given model" mental model: a flaky model retries
+    the same way wherever it's used.
     """
     from code_puppy.config import get_value
 
-    global_key = f"retry_{role}_{field}"
-
     if model_name:
-        from code_puppy.config import _sanitize_model_name_for_key
-
-        sanitized = _sanitize_model_name_for_key(model_name)
-        per_model = get_value(f"retry_model_{sanitized}_{role}_{field}")
+        per_model = get_value(per_model_key(model_name, field))
         if per_model is not None and str(per_model).strip():
             return str(per_model).strip()
 
-    global_val = get_value(global_key)
+    global_val = get_value(f"retry_{role}_{field}")
     if global_val is not None and str(global_val).strip():
         return str(global_val).strip()
     return None
