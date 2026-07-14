@@ -53,7 +53,8 @@ class TestBannerDisplayInfo:
         """Test thinking banner display info."""
         name, icon = BANNER_DISPLAY_INFO["thinking"]
         assert name == "THINKING"
-        assert icon == ""
+        # The theme design gives the thinking banner a lightning icon.
+        assert icon == chr(0x26A1)
 
     def test_shell_command_banner_display(self):
         """Test shell command banner display info."""

@@ -97,6 +97,11 @@ def emit_interactive_help(textual: bool = False) -> None:
             f"Press {cancel_key} during processing to cancel the current task or "
             "inference. Use Ctrl+X to interrupt running shell commands."
         )
+        emit_system_message(
+            "Ctrl+X chords: Ctrl+X Ctrl+E to open $EDITOR (Notepad on Windows); "
+            "Ctrl+X Ctrl+X to kill running shell commands; "
+            "Ctrl+X Ctrl+B to background running shell commands."
+        )
 
     emit_system_message(
         "Use /autosave_load to manually load a previous autosave session."

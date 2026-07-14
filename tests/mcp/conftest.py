@@ -234,33 +234,36 @@ def mock_emit_prompt():
 
 @pytest.fixture
 def mock_get_current_agent():
-    """Mock get_current_agent everywhere the MCP commands look for it.
+    """Mock get_current_agent function.
 
-    The lifecycle commands bind ``get_current_agent`` into their own module
-    namespace at import time (``from ...agents import get_current_agent``),
-    so patching only ``code_puppy.agents.get_current_agent`` would leave the
-    real function in place — and with no bundled default model that real
-    path raises "No valid model could be loaded".
+    The MCP command modules bind ``get_current_agent`` at import time via
+    ``from ...agents import get_current_agent``, so patching the source
+    (``code_puppy.agents.get_current_agent``) alone does NOT intercept the
+    reference they already hold. Patch every command-module namespace that
+    imported it directly so the mock agent (and its no-op reload) is used.
     """
+    import contextlib
+
     mock_agent = Mock()
+    mock_agent.name = "code-puppy"
     mock_agent.reload_code_generation_agent = Mock()
 
-    patch_targets = [
-        # Covers late imports (e.g. restart_command imports inside execute()).
+    targets = [
         "code_puppy.agents.get_current_agent",
-        # Module-level bindings created via ``from ...agents import ...``.
         "code_puppy.command_line.mcp.start_command.get_current_agent",
         "code_puppy.command_line.mcp.stop_command.get_current_agent",
         "code_puppy.command_line.mcp.start_all_command.get_current_agent",
         "code_puppy.command_line.mcp.stop_all_command.get_current_agent",
     ]
-
-    with ExitStack() as stack:
-        mocks = [
-            stack.enter_context(patch(target, return_value=mock_agent))
-            for target in patch_targets
-        ]
-        mock = mocks[0]
+    with contextlib.ExitStack() as stack:
+        mock = None
+        for target in targets:
+            try:
+                m = stack.enter_context(patch(target, return_value=mock_agent))
+            except (AttributeError, ModuleNotFoundError):
+                continue
+            if mock is None:
+                mock = m
         mock.agent = mock_agent
         yield mock
 

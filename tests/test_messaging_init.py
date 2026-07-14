@@ -121,6 +121,7 @@ class TestMessagingPackageExports:
             "BaseCommand",
             # Message types
             "TextMessage",
+            "PromptEchoMessage",
             "FileEntry",
             "FileListingMessage",
             "FileContentMessage",

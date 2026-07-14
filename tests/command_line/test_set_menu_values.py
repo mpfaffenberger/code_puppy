@@ -35,14 +35,18 @@ class TestEffectiveSettingValue:
         Exceptions are keys whose semantics are explicitly "optional with
         no documented default" -- e.g. ``temperature`` means "use the
         model's own default" when unset, and ``puppy_token`` is simply
-        not configured for most users. Add to ``OPTIONAL_KEYS`` only
-        when you've confirmed the unset value is meaningful.
-
-        ``model`` and ``summarization_model`` joined the optional club when
-        models.json started shipping empty (no bundled default model), so
-        an unset value now means "user hasn't completed model setup yet".
+        not configured for most users. ``model``/``summarization_model``
+        resolve to None when no models are configured, which is the
+        shipped state (models.json is empty until the user sets one up).
+        Add to ``OPTIONAL_KEYS`` only when you've confirmed the unset
+        value is meaningful.
         """
-        OPTIONAL_KEYS = {"temperature", "puppy_token", "model", "summarization_model"}
+        OPTIONAL_KEYS = {
+            "temperature",
+            "puppy_token",
+            "model",
+            "summarization_model",
+        }
         failures = []
         for _, setting in iter_curated_settings():
             if setting.effective_getter is None:

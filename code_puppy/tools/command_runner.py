@@ -568,13 +568,14 @@ def _start_keyboard_listener() -> None:
     """
     global _SHELL_CTRL_X_STOP_EVENT, _SHELL_CTRL_X_THREAD, _ORIGINAL_SIGINT_HANDLER
 
-    from code_puppy.agents import _key_listeners
-
-    _key_listeners.set_escape_handler(_handle_ctrl_x_press)
+    # Register the Ctrl+X / Ctrl+B shell chords for as long as commands run.
+    # (Replaces the old modal ``_key_listeners.set_escape_handler`` design,
+    # removed in the chord refactor.)
+    _register_shell_chords()
 
     # In the Textual TUI, never spawn a raw cbreak reader -- it races Textual
     # for stdin. The app binds Ctrl+X to kill_all_running_shell_processes()
-    # directly, so the dynamic escape handler above is enough (and unused).
+    # directly, so the chord bindings above are enough (and unused).
     from code_puppy.config import is_tui_mode
 
     if not is_tui_mode():
