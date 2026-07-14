@@ -278,6 +278,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
 
 register_callback("startup", _on_startup)
 
+
 # -- Textual TUI integration -----------------------------------------------
 # The prompt_toolkit PluginsMenu corrupts the Textual screen, so the TUI opens
 # a native ModalScreen instead. register_screen is consumed only by the TUI;

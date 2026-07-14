@@ -150,9 +150,7 @@ class SpinnerScreen(ModalScreen[None]):
         self._custom_interval = None
         self._update_preview()
 
-    def on_option_list_option_selected(
-        self, event: OptionList.OptionSelected
-    ) -> None:
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         # Enter on the focused OptionList fires this (not the screen-level
         # `enter` binding, which the widget swallows) -> apply the choice.
         event.stop()
