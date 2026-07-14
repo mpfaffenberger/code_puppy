@@ -37,6 +37,25 @@ _fastapi_stub.Query = _query
 sys.modules.setdefault("fastapi", _fastapi_stub)
 
 
+async def _unused_async(*args, **kwargs):
+    raise AssertionError("test stub should be monkeypatched before use")
+
+
+_queries_stub = types.ModuleType("code_puppy.api.db.queries")
+_queries_stub.get_active_messages = _unused_async
+_queries_stub.get_session_history_parity = _unused_async
+_queries_stub.get_session_metadata = _unused_async
+_queries_stub.get_session_tool_calls = _unused_async
+_queries_stub.soft_delete_session = _unused_async
+_queries_stub.update_session_meta_fields = _unused_async
+sys.modules.setdefault("code_puppy.api.db.queries", _queries_stub)
+
+
+_config_stub = types.ModuleType("code_puppy.config")
+_config_stub.get_ws_sessions_dir = lambda: Path("/tmp/code-puppy-test-ws-sessions")
+sys.modules.setdefault("code_puppy.config", _config_stub)
+
+
 _original_router_init = Router.__init__
 
 
