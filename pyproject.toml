@@ -9,7 +9,7 @@ description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
-    "pydantic-ai-slim[openai,anthropic,mcp]==1.56.0",
+    "pydantic-ai-slim[anthropic,mcp]==1.56.0",
     "typer>=0.12.0",
     "mcp>=1.9.4",
     "httpx[http2]>=0.24.1",
@@ -22,10 +22,7 @@ dependencies = [
     "pyfiglet>=0.8.post1",
     "rapidfuzz>=3.13.0",
     "openai>=1.99.1",
-    "ripgrep==14.1.0",
-    "playwright>=1.40.0",
     "termflow-md>=0.1.11",
-    "Pillow>=10.0.0",
     "azure-identity>=1.15.0",
     "anthropic==0.79.0",
     "boto3>=1.43.9",
@@ -54,7 +51,10 @@ classifiers = [
 
 [project.optional-dependencies]
 bedrock = ["boto3>=1.35.0"]
+browser = ["playwright>=1.40.0"]
 durable = ["dbos>=2.11.0"]
+images = ["Pillow>=10.0.0"]
+search = ["ripgrep==14.1.0"]
 
 [project.urls]
 repository = "https://github.com/mpfaffenberger/code_puppy"
@@ -64,6 +64,7 @@ HomePage = "https://github.com/mpfaffenberger/code_puppy"
 [project.scripts]
 code-puppy = "code_puppy.main:main_entry"
 pup = "code_puppy.main:main_entry"
+code-puppy-bootstrap = "code_puppy.bootstrap:main"
 
 [tool.logfire]
 ignore_no_config = true
