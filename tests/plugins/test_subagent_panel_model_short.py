@@ -26,6 +26,13 @@ from code_puppy.plugins.subagent_panel.register_callbacks import (
         ("gpt-5.4", "GPT 5.4"),
         ("gpt-4.1-nano", "GPT 4.1-Nano"),
         ("foundry-gpt-5-4", "GPT 5.4"),
+        # GPT 5.6 named variants survive with and without the Codex prefix.
+        ("gpt-5.6-sol", "GPT 5.6-Sol"),
+        ("gpt-5.6-terra", "GPT 5.6-Terra"),
+        ("gpt-5.6-luna", "GPT 5.6-Luna"),
+        ("codex-gpt-5.6-sol", "GPT 5.6-Sol"),
+        ("codex-gpt-5.6-terra", "GPT 5.6-Terra"),
+        ("codex-gpt-5.6-luna", "GPT 5.6-Luna"),
         # Gemini variants -- 'mini' inside 'gemini' must NOT false-fire.
         ("gemini-2.5-flash", "Gemini 2.5-Flash"),
         ("gemini-2.0-pro", "Gemini 2.0-Pro"),
@@ -57,6 +64,19 @@ def test_distinct_tiers_render_distinctly():
     """The whole point: three gpt-5.4 tiers must produce three labels."""
     labels = {_model_short(m) for m in ("gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano")}
     assert labels == {"GPT 5.4", "GPT 5.4-Mini", "GPT 5.4-Nano"}
+
+
+def test_gpt_5_6_named_variants_render_distinctly_with_any_prefix():
+    models = (
+        f"{prefix}gpt-5.6-{variant}"
+        for prefix in ("", "codex-")
+        for variant in ("sol", "terra", "luna")
+    )
+    assert {_model_short(model) for model in models} == {
+        "GPT 5.6-Sol",
+        "GPT 5.6-Terra",
+        "GPT 5.6-Luna",
+    }
 
 
 def _entry(session_id, name, model, **extra):
