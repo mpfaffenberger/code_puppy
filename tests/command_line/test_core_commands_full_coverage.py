@@ -641,15 +641,90 @@ class TestHandlePlanCommand:
         assert isinstance(result, str)
         assert "plan-only mode" in result
         assert "add retry logic" in result
+        assert ".claude/plan.md" in result
 
-    def test_plan_without_goal_emits_usage(self):
+    def test_plan_without_subcommand_emits_usage(self):
         from code_puppy.command_line.core_commands import handle_plan_command
 
         with patch("code_puppy.command_line.core_commands.emit_error") as mock_error:
             result = handle_plan_command("/plan")
 
         assert result is True
-        mock_error.assert_called_once_with("Usage: /plan <goal>")
+        mock_error.assert_called_once_with(
+            "Usage: /plan <goal> | /plan show | /plan edit | /plan run [N] | /plan mark <N>"
+        )
+
+    def test_plan_show_returns_plan(self):
+        from code_puppy.command_line.core_commands import handle_plan_command
+
+        with (
+            patch(
+                "code_puppy.command_line.core_commands.PlanManager",
+            ) as mock_pm_cls,
+            patch("code_puppy.command_line.core_commands.emit_info") as mock_info,
+        ):
+            mock_pm = mock_pm_cls.return_value
+            mock_pm.exists.return_value = True
+            mock_pm.load.return_value = "# Plan: Test\n## Steps\n- [ ] Step 1"
+            mock_pm.show_formatted.return_value = "📋 Plan output"
+            result = handle_plan_command("/plan show")
+
+        assert result is True
+        assert mock_info.called
+
+    def test_plan_show_empty(self):
+        from code_puppy.command_line.core_commands import handle_plan_command
+
+        with (
+            patch(
+                "code_puppy.command_line.core_commands.PlanManager",
+            ) as mock_pm_cls,
+            patch("code_puppy.command_line.core_commands.emit_info") as mock_info,
+        ):
+            mock_pm = mock_pm_cls.return_value
+            mock_pm.exists.return_value = False
+            mock_pm.show_formatted.return_value = "No plan file found"
+            result = handle_plan_command("/plan show")
+
+        assert result is True
+        assert mock_info.called
+
+    def test_plan_edit_opens_file(self):
+        from code_puppy.command_line.core_commands import handle_plan_command
+
+        with (
+            patch(
+                "code_puppy.command_line.core_commands.PlanManager",
+            ) as mock_pm_cls,
+            patch("code_puppy.command_line.core_commands.emit_success") as mock_success,
+            patch("code_puppy.command_line.core_commands.emit_info"),
+        ):
+            mock_pm = mock_pm_cls.return_value
+            mock_pm.exists.return_value = True
+            mock_pm.edit_in_editor.return_value = True
+            result = handle_plan_command("/plan edit")
+
+        assert result is True
+        mock_success.assert_called_once_with("Plan saved.")
+
+    def test_plan_mark_toggles_step(self):
+        from code_puppy.command_line.core_commands import handle_plan_command
+
+        with (
+            patch(
+                "code_puppy.command_line.core_commands.PlanManager",
+            ) as mock_pm_cls,
+            patch("code_puppy.command_line.core_commands.emit_success") as mock_success,
+        ):
+            mock_pm = mock_pm_cls.return_value
+            mock_pm.get_steps.return_value = [
+                {"index": 1, "text": "Step 1", "done": False, "line": 0}
+            ]
+            mock_pm.mark_step_done.return_value = True
+            result = handle_plan_command("/plan mark 1")
+
+        assert result is True
+        mock_success.assert_called_once_with("Step 1 marked as done.")
 
 
 class TestHandleGeneratePrDescription:

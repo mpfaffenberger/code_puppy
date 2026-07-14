@@ -12,9 +12,10 @@ from code_puppy.command_line.model_picker_completion import (
     interactive_model_picker,
     update_model_in_input,
 )
+from code_puppy.command_line.plan_manager import PlanManager
 from code_puppy.command_line.utils import make_directory_table
 from code_puppy.config import finalize_autosave_session
-from code_puppy.messaging import emit_error, emit_info
+from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.tools.tools_content import tools_content
 
 
@@ -615,31 +616,141 @@ def handle_mcp_command(command: str) -> bool:
 
 @register_command(
     name="plan",
-    description="Create a plan-only response without executing tools",
-    usage="/plan <goal>",
+    description="Plan, persist, and execute — plan-only mode with step-by-step execution",
+    usage="/plan <goal> | show | edit | run [N] | mark <N>",
+    aliases=["p"],
     category="core",
 )
 def handle_plan_command(command: str) -> bool | str:
-    """Build a planning prompt and route it to the main chat pipeline."""
-    parts = command.split(maxsplit=1)
-    goal = parts[1].strip() if len(parts) > 1 else ""
+    """Planning command with file persistence and step execution.
 
-    if not goal:
-        emit_error("Usage: /plan <goal>")
+    Subcommands:
+        /plan <goal> — Enter plan-only mode. LLM explores and outputs a
+            structured checklist plan, then saves it to .claude/plan.md.
+        /plan show   — Display the current .claude/plan.md.
+        /plan edit   — Open .claude/plan.md in $EDITOR.
+        /plan run [N]— Execute one or all pending steps from the plan.
+        /plan mark <N> — Toggle step N as done/undone in the plan file.
+    """
+    parts = command.split(maxsplit=1)
+    subcommand = parts[1].strip() if len(parts) > 1 else ""
+
+    if not subcommand:
+        emit_error(
+            "Usage: /plan <goal> | /plan show | /plan edit | /plan run [N] | /plan mark <N>"
+        )
         return True
 
+    pm = PlanManager()
+
+    # ── /plan show ────────────────────────────────────────────────────────
+    if subcommand == "show":
+        output = pm.show_formatted()
+        emit_info(output)
+        return True
+
+    # ── /plan edit ────────────────────────────────────────────────────────
+    if subcommand == "edit":
+        try:
+            if pm.exists():
+                emit_info("Opening .claude/plan.md in your editor…")
+            else:
+                emit_info("No plan file yet. Creating a template…")
+            if pm.edit_in_editor():
+                emit_success("Plan saved.")
+            else:
+                emit_warning(
+                    "Editor exited with an error; plan may not have been saved."
+                )
+        except RuntimeError as e:
+            emit_error(str(e))
+        return True
+
+    # ── /plan run ─────────────────────────────────────────────────────────
+    if subcommand.startswith("run"):
+        if not pm.exists():
+            emit_error("No plan found. Create one with /plan <goal> or /plan edit.")
+            return True
+
+        # Parse optional step number
+        rest = subcommand[len("run") :].strip()
+        step_num = None
+        if rest and rest.isdigit():
+            step_num = int(rest)
+
+        try:
+            prompt = pm.build_run_prompt(step_num)
+            return prompt  # → LLM executes the step(s)
+        except ValueError as e:
+            emit_error(str(e))
+            return True
+
+    # ── /plan mark <N> ────────────────────────────────────────────────────
+    if subcommand.startswith("mark") or subcommand.startswith("done"):
+        rest = subcommand.split(maxsplit=1)
+        if len(rest) < 2 or not rest[1].isdigit():
+            emit_error("Usage: /plan mark <step-number>")
+            return True
+        step_num = int(rest[1])
+        steps = pm.get_steps()
+        target = next((s for s in steps if s["index"] == step_num), None)
+        if not target:
+            emit_error(f"Step {step_num} not found in the plan.")
+            return True
+        new_state = not target["done"]
+        if pm.mark_step_done(step_num, new_state):
+            status = "done" if new_state else "pending"
+            emit_success(f"Step {step_num} marked as {status}.")
+        return True
+
+    # ── /plan run <N> (no space, e.g. /plan run3) ─────────────────────────
+    # Catch /plan run3 or /plan 3 (single digit remainder)
+    if subcommand.lstrip("-").isdigit():
+        step_num = int(subcommand)
+        if not pm.exists():
+            emit_error("No plan found. Create one with /plan <goal> or /plan edit.")
+            return True
+        try:
+            prompt = pm.build_run_prompt(step_num)
+            return prompt
+        except ValueError as e:
+            emit_error(str(e))
+            return True
+
+    # ── /plan <goal> — planning prompt ────────────────────────────────────
+    # Anything else is the goal text.
+    goal = subcommand
+
     planning_prompt = f"""You are in plan-only mode.
-Do not execute tools, do not modify files, and do not run shell commands.
+
+You may read files and explore the codebase freely. You may NOT modify any
+source files or run destructive commands. However, you ARE allowed to write
+the final plan to .claude/plan.md using the Write tool — that is the ONLY
+file you may create or edit.
 
 User goal:
 {goal}
 
-Return only:
-1. A concise objective summary
-2. A numbered implementation plan
-3. Risks/unknowns
-4. Validation checklist
-5. Optional follow-up questions (only if needed)
+Return a structured plan using this format:
+
+# Plan: <title>
+
+## Objective
+<brief summary>
+
+## Steps
+- [ ] <step 1>
+- [ ] <step 2>
+- [ ] …
+
+## Risks / Unknowns
+- <risk 1>
+
+## Validation
+- [ ] <validation step 1>
+
+After you have finished exploring and thinking, output the plan here in the
+chat AND write it to .claude/plan.md using the Write tool.
 """
 
     return planning_prompt
