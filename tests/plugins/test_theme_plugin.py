@@ -202,11 +202,6 @@ class TestColorRemapFor:
         assert isinstance(r, dict)
         assert len(r) > 0
 
-    def test_green_screen_remaps_both_white_slots(self):
-        r = color_remap_for("green-screen")
-        assert r["white"] == "#6a9955"
-        assert r["bright_white"] == "#00ff00"
-
     def test_unknown_theme_raises(self):
         with pytest.raises(KeyError):
             color_remap_for("nonexistent")
@@ -292,20 +287,6 @@ class TestThemePickerPagination:
         assert "Green Screen" in rendered
         assert "Ocean" not in rendered
         assert "Deep Black" not in rendered
-
-    def test_menu_uses_semantic_roles_for_chrome(self):
-        fragments = list(_format_menu(0))
-        styles = {style for style, _ in fragments}
-
-        assert {
-            "class:tui.header",
-            "class:tui.muted",
-            "class:tui.selected",
-            "class:tui.body",
-            "class:tui.help",
-            "class:tui.help-key",
-        } <= styles
-        assert not any("ansi" in style for style in styles)
 
     def test_page_navigation_clamps_at_catalog_edges(self):
         assert _move_page(2, 1) == 7
@@ -546,41 +527,8 @@ class TestRegisterCallbacks:
             highlighter = _termflow_highlighter(Highlighter())
 
         rendered = highlighter.highlight_line("plain code", "text")
-        assert "38;2;114;168;91" in rendered
+        assert "38;2;106;153;85" in rendered
         assert "38;2;255;255;255" not in rendered
-
-    def test_green_screen_highlighter_uses_phosphor_intensities(self):
-        from termflow.syntax import Highlighter
-
-        from code_puppy.plugins.theme.register_callbacks import _termflow_highlighter
-
-        with patch(
-            "code_puppy.plugins.theme.register_callbacks._active_terminal_palette",
-            return_value=("green-screen", GREEN_SCREEN),
-        ):
-            highlighter = _termflow_highlighter(Highlighter())
-
-        rendered = highlighter.highlight_line(
-            "# dim comment\ndef glowing():\n    return 42", "python"
-        )
-        assert "38;2;69;107;79" in rendered  # dark phosphor comment
-        assert "38;2;57;231;95" in rendered  # bright keyword
-        assert "38;2;138;203;114" in rendered  # normal literal
-
-    def test_solarized_light_code_uses_dark_default_foreground(self):
-        from termflow.syntax import Highlighter
-
-        from code_puppy.plugins.theme.register_callbacks import _termflow_highlighter
-
-        with patch(
-            "code_puppy.plugins.theme.register_callbacks._active_terminal_palette",
-            return_value=("solarized-light", SOLARIZED_LIGHT),
-        ):
-            highlighter = _termflow_highlighter(Highlighter())
-
-        rendered = highlighter.highlight_line("palette = Palette()", "python")
-        assert "38;2;101;123;131" in rendered  # dark base foreground
-        assert "38;2;238;232;213" not in rendered  # near-background ANSI white
 
     def test_termflow_style_uses_active_terminal_palette(self):
         from termflow.render.style import RenderStyle

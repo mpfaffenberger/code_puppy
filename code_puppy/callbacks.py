@@ -29,8 +29,8 @@ PhaseType = Literal[
     "stream_event",
     "thinking_display_filter",
     "termflow_style",
-    "prompt_toolkit_style",
     "termflow_highlighter",
+    "prompt_toolkit_style",
     "prompt_text_color",
     "register_tools",
     "register_agent_tools",
@@ -64,6 +64,7 @@ PhaseType = Literal[
     "post_autosave",
     "notification",
     "subagent_panel_lines_changed",
+    "awaiting_user_input",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -93,8 +94,8 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "stream_event": [],
     "thinking_display_filter": [],
     "termflow_style": [],
-    "prompt_toolkit_style": [],
     "termflow_highlighter": [],
+    "prompt_toolkit_style": [],
     "prompt_text_color": [],
     "register_tools": [],
     "register_agent_tools": [],
@@ -128,6 +129,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "post_autosave": [],
     "notification": [],
     "subagent_panel_lines_changed": [],
+    "awaiting_user_input": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -668,14 +670,19 @@ def on_termflow_style(default_style: Any) -> Any:
     return _chain_value_callbacks("termflow_style", default_style)
 
 
-def on_prompt_toolkit_style(default_style: Any = None) -> Any:
-    """Let plugins replace a prompt_toolkit Application style."""
-    return _chain_value_callbacks("prompt_toolkit_style", default_style)
-
-
 def on_termflow_highlighter(default_highlighter: Any) -> Any:
     """Let plugins replace Termflow's syntax highlighter."""
     return _chain_value_callbacks("termflow_highlighter", default_highlighter)
+
+
+def on_prompt_toolkit_style(default_style: Any = None) -> Any:
+    """Let plugins replace a prompt_toolkit Application style.
+
+    TUI menus pass their local style through this hook so the active theme can
+    be layered underneath while local rules keep precedence. Returning ``None``
+    leaves the style unchanged, and failures degrade safely to the prior value.
+    """
+    return _chain_value_callbacks("prompt_toolkit_style", default_style)
 
 
 def on_prompt_text_color(default_color: str | None = None) -> str | None:
