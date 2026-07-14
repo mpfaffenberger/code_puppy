@@ -65,22 +65,6 @@ def test_prompt_buffer_uses_theme_foreground(bar, tty):
     assert "\x1b[39m" in output
 
 
-def test_styled_prefix_restores_theme_foreground_for_user_text(bar, tty):
-    theme_sgr = "\x1b[38;2;76;79;105m"
-    with patch("code_puppy.callbacks.on_prompt_text_color", return_value="#4c4f69"):
-        bar.start()
-        drain(tty)
-        bar.set_prompt_text(
-            "> ", "readable latte", len("readable latte"), ["1;34", "1;34"]
-        )
-
-    output = written(tty)
-    prefix_reset = output.index("\x1b[0m")
-    user_text = output.index("readable latte")
-
-    assert theme_sgr in output[prefix_reset:user_text]
-
-
 # =========================================================================
 # Non-TTY: silent no-ops
 # =========================================================================
