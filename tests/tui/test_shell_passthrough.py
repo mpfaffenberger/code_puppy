@@ -15,9 +15,12 @@ async def test_shell_passthrough_renders_output():
     async with app.run_test() as pilot:
         await pilot.pause()
         app.submit_prompt("!echo cooper123")
+        # Wait for the terminal completion marker, not "cooper123": that string
+        # appears immediately in the echoed "$ echo cooper123" command line,
+        # before the command's output and the "Done" marker have rendered.
         for _ in range(80):
             await pilot.pause(0.05)
-            if "cooper123" in _log_text(app):
+            if "Done" in _log_text(app):
                 break
         text = _log_text(app)
         assert "cooper123" in text
