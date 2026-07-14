@@ -69,9 +69,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         from code_puppy.api.db.connection import init_db
 
         await init_db()
-        logger.info("✓ aiosqlite DB initialised")
+        logger.info("aiosqlite DB initialised")
     except Exception as _db_exc:
-        logger.error("SQLite DB init failed (continuing without DB): %s", _db_exc)
+        logger.exception("SQLite DB init failed; aborting startup")
+        raise RuntimeError("SQLite DB init failed") from _db_exc
 
     yield
     # Shutdown: clean up all the things!

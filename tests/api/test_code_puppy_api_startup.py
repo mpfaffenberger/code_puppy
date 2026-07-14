@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 def test_code_puppy_api_starts_without_dbos_installed(tmp_path):
     blocker_dir = tmp_path / "block_dbos"
@@ -76,3 +78,18 @@ builtins.__import__ = _blocked_import
 
     assert result.returncode == 0, result.stderr or result.stdout
     assert "ok" in result.stdout
+
+
+def test_code_puppy_api_startup_fails_when_db_init_fails(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from code_puppy.api.app import create_app
+
+    async def _boom():
+        raise RuntimeError("db is toast")
+
+    monkeypatch.setattr("code_puppy.api.db.connection.init_db", _boom)
+
+    with pytest.raises(RuntimeError, match="SQLite DB init failed"):
+        with TestClient(create_app()):
+            pass

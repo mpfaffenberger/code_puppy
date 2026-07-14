@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import uuid
 from typing import Any
 
 from fastapi import WebSocket
@@ -22,6 +23,14 @@ from code_puppy.messaging.bus import get_message_bus
 from code_puppy.tools.command_runner import init_session_process_tracking
 
 logger = logging.getLogger(__name__)
+
+
+def _generate_session_id() -> str:
+    """Return a collision-resistant websocket session identifier."""
+    session_timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
+        "%Y%m%d_%H%M%S_%f"
+    )
+    return f"WS_session_{session_timestamp}_{uuid.uuid4().hex[:8]}"
 
 
 async def send_session_meta_snapshot(
@@ -141,8 +150,7 @@ async def initialize_ws_session(
         if not existing_history:
             logger.debug("Session %s not found in SQLite, will create new", session_id)
     else:
-        session_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        session_id = f"WS_session_{session_timestamp}"
+        session_id = _generate_session_id()
         sender.session_id = session_id
         logger.debug("Generated new session ID: %s", session_id)
 

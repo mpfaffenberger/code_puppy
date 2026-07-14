@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from datetime import datetime, timezone
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -251,3 +252,33 @@ async def test_initialize_ws_session_restores_existing_session(monkeypatch):
         for message in sent[1:]
     )
     assert meta[0]["title"] == "Saved title"
+
+
+def test_generate_session_id_is_unique_within_same_second(monkeypatch):
+    module = importlib.import_module("code_puppy.api.ws.ws_session_bootstrap")
+
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 1, 2, 3, 4, 5, 123456, tzinfo=tz or timezone.utc)
+
+    fake_datetime_module = SimpleNamespace(
+        datetime=_FrozenDateTime,
+        timezone=timezone,
+    )
+    uuids = iter(
+        [
+            SimpleNamespace(hex="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            SimpleNamespace(hex="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        ]
+    )
+
+    monkeypatch.setattr(module, "datetime", fake_datetime_module)
+    monkeypatch.setattr(module.uuid, "uuid4", lambda: next(uuids))
+
+    first = module._generate_session_id()
+    second = module._generate_session_id()
+
+    assert first != second
+    assert first == "WS_session_20260102_030405_123456_aaaaaaaa"
+    assert second == "WS_session_20260102_030405_123456_bbbbbbbb"

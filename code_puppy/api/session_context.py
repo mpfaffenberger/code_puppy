@@ -226,6 +226,8 @@ class SessionManager:
         )
 
         async with self._lock:
+            if session_id in self._sessions:
+                raise ValueError(f"Session already exists: {session_id!r}")
             self._sessions[session_id] = ctx
 
         logger.info(
