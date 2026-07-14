@@ -7,6 +7,7 @@ hook that runs coroutine test functions using the stdlib's asyncio.
 
 import asyncio
 import inspect
+import json
 import os
 import subprocess
 import tempfile
@@ -127,6 +128,22 @@ def isolate_global_state_between_tests(tmp_path_factory):
     original_config_dir = cp_config.CONFIG_DIR
     original_history_file = cp_config.COMMAND_HISTORY_FILE
     original_callbacks = deepcopy(cp_callbacks._callbacks)
+
+    # Keep model discovery deterministic. Some tests exercise fallback-to-
+    # default-model behavior and should not depend on whether a developer or CI
+    # image happens to have personal model files lying around.
+    os.makedirs(os.path.dirname(cp_config.EXTRA_MODELS_FILE), exist_ok=True)
+    with open(cp_config.EXTRA_MODELS_FILE, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "test-default-model": {
+                    "type": "openai",
+                    "name": "test-default-model",
+                    "context_length": 128000,
+                }
+            },
+            f,
+        )
 
     # Create a completely separate temp directory for config isolation
     # (not using tmp_path which tests may use for their own purposes).

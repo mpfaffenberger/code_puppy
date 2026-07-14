@@ -21,7 +21,6 @@ from pydantic_ai import RunContext
 from rich.text import Text
 
 from code_puppy.callbacks import on_run_shell_command_output
-from code_puppy.config import get_command_timeout_seconds
 from code_puppy.messaging import (  # Structured messaging types
     AgentReasoningMessage,
     ShellOutputMessage,
@@ -841,6 +840,18 @@ def _release_keyboard_context() -> None:
         _stop_keyboard_listener()
 
 
+def _get_foreground_limit_seconds() -> int:
+    """Resolve the foreground shell limit from live config.
+
+    This is intentionally looked up at call time rather than imported as a
+    module-level function alias so tests and runtime config monkeypatching hit
+    the real source of truth.
+    """
+    from code_puppy.config import get_command_timeout_seconds
+
+    return get_command_timeout_seconds()
+
+
 def run_shell_command_streaming(
     process: subprocess.Popen,
     timeout: int = 60,
@@ -858,7 +869,7 @@ def run_shell_command_streaming(
 
     # Foreground duration limit. Reaching it detaches rather than killing;
     # inactivity remains the guard for genuinely wedged commands.
-    foreground_limit_seconds = get_command_timeout_seconds()
+    foreground_limit_seconds = _get_foreground_limit_seconds()
 
     stdout_lines = []
     stderr_lines = []
