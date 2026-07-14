@@ -791,19 +791,32 @@ async def get_input_with_combined_completion(
 
     # Enter behavior depends on multiline mode AND completion-menu state.
     # Priority order:
-    #   1. If the completion menu is open with a highlighted item, just
-    #      accept that completion and close the menu (don't submit). This
-    #      matches how editors like VSCode/Helix behave — Enter on a popup
-    #      = pick, not commit.
-    #   2. Multiline mode: insert a newline.
-    #   3. Default: submit the prompt.
+    #   1. If the completion menu is open with a highlighted item that would
+    #      actually CHANGE the buffer, accept that completion and close the
+    #      menu (don't submit). This matches how editors like VSCode/Helix
+    #      behave — Enter on a popup = pick, not commit.
+    #   2. If the highlighted completion is a no-op (you've already typed the
+    #      whole word, so applying it changes nothing), don't swallow the
+    #      keystroke — close the menu and fall through to submit. Otherwise
+    #      you'd have to press Enter twice for a fully-typed command.
+    #   3. Multiline mode: insert a newline.
+    #   4. Default: submit the prompt.
     @bindings.add("enter", filter=~is_searching, eager=True)
     def _(event):
         buffer = event.current_buffer
         complete_state = buffer.complete_state
-        if complete_state and complete_state.current_completion is not None:
-            buffer.apply_completion(complete_state.current_completion)
-            return
+        completion = complete_state.current_completion if complete_state else None
+        if completion is not None:
+            # The fragment this completion would overwrite (start_position is
+            # a <= 0 offset from the cursor). If it already equals the
+            # completion text, applying it is a no-op -> treat Enter as submit.
+            before = buffer.document.text_before_cursor
+            overwritten = before[len(before) + completion.start_position :]
+            if overwritten != completion.text:
+                buffer.apply_completion(completion)
+                return
+            # No-op completion: dismiss the menu and continue to submit/newline.
+            buffer.cancel_completion()
         if multiline["enabled"]:
             buffer.insert_text("\n")
         else:

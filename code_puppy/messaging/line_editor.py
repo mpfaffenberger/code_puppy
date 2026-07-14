@@ -366,8 +366,16 @@ class RunningLineEditor:
 
         if ch == _ENTER:
             if self._completion_open():
-                self._completion.accept()  # accept, do NOT submit (classic)
-                return None
+                before = self._buffer
+                self._completion.accept()  # apply the highlighted item
+                # A real pick changed the buffer -> close menu, don't submit
+                # (classic editor behavior). But if accepting was a NO-OP
+                # (you'd already typed the whole word, so the highlighted
+                # item == what's there), don't swallow Enter: fall through
+                # to submit/newline. Otherwise a fully-typed command needs
+                # two Enters.
+                if self._buffer != before:
+                    return None
             if self._multiline:
                 self._insert_text("\n")
                 return None
