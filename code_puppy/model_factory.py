@@ -24,7 +24,7 @@ from code_puppy.messaging import emit_warning
 
 from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
-from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
+from .config import EXTRA_MODELS_FILE, MODELS_FILE, get_value, get_yolo_mode
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .provider_identity import (
     make_anthropic_provider,
@@ -528,8 +528,14 @@ class ModelFactory:
             GEMINI_MODELS_FILE,
         )
 
-        # Build list of extra model sources
+        # Build list of extra model sources.
+        #
+        # ``MODELS_FILE`` (~/.code_puppy/models.json) is a user-level override
+        # loaded first so that ``extra_models.json`` and OAuth files still win
+        # on name collisions -- the more specific/ephemeral source overrides the
+        # broad user catalogue.
         extra_sources: list[tuple[pathlib.Path, str, bool]] = [
+            (pathlib.Path(MODELS_FILE), "user models", False),
             (pathlib.Path(EXTRA_MODELS_FILE), "extra models", False),
             (pathlib.Path(CHATGPT_MODELS_FILE), "ChatGPT OAuth models", False),
             (pathlib.Path(CLAUDE_MODELS_FILE), "Claude Code OAuth models", True),
