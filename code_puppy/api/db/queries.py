@@ -52,7 +52,7 @@ async def get_session_row(session_id: str) -> Optional[dict]:
 async def get_session_metadata(session_id: str) -> Optional[dict]:
     """Return a subset of session columns useful for the chat handler.
 
-    Returns keys: session_id, title, agent_name, model_name,
+    Returns keys: session_id, title, project_id, agent_name, model_name,
     working_directory, pinned, created_at — or None if not found.
     Non-fatal: returns None on any exception.
     """
@@ -60,7 +60,7 @@ async def get_session_metadata(session_id: str) -> Optional[dict]:
         db = get_db()
         cursor = await db.execute(
             """
-            SELECT session_id, title, agent_name, model_name,
+            SELECT session_id, title, project_id, agent_name, model_name,
                    working_directory, pinned, created_at
             FROM sessions
             WHERE session_id = ?
@@ -82,6 +82,7 @@ async def upsert_session(
     agent_name: str = "code-puppy",
     model_name: str = "",
     working_directory: str = "",
+    project_id: str = "",
     pinned: bool = False,
     created_at: str,
     updated_at: str,
@@ -95,11 +96,12 @@ async def upsert_session(
         await db.execute(
             """
             INSERT INTO sessions
-                (session_id, title, agent_name, model_name, working_directory,
+                (session_id, title, project_id, agent_name, model_name, working_directory,
                  pinned, created_at, updated_at, message_count, total_tokens, deleted_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(session_id) DO UPDATE SET
                 title          = excluded.title,
+                project_id     = excluded.project_id,
                 agent_name     = excluded.agent_name,
                 model_name     = excluded.model_name,
                 working_directory = excluded.working_directory,
@@ -112,6 +114,7 @@ async def upsert_session(
             (
                 session_id,
                 title,
+                project_id,
                 agent_name,
                 model_name,
                 working_directory,
@@ -175,19 +178,20 @@ async def update_session_meta_fields(
     session_id: str,
     *,
     title: str,
+    project_id: str,
     pinned: bool,
     updated_at: str,
 ) -> None:
-    """Update only title, pinned, and updated_at for an existing session.
+    """Update only title, project_id, pinned, and updated_at for a session.
 
     Narrow UPDATE — does NOT touch message_count, total_tokens, agent_name,
-    model_name, or working_directory.  Called by the update_session_meta WS
-    message handler (user renames or pins/unpins a session).
+    model_name, or working_directory. Called by the update_session_meta WS
+    message handler when the user renames, tags, or pins/unpins a session.
     """
     db = get_db()
     await db.execute(
-        "UPDATE sessions SET title = ?, pinned = ?, updated_at = ? WHERE session_id = ?",
-        (title, 1 if pinned else 0, updated_at, session_id),
+        "UPDATE sessions SET title = ?, project_id = ?, pinned = ?, updated_at = ? WHERE session_id = ?",
+        (title, project_id, 1 if pinned else 0, updated_at, session_id),
     )
     await db.commit()
 
@@ -773,6 +777,7 @@ async def write_turn_to_sqlite(
     title: str = "",
     working_directory: str = "",
     pinned: bool = False,
+    project_id: str = "",
     agent_name: str = "code-puppy",
     model_name: str = "",
     total_tokens: int = 0,
@@ -821,6 +826,7 @@ async def write_turn_to_sqlite(
             model_name=model_name,
             working_directory=working_directory,
             pinned=pinned,
+            project_id=project_id,
             created_at=created_at,
             updated_at=updated_at,
             message_count=len(enhanced_history),

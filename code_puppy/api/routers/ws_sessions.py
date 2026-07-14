@@ -247,7 +247,7 @@ async def update_ws_session(
 ) -> Dict[str, Any]:
     """Update WebSocket session metadata in SQLite.
 
-    Supports updating: title, pinned.
+    Supports updating: title, project_id, pinned.
     """
     _validate_session_name(session_name, _get_ws_sessions_dir())
 
@@ -258,6 +258,7 @@ async def update_ws_session(
 
     # Prepare updates
     new_title = current_meta["title"]
+    new_project_id = str(current_meta.get("project_id") or "")
     new_pinned = bool(current_meta["pinned"])
     updated_at = datetime.now(timezone.utc).isoformat()
 
@@ -265,6 +266,13 @@ async def update_ws_session(
         val = updates.get("title") or updates.get("name")
         if val and isinstance(val, str) and val.strip():
             new_title = val.strip()
+
+    if "project_id" in updates:
+        value = updates.get("project_id")
+        if value is None:
+            new_project_id = ""
+        elif isinstance(value, str):
+            new_project_id = value.strip()
 
     if "pinned" in updates:
         if isinstance(updates["pinned"], bool):
@@ -275,6 +283,7 @@ async def update_ws_session(
         await update_session_meta_fields(
             session_name,
             title=new_title,
+            project_id=new_project_id,
             pinned=new_pinned,
             updated_at=updated_at,
         )
@@ -285,6 +294,7 @@ async def update_ws_session(
     return {
         "session_id": session_name,
         "title": new_title,
+        "project_id": new_project_id,
         "pinned": new_pinned,
         "updated_at": updated_at,
     }

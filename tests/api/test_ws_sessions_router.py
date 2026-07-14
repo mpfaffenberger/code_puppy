@@ -86,3 +86,46 @@ async def test_get_ws_session_messages_keeps_plain_legacy_rows(monkeypatch):
             "seq": 7,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_update_ws_session_supports_project_id(monkeypatch):
+    monkeypatch.setattr(
+        ws_sessions,
+        "_validate_session_name",
+        lambda session_name, ws_dir: session_name,
+    )
+    monkeypatch.setattr(
+        ws_sessions,
+        "get_session_metadata",
+        AsyncMock(
+            return_value={
+                "session_id": "session-1",
+                "title": "Original",
+                "project_id": "old-project",
+                "pinned": 0,
+            }
+        ),
+    )
+    update_mock = AsyncMock()
+    monkeypatch.setattr(ws_sessions, "update_session_meta_fields", update_mock)
+
+    result = await ws_sessions.update_ws_session(
+        "session-1",
+        {
+            "title": "  Renamed  ",
+            "project_id": "  project-alpha  ",
+            "pinned": True,
+        },
+    )
+
+    update_mock.assert_awaited_once()
+    _, kwargs = update_mock.await_args
+    assert kwargs["title"] == "Renamed"
+    assert kwargs["project_id"] == "project-alpha"
+    assert kwargs["pinned"] is True
+
+    assert result["session_id"] == "session-1"
+    assert result["title"] == "Renamed"
+    assert result["project_id"] == "project-alpha"
+    assert result["pinned"] is True
