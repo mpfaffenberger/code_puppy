@@ -802,9 +802,7 @@ class ModelSettingsMenu:
                 role, _ = _RETRY_MENU_KEYS[setting_key]
                 from code_puppy.agents.retry_profiles import resolve
 
-                self.edit_value = int(
-                    resolve(role, self.selected_model).max_attempts
-                )
+                self.edit_value = int(resolve(role, self.selected_model).max_attempts)
             else:
                 self.edit_value = (setting_def["min"] + setting_def["max"]) / 2
 
