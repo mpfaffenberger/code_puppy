@@ -132,12 +132,11 @@ def test_start_keyboard_listener_never_spawns_in_textual():
         command_runner._start_keyboard_listener()
         try:
             mock_spawn.assert_not_called()
-            # The dynamic Ctrl+X handler is still registered (harmless no-op
+            # The Ctrl+X shell chord is still registered (harmless no-op
             # without a listener, but ready if one ever attaches).
-            assert (
-                _key_listeners._resolve_escape_handler(MagicMock())
-                is command_runner._handle_ctrl_x_press
-            )
+            from code_puppy.messaging import chords
+
+            assert chords.get_chord("\x18") is command_runner._handle_ctrl_x_press
         finally:
             command_runner._stop_keyboard_listener()
 

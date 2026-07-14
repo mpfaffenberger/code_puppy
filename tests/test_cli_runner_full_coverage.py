@@ -452,12 +452,15 @@ class TestInteractiveMode:
             _interactive_patches(),
             AsyncMock(return_value="/exit"),
             extra_patches={
-                "code_puppy.messaging.emit_system_message": emit_system_message,
+                # startup_banner binds emit_system_message at import time via
+                # ``from code_puppy.messaging import emit_system_message``, so
+                # patch the name where it is actually looked up.
+                "code_puppy.startup_banner.emit_system_message": emit_system_message,
             },
         )
 
         messages = [call.args[0] for call in emit_system_message.call_args_list]
-        assert any("newline: Shift+Enter" in message for message in messages)
+        assert any("newline: Ctrl+J" in message for message in messages)
         assert any(
             "Ctrl+X Ctrl+E to open $EDITOR (Notepad on Windows)" in message
             for message in messages
