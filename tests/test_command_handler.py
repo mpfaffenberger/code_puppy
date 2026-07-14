@@ -29,7 +29,8 @@ def test_help_outputs_help():
     mock_emit_info = mocks["emit_info"].start()
 
     try:
-        result = handle_command("/help")
+        # /help text shows text-based help (interactive panel needs real terminal)
+        result = handle_command("/help text")
         assert result is True
         mock_emit_info.assert_called()
         # Check that help was displayed (look for "Built-in Commands" section)
@@ -577,16 +578,16 @@ class TestRegistryIntegration:
 
     def test_registry_command_is_executed(self):
         """Test that registered commands are executed via registry."""
-        # /help is registered - verify it's handled
+        # /help text is registered - verify it's handled
         with patch("code_puppy.messaging.emit_info") as mock_emit:
-            result = handle_command("/help")
+            result = handle_command("/help text")
             assert result is True
             mock_emit.assert_called()
 
     def test_command_alias_works(self):
         """Test that command aliases work (e.g., /h for /help)."""
         with patch("code_puppy.messaging.emit_info") as mock_emit:
-            result = handle_command("/h")
+            result = handle_command("/h text")
             assert result is True
             mock_emit.assert_called()
 

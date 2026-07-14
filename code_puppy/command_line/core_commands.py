@@ -30,19 +30,70 @@ def get_commands_help():
 @register_command(
     name="help",
     description="Show this help message",
-    usage="/help, /h",
+    usage="/help [text|search <term>|/command]",
     aliases=["h"],
     category="core",
 )
 def handle_help_command(command: str) -> bool:
-    """Show commands help."""
+    """Show commands help - opens interactive panel by default."""
+    import concurrent.futures
     import uuid
 
+    from code_puppy.help_system import HelpProvider
     from code_puppy.messaging import emit_info
 
     group_id = str(uuid.uuid4())
-    help_text = get_commands_help()
-    emit_info(help_text, message_group_id=group_id)
+    provider = HelpProvider()
+
+    tokens = command.split()
+    args = tokens[1:] if len(tokens) > 1 else []
+
+    # Text mode fallback (for quick help or specific command lookup)
+    if args and args[0] == "text":
+        if len(args) > 1:
+            text_args = args[1:]
+        else:
+            text_args = []
+
+        if not text_args:
+            help_text = provider.show_main_help()
+        elif text_args[0] == "categories":
+            help_text = provider.show_categories()
+        elif text_args[0].startswith("/"):
+            help_text = provider.get_command_help(text_args[0])
+        else:
+            help_text = provider.get_category_help(text_args[0])
+
+        emit_info(help_text, message_group_id=group_id)
+        return True
+
+    # Search mode (text-based)
+    if args and args[0] == "search" and len(args) > 1:
+        query = " ".join(args[1:])
+        help_text = provider.search(query)
+        emit_info(help_text, message_group_id=group_id)
+        return True
+
+    # Direct command help (e.g., /help /agent)
+    if args and args[0].startswith("/"):
+        help_text = provider.get_command_help(args[0])
+        emit_info(help_text, message_group_id=group_id)
+        return True
+
+    # Default: Launch interactive panel
+    from code_puppy.help_system.help_menu import interactive_help
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(interactive_help)
+        selected = future.result(timeout=300)
+
+    if selected:
+        if selected.startswith("/"):
+            help_text = provider.get_command_help(selected)
+        else:
+            help_text = provider.get_category_help(selected.lower())
+        emit_info(help_text, message_group_id=group_id)
+
     return True
 
 
