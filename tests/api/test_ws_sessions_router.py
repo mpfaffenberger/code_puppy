@@ -1,9 +1,40 @@
 import importlib.util
+import sys
+import types
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 from starlette.routing import Router
+
+
+class _HTTPException(Exception):
+    def __init__(self, status_code, detail):
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+class _APIRouter:
+    def get(self, *args, **kwargs):
+        return lambda fn: fn
+
+    def delete(self, *args, **kwargs):
+        return lambda fn: fn
+
+    def patch(self, *args, **kwargs):
+        return lambda fn: fn
+
+
+def _query(*args, **kwargs):
+    return kwargs.get("default")
+
+
+_fastapi_stub = types.ModuleType("fastapi")
+_fastapi_stub.APIRouter = _APIRouter
+_fastapi_stub.HTTPException = _HTTPException
+_fastapi_stub.Query = _query
+sys.modules.setdefault("fastapi", _fastapi_stub)
 
 
 _original_router_init = Router.__init__
