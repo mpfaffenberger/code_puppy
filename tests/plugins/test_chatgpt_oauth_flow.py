@@ -2,6 +2,7 @@
 
 import time
 import urllib.parse
+import threading
 from unittest.mock import Mock, patch
 
 import pytest
@@ -288,6 +289,9 @@ class TestCallbackHandler:
         server = Mock(spec=_OAuthServer)
         server.exit_code = 1
         server.exchange_code = Mock()
+        server.context = Mock(state="test_state")
+        server.received_event = threading.Event()
+        server.error = None
         return server
 
     @pytest.fixture
@@ -374,7 +378,7 @@ class TestCallbackHandler:
 
         with patch.object(callback_handler, "_send_failure") as mock_failure:
             with patch.object(callback_handler, "_shutdown") as mock_shutdown:
-                callback_handler.path = "/auth/callback?code=test_code"
+                callback_handler.path = "/auth/callback?code=test_code&state=test_state"
                 callback_handler.do_GET()
 
                 mock_failure.assert_called_once_with(
@@ -408,7 +412,7 @@ class TestCallbackHandler:
             with patch.object(
                 callback_handler, "_shutdown_after_delay"
             ) as mock_shutdown:
-                callback_handler.path = "/auth/callback?code=test_code"
+                callback_handler.path = "/auth/callback?code=test_code&state=test_state"
                 callback_handler.do_GET()
 
                 # Should save tokens
@@ -449,7 +453,7 @@ class TestCallbackHandler:
 
         with patch.object(callback_handler, "_send_failure") as mock_failure:
             with patch.object(callback_handler, "_shutdown") as mock_shutdown:
-                callback_handler.path = "/auth/callback?code=test_code"
+                callback_handler.path = "/auth/callback?code=test_code&state=test_state"
                 callback_handler.do_GET()
 
                 mock_failure.assert_called_once_with(
@@ -589,24 +593,78 @@ class TestRunOAuthFlow:
         warning_calls = [call[0][0] for call in mock_warning.call_args_list]
         assert "Existing ChatGPT tokens will be overwritten." in warning_calls
 
+    @patch("code_puppy.tools.common.should_suppress_browser", return_value=True)
     @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
     @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_error")
+    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_warning")
     @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_info")
-    def test_server_start_error(
-        self, mock_info, mock_error, mock_server_class, mock_load_tokens
+    def test_server_start_error_falls_back_to_pasteback(
+        self,
+        mock_info,
+        mock_warning,
+        mock_server_class,
+        mock_load_tokens,
+        mock_suppress,
+        mock_context,
     ):
-        """Test OAuth server startup error handling."""
-        mock_load_tokens.return_value = None
+        """Test OAuth server startup error falls back to manual paste-back."""
+        mock_load_tokens.side_effect = [
+            None,
+            {
+                "api_key": "test_api_key",
+                "access_token": "test_access_token",
+                "account_id": "account_123",
+            },
+        ]
         mock_server_class.side_effect = OSError("Port already in use")
 
-        run_oauth_flow()
+        mock_bundle = AuthBundle(
+            api_key="test_api_key",
+            token_data=TokenData(
+                id_token="test_id_token",
+                access_token="test_access_token",
+                refresh_token="test_refresh_token",
+                account_id="account_123",
+            ),
+            last_refresh="2023-01-01T00:00:00Z",
+        )
 
-        mock_error.assert_called()
-        error_calls = [call[0][0] for call in mock_error.call_args_list]
+        pasted = (
+            "http://localhost:1455/auth/callback?"
+            f"code=pasted_code&state={mock_context.state}"
+        )
+        with patch(
+            "code_puppy.plugins.chatgpt_oauth.oauth_flow._prepare_manual_context",
+            return_value=mock_context,
+        ):
+            with patch(
+                "code_puppy.plugins.chatgpt_oauth.oauth_flow.read_available_stdin_line",
+                return_value=pasted,
+            ):
+                with patch(
+                    "code_puppy.plugins.chatgpt_oauth.oauth_flow._exchange_code_for_auth_bundle",
+                    return_value=(mock_bundle, "http://localhost:1455/success"),
+                ) as mock_exchange:
+                    with patch(
+                        "code_puppy.plugins.chatgpt_oauth.oauth_flow._save_auth_bundle",
+                        return_value=True,
+                    ):
+                        with patch(
+                            "code_puppy.plugins.chatgpt_oauth.utils.fetch_chatgpt_models",
+                            return_value=["gpt-5.4"],
+                        ):
+                            with patch(
+                                "code_puppy.plugins.chatgpt_oauth.oauth_flow.add_models_to_extra_config",
+                                return_value=True,
+                            ):
+                                run_oauth_flow()
+
+        warning_calls = [call[0][0] for call in mock_warning.call_args_list]
         info_calls = [call[0][0] for call in mock_info.call_args_list]
-        assert any("Could not start OAuth server" in call for call in error_calls)
-        assert any("lsof -ti:1455" in call for call in info_calls)
+        assert any("Continuing in paste-back mode" in call for call in warning_calls)
+        assert any("Open this URL in your browser" in call for call in info_calls)
+        mock_exchange.assert_called_once()
+        assert mock_exchange.call_args.kwargs["code"] == "pasted_code"
 
     @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
     @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")

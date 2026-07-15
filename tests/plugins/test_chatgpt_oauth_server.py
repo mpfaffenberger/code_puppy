@@ -9,6 +9,7 @@ Covers:
 """
 
 import time
+import threading
 from unittest.mock import Mock, patch
 
 import pytest
@@ -319,6 +320,9 @@ class TestCallbackHandler:
         server = Mock(spec=_OAuthServer)
         server.exit_code = 1
         server.verbose = False
+        server.context = Mock(state="test_state")
+        server.received_event = threading.Event()
+        server.error = None
         return server
 
     def test_callback_handler_success_endpoint(self, mock_server):

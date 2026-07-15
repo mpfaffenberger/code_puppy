@@ -15,6 +15,8 @@ from urllib.parse import urlencode
 
 import requests
 
+from code_puppy.plugins.oauth_pasteback import parse_oauth_callback_input
+
 from .config import (
     CLAUDE_CODE_OAUTH_CONFIG,
     get_claude_models_path,
@@ -111,19 +113,12 @@ def build_authorization_url(context: OAuthContext) -> str:
 
 
 def parse_authorization_code(raw_input: str) -> Tuple[str, Optional[str]]:
-    value = raw_input.strip()
-    if not value:
+    parsed = parse_oauth_callback_input(raw_input)
+    if parsed.error:
+        raise ValueError(parsed.error_message or parsed.error)
+    if not parsed.code:
         raise ValueError("Authorization code cannot be empty")
-
-    if "#" in value:
-        code, state = value.split("#", 1)
-        return code.strip(), state.strip() or None
-
-    parts = value.split()
-    if len(parts) == 2:
-        return parts[0].strip(), parts[1].strip() or None
-
-    return value, None
+    return parsed.code, parsed.state
 
 
 def load_stored_tokens() -> Optional[Dict[str, Any]]:
