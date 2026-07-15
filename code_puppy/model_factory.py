@@ -59,6 +59,18 @@ _load_plugin_model_providers()
 
 # Anthropic beta header required for 1M context window support.
 CONTEXT_1M_BETA = "context-1m-2025-08-07"
+_CUSTOM_OPENAI_MODEL_TYPES = {"custom_openai", "custom_openai_responses"}
+_LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL = "codex-gpt-5-codex"
+
+
+def _custom_openai_uses_responses_api(
+    model_name: str, model_config: Dict[str, Any]
+) -> bool:
+    """Return whether a custom OpenAI model should use the Responses API."""
+    return (
+        model_config.get("type") == "custom_openai_responses"
+        or model_name == _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL
+    )
 
 
 def _build_anthropic_beta_header(
@@ -287,7 +299,10 @@ def make_model_settings(
             model_type == "chatgpt_oauth"
             or model_type == "azure_foundry_openai"
             or (model_type == "openai" and "codex" in model_name)
-            or (model_type == "custom_openai" and "codex" in model_name)
+            or (
+                model_type in _CUSTOM_OPENAI_MODEL_TYPES
+                and _custom_openai_uses_responses_api(model_name, model_config)
+            )
         )
 
         if uses_responses_api:
@@ -796,7 +811,7 @@ class ModelFactory:
             )
             return OpenAIChatModel(model_name=model_config["name"], provider=provider)
 
-        elif model_type == "custom_openai":
+        elif model_type in _CUSTOM_OPENAI_MODEL_TYPES:
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
             client = create_async_client(
                 headers=headers,
@@ -809,14 +824,15 @@ class ModelFactory:
             if api_key:
                 provider_args["api_key"] = api_key
             provider = make_openai_provider(provider_identity, **provider_args)
-            model = OpenAIChatModel(
+            if _custom_openai_uses_responses_api(model_name, model_config):
+                return OpenAIResponsesModel(
+                    model_name=model_config["name"], provider=provider
+                )
+            return OpenAIChatModel(
                 model_name=model_config["name"],
                 provider=provider,
                 profile=_thinking_tags_profile(model_name, model_config),
             )
-            if model_name == "codex-gpt-5-codex":
-                model = OpenAIResponsesModel(model_config["name"], provider=provider)
-            return model
         elif model_type == "zai_coding":
             api_key = get_api_key("ZAI_API_KEY")
             if not api_key:
