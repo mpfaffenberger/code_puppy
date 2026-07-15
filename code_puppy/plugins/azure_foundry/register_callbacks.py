@@ -417,7 +417,11 @@ def _create_azure_foundry_openai_model(
     """
     try:
         from openai import AsyncAzureOpenAI
-        from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+        from pydantic_ai.models.openai import (
+            OpenAIChatModel,
+            OpenAIResponsesModel,
+            OpenAIResponsesModelSettings,
+        )
     except ImportError as e:
         emit_error(f"Failed to create Azure Foundry OpenAI model '{model_name}': {e}")
         return None
@@ -462,7 +466,15 @@ def _create_azure_foundry_openai_model(
         provider = make_openai_provider(provider_identity, openai_client=azure_client)
 
         if deployment_name.startswith("gpt-5"):
-            model = OpenAIResponsesModel(model_name=deployment_name, provider=provider)
+            # Azure returns reasoning items without encrypted_content, so pydantic-ai
+            # drops the reasoning item while still replaying its function_call by ID —
+            # causing HTTP 400 "function_call provided without its required reasoning item".
+            # openai_send_reasoning_ids=False disables ID replay; thinking is re-sent as
+            # plain assistant text instead.
+            settings = OpenAIResponsesModelSettings(openai_send_reasoning_ids=False)
+            model = OpenAIResponsesModel(
+                model_name=deployment_name, provider=provider, settings=settings
+            )
         else:
             model = OpenAIChatModel(model_name=deployment_name, provider=provider)
         logger.info(
