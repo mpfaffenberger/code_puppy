@@ -30,11 +30,11 @@ Example (new):
 """
 
 # =============================================================================
-# Apply Rich Markdown patches (left-justified headers)
+# Apply Rich Markdown patches (left-justified headers, unpadded code blocks)
 # =============================================================================
-from .markdown_patches import patch_markdown_headings
+from .markdown_patches import patch_markdown
 
-patch_markdown_headings()
+patch_markdown()
 
 # =============================================================================
 # Legacy API (backward compatible)
@@ -290,7 +290,7 @@ __all__ = [
     "DEFAULT_STYLES",
     "DIFF_STYLES",
     # Markdown patches
-    "patch_markdown_headings",
+    "patch_markdown",
     # Sub-agent console manager
     "AgentState",
     "SubAgentConsoleManager",

@@ -183,7 +183,7 @@ class TestMessagingPackageExports:
             "DEFAULT_STYLES",
             "DIFF_STYLES",
             # Markdown patches
-            "patch_markdown_headings",
+            "patch_markdown",
             # Session management
             "set_session_context",
             "get_session_context",
