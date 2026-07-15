@@ -705,6 +705,79 @@ async def test_get_input_key_binding_escape(mock_prompt_session_cls):
     mock_event.app.exit.assert_called_once_with(exception=KeyboardInterrupt)
 
 
+async def _get_enter_handler():
+    """Set up the prompt and return its Enter (ControlM) key handler."""
+    with patch(
+        "code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession"
+    ) as mock_cls:
+        inst = MagicMock()
+        inst.prompt_async = AsyncMock(return_value="test")
+        mock_cls.return_value = inst
+        await get_input_with_combined_completion()
+        bindings = mock_cls.call_args[1]["key_bindings"]
+    for b in bindings.bindings:
+        if b.keys == (Keys.ControlM,):
+            return b.handler
+    raise AssertionError("Enter (ControlM) keybinding not found")
+
+
+def _buffer_with_completion(text, completion):
+    """A MagicMock buffer exposing a real Document + a chosen completion."""
+    buffer = MagicMock()
+    buffer.document = Document(text, len(text))
+    buffer.complete_state = MagicMock()
+    buffer.complete_state.current_completion = completion
+    return buffer
+
+
+@pytest.mark.asyncio
+async def test_enter_submits_when_completion_is_a_noop():
+    # Regression: typing a whole command ("/help") leaves the menu open with a
+    # highlighted completion whose text == what's already typed. Applying it is
+    # a no-op, so Enter must SUBMIT, not just re-close the menu (double-Enter).
+    handler = await _get_enter_handler()
+    buffer = _buffer_with_completion("/help", Completion("/help", start_position=-5))
+    event = MagicMock()
+    event.current_buffer = buffer
+
+    handler(event)
+
+    buffer.apply_completion.assert_not_called()
+    buffer.cancel_completion.assert_called_once()
+    buffer.validate_and_handle.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_enter_accepts_completion_when_it_changes_the_buffer():
+    # Partial input ("/hel") with a real completion ("/help") -> first Enter
+    # picks the completion (editor-style), does NOT submit.
+    handler = await _get_enter_handler()
+    buffer = _buffer_with_completion("/hel", Completion("/help", start_position=-4))
+    event = MagicMock()
+    event.current_buffer = buffer
+
+    handler(event)
+
+    buffer.apply_completion.assert_called_once()
+    buffer.validate_and_handle.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_enter_submits_when_no_completion_menu():
+    # No completion state at all -> plain submit.
+    handler = await _get_enter_handler()
+    buffer = MagicMock()
+    buffer.document = Document("just some text", len("just some text"))
+    buffer.complete_state = None
+    event = MagicMock()
+    event.current_buffer = buffer
+
+    handler(event)
+
+    buffer.apply_completion.assert_not_called()
+    buffer.validate_and_handle.assert_called_once()
+
+
 @pytest.mark.asyncio
 async def test_attachment_placeholder_processor_renders_images(tmp_path: Path) -> None:
     image_path = tmp_path / "fluffy pupper.png"
