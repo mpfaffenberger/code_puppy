@@ -360,67 +360,135 @@ def should_retry_streaming(exc: Exception) -> bool:
     return False
 
 
+# Default retry budget for the raw ``streaming_retry`` mechanism when called
+# with no explicit policy. Gentle, *escalating* backoff -- deliberately not a
+# tight boom-boom-boom burst. In normal operation the main loop and sub-agents
+# do NOT rely on these: they pass an explicit, user-selectable policy resolved
+# by :mod:`code_puppy.agents.retry_profiles` (per-role, per-model). These
+# constants are the sensible standalone default for any direct/ defensive use of
+# the mechanism.
+DEFAULT_STREAMING_RETRY_MAX_ATTEMPTS: int = 5
+DEFAULT_STREAMING_RETRY_DELAYS: tuple[float, ...] = (5, 15, 30, 60)
+
+
 def streaming_retry(
-    max_attempts: int = 3,
-    delays: Sequence[float] = (5, 30),
+    max_attempts: int = DEFAULT_STREAMING_RETRY_MAX_ATTEMPTS,
+    delays: Sequence[float] = DEFAULT_STREAMING_RETRY_DELAYS,
+    progress_fn: Optional[Callable[[], Any]] = None,
+    max_total_attempts: Optional[int] = None,
 ) -> Callable[[Callable[[], Any]], Callable[[], Any]]:
     """Wrap a no-arg async callable with streaming-retry semantics.
 
-    Budget: 3 attempts spaced ``(5, 30)`` seconds apart. With N attempts only
-    the first N-1 delays fire, so this waits ~5s before retry #2 and ~30s before
-    retry #3 -- a ~35s total window. That spacing is deliberate: gateway 5xx
-    outages (the Google "502 ... try again in 30 seconds" page the puppy-backend
-    proxy surfaces) routinely outlast a tight 1-2-4s window, so a fast burst of
-    retries just exhausts the budget before the upstream recovers. The quick
-    first retry still catches instantaneous SSE blips; the long second gap rides
-    out the advertised ~30s outage before giving up.
+    This is the retry *mechanism* (loop + classify + sleep + log). The retry
+    *policy* -- how many attempts and how long to wait, per role and per model
+    -- lives in :mod:`code_puppy.agents.retry_profiles`; production call sites go
+    through ``retry_profiles.make_streaming_retry(role, model)`` rather than
+    calling this directly, so user-selected profiles are honoured.
+
+    ``max_attempts`` is the budget of consecutive retries *without net-new
+    progress*. Delays escalate across a no-progress streak
+    (``DEFAULT_STREAMING_RETRY_DELAYS`` -> 5, 15, 30, 60s), reusing the final
+    spacing once the streak outgrows the list. That escalation is deliberate:
+    gateway 5xx / rate-limit outages routinely outlast a tight 1-2-4s window.
+
+    **Progress-aware reset.** A retried ``agent.run()`` is a whole-turn re-run,
+    but code_puppy's history processor checkpoints every *completed step* into
+    the agent's message history in place, so a re-run resumes from the last
+    step boundary rather than from scratch. ``progress_fn`` (e.g.
+    ``lambda: len(agent._message_history)``) returns a monotonic progress token;
+    when it advances between failures the turn genuinely moved forward, so the
+    no-progress streak resets and the budget refreshes. A step that can never
+    complete never advances the token, so it still hits ``max_attempts`` and
+    gives up -- no infinite loop. ``max_total_attempts`` is an absolute backstop
+    against a pathological "tiny progress then die" cycle (defaults to
+    ``max_attempts`` when no ``progress_fn`` is given, i.e. identical to the old
+    flat budget).
 
     Every retry (and the final exhaustion, if it happens) is logged with full
     detail to the on-disk error log via ``log_error``. Users only see a short
     UI banner, but SRE / power-users grepping ``~/.code_puppy/logs/errors.log``
-    get the exception type, message, traceback, and which attempt it was. The
-    on-disk log is the only way to measure the upstream-blip rate after the
-    classifier silently absorbs it.
+    get the exception type, message, traceback, and which attempt it was.
     """
     from code_puppy.error_logging import log_error
 
+    if max_total_attempts is None:
+        max_total_attempts = max_attempts
+    # An absolute backstop can never be *smaller* than the no-progress streak
+    # budget, or the streak could never be spent.
+    max_total_attempts = max(max_total_attempts, max_attempts)
+
     def decorator(factory: Callable[[], Any]) -> Callable[[], Any]:
         async def runner() -> Any:
-            last_exc: Optional[Exception] = None
-            for attempt in range(max_attempts):
+            streak = 0  # consecutive retriable failures with no net-new progress
+            total = 0  # every retriable failure, for the absolute backstop
+            last_progress: Any = None
+            if progress_fn is not None:
+                try:
+                    last_progress = progress_fn()
+                except Exception:
+                    last_progress = None
+            while True:
                 try:
                     return await factory()
                 except Exception as exc:
                     if not should_retry_streaming(exc):
                         raise
-                    last_exc = exc
+                    total += 1
+
+                    made_progress = False
+                    if progress_fn is not None:
+                        try:
+                            current = progress_fn()
+                        except Exception:
+                            current = last_progress
+                        if (
+                            last_progress is not None
+                            and current is not None
+                            and current > last_progress
+                        ):
+                            made_progress = True
+                        last_progress = current
+
+                    # Net-new progress refreshes the no-progress budget.
+                    streak = 0 if made_progress else streak + 1
+
                     log_error(
                         exc,
                         context=(
-                            f"streaming_retry: transient exception on attempt "
-                            f"{attempt + 1}/{max_attempts}"
+                            "streaming_retry: transient exception "
+                            f"(streak {streak}/{max_attempts}, "
+                            f"total {total}/{max_total_attempts}, "
+                            f"progressed={made_progress})"
                         ),
                     )
-                    if attempt < max_attempts - 1:
-                        delay = delays[attempt] if attempt < len(delays) else delays[-1]
-                        emit_warning(
-                            f"\u26a1 Streaming interrupted, auto-retrying in {delay}s... "
-                            f"(attempt {attempt + 1}/{max_attempts})"
-                        )
-                        await asyncio.sleep(delay)
-                    else:
+
+                    if streak >= max_attempts or total >= max_total_attempts:
                         log_error(
                             exc,
                             context=(
-                                f"streaming_retry: exhausted all {max_attempts} "
-                                "attempts -- giving up and re-raising"
+                                "streaming_retry: budget exhausted "
+                                f"(streak {streak}/{max_attempts}, "
+                                f"total {total}/{max_total_attempts}) -- "
+                                "giving up and re-raising"
                             ),
                         )
                         emit_error(
-                            f"\u274c Streaming failed after {max_attempts} attempts"
+                            "\u274c Streaming failed after "
+                            f"{total} attempt(s) (no further progress)"
                         )
-            assert last_exc is not None  # loop always sets this before exiting
-            raise last_exc
+                        raise
+
+                    # Delay indexes into the current no-progress streak, so a
+                    # progress reset also resets the backoff to the quick first
+                    # retry.
+                    idx = streak - 1
+                    delay = delays[idx] if idx < len(delays) else delays[-1]
+                    emit_warning(
+                        "\u26a1 Turn interrupted mid-stream, re-running from the "
+                        f"last completed step in {delay}s... "
+                        f"(attempt {total}, streak {streak}/{max_attempts})"
+                    )
+                    await asyncio.sleep(delay)
 
         return runner
 
@@ -639,7 +707,21 @@ async def _run_with_mcp_impl(
         # the non-streaming fallback render.
         skip_fallback_render = on_should_skip_fallback_render(agent)
 
-        @streaming_retry()
+        # Resolve the user-selected retry profile for the MAIN role, honouring
+        # any per-model override. Built once and reused for the initial call and
+        # every follow-up so a single run has consistent backoff behaviour.
+        from code_puppy.agents.retry_profiles import make_streaming_retry
+
+        _main_retry = make_streaming_retry(
+            "main",
+            agent.get_model_name(),
+            # Completed steps are checkpointed into _message_history by the
+            # history processor, so a growing history means the retried turn
+            # genuinely moved forward -> refresh the no-progress budget.
+            progress_fn=lambda: len(agent._message_history or []),
+        )
+
+        @_main_retry
         async def _call() -> Any:
             return await pydantic_agent.run(
                 prompt_to_use,
@@ -679,7 +761,7 @@ async def _run_with_mcp_impl(
         # between ``agent.run()`` calls below — additive, won't interrupt
         # in-progress work.
         async def _follow_up_run(follow_up_prompt: Any) -> Any:
-            @streaming_retry()
+            @_main_retry
             async def _call_follow_up() -> Any:
                 return await pydantic_agent.run(
                     follow_up_prompt,

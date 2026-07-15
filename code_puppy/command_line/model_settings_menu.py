@@ -26,11 +26,14 @@ from code_puppy.config import (
     get_openai_reasoning_effort,
     get_openai_reasoning_summary,
     get_openai_verbosity,
+    get_value,
     model_supports_setting,
+    reset_value,
     set_model_setting,
     set_openai_reasoning_effort,
     set_openai_reasoning_summary,
     set_openai_verbosity,
+    set_value,
 )
 from code_puppy.messaging import emit_info
 from code_puppy.model_factory import ModelFactory
@@ -157,6 +160,57 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "choices": ["low", "medium", "high", "max"],
         "default": "high",
     },
+    "retry_main_strategy": {
+        "name": "Retry Strategy (main agent)",
+        "description": (
+            "Per-model streaming-retry backoff when THIS model runs as the main "
+            "agent (overrides the global /set value). Exponential-with-jitter, "
+            "capped at 30s between retries. Leave unset to use the global setting."
+        ),
+        "type": "choice",
+        "choices": ["gentle", "balanced", "aggressive"],
+        "default": None,
+    },
+    "retry_main_max_attempts": {
+        "name": "Retry Max Attempts (main agent)",
+        "description": (
+            "Per-model max streaming-retry attempts (1-100) when THIS model runs "
+            "as the main agent, including the first try. Overrides the global "
+            "/set value. Leave unset to use the global setting."
+        ),
+        "type": "numeric",
+        "min": 1,
+        "max": 100,
+        "step": 1,
+        "default": None,
+        "format": "{:.0f}",
+    },
+    "retry_subagent_strategy": {
+        "name": "Retry Strategy (sub-agent)",
+        "description": (
+            "Per-model streaming-retry backoff when THIS model runs as a "
+            "sub-agent (overrides the global /set value). Sub-agents usually want "
+            "a longer budget -- losing their work to a blip is expensive. Leave "
+            "unset to use the global setting."
+        ),
+        "type": "choice",
+        "choices": ["gentle", "balanced", "aggressive"],
+        "default": None,
+    },
+    "retry_subagent_max_attempts": {
+        "name": "Retry Max Attempts (sub-agent)",
+        "description": (
+            "Per-model max streaming-retry attempts (1-100) when THIS model runs "
+            "as a sub-agent, including the first try. Overrides the global /set "
+            "value. Leave unset to use the global setting."
+        ),
+        "type": "numeric",
+        "min": 1,
+        "max": 100,
+        "step": 1,
+        "default": None,
+        "format": "{:.0f}",
+    },
 }
 
 
@@ -164,6 +218,47 @@ def _load_all_model_names() -> List[str]:
     """Load all available model names from config."""
     models_config = ModelFactory.load_config()
     return list(models_config.keys())
+
+
+# Per-model retry override keys are handled specially: they live in the dedicated
+# ``retry_model_<model>_<role>_<field>`` namespace (see
+# retry_profiles.per_model_key), NOT the generic ``model_settings_`` namespace, so
+# they can never leak into the ModelSettings sent to the provider. Maps the menu
+# setting key -> (role, config field).
+_RETRY_MENU_KEYS: Dict[str, tuple] = {
+    "retry_main_strategy": ("main", "strategy"),
+    "retry_main_max_attempts": ("main", "max_attempts"),
+    "retry_subagent_strategy": ("subagent", "strategy"),
+    "retry_subagent_max_attempts": ("subagent", "max_attempts"),
+}
+
+
+def _read_per_model_retry(model_name: str, menu_key: str):
+    """Read a per-model retry override, or None if unset. Parses ints."""
+    from code_puppy.agents.retry_profiles import per_model_key
+
+    role, field = _RETRY_MENU_KEYS[menu_key]
+    raw = get_value(per_model_key(model_name, role, field))
+    if raw is None or not str(raw).strip():
+        return None
+    if field == "max_attempts":
+        try:
+            return int(float(raw))
+        except (TypeError, ValueError):
+            return None
+    return str(raw).strip()
+
+
+def _write_per_model_retry(model_name: str, menu_key: str, value) -> None:
+    """Write (or clear, when value is None) a per-model retry override."""
+    from code_puppy.agents.retry_profiles import per_model_key
+
+    role, field = _RETRY_MENU_KEYS[menu_key]
+    key = per_model_key(model_name, role, field)
+    if value is None:
+        reset_value(key)
+    else:
+        set_value(key, str(value))
 
 
 def _get_model_display_settings(model_name: str) -> Dict:
@@ -176,6 +271,13 @@ def _get_model_display_settings(model_name: str) -> Dict:
         settings["summary"] = get_openai_reasoning_summary()
     if model_supports_setting(model_name, "verbosity"):
         settings["verbosity"] = get_openai_verbosity()
+
+    # Per-model retry overrides live in their own namespace, so inject their
+    # current values here (only when actually set -- unset shows the default).
+    for menu_key in _RETRY_MENU_KEYS:
+        val = _read_per_model_retry(model_name, menu_key)
+        if val is not None:
+            settings[menu_key] = val
 
     return settings
 
@@ -312,7 +414,11 @@ class ModelSettingsMenu:
         """Get list of settings supported by a model."""
         supported = []
         for setting_key in SETTING_DEFINITIONS:
-            if model_supports_setting(model_name, setting_key):
+            # Retry overrides apply to every model (anything can be rate-limited),
+            # so they're always offered regardless of model capability flags.
+            if setting_key in _RETRY_MENU_KEYS or model_supports_setting(
+                model_name, setting_key
+            ):
                 supported.append(setting_key)
         return supported
 
@@ -336,6 +442,10 @@ class ModelSettingsMenu:
             return str(value) if value is not None else "(unknown)"
 
         if value is None:
+            # Per-model retry overrides fall back to the global /set value, not a
+            # model default -- say so explicitly to avoid confusion.
+            if setting in _RETRY_MENU_KEYS:
+                return "(uses global)"
             default = _get_setting_default(setting, self.selected_model)
             if default is not None:
                 return f"(default: {default})"
@@ -685,6 +795,14 @@ class ModelSettingsMenu:
                 self.edit_value = 42
             elif setting_key == "budget_tokens":
                 self.edit_value = 10000
+            elif setting_key in _RETRY_MENU_KEYS:
+                # Seed from the effective (resolved) value as an INT -- never the
+                # (min+max)/2 midpoint, which produces a .5 float that {:.0f}
+                # banker's-rounds so +1 steps look like +2 and stall.
+                role, _ = _RETRY_MENU_KEYS[setting_key]
+                from code_puppy.agents.retry_profiles import resolve
+
+                self.edit_value = int(resolve(role, self.selected_model).max_attempts)
             else:
                 self.edit_value = (setting_def["min"] + setting_def["max"]) / 2
 
@@ -715,6 +833,10 @@ class ModelSettingsMenu:
             new_value = self.edit_value + (direction * step)
             # Clamp to range
             new_value = max(setting_def["min"], min(setting_def["max"], new_value))
+            # Integer-step settings stay ints -- a stray float would make the
+            # {:.0f} display banker's-round and appear to step by 2 / stall.
+            if isinstance(step, int) and isinstance(setting_def["min"], int):
+                new_value = int(round(new_value))
             self.edit_value = new_value
 
     def _save_edit(self):
@@ -734,6 +856,9 @@ class ModelSettingsMenu:
         elif setting_key == "verbosity":
             if self.edit_value is not None:
                 set_openai_verbosity(self.edit_value)
+        elif setting_key in _RETRY_MENU_KEYS:
+            # Per-model retry override -> dedicated retry_model_ namespace.
+            _write_per_model_retry(self.selected_model, setting_key, self.edit_value)
         else:
             # Standard per-model setting
             set_model_setting(self.selected_model, setting_key, self.edit_value)
@@ -774,6 +899,11 @@ class ModelSettingsMenu:
             elif setting_key == "verbosity":
                 set_openai_verbosity("medium")  # Default
                 self.current_settings[setting_key] = "medium"
+            elif setting_key in _RETRY_MENU_KEYS:
+                # Clear the per-model retry override -> falls back to global.
+                _write_per_model_retry(self.selected_model, setting_key, None)
+                if setting_key in self.current_settings:
+                    del self.current_settings[setting_key]
             else:
                 # Standard per-model setting
                 set_model_setting(self.selected_model, setting_key, None)

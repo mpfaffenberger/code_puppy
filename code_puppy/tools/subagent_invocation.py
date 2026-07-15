@@ -298,18 +298,37 @@ async def _invoke_agent_impl(
                     # Wrap the model stream in streaming_retry so a transient
                     # provider hiccup (gateway 5xx delivered as an in-band SSE
                     # error, a dropped SSE socket, an overloaded upstream) gets
-                    # the same slow spaced-out retry the top-level agent loop gets
+                    # the same slow spaced-out retry the top-level agent loop
+                    # gets -- except sub-agents get their own selectable retry
+                    # profile (SUBAGENT role), honouring any per-model override,
+                    # because losing a sub-agent's accumulated work to a
+                    # transient blip is never acceptable --
                     # instead of crashing the whole sub-agent invocation. This
                     # path was previously the ONLY unprotected model-stream
                     # call -- run_agent_task uses @streaming_retry, but a raw
                     # temp_agent.run() here surfaced the 5xx straight to the REPL.
-                    from code_puppy.agents._runtime import streaming_retry
+                    from code_puppy.agents.retry_profiles import (
+                        make_streaming_retry,
+                    )
 
-                    @streaming_retry()
+                    @make_streaming_retry(
+                        "subagent",
+                        effective_model_name,
+                        # The history processor checkpoints completed steps into
+                        # agent_config._message_history in place, so a growing
+                        # history means real forward progress -> refresh the
+                        # no-progress retry budget.
+                        progress_fn=lambda: len(
+                            agent_config.get_message_history() or []
+                        ),
+                    )
                     async def _run_subagent():
+                        # Resume from the live checkpoint, not the stale pre-run
+                        # snapshot, so a retried turn picks up completed steps
+                        # instead of redoing them (matches the main-agent loop).
                         return await temp_agent.run(
                             prompt,
-                            message_history=message_history,
+                            message_history=agent_config.get_message_history(),
                             usage_limits=UsageLimits(request_limit=get_message_limit()),
                             event_stream_handler=stream_handler,
                         )
