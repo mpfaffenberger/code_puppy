@@ -412,23 +412,72 @@ def reset_value(key: str) -> None:
 
 
 # --- MODEL STICKY EXTENSION STARTS HERE ---
-def load_mcp_server_configs():
+def _parse_mcp_servers_mapping(raw_text: str) -> dict:
+    """Parse ``mcp_servers.json`` text into a ``{name: config}`` mapping.
+
+    Accepts either the ``mcp_servers`` (snake_case, canonical) or
+    ``mcpServers`` (camelCase, as used by some other MCP clients) wrapper key
+    so hand-copied configs Just Work. Raises ``ValueError`` / ``KeyError`` on
+    malformed input so callers can fail loudly and fall back to ``{}``.
+
+    This is the single chokepoint for wrapper-key normalization, shared by the
+    user-level loader below and the project-level loader in
+    :mod:`code_puppy.mcp_.project_config`.
     """
-    Loads the MCP server configurations from XDG_CONFIG_HOME/code_puppy/mcp_servers.json.
-    Returns a dict mapping names to their URL or config dict.
-    If file does not exist, returns an empty dict.
+    data = json.loads(raw_text)
+    if not isinstance(data, dict):
+        raise ValueError("MCP config root must be a JSON object")
+    servers = data.get("mcp_servers")
+    if servers is None:
+        servers = data.get("mcpServers")
+    if servers is None:
+        # Preserve historical KeyError-on-missing behavior for the canonical key.
+        raise KeyError("mcp_servers")
+    if not isinstance(servers, dict):
+        raise ValueError("'mcp_servers' must be a JSON object of name -> config")
+    return servers
+
+
+def load_mcp_server_configs():
+    """Load MCP server configs, merging user-level and trusted project-level.
+
+    Sources, in ascending order of precedence:
+
+    1. **User-level** \u2014 ``$XDG_CONFIG_HOME/code_puppy/mcp_servers.json``
+       (global, always trusted).
+    2. **Project-level** \u2014 ``<CWD>/.code_puppy/mcp_servers.json``, but ONLY
+       when the user has trusted it via ``/mcp trust``. Project MCP servers can
+       run arbitrary commands, so they are disabled until explicitly accepted;
+       see :mod:`code_puppy.mcp_.project_config`.
+
+    Project entries win on name collision, matching how project agents, skills,
+    and plugins override their user-level counterparts. Returns an empty dict
+    when nothing is configured.
     """
     from code_puppy.messaging.message_queue import emit_error
 
+    configs: dict = {}
+
+    # 1. User-level config (global, implicitly trusted).
     try:
-        if not pathlib.Path(MCP_SERVERS_FILE).exists():
-            return {}
-        with open(MCP_SERVERS_FILE, "r", encoding="utf-8") as f:
-            conf = json.loads(f.read())
-            return conf["mcp_servers"]
+        if pathlib.Path(MCP_SERVERS_FILE).exists():
+            with open(MCP_SERVERS_FILE, "r", encoding="utf-8") as f:
+                configs.update(_parse_mcp_servers_mapping(f.read()))
     except Exception as e:
         emit_error(f"Failed to load MCP servers - {str(e)}")
-        return {}
+
+    # 2. Project-level config (opt-in, trust-gated). A broken or untrusted
+    #    project file must never break user-level loading.
+    try:
+        from code_puppy.mcp_.project_config import load_project_mcp_server_configs
+
+        project_configs = load_project_mcp_server_configs()
+        if project_configs:
+            configs.update(project_configs)
+    except Exception as e:
+        emit_error(f"Failed to load project MCP servers - {str(e)}")
+
+    return configs
 
 
 def _default_model_from_models_json():
