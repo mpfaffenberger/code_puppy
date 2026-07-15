@@ -13,7 +13,7 @@ Targets the 206 uncovered lines including:
 """
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -1465,8 +1465,35 @@ class TestOpenAICodexModels:
                         # Should use OpenAIResponsesModel, not OpenAIChatModel
                         mock_responses.assert_called_once()
 
+    def test_custom_openai_explicit_responses_api(self):
+        """Test arbitrary custom model keys can select the Responses API."""
+        from code_puppy.model_factory import ModelFactory
+
+        config = {
+            "my-reasoning-proxy": {
+                "type": "custom_openai_responses",
+                "name": "gpt-5.5",
+                "custom_endpoint": {
+                    "url": "https://proxy.example.com/v1",
+                    "headers": {"x-api-key": "secret"},
+                },
+            }
+        }
+
+        with patch("code_puppy.model_factory.create_async_client") as mock_client:
+            with patch("code_puppy.model_factory.make_openai_provider"):
+                with patch(
+                    "code_puppy.model_factory.OpenAIResponsesModel"
+                ) as mock_responses:
+                    with patch("code_puppy.model_factory.OpenAIChatModel") as mock_chat:
+                        ModelFactory.get_model("my-reasoning-proxy", config)
+
+        mock_responses.assert_called_once_with(model_name="gpt-5.5", provider=ANY)
+        mock_chat.assert_not_called()
+        assert mock_client.call_args.kwargs["headers"] == {"x-api-key": "secret"}
+
     def test_custom_openai_chatgpt_codex(self):
-        """Test codex-gpt-5-codex uses OpenAIResponsesModel."""
+        """Test legacy codex-gpt-5-codex uses OpenAIResponsesModel."""
         from code_puppy.model_factory import ModelFactory
 
         config = {
