@@ -74,6 +74,50 @@ def test_inline_surface_never_emits_scroll_margins():
     assert "working" in output
 
 
+def test_overlong_rows_are_cell_clipped_below_terminal_width():
+    """No painted row may reach the terminal width: JediTerm wraps at the
+    margin even with DECAWM off (double-width emoji especially), which
+    desyncs the cursor-up bookkeeping and strands stale copies -- the
+    spinner-spam bug."""
+    from rich.cells import cell_len
+
+    cols = 40
+    bar = InlineBottomBar(stream=FakeTTY(), get_size=lambda: (cols, 24))
+    bar.start()
+    bar.set_prompt_text("> ", "hi", 2)
+    bar.set_status_prefix("\U0001f436  ")  # double-width puppy spinner frame
+    bar.set_status("tokens 123,456/200,000 " * 5)  # way past 40 cells
+    bar.set_status_suffix(" | queued: 3")
+    bar.set_panel_lines(["sub-agent panel line " * 5])
+
+    for line in bar._inline_lines():
+        assert cell_len(line) < cols
+
+
+def test_spinner_tick_repaints_in_place_without_growing_block():
+    """A status-prefix tick (the 5fps puppy) must erase and repaint the
+    same number of rows -- never leaving extra lines behind."""
+    tty = FakeTTY()
+    bar = InlineBottomBar(stream=tty, get_size=lambda: (80, 24))
+    bar.start()
+    bar.set_prompt_text("> ", "steer me", 8)
+    bar.set_status("ctx 12k/200k")
+    rows_before = bar._displayed_rows
+
+    tty.seek(0)
+    tty.truncate(0)
+    for frame in ("\U0001f436   ", " \U0001f436  ", "  \U0001f436 "):
+        bar.set_status_prefix(frame)
+
+    assert bar._displayed_rows == rows_before
+    output = tty.getvalue()
+    # Each of the 3 ticks repaints the same block: exactly rows-1
+    # newlines per repaint, and never a lone "\n" that would scroll
+    # rows into scrollback.
+    assert output.count("\r\n") == 3 * (rows_before - 1)
+    assert output.count("\n") == output.count("\r\n")
+
+
 def test_output_transaction_erases_then_redraws_prompt():
     tty = FakeTTY()
     bar = InlineBottomBar(stream=tty, get_size=lambda: (80, 24))
