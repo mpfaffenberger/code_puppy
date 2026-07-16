@@ -18,6 +18,7 @@ from .bar_rendering import (
     CURSOR_SHOW,
     WRAP_OFF,
     WRAP_ON,
+    clip_cells,
     render_prompt_block,
     sanitize,
 )
@@ -126,16 +127,28 @@ class InlineBottomBar(BottomBar):
         self._cols, self._rows = cols, rows
 
     def _inline_lines(self) -> list[str]:
+        # Clip every row to one cell LESS than the terminal width.  The
+        # pinned bar can trust DECAWM-off to stop overlong rows from
+        # wrapping, but the whole reason this surface exists is that
+        # JediTerm fumbles exactly this kind of VT state (double-width
+        # emoji at the margin still wrap).  A wrapped row makes the block
+        # one row taller than ``_displayed_rows`` believes, the cursor-up
+        # count goes off by one, and every 5fps spinner tick strands a
+        # stale copy in scrollback -- the keystroke bug reborn as a
+        # spinner bug.  Hard-clipping is the only defence JediTerm can't
+        # sabotage.
+        max_cells = max(1, self._cols - 1)
         lines: list[str] = []
         panel = [] if self._popup_lines else self._panel_lines
         for line in panel:
-            lines.append(sanitize(line.plain if hasattr(line, "plain") else str(line)))
+            plain = sanitize(line.plain if hasattr(line, "plain") else str(line))
+            lines.append(clip_cells(plain, max_cells))
 
         prompt_rows, _ = render_prompt_block(
             self._prompt_prefix,
             self._prompt_buffer,
             self._prompt_cursor,
-            self._cols,
+            max_cells,
             5,
             prefix_sgrs=self._prompt_prefix_sgrs,
         )
@@ -143,11 +156,11 @@ class InlineBottomBar(BottomBar):
 
         for index, line in enumerate(self._popup_lines):
             marker = "› " if index == self._popup_selected else "  "
-            lines.append(f"{marker}{line}")
+            lines.append(clip_cells(f"{marker}{line}", max_cells))
 
         status = f"{self._status_prefix}{self._status}{self._status_suffix}"
         if status:
-            lines.append(sanitize(status))
+            lines.append(clip_cells(sanitize(status), max_cells))
         return lines or [""]
 
     def _paint_inline(self) -> None:
