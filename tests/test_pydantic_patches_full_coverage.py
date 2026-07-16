@@ -275,6 +275,56 @@ class TestPatchTermflowClipboard:
             patch_termflow_clipboard()  # must not raise
 
 
+class TestPatchTermflowCodePadding:
+    """Regression guard for #505: no trailing spaces on termflow code lines."""
+
+    def test_code_block_lines_have_no_trailing_whitespace(self):
+        import io
+
+        from code_puppy.pydantic_patches import patch_termflow_code_padding
+
+        patch_termflow_code_padding()
+        from termflow import Parser as TermflowParser
+        from termflow import Renderer as TermflowRenderer
+
+        buf = io.StringIO()
+        renderer = TermflowRenderer(output=buf, width=40)
+        parser = TermflowParser()
+        for line in ["```python", "print('hi')", "def foo():", "    return 1", "```"]:
+            for event in parser.parse_line(line):
+                renderer.render(event)
+        for event in parser.finalize():
+            renderer.render(event)
+        for rendered_line in buf.getvalue().splitlines():
+            assert rendered_line == rendered_line.rstrip(), (
+                f"line has trailing whitespace: {rendered_line!r}"
+            )
+
+    def test_patch_idempotent(self):
+        from code_puppy.pydantic_patches import patch_termflow_code_padding
+        import termflow.render.code as termflow_code
+        import termflow.render.renderer as termflow_renderer
+
+        patch_termflow_code_padding()
+        patch_termflow_code_padding()  # should be a no-op the second time
+        assert termflow_code.render_code_line is termflow_renderer.render_code_line
+
+    def test_patch_does_not_crash_without_termflow(self):
+        import builtins
+
+        from code_puppy.pydantic_patches import patch_termflow_code_padding
+
+        _real_import = builtins.__import__
+
+        def _block_termflow(name, *args, **kwargs):
+            if name.startswith("termflow"):
+                raise ImportError("simulated: termflow not installed")
+            return _real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=_block_termflow):
+            patch_termflow_code_padding()  # must not raise
+
+
 class TestApplyAllPatches:
     def test_apply_all_patches(self):
         from code_puppy.pydantic_patches import apply_all_patches

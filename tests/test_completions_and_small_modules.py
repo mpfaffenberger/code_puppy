@@ -397,9 +397,9 @@ class TestMarkdownPatches:
         from code_puppy.messaging import markdown_patches
 
         markdown_patches._patched = False
-        markdown_patches.patch_markdown_headings()
+        markdown_patches.patch_markdown()
         assert markdown_patches._patched is True
-        markdown_patches.patch_markdown_headings()  # no-op
+        markdown_patches.patch_markdown()  # no-op
         assert markdown_patches._patched is True
 
 
