@@ -433,6 +433,19 @@ class RichConsoleRenderer:
     # =========================================================================
 
     def _do_render(self, message: AnyMessage) -> None:
+        """Render one message while coordinating with the prompt surface."""
+        from contextlib import nullcontext
+
+        try:
+            from .bottom_bar import get_bottom_bar
+
+            transaction = get_bottom_bar().output_transaction()
+        except Exception:
+            transaction = nullcontext()
+        with transaction:
+            self._do_render_uncoordinated(message)
+
+    def _do_render_uncoordinated(self, message: AnyMessage) -> None:
         """Synchronously render a message by dispatching to the appropriate handler.
 
         Note: User input requests are skipped in sync mode as they require async.
@@ -462,17 +475,6 @@ class RichConsoleRenderer:
             # In high mode, thinking is never suppressed.
             if get_output_level() != "high" and get_suppress_thinking_messages():
                 return
-
-        # New transcript output is about to scroll (peek or full render):
-        # the bottom bar walks its completion-popup slack back one row
-        # per message so the prompt steps down with the flow. Guarded:
-        # bar geometry plumbing must NEVER break a render path.
-        try:
-            from .bottom_bar import get_bottom_bar
-
-            get_bottom_bar().notify_transcript_output()
-        except Exception:
-            pass
 
         # -- Output-level density gate --
         if self._should_collapse(message):
