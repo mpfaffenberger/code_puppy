@@ -29,7 +29,6 @@ except ImportError:
 
 # Shared resize/verify helpers and limits — single source of truth.
 from code_puppy.command_line.image_utils import (  # noqa: E402
-    MAX_IMAGE_DIMENSION,
     MAX_IMAGE_SIZE_BYTES,
     _resize_image_if_needed,
     _safe_open_image,
