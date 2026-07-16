@@ -177,7 +177,9 @@ class TestNormalizeImageBytes:
         """MIME type must be left alone when no resize was needed."""
         png = _make_png_bytes(5, 5)
         # Generous budget — no resize should happen
-        out, mt = normalize_image_bytes(png, "image/jpeg", max_bytes=MAX_IMAGE_SIZE_BYTES)
+        out, mt = normalize_image_bytes(
+            png, "image/jpeg", max_bytes=MAX_IMAGE_SIZE_BYTES
+        )
         assert mt == "image/jpeg"
         assert out == png
 

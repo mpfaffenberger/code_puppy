@@ -72,9 +72,7 @@ def _safe_open_image(image_bytes: bytes) -> "Optional[Image.Image]":
     except OSError as exc:
         logger.warning("Rejected potentially malicious image: %s", exc)
     except Exception as exc:  # pragma: no cover – defensive
-        logger.warning(
-            "Failed to open/verify image: %s: %s", type(exc).__name__, exc
-        )
+        logger.warning("Failed to open/verify image: %s: %s", type(exc).__name__, exc)
     return None
 
 

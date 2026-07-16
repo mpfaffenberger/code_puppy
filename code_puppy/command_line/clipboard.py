@@ -55,7 +55,6 @@ CLIPBOARD_RATE_LIMIT_SECONDS: float = 0.5  # SEC-CLIP-004: Max 2 captures per se
 _last_clipboard_capture: float = 0.0
 
 
-
 def _check_linux_clipboard_tool() -> Optional[str]:
     """Check which Linux clipboard tool is available.
 
@@ -127,7 +126,6 @@ def _get_linux_clipboard_image() -> Optional[bytes]:
         logger.warning(f"Error reading clipboard with {tool}: {e}")
 
     return None
-
 
 
 def has_image_in_clipboard() -> bool:
