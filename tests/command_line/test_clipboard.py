@@ -757,7 +757,8 @@ class TestSafeOpenImageEdgeCases:
         mock_verified = MagicMock()
         mock_result = MagicMock()
 
-        with patch("code_puppy.command_line.clipboard.Image") as mock_img:
+        # _safe_open_image now lives in image_utils, so patch Image there.
+        with patch("code_puppy.command_line.image_utils.Image") as mock_img:
             mock_img.DecompressionBombError = RealImage.DecompressionBombError
             mock_img.UnidentifiedImageError = RealImage.UnidentifiedImageError
             mock_img.open.side_effect = [mock_verified, mock_result]
@@ -1332,7 +1333,7 @@ class TestMaxImageSizeConstant:
 
     def test_max_dimension_is_4096(self):
         """Test that max dimension is 4096."""
-        from code_puppy.command_line.clipboard import MAX_IMAGE_DIMENSION
+        from code_puppy.command_line.image_utils import MAX_IMAGE_DIMENSION
 
         assert MAX_IMAGE_DIMENSION == 4096
 
