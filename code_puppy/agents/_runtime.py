@@ -987,7 +987,14 @@ async def _run_with_mcp_impl(
     run_success = False
     run_error: Optional[BaseException] = None
     run_response_text = ""
-    run_usage_output_tokens: Optional[int] = None
+    run_usage_metadata: dict[str, int | None] = {
+        "usage_input_tokens": None,
+        "usage_output_tokens": None,
+        "usage_total_tokens": None,
+        "usage_cached_read_tokens": None,
+        "usage_cached_write_tokens": None,
+        "usage_thought_tokens": None,
+    }
 
     try:
         # Nested runs (e.g. shell_safety mid-run) leave the SIGINT handler
@@ -1044,13 +1051,37 @@ async def _run_with_mcp_impl(
         run_success = True
         run_response_text = _extract_response_text(result)
         try:
-            # Real billed output tokens -- calibrates the run-stats TG
-            # estimate (see run_stats.snapshot_cycle_into_aggregates).
-            run_usage_output_tokens = (
-                int(getattr(result.usage(), "output_tokens", 0) or 0) or None
-            )
+            usage = result.usage()
+
+            def _pick_usage_int(*names: str) -> int | None:
+                for name in names:
+                    value = getattr(usage, name, None)
+                    if value is not None:
+                        return int(value) or None
+                return None
+
+            run_usage_metadata = {
+                "usage_input_tokens": _pick_usage_int(
+                    "input_tokens", "request_tokens", "prompt_tokens"
+                ),
+                # Real billed output tokens -- calibrates the run-stats TG
+                # estimate (see run_stats.snapshot_cycle_into_aggregates).
+                "usage_output_tokens": _pick_usage_int(
+                    "output_tokens", "response_tokens", "completion_tokens"
+                ),
+                "usage_total_tokens": _pick_usage_int("total_tokens"),
+                "usage_cached_read_tokens": _pick_usage_int(
+                    "cache_read_tokens", "cached_read_tokens"
+                ),
+                "usage_cached_write_tokens": _pick_usage_int(
+                    "cache_write_tokens", "cached_write_tokens"
+                ),
+                "usage_thought_tokens": _pick_usage_int(
+                    "thinking_tokens", "thought_tokens", "reasoning_tokens"
+                ),
+            }
         except Exception:
-            run_usage_output_tokens = None
+            pass
         return result
     except asyncio.CancelledError:
         run_response_text = ""
@@ -1086,7 +1117,7 @@ async def _run_with_mcp_impl(
                 response_text=run_response_text,
                 metadata={
                     "model": agent.get_model_name(),
-                    "usage_output_tokens": run_usage_output_tokens,
+                    **run_usage_metadata,
                 },
             )
         except Exception:
