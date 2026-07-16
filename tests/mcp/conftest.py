@@ -305,6 +305,22 @@ def mock_get_mcp_manager(mock_mcp_manager):
         yield mock_mcp_manager
 
 
+@pytest.fixture(autouse=True)
+def _clear_mcp_session_bindings():
+    """Reset the in-memory session bindings between tests.
+
+    /mcp start writes to a process-local overlay (see
+    code_puppy.mcp_.agent_bindings._session_bindings) that would otherwise
+    leak from one test into the next, causing spooky-action-at-a-distance
+    assertion failures.
+    """
+    from code_puppy.mcp_ import agent_bindings
+
+    agent_bindings.clear_session_bindings()
+    yield
+    agent_bindings.clear_session_bindings()
+
+
 @pytest.fixture
 def sample_json_config():
     """Sample valid JSON configuration for testing."""

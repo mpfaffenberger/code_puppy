@@ -25,54 +25,6 @@ def _test_reviewer_agent(module_path, class_name):
     assert len(prompt) > 0
 
 
-def test_c_reviewer():
-    _test_reviewer_agent("code_puppy.agents.agent_c_reviewer", "CReviewerAgent")
-
-
-def test_code_reviewer():
-    _test_reviewer_agent(
-        "code_puppy.agents.agent_code_reviewer", "CodeQualityReviewerAgent"
-    )
-
-
-def test_cpp_reviewer():
-    _test_reviewer_agent("code_puppy.agents.agent_cpp_reviewer", "CppReviewerAgent")
-
-
-def test_golang_reviewer():
-    _test_reviewer_agent(
-        "code_puppy.agents.agent_golang_reviewer", "GolangReviewerAgent"
-    )
-
-
-def test_javascript_reviewer():
-    _test_reviewer_agent(
-        "code_puppy.agents.agent_javascript_reviewer", "JavaScriptReviewerAgent"
-    )
-
-
-def test_python_reviewer():
-    _test_reviewer_agent(
-        "code_puppy.agents.agent_python_reviewer", "PythonReviewerAgent"
-    )
-
-
-def test_typescript_reviewer():
-    _test_reviewer_agent(
-        "code_puppy.agents.agent_typescript_reviewer", "TypeScriptReviewerAgent"
-    )
-
-
-def test_security_auditor():
-    _test_reviewer_agent(
-        "code_puppy.agents.agent_security_auditor", "SecurityAuditorAgent"
-    )
-
-
-def test_qa_expert():
-    _test_reviewer_agent("code_puppy.agents.agent_qa_expert", "QAExpertAgent")
-
-
 def test_qa_kitten():
     from code_puppy.agents.agent_qa_kitten import QualityAssuranceKittenAgent
 
@@ -82,19 +34,25 @@ def test_qa_kitten():
     prompt = agent.get_system_prompt()
     assert isinstance(prompt, str)
 
+    # DOM-first progression tools are exposed to qa-kitten (PUP-436).
+    for tool in (
+        "browser_page_snapshot",
+        "browser_click_by_role",
+        "browser_click_by_text",
+        "browser_set_text_by_label",
+    ):
+        assert tool in tools
 
-def test_scheduler_agent():
-    _test_reviewer_agent("code_puppy.agents.agent_scheduler", "SchedulerAgent")
+    # Screenshot capability is preserved for visual validation.
+    assert "browser_screenshot_analyze" in tools
 
-
-def test_python_programmer():
-    from code_puppy.agents.agent_python_programmer import PythonProgrammerAgent
-
-    agent = PythonProgrammerAgent()
-    tools = agent.get_available_tools()
-    assert isinstance(tools, list)
-    prompt = agent.get_system_prompt()
-    assert isinstance(prompt, str)
+    # Prompt policy distinguishes non-visual progression from visual validation.
+    lowered = prompt.lower()
+    assert "dom-first" in lowered
+    assert "visual validation" in lowered
+    assert "browser_page_snapshot" in prompt
+    # Screenshots explicitly scoped to visual assertions, not progression.
+    assert "visual assertions" in lowered or "visual assertion" in lowered
 
 
 def test_helios_agent():
@@ -133,90 +91,31 @@ def test_planning_agent():
     assert len(prompt) > 100
 
 
-def test_prompt_reviewer_agent():
-    from code_puppy.agents.prompt_reviewer import PromptReviewerAgent
-
-    agent = PromptReviewerAgent()
-    tools = agent.get_available_tools()
-    assert isinstance(tools, list)
-    prompt = agent.get_system_prompt()
-    assert isinstance(prompt, str)
-    assert len(prompt) > 100
-
-
-# ---------------------------------------------------------------------------
-# Pack agents - get_system_prompt (1 uncovered line each)
-# ---------------------------------------------------------------------------
-
-
-def test_pack_bloodhound():
-    from code_puppy.agents.pack.bloodhound import BloodhoundAgent
-
-    agent = BloodhoundAgent()
-    with patch("code_puppy.agents.pack.bloodhound.callbacks") as mock_cb:
-        mock_cb.on_load_prompt.return_value = ["extra prompt"]
-        prompt = agent.get_system_prompt()
-        assert "extra prompt" in prompt
-
-
 def test_code_puppy_prompt_allows_callback_additions():
     from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
     agent = CodePuppyAgent()
-    with patch("code_puppy.agents.agent_code_puppy.callbacks") as mock_cb:
-        mock_cb.on_load_prompt.return_value = ["extra"]
-        prompt = agent.get_system_prompt()
+    # ``load_prompt`` fragments now live in get_full_system_prompt (BaseAgent),
+    # not in the authored get_system_prompt.
+    with patch("code_puppy.callbacks.on_load_prompt", return_value=["extra"]):
+        prompt = agent.get_full_system_prompt()
         assert "extra" in prompt
 
 
-def test_pack_retriever():
-    from code_puppy.agents.pack.retriever import RetrieverAgent
+def test_code_puppy_authored_prompt_excludes_runtime_additions():
+    """Authored prompt must NOT contain load_prompt fragments or the identity.
 
-    agent = RetrieverAgent()
-    with patch("code_puppy.agents.pack.retriever.callbacks") as mock_cb:
-        mock_cb.on_load_prompt.return_value = ["extra"]
-        prompt = agent.get_system_prompt()
-        assert "extra" in prompt
+    Regression for the clone bug: cloning persists get_system_prompt(), so
+    runtime-only metadata (kennel memory, live timestamps) and the per-instance
+    identity ID must stay out of it.
+    """
+    from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
-
-def test_pack_shepherd():
-    from code_puppy.agents.pack.shepherd import ShepherdAgent
-
-    agent = ShepherdAgent()
-    with patch("code_puppy.agents.pack.shepherd.callbacks") as mock_cb:
-        mock_cb.on_load_prompt.return_value = ["extra"]
-        prompt = agent.get_system_prompt()
-        assert "extra" in prompt
-
-
-def test_pack_terrier():
-    from code_puppy.agents.pack.terrier import TerrierAgent
-
-    agent = TerrierAgent()
-    with patch("code_puppy.agents.pack.terrier.callbacks") as mock_cb:
-        mock_cb.on_load_prompt.return_value = ["extra"]
-        prompt = agent.get_system_prompt()
-        assert "extra" in prompt
-
-
-def test_pack_watchdog():
-    from code_puppy.agents.pack.watchdog import WatchdogAgent
-
-    agent = WatchdogAgent()
-    with patch("code_puppy.agents.pack.watchdog.callbacks") as mock_cb:
-        mock_cb.on_load_prompt.return_value = ["extra"]
-        prompt = agent.get_system_prompt()
-        assert "extra" in prompt
-
-
-def test_pack_leader():
-    from code_puppy.agents.agent_pack_leader import PackLeaderAgent
-
-    agent = PackLeaderAgent()
-    with patch("code_puppy.agents.agent_pack_leader.callbacks") as mock_cb:
-        mock_cb.on_load_prompt.return_value = ["extra"]
-        prompt = agent.get_system_prompt()
-        assert "extra" in prompt
+    agent = CodePuppyAgent()
+    with patch("code_puppy.callbacks.on_load_prompt", return_value=["SECRET-RUNTIME"]):
+        authored = agent.get_system_prompt()
+    assert "SECRET-RUNTIME" not in authored
+    assert agent.get_identity() not in authored
 
 
 # ---------------------------------------------------------------------------
@@ -573,6 +472,49 @@ def test_clone_agent_failure():
         result = clone_agent("totally-nonexistent-agent-xyz")
         # Should return None for nonexistent agent
         assert result is None
+
+
+def test_clone_class_agent_does_not_bake_runtime_metadata(tmp_path):
+    """Cloning a class-based agent must persist only the authored prompt.
+
+    Regression: previously the clone stored ``get_full_system_prompt()`` which
+    baked in runtime ``load_prompt`` fragments (kennel memory, live
+    timestamps/CWD) and the per-instance identity ID into the static JSON.
+    """
+    import code_puppy.agents.agent_manager as am
+    from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+
+    captured = {}
+
+    def fake_atomic_write(path, content):
+        captured["path"] = path
+        captured["content"] = content
+
+    with (
+        patch.object(am, "_discover_agents"),
+        patch.dict(am._AGENT_REGISTRY, {"code-puppy": CodePuppyAgent}, clear=True),
+        patch(
+            "code_puppy.config.get_user_agents_directory",
+            return_value=str(tmp_path),
+        ),
+        patch("code_puppy.config.get_agent_pinned_model", return_value=None),
+        patch(
+            "code_puppy.callbacks.on_load_prompt",
+            return_value=["KENNEL-SECRET-BLOCK"],
+        ),
+        patch.object(am, "atomic_write_text", side_effect=fake_atomic_write),
+        patch.object(am, "emit_success"),
+        patch.object(am, "emit_warning"),
+        patch.object(am, "_filter_available_tools", side_effect=lambda t: t),
+    ):
+        clone_name = am.clone_agent("code-puppy")
+
+    assert clone_name == "code-puppy-clone-1"
+    config = json.loads(captured["content"])
+    # Runtime-only metadata must not be frozen into the clone definition.
+    assert "KENNEL-SECRET-BLOCK" not in config["system_prompt"]
+    # No baked identity ID block.
+    assert "Your ID is" not in config["system_prompt"]
 
 
 # ---------------------------------------------------------------------------

@@ -80,6 +80,7 @@ class TestSettingDefinitions:
         assert reason_def["type"] == "choice"
         assert "minimal" in reason_def["choices"]
         assert "high" in reason_def["choices"]
+        assert "ultra" in reason_def["choices"]
 
     def test_summary_setting_definition(self):
         """Test reasoning summary setting has correct choices."""
@@ -270,7 +271,7 @@ class TestChoiceSettingValidation:
         """Test reasoning effort accepts valid choices."""
         reason_def = SETTING_DEFINITIONS["reasoning_effort"]
         valid_choices = reason_def["choices"]
-        for choice in ["minimal", "low", "medium", "high", "xhigh"]:
+        for choice in ["minimal", "low", "medium", "high", "xhigh", "ultra"]:
             if choice in valid_choices:
                 assert True
                 break
@@ -278,7 +279,7 @@ class TestChoiceSettingValidation:
     def test_reasoning_effort_rejects_invalid_choice(self):
         """Test reasoning effort rejects invalid choice."""
         reason_def = SETTING_DEFINITIONS["reasoning_effort"]
-        invalid_choice = "ultra"
+        invalid_choice = "ludicrous-speed"
         assert invalid_choice not in reason_def["choices"]
 
     def test_verbosity_valid_choices(self):
@@ -430,3 +431,93 @@ class TestErrorHandling:
         )
         # Unknown setting with None
         assert menu._format_value("totally_bogus", None) == "(unknown)"
+
+
+class TestPerModelRetryIntegration:
+    """Per-model retry overrides surface in the /model settings menu."""
+
+    def test_retry_keys_are_defined_settings(self):
+        for key in (
+            "retry_main_strategy",
+            "retry_main_max_attempts",
+            "retry_subagent_strategy",
+            "retry_subagent_max_attempts",
+        ):
+            assert key in SETTING_DEFINITIONS
+        assert SETTING_DEFINITIONS["retry_main_strategy"]["choices"] == [
+            "gentle",
+            "balanced",
+            "aggressive",
+        ]
+        # Attempts knobs are bounded to the guard-railed ceiling.
+        assert SETTING_DEFINITIONS["retry_subagent_max_attempts"]["max"] == 100
+        assert SETTING_DEFINITIONS["retry_subagent_max_attempts"]["min"] == 1
+
+    @patch("code_puppy.command_line.model_settings_menu.get_global_model_name")
+    @patch("code_puppy.command_line.model_settings_menu._load_all_model_names")
+    def test_retry_settings_offered_for_every_model(
+        self, mock_load_models, mock_get_global
+    ):
+        # Even a model that supports NO capability flags must still be offered
+        # retry knobs (both roles) -- anything can be rate-limited.
+        mock_get_global.return_value = "some-obscure-model"
+        mock_load_models.return_value = ["some-obscure-model"]
+        menu = ModelSettingsMenu()
+        supported = menu._get_supported_settings("some-obscure-model")
+        assert "retry_main_strategy" in supported
+        assert "retry_main_max_attempts" in supported
+        assert "retry_subagent_strategy" in supported
+        assert "retry_subagent_max_attempts" in supported
+
+    def test_write_then_read_round_trips_via_dedicated_namespace(self):
+        from code_puppy import config
+        from code_puppy.agents.retry_profiles import per_model_key
+        from code_puppy.command_line.model_settings_menu import (
+            _read_per_model_retry,
+            _write_per_model_retry,
+        )
+
+        model = "roundtrip-test-model"
+        try:
+            # main and sub-agent are independent knobs.
+            _write_per_model_retry(model, "retry_main_strategy", "aggressive")
+            _write_per_model_retry(model, "retry_subagent_max_attempts", 42)
+            assert _read_per_model_retry(model, "retry_main_strategy") == "aggressive"
+            assert _read_per_model_retry(model, "retry_subagent_max_attempts") == 42
+            # The un-set counterparts stay None (fall back to global).
+            assert _read_per_model_retry(model, "retry_subagent_strategy") is None
+            assert _read_per_model_retry(model, "retry_main_max_attempts") is None
+            # Stored under the dedicated namespace, NOT model_settings_.
+            assert (
+                config.get_value(per_model_key(model, "main", "strategy"))
+                == "aggressive"
+            )
+            assert not any("retry" in k for k in config.get_all_model_settings(model))
+            # Clearing falls back to global (None).
+            _write_per_model_retry(model, "retry_main_strategy", None)
+            assert _read_per_model_retry(model, "retry_main_strategy") is None
+        finally:
+            for k in (
+                "retry_main_strategy",
+                "retry_main_max_attempts",
+                "retry_subagent_strategy",
+                "retry_subagent_max_attempts",
+            ):
+                _write_per_model_retry(model, k, None)
+
+    def test_unset_retry_override_reads_uses_global_label(self):
+        from code_puppy.command_line.model_settings_menu import ModelSettingsMenu
+
+        with (
+            patch(
+                "code_puppy.command_line.model_settings_menu.get_global_model_name",
+                return_value="m",
+            ),
+            patch(
+                "code_puppy.command_line.model_settings_menu._load_all_model_names",
+                return_value=["m"],
+            ),
+        ):
+            menu = ModelSettingsMenu()
+            menu.selected_model = "m"
+            assert menu._format_value("retry_main_strategy", None) == "(uses global)"

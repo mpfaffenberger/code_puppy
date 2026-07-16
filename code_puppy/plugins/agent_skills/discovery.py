@@ -1,13 +1,18 @@
 """Skill discovery - scans directories for valid skills."""
 
 import logging
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Iterable, List, Optional
 
+from code_puppy.callbacks import get_callbacks, on_register_skills
+from code_puppy.config import CACHE_DIR
 from code_puppy.plugins.agent_skills.config import get_skill_directories
 
 logger = logging.getLogger(__name__)
+
+_PLUGIN_SKILLS_CACHE_DIR = Path(CACHE_DIR) / "plugin-skills"
 
 
 @dataclass
@@ -39,14 +44,7 @@ def get_default_skill_directories() -> List[Path]:
 
 
 def is_valid_skill_directory(path: Path) -> bool:
-    """Check if a directory contains a valid SKILL.md file.
-
-    Args:
-        path: Directory path to check.
-
-    Returns:
-        True if the directory is a valid skill directory, False otherwise.
-    """
+    """Check if a directory contains a valid SKILL.md file."""
     if not path.is_dir():
         return False
 
@@ -54,24 +52,167 @@ def is_valid_skill_directory(path: Path) -> bool:
     return skill_md_path.is_file()
 
 
+def _sanitize_path_part(value: str) -> str:
+    cleaned = (value or "").strip().replace("/", "-").replace("\\", "-")
+    return cleaned or "unnamed"
+
+
+def _render_skill_markdown(entry: dict[str, Any]) -> str:
+    if "skill_md" in entry:
+        return str(entry["skill_md"])
+
+    if "skill_md_path" in entry:
+        return Path(entry["skill_md_path"]).read_text(encoding="utf-8")
+
+    if "frontmatter" in entry and "body" in entry:
+        frontmatter = dict(entry["frontmatter"] or {})
+        frontmatter.setdefault("name", entry["name"])
+        if entry.get("description") and "description" not in frontmatter:
+            frontmatter["description"] = entry["description"]
+        if entry.get("version") and "version" not in frontmatter:
+            frontmatter["version"] = entry["version"]
+        if entry.get("author") and "author" not in frontmatter:
+            frontmatter["author"] = entry["author"]
+        if entry.get("tags") and "tags" not in frontmatter:
+            frontmatter["tags"] = entry["tags"]
+
+        lines = ["---"]
+        for key, value in frontmatter.items():
+            if isinstance(value, list):
+                lines.append(f"{key}:")
+                for item in value:
+                    lines.append(f"  - {item}")
+            else:
+                lines.append(f"{key}: {value}")
+        lines.extend(["---", str(entry["body"])])
+        return "\n".join(lines).rstrip() + "\n"
+
+    raise ValueError(
+        "Skill entry must define either skill_md_path, skill_md, or frontmatter+body"
+    )
+
+
+def _copy_scripts_dir(source_dir: Path, target_dir: Path) -> None:
+    scripts_target = target_dir / "scripts"
+    if scripts_target.exists() or scripts_target.is_symlink():
+        if scripts_target.is_dir() and not scripts_target.is_symlink():
+            shutil.rmtree(scripts_target)
+        else:
+            scripts_target.unlink()
+
+    try:
+        scripts_target.symlink_to(source_dir, target_is_directory=True)
+    except OSError:
+        shutil.copytree(source_dir, scripts_target)
+
+
+def _materialize_plugin_skill(
+    callback_module: str, callback_name: str, entry: dict[str, Any]
+) -> SkillInfo | None:
+    skill_name = str(entry.get("name") or "").strip()
+    if not skill_name:
+        logger.warning(
+            "Plugin skill registration from %s.%s missing required 'name'",
+            callback_module,
+            callback_name,
+        )
+        return None
+
+    try:
+        skill_md = _render_skill_markdown(entry)
+    except Exception as exc:
+        logger.warning(
+            "Failed to render plugin skill %s from %s.%s: %s",
+            skill_name,
+            callback_module,
+            callback_name,
+            exc,
+        )
+        return None
+
+    owner_dir = _PLUGIN_SKILLS_CACHE_DIR / _sanitize_path_part(callback_module)
+    skill_dir = owner_dir / _sanitize_path_part(skill_name)
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(skill_md, encoding="utf-8")
+
+    scripts_dir = entry.get("scripts_dir")
+    if scripts_dir:
+        source_dir = Path(scripts_dir).expanduser().resolve()
+        if source_dir.is_dir():
+            _copy_scripts_dir(source_dir, skill_dir)
+        else:
+            logger.warning(
+                "Plugin skill %s from %s.%s provided invalid scripts_dir: %s",
+                skill_name,
+                callback_module,
+                callback_name,
+                source_dir,
+            )
+
+    return SkillInfo(name=skill_name, path=skill_dir, has_skill_md=True)
+
+
+def _iter_plugin_skill_registrations() -> Iterable[tuple[str, str, dict[str, Any]]]:
+    callbacks = get_callbacks("register_skills")
+    results = on_register_skills()
+
+    for callback, result in zip(callbacks, results):
+        if not result:
+            continue
+        if not isinstance(result, list):
+            logger.warning(
+                "register_skills callback %s.%s must return a list, got %s",
+                callback.__module__,
+                callback.__name__,
+                type(result).__name__,
+            )
+            continue
+
+        for entry in result:
+            if not isinstance(entry, dict):
+                logger.warning(
+                    "register_skills callback %s.%s returned non-dict entry: %r",
+                    callback.__module__,
+                    callback.__name__,
+                    entry,
+                )
+                continue
+            yield callback.__module__, callback.__name__, entry
+
+
+def _collect_plugin_skills() -> List[SkillInfo]:
+    if _PLUGIN_SKILLS_CACHE_DIR.exists():
+        shutil.rmtree(_PLUGIN_SKILLS_CACHE_DIR, ignore_errors=True)
+    _PLUGIN_SKILLS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    plugin_skills: List[SkillInfo] = []
+    seen_names: set[str] = set()
+
+    for callback_module, callback_name, entry in _iter_plugin_skill_registrations():
+        skill = _materialize_plugin_skill(callback_module, callback_name, entry)
+        if skill is None:
+            continue
+        if skill.name in seen_names:
+            logger.warning(
+                "Skipping duplicate plugin skill registration for '%s' from %s.%s",
+                skill.name,
+                callback_module,
+                callback_name,
+            )
+            continue
+        seen_names.add(skill.name)
+        plugin_skills.append(skill)
+
+    return plugin_skills
+
+
 def discover_skills(directories: Optional[List[Path]] = None) -> List[SkillInfo]:
-    """Scan directories for valid skills.
-
-    Args:
-        directories: Directories to scan. If None, uses configured
-                     directories (which includes user-added ones from /skills menu).
-
-    Returns:
-        List of discovered SkillInfo objects.
-    """
+    """Scan directories for valid skills."""
     global _skill_cache
 
     if directories is None:
-        # Use configured directories (respects user-added dirs from /skills menu)
-        # then merge with defaults to ensure we always check the standard locations
         configured = [Path(d) for d in get_skill_directories()]
         defaults = get_default_skill_directories()
-        # Merge: configured first, then any defaults not already covered
         seen = {p.resolve() for p in configured}
         directories = list(configured)
         for d in defaults:
@@ -79,6 +220,7 @@ def discover_skills(directories: Optional[List[Path]] = None) -> List[SkillInfo]
                 directories.append(d)
 
     discovered_skills: List[SkillInfo] = []
+    seen_skill_names: set[str] = set()
 
     for directory in directories:
         if not directory.exists():
@@ -89,48 +231,58 @@ def discover_skills(directories: Optional[List[Path]] = None) -> List[SkillInfo]
             logger.warning(f"Skill path is not a directory: {directory}")
             continue
 
-        # Scan subdirectories within the skill directory
         for skill_dir in directory.iterdir():
-            if not skill_dir.is_dir():
+            if not skill_dir.is_dir() or skill_dir.name.startswith("."):
                 continue
 
-            # Skip hidden directories
-            if skill_dir.name.startswith("."):
+            # First-discovered skill wins - skip duplicates from later directories
+            if skill_dir.name in seen_skill_names:
+                logger.debug(
+                    "Skipping duplicate skill '%s' at %s (already discovered)",
+                    skill_dir.name,
+                    skill_dir,
+                )
                 continue
 
             has_skill_md = is_valid_skill_directory(skill_dir)
-
-            # Include if it has SKILL.md (valid skill) or just for discovery
             skill_info = SkillInfo(
-                name=skill_dir.name, path=skill_dir, has_skill_md=has_skill_md
+                name=skill_dir.name,
+                path=skill_dir,
+                has_skill_md=has_skill_md,
             )
             discovered_skills.append(skill_info)
+            seen_skill_names.add(skill_info.name)
 
             if has_skill_md:
-                logger.debug(f"Discovered valid skill: {skill_dir.name} at {skill_dir}")
+                logger.debug(
+                    "Discovered valid skill: %s at %s", skill_dir.name, skill_dir
+                )
             else:
                 logger.debug(
-                    f"Found skill directory without SKILL.md: {skill_dir.name}"
+                    "Found skill directory without SKILL.md: %s", skill_dir.name
                 )
 
-    # Update cache
-    _skill_cache = discovered_skills
+    for plugin_skill in _collect_plugin_skills():
+        if plugin_skill.name in seen_skill_names:
+            logger.debug(
+                "Skipping plugin skill '%s' because a filesystem skill already exists",
+                plugin_skill.name,
+            )
+            continue
+        discovered_skills.append(plugin_skill)
+        seen_skill_names.add(plugin_skill.name)
 
+    _skill_cache = discovered_skills
     logger.info(
-        f"Discovered {len(discovered_skills)} skills from {len(directories)} directories"
+        "Discovered %s skills from %s directories",
+        len(discovered_skills),
+        len(directories),
     )
     return discovered_skills
 
 
 def refresh_skill_cache() -> List[SkillInfo]:
-    """Force re-discovery of all skills.
-
-    This clears the cache and performs a fresh scan of all default
-    skill directories.
-
-    Returns:
-        List of freshly discovered SkillInfo objects.
-    """
+    """Force re-discovery of all skills."""
     global _skill_cache
     _skill_cache = None
     return discover_skills()

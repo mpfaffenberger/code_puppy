@@ -36,6 +36,7 @@ from code_puppy.plugins.agent_skills.downloader import download_and_install_skil
 from code_puppy.plugins.agent_skills.installer import InstallResult
 from code_puppy.plugins.agent_skills.skill_catalog import SkillCatalogEntry, catalog
 from code_puppy.tools.command_runner import set_awaiting_user_input
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 logger = logging.getLogger(__name__)
 
@@ -165,21 +166,21 @@ class SkillsInstallMenu:
         """Render keyboard shortcut hints at the bottom."""
 
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "  ↑/↓ "))
+        lines.append(("class:tui.help-key", "  ↑/↓ "))
         lines.append(("", "Navigate  "))
-        lines.append(("fg:ansibrightblack", "←/→ "))
+        lines.append(("class:tui.help-key", "←/→ "))
         lines.append(("", "Page\n"))
 
         if self.view_mode == "categories":
-            lines.append(("fg:ansigreen", "  Enter  "))
+            lines.append(("class:tui.help-key", "  Enter  "))
             lines.append(("", "Browse Skills\n"))
         else:
-            lines.append(("fg:ansigreen", "  Enter  "))
+            lines.append(("class:tui.success", "  Enter  "))
             lines.append(("", "Install Skill\n"))
-            lines.append(("fg:ansibrightblack", "  Esc/Back  "))
+            lines.append(("class:tui.help-key", "  Esc/Back  "))
             lines.append(("", "Back\n"))
 
-        lines.append(("fg:ansired", "  Ctrl+C "))
+        lines.append(("class:tui.help-key", "  Ctrl+C "))
         lines.append(("", "Cancel"))
 
     def _render_category_list(self) -> List:
@@ -187,15 +188,15 @@ class SkillsInstallMenu:
 
         lines = []
 
-        lines.append(("bold cyan", " 📂 CATEGORIES"))
+        lines.append(("class:tui.title", " 📂 CATEGORIES"))
         lines.append(("", "\n\n"))
 
         if not self.categories:
-            lines.append(("fg:ansiyellow", "  No remote categories available."))
+            lines.append(("class:tui.warning", "  No remote categories available."))
             lines.append(("", "\n"))
             lines.append(
                 (
-                    "fg:ansibrightblack",
+                    "class:tui.muted",
                     "  (Remote catalog unavailable or empty)\n",
                 )
             )
@@ -223,15 +224,15 @@ class SkillsInstallMenu:
             label = f"{prefix}{icon} {category} ({count})"
 
             if is_selected:
-                lines.append(("fg:ansibrightcyan bold", label))
+                lines.append(("class:tui.selected", label))
             else:
-                lines.append(("fg:ansibrightblack", label))
+                lines.append(("class:tui.muted", label))
             lines.append(("", "\n"))
 
         lines.append(("", "\n"))
         if total_pages > 1:
             lines.append(
-                ("fg:ansibrightblack", f" Page {self.current_page + 1}/{total_pages}")
+                ("class:tui.muted", f" Page {self.current_page + 1}/{total_pages}")
             )
             lines.append(("", "\n"))
 
@@ -244,17 +245,17 @@ class SkillsInstallMenu:
         lines = []
 
         if not self.current_category:
-            lines.append(("fg:ansiyellow", "  No category selected."))
+            lines.append(("class:tui.warning", "  No category selected."))
             lines.append(("", "\n\n"))
             self._render_navigation_hints(lines)
             return lines
 
         icon = self._get_category_icon(self.current_category)
-        lines.append(("bold cyan", f" {icon} {self.current_category.upper()}"))
+        lines.append(("class:tui.title", f" {icon} {self.current_category.upper()}"))
         lines.append(("", "\n\n"))
 
         if not self.current_skills:
-            lines.append(("fg:ansiyellow", "  No skills in this category."))
+            lines.append(("class:tui.warning", "  No skills in this category."))
             lines.append(("", "\n\n"))
             self._render_navigation_hints(lines)
             return lines
@@ -270,13 +271,13 @@ class SkillsInstallMenu:
 
             installed = is_skill_installed(entry.id)
             status_icon = "✓" if installed else "○"
-            status_style = "fg:ansigreen" if installed else "fg:ansibrightblack"
+            status_style = "class:tui.success" if installed else "class:tui.muted"
 
             prefix = " > " if is_selected else "   "
             label = f"{prefix}{status_icon} {entry.display_name}"
 
             if is_selected:
-                lines.append(("fg:ansibrightcyan bold", label))
+                lines.append(("class:tui.selected", label))
             else:
                 lines.append((status_style, label))
 
@@ -285,7 +286,7 @@ class SkillsInstallMenu:
         lines.append(("", "\n"))
         if total_pages > 1:
             lines.append(
-                ("fg:ansibrightblack", f" Page {self.current_page + 1}/{total_pages}")
+                ("class:tui.muted", f" Page {self.current_page + 1}/{total_pages}")
             )
             lines.append(("", "\n"))
 
@@ -297,13 +298,13 @@ class SkillsInstallMenu:
 
         lines = []
 
-        lines.append(("bold cyan", " 📋 DETAILS"))
+        lines.append(("class:tui.title", " 📋 DETAILS"))
         lines.append(("", "\n\n"))
 
         if self.view_mode == "categories":
             category = self._get_current_category()
             if not category:
-                lines.append(("fg:ansiyellow", "  No category selected."))
+                lines.append(("class:tui.warning", "  No category selected."))
                 return lines
 
             icon = self._get_category_icon(category)
@@ -316,7 +317,7 @@ class SkillsInstallMenu:
             except Exception:
                 skills = []
 
-            lines.append(("fg:ansibrightblack", f"  {len(skills)} skills available"))
+            lines.append(("class:tui.muted", f"  {len(skills)} skills available"))
             lines.append(("", "\n\n"))
 
             # Show a preview of the first few skills
@@ -324,19 +325,19 @@ class SkillsInstallMenu:
                 lines.append(("bold", "  Preview:"))
                 lines.append(("", "\n"))
                 for entry in skills[:6]:
-                    lines.append(("fg:ansibrightblack", f"    • {entry.display_name}"))
+                    lines.append(("class:tui.muted", f"    • {entry.display_name}"))
                     lines.append(("", "\n"))
 
             return lines
 
         entry = self._get_current_skill()
         if not entry:
-            lines.append(("fg:ansiyellow", "  No skill selected."))
+            lines.append(("class:tui.warning", "  No skill selected."))
             return lines
 
         installed = is_skill_installed(entry.id)
         installed_text = "Installed" if installed else "Not installed"
-        installed_style = "fg:ansigreen" if installed else "fg:ansiyellow"
+        installed_style = "class:tui.success" if installed else "class:tui.warning"
 
         lines.append(("bold", f"  {entry.display_name}"))
         lines.append(("", "\n"))
@@ -345,57 +346,59 @@ class SkillsInstallMenu:
 
         lines.append(("bold", "  ID:"))
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", f"    {entry.id}"))
+        lines.append(("class:tui.muted", f"    {entry.id}"))
         lines.append(("", "\n\n"))
 
         lines.append(("bold", "  Description:"))
         lines.append(("", "\n"))
         desc = entry.description or "No description available"
         for line in _wrap_text(desc, 56):
-            lines.append(("fg:ansibrightblack", f"    {line}"))
+            lines.append(("class:tui.muted", f"    {line}"))
             lines.append(("", "\n"))
         lines.append(("", "\n"))
 
         lines.append(("bold", "  Category:"))
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", f"    {entry.category}"))
+        lines.append(("class:tui.muted", f"    {entry.category}"))
         lines.append(("", "\n\n"))
 
         lines.append(("bold", "  Tags:"))
         lines.append(("", "\n"))
         tags = entry.tags or []
-        lines.append(("fg:ansicyan", f"    {', '.join(tags) if tags else '(none)'}"))
+        lines.append(
+            ("class:tui.header", f"    {', '.join(tags) if tags else '(none)'}")
+        )
         lines.append(("", "\n\n"))
 
         lines.append(("bold", "  Contents:"))
         lines.append(("", "\n"))
         lines.append(
             (
-                "fg:ansibrightblack",
+                "class:tui.muted",
                 f"    scripts: {'yes' if entry.has_scripts else 'no'}",
             )
         )
         lines.append(("", "\n"))
         lines.append(
             (
-                "fg:ansibrightblack",
+                "class:tui.muted",
                 f"    references: {'yes' if entry.has_references else 'no'}",
             )
         )
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", f"    files: {entry.file_count}"))
+        lines.append(("class:tui.muted", f"    files: {entry.file_count}"))
         lines.append(("", "\n\n"))
 
         lines.append(("bold", "  Download:"))
         lines.append(("", "\n"))
         lines.append(
             (
-                "fg:ansibrightblack",
+                "class:tui.muted",
                 f"    size: {_format_bytes(entry.zip_size_bytes)}",
             )
         )
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", f"    url: {entry.download_url}"))
+        lines.append(("class:tui.muted", f"    url: {entry.download_url}"))
         lines.append(("", "\n"))
 
         return lines
@@ -587,6 +590,7 @@ class SkillsInstallMenu:
             key_bindings=kb,
             full_screen=False,
             mouse_support=False,
+            style=on_prompt_toolkit_style(),
         )
 
         set_awaiting_user_input(True)

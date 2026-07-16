@@ -1,11 +1,15 @@
 import configparser
 import datetime
+import hashlib
 import json
+import logging
 import os
 import pathlib
 from typing import Optional
 
 from code_puppy.session_storage import save_session
+
+logger = logging.getLogger(__name__)
 
 
 def _get_xdg_dir(env_var: str, fallback: str) -> str:
@@ -48,13 +52,11 @@ EXTRA_MODELS_FILE = os.path.join(DATA_DIR, "extra_models.json")
 AGENTS_DIR = os.path.join(DATA_DIR, "agents")
 SKILLS_DIR = os.path.join(DATA_DIR, "skills")
 CONTEXTS_DIR = os.path.join(DATA_DIR, "contexts")
-_DEFAULT_SQLITE_FILE = os.path.join(DATA_DIR, "dbos_store.sqlite")
 
 # OAuth plugin model files (XDG_DATA_HOME)
 GEMINI_MODELS_FILE = os.path.join(DATA_DIR, "gemini_models.json")
 CHATGPT_MODELS_FILE = os.path.join(DATA_DIR, "chatgpt_models.json")
 CLAUDE_MODELS_FILE = os.path.join(DATA_DIR, "claude_models.json")
-ANTIGRAVITY_MODELS_FILE = os.path.join(DATA_DIR, "antigravity_models.json")
 COPILOT_MODELS_FILE = os.path.join(DATA_DIR, "copilot_models.json")
 
 # Cache files (XDG_CACHE_HOME)
@@ -62,19 +64,6 @@ AUTOSAVE_DIR = os.path.join(CACHE_DIR, "autosaves")
 
 # State files (XDG_STATE_HOME)
 COMMAND_HISTORY_FILE = os.path.join(STATE_DIR, "command_history.txt")
-DBOS_DATABASE_URL = os.environ.get(
-    "DBOS_SYSTEM_DATABASE_URL", f"sqlite:///{_DEFAULT_SQLITE_FILE}"
-)
-# DBOS enable switch is controlled solely via puppy.cfg using key 'enable_dbos'.
-# Default: True (DBOS enabled) unless explicitly disabled.
-
-
-def get_use_dbos() -> bool:
-    """Return True if DBOS should be used based on 'enable_dbos' (default True)."""
-    cfg_val = get_value("enable_dbos")
-    if cfg_val is None:
-        return True
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def get_subagent_verbose() -> bool:
@@ -145,6 +134,47 @@ def set_universal_constructor_enabled(enabled: bool) -> None:
     set_value("enable_universal_constructor", "true" if enabled else "false")
 
 
+def get_mcp_unbound_warning_silenced() -> bool:
+    """Return True if the 'MCP server registered but not bound' warning is silenced.
+
+    When True, ``code_puppy.mcp_.manager._warn_unbound_servers`` skips emitting
+    its consolidated warning. Default False — the warning exists for a reason
+    (it surfaces hand-edits to ``mcp_servers.json`` that didn't get bound),
+    but power users who *know* about the unbound servers can silence the
+    nag via ``/mcp silence-warning``.
+    """
+    cfg_val = get_value("mcp_unbound_warning_silenced")
+    if cfg_val is None:
+        return False
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def set_mcp_unbound_warning_silenced(silenced: bool) -> None:
+    """Silence (or un-silence) the unbound-MCP-server warning.
+
+    Args:
+        silenced: True to silence forever, False to restore the warning.
+    """
+    set_value("mcp_unbound_warning_silenced", "true" if silenced else "false")
+
+
+def get_max_hook_retries() -> int:
+    """Return the maximum number of plugin hook retries after an agent run.
+
+    When a plugin hook returns ``{"retry": True, ...}`` the agent re-runs.
+    This caps how many times that can happen to prevent runaway loops.
+    Defaults to 3.
+    """
+    val = get_value("max_hook_retries")
+    if val is None:
+        return 3
+    try:
+        n = int(val)
+        return max(1, n)  # At least 1 to avoid nonsensical values
+    except (ValueError, TypeError):
+        return 3
+
+
 def get_enable_streaming() -> bool:
     """
     Get the enable_streaming configuration value.
@@ -155,6 +185,62 @@ def get_enable_streaming() -> bool:
     val = get_value("enable_streaming")
     if val is None:
         return True  # Default to True for better UX
+    return str(val).lower() in ("1", "true", "yes", "on")
+
+
+def get_retry_main_strategy() -> str:
+    """Effective backoff strategy for the main agent loop.
+
+    Delegates to :func:`code_puppy.agents.retry_profiles.resolve` so the value
+    shown in ``/set`` is exactly what the retry mechanism will use (clamped and
+    validated). Falls back gracefully if the module can't be imported.
+    """
+    try:
+        from code_puppy.agents.retry_profiles import resolve
+
+        return resolve("main").strategy
+    except Exception:
+        return "balanced"
+
+
+def get_retry_main_max_attempts() -> int:
+    """Effective max retry attempts for the main agent loop (clamped)."""
+    try:
+        from code_puppy.agents.retry_profiles import resolve
+
+        return resolve("main").max_attempts
+    except Exception:
+        return 5
+
+
+def get_retry_subagent_strategy() -> str:
+    """Effective backoff strategy for sub-agent runs."""
+    try:
+        from code_puppy.agents.retry_profiles import resolve
+
+        return resolve("subagent").strategy
+    except Exception:
+        return "balanced"
+
+
+def get_retry_subagent_max_attempts() -> int:
+    """Effective max retry attempts for sub-agent runs (clamped)."""
+    try:
+        from code_puppy.agents.retry_profiles import resolve
+
+        return resolve("subagent").max_attempts
+    except Exception:
+        return 9
+
+
+def get_suppress_directory_listing() -> bool:
+    """
+    Get the suppress_directory_listing configuration value.
+    Returns True if directory listing displays should be suppressed, False otherwise.
+    """
+    val = get_value("suppress_directory_listing")
+    if val is None:
+        return True  # Default to True (suppress by default)
     return str(val).lower() in ("1", "true", "yes", "on")
 
 
@@ -171,6 +257,10 @@ _SESSION_MODEL: Optional[str] = None
 _model_validation_cache = {}
 _default_model_cache = None
 _default_vision_model_cache = None
+
+# One-shot guard so we don't spam the "no model configured" warning on every
+# call to get_global_model_name() (which happens a LOT).
+_warned_no_model = False
 
 
 def ensure_config_exists():
@@ -235,6 +325,23 @@ def get_owner_name():
     return get_value("owner_name") or "Master"
 
 
+def get_locale() -> str:
+    """Return the active i18n locale (single source of truth).
+
+    Delegates to the i18n translator, seeding it once from the environment
+    and the persisted ``locale`` config key on first use. After a runtime
+    ``/set locale`` (translator.set_locale), this reflects that override
+    rather than re-deriving from the environment.
+
+    Precedence when seeding: CODE_PUPPY_LOCALE env var > persisted ``locale``
+    config key > POSIX locale env vars > default (en-US). See
+    ``code_puppy.i18n.locale.detect_locale``.
+    """
+    from code_puppy.i18n import ensure_detected
+
+    return ensure_detected(get_value("locale"))
+
+
 # Legacy function removed - message history limit is no longer used
 # Message history is now managed by token-based compaction system
 # using get_protected_token_count() and get_summarization_threshold()
@@ -247,7 +354,7 @@ def get_allow_recursion() -> bool:
     """
     val = get_value("allow_recursion")
     if val is None:
-        return True  # Default to False for safety
+        return True  # Default to True to allow recursion unless explicitly disabled
     return str(val).lower() in ("1", "true", "yes", "on")
 
 
@@ -283,6 +390,7 @@ def get_config_keys():
         "compaction_strategy",
         "protected_token_count",
         "compaction_threshold",
+        "summarization_model",
         "message_limit",
         "allow_recursion",
         "openai_reasoning_effort",
@@ -297,22 +405,44 @@ def get_config_keys():
         "frontend_emitter_enabled",
         "frontend_emitter_max_recent_events",
         "frontend_emitter_queue_size",
+        "locale",
     ]
-    # Add DBOS control key
-    default_keys.append("enable_dbos")
+    # 'enable_dbos' is reserved for the dbos_durable_exec plugin and is read
+    # via the generic get_value API; intentionally not in default_keys.
     # Add pack agents control key
     default_keys.append("enable_pack_agents")
     # Add universal constructor control key
     default_keys.append("enable_universal_constructor")
+    # Add hook retry limit key
+    default_keys.append("max_hook_retries")
     # Add streaming control key
     default_keys.append("enable_streaming")
+    # Add suppress directory listing key
+    default_keys.append("suppress_directory_listing")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
+    # Add max pause seconds configuration (used by event_stream_handler's
+    # wait_if_paused() to auto-resume long pauses before SSE upstream
+    # times out).
+    default_keys.append("max_pause_seconds")
     # Add banner color keys
     for banner_name in DEFAULT_BANNER_COLORS:
         default_keys.append(f"banner_color_{banner_name}")
     # Add resume message count configuration
     default_keys.append("resume_message_count")
+    # Per-file AGENTS.md character cap (see get_agents_md_max_chars()).
+    default_keys.append("agents_md_max_chars")
+    # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
+    # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
+    default_keys.append("goal_max_iterations")
+    # Add dangerous command guard disable (skips force push and destructive command guards)
+    default_keys.append("disable_dangerous_command_guard")
+    # Add retry profile keys (backoff policy for streaming retries). Per-model
+    # overrides live under the model_settings_ namespace; these are the globals.
+    default_keys.append("retry_main_strategy")
+    default_keys.append("retry_main_max_attempts")
+    default_keys.append("retry_subagent_strategy")
+    default_keys.append("retry_subagent_max_attempts")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -351,30 +481,82 @@ def reset_value(key: str) -> None:
 
 
 # --- MODEL STICKY EXTENSION STARTS HERE ---
-def load_mcp_server_configs():
+def _parse_mcp_servers_mapping(raw_text: str) -> dict:
+    """Parse ``mcp_servers.json`` text into a ``{name: config}`` mapping.
+
+    Accepts either the ``mcp_servers`` (snake_case, canonical) or
+    ``mcpServers`` (camelCase, as used by some other MCP clients) wrapper key
+    so hand-copied configs Just Work. Raises ``ValueError`` / ``KeyError`` on
+    malformed input so callers can fail loudly and fall back to ``{}``.
+
+    This is the single chokepoint for wrapper-key normalization, shared by the
+    user-level loader below and the project-level loader in
+    :mod:`code_puppy.mcp_.project_config`.
     """
-    Loads the MCP server configurations from XDG_CONFIG_HOME/code_puppy/mcp_servers.json.
-    Returns a dict mapping names to their URL or config dict.
-    If file does not exist, returns an empty dict.
+    data = json.loads(raw_text)
+    if not isinstance(data, dict):
+        raise ValueError("MCP config root must be a JSON object")
+    servers = data.get("mcp_servers")
+    if servers is None:
+        servers = data.get("mcpServers")
+    if servers is None:
+        # Preserve historical KeyError-on-missing behavior for the canonical key.
+        raise KeyError("mcp_servers")
+    if not isinstance(servers, dict):
+        raise ValueError("'mcp_servers' must be a JSON object of name -> config")
+    return servers
+
+
+def load_mcp_server_configs():
+    """Load MCP server configs, merging user-level and trusted project-level.
+
+    Sources, in ascending order of precedence:
+
+    1. **User-level** \u2014 ``$XDG_CONFIG_HOME/code_puppy/mcp_servers.json``
+       (global, always trusted).
+    2. **Project-level** \u2014 ``<CWD>/.code_puppy/mcp_servers.json``, but ONLY
+       when the user has trusted it via ``/mcp trust``. Project MCP servers can
+       run arbitrary commands, so they are disabled until explicitly accepted;
+       see :mod:`code_puppy.mcp_.project_config`.
+
+    Project entries win on name collision, matching how project agents, skills,
+    and plugins override their user-level counterparts. Returns an empty dict
+    when nothing is configured.
     """
     from code_puppy.messaging.message_queue import emit_error
 
+    configs: dict = {}
+
+    # 1. User-level config (global, implicitly trusted).
     try:
-        if not pathlib.Path(MCP_SERVERS_FILE).exists():
-            return {}
-        with open(MCP_SERVERS_FILE, "r", encoding="utf-8") as f:
-            conf = json.loads(f.read())
-            return conf["mcp_servers"]
+        if pathlib.Path(MCP_SERVERS_FILE).exists():
+            with open(MCP_SERVERS_FILE, "r", encoding="utf-8") as f:
+                configs.update(_parse_mcp_servers_mapping(f.read()))
     except Exception as e:
         emit_error(f"Failed to load MCP servers - {str(e)}")
-        return {}
+
+    # 2. Project-level config (opt-in, trust-gated). A broken or untrusted
+    #    project file must never break user-level loading.
+    try:
+        from code_puppy.mcp_.project_config import load_project_mcp_server_configs
+
+        project_configs = load_project_mcp_server_configs()
+        if project_configs:
+            configs.update(project_configs)
+    except Exception as e:
+        emit_error(f"Failed to load project MCP servers - {str(e)}")
+
+    return configs
 
 
 def _default_model_from_models_json():
-    """Load the default model name from models.json.
+    """Load the default model name from the merged models config.
 
-    Returns the first model in models.json as the default.
-    Falls back to ``gpt-5`` if the file cannot be read.
+    Returns the first available model as the default, or ``None`` when no
+    models are configured at all (e.g. empty ``models.json`` and no
+    ``extra_models.json`` / OAuth model files). Returning ``None`` lets
+    callers detect the "no model available" state and warn the user instead
+    of silently pointing at a model that doesn't exist.
     """
     global _default_model_cache
 
@@ -386,15 +568,16 @@ def _default_model_from_models_json():
 
         models_config = ModelFactory.load_config()
         if models_config:
-            # Use first model in models.json as default
+            # Use first model in the merged config as default
             first_key = next(iter(models_config))
             _default_model_cache = first_key
             return first_key
-        _default_model_cache = "gpt-5"
-        return "gpt-5"
     except Exception:
-        _default_model_cache = "gpt-5"
-        return "gpt-5"
+        pass
+
+    # No models configured anywhere. Don't cache None so that adding a model
+    # later (e.g. via /add_model) is picked up without a full cache clear.
+    return None
 
 
 def _default_vision_model_from_models_json() -> str:
@@ -465,9 +648,12 @@ def _validate_model_exists(model_name: str) -> bool:
 def clear_model_cache():
     """Clear the model validation cache. Call this when models.json changes."""
     global _model_validation_cache, _default_model_cache, _default_vision_model_cache
+    global _warned_no_model
     _model_validation_cache.clear()
     _default_model_cache = None
     _default_vision_model_cache = None
+    # Re-arm the "no model" warning so a fresh config state can warn again.
+    _warned_no_model = False
 
 
 def reset_session_model():
@@ -491,11 +677,18 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
         True if the model supports the setting, False otherwise.
         Defaults to True for backwards compatibility if model config doesn't specify.
     """
-    # GLM-4.7 and GLM-5 models always support clear_thinking setting
-    if setting == "clear_thinking" and (
-        "glm-4.7" in model_name.lower() or "glm-5" in model_name.lower()
-    ):
-        return True
+    # GLM-4.5+ models support deep-thinking controls (thinking_type,
+    # clear_thinking); GLM-5.2+ additionally support reasoning_effort.
+    if setting in ("thinking_type", "clear_thinking"):
+        from code_puppy.model_utils import supports_glm_thinking
+
+        if supports_glm_thinking(model_name):
+            return True
+    if setting == "glm_reasoning_effort":
+        from code_puppy.model_utils import supports_glm_reasoning_effort
+
+        if supports_glm_reasoning_effort(model_name):
+            return True
 
     try:
         from code_puppy.model_factory import ModelFactory
@@ -511,9 +704,9 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
             # For Anthropic/Claude models, include extended thinking settings
             if model_name.startswith("claude-") or model_name.startswith("anthropic-"):
                 base = ["temperature", "extended_thinking", "budget_tokens"]
-                # Opus 4-6 models also support the effort setting
-                lower = model_name.lower()
-                if "opus-4-6" in lower or "4-6-opus" in lower:
+                from code_puppy.model_utils import supports_adaptive_thinking
+
+                if supports_adaptive_thinking(model_name):
                     base.append("effort")
                 return setting in base
             return setting in ["temperature", "seed"]
@@ -524,17 +717,42 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
         return True
 
 
+def _warn_no_model_available() -> None:
+    """Emit a one-time warning when no model is configured.
+
+    Called from :func:`get_global_model_name` when neither the stored model,
+    nor any bundled/extra/OAuth model is available. Guarded so we only nag the
+    user once per process instead of on every single resolution.
+    """
+    global _warned_no_model
+    if _warned_no_model:
+        return
+    _warned_no_model = True
+    try:
+        from code_puppy.messaging import emit_warning
+
+        emit_warning(
+            "\u26a0\ufe0f  No model is configured! Code Puppy can't talk to an LLM "
+            "until you add one.\n"
+            "   \u2022 Run /add_model to pick a model + API key, or\n"
+            "   \u2022 Run /tutorial and choose Claude Code or ChatGPT OAuth."
+        )
+    except Exception:
+        # Messaging may not be wired up yet (very early startup) - never crash.
+        pass
+
+
 def get_global_model_name():
-    """Return a valid model name for Code Puppy to use.
+    """Return the model name for Code Puppy to use, or ``None`` if unset.
 
     Uses session-local caching so that model changes in other terminals
     don't affect this running instance. The file is only read once at startup.
 
     1. If _SESSION_MODEL is set, return it (session cache)
     2. Otherwise, look at ``model`` in *puppy.cfg*
-    3. If that value exists **and** is present in *models.json*, use it
-    4. Otherwise return the first model listed in *models.json*
-    5. As a last resort fall back to ``claude-4-0-sonnet``
+    3. If that value exists **and** is a known model, use it
+    4. Otherwise return the first available model from the merged config
+    5. If no model is available anywhere, warn once and return ``None``
 
     The result is cached in _SESSION_MODEL for subsequent calls.
     """
@@ -553,8 +771,16 @@ def get_global_model_name():
             _SESSION_MODEL = stored_model
             return _SESSION_MODEL
 
-    # Either no stored model or it's not valid – choose default from models.json
-    _SESSION_MODEL = _default_model_from_models_json()
+    # Either no stored model or it's not valid – choose default from the
+    # merged models config.
+    default_model = _default_model_from_models_json()
+    if default_model is None:
+        # Nothing available anywhere. Warn (once) and leave the session model
+        # uninitialized so a later /add_model can take effect immediately.
+        _warn_no_model_available()
+        return None
+
+    _SESSION_MODEL = default_model
     return _SESSION_MODEL
 
 
@@ -582,6 +808,33 @@ def set_model_name(model: str):
     clear_model_cache()
 
 
+def get_summarization_model_name() -> str:
+    """Return the model used for compaction/summarization.
+
+    Reads the ``summarization_model`` config key. If unset (or empty),
+    falls back to :func:`get_global_model_name`, preserving legacy behavior
+    for users who haven't explicitly configured a separate summarizer.
+
+    Rationale: summarization is a different workload than main-agent chat —
+    it's one-shot, large-context, and best served by a cheap-and-fast or
+    long-context specialist model. Decoupling it from the global model lets
+    users pick the right tool without changing their main agent.
+    """
+    value = get_value("summarization_model")
+    if value:
+        return value
+    return get_global_model_name()
+
+
+def set_summarization_model_name(model: str) -> None:
+    """Persist the summarization model in the config file.
+
+    Pass an empty string to clear the setting and fall back to the global
+    model on subsequent calls to :func:`get_summarization_model_name`.
+    """
+    set_config_value("summarization_model", model or "")
+
+
 def get_puppy_token():
     """Returns the puppy_token from config, or None if not set."""
     return get_value("puppy_token")
@@ -593,8 +846,8 @@ def set_puppy_token(token: str):
 
 
 def get_openai_reasoning_effort() -> str:
-    """Return the configured OpenAI reasoning effort (minimal, low, medium, high, xhigh)."""
-    allowed_values = {"minimal", "low", "medium", "high", "xhigh"}
+    """Return the configured OpenAI reasoning effort."""
+    allowed_values = {"minimal", "low", "medium", "high", "xhigh", "ultra"}
     configured = (get_value("openai_reasoning_effort") or "medium").strip().lower()
     if configured not in allowed_values:
         return "medium"
@@ -603,7 +856,7 @@ def get_openai_reasoning_effort() -> str:
 
 def set_openai_reasoning_effort(value: str) -> None:
     """Persist the OpenAI reasoning effort ensuring it remains within allowed values."""
-    allowed_values = {"minimal", "low", "medium", "high", "xhigh"}
+    allowed_values = {"minimal", "low", "medium", "high", "xhigh", "ultra"}
     normalized = (value or "").strip().lower()
     if normalized not in allowed_values:
         raise ValueError(
@@ -621,7 +874,7 @@ def get_openai_reasoning_summary() -> str:
     - detailed: fuller reasoning summaries
     """
     allowed_values = {"auto", "concise", "detailed"}
-    configured = (get_value("openai_reasoning_summary") or "auto").strip().lower()
+    configured = (get_value("openai_reasoning_summary") or "detailed").strip().lower()
     if configured not in allowed_values:
         return "auto"
     return configured
@@ -1058,18 +1311,29 @@ def initialize_command_history_file():
             )
 
 
-def get_yolo_mode():
-    """
-    Checks puppy.cfg for 'yolo_mode' (case-insensitive in value only).
-    Defaults to True if not set.
-    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
-    """
+_cli_yolo_override: Optional[bool] = None
+
+
+def set_cli_yolo_override(value: Optional[bool]) -> None:
+    """Set a process-local YOLO value supplied by the CLI."""
+    global _cli_yolo_override
+    _cli_yolo_override = value
+
+
+def get_cli_yolo_override() -> Optional[bool]:
+    """Return the process-local CLI override, if one was supplied."""
+    return _cli_yolo_override
+
+
+def get_yolo_mode() -> bool:
+    """Return effective YOLO mode using CLI > persisted config precedence."""
+    if _cli_yolo_override is not None:
+        return _cli_yolo_override
+
     true_vals = {"1", "true", "yes", "on"}
     cfg_val = get_value("yolo_mode")
     if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
+        return str(cfg_val).strip().lower() in true_vals
     return True
 
 
@@ -1123,6 +1387,30 @@ def get_grep_output_verbose():
     return False
 
 
+def get_disable_dangerous_command_guard() -> bool:
+    """
+    Checks puppy.cfg for 'disable_dangerous_command_guard' (case-insensitive in value only).
+    Defaults to False (guards enabled) if not set.
+    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
+
+    When False (default): Both force push guard and destructive command guard are active.
+    When True: Both guards are bypassed - commands execute without prompts.
+
+      Use with caution!
+
+    This setting disables:
+    - Force push guard (git push --force, git push -f, etc.)
+    - Destructive command guard (rm -rf, docker system prune, etc.)
+    """
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("disable_dangerous_command_guard")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in true_vals:
+            return True
+        return False
+    return False
+
+
 def get_protected_token_count():
     """
     Returns the user-configured protected token count for message history compaction.
@@ -1160,10 +1448,39 @@ def get_resume_message_count() -> int:
     val = get_value("resume_message_count")
     try:
         configured_value = int(val) if val else 50
-        # Enforce reasonable bounds: minimum 1, maximum 100
-        return max(1, min(configured_value, 100))
+        # Enforce reasonable bounds: minimum 0 (disabled), maximum 100
+        return max(0, min(configured_value, 100))
     except (ValueError, TypeError):
         return 50
+
+
+# Default cap (in characters) for any single AGENTS.md file injected into
+# the system prompt. Users can override this via
+# ``/set agents_md_max_chars=<int>`` — any positive integer is honoured so
+# models with very large context windows (1M+ tokens) can opt into bigger
+# AGENTS.md files when it makes sense. The default of 10,000 just keeps
+# the unbounded out-of-the-box behaviour from regressing.
+AGENTS_MD_MAX_CHARS_DEFAULT = 10_000
+
+
+def get_agents_md_max_chars() -> int:
+    """Return the per-file AGENTS.md character cap, honouring user override.
+
+    Read from the ``agents_md_max_chars`` config key (settable via
+    ``/set agents_md_max_chars=<int>``). Defaults to
+    ``AGENTS_MD_MAX_CHARS_DEFAULT`` (10,000) when unset, and falls back to
+    the default on values that can't be a sensible cap (non-numeric,
+    negative, zero). No upper clamp — if a user with a 1M-token model
+    wants ``/set agents_md_max_chars=500000``, that's their call.
+    """
+    val = get_value("agents_md_max_chars")
+    try:
+        configured = int(val) if val else AGENTS_MD_MAX_CHARS_DEFAULT
+    except (ValueError, TypeError):
+        return AGENTS_MD_MAX_CHARS_DEFAULT
+    if configured <= 0:
+        return AGENTS_MD_MAX_CHARS_DEFAULT
+    return configured
 
 
 def get_compaction_threshold():
@@ -1217,11 +1534,6 @@ def set_http2(enabled: bool) -> None:
     set_config_value("http2", "true" if enabled else "false")
 
 
-def set_enable_dbos(enabled: bool) -> None:
-    """Enable DBOS via config (true enables, default false)."""
-    set_config_value("enable_dbos", "true" if enabled else "false")
-
-
 def get_message_limit(default: int = 1000) -> int:
     """
     Returns the user-configured message/request limit for the agent.
@@ -1234,6 +1546,25 @@ def get_message_limit(default: int = 1000) -> int:
         return int(val) if val else default
     except (ValueError, TypeError):
         return default
+
+
+def get_command_timeout_seconds() -> int:
+    """
+    Returns the user-configured foreground limit for shell commands in seconds.
+    Commands still running at the limit are automatically backgrounded, not killed.
+    Defaults to 270 seconds if unset or misconfigured.
+    Valid range: 60-900 seconds. Values outside this range default to 270.
+    Configurable by 'command_timeout_seconds' key.
+    """
+    val = get_value("command_timeout_seconds")
+    try:
+        timeout = int(val) if val else 270
+        # Enforce bounds: min 60, max 900, default 270 if outside bounds
+        if timeout < 60 or timeout > 900:
+            return 270
+        return timeout
+    except (ValueError, TypeError):
+        return 270
 
 
 def save_command_to_history(command: str):
@@ -1398,44 +1729,135 @@ def set_diff_highlight_style(style: str):
     pass
 
 
+# Diff colors use these only when no curated terminal palette is active.
+_DEFAULT_DIFF_ADDITION_HEX = "#0b1f0b"  # darker green
+_DEFAULT_DIFF_DELETION_HEX = "#390e1a"  # wine
+_THEME_PALETTE_CONFIG_KEY = "osc_palette_json"
+
+
+def _blend_hex(background: str, accent: str, accent_weight: float) -> str:
+    """Blend an accent into a background, returning a subtle highlight."""
+    background_rgb = tuple(
+        int(background[index : index + 2], 16) for index in (1, 3, 5)
+    )
+    accent_rgb = tuple(int(accent[index : index + 2], 16) for index in (1, 3, 5))
+    channels = (
+        round(base * (1 - accent_weight) + highlight * accent_weight)
+        for base, highlight in zip(background_rgb, accent_rgb)
+    )
+    return "#" + "".join(f"{channel:02x}" for channel in channels)
+
+
+def _theme_diff_defaults() -> tuple[str, str]:
+    """Derive quiet add/remove backgrounds from the active terminal theme.
+
+    ANSI slots 2 and 1 are the theme's semantic green and red. Blending them
+    into the terminal background keeps highlights legible on both dark and
+    light themes instead of dropping a dark green rectangle onto everything.
+    """
+    raw_palette = get_value(_THEME_PALETTE_CONFIG_KEY)
+    if not raw_palette:
+        return _DEFAULT_DIFF_ADDITION_HEX, _DEFAULT_DIFF_DELETION_HEX
+
+    try:
+        palette = json.loads(raw_palette)
+        background = _coerce_to_hex(palette.get("bg"), "")
+        if not background:
+            raise ValueError("theme has no valid background")
+        ansi = palette.get("ansi") or []
+        addition = _coerce_to_hex(ansi[2] if len(ansi) > 2 else "#2ea043", "#2ea043")
+        deletion = _coerce_to_hex(ansi[1] if len(ansi) > 1 else "#cf222e", "#cf222e")
+        red, green, blue = (
+            int(background[index : index + 2], 16) for index in (1, 3, 5)
+        )
+        luminance = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255
+        accent_weight = 0.14 if luminance > 0.5 else 0.20
+        return (
+            _blend_hex(background, addition, accent_weight),
+            _blend_hex(background, deletion, accent_weight),
+        )
+    except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+        return _DEFAULT_DIFF_ADDITION_HEX, _DEFAULT_DIFF_DELETION_HEX
+
+
+def _coerce_to_hex(value: Optional[str], fallback: str) -> str:
+    """Normalize any color string to '#RRGGBB'.
+
+    Accepts:
+      - '#RRGGBB' hex strings (any case) — returned lowercased.
+      - Rich color names like 'green', 'orange1', 'bright_red'.
+      - 'rgb(r,g,b)' forms that Rich understands.
+
+    Anything Rich can't parse (including None/empty) falls back to ``fallback``.
+    This keeps downstream consumers like ``brighten_hex`` happy — they only
+    ever see a well-formed #RRGGBB string.
+    """
+    if not value:
+        return fallback
+    candidate = value.strip()
+    # Fast-path: already a valid #RRGGBB.
+    if (
+        len(candidate) == 7
+        and candidate.startswith("#")
+        and all(c in "0123456789abcdefABCDEF" for c in candidate[1:])
+    ):
+        return candidate.lower()
+    # Otherwise try Rich's parser (handles named colors, rgb(), etc.).
+    try:
+        from rich.color import Color  # local import keeps module import cheap
+
+        triplet = Color.parse(candidate).get_truecolor()
+        return f"#{triplet.red:02x}{triplet.green:02x}{triplet.blue:02x}"
+    except Exception:
+        return fallback
+
+
 def get_diff_addition_color() -> str:
+    """Get the base color for diff additions, always as a valid '#RRGGBB' hex.
+
+    An explicit ``/diff`` choice wins. When unset, the color is derived from
+    the active theme's background and semantic green.
     """
-    Get the base color for diff additions.
-    Default: darker green
-    """
-    val = get_value("highlight_addition_color")
-    if val:
-        return val
-    return "#0b1f0b"  # Default to darker green
+    configured = get_value("highlight_addition_color")
+    theme_default, _ = _theme_diff_defaults()
+    return _coerce_to_hex(configured, theme_default)
 
 
 def set_diff_addition_color(color: str):
     """Set the color for diff additions.
 
-    Args:
-        color: Rich color markup (e.g., 'green', 'on_green', 'bright_green')
+    Accepts '#RRGGBB' hex, Rich color names ('green', 'bright_green', ...), or
+    'rgb(r,g,b)'. The value is normalized to '#RRGGBB' before being written so
+    downstream renderers never see a raw name.
     """
-    set_config_value("highlight_addition_color", color)
+    set_config_value(
+        "highlight_addition_color",
+        _coerce_to_hex(color, _DEFAULT_DIFF_ADDITION_HEX),
+    )
 
 
 def get_diff_deletion_color() -> str:
+    """Get the base color for diff deletions, always as a valid '#RRGGBB' hex.
+
+    An explicit ``/diff`` choice wins. When unset, the color is derived from
+    the active theme's background and semantic red.
     """
-    Get the base color for diff deletions.
-    Default: wine
-    """
-    val = get_value("highlight_deletion_color")
-    if val:
-        return val
-    return "#390e1a"  # Default to wine
+    configured = get_value("highlight_deletion_color")
+    _, theme_default = _theme_diff_defaults()
+    return _coerce_to_hex(configured, theme_default)
 
 
 def set_diff_deletion_color(color: str):
     """Set the color for diff deletions.
 
-    Args:
-        color: Rich color markup (e.g., 'orange1', 'on_bright_yellow', 'red')
+    Accepts '#RRGGBB' hex, Rich color names ('red', 'orange1', ...), or
+    'rgb(r,g,b)'. The value is normalized to '#RRGGBB' before being written so
+    downstream renderers never see a raw name.
     """
-    set_config_value("highlight_deletion_color", color)
+    set_config_value(
+        "highlight_deletion_color",
+        _coerce_to_hex(color, _DEFAULT_DIFF_DELETION_HEX),
+    )
 
 
 # =============================================================================
@@ -1471,6 +1893,8 @@ DEFAULT_BANNER_COLORS = {
     "mcp_tool_call": "dark_cyan",  # Teal - external MCP tool calls
     # User-initiated shell pass-through (! prefix) - distinct from agent's shell_command
     "shell_passthrough": "medium_sea_green",  # Green - user's own shell commands
+    # LLM Judge - goal-mode verdict (distinct from agent reasoning)
+    "llm_judge": "gold3",  # Gold - judicial authority / gavel
 }
 
 
@@ -1526,40 +1950,166 @@ def reset_all_banner_colors():
         set_banner_color(name, color)
 
 
-def get_current_autosave_id() -> str:
-    """Get or create the current autosave session ID for this process."""
+def get_current_session_name() -> str:
+    """Return the full filename of the session this process is writing to.
+
+    On first call, lazily mints a fresh auto-flavored name
+    (``auto_session_<YYYYMMDD>_<HHMMSS>``). Subsequent calls return the
+    same string until ``rotate_session_name`` or ``pin_current_session_name``
+    is called.
+
+    The ``auto_session_`` prefix is RESERVED for system-generated names;
+    user-input names cannot start with it (enforced by
+    ``session_lifecycle.is_valid_session_name``).
+
+    This replaces the pre-unification dance of ``get_current_autosave_id`` +
+    runtime ``f"auto_session_{id}"`` construction, which silently broke
+    named-session save-back the moment a user-named string was pinned.
+    """
     global _CURRENT_AUTOSAVE_ID
     if not _CURRENT_AUTOSAVE_ID:
-        # Use a full timestamp so tests and UX can predict the name if needed
-        _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        _CURRENT_AUTOSAVE_ID = (
+            f"auto_session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
     return _CURRENT_AUTOSAVE_ID
+
+
+def rotate_session_name() -> str:
+    """Reset the singleton; next read mints a fresh auto-flavored name.
+
+    Used by ``/clear`` and ``/switch-agent`` to start a new session
+    regardless of whether the previous one was auto- or user-named.
+    """
+    global _CURRENT_AUTOSAVE_ID
+    _CURRENT_AUTOSAVE_ID = ""
+    return get_current_session_name()
+
+
+def pin_current_session_name(name: str) -> str:
+    """Pin the session to a specific filename. NO transformation.
+
+    Validates defensively against the stored-name rules so a forgetful
+    caller cannot smuggle a path-traversal name into the singleton and have
+    the next autosave write it to ``AUTOSAVE_DIR / "../../etc/passwd"``.
+    Raises ``ValueError`` on invalid input.
+
+    Callers that already validated (resolver, ``/load_context``) treat the
+    raise as a "shouldn't happen" guard.
+    """
+    from code_puppy.session_lifecycle import is_valid_session_name
+
+    if not is_valid_session_name(name, allow_reserved_prefix=True):
+        raise ValueError(f"invalid session name: {name!r}")
+    global _CURRENT_AUTOSAVE_ID
+    _CURRENT_AUTOSAVE_ID = name
+    return _CURRENT_AUTOSAVE_ID
+
+
+# ----- Deprecated aliases (the unified-autosave migration) ---------------------------------
+#
+# The pre-unification API stored a bare ID in the singleton and synthesized
+# ``auto_session_<id>`` on every read. That scheme broke the moment a
+# user-named string (e.g. ``"mywork"``) was pinned: the next read produced
+# ``"auto_session_mywork"`` and named-session save-back wrote the wrong file.
+#
+# These aliases preserve external plugin compatibility for ONE release. Every
+# internal caller in this PR has been migrated to the new API; the aliases
+# never fire from in-repo code (otherwise ``-W error`` test runs would fail
+# and every startup would spam ``DeprecationWarning`` in user terminals).
+
+
+def get_current_autosave_id() -> str:
+    """DEPRECATED: use ``get_current_session_name()``.
+
+    Returns the current session name with any ``auto_session_`` prefix
+    stripped (matches the pre-unification return shape). For user-named
+    sessions, returns the name verbatim.
+
+    .. note::
+       External callers that wrote
+       ``f"auto_session_{get_current_autosave_id()}"`` to reconstruct a
+       filename USED to be correct (the singleton always held a bare ID);
+       after the unified-autosave migration the singleton can hold a user-named string like
+       ``"mywork"``, in which case the reconstruction produces
+       ``"auto_session_mywork"`` -- a WRONG filename. Switch to
+       ``get_current_session_name()``.
+    """
+    import warnings
+
+    warnings.warn(
+        "get_current_autosave_id is deprecated; use get_current_session_name",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    name = get_current_session_name()
+    prefix = "auto_session_"
+    if name.startswith(prefix):
+        return name[len(prefix) :]
+    return name
 
 
 def rotate_autosave_id() -> str:
-    """Force a new autosave session ID and return it."""
-    global _CURRENT_AUTOSAVE_ID
-    _CURRENT_AUTOSAVE_ID = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    return _CURRENT_AUTOSAVE_ID
+    """DEPRECATED: use ``rotate_session_name()``.
+
+    Returns the rotated name with any ``auto_session_`` prefix stripped,
+    matching the pre-unification return shape. Internally always returns
+    an auto-flavored name (rotate ALWAYS mints fresh), so the strip is a
+    pure shape-preservation transformation.
+    """
+    import warnings
+
+    warnings.warn(
+        "rotate_autosave_id is deprecated; use rotate_session_name",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    name = rotate_session_name()
+    prefix = "auto_session_"
+    if name.startswith(prefix):
+        return name[len(prefix) :]
+    return name
 
 
 def get_current_autosave_session_name() -> str:
-    """Return the full session name used for autosaves (no file extension)."""
-    return f"auto_session_{get_current_autosave_id()}"
+    """DEPRECATED: use ``get_current_session_name()``.
+
+    Returns the full stored name VERBATIM. NOT re-synthesized from a stripped
+    ID -- doing so would produce ``"auto_session_mywork"`` for a user-named
+    session and break TTY-keyed cross-restart resume.
+    """
+    import warnings
+
+    warnings.warn(
+        "get_current_autosave_session_name is deprecated; use get_current_session_name",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return get_current_session_name()
 
 
 def set_current_autosave_from_session_name(session_name: str) -> str:
-    """Set the current autosave ID based on a full session name.
+    """DEPRECATED: use ``pin_current_session_name(name)``.
 
-    Accepts names like 'auto_session_YYYYMMDD_HHMMSS' and extracts the ID part.
-    Returns the ID that was set.
+    Behavior change vs. pre-unification: the old function stripped an
+    ``auto_session_`` prefix on input. The new contract does NOT strip --
+    the singleton holds the full filename verbatim. Callers that passed
+    ``"auto_session_xyz"`` expecting the singleton to end up as ``"xyz"``
+    (no in-repo callers do this) would now see ``"auto_session_xyz"`` in
+    the singleton.
+
+    Also: because ``pin_current_session_name`` validates input, this alias
+    now raises ``ValueError`` for names that pre-unification it would have
+    silently accepted (control chars, empty string, path-separator chars).
     """
-    global _CURRENT_AUTOSAVE_ID
-    prefix = "auto_session_"
-    if session_name.startswith(prefix):
-        _CURRENT_AUTOSAVE_ID = session_name[len(prefix) :]
-    else:
-        _CURRENT_AUTOSAVE_ID = session_name
-    return _CURRENT_AUTOSAVE_ID
+    import warnings
+
+    warnings.warn(
+        "set_current_autosave_from_session_name is deprecated; "
+        "use pin_current_session_name",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return pin_current_session_name(session_name)
 
 
 def auto_save_session_if_enabled() -> bool:
@@ -1579,7 +2129,7 @@ def auto_save_session_if_enabled() -> bool:
             return False
 
         now = datetime.datetime.now()
-        session_name = get_current_autosave_session_name()
+        session_name = get_current_session_name()
         autosave_dir = pathlib.Path(AUTOSAVE_DIR)
 
         metadata = save_session(
@@ -1591,9 +2141,38 @@ def auto_save_session_if_enabled() -> bool:
             auto_saved=True,
         )
 
+        # Point quick-resume at this just-saved session. Every turn, exit, and
+        # finalize routes through this single autosave chokepoint, so cwd and
+        # any tool-observed child workspaces always map to a loadable pickle.
+        # Best-effort: never let pointer bookkeeping block the autosave.
+        record_quick_resume_sessions(session_name)
+
+        # Append conversation-wide TTFT + TG averages if we have any data.
+        stats_suffix = ""
+        try:
+            from code_puppy.agents.run_stats import AgentRunStats
+
+            avg_ttft, avg_gen = AgentRunStats.get_conversation_stats()
+            formatted = AgentRunStats.format_conversation_stats(avg_ttft, avg_gen)
+            if formatted:
+                stats_suffix = f" | {formatted}"
+        except Exception:
+            # Stats are decorative; never block the auto-save line on them.
+            pass
+
         emit_info(
-            f"🐾 Auto-saved session: {metadata.message_count} messages ({metadata.total_tokens} tokens)"
+            f"\U0001f43e Auto-saved session: {metadata.message_count} messages "
+            f"({metadata.total_tokens} tokens){stats_suffix}"
         )
+
+        # Fire post_autosave so plugins can render follow-up lines
+        # (token quota, etc.) without us knowing about them here.
+        # Delegates to the shared lifecycle helper -- see its docstring for
+        # why an executor wrap is needed and where to add disk-level
+        # forensics if we ever want them across all callers.
+        from code_puppy.session_lifecycle import fire_post_autosave_callback
+
+        fire_post_autosave_callback(metadata)
 
         return True
 
@@ -1620,10 +2199,367 @@ def get_diff_context_lines() -> int:
         return 6
 
 
+def get_terminal_tty() -> Optional[str]:
+    """Return the TTY device path for stdin, or None if unavailable.
+
+    This identifies the physical terminal so /switch-agent can resume the
+    last autosave session from the same terminal window across restarts.
+    """
+    try:
+        import sys
+
+        return os.ttyname(sys.stdin.fileno())
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+def _is_valid_autosave_session_name(session_name: str) -> bool:
+    """Return True when a terminal marker names a safe stored session.
+
+    Accepts both auto-flavored entries (``auto_session_<YYYYMMDD>_<HHMMSS>``)
+    AND user-named entries (any slug matching
+    ``session_lifecycle.is_valid_session_name(..., allow_reserved_prefix=True)``).
+    Without this, TTY-keyed cross-restart resume would silently reject every
+    user-named session.
+
+    The name kept the ``_autosave_`` prefix for backward compatibility with
+    external callers; conceptually it's a stored-name validator now.
+    """
+    from code_puppy.session_lifecycle import is_valid_session_name
+
+    return is_valid_session_name(session_name, allow_reserved_prefix=True)
+
+
+def _tty_session_path(tty: str) -> pathlib.Path:
+    """Return the per-TTY autosave session file path."""
+    tty_key = tty.replace("/", "_").lstrip("_")
+    return pathlib.Path(CACHE_DIR) / "tty_sessions" / f"{tty_key}.txt"
+
+
+def record_terminal_session(session_name: str, *, overwrite: bool = True) -> None:
+    """Persist the current autosave session name for this terminal.
+
+    Uses a dedicated file per TTY so concurrent terminals never clobber each
+    other. Terminal emulators usually assign a fresh TTY per window/tab, and TTY
+    reassignment while Code Puppy is running is rare, but possible after a
+    terminal closes and the OS later reuses the device name. This mapping is
+    therefore best-effort and silently no-ops when no TTY is available or when
+    filesystem writes fail. Set ``overwrite=False`` for startup markers so a
+    previous real session survives until a new session is saved.
+    """
+    tty = get_terminal_tty()
+    if not tty:
+        return
+    try:
+        session_file = _tty_session_path(tty)
+        if session_file.exists() and not overwrite:
+            return
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp = session_file.with_suffix(".tmp")
+        tmp.write_text(session_name, encoding="utf-8")
+        tmp.replace(session_file)
+    except Exception:
+        pass
+
+
+def get_last_terminal_session() -> Optional[str]:
+    """Return the last autosave session recorded for this terminal."""
+    tty = get_terminal_tty()
+    if not tty:
+        return None
+    try:
+        session_name = _tty_session_path(tty).read_text(encoding="utf-8").strip()
+        if not session_name or not _is_valid_autosave_session_name(session_name):
+            return None
+        return session_name
+    except Exception:
+        return None
+
+
+# --------------------------------------------------------------------------- #
+# Quick-resume: resume the latest autosave for a directory + git branch.
+#
+# Unlike terminal sessions (keyed by TTY, which is POSIX-only), quick-resume is
+# keyed by canonical workspace + branch, so it works identically on Windows and
+# macOS/Linux. All filesystem access goes through ``os.path``/``pathlib`` and
+# git is probed via subprocess with failures swallowed, so a missing git or a
+# non-repo directory degrades gracefully rather than raising.
+# --------------------------------------------------------------------------- #
+
+# Child workspaces touched by tools this run; flushed to pointers on next save.
+_OBSERVED_QUICK_RESUME_KEYS: set[str] = set()
+
+
+def format_quick_resume_scope(cwd: str, branch: Optional[str]) -> str:
+    """Return a non-sensitive scope label for diagnostics (no raw paths)."""
+    scope_id = hashlib.sha1(
+        f"{cwd}\x00{branch or ''}".encode("utf-8"), usedforsecurity=False
+    ).hexdigest()[:12]
+    branch_label = "detected" if branch else "null"
+    return f"scope: {scope_id} | branch: {branch_label}"
+
+
+def _quick_resume_key(cwd: str, branch: Optional[str]) -> str:
+    """Return the stable pointer key for a workspace + branch (NUL-separated)."""
+    return f"{cwd}\x00{branch or ''}"
+
+
+def _absolute_quick_resume_path(target_path: Optional[str]) -> str:
+    """Normalize a target into an absolute, user-expanded path (cwd if None)."""
+    raw_path = os.getcwd() if target_path is None else str(target_path).strip()
+    if not raw_path:
+        raw_path = os.getcwd()
+    expanded = os.path.expanduser(raw_path)
+    if not os.path.isabs(expanded):
+        expanded = os.path.join(os.getcwd(), expanded)
+    return os.path.abspath(expanded)
+
+
+def _candidate_scope_dir(target_path: Optional[str], path_kind: str) -> str:
+    """Return the directory to probe for scope.
+
+    ``path_kind='file'`` probes the path's parent dir; ``'directory'`` uses it
+    as-is; ``'auto'`` checks the filesystem so ``-qr some_file.py`` still works.
+    """
+    candidate = _absolute_quick_resume_path(target_path)
+    if path_kind == "file":
+        return os.path.dirname(candidate) or candidate
+    if path_kind == "directory":
+        return candidate
+    if os.path.isfile(candidate):
+        return os.path.dirname(candidate) or candidate
+    return candidate
+
+
+def _nearest_existing_directory(path: str) -> Optional[str]:
+    """Walk up from ``path`` to the first directory that exists, or None."""
+    current = pathlib.Path(path)
+    while True:
+        try:
+            if current.is_dir():
+                return str(current)
+        except OSError:
+            return None
+        if current.parent == current:  # reached filesystem root
+            return None
+        current = current.parent
+
+
+def _detect_git_toplevel(path: str) -> Optional[str]:
+    """Return the git worktree root for ``path``, or None outside git.
+
+    Uses ``git rev-parse --show-toplevel`` (handles nested repos, submodules,
+    and worktrees). Cross-platform; returns None if git is missing or fails.
+    """
+    probe_dir = _nearest_existing_directory(path)
+    if not probe_dir:
+        return None
+    try:
+        import subprocess
+
+        out = subprocess.run(
+            ["git", "-C", probe_dir, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+        if out.returncode == 0:
+            root = out.stdout.strip()
+            return os.path.realpath(root) if root else None
+    except Exception:
+        return None
+    return None
+
+
+def _first_child_under_cwd(path: str) -> Optional[str]:
+    """Return the first path component of ``path`` under cwd, else None.
+
+    Lets a no-git ``-qr ./ticket/src/foo`` collapse to the ``ticket`` workspace
+    instead of scattering pointers across deep subdirectories.
+    """
+    base = os.path.realpath(os.getcwd())
+    target = os.path.realpath(path)
+    if target == base:
+        return None
+    try:
+        rel = os.path.relpath(target, base)
+    except ValueError:  # different drive on Windows -> not under cwd
+        return None
+    parts = pathlib.Path(rel).parts
+    if not parts or parts[0] in (".", ".."):
+        return None
+    return os.path.realpath(os.path.join(base, parts[0]))
+
+
+def _fallback_scope_dir(candidate_dir: str, target_path: Optional[str]) -> str:
+    """Return the non-git scope: cwd itself, or the first child for explicit paths."""
+    if target_path is None:
+        return os.path.realpath(candidate_dir)
+    return _first_child_under_cwd(candidate_dir) or os.path.realpath(candidate_dir)
+
+
+def get_quick_resume_location(
+    target_path: Optional[str] = None, *, path_kind: str = "auto"
+) -> tuple[str, Optional[str]]:
+    """Return ``(canonical_workspace, branch_or_None)`` for a quick-resume scope.
+
+    The canonical workspace is the nearest git worktree root when available,
+    else a directory-only fallback. This is the single source of truth shared by
+    the pointer key and the diagnostic label, so they can never drift.
+    """
+    candidate_dir = _candidate_scope_dir(target_path, path_kind)
+    git_root = _detect_git_toplevel(candidate_dir)
+    cwd = git_root or _fallback_scope_dir(candidate_dir, target_path)
+    branch: Optional[str] = None
+    if git_root:
+        try:
+            from code_puppy.plugins.statusline.payload import detect_git_branch
+
+            branch = detect_git_branch(cwd)
+        except Exception:
+            branch = None
+    return os.path.realpath(cwd), branch
+
+
+def _dir_branch_key_for_path(
+    target_path: Optional[str] = None, *, path_kind: str = "auto"
+) -> str:
+    """Return the pointer key for a target's canonical workspace + branch."""
+    cwd, branch = get_quick_resume_location(target_path, path_kind=path_kind)
+    return _quick_resume_key(cwd, branch)
+
+
+def _dir_session_path(key: str) -> pathlib.Path:
+    """Return the pointer file path for a workspace+branch key.
+
+    The key is hashed so the filename is a short, filesystem-safe hex string on
+    every OS (sidesteps Windows path-length/charset rules regardless of how long
+    or exotic the directory or branch name is). SHA-1 truncated to 16 hex chars
+    is a cache-pointer key, never a security signature -- ``usedforsecurity``
+    flags that intent for scanners.
+    """
+    digest = hashlib.sha1(key.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
+    return pathlib.Path(CACHE_DIR) / "dir_sessions" / f"{digest}.txt"
+
+
+def _record_directory_session_key(session_name: str, key: str) -> None:
+    """Atomically write ``session_name`` into the pointer file for ``key``."""
+    session_file = _dir_session_path(key)
+    session_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp = session_file.with_suffix(".tmp")
+    tmp.write_text(session_name, encoding="utf-8")
+    tmp.replace(session_file)  # atomic + overwrites on Windows (unlike os.rename)
+
+
+def record_directory_session(
+    session_name: str, target_path: Optional[str] = None, *, path_kind: str = "auto"
+) -> None:
+    """Persist ``session_name`` as the latest autosave for a quick-resume scope.
+
+    Best-effort, mirroring ``record_terminal_session``. ``target_path`` lets
+    ``-qr ./child`` and observed workspaces reuse the same pointer machinery.
+    """
+    if not _is_valid_autosave_session_name(session_name):
+        logger.debug("Ignoring invalid quick-resume autosave pointer name")
+        return
+    try:
+        _record_directory_session_key(
+            session_name, _dir_branch_key_for_path(target_path, path_kind=path_kind)
+        )
+    except Exception:
+        logger.debug("Unable to record quick-resume autosave pointer", exc_info=True)
+
+
+def observe_quick_resume_path(target_path: str, *, path_kind: str = "auto") -> bool:
+    """Remember a child workspace touched by a tool for the next autosave.
+
+    Only a hashed pointer key is stored (never the raw path). The next autosave
+    writes its session name to every observed key so ``-qr ./child`` resolves
+    even when Code Puppy was launched from the parent directory.
+    """
+    if not target_path or not str(target_path).strip():
+        return False
+    try:
+        _OBSERVED_QUICK_RESUME_KEYS.add(
+            _dir_branch_key_for_path(str(target_path), path_kind=path_kind)
+        )
+        return True
+    except Exception:
+        logger.debug("Unable to observe quick-resume path", exc_info=True)
+        return False
+
+
+def clear_observed_quick_resume_paths() -> None:
+    """Clear the observed-workspace set (used by tests)."""
+    _OBSERVED_QUICK_RESUME_KEYS.clear()
+
+
+def record_quick_resume_sessions(session_name: str) -> None:
+    """Record cwd plus every observed child workspace for ``session_name``."""
+    record_directory_session(session_name)
+    if not _is_valid_autosave_session_name(session_name):
+        return
+    for key in tuple(_OBSERVED_QUICK_RESUME_KEYS):
+        try:
+            _record_directory_session_key(session_name, key)
+        except Exception:
+            logger.debug(
+                "Unable to record observed quick-resume pointer", exc_info=True
+            )
+
+
+def get_last_directory_session(
+    target_path: Optional[str] = None, *, path_kind: str = "auto"
+) -> Optional[str]:
+    """Return the last autosave session name for a scope, or None.
+
+    None when there is no pointer, it is empty, or the recorded name fails
+    autosave-name validation. Never raises.
+    """
+    try:
+        session_name = (
+            _dir_session_path(
+                _dir_branch_key_for_path(target_path, path_kind=path_kind)
+            )
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        if not session_name or not _is_valid_autosave_session_name(session_name):
+            return None
+        return session_name
+    except Exception:
+        logger.debug("Unable to read quick-resume autosave pointer", exc_info=True)
+        return None
+
+
+def resolve_quick_resume_pickle(
+    target_path: Optional[str] = None, *, path_kind: str = "auto"
+) -> Optional[str]:
+    """Return the absolute ``.pkl`` path for a scope's latest session, or None.
+
+    The single source of truth the CLI ``--quick-resume`` flag consults. Resolves
+    strictly inside ``AUTOSAVE_DIR`` (rejecting any path-traversal) and only
+    returns a path that is an existing file.
+    """
+    session_name = get_last_directory_session(target_path, path_kind=path_kind)
+    if not session_name:
+        return None
+    try:
+        autosave_dir = pathlib.Path(AUTOSAVE_DIR).resolve()
+        candidate = (autosave_dir / f"{session_name}.pkl").resolve(strict=False)
+        if candidate.parent != autosave_dir or not candidate.is_file():
+            return None
+        return str(candidate)
+    except OSError:
+        logger.debug("Unable to resolve quick-resume autosave path", exc_info=True)
+        return None
+
+
 def finalize_autosave_session() -> str:
     """Persist the current autosave snapshot and rotate to a fresh session."""
+    record_terminal_session(get_current_session_name())
     auto_save_session_if_enabled()
-    return rotate_autosave_id()
+    return rotate_session_name()
 
 
 def get_suppress_thinking_messages() -> bool:
@@ -1651,6 +2587,56 @@ def set_suppress_thinking_messages(enabled: bool):
     set_config_value("suppress_thinking_messages", "true" if enabled else "false")
 
 
+def get_smooth_thinking_stream() -> bool:
+    """
+    Checks puppy.cfg for 'smooth_thinking_stream' (case-insensitive in value only).
+    Defaults to True if not set.
+    Allowed values for OFF: 0, '0', 'false', 'no', 'off' (all case-insensitive).
+    When enabled, THINKING block deltas are buffered and drained to the
+    console at a steady, consistent rate instead of being printed in bursts.
+    """
+    false_vals = {"0", "false", "no", "off"}
+    cfg_val = get_value("smooth_thinking_stream")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in false_vals:
+            return False
+    return True
+
+
+def set_smooth_thinking_stream(enabled: bool):
+    """Sets the smooth_thinking_stream configuration value.
+
+    Args:
+        enabled: Whether to smooth the THINKING stream output
+    """
+    set_config_value("smooth_thinking_stream", "true" if enabled else "false")
+
+
+def get_smooth_response_stream() -> bool:
+    """
+    Checks puppy.cfg for 'smooth_response_stream' (case-insensitive in value only).
+    Defaults to True if not set.
+    Allowed values for OFF: 0, '0', 'false', 'no', 'off' (all case-insensitive).
+    When enabled, the AGENT RESPONSE markdown is typed out one character at a
+    time at a steady rate instead of appearing line-by-line in bursts.
+    """
+    false_vals = {"0", "false", "no", "off"}
+    cfg_val = get_value("smooth_response_stream")
+    if cfg_val is not None:
+        if str(cfg_val).strip().lower() in false_vals:
+            return False
+    return True
+
+
+def set_smooth_response_stream(enabled: bool):
+    """Sets the smooth_response_stream configuration value.
+
+    Args:
+        enabled: Whether to type the AGENT RESPONSE stream out smoothly
+    """
+    set_config_value("smooth_response_stream", "true" if enabled else "false")
+
+
 def get_suppress_informational_messages() -> bool:
     """
     Checks puppy.cfg for 'suppress_informational_messages' (case-insensitive in value only).
@@ -1674,6 +2660,51 @@ def set_suppress_informational_messages(enabled: bool):
         enabled: Whether to suppress informational messages
     """
     set_config_value("suppress_informational_messages", "true" if enabled else "false")
+
+
+# ---------------------------------------------------------------------------
+# Output level (unified density control)
+# ---------------------------------------------------------------------------
+
+_VALID_OUTPUT_LEVELS = frozenset({"low", "medium", "high"})
+
+
+def get_output_level() -> str:
+    """Return the current output density level.
+
+    Valid values: ``low``, ``medium``, ``high``.  Default is ``medium``
+    (current behaviour).  The value is read from ``puppy.cfg`` with the
+    key ``output_level``.
+
+    * **low** — collapse tool calls, thinking blocks, and info messages
+      to one-line peeks.  Great for focused work.
+    * **medium** — current default behaviour.
+    * **high** — full metadata: timing, tokens, verbose grep, all
+      sub-agent output.
+    """
+    cfg_val = get_value("output_level")
+    if cfg_val is not None:
+        normalised = str(cfg_val).strip().lower()
+        if normalised in _VALID_OUTPUT_LEVELS:
+            return normalised
+    return "medium"
+
+
+def set_output_level(level: str) -> None:
+    """Set the output density level.
+
+    Args:
+        level: One of ``low``, ``medium``, or ``high``.
+
+    Raises:
+        ValueError: If *level* is not a valid choice.
+    """
+    normalised = level.strip().lower()
+    if normalised not in _VALID_OUTPUT_LEVELS:
+        raise ValueError(
+            f"Invalid output_level {level!r}; choose from low, medium, high"
+        )
+    set_config_value("output_level", normalised)
 
 
 # API Key management functions
@@ -1711,6 +2742,8 @@ def load_api_keys_to_environment():
     """
     from pathlib import Path
 
+    # Static base list of well-known keys (always considered, even if no
+    # model currently references them).
     api_key_names = [
         "OPENAI_API_KEY",
         "GEMINI_API_KEY",
@@ -1722,6 +2755,19 @@ def load_api_keys_to_environment():
         "OPENROUTER_API_KEY",
         "ZAI_API_KEY",
     ]
+
+    # Dynamically include every env var referenced by a configured model
+    # (e.g. FIREWORKS_API_KEY / WAFER_API_KEY / CROF_API_KEY for local custom
+    # providers). Without this, such keys saved in puppy.cfg never hydrate into
+    # os.environ at startup. Best-effort: never let discovery break startup.
+    try:
+        from code_puppy.provider_credentials import all_required_env_vars
+
+        for env_var in all_required_env_vars():
+            if env_var not in api_key_names:
+                api_key_names.append(env_var)
+    except Exception:
+        pass
 
     # Step 1: Load from .env file if it exists (highest priority)
     # Look for .env in current working directory

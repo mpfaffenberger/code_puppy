@@ -2,7 +2,6 @@
 
 This module provides comprehensive coverage for configuration commands including:
 - Pin/unpin model commands for both JSON and built-in agents
-- Reasoning effort configuration commands
 - Diff configuration commands and color settings
 - Set configuration commands with validation
 - Show color options utility
@@ -23,7 +22,6 @@ import pytest
 from code_puppy.command_line.config_commands import (
     handle_diff_command,
     handle_pin_model_command,
-    handle_reasoning_command,
     handle_set_command,
     handle_unpin_command,
 )
@@ -61,108 +59,6 @@ def _show_color_options(diff_type):
         emit_info("Usage: /diff deletions <color_name>")
     else:
         emit_info("Available diff types: additions, deletions")
-
-
-class TestReasoningCommand:
-    """Extended tests for reasoning command functionality."""
-
-    def test_reasoning_command_valid_efforts(self):
-        """Test reasoning command with valid effort levels."""
-        valid_efforts = ["low", "medium", "high"]
-
-        for effort in valid_efforts:
-            with patch("code_puppy.config.set_openai_reasoning_effort") as mock_set:
-                with patch(
-                    "code_puppy.config.get_openai_reasoning_effort",
-                    return_value="medium",
-                ):
-                    with patch(
-                        "code_puppy.agents.agent_manager.get_current_agent"
-                    ) as mock_get_agent:
-                        mock_agent = MagicMock()
-                        mock_agent.reload_code_generation_agent.return_value = None
-                        mock_get_agent.return_value = mock_agent
-
-                        result = handle_reasoning_command(f"/reasoning {effort}")
-                        assert result is True
-
-                        mock_set.assert_called_once_with(effort)
-                        mock_agent.reload_code_generation_agent.assert_called_once()
-
-    def test_reasoning_command_invalid_effort(self):
-        """Test reasoning command with invalid effort levels."""
-        invalid_efforts = ["invalid", "extra", "none"]
-
-        for effort in invalid_efforts:
-            expected_error = (
-                f"Invalid reasoning effort '{effort}'. Allowed: high, low, medium"
-            )
-            with patch(
-                "code_puppy.config.set_openai_reasoning_effort",
-                side_effect=ValueError(expected_error),
-            ):
-                with patch("code_puppy.messaging.emit_error") as mock_error:
-                    result = handle_reasoning_command(f"/reasoning {effort}")
-                    assert result is True
-
-                    mock_error.assert_called_once_with(expected_error)
-
-    def test_reasoning_command_no_arguments(self):
-        """Test reasoning command with no arguments."""
-        with patch("code_puppy.messaging.emit_warning") as mock_warning:
-            result = handle_reasoning_command("/reasoning")
-            assert result is True
-
-            mock_warning.assert_called_once_with(
-                "Usage: /reasoning <minimal|low|medium|high|xhigh>"
-            )
-
-    def test_reasoning_command_current_none(self):
-        """Test reasoning command when current effort is None."""
-        with patch("code_puppy.messaging.emit_warning") as mock_warning:
-            result = handle_reasoning_command("/reasoning")
-            assert result is True
-
-            mock_warning.assert_called_once_with(
-                "Usage: /reasoning <minimal|low|medium|high|xhigh>"
-            )
-
-    def test_reasoning_command_wrong_argument_count(self):
-        """Test reasoning command with incorrect number of arguments."""
-        with patch("code_puppy.messaging.emit_warning") as mock_warning:
-            # Test with no arguments
-            result = handle_reasoning_command("/reasoning")
-            assert result is True
-
-            # Test with too many arguments
-            result = handle_reasoning_command("/reasoning high medium")
-            assert result is True
-
-            assert mock_warning.call_count == 2
-
-            # Check warning message
-            args, kwargs = mock_warning.call_args_list[0]
-            assert "Usage:" in args[0]
-            assert "<minimal|low|medium|high|xhigh>" in args[0]
-
-    def test_reasoning_command_agent_reload_failure(self):
-        """Test reasoning command handles agent reload failures gracefully."""
-        with patch("code_puppy.config.set_openai_reasoning_effort"):
-            with patch(
-                "code_puppy.config.get_openai_reasoning_effort", return_value="medium"
-            ):
-                with patch(
-                    "code_puppy.agents.agent_manager.get_current_agent"
-                ) as mock_get_agent:
-                    mock_agent = MagicMock()
-                    mock_agent.reload_code_generation_agent.side_effect = Exception(
-                        "Reload failed"
-                    )
-                    mock_get_agent.return_value = mock_agent
-
-                    # Should propagate the exception
-                    with pytest.raises(Exception, match="Reload failed"):
-                        handle_reasoning_command("/reasoning high")
 
 
 class TestSetCommand:
@@ -209,13 +105,13 @@ class TestSetCommand:
                 mock_set.assert_called_once_with("invalid_key", "value")
 
     def test_set_command_no_arguments(self):
-        """Test set command with no arguments."""
-        with patch("code_puppy.config.get_config_keys", return_value=["key"]):
-            with patch("code_puppy.messaging.emit_warning") as mock_warning:
-                result = handle_set_command("/set")
-                assert result is True
-
-                mock_warning.assert_called_once()
+        """Test set command with no arguments launches interactive menu."""
+        with patch(
+            "code_puppy.command_line.set_menu.interactive_set_picker",
+            return_value=None,
+        ):
+            result = handle_set_command("/set")
+            assert result is True
 
     def test_set_command_configuration_failure(self):
         """Test set command when configuration fails to set."""

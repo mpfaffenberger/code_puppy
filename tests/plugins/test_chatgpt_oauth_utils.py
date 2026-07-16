@@ -647,12 +647,12 @@ class TestModelStorage:
         mock_get_path.return_value = temp_models_file
 
         test_models = {
-            "chatgpt-gpt-4": {
+            "codex-gpt-4": {
                 "type": "openai",
                 "name": "gpt-4",
                 "context_length": 8192,
             },
-            "chatgpt-gpt-3.5-turbo": {
+            "codex-gpt-3.5-turbo": {
                 "type": "openai",
                 "name": "gpt-3.5-turbo",
                 "context_length": 4096,
@@ -850,16 +850,13 @@ class TestFetchChatGPTModels:
 
         result = fetch_chatgpt_models("test_access_token", "test_account_id")
 
-        # Required models are prepended, then API models follow
-        assert "gpt-5.4" in result
-        assert "gpt-5.3-instant" in result
-        assert "gpt-4" in result
-        assert "gpt-3.5-turbo" in result
-        assert "gpt-4-32k" in result
-        assert "o1-preview" in result
-        assert "o1-mini" in result
-        # Required models come first
-        assert result.index("gpt-5.4") < result.index("gpt-4")
+        assert result == [
+            "gpt-4",
+            "gpt-3.5-turbo",
+            "gpt-4-32k",
+            "o1-preview",
+            "o1-mini",
+        ]
 
         # Verify request was made correctly
         mock_get.assert_called_once()
@@ -887,11 +884,7 @@ class TestFetchChatGPTModels:
 
         result = fetch_chatgpt_models("test_access_token", "test_account_id")
 
-        # Should preserve order (but implementation may not dedupe)
-        # The actual implementation doesn't dedupe, so we just check it returns models
-        assert "gpt-4" in result
-        assert "gpt-3.5-turbo" in result
-        assert "o1-preview" in result
+        assert result == ["gpt-4", "gpt-3.5-turbo", "o1-preview"]
 
     @patch("requests.get")
     def test_fetch_chatgpt_models_filtering(self, mock_get):
@@ -910,16 +903,7 @@ class TestFetchChatGPTModels:
 
         result = fetch_chatgpt_models("test_access_token", "test_account_id")
 
-        # Required models prepended + API models
-        for m in [
-            "gpt-5.4",
-            "gpt-5.3-instant",
-            "gpt-4",
-            "gpt-3.5-turbo",
-            "o1-preview",
-            "o1-mini",
-        ]:
-            assert m in result
+        assert result == ["gpt-4", "gpt-3.5-turbo", "o1-preview", "o1-mini"]
 
     @patch("requests.get")
     def test_fetch_chatgpt_models_http_error(self, mock_get):
@@ -1050,10 +1034,10 @@ class TestAddModelsToConfig:
         assert "existing-model" in saved_config
 
         # Should contain new models with correct structure
-        assert "chatgpt-gpt-4" in saved_config
-        assert "chatgpt-gpt-3.5-turbo" in saved_config
+        assert "codex-gpt-4" in saved_config
+        assert "codex-gpt-3.5-turbo" in saved_config
 
-        gpt4_config = saved_config["chatgpt-gpt-4"]
+        gpt4_config = saved_config["codex-gpt-4"]
         assert gpt4_config["type"] == "chatgpt_oauth"
         assert gpt4_config["name"] == "gpt-4"
         assert (
@@ -1075,24 +1059,61 @@ class TestAddModelsToConfig:
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.save_chatgpt_models")
     @patch("code_puppy.plugins.chatgpt_oauth.utils.load_chatgpt_models")
-    def test_add_models_to_extra_config_gpt54_supports_xhigh(
+    def test_add_models_removes_stale_plugin_models(self, mock_load, mock_save):
+        mock_load.return_value = {
+            "codex-gpt-5.6": {
+                "oauth_source": "chatgpt-oauth-plugin",
+                "name": "gpt-5.6",
+            },
+            "custom-model": {"type": "openai", "name": "keep-me"},
+        }
+        mock_save.return_value = True
+
+        assert add_models_to_extra_config(["gpt-5.6-luna"]) is True
+
+        saved_config = mock_save.call_args[0][0]
+        assert "codex-gpt-5.6" not in saved_config
+        assert "codex-gpt-5.6-luna" in saved_config
+        assert "custom-model" in saved_config
+
+    @patch("code_puppy.plugins.chatgpt_oauth.utils.save_chatgpt_models")
+    @patch("code_puppy.plugins.chatgpt_oauth.utils.load_chatgpt_models")
+    def test_add_models_to_extra_config_gpt54_and_newer_support_xhigh(
         self, mock_load, mock_save
     ):
-        """Test GPT-5.4 models expose xhigh reasoning in model settings."""
+        """Test GPT-5.4+ models expose xhigh reasoning in model settings."""
         mock_load.return_value = {}
         mock_save.return_value = True
 
-        result = add_models_to_extra_config(["gpt-5.4"])
+        result = add_models_to_extra_config(
+            [
+                "gpt-5.6-sol",
+                "gpt-5.6-terra",
+                "gpt-5.6-luna",
+                "gpt-5.5",
+                "gpt-5.4",
+            ]
+        )
 
         assert result is True
         saved_config = mock_save.call_args[0][0]
-        gpt54_config = saved_config["chatgpt-gpt-5.4"]
-        assert gpt54_config["supported_settings"] == [
-            "reasoning_effort",
-            "summary",
-            "verbosity",
-        ]
-        assert gpt54_config["supports_xhigh_reasoning"] is True
+        for model_name in (
+            "codex-gpt-5.6-sol",
+            "codex-gpt-5.6-terra",
+            "codex-gpt-5.6-luna",
+            "codex-gpt-5.5",
+            "codex-gpt-5.4",
+        ):
+            model_config = saved_config[model_name]
+            assert model_config["supported_settings"] == [
+                "reasoning_effort",
+                "summary",
+                "verbosity",
+            ]
+            assert model_config["supports_xhigh_reasoning"] is True
+            assert model_config["supports_ultra_reasoning"] is model_name.startswith(
+                "codex-gpt-5.6-"
+            )
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.save_chatgpt_models")
     @patch("code_puppy.plugins.chatgpt_oauth.utils.load_chatgpt_models")
@@ -1119,7 +1140,7 @@ class TestAddModelsToConfig:
         # Should still save the new models
         mock_save.assert_called_once()
         saved_config = mock_save.call_args[0][0]
-        assert "chatgpt-gpt-4" in saved_config
+        assert "codex-gpt-4" in saved_config
 
 
 class TestRemoveChatGPTModels:
@@ -1130,11 +1151,11 @@ class TestRemoveChatGPTModels:
     def test_remove_chatgpt_models_success(self, mock_load, mock_save):
         """Test successful removal of ChatGPT models."""
         mock_load.return_value = {
-            "chatgpt-gpt-4": {
+            "codex-gpt-4": {
                 "name": "gpt-4",
                 "oauth_source": "chatgpt-oauth-plugin",
             },
-            "chatgpt-gpt-3.5-turbo": {
+            "codex-gpt-3.5-turbo": {
                 "name": "gpt-3.5-turbo",
                 "oauth_source": "chatgpt-oauth-plugin",
             },
@@ -1154,8 +1175,8 @@ class TestRemoveChatGPTModels:
         saved_config = mock_save.call_args[0][0]
 
         # Should only contain non-OAuth models
-        assert "chatgpt-gpt-4" not in saved_config
-        assert "chatgpt-gpt-3.5-turbo" not in saved_config
+        assert "codex-gpt-4" not in saved_config
+        assert "codex-gpt-3.5-turbo" not in saved_config
         assert "custom-model" in saved_config
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.save_chatgpt_models")
@@ -1188,7 +1209,7 @@ class TestRemoveChatGPTModels:
     def test_remove_chatgpt_models_save_failure(self, mock_load, mock_save):
         """Test model removal fails when save fails."""
         mock_load.return_value = {
-            "chatgpt-gpt-4": {
+            "codex-gpt-4": {
                 "name": "gpt-4",
                 "oauth_source": "chatgpt-oauth-plugin",
             },
@@ -1280,23 +1301,20 @@ class TestErrorHandling:
 
     def test_model_filtering_edge_cases(self):
         """Test model filtering with edge cases."""
-        from code_puppy.plugins.chatgpt_oauth.utils import (
-            DEFAULT_CODEX_MODELS,
-            REQUIRED_CODEX_MODELS,
-        )
+        from code_puppy.plugins.chatgpt_oauth.utils import DEFAULT_CODEX_MODELS
 
         test_cases = [
             # Empty models list - returns default models (no merge needed)
-            ([], DEFAULT_CODEX_MODELS, True),
-            # Models without slug field but with name - uses name + required prepended
-            ([{"name": "test"}], ["test"], False),
+            ([], DEFAULT_CODEX_MODELS),
+            # Models without slug field but with name use the advertised name
+            ([{"name": "test"}], ["test"]),
             # None model entries - skipped, returns default if no valid models
-            ([None], DEFAULT_CODEX_MODELS, True),
-            # Valid slug entries - required models prepended
-            ([{"slug": "gpt-4"}], ["gpt-4"], False),
+            ([None], DEFAULT_CODEX_MODELS),
+            # Valid slug entries are returned unchanged
+            ([{"slug": "gpt-4"}], ["gpt-4"]),
         ]
 
-        for input_models, base_expected, is_fallback in test_cases:
+        for input_models, expected in test_cases:
             with patch("requests.get") as mock_get:
                 mock_response = Mock()
                 mock_response.status_code = 200
@@ -1304,13 +1322,4 @@ class TestErrorHandling:
                 mock_get.return_value = mock_response
 
                 result = fetch_chatgpt_models("test_access_token", "test_account_id")
-                if is_fallback:
-                    assert result == base_expected, f"Failed for input: {input_models}"
-                else:
-                    # Required models are prepended to API results
-                    for m in REQUIRED_CODEX_MODELS:
-                        assert m in result, (
-                            f"Missing required {m} for input: {input_models}"
-                        )
-                    for m in base_expected:
-                        assert m in result, f"Missing {m} for input: {input_models}"
+                assert result == expected, f"Failed for input: {input_models}"

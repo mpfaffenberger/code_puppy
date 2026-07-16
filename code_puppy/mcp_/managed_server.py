@@ -22,8 +22,9 @@ from pydantic_ai.mcp import (
     ToolResult,
 )
 
-from code_puppy.http_utils import create_async_client
+from code_puppy.http_utils import create_async_client, get_cert_bundle_path
 from code_puppy.mcp_.blocking_startup import BlockingMCPServerStdio
+from code_puppy.mcp_.tool_arg_coercion import coerce_tool_args
 
 
 def _expand_env_vars(value: Any) -> Any:
@@ -51,6 +52,52 @@ def _expand_env_vars(value: Any) -> Any:
     return value
 
 
+def _build_tool_prefix(server_name: str, config: Dict[str, Any]) -> str:
+    """Build the pydantic-ai MCP tool prefix for a configured server."""
+    configured_prefix = _expand_env_vars(config.get("tool_prefix"))
+    if configured_prefix:
+        return f"{server_name}_{configured_prefix}"
+    return server_name
+
+
+def _with_inherited_ca_bundle(
+    env: Optional[Dict[str, str]],
+) -> Optional[Dict[str, str]]:
+    """Propagate our CA bundle into a stdio server's child environment.
+
+    A stdio MCP server is a subprocess (often ``uvx``/``npx`` launching a
+    Python or Node program) that makes its own HTTPS calls. pydantic-ai's
+    ``MCPServerStdio`` does NOT pass code_puppy's environment to that child
+    -- it runs with only the ``env`` dict we hand it (plus a minimal set the
+    MCP SDK adds back). So a ``SSL_CERT_FILE`` that lets code_puppy itself
+    reach the internet (see ``get_cert_bundle_path``) never reaches the
+    child, and the child falls back to certifi's bundle.
+
+    Behind a corporate TLS-interception proxy (Zscaler/Netskope/etc.) that
+    certifi bundle is missing the proxy's private root, so the child dies on
+    its first request with::
+
+        ssl.SSLCertVerificationError: [SSL: CERTIFICATE_VERIFY_FAILED]
+        self-signed certificate in certificate chain
+
+    even though code_puppy, curl, and the browser all work. This copies our
+    resolved bundle into the child env as ``SSL_CERT_FILE`` (honored by
+    Python's ``ssl``) and ``REQUESTS_CA_BUNDLE`` (honored by ``requests`` and
+    friends), so the child trusts exactly what the parent trusts.
+
+    It is additive and non-destructive: a value the user already set in the
+    server's ``env`` config always wins, and if no bundle is resolvable we
+    return ``env`` unchanged. We never disable verification.
+    """
+    bundle = get_cert_bundle_path()
+    if not bundle:
+        return env
+    out: Dict[str, str] = dict(env or {})
+    out.setdefault("SSL_CERT_FILE", bundle)
+    out.setdefault("REQUESTS_CA_BUNDLE", bundle)
+    return out
+
+
 class ServerState(Enum):
     """Enumeration of possible server states."""
 
@@ -73,13 +120,45 @@ class ServerConfig:
     config: Dict = field(default_factory=dict)  # Raw config from JSON
 
 
+async def _input_schema_for_tool(
+    call_tool: CallToolFunc, name: str
+) -> Optional[Dict[str, Any]]:
+    """Best-effort lookup of an MCP tool's JSON inputSchema.
+
+    ``call_tool`` is pydantic-ai's bound ``direct_call_tool`` method, so its
+    ``__self__`` is the underlying MCP server, which exposes a (cached)
+    ``list_tools()``. The ``name`` here is already prefix-stripped, matching the
+    raw tool names returned by ``list_tools()``.
+
+    Returns ``None`` if the schema cannot be resolved for any reason -- callers
+    must treat that as "don't coerce".
+    """
+    server = getattr(call_tool, "__self__", None)
+    list_tools = getattr(server, "list_tools", None)
+    if list_tools is None:
+        return None
+    try:
+        tools = await list_tools()
+    except Exception:
+        return None
+    for tool in tools:
+        if getattr(tool, "name", None) == name:
+            return getattr(tool, "inputSchema", None)
+    return None
+
+
 async def process_tool_call(
     ctx: RunContext[Any],
     call_tool: CallToolFunc,
     name: str,
     tool_args: dict[str, Any],
 ) -> ToolResult:
-    """A tool call processor that passes along the deps."""
+    """A tool call processor that coerces args and passes along the deps.
+
+    pydantic-ai forwards MCP tool args without coercing them against each tool's
+    real JSON Schema, so models that emit stringified arrays/bools/numbers cause
+    downstream validation failures. We coerce here before forwarding.
+    """
     from rich.console import Console
 
     from code_puppy.config import get_banner_color
@@ -88,6 +167,10 @@ async def process_tool_call(
     color = get_banner_color("mcp_tool_call")
     banner = f"[bold white on {color}] MCP TOOL CALL [/bold white on {color}]"
     console.print(f"\n{banner} 🔧 [bold cyan]{name}[/bold cyan]")
+
+    input_schema = await _input_schema_for_tool(call_tool, name)
+    tool_args = coerce_tool_args(tool_args, input_schema)
+
     return await call_tool(name, tool_args, {"deps": ctx.deps})
 
 
@@ -122,8 +205,7 @@ class ManagedMCPServer:
             Union[MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP]
         ] = None
         self._state = ServerState.STOPPED
-        # Always start disabled - servers must be explicitly started with /mcp start
-        self._enabled = False
+        self._enabled = server_config.enabled
         self._quarantine_until: Optional[datetime] = None
         self._start_time: Optional[datetime] = None
         self._stop_time: Optional[datetime] = None
@@ -171,6 +253,7 @@ class ManagedMCPServer:
         """
         server_type = self.config.type.lower()
         config = self.config.config
+        tool_prefix = _build_tool_prefix(self.config.name, config)
 
         try:
             if server_type == "sse":
@@ -180,6 +263,7 @@ class ManagedMCPServer:
                 # Prepare arguments for MCPServerSSE (expand env vars in URL)
                 sse_kwargs = {
                     "url": _expand_env_vars(config["url"]),
+                    "tool_prefix": tool_prefix,
                 }
 
                 # Add optional parameters if provided
@@ -216,6 +300,9 @@ class ManagedMCPServer:
                 # Add optional parameters if provided (expand env vars in env and cwd)
                 if "env" in config:
                     stdio_kwargs["env"] = _expand_env_vars(config["env"])
+                # Always run (even with no configured env) so the child trusts
+                # our CA bundle; see _with_inherited_ca_bundle for why.
+                stdio_kwargs["env"] = _with_inherited_ca_bundle(stdio_kwargs.get("env"))
                 if "cwd" in config:
                     stdio_kwargs["cwd"] = _expand_env_vars(config["cwd"])
                 # Default timeout of 60s for stdio servers - some servers like Serena take a while to start
@@ -230,7 +317,7 @@ class ManagedMCPServer:
                 self._pydantic_server = BlockingMCPServerStdio(
                     **stdio_kwargs,
                     process_tool_call=process_tool_call,
-                    tool_prefix=self.config.name,
+                    tool_prefix=tool_prefix,
                     emit_stderr=False,  # Logs go to file, not console (use /mcp logs to view)
                     message_group=message_group,
                 )
@@ -242,6 +329,7 @@ class ManagedMCPServer:
                 # Prepare arguments for MCPServerStreamableHTTP (expand env vars in URL)
                 http_kwargs = {
                     "url": _expand_env_vars(config["url"]),
+                    "tool_prefix": tool_prefix,
                 }
 
                 # Add optional parameters if provided

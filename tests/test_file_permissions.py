@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -199,3 +201,179 @@ class TestFilePermissions(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.fixture(autouse=True)
+def _clear_file_permission_callbacks():
+    from code_puppy.callbacks import clear_callbacks
+
+    clear_callbacks("file_permission")
+    yield
+    clear_callbacks("file_permission")
+
+
+@pytest.mark.asyncio
+async def test_write_to_file_async_with_async_permission_granted(tmp_path):
+    from code_puppy.callbacks import register_callback
+    from code_puppy.tools.file_modifications import write_to_file_async
+
+    target = tmp_path / "allowed.txt"
+
+    async def approve(
+        context,
+        file_path,
+        operation,
+        preview=None,
+        message_group=None,
+        operation_data=None,
+    ):
+        return True
+
+    register_callback("file_permission", approve)
+
+    result = await write_to_file_async(MagicMock(), str(target), "allowed", False)
+
+    assert result["success"] is True
+    assert result["changed"] is True
+    assert target.read_text() == "allowed"
+
+
+@pytest.mark.asyncio
+async def test_write_to_file_async_with_async_permission_denied(tmp_path):
+    from code_puppy.callbacks import register_callback
+    from code_puppy.tools.file_modifications import write_to_file_async
+
+    target = tmp_path / "denied.txt"
+    target.write_text("original")
+
+    async def deny(
+        context,
+        file_path,
+        operation,
+        preview=None,
+        message_group=None,
+        operation_data=None,
+    ):
+        return False
+
+    register_callback("file_permission", deny)
+
+    result = await write_to_file_async(MagicMock(), str(target), "changed", True)
+
+    assert result["success"] is False
+    assert result["user_rejection"] is True
+    assert target.read_text() == "original"
+
+
+@pytest.mark.asyncio
+async def test_write_to_file_async_false_denies_even_with_true_and_none(tmp_path):
+    from code_puppy.callbacks import register_callback
+    from code_puppy.tools.file_modifications import write_to_file_async
+
+    target = tmp_path / "mixed.txt"
+    target.write_text("original")
+
+    def no_op(
+        context,
+        file_path,
+        operation,
+        preview=None,
+        message_group=None,
+        operation_data=None,
+    ):
+        return None
+
+    async def approve(
+        context,
+        file_path,
+        operation,
+        preview=None,
+        message_group=None,
+        operation_data=None,
+    ):
+        return True
+
+    async def deny(
+        context,
+        file_path,
+        operation,
+        preview=None,
+        message_group=None,
+        operation_data=None,
+    ):
+        return False
+
+    register_callback("file_permission", no_op)
+    register_callback("file_permission", approve)
+    register_callback("file_permission", deny)
+
+    result = await write_to_file_async(MagicMock(), str(target), "changed", True)
+
+    assert result["success"] is False
+    assert target.read_text() == "original"
+
+
+@pytest.mark.asyncio
+async def test_write_to_file_async_none_only_does_not_deny(tmp_path):
+    from code_puppy.callbacks import register_callback
+    from code_puppy.tools.file_modifications import write_to_file_async
+
+    target = tmp_path / "none.txt"
+
+    async def no_op(
+        context,
+        file_path,
+        operation,
+        preview=None,
+        message_group=None,
+        operation_data=None,
+    ):
+        return None
+
+    register_callback("file_permission", no_op)
+
+    result = await write_to_file_async(MagicMock(), str(target), "created", False)
+
+    assert result["success"] is True
+    assert target.read_text() == "created"
+
+
+@pytest.mark.asyncio
+async def test_replace_and_delete_async_permission_paths(tmp_path):
+    from code_puppy.callbacks import register_callback
+    from code_puppy.tools.file_modifications import (
+        _delete_file_async,
+        delete_snippet_from_file_async,
+        replace_in_file_async,
+    )
+
+    target = tmp_path / "ops.txt"
+    target.write_text("hello world\nremove me\n")
+
+    async def approve(
+        context,
+        file_path,
+        operation,
+        preview=None,
+        message_group=None,
+        operation_data=None,
+    ):
+        return True
+
+    register_callback("file_permission", approve)
+
+    replace_result = await replace_in_file_async(
+        MagicMock(), str(target), [{"old_str": "world", "new_str": "there"}]
+    )
+    assert replace_result["success"] is True
+    assert "hello there" in target.read_text()
+
+    delete_snippet_result = await delete_snippet_from_file_async(
+        MagicMock(), str(target), "remove me\n"
+    )
+    assert delete_snippet_result["success"] is True
+    assert "remove me" not in target.read_text()
+
+    delete_file_result = await _delete_file_async(MagicMock(), str(target))
+    assert delete_file_result["success"] is True
+    assert not target.exists()

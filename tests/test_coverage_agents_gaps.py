@@ -16,23 +16,13 @@ import pytest
 
 
 _REVIEWER_AGENTS = [
-    ("code_puppy.agents.agent_c_reviewer", "CReviewerAgent"),
-    ("code_puppy.agents.agent_code_reviewer", "CodeQualityReviewerAgent"),
-    ("code_puppy.agents.agent_cpp_reviewer", "CppReviewerAgent"),
-    ("code_puppy.agents.agent_golang_reviewer", "GolangReviewerAgent"),
-    ("code_puppy.agents.agent_javascript_reviewer", "JavaScriptReviewerAgent"),
-    ("code_puppy.agents.agent_python_reviewer", "PythonReviewerAgent"),
-    ("code_puppy.agents.agent_python_programmer", "PythonProgrammerAgent"),
-    ("code_puppy.agents.agent_qa_expert", "QAExpertAgent"),
     ("code_puppy.agents.agent_qa_kitten", "QualityAssuranceKittenAgent"),
-    ("code_puppy.agents.agent_security_auditor", "SecurityAuditorAgent"),
-    ("code_puppy.agents.agent_typescript_reviewer", "TypeScriptReviewerAgent"),
 ]
 
 
 @pytest.mark.parametrize("module_path,class_name", _REVIEWER_AGENTS)
 def test_reviewer_agent_tools_and_prompt(module_path, class_name):
-    """Exercise get_available_tools() and get_system_prompt() for each reviewer agent."""
+    """Exercise get_available_tools() and get_system_prompt() for each surviving agent."""
     import importlib
 
     mod = importlib.import_module(module_path)
@@ -62,31 +52,6 @@ class TestPlanningAgent:
         assert "EXECUTION PLAN" in prompt
 
 
-class TestPromptReviewerAgent:
-    def test_tools_and_prompt(self):
-        from code_puppy.agents.prompt_reviewer import PromptReviewerAgent
-
-        agent = PromptReviewerAgent()
-        tools = agent.get_available_tools()
-        assert "read_file" in tools
-
-        prompt = agent.get_system_prompt()
-        assert "Prompt Review Mode" in prompt
-        assert "Quality Dimensions" in prompt
-
-
-class TestSchedulerAgent:
-    def test_tools_and_prompt(self):
-        from code_puppy.agents.agent_scheduler import SchedulerAgent
-
-        agent = SchedulerAgent()
-        tools = agent.get_available_tools()
-        assert "scheduler_list_tasks" in tools
-
-        prompt = agent.get_system_prompt()
-        assert "Scheduler Agent" in prompt
-
-
 class TestCodePuppyAgentTools:
     def test_get_available_tools(self):
         from code_puppy.agents.agent_code_puppy import CodePuppyAgent
@@ -97,6 +62,19 @@ class TestCodePuppyAgentTools:
         assert "replace_in_file" in tools
         assert "delete_snippet" in tools
         assert "invoke_agent" in tools
+
+    def test_default_code_puppy_does_not_get_model_override_tools(self):
+        from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+
+        agent = CodePuppyAgent()
+        tools = agent.get_available_tools()
+        prompt = agent.get_system_prompt()
+
+        assert "invoke_agent" in tools
+        assert "invoke_agent_with_model" not in tools
+        assert "list_available_models" not in tools
+        assert "model_name" not in prompt
+        assert "invoke_agent_with_model" not in prompt
 
 
 # =============================================================================
@@ -156,7 +134,7 @@ class TestSummarizationGaps:
                 return_value=mock_agent,
             ),
             patch(
-                "code_puppy.summarization_agent.get_global_model_name",
+                "code_puppy.summarization_agent.get_summarization_model_name",
                 return_value="test",
             ),
             patch("code_puppy.model_utils.prepare_prompt_for_model") as mock_prep,
@@ -173,16 +151,16 @@ class TestSummarizationGaps:
 
 class TestDisplaySubagentSkip:
     def test_skips_when_subagent_not_verbose(self):
-        """Cover line 39: early return for subagent without verbose."""
+        """Early return for subagent without verbose: nothing renders."""
         from code_puppy.tools.display import display_non_streamed_result
 
         with (
             patch("code_puppy.tools.display.is_subagent", return_value=True),
             patch("code_puppy.tools.display.get_subagent_verbose", return_value=False),
-            patch("code_puppy.messaging.spinner.pause_all_spinners") as mock_pause,
+            patch("code_puppy.tools.display.Console") as mock_console_cls,
         ):
             display_non_streamed_result("hello")
-            mock_pause.assert_not_called()  # Should have returned early
+            mock_console_cls.assert_not_called()  # Should have returned early
 
 
 # =============================================================================
@@ -226,62 +204,24 @@ class TestMainModule:
 
 
 # =============================================================================
-# spinner_base.py gaps
+# messaging.spinner compat shim gaps
 # =============================================================================
 
 
-class TestSpinnerBaseGaps:
-    def _make_spinner(self):
-        """Create a concrete spinner subclass for testing."""
-        from code_puppy.messaging.spinner.spinner_base import SpinnerBase
-
-        class DummySpinner(SpinnerBase):
-            def start(self):
-                super().start()
-
-            def stop(self):
-                super().stop()
-
-            def update_frame(self):
-                super().update_frame()
-
-        return DummySpinner()
-
-    def test_update_frame_when_not_spinning(self):
-        """Cover line 54: update_frame does nothing when not spinning."""
-        s = self._make_spinner()
-        assert not s.is_spinning
-        s.update_frame()
-        assert s._frame_index == 0  # unchanged
-
-    def test_update_frame_when_spinning(self):
-        s = self._make_spinner()
-        s.start()
-        s.update_frame()
-        assert s._frame_index == 1
-
-    def test_clear_context_info(self):
-        """Cover line 70: clear_context_info."""
-        from code_puppy.messaging.spinner.spinner_base import SpinnerBase
-
-        SpinnerBase.set_context_info("something")
-        assert SpinnerBase.get_context_info() == "something"
-        SpinnerBase.clear_context_info()
-        assert SpinnerBase.get_context_info() == ""
-
+class TestSpinnerShimGaps:
     def test_format_context_info_zero_capacity(self):
-        """Cover line 93: capacity <= 0 returns empty."""
-        from code_puppy.messaging.spinner.spinner_base import SpinnerBase
+        """capacity <= 0 returns empty."""
+        from code_puppy.messaging.spinner import format_context_info
 
-        assert SpinnerBase.format_context_info(100, 0, 0.0) == ""
-        assert SpinnerBase.format_context_info(100, -1, 0.0) == ""
+        assert format_context_info(100, 0, 0.0) == ""
+        assert format_context_info(100, -1, 0.0) == ""
 
     def test_format_context_info_normal(self):
-        from code_puppy.messaging.spinner.spinner_base import SpinnerBase
+        from code_puppy.messaging.spinner import format_context_info
 
-        result = SpinnerBase.format_context_info(5000, 10000, 0.5)
-        assert "5,000" in result
-        assert "50.0%" in result
+        result = format_context_info(5000, 10000, 0.5)
+        assert "5k" in result
+        assert "50%" in result
 
 
 # =============================================================================

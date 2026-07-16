@@ -231,6 +231,21 @@ class TestAuthorizationCodeParsing:
         assert code == "ABC123"
         assert state is None
 
+    def test_parse_authorization_code_full_callback_url(self):
+        """Test parsing full callback URL."""
+        code, state = parse_authorization_code(
+            "http://localhost:8765/callback?code=ABC123&state=STATE456"
+        )
+        assert code == "ABC123"
+        assert state == "STATE456"
+
+    def test_parse_authorization_code_error_raises(self):
+        """Test parsing OAuth error callback raises."""
+        with pytest.raises(ValueError, match="access_denied"):
+            parse_authorization_code(
+                "http://localhost:8765/callback?error=access_denied"
+            )
+
     def test_parse_authorization_code_strips_whitespace(self):
         """Test that whitespace is stripped."""
         code, state = parse_authorization_code("  ABC123#STATE456  ")

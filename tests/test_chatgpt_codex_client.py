@@ -548,6 +548,34 @@ class TestSendMethod:
             assert body["stream"] is True
 
     @pytest.mark.asyncio
+    async def test_send_restores_configured_user_agent(self):
+        """The SDK's per-request User-Agent must not replace the Codex one."""
+        success_response = Mock(spec=httpx.Response)
+        success_response.status_code = 200
+        success_response.headers = {"content-type": "application/json"}
+
+        with patch.object(
+            httpx.AsyncClient,
+            "send",
+            new_callable=AsyncMock,
+            return_value=success_response,
+        ) as mock_send:
+            client = ChatGPTCodexAsyncClient(
+                headers={"User-Agent": "codex_cli_rs/0.144.1"}
+            )
+            request = httpx.Request(
+                "POST",
+                "https://chatgpt.com/backend-api/codex/responses",
+                headers={"User-Agent": "pydantic-ai/1.56.0"},
+                content=json.dumps({"model": "gpt-5.6-luna"}).encode(),
+            )
+
+            await client.send(request)
+
+            sent_request = mock_send.call_args[0][0]
+            assert sent_request.headers["User-Agent"] == "codex_cli_rs/0.144.1"
+
+    @pytest.mark.asyncio
     async def test_get_request_passthrough(self):
         """Test that GET requests pass through unmodified."""
         success_response = Mock(spec=httpx.Response)

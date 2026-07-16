@@ -111,12 +111,12 @@ def parse_skill_metadata(skill_path: Path) -> Optional[SkillMetadata]:
         SkillMetadata if successful, None if parsing fails.
     """
     if not skill_path.exists():
-        logger.warning(f"Skill path does not exist: {skill_path}")
+        logger.debug(f"Skill path does not exist: {skill_path}")
         return None
 
     skill_md_path = skill_path / "SKILL.md"
     if not skill_md_path.exists():
-        logger.warning(f"SKILL.md not found in skill directory: {skill_path}")
+        logger.debug(f"SKILL.md not found in skill directory: {skill_path}")
         return None
 
     try:
@@ -127,20 +127,20 @@ def parse_skill_metadata(skill_path: Path) -> Optional[SkillMetadata]:
 
     frontmatter = parse_yaml_frontmatter(content)
     if not frontmatter:
-        logger.warning(f"No valid frontmatter found in {skill_md_path}")
+        logger.debug(f"No valid frontmatter found in {skill_md_path}")
         return None
 
     # Required fields
     name = frontmatter.get("name")
     if not name:
-        logger.error(
+        logger.debug(
             f"'name' is required in frontmatter but not found in {skill_md_path}"
         )
         return None
 
     description = frontmatter.get("description")
     if not description:
-        logger.error(
+        logger.debug(
             f"'description' is required in frontmatter but not found in {skill_md_path}"
         )
         return None
@@ -173,12 +173,12 @@ def load_full_skill_content(skill_path: Path) -> Optional[str]:
         Full file content as string, or None if not found.
     """
     if not skill_path.exists():
-        logger.warning(f"Skill path does not exist: {skill_path}")
+        logger.debug(f"Skill path does not exist: {skill_path}")
         return None
 
     skill_md_path = skill_path / "SKILL.md"
     if not skill_md_path.exists():
-        logger.warning(f"SKILL.md not found in skill directory: {skill_path}")
+        logger.debug(f"SKILL.md not found in skill directory: {skill_path}")
         return None
 
     try:
@@ -200,7 +200,7 @@ def get_skill_resources(skill_path: Path) -> List[Path]:
         List of paths to resource files (excluding SKILL.md).
     """
     if not skill_path.exists():
-        logger.warning(f"Skill path does not exist: {skill_path}")
+        logger.debug(f"Skill path does not exist: {skill_path}")
         return []
 
     if not skill_path.is_dir():

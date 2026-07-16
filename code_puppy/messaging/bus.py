@@ -41,7 +41,10 @@ from uuid import uuid4
 from .commands import (
     AnyCommand,
     ConfirmationResponse,
+    PauseAgentCommand,
+    ResumeAgentCommand,
     SelectionResponse,
+    SteerAgentCommand,
     UserInputResponse,
 )
 from .messages import (
@@ -356,6 +359,18 @@ class MessageBus:
             self._complete_request(
                 command.prompt_id, (command.selected_index, command.selected_value)
             )
+        elif isinstance(command, PauseAgentCommand):
+            from .pause_controller import get_pause_controller
+
+            get_pause_controller().pause()
+        elif isinstance(command, ResumeAgentCommand):
+            from .pause_controller import get_pause_controller
+
+            get_pause_controller().resume()
+        elif isinstance(command, SteerAgentCommand):
+            from .pause_controller import get_pause_controller
+
+            get_pause_controller().request_steer(command.text, mode=command.mode)
         else:
             # For non-response commands (CancelAgentCommand, etc.),
             # put them in the incoming queue for the agent to process

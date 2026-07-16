@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from code_puppy.callbacks import clear_callbacks, register_callback
 from code_puppy.plugins.agent_skills.config import (
     add_skill_directory,
     get_disabled_skills,
@@ -30,7 +31,7 @@ from code_puppy.plugins.agent_skills.metadata import (
     parse_yaml_frontmatter,
 )
 from code_puppy.plugins.agent_skills.prompt_builder import (
-    build_available_skills_xml,
+    build_available_skills_block,
     build_skills_guidance,
 )
 
@@ -142,6 +143,12 @@ def multi_skill_dir(tmp_path):
 class TestSkillDiscovery:
     """Tests for skill discovery module."""
 
+    def setup_method(self):
+        clear_callbacks("register_skills")
+
+    def teardown_method(self):
+        clear_callbacks("register_skills")
+
     def test_get_default_skill_directories(self):
         """Test default skill directories are correctly returned."""
         directories = get_default_skill_directories()
@@ -247,6 +254,140 @@ class TestSkillDiscovery:
 
         assert len(skills) == 0
         assert "Skill path is not a directory" in caplog.text
+
+    @pytest.mark.plugin_skills
+    def test_discover_skills_includes_plugin_registered_skills(
+        self, tmp_path, monkeypatch
+    ):
+        from code_puppy.plugins.agent_skills import discovery as discovery_module
+
+        monkeypatch.setattr(
+            discovery_module,
+            "_PLUGIN_SKILLS_CACHE_DIR",
+            tmp_path / "plugin-cache",
+        )
+
+        register_callback(
+            "register_skills",
+            lambda: [
+                {
+                    "name": "plugin-skill",
+                    "frontmatter": {
+                        "description": "From plugin",
+                        "tags": ["plugin", "test"],
+                    },
+                    "body": "# plugin body",
+                }
+            ],
+        )
+
+        skills = discover_skills(directories=[tmp_path / "no-skills-here"])
+        plugin_skill = next(skill for skill in skills if skill.name == "plugin-skill")
+        assert plugin_skill.has_skill_md is True
+        assert (plugin_skill.path / "SKILL.md").exists()
+        content = (plugin_skill.path / "SKILL.md").read_text()
+        assert "name: plugin-skill" in content
+        assert "description: From plugin" in content
+
+    def test_discover_skills_deduplicates_across_directories(self, tmp_path, caplog):
+        """Test that same skill name in multiple directories only keeps first discovered.
+
+        When the same skill name exists in multiple skill directories (e.g.,
+        ~/.code_puppy/skills/foo and ~/.claude/skills/foo), only the first one
+        discovered should be kept. This prevents /help from showing duplicate entries.
+        """
+        # Create first skill directory (higher priority - discovered first)
+        first_dir = tmp_path / "primary-skills"
+        first_dir.mkdir()
+        first_skill = first_dir / "duplicate-skill"
+        first_skill.mkdir()
+        (first_skill / "SKILL.md").write_text(
+            "---\nname: duplicate-skill\ndescription: First version\n---\n"
+        )
+
+        # Create second skill directory (lower priority - discovered second)
+        second_dir = tmp_path / "secondary-skills"
+        second_dir.mkdir()
+        second_skill = second_dir / "duplicate-skill"
+        second_skill.mkdir()
+        (second_skill / "SKILL.md").write_text(
+            "---\nname: duplicate-skill\ndescription: Second version\n---\n"
+        )
+
+        # Discover skills from both directories in order
+        with caplog.at_level(logging.DEBUG):
+            skills = discover_skills(directories=[first_dir, second_dir])
+
+        # Should only have one skill, not two
+        duplicate_skills = [s for s in skills if s.name == "duplicate-skill"]
+        assert len(duplicate_skills) == 1, (
+            "Expected exactly one 'duplicate-skill', got "
+            f"{len(duplicate_skills)}: {[s.path for s in duplicate_skills]}"
+        )
+
+        # First-discovered wins - should be from the first directory
+        assert duplicate_skills[0].path == first_skill
+
+        # Verify debug log about skipping duplicate
+        assert "Skipping duplicate skill 'duplicate-skill'" in caplog.text
+
+    def test_filesystem_skill_wins_over_plugin_collision(self, tmp_path, monkeypatch):
+        from code_puppy.plugins.agent_skills import discovery as discovery_module
+
+        skills_root = tmp_path / "skills"
+        skills_root.mkdir()
+        local_skill = skills_root / "shared-skill"
+        local_skill.mkdir()
+        (local_skill / "SKILL.md").write_text(
+            "---\nname: shared-skill\ndescription: local\n---\n"
+        )
+
+        monkeypatch.setattr(
+            discovery_module,
+            "_PLUGIN_SKILLS_CACHE_DIR",
+            tmp_path / "plugin-cache",
+        )
+
+        register_callback(
+            "register_skills",
+            lambda: [
+                {
+                    "name": "shared-skill",
+                    "skill_md": "---\nname: shared-skill\ndescription: plugin\n---\n",
+                }
+            ],
+        )
+
+        skills = discover_skills(directories=[skills_root])
+        shared_skills = [skill for skill in skills if skill.name == "shared-skill"]
+        assert len(shared_skills) == 1
+        assert shared_skills[0].path == local_skill
+
+    @pytest.mark.plugin_skills
+    def test_refresh_skill_cache_prunes_stale_plugin_cache(self, tmp_path, monkeypatch):
+        from code_puppy.plugins.agent_skills import discovery as discovery_module
+
+        plugin_cache_dir = tmp_path / "plugin-cache"
+        monkeypatch.setattr(
+            discovery_module, "_PLUGIN_SKILLS_CACHE_DIR", plugin_cache_dir
+        )
+
+        def register_current_skill():
+            return [{"name": "fresh-skill", "skill_md": "# fresh"}]
+
+        register_callback("register_skills", register_current_skill)
+
+        stale_dir = plugin_cache_dir / "old.module" / "stale-skill"
+        stale_dir.mkdir(parents=True)
+        (stale_dir / "SKILL.md").write_text("# stale")
+
+        refresh_skill_cache()
+
+        assert not stale_dir.exists()
+        fresh_skill_files = list(plugin_cache_dir.rglob("SKILL.md"))
+        assert len(fresh_skill_files) == 1
+        assert "fresh-skill" in str(fresh_skill_files[0])
+        assert fresh_skill_files[0].read_text() == "# fresh"
 
     def test_discover_skills_caching(self, tmp_path, monkeypatch):
         """Test that skill discovery uses caching correctly."""
@@ -407,11 +548,14 @@ class TestMetadataParsing:
         """Test parsing skill metadata from nonexistent path."""
         nonexistent = tmp_path / "does-not-exist"
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.DEBUG):
             metadata = parse_skill_metadata(nonexistent)
 
         assert metadata is None
         assert "Skill path does not exist" in caplog.text
+        # Missing paths are routine (e.g. project dirs without skills) —
+        # they must not emit user-visible warning noise.
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
     def test_parse_skill_metadata_with_file_io_error(self, tmp_path, monkeypatch):
         """Test parsing when file I/O fails."""
@@ -441,11 +585,12 @@ class TestMetadataParsing:
         """Test loading full skill content from nonexistent path."""
         nonexistent = tmp_path / "does-not-exist"
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.DEBUG):
             content = load_full_skill_content(nonexistent)
 
         assert content is None
         assert "Skill path does not exist" in caplog.text
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
     def test_get_skill_resources(self, skill_dir_with_resources):
         """Test getting resource files from skill directory."""
@@ -473,11 +618,12 @@ class TestMetadataParsing:
         """Test getting resources from nonexistent path."""
         nonexistent = tmp_path / "does-not-exist"
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.DEBUG):
             resources = get_skill_resources(nonexistent)
 
         assert len(resources) == 0
         assert "Skill path does not exist" in caplog.text
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 # Tests for Prompt Builder Module
@@ -486,27 +632,23 @@ class TestMetadataParsing:
 class TestPromptBuilder:
     """Tests for prompt builder module."""
 
-    def test_build_available_skills_xml_empty(self):
-        """Test building XML for empty skills list."""
-        xml = build_available_skills_xml([])
-        assert xml == "<available_skills></available_skills>"
+    def test_build_available_skills_block_empty(self):
+        """Empty input → empty string (no stray heading)."""
+        assert build_available_skills_block([]) == ""
 
-    def test_build_available_skills_xml_single_skill(self):
-        """Test building XML for single skill."""
+    def test_build_available_skills_block_single_skill(self):
+        """Single skill renders as one markdown bullet."""
         skill = SkillMetadata(
             name="test-skill",
             description="A test skill",
             path=Path("/path/to/skill"),
         )
-        xml = build_available_skills_xml([skill])
-        assert "<available_skills>" in xml
-        assert "<skill>" in xml
-        assert "<name>test-skill</name>" in xml
-        assert "<description>A test skill</description>" in xml
-        assert "</skill>" in xml
+        block = build_available_skills_block([skill])
+        assert block.startswith("## Available Skills")
+        assert "- test-skill: A test skill" in block
 
-    def test_build_available_skills_xml_multiple_skills(self):
-        """Test building XML for multiple skills."""
+    def test_build_available_skills_block_multiple_skills(self):
+        """Multiple skills → one bullet per skill, no XML in sight."""
         skills = [
             SkillMetadata(
                 name="skill1",
@@ -519,77 +661,48 @@ class TestPromptBuilder:
                 path=Path("/path/to/skill2"),
             ),
         ]
-        xml = build_available_skills_xml(skills)
-        assert xml.count("<skill>") == 2
-        assert "<name>skill1</name>" in xml
-        assert "<name>skill2</name>" in xml
+        block = build_available_skills_block(skills)
+        assert "- skill1: First skill" in block
+        assert "- skill2: Second skill" in block
+        assert "<" not in block  # no XML residue
 
-    def test_xml_escaping_ampersand(self):
-        """Test XML escaping of ampersand character."""
+    def test_block_collapses_multiline_description(self):
+        """Newlines / extra whitespace in descriptions get squashed flat."""
         skill = SkillMetadata(
             name="test",
-            description="Tom & Jerry",
+            description="line one\n   line two\tline three",
             path=Path("/path"),
         )
-        xml = build_available_skills_xml([skill])
-        assert "Tom &amp; Jerry" in xml
+        block = build_available_skills_block([skill])
+        assert "- test: line one line two line three" in block
+        assert "\n" not in block.split("\n", 1)[1]  # only the heading separator
 
-    def test_xml_escaping_less_than(self):
-        """Test XML escaping of less than character."""
-        skill = SkillMetadata(
-            name="test",
-            description="Use < for comparison",
-            path=Path("/path"),
-        )
-        xml = build_available_skills_xml([skill])
-        assert "Use &lt; for comparison" in xml
-
-    def test_xml_escaping_greater_than(self):
-        """Test XML escaping of greater than character."""
-        skill = SkillMetadata(
-            name="test",
-            description="Use > for comparison",
-            path=Path("/path"),
-        )
-        xml = build_available_skills_xml([skill])
-        assert "Use &gt; for comparison" in xml
-
-    def test_xml_escaping_quotes(self):
-        """Test XML escaping of quotes."""
-        skill = SkillMetadata(
-            name="test",
-            description='She said "Hello"',
-            path=Path("/path"),
-        )
-        xml = build_available_skills_xml([skill])
-        assert "She said &quot;Hello&quot;" in xml
-
-    def test_xml_escaping_apostrophe(self):
-        """Test XML escaping of apostrophe."""
-        skill = SkillMetadata(
-            name="test",
-            description="It's a test",
-            path=Path("/path"),
-        )
-        xml = build_available_skills_xml([skill])
-        assert "It&#39;s a test" in xml
-
-    def test_xml_escaping_multiple_special_chars(self):
-        """Test XML escaping of multiple special characters."""
+    def test_block_preserves_special_chars_verbatim(self):
+        """No XML means no escaping — characters pass through untouched."""
         skill = SkillMetadata(
             name="test",
             description="Tom & Jerry say: 'Use < & >'",
             path=Path("/path"),
         )
-        xml = build_available_skills_xml([skill])
-        assert "Tom &amp; Jerry say: &#39;Use &lt; &amp; &gt;&#39;" in xml
+        block = build_available_skills_block([skill])
+        assert "Tom & Jerry say: 'Use < & >'" in block
+
+    def test_block_skill_without_description(self):
+        """A skill with empty description still renders cleanly."""
+        skill = SkillMetadata(
+            name="bare",
+            description="",
+            path=Path("/path"),
+        )
+        block = build_available_skills_block([skill])
+        assert "- bare" in block
+        assert "- bare:" not in block  # no trailing colon when no desc
 
     def test_build_skills_guidance(self):
-        """Test building skills guidance text."""
+        """Guidance mentions the two tools the agent actually needs."""
         guidance = build_skills_guidance()
-        assert "# Agent Skills" in guidance
-        assert "list_or_search_skills" in guidance
         assert "activate_skill" in guidance
+        assert "list_or_search_skills" in guidance
 
 
 # Tests for Config Module
@@ -1073,7 +1186,7 @@ class TestSkillIntegration:
                 if metadata:
                     metadatas.append(metadata)
 
-        # Build XML
-        xml = build_available_skills_xml(metadatas)
-        assert "<available_skills>" in xml
-        assert "<name>test-skill</name>" in xml
+        # Build skills block
+        block = build_available_skills_block(metadatas)
+        assert "## Available Skills" in block
+        assert "- test-skill:" in block

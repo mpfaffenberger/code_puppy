@@ -107,6 +107,30 @@ class TestJSONAgent:
         expected_tools = ["list_files", "read_file", "edit_file"]
         assert tools == expected_tools
 
+    def test_json_agent_runtime_model_override_wins_over_configured_model(
+        self, sample_json_config
+    ):
+        """A per-run override should beat the JSON agent's configured model."""
+        sample_json_config["model"] = "json-model"
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix="-agent.json", delete=False
+        ) as f:
+            json.dump(sample_json_config, f)
+            temp_path = f.name
+
+        try:
+            agent = JSONAgent(temp_path)
+            assert agent.get_model_name() == "json-model"
+
+            agent.set_runtime_model_name_override("override-model")
+            assert agent.get_model_name() == "override-model"
+
+            agent.set_runtime_model_name_override(None)
+            assert agent.get_model_name() == "json-model"
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
     def test_json_agent_inheritance(self, temp_json_file):
         """Test that JSONAgent properly inherits from BaseAgent."""
         agent = JSONAgent(temp_json_file)

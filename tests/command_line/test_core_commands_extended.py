@@ -17,7 +17,6 @@ from code_puppy.command_line.core_commands import (
     handle_help_command,
     handle_mcp_command,
     handle_model_command,
-    handle_motd_command,
     handle_tools_command,
     interactive_model_picker,
 )
@@ -120,6 +119,34 @@ class TestHandleCdCommand:
                             assert result is True
                             mock_chdir.assert_called_once_with(special_path)
 
+    def test_cd_windows_path_with_dot_uses_backslashsafely(self):
+        """Windows /cd must preserve backslashes and dots in folder names."""
+        windows_path = r"C:\\Users\\alice\\repo.v2"
+
+        with patch("os.name", "nt"):
+            with patch("code_puppy.messaging.emit_success"):
+                with patch("os.path.expanduser", return_value=windows_path):
+                    with patch("os.path.isabs", return_value=True):
+                        with patch("os.path.isdir", return_value=True):
+                            with patch("os.chdir") as mock_chdir:
+                                result = handle_cd_command(f"/cd {windows_path}")
+                                assert result is True
+                                mock_chdir.assert_called_once_with(windows_path)
+
+    def test_cd_windows_quoted_path_strips_quotes(self):
+        """Windows non-POSIX tokenization keeps quotes; handler should normalize them."""
+        windows_path = r"C:\\Users\\alice\\repo.v2"
+
+        with patch("os.name", "nt"):
+            with patch("code_puppy.messaging.emit_success"):
+                with patch("os.path.expanduser", return_value=windows_path):
+                    with patch("os.path.isabs", return_value=True):
+                        with patch("os.path.isdir", return_value=True):
+                            with patch("os.chdir") as mock_chdir:
+                                result = handle_cd_command(f'/cd "{windows_path}"')
+                                assert result is True
+                                mock_chdir.assert_called_once_with(windows_path)
+
     def test_cd_listing_with_permission_error(self):
         """Test cd listing handles permission errors gracefully."""
         with patch(
@@ -133,6 +160,61 @@ class TestHandleCdCommand:
 
                 args, kwargs = mock_error.call_args
                 assert "Access denied" in args[0]
+
+    def test_cd_reloads_agent_context(self):
+        """Test that /cd reloads agent to pick up new directory context (AGENTS.md, etc)."""
+        mock_agent = MagicMock()
+
+        with patch("code_puppy.messaging.emit_success"):
+            with patch("code_puppy.messaging.emit_info") as mock_emit_info:
+                with patch("os.path.expanduser", side_effect=lambda x: x):
+                    with patch("os.path.isabs", return_value=True):
+                        with patch("os.path.isdir", return_value=True):
+                            with patch("os.chdir"):
+                                with patch(
+                                    "code_puppy.agents.agent_manager.get_current_agent",
+                                    return_value=mock_agent,
+                                ):
+                                    result = handle_cd_command("/cd /new/dir")
+
+                                    # Verify directory changed
+                                    assert result is True
+
+                                    # Verify agent was reloaded (public behavior)
+                                    mock_agent.reload_code_generation_agent.assert_called_once()
+
+                                    # Verify context refresh message was emitted
+                                    mock_emit_info.assert_called_once_with(
+                                        "Agent context updated for new directory"
+                                    )
+
+    def test_cd_handles_agent_reload_failure_gracefully(self):
+        """Test that /cd continues even if agent reload fails."""
+        mock_agent = MagicMock()
+        mock_agent.reload_code_generation_agent.side_effect = Exception("Reload failed")
+
+        with patch("code_puppy.messaging.emit_success"):
+            with patch("code_puppy.messaging.emit_error") as mock_error:
+                with patch("os.path.expanduser", side_effect=lambda x: x):
+                    with patch("os.path.isabs", return_value=True):
+                        with patch("os.path.isdir", return_value=True):
+                            with patch("os.chdir"):
+                                with patch(
+                                    "code_puppy.agents.agent_manager.get_current_agent",
+                                    return_value=mock_agent,
+                                ):
+                                    result = handle_cd_command("/cd /new/dir")
+
+                                    # Directory change should still succeed
+                                    assert result is True
+
+                                    # Error should be emitted about reload failure
+                                    mock_error.assert_called_once()
+                                    error_msg = mock_error.call_args[0][0]
+                                    assert error_msg.startswith(
+                                        "Could not reload agent context:"
+                                    )
+                                    assert "Reload failed" in error_msg
 
     def test_cd_with_nonexistent_parent(self):
         """Test cd command with path containing nonexistent parent directories."""
@@ -191,27 +273,6 @@ class TestHandleToolsCommand:
                 result = handle_tools_command("/tools")
                 assert result is True
                 mock_emit.assert_called_once()
-
-
-class TestHandleMotdCommand:
-    """Extended tests for motd command functionality."""
-
-    def test_motd_command_force_refresh(self):
-        """Test motd command with force parameter."""
-        with patch("code_puppy.command_line.core_commands.print_motd") as mock_print:
-            result = handle_motd_command("/motd")
-            assert result is True
-            mock_print.assert_called_once_with(force=True)
-
-    def test_motd_command_with_print_error(self):
-        """Test motd command handles printing errors gracefully."""
-        with patch(
-            "code_puppy.command_line.core_commands.print_motd",
-            side_effect=Exception("Print failed"),
-        ):
-            # Should not raise an exception
-            result = handle_motd_command("/motd")
-            assert result is True
 
 
 class TestHandleExitCommand:
@@ -630,8 +691,11 @@ class TestHandleModelCommand:
 
     def test_model_command_with_valid_argument(self):
         """Test model command with a valid model name argument."""
+        # core_commands imports update_model_in_input at module scope, so patch
+        # it there (not on model_picker_completion) to fully isolate from the
+        # real model config.
         with patch(
-            "code_puppy.command_line.model_picker_completion.update_model_in_input",
+            "code_puppy.command_line.core_commands.update_model_in_input",
             return_value="/m synthetic-GLM-5.1",
         ):
             with patch(
@@ -665,7 +729,7 @@ class TestHandleModelCommand:
     def test_model_command_m_alias(self):
         """Test model command with /m alias."""
         with patch(
-            "code_puppy.command_line.model_picker_completion.update_model_in_input",
+            "code_puppy.command_line.core_commands.update_model_in_input",
             return_value="",
         ):
             with patch(

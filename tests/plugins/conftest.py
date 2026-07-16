@@ -3,81 +3,62 @@
 from __future__ import annotations
 
 import sys
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
-from pydantic_ai.models import ModelRequestParameters
 
 
-# Workaround for pydantic/MCP compatibility issue during pytest collection:
-# Skip antigravity tests if pydantic/MCP conflict is detected
+@pytest.fixture(autouse=True)
+def _isolate_plugin_skills(request, monkeypatch):
+    """Prevent built-in plugin skills (e.g. code-puppy-agent) from leaking
+    into skill-discovery tests that assert exact filesystem-only counts.
+
+    Tests that *want* the real plugin-skill collector to run mark themselves
+    with ``@pytest.mark.plugin_skills`` to opt out of the isolation.
+    """
+    if request.node.get_closest_marker("plugin_skills"):
+        return
+
+    from code_puppy.plugins.agent_skills import discovery as discovery_module
+
+    monkeypatch.setattr(discovery_module, "_collect_plugin_skills", lambda: [])
+
+
 def pytest_configure(config):
-    """Configure pytest with compatibility workarounds."""
-    # Pre-patch sys.modules to provide a mock mcp.types during collection
-    # This prevents the ValueError in pydantic's RootModel metaclass
-    if "mcp" not in sys.modules:
-        mcp_mock = MagicMock()
-        mcp_mock.types = MagicMock()
-        sys.modules["mcp"] = mcp_mock
-        sys.modules["mcp.types"] = mcp_mock.types
-        sys.modules["mcp.client"] = MagicMock()
-        sys.modules["mcp.client.session"] = MagicMock()
+    """Configure pytest with compatibility workarounds.
 
-
-class ClientShim:
-    """A shim that makes client._api_client._async_httpx_client point to model._http_client."""
-
-    def __init__(self, model):
-        self._model = model
-        self._api_client = ApiClientShim(model)
-
-
-class ApiClientShim:
-    """Inner shim for _api_client."""
-
-    def __init__(self, model):
-        self._model = model
-
-    @property
-    def _async_httpx_client(self):
-        return self._model._http_client
-
-    @_async_httpx_client.setter
-    def _async_httpx_client(self, value):
-        self._model._http_client = value
-
-
-@pytest.fixture
-def mock_google_model():
-    """Create a mock AntigravityModel instance for testing."""
-    # Lazy import to avoid pydantic/MCP conflicts during conftest load
-    from code_puppy.plugins.antigravity_oauth.antigravity_model import AntigravityModel
-
-    # Create the model with required api_key
-    model = AntigravityModel(
-        model_name="gemini-1.5-pro",
-        api_key="test-api-key",
-        base_url="https://generativelanguage.googleapis.com/v1beta",
+    Prefer the real ``mcp`` package when it is importable. Only fall back to
+    stubs in slim environments where it is genuinely unavailable, and stub all
+    submodules that ``pydantic_ai.mcp`` imports during collection.
+    """
+    config.addinivalue_line(
+        "markers",
+        "plugin_skills: opt out of _isolate_plugin_skills so the real "
+        "plugin-skill collector runs",
     )
 
-    # Set up an initial mock HTTP client
-    model._http_client = AsyncMock()
+    try:
+        import mcp  # noqa: F401
+        import mcp.client.session  # noqa: F401
+        import mcp.client.sse  # noqa: F401
+        import mcp.client.streamable_http  # noqa: F401
+        import mcp.types  # noqa: F401
 
-    # Create a shim that keeps client._api_client._async_httpx_client in sync with _http_client
-    model.client = ClientShim(model)
+        return
+    except Exception:
+        pass
 
-    return model
+    mcp_mock = MagicMock()
+    client_mock = MagicMock()
+    mcp_mock.types = MagicMock()
+    mcp_mock.client = client_mock
+    client_mock.session = MagicMock()
+    client_mock.sse = MagicMock()
+    client_mock.streamable_http = MagicMock()
 
-
-@pytest.fixture
-def mock_httpx_client() -> AsyncMock:
-    """Create a mock httpx client."""
-    return AsyncMock()
-
-
-@pytest.fixture
-def model_request_params() -> ModelRequestParameters:
-    """Create model request parameters fixture."""
-    return ModelRequestParameters(
-        function_tools=[],
-    )
+    sys.modules["mcp"] = mcp_mock
+    sys.modules["mcp.types"] = mcp_mock.types
+    sys.modules["mcp.client"] = client_mock
+    sys.modules["mcp.client.session"] = client_mock.session
+    sys.modules["mcp.client.sse"] = client_mock.sse
+    sys.modules["mcp.client.streamable_http"] = client_mock.streamable_http

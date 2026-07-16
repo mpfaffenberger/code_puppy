@@ -16,7 +16,7 @@ class TestGetCommandsHelp:
 
 
 class TestHandleShowCommand:
-    def _show_patches(self, effective_temp=0.7, global_temp=0.7, yolo=True, dbos=False):
+    def _show_patches(self, effective_temp=0.7, global_temp=0.7, yolo=True):
         """Return a context manager patching all lazy imports in handle_show_command."""
         mock_agent = MagicMock()
         mock_agent.display_name = "Test Agent"
@@ -41,7 +41,6 @@ class TestHandleShowCommand:
                 return_value=effective_temp,
             ),
             patch("code_puppy.config.get_default_agent", return_value="code-puppy"),
-            patch("code_puppy.config.get_use_dbos", return_value=dbos),
             patch("code_puppy.config.get_resume_message_count", return_value=50),
             patch(
                 "code_puppy.config.get_openai_reasoning_effort", return_value="medium"
@@ -75,14 +74,13 @@ class TestHandleShowCommand:
             patches[14],
             patches[15],
             patches[16],
-            patches[17],
         ):
             assert handle_show_command("/show") is True
 
     def test_show_effective_temp_none(self):
         from code_puppy.command_line.config_commands import handle_show_command
 
-        patches = self._show_patches(effective_temp=None, global_temp=None, dbos=True)
+        patches = self._show_patches(effective_temp=None, global_temp=None)
         with (
             patches[0],
             patches[1],
@@ -101,87 +99,18 @@ class TestHandleShowCommand:
             patches[14],
             patches[15],
             patches[16],
-            patches[17],
         ):
             assert handle_show_command("/show") is True
 
 
-class TestHandleReasoningCommand:
-    def test_no_args(self):
-        from code_puppy.command_line.config_commands import handle_reasoning_command
-
-        with patch("code_puppy.messaging.emit_warning") as warn:
-            assert handle_reasoning_command("/reasoning") is True
-            warn.assert_called_once()
-
-    def test_valid(self):
-        from code_puppy.command_line.config_commands import handle_reasoning_command
-
-        mock_agent = MagicMock()
-        with (
-            patch("code_puppy.config.set_openai_reasoning_effort"),
-            patch("code_puppy.config.get_openai_reasoning_effort", return_value="high"),
-            patch(
-                "code_puppy.agents.agent_manager.get_current_agent",
-                return_value=mock_agent,
-            ),
-            patch("code_puppy.messaging.emit_success"),
-        ):
-            assert handle_reasoning_command("/reasoning high") is True
-
-    def test_invalid(self):
-        from code_puppy.command_line.config_commands import handle_reasoning_command
-
-        with (
-            patch(
-                "code_puppy.config.set_openai_reasoning_effort",
-                side_effect=ValueError("bad"),
-            ),
-            patch("code_puppy.messaging.emit_error") as err,
-        ):
-            assert handle_reasoning_command("/reasoning bad") is True
-            err.assert_called_once()
-
-
-class TestHandleVerbosityCommand:
-    def test_no_args(self):
-        from code_puppy.command_line.config_commands import handle_verbosity_command
-
-        with patch("code_puppy.messaging.emit_warning"):
-            assert handle_verbosity_command("/verbosity") is True
-
-    def test_valid(self):
-        from code_puppy.command_line.config_commands import handle_verbosity_command
-
-        mock_agent = MagicMock()
-        with (
-            patch("code_puppy.config.set_openai_verbosity"),
-            patch("code_puppy.config.get_openai_verbosity", return_value="low"),
-            patch(
-                "code_puppy.agents.agent_manager.get_current_agent",
-                return_value=mock_agent,
-            ),
-            patch("code_puppy.messaging.emit_success"),
-        ):
-            assert handle_verbosity_command("/verbosity low") is True
-
-    def test_invalid(self):
-        from code_puppy.command_line.config_commands import handle_verbosity_command
-
-        with (
-            patch(
-                "code_puppy.config.set_openai_verbosity", side_effect=ValueError("bad")
-            ),
-            patch("code_puppy.messaging.emit_error"),
-        ):
-            assert handle_verbosity_command("/verbosity bad") is True
-
-
 class TestHandleSetCommand:
-    def test_no_args_shows_help(self):
+    def test_no_args_launches_menu(self):
         from code_puppy.command_line.config_commands import handle_set_command
 
-        with patch("code_puppy.messaging.emit_warning"):
+        with patch(
+            "code_puppy.command_line.set_menu.interactive_set_picker",
+            return_value=None,
+        ):
             assert handle_set_command("/set") is True
 
     def test_equals_syntax(self):

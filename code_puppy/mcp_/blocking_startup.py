@@ -259,12 +259,22 @@ class BlockingMCPServerStdio(SimpleCapturedMCPServerStdio):
 
             self._initialized.set()
 
-            # Emit error message
+            # Gentle one-liner pointing the user to /mcp logs for details.
+            # The full error_details are intentionally NOT included here —
+            # they're already in the persistent log file. We don't want to
+            # spam the prompt with stack traces every time the agent runs.
             server_name = getattr(self, "tool_prefix", self.command)
             emit_info(
-                f"❌ MCP Server '{server_name}' failed to initialize: {error_details}",
-                style="red",
+                f"⚠  MCP server '{server_name}' didn't start. "
+                f"Run [cyan]/mcp logs {server_name}[/cyan] to investigate, "
+                f"or unbind it via [cyan]/agents → B[/cyan].",
+                style="yellow",
                 message_group=self.message_group,
+            )
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug(
+                "MCP server %s init error: %s", server_name, error_details
             )
 
             raise

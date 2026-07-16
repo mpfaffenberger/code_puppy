@@ -271,6 +271,13 @@ class TestSlashCompleter:
     def _make_doc(self, text):
         return Document(text=text, cursor_position=len(text))
 
+    @staticmethod
+    def _tab_event():
+        """An explicit completion request (user pressed Tab)."""
+        from prompt_toolkit.completion import CompleteEvent
+
+        return CompleteEvent(completion_requested=True)
+
     def test_no_slash(self):
         from code_puppy.command_line.prompt_toolkit_completion import SlashCompleter
 
@@ -294,8 +301,36 @@ class TestSlashCompleter:
             patch("code_puppy.plugins.load_plugin_callbacks"),
             patch("code_puppy.callbacks.on_custom_command_help", return_value=[]),
         ):
-            completions = list(c.get_completions(self._make_doc("/"), None))
+            # Bare '/' + explicit Tab -> full command menu.
+            completions = list(
+                c.get_completions(self._make_doc("/"), self._tab_event())
+            )
             assert len(completions) >= 1
+
+    def test_just_slash_shows_menu_while_typing(self):
+        """Bare '/' immediately offers every slash command."""
+        from prompt_toolkit.completion import CompleteEvent
+
+        from code_puppy.command_line.prompt_toolkit_completion import SlashCompleter
+
+        c = SlashCompleter()
+        mock_cmd = MagicMock()
+        mock_cmd.name = "help"
+        mock_cmd.description = "Show help"
+        mock_cmd.aliases = ["h"]
+        typing_event = CompleteEvent(text_inserted=True)
+
+        with (
+            patch(
+                "code_puppy.command_line.prompt_toolkit_completion.get_unique_commands",
+                return_value=[mock_cmd],
+            ),
+            patch("code_puppy.plugins.load_plugin_callbacks"),
+            patch("code_puppy.callbacks.on_custom_command_help", return_value=[]),
+        ):
+            for event in (typing_event, None):
+                completions = list(c.get_completions(self._make_doc("/"), event))
+                assert [completion.text for completion in completions] == ["h", "help"]
 
     def test_partial_command(self):
         from code_puppy.command_line.prompt_toolkit_completion import SlashCompleter
@@ -326,7 +361,7 @@ class TestSlashCompleter:
             "code_puppy.command_line.prompt_toolkit_completion.get_unique_commands",
             side_effect=Exception("fail"),
         ):
-            assert list(c.get_completions(self._make_doc("/"), None)) == []
+            assert list(c.get_completions(self._make_doc("/"), self._tab_event())) == []
 
     def test_custom_commands_list_format(self):
         from code_puppy.command_line.prompt_toolkit_completion import SlashCompleter
@@ -343,7 +378,9 @@ class TestSlashCompleter:
                 return_value=[[("mycmd", "My command")]],
             ),
         ):
-            completions = list(c.get_completions(self._make_doc("/"), None))
+            completions = list(
+                c.get_completions(self._make_doc("/"), self._tab_event())
+            )
             assert any(c.text == "mycmd" for c in completions)
 
     def test_custom_commands_tuple_format(self):
@@ -361,7 +398,9 @@ class TestSlashCompleter:
                 return_value=[("mycmd", "My command")],
             ),
         ):
-            completions = list(c.get_completions(self._make_doc("/"), None))
+            completions = list(
+                c.get_completions(self._make_doc("/"), self._tab_event())
+            )
             assert any(c.text == "mycmd" for c in completions)
 
     def test_custom_commands_exception(self):
@@ -379,7 +418,7 @@ class TestSlashCompleter:
             ),
         ):
             # Should not raise
-            list(c.get_completions(self._make_doc("/"), None))
+            list(c.get_completions(self._make_doc("/"), self._tab_event()))
 
     def test_custom_commands_none_result(self):
         from code_puppy.command_line.prompt_toolkit_completion import SlashCompleter
@@ -396,7 +435,9 @@ class TestSlashCompleter:
                 return_value=[None],
             ),
         ):
-            completions = list(c.get_completions(self._make_doc("/"), None))
+            completions = list(
+                c.get_completions(self._make_doc("/"), self._tab_event())
+            )
             assert completions == []
 
 
@@ -504,7 +545,9 @@ class TestGetPromptWithActiveModel:
             result = get_prompt_with_active_model()
             text = "".join(t[1] for t in result)
             assert "code-puppy" in text
-            assert "(default)" in text
+            # With no model configured the statusline surfaces [None] so the
+            # user immediately sees they need to /add_model.
+            assert "[None]" in text
 
     def test_cwd_outside_home(self):
         from code_puppy.command_line.prompt_toolkit_completion import (
@@ -549,7 +592,7 @@ class TestGetInputWithCombinedCompletion:
                 return_value={},
             ),
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.PromptSession"
+                "code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession"
             ) as mock_cls,
         ):
             mock_session = MagicMock()
@@ -577,7 +620,7 @@ class TestGetInputWithCombinedCompletion:
                 return_value={},
             ),
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.PromptSession"
+                "code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession"
             ) as mock_cls,
         ):
             mock_session = MagicMock()
@@ -607,7 +650,7 @@ class TestGetInputWithCombinedCompletion:
                 return_value={},
             ),
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.PromptSession"
+                "code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession"
             ) as mock_cls,
         ):
             mock_session = MagicMock()
@@ -642,7 +685,7 @@ class TestKeyBindings:
                 return_value={},
             ),
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.PromptSession"
+                "code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession"
             ) as mock_cls,
         ):
             mock_session = MagicMock()
@@ -714,6 +757,9 @@ class TestKeyBindings:
         handler = self._find_handler(captured_bindings, "c-m")
         assert handler is not None
         event = MagicMock()
+        # No active completion menu — must explicitly be None, else the
+        # handler takes the "accept completion" branch instead of submitting.
+        event.current_buffer.complete_state = None
         # In default state, multiline is off
         handler(event)
         event.current_buffer.validate_and_handle.assert_called_once()
@@ -728,12 +774,15 @@ class TestKeyBindings:
         event.app.current_buffer.start_completion.assert_called_once()
 
     def test_backspace_without_slash(self, captured_bindings):
+        # Backspace now unconditionally restarts completion for any non-empty
+        # buffer text, so `@` file completions and `/model <name>` sub-
+        # completions stay alive while editing — not just bare `/` slash cmds.
         handler = self._find_handler(captured_bindings, "c-h")
         event = MagicMock()
         event.app.current_buffer.text = "hello"
         handler(event)
         event.app.current_buffer.delete_before_cursor.assert_called_once()
-        event.app.current_buffer.start_completion.assert_not_called()
+        event.app.current_buffer.start_completion.assert_called_once()
 
     def test_delete_with_slash(self, captured_bindings):
         handler = self._find_handler(captured_bindings, "delete")
@@ -766,10 +815,6 @@ class TestKeyBindings:
 
         with (
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
-                return_value=True,
-            ),
-            patch(
                 "code_puppy.command_line.prompt_toolkit_completion.capture_clipboard_image_to_pending",
                 return_value="[📋 image 1]",
             ),
@@ -783,8 +828,8 @@ class TestKeyBindings:
         event.data = "  "
 
         with patch(
-            "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
-            return_value=False,
+            "code_puppy.command_line.prompt_toolkit_completion.capture_clipboard_image_to_pending",
+            return_value=None,
         ):
             handler(event)
             # Fallback: paste the whitespace
@@ -796,7 +841,7 @@ class TestKeyBindings:
         event.data = "  "
 
         with patch(
-            "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
+            "code_puppy.command_line.prompt_toolkit_completion.capture_clipboard_image_to_pending",
             side_effect=Exception("fail"),
         ):
             handler(event)
@@ -809,8 +854,8 @@ class TestKeyBindings:
         event.data = ""
 
         with patch(
-            "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
-            return_value=False,
+            "code_puppy.command_line.prompt_toolkit_completion.capture_clipboard_image_to_pending",
+            return_value=None,
         ):
             handler(event)
 
@@ -820,10 +865,6 @@ class TestKeyBindings:
         event = MagicMock()
 
         with (
-            patch(
-                "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
-                return_value=True,
-            ),
             patch(
                 "code_puppy.command_line.prompt_toolkit_completion.capture_clipboard_image_to_pending",
                 return_value="[📋 image 1]",
@@ -842,8 +883,8 @@ class TestKeyBindings:
 
         with (
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
-                return_value=False,
+                "code_puppy.command_line.prompt_toolkit_completion.capture_clipboard_image_to_pending",
+                return_value=None,
             ),
             patch("platform.system", return_value="Darwin"),
             patch("subprocess.run", return_value=mock_result),
@@ -861,8 +902,8 @@ class TestKeyBindings:
 
         with (
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
-                return_value=False,
+                "code_puppy.command_line.prompt_toolkit_completion.capture_clipboard_image_to_pending",
+                return_value=None,
             ),
             patch("platform.system", return_value="Windows"),
             patch("subprocess.run", return_value=mock_result),
@@ -880,8 +921,8 @@ class TestKeyBindings:
 
         with (
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
-                return_value=False,
+                "code_puppy.command_line.prompt_toolkit_completion.capture_clipboard_image_to_pending",
+                return_value=None,
             ),
             patch("platform.system", return_value="Linux"),
             patch("subprocess.run", return_value=mock_result),
@@ -903,8 +944,8 @@ class TestKeyBindings:
 
         with (
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
-                return_value=False,
+                "code_puppy.command_line.prompt_toolkit_completion.capture_clipboard_image_to_pending",
+                return_value=None,
             ),
             patch("platform.system", return_value="Linux"),
             patch("subprocess.run", side_effect=run_side_effect),
@@ -916,7 +957,7 @@ class TestKeyBindings:
         event = MagicMock()
 
         with patch(
-            "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
+            "code_puppy.command_line.prompt_toolkit_completion.capture_clipboard_image_to_pending",
             side_effect=Exception("fail"),
         ):
             handler(event)  # Should not raise
@@ -927,10 +968,6 @@ class TestKeyBindings:
         event = MagicMock()
 
         with (
-            patch(
-                "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
-                return_value=True,
-            ),
             patch(
                 "code_puppy.command_line.prompt_toolkit_completion.capture_clipboard_image_to_pending",
                 return_value="[📋 image]",
@@ -944,8 +981,8 @@ class TestKeyBindings:
         event = MagicMock()
 
         with patch(
-            "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
-            return_value=False,
+            "code_puppy.command_line.prompt_toolkit_completion.capture_clipboard_image_to_pending",
+            return_value=None,
         ):
             handler(event)
             call_args = event.app.current_buffer.insert_text.call_args[0][0]
@@ -956,7 +993,7 @@ class TestKeyBindings:
         event = MagicMock()
 
         with patch(
-            "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
+            "code_puppy.command_line.prompt_toolkit_completion.capture_clipboard_image_to_pending",
             side_effect=Exception("fail"),
         ):
             handler(event)
@@ -1003,8 +1040,8 @@ class TestKeyBindings:
 
         with (
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
-                return_value=False,
+                "code_puppy.command_line.prompt_toolkit_completion.capture_clipboard_image_to_pending",
+                return_value=None,
             ),
             patch("platform.system", return_value="Linux"),
             patch("subprocess.run", side_effect=run_side_effect),
@@ -1018,8 +1055,8 @@ class TestKeyBindings:
 
         with (
             patch(
-                "code_puppy.command_line.prompt_toolkit_completion.has_image_in_clipboard",
-                return_value=False,
+                "code_puppy.command_line.prompt_toolkit_completion.capture_clipboard_image_to_pending",
+                return_value=None,
             ),
             patch("platform.system", return_value="Darwin"),
             patch("subprocess.run", side_effect=Exception("total failure")),
@@ -1037,8 +1074,11 @@ class TestKeyBindings:
             f2_handler(event)  # Toggle multiline ON
 
         event2 = MagicMock()
+        # No active completion menu — otherwise the handler accepts
+        # the completion instead of inserting a newline.
+        event2.current_buffer.complete_state = None
         enter_handler(event2)  # Now enter should insert newline
-        event2.app.current_buffer.insert_text.assert_called_with("\n")
+        event2.current_buffer.insert_text.assert_called_with("\n")
 
 
 class TestAttachmentPlaceholderProcessorExtended:

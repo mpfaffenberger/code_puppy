@@ -709,7 +709,7 @@ class TestExtractMessageContent:
         )
         role, content = _extract_message_content(msg)
         assert role == "tool"
-        assert "🔧 Tool Call: edit_file" in content
+        assert "Tool Call: edit_file" in content
 
     def test_text_response_returns_assistant_role(self):
         """Response with text part returns role='assistant'."""
@@ -760,7 +760,7 @@ class TestExtractMessageContent:
             ],
         )
         role, content = _extract_message_content(msg)
-        assert "🔧 Tool Call: edit_file" in content
+        assert "Tool Call: edit_file" in content
         assert "Args:" in content
         assert "file_path" in content
 
@@ -787,7 +787,7 @@ class TestExtractMessageContent:
             ],
         )
         role, content = _extract_message_content(msg)
-        assert "🔧 Tool Call: list_files" in content
+        assert "Tool Call: list_files" in content
 
     def test_tool_return_extracts_tool_name_and_result(self):
         """Tool return shows tool name and content preview."""
@@ -1284,3 +1284,69 @@ class TestDisplayResumedHistory:
         assert "Hello from assistant" in captured.out
         # Tool output shown
         assert "Tool result" in captured.out or "test_tool" in captured.out
+
+
+class TestSessionEntrySorting:
+    """Session picker is a flat list sorted by timestamp, newest first."""
+
+    @patch("code_puppy.command_line.autosave_menu.list_sessions")
+    @patch("code_puppy.command_line.autosave_menu._get_session_metadata")
+    def test_mixed_sessions_sort_by_timestamp(self, mock_metadata, mock_list):
+        from code_puppy.command_line.autosave_menu import _get_session_entries
+
+        # Mixed named + auto: pure mtime-desc, no section grouping.
+        mock_list.return_value = [
+            "auto_session_20260101_120000",  # newest overall
+            "mywork",  # oldest overall
+            "auto_session_20251201_120000",
+            "vacation_planning",
+        ]
+        mock_metadata.side_effect = [
+            {"timestamp": "2026-01-01T12:00:00"},
+            {"timestamp": "2025-06-01T12:00:00"},
+            {"timestamp": "2025-12-01T12:00:00"},
+            {"timestamp": "2025-12-15T12:00:00"},
+        ]
+
+        result = _get_session_entries(Path("/fake/dir"))
+
+        assert [entry[0] for entry in result] == [
+            "auto_session_20260101_120000",
+            "vacation_planning",
+            "auto_session_20251201_120000",
+            "mywork",
+        ]
+
+    @patch("code_puppy.command_line.autosave_menu.list_sessions")
+    @patch("code_puppy.command_line.autosave_menu._get_session_metadata")
+    def test_only_named_sessions(self, mock_metadata, mock_list):
+        from code_puppy.command_line.autosave_menu import _get_session_entries
+
+        mock_list.return_value = ["mywork", "vacation"]
+        mock_metadata.side_effect = [
+            {"timestamp": "2025-06-01T12:00:00"},
+            {"timestamp": "2025-12-01T12:00:00"},
+        ]
+
+        result = _get_session_entries(Path("/fake/dir"))
+        assert [e[0] for e in result] == ["vacation", "mywork"]
+
+    @patch("code_puppy.command_line.autosave_menu.list_sessions")
+    @patch("code_puppy.command_line.autosave_menu._get_session_metadata")
+    def test_only_auto_sessions(self, mock_metadata, mock_list):
+        from code_puppy.command_line.autosave_menu import _get_session_entries
+
+        mock_list.return_value = [
+            "auto_session_20260101_120000",
+            "auto_session_20251201_120000",
+        ]
+        mock_metadata.side_effect = [
+            {"timestamp": "2026-01-01T12:00:00"},
+            {"timestamp": "2025-12-01T12:00:00"},
+        ]
+
+        result = _get_session_entries(Path("/fake/dir"))
+        assert [e[0] for e in result] == [
+            "auto_session_20260101_120000",
+            "auto_session_20251201_120000",
+        ]

@@ -23,7 +23,7 @@ class TestClipboardAttachmentManager:
 
         placeholder = manager.add_image(fake_png)
 
-        assert placeholder == "[📋 clipboard image 1]"
+        assert placeholder == "[clipboard image 1]"
 
     def test_placeholder_increments_correctly(self):
         """Test that placeholder numbers increment with each add."""
@@ -36,9 +36,9 @@ class TestClipboardAttachmentManager:
         p2 = manager.add_image(fake_png)
         p3 = manager.add_image(fake_png)
 
-        assert p1 == "[📋 clipboard image 1]"
-        assert p2 == "[📋 clipboard image 2]"
-        assert p3 == "[📋 clipboard image 3]"
+        assert p1 == "[clipboard image 1]"
+        assert p2 == "[clipboard image 2]"
+        assert p3 == "[clipboard image 3]"
 
     def test_get_pending_images_returns_binary_content_list(self):
         """Test that get_pending_images returns list of BinaryContent."""
@@ -136,12 +136,12 @@ class TestClipboardAttachmentManager:
         fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
 
         p1 = manager.add_image(fake_png)
-        assert p1 == "[📋 clipboard image 1]"
+        assert p1 == "[clipboard image 1]"
 
         manager.clear_pending()
 
         p2 = manager.add_image(fake_png)
-        assert p2 == "[📋 clipboard image 2]"
+        assert p2 == "[clipboard image 2]"
 
     def test_manager_is_thread_safe(self):
         """Test basic thread safety of add_image and get_pending_count."""
@@ -300,7 +300,7 @@ class TestCaptureClipboardImageToPending:
         ):
             result = clipboard.capture_clipboard_image_to_pending()
 
-        assert result == "[📋 clipboard image 1]"
+        assert result == "[clipboard image 1]"
 
         # Restore
         clipboard._clipboard_manager = original_manager
@@ -1333,7 +1333,7 @@ class TestMaxImageSizeConstant:
 
     def test_max_dimension_is_4096(self):
         """Test that max dimension is 4096."""
-        from code_puppy.command_line.clipboard import MAX_IMAGE_DIMENSION
+        from code_puppy.command_line.image_utils import MAX_IMAGE_DIMENSION
 
         assert MAX_IMAGE_DIMENSION == 4096
 

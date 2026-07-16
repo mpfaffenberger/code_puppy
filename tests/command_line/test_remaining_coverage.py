@@ -46,7 +46,14 @@ def test_clipboard_pil_import_failure():
         if saved:
             sys.modules[mod_name] = saved
         else:
-            importlib.import_module(mod_name)
+            saved = importlib.import_module(mod_name)
+        # ALSO restore the package attribute: ``import a.b`` rebinds
+        # ``a.b`` on every import, so without this the package attr
+        # points at the throwaway module and later string-target
+        # monkeypatches hit the wrong object.
+        import code_puppy.command_line as _pkg
+
+        _pkg.clipboard = saved
 
 
 def test_clipboard_binary_content_import_failure():
@@ -63,7 +70,11 @@ def test_clipboard_binary_content_import_failure():
         if saved:
             sys.modules[mod_name] = saved
         else:
-            importlib.import_module(mod_name)
+            saved = importlib.import_module(mod_name)
+        # See note above: keep the package attribute in sync too.
+        import code_puppy.command_line as _pkg
+
+        _pkg.clipboard = saved
 
 
 # ============================================================
@@ -273,11 +284,15 @@ async def test_diff_menu_keybindings():
 
 
 def test_config_set_compaction_strategy_not_in_keys():
-    """Cover line 204: compaction_strategy added when not in config_keys."""
+    """`/set` with no arguments now launches the interactive picker
+    instead of dumping a usage-help wall (which used to include the
+    auto-injected ``compaction_strategy`` entry). The picker itself is
+    mocked away here so the dispatcher just confirms the wire-up."""
     from code_puppy.command_line.config_commands import handle_set_command
 
     with patch(
-        "code_puppy.command_line.config_commands.get_config_keys", return_value=[]
+        "code_puppy.command_line.set_menu.interactive_set_picker",
+        return_value=None,
     ):
         result = handle_set_command("/set")
         assert result is True

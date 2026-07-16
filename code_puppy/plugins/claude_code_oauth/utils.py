@@ -15,6 +15,8 @@ from urllib.parse import urlencode
 
 import requests
 
+from code_puppy.plugins.oauth_pasteback import parse_oauth_callback_input
+
 from .config import (
     CLAUDE_CODE_OAUTH_CONFIG,
     get_claude_models_path,
@@ -111,19 +113,12 @@ def build_authorization_url(context: OAuthContext) -> str:
 
 
 def parse_authorization_code(raw_input: str) -> Tuple[str, Optional[str]]:
-    value = raw_input.strip()
-    if not value:
+    parsed = parse_oauth_callback_input(raw_input)
+    if parsed.error:
+        raise ValueError(parsed.error_message or parsed.error)
+    if not parsed.code:
         raise ValueError("Authorization code cannot be empty")
-
-    if "#" in value:
-        code, state = value.split("#", 1)
-        return code.strip(), state.strip() or None
-
-    parts = value.split()
-    if len(parts) == 2:
-        return parts[0].strip(), parts[1].strip() or None
-
-    return value, None
+    return parsed.code, parsed.state
 
 
 def load_stored_tokens() -> Optional[Dict[str, Any]]:
@@ -460,11 +455,23 @@ def filter_latest_claude_models(
     family_models: Dict[str, List[Tuple[str, int, int, int]]] = {}
 
     for model_name in models:
+        if model_name == "claude-opus-4-8":
+            family_models.setdefault("opus", []).append((model_name, 4, 8, 20250301))
+            continue
+        if model_name == "claude-opus-4-7":
+            family_models.setdefault("opus", []).append((model_name, 4, 7, 20250219))
+            continue
         if model_name == "claude-opus-4-6":
             family_models.setdefault("opus", []).append((model_name, 4, 6, 20260205))
             continue
         if model_name == "claude-sonnet-4-6":
             family_models.setdefault("sonnet", []).append((model_name, 4, 6, 20250610))
+            continue
+        if model_name == "claude-sonnet-5":
+            family_models.setdefault("sonnet", []).append((model_name, 5, 0, 0))
+            continue
+        if model_name == "claude-fable-5":
+            family_models.setdefault("fable", []).append((model_name, 5, 0, 0))
             continue
         # Match pattern: claude-{family}-{major}-{minor}-{date}
         # Examples: claude-haiku-3-5-20241022, claude-sonnet-4-5-20250929
@@ -557,11 +564,22 @@ def _build_model_entry(model_name: str, access_token: str, context_length: int) 
         "extended_thinking",
         "budget_tokens",
         "interleaved_thinking",
+        "fast",
     ]
 
     # Opus 4-6 models support the effort setting
     lower = model_name.lower()
-    if "opus-4-6" in lower or "4-6-opus" in lower:
+    if (
+        "opus-4-6" in lower
+        or "4-6-opus" in lower
+        or "opus-4-7" in lower
+        or "4-7-opus" in lower
+        or "opus-4-8" in lower
+        or "4-8-opus" in lower
+        or "sonnet-5" in lower
+        or "5-sonnet" in lower
+        or "fable-5" in lower
+    ):
         supported_settings.append("effort")
 
     return {
@@ -586,7 +604,7 @@ def add_models_to_extra_config(models: List[str]) -> bool:
     try:
         # Filter to only latest haiku, sonnet, and opus models
         filtered_models = filter_latest_claude_models(
-            models, max_per_family={"default": 1, "opus": 3}
+            models, max_per_family={"default": 1, "opus": 3, "fable": 3}
         )
 
         # Start fresh - overwrite the file on every auth instead of loading existing

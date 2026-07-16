@@ -3,6 +3,7 @@
 import pytest
 
 from code_puppy.hook_engine.executor import (
+    _interpret_control_payload,
     _substitute_variables,
     execute_hook,
     execute_hooks_sequential,
@@ -161,6 +162,124 @@ class TestExecuteHooksSequential:
         event_data = EventData(event_type="PreToolUse", tool_name="Edit")
         results = await execute_hooks_sequential(hooks, event_data)
         assert len(results) == 2
+
+
+class TestInterpretControlPayload:
+    """Stdout JSON control payloads (issue #470)."""
+
+    def test_plugin_dialect_block(self):
+        stdout = '{"result": "block", "reason": "dangerous command"}'
+        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
+        assert blocked is True
+        assert error == "dangerous command"
+        assert new_stdout == ""
+
+    def test_plugin_dialect_continue_stripped_from_context(self):
+        """Control JSON must not leak into model context (issue #298 noise)."""
+        stdout = '{"result": "continue"}'
+        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
+        assert blocked is False
+        assert error is None
+        assert new_stdout == ""
+
+    def test_official_decision_block(self):
+        stdout = '{"decision": "block", "reason": "nope"}'
+        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
+        assert blocked is True
+        assert error == "nope"
+        assert new_stdout == ""
+
+    def test_official_permission_decision_deny(self):
+        stdout = (
+            '{"hookSpecificOutput": {"permissionDecision": "deny", '
+            '"permissionDecisionReason": "policy violation"}}'
+        )
+        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
+        assert blocked is True
+        assert error == "policy violation"
+        assert new_stdout == ""
+
+    def test_official_permission_decision_allow(self):
+        stdout = '{"hookSpecificOutput": {"permissionDecision": "allow"}}'
+        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
+        assert blocked is False
+        assert error is None
+        assert new_stdout == ""
+
+    def test_additional_context_replaces_stdout(self):
+        stdout = (
+            '{"decision": "block", "reason": "bad", '
+            '"hookSpecificOutput": {"additionalContext": "use git push without --force"}}'
+        )
+        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
+        assert blocked is True
+        assert error == "bad"
+        assert new_stdout == "use git push without --force"
+
+    def test_continue_false_blocks_with_stop_reason(self):
+        stdout = '{"continue": false, "stopReason": "halting"}'
+        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
+        assert blocked is True
+        assert error == "halting"
+
+    def test_non_control_json_passthrough(self):
+        """A hook legitimately printing JSON must be untouched."""
+        stdout = '{"foo": "bar"}'
+        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
+        assert new_stdout == stdout
+        assert blocked is False
+        assert error is None
+
+    def test_plain_text_passthrough(self):
+        new_stdout, blocked, error = _interpret_control_payload("hello", False, None)
+        assert new_stdout == "hello"
+        assert blocked is False
+
+    def test_invalid_json_passthrough(self):
+        stdout = '{"result": "block"'  # truncated JSON
+        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
+        assert new_stdout == stdout
+        assert blocked is False
+
+    def test_exit_code_block_not_unset_by_continue_payload(self):
+        """Exit-code-1 semantics win even if the payload says continue."""
+        stdout = '{"result": "continue"}'
+        new_stdout, blocked, error = _interpret_control_payload(
+            stdout, True, "exit 1 reason"
+        )
+        assert blocked is True
+        assert error == "exit 1 reason"
+
+
+@pytest.mark.asyncio
+class TestControlPayloadEndToEnd:
+    async def test_exit_zero_json_block_verdict_blocks(self):
+        """Marketplace-style hook: exit 0 + JSON block verdict must block."""
+        hook = HookConfig(
+            matcher="*",
+            type="command",
+            command='echo \'{"result": "block", "reason": "BLOCKED by safety guard"}\'',
+            timeout=1000,
+        )
+        event_data = EventData(event_type="PreToolUse", tool_name="Bash")
+        result = await execute_hook(hook, event_data)
+        assert result.exit_code == 0
+        assert result.blocked is True
+        assert "BLOCKED by safety guard" in result.error
+        assert result.stdout == ""
+
+    async def test_exit_zero_json_continue_no_context_noise(self):
+        hook = HookConfig(
+            matcher="*",
+            type="command",
+            command='echo \'{"result": "continue"}\'',
+            timeout=1000,
+        )
+        event_data = EventData(event_type="PreToolUse", tool_name="Bash")
+        result = await execute_hook(hook, event_data)
+        assert result.blocked is False
+        assert result.stdout == ""
+        assert result.success is True
 
 
 class TestGetBlockingResult:

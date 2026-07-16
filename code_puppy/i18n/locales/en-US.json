@@ -1,0 +1,23 @@
+{
+  "startup.welcome": "Welcome to Code Puppy, {name}!",
+  "startup.ready": "Ready to fetch some code. \ud83d\udc36",
+  "locale.set": "Locale set to {locale}.",
+  "locale.current": "Current locale: {locale}",
+  "files.deleted": {
+    "one": "Deleted {count} file.",
+    "other": "Deleted {count} files."
+  },
+  "files.written": {
+    "one": "Wrote {count} file.",
+    "other": "Wrote {count} files."
+  },
+  "error.generic": "Something went wrong: {detail}",
+  "version.current": "Current version: {version}",
+  "version.latest": "Latest version: {version}",
+  "version.update_available": "A new version of code puppy is available: {version}",
+  "version.please_update": "Please consider updating!",
+  "version.fetch_failed": "Error fetching version: {error}",
+  "version.undetected": "Could not detect current version, using fallback",
+  "confirm.yes": "Yes",
+  "confirm.no": "No"
+}

@@ -15,6 +15,8 @@ from typing import Any, Dict, Optional, Union
 
 from rich.text import Text
 
+from code_puppy.i18n import LazyTranslation
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,6 +25,7 @@ class MessageType(Enum):
 
     # Basic content types
     INFO = "info"
+    QUEUED = "queued"
     SUCCESS = "success"
     WARNING = "warning"
     ERROR = "error"
@@ -141,6 +144,37 @@ class MessageQueue:
             return self._queue.get_nowait()
         except queue.Empty:
             return None
+
+    def drain(self, timeout: float = 1.0) -> bool:
+        """Best-effort wait for queued messages to render.
+
+        Call this immediately before reading from stdin (input(), safe_input,
+        prompt_toolkit, etc.) so that any previously-emitted ``emit_info`` /
+        ``emit_warning`` text has a chance to actually appear on screen
+        before the prompt steals the terminal. Without this, a prompt label
+        can show up *above* the message that was meant to introduce it.
+
+        Args:
+            timeout: Maximum seconds to wait for the queue to empty.
+
+        Returns:
+            True if the queue drained within the timeout, False otherwise.
+        """
+        import time
+
+        # Fast path: queue already empty. Do one short paint-pause so the
+        # daemon thread can finish rendering whatever it just dequeued.
+        if self._queue.empty():
+            time.sleep(0.05)
+            return True
+
+        deadline = time.monotonic() + max(0.0, timeout)
+        while time.monotonic() < deadline:
+            if self._queue.empty():
+                time.sleep(0.05)
+                return True
+            time.sleep(0.02)
+        return False
 
     async def get_async(self) -> UIMessage:
         """Get a message asynchronously."""
@@ -274,7 +308,18 @@ def get_buffered_startup_messages():
 
 
 def emit_message(message_type: MessageType, content: Any, **metadata):
-    """Convenience function to emit a message to the global queue."""
+    """Convenience function to emit a message to the global queue.
+
+    This is the single legacy choke point every ``emit_*`` helper funnels
+    through, so it's the natural i18n seam. If a call site passes a
+    :class:`~code_puppy.i18n.LazyTranslation` (from ``i18n.lazy(...)``), it is
+    resolved against the active locale here. Plain strings pass through
+    untouched, so existing call sites are unaffected. (Full render-time
+    deferral — respecting a locale switch *after* emit — lands with the
+    rich_renderer seam in PUP-485.)
+    """
+    if isinstance(content, LazyTranslation):
+        content = str(content)
     queue = get_global_queue()
     queue.emit_simple(message_type, content, **metadata)
 
@@ -282,6 +327,11 @@ def emit_message(message_type: MessageType, content: Any, **metadata):
 def emit_info(content: Any, **metadata):
     """Emit an info message."""
     emit_message(MessageType.INFO, content, **metadata)
+
+
+def emit_queued(content: Any, **metadata):
+    """Emit a queued-for-next-turn acknowledgement."""
+    emit_message(MessageType.QUEUED, content, **metadata)
 
 
 def emit_success(content: Any, **metadata):
@@ -344,13 +394,18 @@ def emit_prompt(prompt_text: str, timeout: float = None) -> str:
 
     Uses safe_input for cross-platform compatibility, especially on Windows
     where raw input() can fail after prompt_toolkit Applications.
+
+    The drain() inside safe_input ensures the prompt_text we just enqueued
+    actually renders before stdin is read — otherwise input() would race
+    ahead and the user would see a bare ``>>>`` with no question above it.
     """
     from code_puppy.command_line.utils import safe_input
     from code_puppy.messaging import emit_info
 
     emit_info(prompt_text)
 
-    # Use safe_input which resets Windows console state before reading
+    # safe_input drains the message queue before reading, so the prompt_text
+    # above is guaranteed to have hit the screen first.
     response = safe_input(">>> ")
     return response
 

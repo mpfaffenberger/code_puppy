@@ -14,11 +14,14 @@ import requests
 
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
+from ..oauth_pasteback import parse_oauth_callback_input, read_available_stdin_line
 from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
 from .config import CHATGPT_OAUTH_CONFIG
 from .utils import (
+    OAuthContext,
     add_models_to_extra_config,
     assign_redirect_uri,
+    build_authorization_url,
     load_stored_tokens,
     parse_jwt_claims,
     prepare_oauth_context,
@@ -44,6 +47,94 @@ class AuthBundle:
     last_refresh: str
 
 
+def _exchange_code_for_auth_bundle(
+    *, code: str, context: OAuthContext, client_id: str
+) -> Tuple[AuthBundle, str]:
+    if not context.redirect_uri:
+        raise RuntimeError("Redirect URI missing from OAuth context")
+
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": context.redirect_uri,
+        "client_id": client_id,
+        "code_verifier": context.code_verifier,
+    }
+
+    response = requests.post(
+        CHATGPT_OAUTH_CONFIG["token_url"],
+        data=data,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=30,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    id_token = payload.get("id_token", "")
+    access_token = payload.get("access_token", "")
+    refresh_token = payload.get("refresh_token", "")
+
+    id_token_claims = parse_jwt_claims(id_token) or {}
+    access_token_claims = parse_jwt_claims(access_token) or {}
+
+    auth_claims = id_token_claims.get("https://api.openai.com/auth") or {}
+    chatgpt_account_id = auth_claims.get("chatgpt_account_id", "")
+    organizations = auth_claims.get("organizations", [])
+    org_id = None
+    if organizations:
+        default_org = next(
+            (org for org in organizations if org.get("is_default")),
+            organizations[0],
+        )
+        org_id = default_org.get("id")
+    if not org_id:
+        org_id = id_token_claims.get("organization_id")
+
+    token_data = TokenData(
+        id_token=id_token,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        account_id=chatgpt_account_id,
+    )
+
+    last_refresh = (
+        datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+    )
+    bundle = AuthBundle(
+        api_key=token_data.access_token,
+        token_data=token_data,
+        last_refresh=last_refresh,
+    )
+
+    success_query = {
+        "id_token": token_data.id_token,
+        "access_token": token_data.access_token,
+        "refresh_token": token_data.refresh_token,
+        "org_id": org_id or "",
+        "plan_type": access_token_claims.get("chatgpt_plan_type"),
+        "platform_url": "https://platform.openai.com",
+    }
+    success_url = f"{URL_BASE}/success?{urllib.parse.urlencode(success_query)}"
+    return bundle, success_url
+
+
+def _save_auth_bundle(auth_bundle: AuthBundle) -> bool:
+    tokens = {
+        "id_token": auth_bundle.token_data.id_token,
+        "access_token": auth_bundle.token_data.access_token,
+        "refresh_token": auth_bundle.token_data.refresh_token,
+        "account_id": auth_bundle.token_data.account_id,
+        "last_refresh": auth_bundle.last_refresh,
+    }
+    if auth_bundle.api_key:
+        tokens["api_key"] = auth_bundle.api_key
+    return save_tokens(tokens)
+
+
+def _state_matches(context: OAuthContext, state: Optional[str]) -> bool:
+    return bool(state and state == context.state)
+
+
 class _OAuthServer(HTTPServer):
     def __init__(
         self,
@@ -59,6 +150,8 @@ class _OAuthServer(HTTPServer):
         self.client_id = client_id
         self.issuer = CHATGPT_OAUTH_CONFIG["issuer"]
         self.token_endpoint = CHATGPT_OAUTH_CONFIG["token_url"]
+        self.error: Optional[str] = None
+        self.received_event = threading.Event()
 
         # Create fresh OAuth context for this server instance
         context = prepare_oauth_context()
@@ -80,76 +173,9 @@ class _OAuthServer(HTTPServer):
         return f"{self.issuer}/oauth/authorize?" + urllib.parse.urlencode(params)
 
     def exchange_code(self, code: str) -> Tuple[AuthBundle, str]:
-        data = {
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": self.redirect_uri,
-            "client_id": self.client_id,
-            "code_verifier": self.context.code_verifier,
-        }
-
-        response = requests.post(
-            self.token_endpoint,
-            data=data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=30,
+        return _exchange_code_for_auth_bundle(
+            code=code, context=self.context, client_id=self.client_id
         )
-        response.raise_for_status()
-        payload = response.json()
-
-        id_token = payload.get("id_token", "")
-        access_token = payload.get("access_token", "")
-        refresh_token = payload.get("refresh_token", "")
-
-        id_token_claims = parse_jwt_claims(id_token) or {}
-        access_token_claims = parse_jwt_claims(access_token) or {}
-
-        auth_claims = id_token_claims.get("https://api.openai.com/auth") or {}
-        chatgpt_account_id = auth_claims.get("chatgpt_account_id", "")
-        # Extract org_id from nested auth structure like ChatMock
-        organizations = auth_claims.get("organizations", [])
-        org_id = None
-        if organizations:
-            default_org = next(
-                (org for org in organizations if org.get("is_default")),
-                organizations[0],
-            )
-            org_id = default_org.get("id")
-        # Fallback to top-level org_id if still not found
-        if not org_id:
-            org_id = id_token_claims.get("organization_id")
-
-        token_data = TokenData(
-            id_token=id_token,
-            access_token=access_token,
-            refresh_token=refresh_token,
-            account_id=chatgpt_account_id,
-        )
-
-        # Instead of exchanging for an API key, just use the access_token directly
-        # This matches how ChatMock works - no token exchange, just OAuth tokens
-        api_key = token_data.access_token
-
-        last_refresh = (
-            datetime.datetime.now(datetime.timezone.utc)
-            .isoformat()
-            .replace("+00:00", "Z")
-        )
-        bundle = AuthBundle(
-            api_key=api_key, token_data=token_data, last_refresh=last_refresh
-        )
-
-        # Build success URL with all the token info
-        success_query = {
-            "id_token": token_data.id_token,
-            "access_token": token_data.access_token,
-            "refresh_token": token_data.refresh_token,
-            "org_id": org_id or "",
-            "plan_type": access_token_claims.get("chatgpt_plan_type"),
-            "platform_url": "https://platform.openai.com",
-        }
-        success_url = f"{URL_BASE}/success?{urllib.parse.urlencode(success_query)}"
-        return bundle, success_url
 
 
 class _CallbackHandler(BaseHTTPRequestHandler):
@@ -167,7 +193,9 @@ class _CallbackHandler(BaseHTTPRequestHandler):
             return
 
         if path != "/auth/callback":
-            self._send_failure(404, "Callback endpoint not found for the puppy parade.")
+            self._fail_callback(
+                404, "Callback endpoint not found for the puppy parade."
+            )
             self._shutdown()
             return
 
@@ -176,33 +204,32 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
         code = params.get("code", [None])[0]
         if not code:
-            self._send_failure(400, "Missing auth code — the token treat rolled away.")
+            self._fail_callback(400, "Missing auth code — the token treat rolled away.")
+            self._shutdown()
+            return
+
+        state = params.get("state", [None])[0]
+        if not _state_matches(self.server.context, state):
+            self._fail_callback(
+                400, "State mismatch detected; aborting authentication."
+            )
             self._shutdown()
             return
 
         try:
             auth_bundle, success_url = self.server.exchange_code(code)
         except Exception as exc:  # noqa: BLE001
-            self._send_failure(500, f"Token exchange failed: {exc}")
+            self._fail_callback(500, f"Token exchange failed: {exc}")
             self._shutdown()
             return
 
-        tokens = {
-            "id_token": auth_bundle.token_data.id_token,
-            "access_token": auth_bundle.token_data.access_token,
-            "refresh_token": auth_bundle.token_data.refresh_token,
-            "account_id": auth_bundle.token_data.account_id,
-            "last_refresh": auth_bundle.last_refresh,
-        }
-        if auth_bundle.api_key:
-            tokens["api_key"] = auth_bundle.api_key
-
-        if save_tokens(tokens):
+        if _save_auth_bundle(auth_bundle):
             self.server.exit_code = 0
+            self.server.received_event.set()
             # Redirect to the success URL returned by exchange_code
             self._send_redirect(success_url)
         else:
-            self._send_failure(
+            self._fail_callback(
                 500, "Unable to persist auth file — a puppy probably chewed it."
             )
             self._shutdown()
@@ -235,6 +262,11 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         failure_html = oauth_failure_html("ChatGPT", reason)
         self._send_html(failure_html, status)
 
+    def _fail_callback(self, status: int, reason: str) -> None:
+        self.server.error = reason
+        self.server.received_event.set()
+        self._send_failure(status, reason)
+
     def _shutdown(self) -> None:
         threading.Thread(target=self.server.shutdown, daemon=True).start()
 
@@ -248,56 +280,156 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         threading.Thread(target=_later, daemon=True).start()
 
 
+def _prepare_manual_context() -> OAuthContext:
+    context = prepare_oauth_context()
+    assign_redirect_uri(context, REQUIRED_PORT)
+    return context
+
+
+def _complete_pasted_input(
+    *, raw_input: str, context: OAuthContext, client_id: str
+) -> bool:
+    try:
+        parsed = parse_oauth_callback_input(raw_input)
+    except ValueError as exc:
+        emit_error(f"Could not parse pasted OAuth input: {exc}")
+        return False
+
+    if parsed.error:
+        emit_error(f"OAuth provider returned an error: {parsed.error_message}")
+        return False
+
+    if not parsed.code:
+        emit_error("Pasted OAuth input did not contain an authorization code.")
+        return False
+
+    if parsed.state:
+        if parsed.state != context.state:
+            emit_error("State mismatch detected; aborting authentication.")
+            return False
+    else:
+        emit_warning(
+            "Pasted OAuth input did not include state; continuing with this login attempt."
+        )
+
+    try:
+        auth_bundle, _ = _exchange_code_for_auth_bundle(
+            code=parsed.code,
+            context=context,
+            client_id=client_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        emit_error(f"Token exchange failed: {exc}")
+        return False
+
+    if not _save_auth_bundle(auth_bundle):
+        emit_error("Unable to persist auth file.")
+        return False
+
+    emit_success("Authorization code accepted; tokens saved.")
+    return True
+
+
+def _wait_for_auth_completion(
+    *,
+    server: Optional[_OAuthServer],
+    context: OAuthContext,
+    client_id: str,
+) -> bool:
+    emit_info(
+        "Waiting for authentication callback. If localhost cannot be reached, "
+        "paste the full callback URL or authorization code here and press Enter."
+    )
+
+    elapsed = 0.0
+    timeout = CHATGPT_OAUTH_CONFIG["callback_timeout"]
+    interval = 0.25
+    while elapsed < timeout:
+        if server and server.exit_code == 0:
+            return True
+        if server and server.received_event.is_set():
+            if server.error:
+                emit_error(f"OAuth callback error: {server.error}")
+            return server.exit_code == 0
+
+        pasted = read_available_stdin_line()
+        if pasted is not None and pasted.strip():
+            if _complete_pasted_input(
+                raw_input=pasted,
+                context=context,
+                client_id=client_id,
+            ):
+                return True
+
+        time.sleep(interval)
+        elapsed += interval
+
+    return False
+
+
 def run_oauth_flow() -> None:
     existing_tokens = load_stored_tokens()
     if existing_tokens and existing_tokens.get("access_token"):
         emit_warning("Existing ChatGPT tokens will be overwritten.")
 
+    server: Optional[_OAuthServer] = None
+    server_thread: Optional[threading.Thread] = None
+    client_id = CHATGPT_OAUTH_CONFIG["client_id"]
     try:
-        server = _OAuthServer(client_id=CHATGPT_OAUTH_CONFIG["client_id"])
+        server = _OAuthServer(client_id=client_id)
+        context = server.context
+        auth_url = server.auth_url()
     except OSError as exc:
-        emit_error(f"Could not start OAuth server on port {REQUIRED_PORT}: {exc}")
-        emit_info(f"Use `lsof -ti:{REQUIRED_PORT} | xargs kill` to free the port.")
-        return
+        emit_warning(
+            f"Could not start OAuth server on port {REQUIRED_PORT}: {exc}. "
+            "Continuing in paste-back mode."
+        )
+        emit_info(
+            f"Free port {REQUIRED_PORT} to restore automatic localhost callbacks."
+        )
+        context = _prepare_manual_context()
+        auth_url = build_authorization_url(context)
 
-    auth_url = server.auth_url()
     emit_info(f"Open this URL in your browser: {auth_url}")
 
-    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
+    if server:
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
 
     webbrowser_opened = False
+    suppress_browser = False
     try:
         import webbrowser
 
         from code_puppy.tools.common import should_suppress_browser
 
-        if should_suppress_browser():
+        suppress_browser = should_suppress_browser()
+        if suppress_browser:
             emit_info(f"[HEADLESS MODE] Would normally open: {auth_url}")
         else:
             webbrowser_opened = webbrowser.open(auth_url)
     except Exception as exc:  # noqa: BLE001
         emit_warning(f"Could not open browser automatically: {exc}")
 
-    if not webbrowser_opened and not should_suppress_browser():
+    if not webbrowser_opened and not suppress_browser:
         emit_warning("Please open the URL manually if the browser did not open.")
 
-    emit_info("Waiting for authentication callback…")
+    completed = _wait_for_auth_completion(
+        server=server,
+        context=context,
+        client_id=client_id,
+    )
 
-    elapsed = 0.0
-    timeout = CHATGPT_OAUTH_CONFIG["callback_timeout"]
-    interval = 0.25
-    while elapsed < timeout:
-        time.sleep(interval)
-        elapsed += interval
-        if server.exit_code == 0:
-            break
+    if server:
+        server.shutdown()
+    if server_thread:
+        server_thread.join(timeout=5)
 
-    server.shutdown()
-    server_thread.join(timeout=5)
-
-    if server.exit_code != 0:
-        emit_error("Authentication failed or timed out.")
+    if not completed:
+        if server and server.error:
+            emit_error("Authentication failed.")
+        else:
+            emit_error("Authentication failed or timed out.")
         return
 
     tokens = load_stored_tokens()
@@ -325,5 +457,5 @@ def run_oauth_flow() -> None:
         if models:
             if add_models_to_extra_config(models):
                 emit_success(
-                    "ChatGPT models registered. Use the `chatgpt-` prefix in /model."
+                    "Codex models registered. Use the `codex-` prefix in /model."
                 )

@@ -74,7 +74,7 @@ def mock_interactive_imports(
                 return_value=agent,
             ),
             patch(
-                "code_puppy.config.set_current_autosave_from_session_name",
+                "code_puppy.config.pin_current_session_name",
                 MagicMock(),
             ),
         ]
@@ -526,8 +526,15 @@ class TestRestoreAutosaveErrorHandling:
         assert any("Failed to load" in w for w in warnings)
 
     @pytest.mark.asyncio
-    async def test_set_autosave_id_failure_ignored(self, tmp_path):
-        """Failure to set autosave ID should be silently ignored."""
+    async def test_pin_session_name_failure_ignored(self, tmp_path):
+        """Failure to pin the session name post-load should be silently ignored.
+
+        Post-LEAN-Phase-2 the config-mutation step in
+        ``restore_autosave_interactively`` is ``pin_current_session_name``
+        (it replaced the pre-Phase-2 ``set_current_autosave_from_session_name``).
+        The restore path wraps that call in ``try/except`` so a bad name
+        won't tank an otherwise-successful pickle load.
+        """
         import pickle
 
         history = [{"role": "user", "content": "test"}]
@@ -543,9 +550,9 @@ class TestRestoreAutosaveErrorHandling:
         mock_agent = MagicMock()
         mock_agent.estimate_tokens_for_message.return_value = 5
 
-        # Patch set_current_autosave_from_session_name to raise an exception
+        # Patch pin_current_session_name to raise an exception
         with patch(
-            "code_puppy.config.set_current_autosave_from_session_name",
+            "code_puppy.config.pin_current_session_name",
             side_effect=Exception("Config error"),
         ):
             async with mock_interactive_imports(

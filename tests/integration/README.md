@@ -1,7 +1,7 @@
 # CLI Integration Harness
 
 ## Overview
-This folder contains the reusable pyexpect harness that powers Code Puppy's end-to-end CLI integration tests. The harness lives in `tests/integration/cli_expect/harness.py` and exposes pytest fixtures via `tests/conftest.py`. Each test run boots the real `code-puppy` executable inside a temporary HOME, writes a throwaway configuration (including `puppy.cfg` and `motd.txt`), and captures the entire session into a per-run `cli_output.log` file for debugging.
+This folder contains the reusable pyexpect harness that powers Code Puppy's end-to-end CLI integration tests. The harness lives in `tests/integration/cli_expect/harness.py` and exposes pytest fixtures via `tests/conftest.py`. Each test run boots the real `code-puppy` executable inside a temporary HOME, writes a throwaway configuration (including `puppy.cfg`), and captures the entire session into a per-run `cli_output.log` file for debugging.
 
 ## Prerequisites
 - The CLI must be installed locally via `uv sync` or equivalent so `uv run pytest …` launches the editable project binary.
@@ -16,7 +16,7 @@ This folder contains the reusable pyexpect harness that powers Code Puppy's end-
 | --- | --- | --- | --- |
 | `CI` | Disables Rich Live() display | **Yes** | Set to `1` or `true`. Prevents streaming handler from using interactive display. |
 | `CODE_PUPPY_TEST_FAST` | Puts the CLI into fast/lean mode | **Yes** | Set to `1` or `true`. Skips nonessential animations. |
-| `SYN_API_KEY` | Primary provider for live integration coverage | For LLM tests | Required for real LLM calls with synthetic-GLM-5.1 model. |
+| `LILAC_API_KEY` | Primary provider for live integration coverage | For LLM tests | Required for real LLM calls with the `lilac-zai-org-glm-5.1` model (lilac-hosted GLM-5.1). |
 | `MODEL_NAME` | Optional override for the default model | No | Useful when pointing at alternate providers (OpenAI, Gemini, etc.). |
 | Provider-specific keys | `OPENAI_API_KEY`, `GEMINI_API_KEY`, `CEREBRAS_API_KEY`, … | No | Set whichever keys you expect the CLI to fall back to. |
 

@@ -55,12 +55,28 @@ class TestGetSettingChoices:
         assert "high" in choices
 
     @patch("code_puppy.command_line.model_settings_menu.ModelFactory")
-    def test_reasoning_effort_with_xhigh(self, mock_factory):
+    def test_reasoning_effort_with_xhigh_but_without_ultra(self, mock_factory):
         mock_factory.load_config.return_value = {
-            "codex": {"supports_xhigh_reasoning": True}
+            "codex": {
+                "supports_xhigh_reasoning": True,
+                "supports_ultra_reasoning": False,
+            }
         }
         choices = _get_setting_choices("reasoning_effort", "codex")
         assert "xhigh" in choices
+        assert "ultra" not in choices
+
+    @patch("code_puppy.command_line.model_settings_menu.ModelFactory")
+    def test_reasoning_effort_with_ultra(self, mock_factory):
+        mock_factory.load_config.return_value = {
+            "gpt-5.6-sol": {
+                "supports_xhigh_reasoning": True,
+                "supports_ultra_reasoning": True,
+            }
+        }
+        choices = _get_setting_choices("reasoning_effort", "gpt-5.6-sol")
+        assert "xhigh" in choices
+        assert "ultra" in choices
 
     def test_non_choice_setting(self):
         choices = _get_setting_choices("temperature")
@@ -70,6 +86,7 @@ class TestGetSettingChoices:
     def test_reasoning_effort_no_model_name(self, mock_factory):
         choices = _get_setting_choices("reasoning_effort")
         assert "xhigh" in choices  # no filtering without model
+        assert "ultra" in choices
 
 
 # --------------- ModelSettingsMenu properties ---------------
@@ -213,18 +230,44 @@ class TestFormatValue:
 
 class TestRenderMainList:
     @patch(
+        "code_puppy.command_line.model_settings_menu.ModelFactory.load_config",
+        return_value={"m1": {"description": "First model desc"}, "m2": {}},
+    )
+    @patch(
         "code_puppy.command_line.model_settings_menu.get_all_model_settings",
         return_value={},
     )
-    def test_render_models_view(self, mock_settings):
+    def test_render_models_view(self, mock_settings, mock_load_config):
         menu = _make_menu(models=["m1", "m2"])
         menu.view_mode = "models"
         lines = menu._render_main_list()
         text = "".join(t for _, t in lines)
         assert "Select a Model" in text
+        assert "First model desc" in text
 
+    @patch(
+        "code_puppy.command_line.model_settings_menu.ModelFactory.load_config",
+        return_value={"m1": {}},
+    )
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
+    def test_render_models_view_description_fallback(
+        self, mock_settings, mock_load_config
+    ):
+        menu = _make_menu(models=["m1"])
+        menu.view_mode = "models"
+        lines = menu._render_main_list()
+        text = "".join(t for _, t in lines)
+        assert "No description available." in text
+
+    @patch(
+        "code_puppy.command_line.model_settings_menu.ModelFactory.load_config",
+        return_value={"m1": {"description": "desc"}},
+    )
     @patch("code_puppy.command_line.model_settings_menu.get_all_model_settings")
-    def test_render_models_with_settings(self, mock_settings):
+    def test_render_models_with_settings(self, mock_settings, mock_load_config):
         mock_settings.return_value = {"temperature": 0.5}
         menu = _make_menu(models=["m1"])
         menu.current_model_name = "m1"
@@ -240,10 +283,14 @@ class TestRenderMainList:
         assert "No models" in text
 
     @patch(
+        "code_puppy.command_line.model_settings_menu.ModelFactory.load_config",
+        return_value={"m0": {"description": "desc"}},
+    )
+    @patch(
         "code_puppy.command_line.model_settings_menu.get_all_model_settings",
         return_value={},
     )
-    def test_render_models_pagination(self, mock_settings):
+    def test_render_models_pagination(self, mock_settings, mock_load_config):
         models = [f"m{i}" for i in range(MODELS_PER_PAGE + 5)]
         menu = _make_menu(models=models)
         lines = menu._render_main_list()
@@ -272,6 +319,9 @@ class TestRenderMainList:
     @patch(
         "code_puppy.command_line.model_settings_menu.get_all_model_settings",
         return_value={},
+    )
+    @patch.dict(
+        "code_puppy.command_line.model_settings_menu._RETRY_MENU_KEYS", {}, clear=True
     )
     def test_render_settings_view_no_settings(self, mock_settings, mock_supports):
         menu = _make_menu()
@@ -346,6 +396,9 @@ class TestRenderDetailsPanel:
     @patch(
         "code_puppy.command_line.model_settings_menu.get_all_model_settings",
         return_value={},
+    )
+    @patch.dict(
+        "code_puppy.command_line.model_settings_menu._RETRY_MENU_KEYS", {}, clear=True
     )
     def test_models_view_no_supported_settings(self, mock_settings, mock_supports):
         menu = _make_menu(models=["m1"])
@@ -433,6 +486,9 @@ class TestRenderDetailsPanel:
     @patch(
         "code_puppy.command_line.model_settings_menu.get_all_model_settings",
         return_value={},
+    )
+    @patch.dict(
+        "code_puppy.command_line.model_settings_menu._RETRY_MENU_KEYS", {}, clear=True
     )
     def test_settings_view_no_settings(self, mock_settings, mock_supports):
         mock_supports.return_value = False
@@ -627,6 +683,9 @@ class TestEditing:
     @patch(
         "code_puppy.command_line.model_settings_menu.get_all_model_settings",
         return_value={},
+    )
+    @patch.dict(
+        "code_puppy.command_line.model_settings_menu._RETRY_MENU_KEYS", {}, clear=True
     )
     def test_start_editing_generic_numeric_default(self, mock_settings, mock_supports):
         """Test fallback for unknown numeric setting."""

@@ -18,7 +18,7 @@ def test_harness_bootstrap_write_config(
     cfg_text = cfg_path.read_text(encoding="utf-8")
     assert "IntegrationPup" in cfg_text
     assert "CodePuppyTester" in cfg_text
-    assert "synthetic-GLM-5.1" in cfg_text
+    assert "lilac-zai-org-glm-5.1" in cfg_text
     cli_harness.cleanup(result)
 
 
@@ -48,7 +48,10 @@ def test_spawned_cli_is_alive(spawned_cli: SpawnResult) -> None:
     """spawned_cli fixture should hand us a live CLI at the task prompt."""
     assert spawned_cli.child.isalive()
     log = spawned_cli.read_log()
-    assert "Enter your coding task" in log or log == ""
+    # The persistent-prompt UI may render the prompt row without emitting the
+    # classic banner text, so accept any pattern that wait_for_ready matches.
+    ready_patterns = ["Enter your coding task", ">>> ", "Interactive Mode"]
+    assert log == "" or any(p in log for p in ready_patterns)
 
 
 def test_send_command_returns_output(spawned_cli: SpawnResult) -> None:

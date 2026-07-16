@@ -1,7 +1,8 @@
-"""Monkey patches for pydantic-ai.
+"""Monkey patches for third-party libraries.
 
-This module contains all monkey patches needed to customize pydantic-ai behavior.
-These patches MUST be applied before any other pydantic-ai imports to work correctly.
+Historically pydantic-ai focused, this module now collects all runtime
+monkey patches code-puppy applies to its dependencies.  Each patch is
+idempotent and fails silently if the target library is absent.
 
 Usage:
     from code_puppy.pydantic_patches import apply_all_patches
@@ -175,6 +176,35 @@ def patch_tool_call_json_repair() -> None:
         pass  # Don't crash on patch failure
 
 
+def _writeback_tool_args(call: Any, tool_args: dict, mode: str | None) -> None:
+    """Persist pre_tool_call mutations of ``tool_args`` back onto ``call.args``.
+
+    pydantic-ai's ``ToolCallPart.args`` is usually a JSON *string* (what the
+    LLM emitted). The pre_tool_call hook contract gives plugins a *dict* view
+    to mutate. Without this writeback, mutations vanish before the real tool
+    runs and the model sees nothing changed.
+
+    Args:
+        call: The ``ToolCallPart`` (or compatible) whose ``args`` we update.
+        tool_args: The dict view that hooks may have mutated.
+        mode: ``"str"`` to re-serialize as JSON, ``"dict"`` to assign directly,
+              or ``None`` to skip (unparseable input — don't corrupt it).
+
+    Failures are swallowed: writeback must never block tool execution.
+    """
+    if mode is None:
+        return
+    try:
+        if mode == "str":
+            import json
+
+            call.args = json.dumps(tool_args)
+        elif mode == "dict":
+            call.args = tool_args
+    except Exception:
+        pass  # never block tool execution on writeback failure
+
+
 def patch_tool_call_callbacks() -> None:
     """Patch pydantic-ai tool handling to support callbacks and Claude Code tool names.
 
@@ -199,11 +229,37 @@ def patch_tool_call_callbacks() -> None:
 
         # Tool name prefix used by Claude Code OAuth - tools are prefixed on
         # outgoing requests, so we need to unprefix them when they come back.
+        # This prefix MUST only be stripped when a claude-code OAuth model is
+        # active. Stripping unconditionally would corrupt legitimate tool names
+        # that happen to begin with ``cp_`` when other model types are in use
+        # (e.g. ``custom_anthropic``, ``custom_openai``, etc.).
         TOOL_PREFIX = "cp_"
+        # Match the prefix used by the claude_code_oauth plugin's model name
+        # convention (see plugins/claude_code_oauth/prompt_handler.py).
+        _CLAUDE_CODE_MODEL_PREFIX = "claude-code"
+
+        def _is_claude_code_model_active() -> bool:
+            """Best-effort check: is the currently selected model a claude-code one?
+
+            Lazy-imported so this patch stays safe to apply before config is
+            initialised; any failure means "not claude-code" so we never
+            accidentally strip prefixes from non-claude-code tool names.
+            """
+            try:
+                from code_puppy.config import get_global_model_name
+
+                model_name = get_global_model_name() or ""
+                return model_name.startswith(_CLAUDE_CODE_MODEL_PREFIX)
+            except Exception:
+                return False
 
         def _normalize_tool_name(name: Any) -> Any:
-            """Strip the ``cp_`` prefix if present."""
-            if isinstance(name, str) and name.startswith(TOOL_PREFIX):
+            """Strip the ``cp_`` prefix if present (claude-code models only)."""
+            if (
+                isinstance(name, str)
+                and name.startswith(TOOL_PREFIX)
+                and _is_claude_code_model_active()
+            ):
                 return name[len(TOOL_PREFIX) :]
             return name
 
@@ -257,17 +313,37 @@ def patch_tool_call_callbacks() -> None:
         ):
             tool_name, call = _normalize_call_tool_name(call)
 
-            # Normalise args to a dict for the callback contract
+            # Normalise args to a dict for the callback contract.
+            #
+            # We also remember the *shape* of ``call.args`` so we can write
+            # mutations back in the same shape after pre_tool_call hooks run.
+            # Without this, hooks mutating ``tool_args`` in place have zero
+            # effect when ``call.args`` is a JSON string (the common case for
+            # LLM-emitted tool calls): ``json.loads`` returns a fresh dict and
+            # the original ``call.args`` string is what the tool actually sees.
+            #
+            # ``_args_writeback_mode`` values:
+            #   "str"  → re-serialize ``tool_args`` to JSON and assign
+            #   "dict" → assign the (possibly mutated) dict directly
+            #   None   → do not write back (unparseable / unknown shape)
             tool_args: dict = {}
+            _args_writeback_mode: str | None = None
             if isinstance(call.args, dict):
                 tool_args = call.args
+                _args_writeback_mode = "dict"
             elif isinstance(call.args, str):
                 try:
                     import json
 
                     tool_args = json.loads(call.args)
+                    _args_writeback_mode = "str"
                 except Exception:
                     tool_args = {"raw": call.args}
+                    # Unparseable: never write back, would corrupt the original.
+                    _args_writeback_mode = None
+
+            # Collected outside the try so it survives any callback exception.
+            hook_context_messages: list[str] = []
 
             # --- pre_tool_call (with blocking support) ---
             # Returns a string tool-result on block so pydantic-ai sees a clean
@@ -280,6 +356,18 @@ def patch_tool_call_callbacks() -> None:
                 callback_results = await callbacks.on_pre_tool_call(
                     tool_name, tool_args
                 )
+
+                # Collect any non-blocking hook context messages (e.g. stdout
+                # from Claude Code-style PreToolUse hooks) so we can inject
+                # them into the tool's result and the model can actually see
+                # them. Without this, hook stdout is captured-and-lost.
+                for callback_result in callback_results:
+                    if isinstance(callback_result, dict) and not callback_result.get(
+                        "blocked"
+                    ):
+                        ctx_msg = callback_result.get("context_message")
+                        if isinstance(ctx_msg, str) and ctx_msg.strip():
+                            hook_context_messages.append(ctx_msg.strip())
 
                 for callback_result in callback_results:
                     if (
@@ -306,6 +394,11 @@ def patch_tool_call_callbacks() -> None:
             except Exception:
                 pass  # other errors don't block tool execution
 
+            # Persist pre_tool_call mutations back onto call.args so the
+            # downstream tool dispatch (and the conversation history) sees
+            # the modified args. See ``_writeback_tool_args`` for the why.
+            _writeback_tool_args(call, tool_args, _args_writeback_mode)
+
             start = time.perf_counter()
             error: Exception | None = None
             result = None
@@ -318,6 +411,19 @@ def patch_tool_call_callbacks() -> None:
                     approved=approved,
                     metadata=metadata,
                 )
+                # Prepend collected hook stdout (PreToolUse "additional
+                # context") so the model sees it as part of the tool result.
+                if hook_context_messages:
+                    prefix = (
+                        "\n\n".join(
+                            f"[hook context]\n{m}" for m in hook_context_messages
+                        )
+                        + "\n\n"
+                    )
+                    if isinstance(result, str):
+                        result = prefix + result
+                    else:
+                        result = prefix + str(result)
                 return result
             except Exception as exc:
                 error = exc
@@ -344,8 +450,87 @@ def patch_tool_call_callbacks() -> None:
         pass
 
 
+def patch_prompt_toolkit_emoji_width() -> None:
+    """Patch prompt_toolkit's character width calculation for emojis.
+
+    Modern terminals render most emojis as 2 cells wide, but wcwidth often
+    returns 1 for many emoji codepoints. This causes cursor misalignment.
+
+    This patch:
+    1. Returns 0 for variation selectors (zero-width modifiers)
+    2. Returns 2 for emoji codepoints (terminals render them wide)
+    3. Falls back to wcwidth for non-emoji characters
+    """
+    try:
+        import wcwidth
+        from prompt_toolkit import utils as pt_utils
+
+        _original_get_cwidth = pt_utils.get_cwidth
+
+        def _patched_get_cwidth(char: str) -> int:
+            """Get character width with better emoji support."""
+            code = ord(char)
+
+            # Variation selectors are zero-width
+            if 0xFE00 <= code <= 0xFE0F:  # VS1-VS16
+                return 0
+
+            # Emoji codepoints - terminals render these as 2 cells wide
+            # even when wcwidth says 1
+            if (
+                0x1F300 <= code <= 0x1F9FF  # Misc Symbols/Pictographs, Emoticons
+                or 0x1F600 <= code <= 0x1F64F  # Emoticons
+                or 0x1F680 <= code <= 0x1F6FF  # Transport/Map symbols
+                or 0x1FA00 <= code <= 0x1FAFF  # Symbols/Pictographs Extended-A
+                or 0x2600 <= code <= 0x26FF  # Misc Symbols (☀️, ⚡, etc)
+                or 0x2700 <= code <= 0x27BF  # Dingbats (✂️, ✈️, etc)
+                or 0x1F1E0 <= code <= 0x1F1FF  # Regional indicators (flags)
+            ):
+                return 2
+
+            # Use wcwidth for non-emoji
+            w = wcwidth.wcwidth(char)
+            if w >= 0:
+                return w
+
+            return _original_get_cwidth(char)
+
+        pt_utils.get_cwidth = _patched_get_cwidth
+
+    except ImportError:
+        pass  # wcwidth or prompt_toolkit not available
+    except Exception:
+        pass  # Don't crash on patch failure
+
+
+def patch_termflow_clipboard() -> None:
+    """Disable termflow's OSC 52 clipboard hijacking globally.
+
+    termflow's ``RenderFeatures.clipboard`` defaults to ``True``.  When a
+    code block finishes rendering, the renderer emits an OSC 52 escape
+    sequence (``\x1b]52;c;<base64>\x07``) that modern terminals interpret
+    as a silent clipboard-write command — clobbering whatever the user had.
+
+    PR #335 added explicit ``RenderFeatures(clipboard=False)`` at the two
+    known instantiation sites, but that's whack-a-mole: any future code path
+    (or a new termflow version with changed defaults) reintroduces the bug.
+
+    This patch kills the behaviour at the source by replacing
+    ``Renderer._copy_to_clipboard`` with a no-op, so it does not matter
+    whether any caller remembers to disable the feature flag.
+    """
+    try:
+        from termflow.render.renderer import Renderer
+
+        Renderer._copy_to_clipboard = lambda self, text: None  # type: ignore[method-assign]
+    except ImportError:
+        pass  # termflow not available
+    except Exception:
+        pass  # never crash on patch failure
+
+
 def apply_all_patches() -> None:
-    """Apply all pydantic-ai monkey patches.
+    """Apply all monkey patches.
 
     Call this at the very top of main.py, before any other imports.
     """
@@ -354,3 +539,5 @@ def apply_all_patches() -> None:
     patch_process_message_history()
     patch_tool_call_json_repair()
     patch_tool_call_callbacks()
+    patch_prompt_toolkit_emoji_width()
+    patch_termflow_clipboard()

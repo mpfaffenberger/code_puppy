@@ -606,57 +606,49 @@ class TestRenderPanelEdgeCases:
 class TestMenuPanelStyling:
     """Test styling aspects of the menu panel."""
 
-    def test_styling_includes_green_for_selection(self):
-        """Test that selection styling uses green color."""
+    def test_selection_uses_semantic_style(self):
+        """Test that selection styling uses the shared semantic role."""
         entries = [("agent1", "Agent One", "Description")]
 
         result = _render_menu_panel(
             entries, page=0, selected_idx=0, current_agent_name=""
         )
 
-        # Check that green styling is applied somewhere
         styles = [style for style, _ in result]
-        has_green = any("green" in str(style).lower() for style in styles)
-        assert has_green, "Selection should use green styling"
+        assert "class:tui.selected" in styles
 
-    def test_styling_includes_cyan_for_current(self):
-        """Test that current agent marker uses cyan color."""
+    def test_current_marker_uses_semantic_success_style(self):
+        """Test that the current marker uses the shared success role."""
         entries = [("agent1", "Agent One", "Description")]
 
         result = _render_menu_panel(
             entries, page=0, selected_idx=0, current_agent_name="agent1"
         )
 
-        # Check that cyan styling is used for current marker
         styles = [style for style, _ in result]
-        has_cyan = any("cyan" in str(style).lower() for style in styles)
-        assert has_cyan, "Current marker should use cyan styling"
+        assert "class:tui.success" in styles
 
 
 class TestPreviewPanelStyling:
     """Test styling aspects of the preview panel."""
 
     def test_styling_for_active_status(self):
-        """Test that active status uses appropriate styling."""
+        """Test that active status uses the semantic success role."""
         entry = ("agent1", "Agent One", "Description")
 
         result = _render_preview_panel(entry, current_agent_name="agent1")
 
-        # Check for green styling on active status
         styles = [style for style, _ in result]
-        has_green = any("green" in str(style).lower() for style in styles)
-        assert has_green, "Active status should use green styling"
+        assert "class:tui.success" in styles
 
     def test_styling_for_inactive_status(self):
-        """Test that inactive status uses dimmed styling."""
+        """Test that inactive status uses the semantic muted role."""
         entry = ("agent1", "Agent One", "Description")
 
         result = _render_preview_panel(entry, current_agent_name="other_agent")
 
-        # Check for dimmed/bright black styling
         styles = [style for style, _ in result]
-        has_dim = any("bright" in str(style).lower() for style in styles)
-        assert has_dim, "Inactive status should use dimmed styling"
+        assert "class:tui.muted" in styles
 
 
 class TestGetPinnedModelWithJSONAgents:
@@ -766,23 +758,23 @@ class TestApplyPinnedModelWithJSONAgents:
 
     @patch("code_puppy.command_line.agent_menu.set_agent_pinned_model")
     @patch("code_puppy.command_line.agent_menu.emit_success")
-    @patch("code_puppy.command_line.agent_menu._reload_agent_if_current")
     @patch("code_puppy.agents.json_agent.discover_json_agents")
-    def test_pins_builtin_agent(
-        self, mock_json_agents, mock_reload, mock_emit, mock_set_pin
-    ):
+    def test_pins_builtin_agent(self, mock_json_agents, mock_emit, mock_set_pin):
         """Test that built-in agents use config functions."""
+        from code_puppy.command_line.agent_menu import consume_pending_pin_reloads
+
+        consume_pending_pin_reloads()
         mock_json_agents.return_value = {}
 
         _apply_pinned_model("code_puppy", "gpt-4")
 
         mock_set_pin.assert_called_once_with("code_puppy", "gpt-4")
-        mock_reload.assert_called_once_with("code_puppy", "gpt-4")
+        # Reload is now deferred --- the request lands on the pending queue
+        assert consume_pending_pin_reloads() == [("code_puppy", "gpt-4")]
 
     @patch("code_puppy.command_line.agent_menu.emit_success")
-    @patch("code_puppy.command_line.agent_menu._reload_agent_if_current")
     @patch("code_puppy.agents.json_agent.discover_json_agents")
-    def test_pins_json_agent(self, mock_json_agents, mock_reload, mock_emit):
+    def test_pins_json_agent(self, mock_json_agents, mock_emit):
         """Test that JSON agents have model written to file."""
         import json
         import tempfile
@@ -801,7 +793,6 @@ class TestApplyPinnedModelWithJSONAgents:
             agent_config = json.load(f)
 
         assert agent_config.get("model") == "claude-3-opus"
-        mock_reload.assert_called_once_with("test_agent", "claude-3-opus")
 
         # Clean up
         import os
@@ -810,23 +801,22 @@ class TestApplyPinnedModelWithJSONAgents:
 
     @patch("code_puppy.command_line.agent_menu.clear_agent_pinned_model")
     @patch("code_puppy.command_line.agent_menu.emit_success")
-    @patch("code_puppy.command_line.agent_menu._reload_agent_if_current")
     @patch("code_puppy.agents.json_agent.discover_json_agents")
-    def test_unpins_builtin_agent(
-        self, mock_json_agents, mock_reload, mock_emit, mock_clear_pin
-    ):
+    def test_unpins_builtin_agent(self, mock_json_agents, mock_emit, mock_clear_pin):
         """Test that built-in agents have pin cleared via config."""
+        from code_puppy.command_line.agent_menu import consume_pending_pin_reloads
+
+        consume_pending_pin_reloads()
         mock_json_agents.return_value = {}
 
         _apply_pinned_model("code_puppy", "(unpin)")
 
         mock_clear_pin.assert_called_once_with("code_puppy")
-        mock_reload.assert_called_once_with("code_puppy", None)
+        assert consume_pending_pin_reloads() == [("code_puppy", None)]
 
     @patch("code_puppy.command_line.agent_menu.emit_success")
-    @patch("code_puppy.command_line.agent_menu._reload_agent_if_current")
     @patch("code_puppy.agents.json_agent.discover_json_agents")
-    def test_unpins_json_agent(self, mock_json_agents, mock_reload, mock_emit):
+    def test_unpins_json_agent(self, mock_json_agents, mock_emit):
         """Test that JSON agents have model key removed."""
         import json
         import tempfile
@@ -845,7 +835,6 @@ class TestApplyPinnedModelWithJSONAgents:
             agent_config = json.load(f)
 
         assert "model" not in agent_config
-        mock_reload.assert_called_once_with("test_agent", None)
 
         # Clean up
         import os

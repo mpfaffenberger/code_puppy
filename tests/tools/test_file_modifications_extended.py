@@ -221,8 +221,17 @@ def func3():
         assert "def func1():" in content  # Should remain
         assert "def func3():" in content  # Should remain
 
-    def test_error_recovery_file_permissions(self, tmp_path):
-        """Test error recovery when file permissions prevent modification."""
+    def test_readonly_file_atomic_overwrite_preserves_mode(self, tmp_path):
+        """Atomic writes can overwrite a read-only file in a writable dir.
+
+        Since the switch to atomic writes (write-temp + os.replace), a
+        read-only TARGET no longer blocks the write: os.replace depends on
+        DIRECTORY permissions, not the file's mode (standard POSIX rename
+        semantics, same as vim's :w!). The original read-only mode is
+        preserved on the new content via chmod before the replace.
+        """
+        import stat as _stat
+
         test_file = tmp_path / "readonly.py"
         test_file.write_text("original content")
 
@@ -237,13 +246,20 @@ def func3():
             mock_context = Mock()
             result = _edit_file(mock_context, payload)
 
-            # Should handle the permission error gracefully
-            # Error responses may have different structures
-            assert (
-                "success" not in result
-                or result["success"] is False
-                or "error" in result
-            )
+            if os.name != "nt":
+                # POSIX: atomic write succeeds where the old in-place
+                # open("w") failed -- rename depends on dir perms, not file
+                # mode -- and the read-only mode is preserved.
+                assert result.get("success") is True
+                assert test_file.read_text() == "new content"
+                assert _stat.S_IMODE(os.stat(test_file).st_mode) == 0o444
+            else:
+                # Windows: os.replace over a read-only target raises
+                # PermissionError; the wrapper must surface it gracefully
+                # (error dict, not a crash) and leave the original intact.
+                assert not result.get("success")
+                assert "error" in result
+                assert test_file.read_text() == "original content"
         finally:
             # Restore permissions for cleanup
             os.chmod(test_file, 0o644)

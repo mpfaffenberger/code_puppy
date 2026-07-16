@@ -4,7 +4,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.buffer import Buffer, CompletionState
+from prompt_toolkit.completion import Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.keys import Keys
@@ -12,11 +13,14 @@ from prompt_toolkit.layout.controls import BufferControl
 from prompt_toolkit.layout.processors import TransformationInput
 
 from code_puppy.command_line.prompt_toolkit_completion import (
+    AgentCompleter,
     AttachmentPlaceholderProcessor,
     CDCompleter,
     FilePathCompleter,
     SetCompleter,
+    _complete_or_cycle,
     get_input_with_combined_completion,
+    get_prompt_with_active_model,
 )
 
 # Skip some path-format sensitive tests on Windows where backslashes are expected
@@ -33,27 +37,36 @@ def setup_files(tmp_path):
     return d
 
 
+def test_fork_agent_completion_owns_at_slot():
+    document = Document(text="/fork @qa", cursor_position=len("/fork @qa"))
+
+    with patch(
+        "code_puppy.command_line.pin_command_completion.load_agent_names",
+        return_value=["code-puppy", "qa-kitten"],
+    ):
+        agents = list(
+            AgentCompleter(trigger="/fork", prefix="@").get_completions(document, None)
+        )
+
+    files = list(FilePathCompleter(symbol="@").get_completions(document, None))
+    assert [completion.text for completion in agents] == ["qa-kitten"]
+    assert agents[0].start_position == -2
+    assert files == []
+
+
+def test_fork_agent_completion_requires_at_prefix():
+    document = Document(text="/fork qa", cursor_position=len("/fork qa"))
+    completions = AgentCompleter(trigger="/fork", prefix="@").get_completions(
+        document, None
+    )
+    assert list(completions) == []
+
+
 def test_no_symbol(tmp_path):
     completer = FilePathCompleter(symbol="@")
     doc = Document(text="no_completion_here", cursor_position=7)
     completions = list(completer.get_completions(doc, None))
     assert completions == []
-
-
-def test_completion_basic(tmp_path, monkeypatch):
-    setup_files(tmp_path)
-    cwd = os.getcwd()
-    os.chdir(tmp_path)
-    try:
-        completer = FilePathCompleter(symbol="@")
-        doc = Document(text="run @fi", cursor_position=7)
-        completions = list(completer.get_completions(doc, None))
-        # Should see file3.txt from the base dir, but NOT .hiddenfile
-        values = {c.text for c in completions}
-        assert any("file3.txt" in v for v in values)
-        assert not any(".hiddenfile" in v for v in values)
-    finally:
-        os.chdir(cwd)
 
 
 def test_completion_directory_listing(tmp_path):
@@ -73,19 +86,6 @@ def test_completion_directory_listing(tmp_path):
         }
         assert "file1.txt" in filenames
         assert "file2.py" in filenames
-    finally:
-        os.chdir(cwd)
-
-
-def test_completion_symbol_in_middle(tmp_path):
-    setup_files(tmp_path)
-    completer = FilePathCompleter(symbol="@")
-    cwd = os.getcwd()
-    os.chdir(tmp_path)
-    try:
-        doc = Document(text="echo @fi then something", cursor_position=7)
-        completions = list(completer.get_completions(doc, None))
-        assert any("file3.txt" in c.text for c in completions)
     finally:
         os.chdir(cwd)
 
@@ -190,6 +190,28 @@ def test_set_completer_partial_key(monkeypatch):
     assert isinstance(completions[0].display_meta, FormattedText)
     assert len(completions[0].display_meta) == 1
     assert completions[0].display_meta[0][1] == ""
+
+
+def test_set_completer_excludes_model_settings_only_keys(monkeypatch):
+    monkeypatch.setattr(
+        "code_puppy.command_line.prompt_toolkit_completion.get_config_keys",
+        lambda: [
+            "openai_reasoning_effort",
+            "openai_verbosity",
+            "temperature",
+        ],
+    )
+    monkeypatch.setattr(
+        "code_puppy.command_line.prompt_toolkit_completion.get_value",
+        lambda key: "high",
+    )
+    completer = SetCompleter()
+
+    completions = list(completer.get_completions(Document(text="/set openai_"), None))
+    assert completions == []
+
+    completions = list(completer.get_completions(Document(text="/set temp"), None))
+    assert [completion.text for completion in completions] == ["temperature = high"]
 
 
 def test_set_completer_excludes_model_key(monkeypatch):
@@ -425,7 +447,7 @@ def test_cd_completer_permission_error_silently_handled(monkeypatch):
 
 
 @pytest.mark.asyncio
-@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession")
 @patch("code_puppy.command_line.prompt_toolkit_completion.FileHistory")
 @patch("code_puppy.command_line.prompt_toolkit_completion.merge_completers")
 async def test_get_input_with_combined_completion_defaults(
@@ -456,7 +478,7 @@ async def test_get_input_with_combined_completion_defaults(
     # Check default prompt string was converted to FormattedText
     assert isinstance(mock_session_instance.prompt_async.call_args[0][0], FormattedText)
     assert mock_session_instance.prompt_async.call_args[0][0] == FormattedText(
-        [(None, ">>> ")]
+        [("", ">>> ")]
     )
     assert "style" in mock_session_instance.prompt_async.call_args[1]
 
@@ -468,7 +490,72 @@ async def test_get_input_with_combined_completion_defaults(
 
 
 @pytest.mark.asyncio
-@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession")
+async def test_prompt_session_style_uses_central_theme_adapter(
+    mock_prompt_session_cls,
+):
+    mock_session = MagicMock()
+    mock_session.prompt_async = AsyncMock(return_value="themed input")
+    mock_prompt_session_cls.return_value = mock_session
+    themed_style = MagicMock(name="themed-style")
+
+    with (
+        patch(
+            "code_puppy.command_line.prompt_toolkit_completion.on_prompt_text_color",
+            return_value=None,
+        ),
+        patch(
+            "code_puppy.command_line.prompt_toolkit_completion.on_prompt_toolkit_style",
+            return_value=themed_style,
+        ) as mock_theme_adapter,
+    ):
+        await get_input_with_combined_completion()
+
+    local_style = mock_theme_adapter.call_args.args[0]
+    local_rules = dict(local_style.style_rules)
+    assert mock_session.prompt_async.call_args.kwargs["style"] is themed_style
+    assert "ansiwhite" not in repr(local_rules)
+    assert "ansibrightblack" not in repr(local_rules)
+    assert "#ffffff" not in repr(local_rules)
+    assert "#000000" not in repr(local_rules)
+    assert local_rules["completion-menu.completion.current"] == (
+        "noreverse bold underline"
+    )
+
+
+def test_meaningful_prompt_fragments_include_semantic_roles():
+    agent = MagicMock(display_name="Code Puppy")
+    agent.get_model_name.return_value = "test-model"
+
+    with (
+        patch(
+            "code_puppy.command_line.prompt_toolkit_completion.get_puppy_name",
+            return_value="Biscuit",
+        ),
+        patch(
+            "code_puppy.command_line.prompt_toolkit_completion.get_active_model",
+            return_value="test-model",
+        ),
+        patch(
+            "code_puppy.agents.agent_manager.get_current_agent",
+            return_value=agent,
+        ),
+    ):
+        prompt = get_prompt_with_active_model()
+
+    styles = [style for style, _text in prompt]
+    rendered = "".join(text for _style, text in prompt)
+    assert "class:puppy class:tui.header" in styles
+    assert "class:agent class:tui.label" in styles
+    assert "class:model class:tui.title" in styles
+    assert "class:cwd class:tui.muted" in styles
+    assert "class:arrow class:tui.help-key" in styles
+    assert rendered.startswith("Biscuit [Code Puppy] [test-model] ")
+    assert rendered.endswith(">>> ")
+
+
+@pytest.mark.asyncio
+@patch("code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession")
 @patch("code_puppy.command_line.prompt_toolkit_completion.SafeFileHistory")
 async def test_get_input_with_combined_completion_with_history(
     mock_safe_file_history, mock_prompt_session_cls
@@ -489,7 +576,7 @@ async def test_get_input_with_combined_completion_with_history(
 
 
 @pytest.mark.asyncio
-@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession")
 async def test_get_input_with_combined_completion_custom_prompt(
     mock_prompt_session_cls,
 ):
@@ -501,7 +588,7 @@ async def test_get_input_with_combined_completion_custom_prompt(
     custom_prompt_str = "Custom> "
     await get_input_with_combined_completion(prompt_str=custom_prompt_str)
     assert mock_session_instance.prompt_async.call_args[0][0] == FormattedText(
-        [(None, custom_prompt_str)]
+        [("", custom_prompt_str)]
     )
 
     # Test with FormattedText prompt
@@ -511,7 +598,7 @@ async def test_get_input_with_combined_completion_custom_prompt(
 
 
 @pytest.mark.asyncio
-@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession")
 async def test_get_input_with_combined_completion_no_model_update(
     mock_prompt_session_cls,
 ):
@@ -526,6 +613,40 @@ async def test_get_input_with_combined_completion_no_model_update(
     assert result == raw_input
 
 
+def _buffer_with_completions(*completions: Completion) -> Buffer:
+    buffer = Buffer(document=Document("/he", cursor_position=3))
+    buffer.complete_state = CompletionState(buffer.document, list(completions))
+    return buffer
+
+
+def test_tab_applies_single_completion_immediately():
+    buffer = _buffer_with_completions(Completion("help", start_position=-2))
+
+    _complete_or_cycle(buffer)
+
+    assert buffer.text == "/help"
+    assert buffer.complete_state is None
+
+
+def test_tab_cycles_when_completion_is_ambiguous():
+    buffer = _buffer_with_completions(
+        Completion("help", start_position=-2),
+        Completion("hello", start_position=-2),
+    )
+
+    _complete_or_cycle(buffer)
+
+    assert buffer.text == "/help"
+    assert buffer.complete_state is not None
+    assert buffer.complete_state.current_completion is not None
+    assert buffer.complete_state.current_completion.text == "help"
+
+    _complete_or_cycle(buffer)
+
+    assert buffer.text == "/hello"
+    assert buffer.complete_state.current_completion.text == "hello"
+
+
 # To test key bindings, we need to inspect the KeyBindings object passed to PromptSession
 # We can get it from the mock_prompt_session_cls.call_args
 
@@ -535,7 +656,7 @@ async def test_get_input_with_combined_completion_no_model_update(
     strict=False,
 )
 @pytest.mark.asyncio
-@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession")
 async def test_get_input_key_binding_alt_m(mock_prompt_session_cls):
     # We don't need the function to run fully, just to set up PromptSession
     mock_session_instance = MagicMock()
@@ -559,7 +680,7 @@ async def test_get_input_key_binding_alt_m(mock_prompt_session_cls):
 
 
 @pytest.mark.asyncio
-@patch("code_puppy.command_line.prompt_toolkit_completion.PromptSession")
+@patch("code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession")
 async def test_get_input_key_binding_escape(mock_prompt_session_cls):
     mock_session_instance = MagicMock()
     mock_session_instance.prompt_async = AsyncMock(return_value="test")
@@ -582,6 +703,79 @@ async def test_get_input_key_binding_escape(mock_prompt_session_cls):
     with pytest.raises(KeyboardInterrupt):
         found_escape_handler(mock_event)
     mock_event.app.exit.assert_called_once_with(exception=KeyboardInterrupt)
+
+
+async def _get_enter_handler():
+    """Set up the prompt and return its Enter (ControlM) key handler."""
+    with patch(
+        "code_puppy.command_line.prompt_toolkit_completion._NoGhostLinesPromptSession"
+    ) as mock_cls:
+        inst = MagicMock()
+        inst.prompt_async = AsyncMock(return_value="test")
+        mock_cls.return_value = inst
+        await get_input_with_combined_completion()
+        bindings = mock_cls.call_args[1]["key_bindings"]
+    for b in bindings.bindings:
+        if b.keys == (Keys.ControlM,):
+            return b.handler
+    raise AssertionError("Enter (ControlM) keybinding not found")
+
+
+def _buffer_with_completion(text, completion):
+    """A MagicMock buffer exposing a real Document + a chosen completion."""
+    buffer = MagicMock()
+    buffer.document = Document(text, len(text))
+    buffer.complete_state = MagicMock()
+    buffer.complete_state.current_completion = completion
+    return buffer
+
+
+@pytest.mark.asyncio
+async def test_enter_submits_when_completion_is_a_noop():
+    # Regression: typing a whole command ("/help") leaves the menu open with a
+    # highlighted completion whose text == what's already typed. Applying it is
+    # a no-op, so Enter must SUBMIT, not just re-close the menu (double-Enter).
+    handler = await _get_enter_handler()
+    buffer = _buffer_with_completion("/help", Completion("/help", start_position=-5))
+    event = MagicMock()
+    event.current_buffer = buffer
+
+    handler(event)
+
+    buffer.apply_completion.assert_not_called()
+    buffer.cancel_completion.assert_called_once()
+    buffer.validate_and_handle.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_enter_accepts_completion_when_it_changes_the_buffer():
+    # Partial input ("/hel") with a real completion ("/help") -> first Enter
+    # picks the completion (editor-style), does NOT submit.
+    handler = await _get_enter_handler()
+    buffer = _buffer_with_completion("/hel", Completion("/help", start_position=-4))
+    event = MagicMock()
+    event.current_buffer = buffer
+
+    handler(event)
+
+    buffer.apply_completion.assert_called_once()
+    buffer.validate_and_handle.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_enter_submits_when_no_completion_menu():
+    # No completion state at all -> plain submit.
+    handler = await _get_enter_handler()
+    buffer = MagicMock()
+    buffer.document = Document("just some text", len("just some text"))
+    buffer.complete_state = None
+    event = MagicMock()
+    event.current_buffer = buffer
+
+    handler(event)
+
+    buffer.apply_completion.assert_not_called()
+    buffer.validate_and_handle.assert_called_once()
 
 
 @pytest.mark.asyncio

@@ -90,7 +90,7 @@ def test_cd_valid_change_reload_failure_is_nonfatal():
     """A reload failure after /cd must not abort the directory change."""
     mocks = setup_messaging_mocks()
     mock_emit_success = mocks["emit_success"].start()
-    mock_emit_warning = mocks["emit_warning"].start()
+    mock_emit_error = mocks["emit_error"].start()
 
     try:
         mock_agent = MagicMock()
@@ -111,14 +111,14 @@ def test_cd_valid_change_reload_failure_is_nonfatal():
             mock_chdir.assert_called_once_with("/some/dir")
             mock_emit_success.assert_called_once_with("Changed directory to: /some/dir")
             mock_agent.reload_code_generation_agent.assert_called_once()
-            # Reload failure should emit a warning, not silently pass
-            mock_emit_warning.assert_called_once()
-            warning_msg = str(mock_emit_warning.call_args)
-            assert "agent reload failed" in warning_msg
-            assert "boom" in warning_msg
+            # Reload failure should emit an error, not silently pass
+            mock_emit_error.assert_called_once()
+            error_msg = mock_emit_error.call_args[0][0]
+            assert error_msg.startswith("Could not reload agent context:")
+            assert "boom" in error_msg
     finally:
         mocks["emit_success"].stop()
-        mocks["emit_warning"].stop()
+        mocks["emit_error"].stop()
 
 
 def test_cd_invalid_directory():
@@ -316,21 +316,16 @@ def test_bare_slash_shows_current_model():
         mocks["emit_info"].stop()
 
 
-def test_set_no_args_prints_usage():
-    mocks = setup_messaging_mocks()
-    mock_emit_warning = mocks["emit_warning"].start()
-
-    try:
-        with patch("code_puppy.config.get_config_keys", return_value=["foo", "bar"]):
-            result = handle_command("/set")
-            assert result is True
-            mock_emit_warning.assert_called()
-            assert any(
-                "Usage" in str(call) and "Config keys" in str(call)
-                for call in mock_emit_warning.call_args_list
-            )
-    finally:
-        mocks["emit_warning"].stop()
+def test_set_no_args_launches_menu():
+    """`/set` with no args used to print a usage-help wall; it now
+    launches the interactive picker. The picker is mocked to None so
+    the test just verifies the dispatcher wires through to it."""
+    with patch(
+        "code_puppy.command_line.set_menu.interactive_set_picker",
+        return_value=None,
+    ):
+        result = handle_command("/set")
+        assert result is True
 
 
 def test_set_missing_key_errors():
@@ -612,11 +607,10 @@ class TestSessionCommand:
     """Tests for /session command."""
 
     def test_session_show_current_id(self):
-        """Test /session shows current session ID."""
+        """Test /session shows current session name."""
         with (
-            patch("code_puppy.config.get_current_autosave_id", return_value="test-id"),
             patch(
-                "code_puppy.config.get_current_autosave_session_name",
+                "code_puppy.config.get_current_session_name",
                 return_value="test-session",
             ),
             patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/autosave"),
@@ -626,14 +620,13 @@ class TestSessionCommand:
             assert result is True
             mock_emit.assert_called_once()
             call_str = str(mock_emit.call_args)
-            assert "test-id" in call_str
+            assert "test-session" in call_str
 
     def test_session_id_subcommand(self):
-        """Test /session id shows current session ID."""
+        """Test /session id shows current session name."""
         with (
-            patch("code_puppy.config.get_current_autosave_id", return_value="test-id"),
             patch(
-                "code_puppy.config.get_current_autosave_session_name",
+                "code_puppy.config.get_current_session_name",
                 return_value="test-session",
             ),
             patch("code_puppy.config.AUTOSAVE_DIR", "/tmp/autosave"),
@@ -647,7 +640,8 @@ class TestSessionCommand:
         """Test /session new creates new session."""
         with (
             patch(
-                "code_puppy.config.rotate_autosave_id", return_value="new-id"
+                "code_puppy.config.rotate_session_name",
+                return_value="auto_session_new",
             ) as mock_rotate,
             patch("code_puppy.messaging.emit_success") as mock_success,
         ):
@@ -656,7 +650,7 @@ class TestSessionCommand:
             mock_rotate.assert_called_once()
             mock_success.assert_called_once()
             call_str = str(mock_success.call_args)
-            assert "new-id" in call_str
+            assert "auto_session_new" in call_str
 
     def test_session_invalid_subcommand(self):
         """Test /session with invalid subcommand shows usage."""
@@ -670,9 +664,8 @@ class TestSessionCommand:
     def test_session_alias_works(self):
         """Test /s alias works for /session."""
         with (
-            patch("code_puppy.config.get_current_autosave_id", return_value="test-id"),
             patch(
-                "code_puppy.config.get_current_autosave_session_name",
+                "code_puppy.config.get_current_session_name",
                 return_value="test",
             ),
             patch("code_puppy.config.AUTOSAVE_DIR", "/tmp"),
@@ -742,7 +735,6 @@ class TestCompactCommand:
             {"role": "user", "content": "Hello"},
         ]
         mock_agent.estimate_tokens_for_message.return_value = 5
-        mock_agent.truncation.return_value = [{"role": "system", "content": "System"}]
 
         with (
             patch(
@@ -753,56 +745,16 @@ class TestCompactCommand:
                 "code_puppy.config.get_compaction_strategy", return_value="truncation"
             ),
             patch("code_puppy.config.get_protected_token_count", return_value=1000),
+            patch(
+                "code_puppy.agents._compaction.truncate",
+                return_value=[{"role": "system", "content": "System"}],
+            ) as mock_truncate,
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success"),
         ):
             result = handle_command("/compact")
             assert result is True
-            mock_agent.truncation.assert_called_once()
-
-
-class TestReasoningCommand:
-    """Tests for /reasoning command."""
-
-    def test_reasoning_set_low(self):
-        """Test /reasoning low sets effort to low."""
-        mock_agent = MagicMock()
-
-        with (
-            patch("code_puppy.config.set_openai_reasoning_effort") as mock_set,
-            patch("code_puppy.config.get_openai_reasoning_effort", return_value="low"),
-            patch(
-                "code_puppy.agents.agent_manager.get_current_agent",
-                return_value=mock_agent,
-            ),
-            patch("code_puppy.messaging.emit_success") as mock_success,
-        ):
-            result = handle_command("/reasoning low")
-            assert result is True
-            mock_set.assert_called_once_with("low")
-            mock_agent.reload_code_generation_agent.assert_called_once()
-            mock_success.assert_called_once()
-
-    def test_reasoning_invalid_level(self):
-        """Test /reasoning with invalid level shows error."""
-        with (
-            patch(
-                "code_puppy.config.set_openai_reasoning_effort",
-                side_effect=ValueError("Invalid"),
-            ),
-            patch("code_puppy.messaging.emit_error") as mock_error,
-        ):
-            result = handle_command("/reasoning invalid")
-            assert result is True
-            mock_error.assert_called_once()
-
-    def test_reasoning_no_argument(self):
-        """Test /reasoning without argument shows usage."""
-        with patch("code_puppy.messaging.emit_warning") as mock_warn:
-            result = handle_command("/reasoning")
-            assert result is True
-            mock_warn.assert_called_once()
-            assert "Usage" in str(mock_warn.call_args)
+            mock_truncate.assert_called_once()
 
 
 class TestTruncateCommand:
@@ -897,18 +849,6 @@ class TestAutosaveLoadCommand:
         """Test that /autosave_load returns special marker for async handling."""
         result = handle_command("/autosave_load")
         assert result == "__AUTOSAVE_LOAD__"
-
-
-class TestMotdCommand:
-    """Tests for /motd command."""
-
-    def test_motd_command_calls_print_motd(self):
-        """Test that /motd calls print_motd with force=True."""
-        # Patch where it's imported in core_commands
-        with patch("code_puppy.command_line.core_commands.print_motd") as mock_motd:
-            result = handle_command("/motd")
-            assert result is True
-            mock_motd.assert_called_once_with(force=True)
 
 
 class TestGetCommandsHelp:
@@ -1056,11 +996,6 @@ class TestCommandRegistry:
         cmd = get_command("tools")
         assert cmd is not None
 
-    def test_motd_command_registered(self):
-        """Test that motd command is registered."""
-        cmd = get_command("motd")
-        assert cmd is not None
-
     def test_exit_command_registered(self):
         """Test that exit command is registered."""
         cmd = get_command("exit")
@@ -1073,11 +1008,10 @@ class TestCommandRegistry:
         assert cmd is not None
         assert cmd.category == "session"
 
-    def test_reasoning_command_registered(self):
-        """Test that reasoning command is registered."""
-        cmd = get_command("reasoning")
-        assert cmd is not None
-        assert cmd.category == "config"
+    def test_model_controls_are_not_top_level_commands(self):
+        """Reasoning effort and verbosity live only in /model_settings."""
+        assert get_command("reasoning") is None
+        assert get_command("verbosity") is None
 
     def test_truncate_command_registered(self):
         """Test that truncate command is registered."""
@@ -1129,6 +1063,12 @@ class TestCommandRegistry:
     def test_generate_pr_description_command_registered(self):
         """Test that generate-pr-description command is registered."""
         cmd = get_command("generate-pr-description")
+        assert cmd is not None
+        assert cmd.category == "core"
+
+    def test_plan_command_registered(self):
+        """Test that /plan command is registered."""
+        cmd = get_command("plan")
         assert cmd is not None
         assert cmd.category == "core"
 

@@ -269,14 +269,36 @@ class TestSanitizeArgs:
         result = _sanitize_args({"i": 1, "f": 2.0, "b": True, "n": None})
         assert result == {"i": 1, "f": 2.0, "b": True, "n": None}
 
-    def test_complex_types(self):
+    def test_complex_types_preserved_when_small(self):
+        """Small structured args round-trip verbatim (no opaque <list[N]> stub).
+
+        This is the Phase 1 ``_sanitize_args`` contract: list / dict
+        values that JSON-serialise to <= 4 KB are returned unchanged so
+        downstream consumers see the real shape.
+        """
         from code_puppy.plugins.frontend_emitter.register_callbacks import (
             _sanitize_args,
         )
 
         result = _sanitize_args({"lst": [1, 2], "dct": {"a": 1}})
-        assert "list[2]" in result["lst"]
-        assert "dict[1]" in result["dct"]
+        assert result["lst"] == [1, 2]
+        assert result["dct"] == {"a": 1}
+
+    def test_complex_types_truncated_when_oversize(self):
+        """A structured value whose JSON form exceeds the size cap is replaced
+        by a truncated string preview (not silently dropped)."""
+        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+            _sanitize_args,
+        )
+
+        # Big enough to definitely exceed the cap when JSON-serialised.
+        big = {"items": ["x" * 200] * 100}
+        result = _sanitize_args(big)
+        assert isinstance(result["items"], str)
+        # Preview should be non-trivial -- it carries real content, not an
+        # opaque type stub.
+        assert len(result["items"]) > 100
+        assert "x" in result["items"]
 
     def test_other_types(self):
         from code_puppy.plugins.frontend_emitter.register_callbacks import (
@@ -350,6 +372,39 @@ class TestSanitizeEventData:
 
         result = _sanitize_event_data(object())
         assert "object" in result
+
+    def test_tool_call_part_preserves_tool_metadata(self):
+        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+            _sanitize_event_data,
+        )
+
+        class _ToolCallPart:
+            tool_call_id = "tc_1"
+            tool_name = "list_files"
+            args = {"directory": "."}
+
+        result = _sanitize_event_data(_ToolCallPart())
+        assert isinstance(result, dict)
+        assert result["tool_call_id"] == "tc_1"
+        assert result["tool_name"] == "list_files"
+        assert result["args"] == {"directory": "."}
+
+    def test_tool_call_part_delta_preserves_name_delta(self):
+        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+            _sanitize_event_data,
+        )
+
+        class _ToolCallPartDelta:
+            tool_call_id = "tc_2"
+            tool_name = None
+            tool_name_delta = "run_shell_command"
+            args_delta = '{"command":"git status"}'
+
+        result = _sanitize_event_data(_ToolCallPartDelta())
+        assert isinstance(result, dict)
+        assert result["tool_call_id"] == "tc_2"
+        assert result["tool_name_delta"] == "run_shell_command"
+        assert result["args_delta"] == '{"command":"git status"}'
 
 
 class TestIsSuccessfulResult:

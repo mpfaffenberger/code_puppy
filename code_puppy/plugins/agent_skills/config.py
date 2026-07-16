@@ -14,7 +14,11 @@ def get_skill_directories() -> List[str]:
     """Get configured skill directories.
 
     Returns:
-        List of skill directory paths from configuration.
+        List of skill directory paths from configuration, normalized to
+        POSIX-style forward-slash separators for cross-platform display
+        consistency (see the ``display-paths-as-posix`` convention adopted
+        by ``plugin_list``). Consumers that need a native ``Path`` wrap the
+        string in ``Path(...)``, which accepts either separator on Windows.
         Reads from puppy.cfg [puppy] section under 'skill_directories' key.
         Default: ['~/.code_puppy/skills', './.code_puppy/skills', './skills']
 
@@ -29,14 +33,14 @@ def get_skill_directories() -> List[str]:
             directories = json.loads(config_value)
             # Ensure it's a list
             if isinstance(directories, list):
-                return directories
+                return [Path(d).as_posix() for d in directories]
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse skill_directories config: {e}")
 
     # Fallback to defaults
-    home_skills = str(Path.home() / ".code_puppy" / "skills")
-    project_config_skills = str(Path.cwd() / ".code_puppy" / "skills")
-    local_skills = str(Path.cwd() / "skills")
+    home_skills = (Path.home() / ".code_puppy" / "skills").as_posix()
+    project_config_skills = (Path.cwd() / ".code_puppy" / "skills").as_posix()
+    local_skills = (Path.cwd() / "skills").as_posix()
     return [
         home_skills,
         project_config_skills,
@@ -123,6 +127,35 @@ def set_skills_enabled(enabled: bool) -> None:
     """
     set_value("skills_enabled", "true" if enabled else "false")
     logger.info(f"Skills integration {'enabled' if enabled else 'disabled'}")
+
+
+def get_frontmatter_in_system_prompt() -> bool:
+    """Check if skill frontmatter is injected into the system prompt.
+
+    When enabled (default), each enabled skill's ``name`` + ``description``
+    (parsed from the SKILL.md frontmatter) is appended to the system prompt
+    so the model can see what skills are available. When disabled, the model
+    has no built-in awareness of skills but can still discover / activate
+    them via the ``list_or_search_skills`` and ``activate_skill`` tools.
+
+    Returns:
+        True if frontmatter is loaded into the system prompt, False otherwise.
+        Reads from ``frontmatter_in_system_prompt`` config key (default: True).
+    """
+    cfg_val = get_value("frontmatter_in_system_prompt")
+    if cfg_val is None:
+        return True  # Enabled by default
+    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def set_frontmatter_in_system_prompt(enabled: bool) -> None:
+    """Enable or disable loading frontmatter into the system prompt.
+
+    Args:
+        enabled: True to inject frontmatter, False to skip it.
+    """
+    set_value("frontmatter_in_system_prompt", "true" if enabled else "false")
+    logger.info(f"Frontmatter in system prompt {'enabled' if enabled else 'disabled'}")
 
 
 def get_disabled_skills() -> Set[str]:

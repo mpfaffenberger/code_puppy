@@ -545,6 +545,115 @@ class TestRunShellCommand:
         assert "nope" in result.error
 
     @pytest.mark.asyncio
+    async def test_rewrite_from_callback_replaces_command(self):
+        """A callback that returns {"rewrite": ...} transforms the command.
+
+        Proves the new hook contract: infrastructure for plugins that want
+        to transparently transform commands (secret redaction, proxy
+        injection, attribution trailers) instead of merely blocking them.
+        """
+        from code_puppy.tools.command_runner import run_shell_command
+
+        ctx = MagicMock(spec=RunContext)
+        rewrite_result = {"rewrite": "echo rewritten", "rewrite_reason": "unit test"}
+        mock_output = MagicMock()
+        mock_output.success = True
+
+        with patch(
+            "code_puppy.callbacks.on_run_shell_command",
+            new_callable=AsyncMock,
+            return_value=[rewrite_result],
+        ):
+            with patch("code_puppy.config.get_yolo_mode", return_value=True):
+                with patch(
+                    "code_puppy.tools.command_runner.is_subagent",
+                    return_value=False,
+                ):
+                    with patch(
+                        "code_puppy.tools.command_runner._execute_shell_command",
+                        new_callable=AsyncMock,
+                        return_value=mock_output,
+                    ) as mock_exec:
+                        with patch("code_puppy.tools.command_runner.emit_info"):
+                            result = await run_shell_command(
+                                ctx, "echo original", timeout=10
+                            )
+
+        assert result.success is True
+        # The rewritten command is what actually got executed.
+        executed = mock_exec.call_args.kwargs["command"]
+        assert executed == "echo rewritten", (
+            f"expected rewritten command to be executed, got {executed!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_rewrite_ignored_when_same_as_original(self):
+        """A no-op rewrite should not emit the visible info notice."""
+        from code_puppy.tools.command_runner import run_shell_command
+
+        ctx = MagicMock(spec=RunContext)
+        noop_result = {"rewrite": "echo same"}
+        mock_output = MagicMock()
+        mock_output.success = True
+
+        with patch(
+            "code_puppy.callbacks.on_run_shell_command",
+            new_callable=AsyncMock,
+            return_value=[noop_result],
+        ):
+            with patch("code_puppy.config.get_yolo_mode", return_value=True):
+                with patch(
+                    "code_puppy.tools.command_runner.is_subagent",
+                    return_value=False,
+                ):
+                    with patch(
+                        "code_puppy.tools.command_runner._execute_shell_command",
+                        new_callable=AsyncMock,
+                        return_value=mock_output,
+                    ):
+                        with patch(
+                            "code_puppy.tools.command_runner.emit_info"
+                        ) as mock_info:
+                            await run_shell_command(ctx, "echo same", timeout=10)
+
+        # No 'command rewritten' notice should fire when the string is identical.
+        for call in mock_info.call_args_list:
+            args = call.args or ()
+            payload = args[0] if args else ""
+            assert "command rewritten" not in str(payload)
+
+    @pytest.mark.asyncio
+    async def test_rewrite_ignored_for_empty_or_non_string(self):
+        """Defensively skip empty / non-string rewrite payloads."""
+        from code_puppy.tools.command_runner import run_shell_command
+
+        ctx = MagicMock(spec=RunContext)
+        bad_results = [{"rewrite": ""}, {"rewrite": None}, {"rewrite": 42}]
+        mock_output = MagicMock()
+        mock_output.success = True
+
+        with patch(
+            "code_puppy.callbacks.on_run_shell_command",
+            new_callable=AsyncMock,
+            return_value=bad_results,
+        ):
+            with patch("code_puppy.config.get_yolo_mode", return_value=True):
+                with patch(
+                    "code_puppy.tools.command_runner.is_subagent",
+                    return_value=False,
+                ):
+                    with patch(
+                        "code_puppy.tools.command_runner._execute_shell_command",
+                        new_callable=AsyncMock,
+                        return_value=mock_output,
+                    ) as mock_exec:
+                        with patch("code_puppy.tools.command_runner.emit_info"):
+                            await run_shell_command(ctx, "echo keep", timeout=10)
+
+        # Original command flows through unmutated.
+        assert mock_exec.call_args.kwargs["command"] == "echo keep"
+
+    @pytest.mark.asyncio
     async def test_yolo_mode_executes(self):
         from code_puppy.tools.command_runner import run_shell_command
 
@@ -712,39 +821,72 @@ class TestRunShellCommand:
         assert result.user_feedback == "use ls instead"
 
     @pytest.mark.asyncio
-    async def test_confirmation_lock_contention(self):
-        from code_puppy.tools.command_runner import (
-            _CONFIRMATION_LOCK,
-            run_shell_command,
-        )
+    async def test_parallel_shell_approvals_queue(self):
+        """Parallel destructive shell calls should QUEUE their approval
+        prompts (FIFO) -- previously the 2nd+ calls were silently
+        auto-rejected with "another command is currently awaiting
+        confirmation". The new behavior serializes via an asyncio.Lock
+        inside ``get_user_approval_async``.
+        """
+        import asyncio
+
+        from code_puppy.tools.command_runner import run_shell_command
 
         ctx = MagicMock(spec=RunContext)
 
-        # Acquire the lock to simulate contention
-        _CONFIRMATION_LOCK.acquire()
-        try:
-            with patch(
+        concurrent = [0]
+        max_concurrent = [0]
+        call_count = [0]
+
+        async def fake_impl(**kwargs):
+            concurrent[0] += 1
+            max_concurrent[0] = max(max_concurrent[0], concurrent[0])
+            call_count[0] += 1
+            # Hold the prompt open briefly so a collision would show up.
+            await asyncio.sleep(0.05)
+            concurrent[0] -= 1
+            return True, None
+
+        with (
+            patch(
                 "code_puppy.callbacks.on_run_shell_command",
                 new_callable=AsyncMock,
                 return_value=[],
-            ):
-                with patch("code_puppy.config.get_yolo_mode", return_value=False):
-                    with patch(
-                        "code_puppy.tools.command_runner.is_subagent",
-                        return_value=False,
-                    ):
-                        with patch("sys.stdin") as mock_stdin:
-                            mock_stdin.isatty.return_value = True
-                            try:
-                                result = await run_shell_command(
-                                    ctx, "echo hi", timeout=10
-                                )
-                                assert result.success is False
-                                assert "awaiting confirmation" in result.error.lower()
-                            except Exception:
-                                pass  # ValidationError from source bug - code path still exercised
-        finally:
-            _CONFIRMATION_LOCK.release()
+            ),
+            patch("code_puppy.config.get_yolo_mode", return_value=False),
+            patch(
+                "code_puppy.tools.command_runner.is_subagent",
+                return_value=False,
+            ),
+            patch("sys.stdin") as mock_stdin,
+            patch(
+                "code_puppy.tools.common._get_user_approval_async_impl",
+                side_effect=fake_impl,
+            ),
+            patch(
+                "code_puppy.tools.command_runner._execute_shell_command",
+                new_callable=AsyncMock,
+            ) as mock_exec,
+        ):
+            mock_stdin.isatty.return_value = True
+            mock_exec.return_value = MagicMock(success=True)
+
+            # Fire 5 in parallel.
+            results = await asyncio.gather(
+                *[run_shell_command(ctx, f"echo {i}", timeout=10) for i in range(5)],
+                return_exceptions=True,
+            )
+
+        assert call_count[0] == 5, f"expected 5 approvals, got {call_count[0]}"
+        assert max_concurrent[0] == 1, (
+            f"approvals should serialize, but {max_concurrent[0]} ran in parallel"
+        )
+        # No call should have been silently rejected with the old error.
+        for r in results:
+            err = getattr(r, "error", "") or ""
+            assert "awaiting confirmation" not in err.lower(), (
+                f"approval should have queued, not auto-rejected: {r}"
+            )
 
 
 # ---------------------------------------------------------------------------

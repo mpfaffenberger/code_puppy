@@ -16,6 +16,7 @@ from prompt_toolkit import Application
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.formatted_text import ANSI, FormattedText
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
@@ -33,6 +34,7 @@ from .constants import (
 )
 from .renderers import render_question_panel
 from .theme import get_rich_colors, get_tui_colors
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 if TYPE_CHECKING:
     from .models import QuestionAnswer
@@ -271,6 +273,38 @@ async def run_question_tui(
                 state.other_text_buffer += char
                 event.app.invalidate()
 
+    @kb.add(Keys.BracketedPaste)
+    def handle_paste(event: KeyPressEvent) -> None:
+        """Support clipboard paste into the 'Other' text buffer.
+
+        The terminal delivers the whole pasted payload in ``event.data`` when
+        bracketed paste is enabled (prompt_toolkit's ``Application`` turns
+        this on by default). We only accept paste while the user is typing
+        into the 'Other' option -- pasting outside text-entry mode would be
+        meaningless and is silently ignored.
+
+        Control characters are stripped so a stray newline / tab from the
+        clipboard cannot submit the form or break the layout. Newlines and
+        tabs are collapsed to a single space to keep the single-line input
+        readable.
+        """
+        state.reset_activity_timer()
+        if not state.entering_other_text:
+            return
+        pasted = event.data or ""
+        if not pasted:
+            return
+        cleaned_chars: list[str] = []
+        for ch in pasted:
+            if ch in ("\n", "\r", "\t"):
+                cleaned_chars.append(" ")
+            elif ch.isprintable():
+                cleaned_chars.append(ch)
+        cleaned = "".join(cleaned_chars)
+        if cleaned:
+            state.other_text_buffer += cleaned
+            event.app.invalidate()
+
     @kb.add("backspace")
     def handle_backspace(event: KeyPressEvent) -> None:
         if state.entering_other_text and state.other_text_buffer:
@@ -324,19 +358,21 @@ async def run_question_tui(
             [
                 ("", "\n"),
                 ("", pad),
-                (tui_colors.header_dim, f"{ARROW_LEFT}{ARROW_RIGHT} Switch question"),
+                (tui_colors.help_key, f"{ARROW_LEFT}{ARROW_RIGHT}"),
+                (tui_colors.help_text, " Switch question"),
                 ("", "\n"),
                 ("", pad),
-                (tui_colors.header_dim, f"{ARROW_UP}{ARROW_DOWN} Navigate options"),
+                (tui_colors.help_key, f"{ARROW_UP}{ARROW_DOWN}"),
+                (tui_colors.help_text, " Navigate options"),
                 ("", "\n"),
                 ("", "\n"),
                 ("", pad),
                 (tui_colors.help_key, "Ctrl+S"),
-                (tui_colors.header_dim, " Submit"),
+                (tui_colors.help_text, " Submit"),
                 ("", "\n"),
                 ("", pad),
                 (tui_colors.help_key, "Tab"),
-                (tui_colors.header_dim, " Peek behind"),
+                (tui_colors.help_text, " Peek behind"),
             ]
         )
 
@@ -385,6 +421,7 @@ async def run_question_tui(
         mouse_support=False,
         color_depth=ColorDepth.DEPTH_24_BIT,
         output=output,
+        style=on_prompt_toolkit_style(),
     )
 
     # Timeout checker background task
@@ -401,8 +438,15 @@ async def run_question_tui(
     timeout_task = asyncio.create_task(timeout_checker())
     app_exception: BaseException | None = None
 
+    # Suspend the whole run UI: the bottom bar's scroll region is reset
+    # (prompt_toolkit needs the full screen) AND the background key
+    # listener releases stdin -- otherwise the listener thread eats
+    # keystrokes and CPR replies (see _key_listeners.py).
+    from code_puppy.messaging.run_ui import suspended_run_ui
+
     try:
-        await app.run_async()
+        with suspended_run_ui():
+            await app.run_async()
     except BaseException as e:
         app_exception = e
     finally:

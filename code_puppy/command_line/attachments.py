@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import mimetypes
 import os
+import re
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Sequence
+from typing import Iterable, List, Sequence, Union
 
 from pydantic_ai import BinaryContent, DocumentUrl, ImageUrl
 
@@ -60,6 +61,85 @@ class ProcessedPrompt:
 
 class AttachmentParsingError(RuntimeError):
     """Raised when we fail to load a user-provided attachment."""
+
+
+# Matches the placeholders inserted by ClipboardManager.add_image().
+CLIPBOARD_PLACEHOLDER_RE = re.compile(r"\[(?:\U0001f4cb )?clipboard image \d+\]\s*")
+
+
+@dataclass
+class ResolvedUserPrompt:
+    """A prompt fully resolved into text + multimodal attachments.
+
+    Produced by :func:`resolve_user_prompt` — the single source of truth for
+    turning raw user input (with ``@file`` paths, URLs, and clipboard-image
+    placeholders) into model-ready content. Used by both the main prompt
+    path and mid-run steering injection.
+    """
+
+    text: str
+    file_attachments: List[BinaryContent]
+    clipboard_images: List[BinaryContent]
+    link_attachments: List[Union[ImageUrl, DocumentUrl]]
+    warnings: List[str]
+
+    @property
+    def attachments(self) -> List[BinaryContent]:
+        """All binary attachments (files first, clipboard images after)."""
+        return [*self.file_attachments, *self.clipboard_images]
+
+    @property
+    def extra_content(self) -> list:
+        """Everything besides the text: binaries + URL parts."""
+        return [*self.attachments, *self.link_attachments]
+
+
+def resolve_user_prompt(raw_prompt: str) -> ResolvedUserPrompt:
+    """Resolve a raw prompt into cleaned text and all attachment content.
+
+    Combines :func:`parse_prompt_attachments` (file paths / URLs) with the
+    pending clipboard-image queue, stripping ``[clipboard image N]``
+    placeholders from the text. Drains (and clears) the clipboard queue.
+    """
+    processed = parse_prompt_attachments(raw_prompt)
+
+    # Local import: clipboard pulls in PIL and pydantic-ai lazily.
+    from code_puppy.command_line.clipboard import get_clipboard_manager
+
+    clipboard_manager = get_clipboard_manager()
+    clipboard_images = clipboard_manager.get_pending_images()
+    clipboard_manager.clear_pending()
+
+    text = processed.prompt
+    if clipboard_images and text:
+        text = CLIPBOARD_PLACEHOLDER_RE.sub("", text).strip()
+
+    return ResolvedUserPrompt(
+        text=text,
+        file_attachments=[a.content for a in processed.attachments],
+        clipboard_images=clipboard_images,
+        link_attachments=[link.url_part for link in processed.link_attachments],
+        warnings=list(processed.warnings),
+    )
+
+
+def resolve_steer_content(raw_text: str) -> tuple:
+    """Resolve attachments for a mid-run steering message. Never raises.
+
+    Returns ``(content, preview_text)`` where ``content`` is either the raw
+    text unchanged (no attachments found — preserves whitespace exactly) or
+    a multimodal list ``[text, *attachments]`` ready for ``UserPromptPart``.
+    """
+    try:
+        resolved = resolve_user_prompt(raw_text)
+        extras = resolved.extra_content
+        if not extras:
+            return raw_text, raw_text
+        text = resolved.text or "Describe the attached content in detail."
+        return [text, *extras], text
+    except Exception:
+        # A broken attachment must never kill a steer — fall back to text.
+        return raw_text, raw_text
 
 
 def _is_probable_path(token: str) -> bool:
@@ -142,7 +222,15 @@ def _tokenise(prompt: str) -> Iterable[str]:
 def _strip_attachment_token(token: str) -> str:
     """Trim surrounding whitespace/punctuation terminals tack onto paths."""
 
-    return token.strip().strip(",;:()[]{}")
+    token = token.strip().strip(",;:()[]{}")
+    # Windows terminals paste copied files as fully-quoted paths
+    # ("C:\...\shot.png"). Non-POSIX shlex (used on Windows in
+    # _tokenise) keeps those quotes ON the token, so the path was never
+    # detected — peel one matching surrounding pair. POSIX shlex already
+    # strips quotes, making this a no-op elsewhere.
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
+        token = token[1:-1]
+    return token
 
 
 def _candidate_paths(
@@ -396,5 +484,8 @@ __all__ = [
     "PromptAttachment",
     "PromptLinkAttachment",
     "AttachmentParsingError",
+    "ResolvedUserPrompt",
     "parse_prompt_attachments",
+    "resolve_steer_content",
+    "resolve_user_prompt",
 ]

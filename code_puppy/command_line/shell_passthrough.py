@@ -30,8 +30,13 @@ def _get_console() -> Console:
     """Get a Rich console for direct output.
 
     Separated for testability — tests can mock this to capture output.
+
+    ``highlight=False`` is critical: Rich's default highlighter will
+    auto-color numbers (like ``0.1`` in ``(0.1s)``) using ``repr.number``,
+    which overrides our ``[dim]`` styling and makes decimals pop out
+    in white. We want our explicit markup to win.
     """
-    return Console()
+    return Console(highlight=False)
 
 
 def _format_banner() -> str:

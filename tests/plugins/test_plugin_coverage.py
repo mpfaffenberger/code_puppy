@@ -1,96 +1,12 @@
 """Tests for plugin coverage gaps.
 
 Covers missed lines in:
-- scheduler/register_callbacks.py
 - example_custom_command/register_callbacks.py
 - universal_constructor/register_callbacks.py
 - agent_skills/discovery.py
 """
 
 from unittest.mock import MagicMock, patch
-
-# ─── scheduler/register_callbacks.py ───────────────────────────────────
-
-
-class TestSchedulerCallbacks:
-    """Tests for scheduler command handler (lines 20, 41-84)."""
-
-    def _get_handler(self):
-        from code_puppy.plugins.scheduler.register_callbacks import (
-            _handle_scheduler_command,
-        )
-
-        return _handle_scheduler_command
-
-    def _get_help(self):
-        from code_puppy.plugins.scheduler.register_callbacks import _scheduler_help
-
-        return _scheduler_help
-
-    def test_help_returns_entries(self):
-        entries = self._get_help()()
-        assert len(entries) == 3
-        names = [e[0] for e in entries]
-        assert "scheduler" in names
-        assert "sched" in names
-        assert "cron" in names
-
-    def test_unrelated_command_returns_none(self):
-        assert self._get_handler()("foo", "foo") is None
-
-    def test_no_subcommand_launches_menu(self):
-        with patch(
-            "code_puppy.plugins.scheduler.scheduler_menu.show_scheduler_menu"
-        ) as mock_menu:
-            result = self._get_handler()("scheduler", "scheduler")
-            assert result is True
-            mock_menu.assert_called_once()
-
-    @patch("code_puppy.scheduler.cli.handle_scheduler_start")
-    def test_start_subcommand(self, mock_fn):
-        assert self._get_handler()("scheduler start", "scheduler") is True
-        mock_fn.assert_called_once()
-
-    @patch("code_puppy.scheduler.cli.handle_scheduler_stop")
-    def test_stop_subcommand(self, mock_fn):
-        assert self._get_handler()("scheduler stop", "scheduler") is True
-        mock_fn.assert_called_once()
-
-    @patch("code_puppy.scheduler.cli.handle_scheduler_status")
-    def test_status_subcommand(self, mock_fn):
-        assert self._get_handler()("scheduler status", "scheduler") is True
-        mock_fn.assert_called_once()
-
-    @patch("code_puppy.scheduler.cli.handle_scheduler_list")
-    def test_list_subcommand(self, mock_fn):
-        assert self._get_handler()("scheduler list", "scheduler") is True
-        mock_fn.assert_called_once()
-
-    @patch("code_puppy.scheduler.cli.handle_scheduler_run")
-    def test_run_subcommand_with_id(self, mock_fn):
-        assert self._get_handler()("scheduler run task-1", "scheduler") is True
-        mock_fn.assert_called_once_with("task-1")
-
-    @patch("code_puppy.scheduler.cli.handle_scheduler_run")
-    def test_run_subcommand_missing_id(self, mock_fn):
-        assert self._get_handler()("scheduler run", "scheduler") is True
-        mock_fn.assert_not_called()
-
-    @patch("code_puppy.scheduler.cli.handle_scheduler_start")
-    def test_unknown_subcommand(self, _mock):
-        # Need to mock one import so the function body succeeds
-        assert self._get_handler()("scheduler bogus", "scheduler") is True
-
-    @patch("code_puppy.scheduler.cli.handle_scheduler_start")
-    def test_alias_sched(self, mock_fn):
-        assert self._get_handler()("sched start", "sched") is True
-        mock_fn.assert_called_once()
-
-    @patch("code_puppy.scheduler.cli.handle_scheduler_start")
-    def test_alias_cron(self, mock_fn):
-        assert self._get_handler()("cron start", "cron") is True
-        mock_fn.assert_called_once()
-
 
 # ─── example_custom_command/register_callbacks.py ──────────────────────
 
@@ -126,12 +42,35 @@ class TestExampleCustomCommand:
         assert self._get_handler()("unknown", "unknown") is None
 
     def test_woof_no_args(self):
+        from code_puppy.plugins.customizable_commands.register_callbacks import (
+            MarkdownCommandResult,
+        )
+
         result = self._get_handler()("woof", "woof")
-        assert result == "Tell me a dog fact"
+        assert isinstance(result, MarkdownCommandResult)
+        assert result.content == "Tell me a dog fact"
 
     def test_woof_with_text(self):
+        from code_puppy.plugins.customizable_commands.register_callbacks import (
+            MarkdownCommandResult,
+        )
+
         result = self._get_handler()("woof hello world", "woof")
-        assert result == "hello world"
+        assert isinstance(result, MarkdownCommandResult)
+        assert result.content == "hello world"
+
+    def test_woof_falls_back_to_string_when_markdown_result_unavailable(
+        self, monkeypatch
+    ):
+        """If the sibling ``customizable_commands`` plugin is absent, ``/woof``
+        should degrade gracefully to a bare-string (display-only) return
+        rather than break the plugin.
+        """
+        from code_puppy.plugins.example_custom_command import register_callbacks
+
+        monkeypatch.setattr(register_callbacks, "MarkdownCommandResult", None)
+        result = register_callbacks._handle_custom_command("woof", "woof")
+        assert result == "Tell me a dog fact"
 
     def test_echo_no_args(self):
         result = self._get_handler()("echo", "echo")

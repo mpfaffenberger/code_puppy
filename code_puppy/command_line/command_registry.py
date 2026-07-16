@@ -17,6 +17,7 @@ class CommandInfo:
     handler: Callable[[str], bool]
     usage: str = ""
     aliases: List[str] = field(default_factory=list)
+    hidden_aliases: List[str] = field(default_factory=list)
     category: str = "core"
     detailed_help: Optional[str] = None
 
@@ -28,6 +29,28 @@ class CommandInfo:
 
 # Global registry: maps command name/alias -> CommandInfo
 _COMMAND_REGISTRY: Dict[str, CommandInfo] = {}
+_PLUGIN_COMMANDS_LOADING = False
+
+
+def _ensure_plugin_commands_loaded() -> None:
+    """Load plugin callbacks so plugin-registered commands exist.
+
+    Kept here because tests and utility code often query the registry directly
+    without going through command_handler. No ghost commands, thanks.
+    """
+    global _PLUGIN_COMMANDS_LOADING
+    if _PLUGIN_COMMANDS_LOADING:
+        return
+    _PLUGIN_COMMANDS_LOADING = True
+    try:
+        from code_puppy import plugins
+
+        plugins.load_plugin_callbacks()
+    except Exception:
+        # Command lookup should stay safe even if a plugin is busted.
+        pass
+    finally:
+        _PLUGIN_COMMANDS_LOADING = False
 
 
 def register_command(
@@ -35,6 +58,7 @@ def register_command(
     description: str,
     usage: str = "",
     aliases: Optional[List[str]] = None,
+    hidden_aliases: Optional[List[str]] = None,
     category: str = "core",
     detailed_help: Optional[str] = None,
 ):
@@ -50,7 +74,10 @@ def register_command(
         name: Primary command name (without leading /)
         description: Short one-line description for help text
         usage: Full usage string (e.g., "/cd <dir>"). Defaults to "/{name}"
-        aliases: List of alternative names (without leading /)
+        aliases: List of visible alternative names (without leading /).
+            These are executable and shown in completions/help.
+        hidden_aliases: List of hidden alternative names (without leading /).
+            These are executable but omitted from completions/help.
         category: Grouping category ("core", "session", "config", etc.)
         detailed_help: Optional detailed help text for /help <command>
 
@@ -77,6 +104,7 @@ def register_command(
             handler=func,
             usage=usage,
             aliases=aliases or [],
+            hidden_aliases=hidden_aliases or [],
             category=category,
             detailed_help=detailed_help,
         )
@@ -84,8 +112,12 @@ def register_command(
         # Register primary name
         _COMMAND_REGISTRY[name] = cmd_info
 
-        # Register all aliases pointing to the same CommandInfo
+        # Register all aliases pointing to the same CommandInfo.
+        # Visible aliases are advertised by completions/help; hidden ones are
+        # executable but omitted from both (see prompt_toolkit_completion).
         for alias in aliases or []:
+            _COMMAND_REGISTRY[alias] = cmd_info
+        for alias in hidden_aliases or []:
             _COMMAND_REGISTRY[alias] = cmd_info
 
         return func
@@ -100,6 +132,7 @@ def get_all_commands() -> Dict[str, CommandInfo]:
         Dictionary mapping command names/aliases to CommandInfo objects.
         Note: Aliases point to the same CommandInfo as their primary command.
     """
+    _ensure_plugin_commands_loaded()
     return _COMMAND_REGISTRY.copy()
 
 
@@ -109,6 +142,7 @@ def get_unique_commands() -> List[CommandInfo]:
     Returns:
         List of unique CommandInfo objects (one per primary command).
     """
+    _ensure_plugin_commands_loaded()
     seen = set()
     unique = []
     for cmd_info in _COMMAND_REGISTRY.values():
@@ -131,6 +165,8 @@ def get_command(name: str) -> Optional[CommandInfo]:
     Returns:
         CommandInfo if found, None otherwise
     """
+    _ensure_plugin_commands_loaded()
+
     # First try exact match (for backward compatibility)
     exact_match = _COMMAND_REGISTRY.get(name)
     if exact_match is not None:

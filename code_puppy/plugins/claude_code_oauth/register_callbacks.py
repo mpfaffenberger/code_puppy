@@ -22,8 +22,16 @@ from code_puppy.provider_identity import (
     resolve_provider_identity,
 )
 
+from ..oauth_pasteback import parse_oauth_callback_input, read_available_stdin_line
 from ..oauth_puppy_html import oauth_failure_html, oauth_success_html
 from .config import CLAUDE_CODE_OAUTH_CONFIG, get_token_storage_path
+from .fast_mode import (
+    FAST_SETTING_KEY,
+    ensure_fast_beta_header,
+    is_fast_mode_enabled,
+    patch_anthropic_client_fast_mode,
+)
+from .prompt_handler import prepare_claude_code_prompt
 from .utils import (
     OAuthContext,
     add_models_to_extra_config,
@@ -116,28 +124,109 @@ def _start_callback_server(
     return None
 
 
+def _assign_manual_redirect_uri(context: OAuthContext) -> bool:
+    port_range = CLAUDE_CODE_OAUTH_CONFIG["callback_port_range"]
+    try:
+        assign_redirect_uri(context, port_range[0])
+    except Exception as exc:  # noqa: BLE001
+        emit_error(f"Failed to assign redirect URI for OAuth flow: {exc}")
+        return False
+    return True
+
+
+def _parse_pasted_callback(context: OAuthContext, raw_input: str) -> Optional[str]:
+    try:
+        parsed = parse_oauth_callback_input(raw_input)
+    except ValueError as exc:
+        emit_error(f"Could not parse pasted OAuth input: {exc}")
+        return None
+
+    if parsed.error:
+        emit_error(f"OAuth provider returned an error: {parsed.error_message}")
+        return None
+
+    if not parsed.code:
+        emit_error("Pasted OAuth input did not contain an authorization code.")
+        return None
+
+    if parsed.state:
+        if parsed.state != context.state:
+            emit_error("State mismatch detected; aborting authentication.")
+            return None
+    else:
+        emit_warning(
+            "Pasted OAuth input did not include state; continuing with this login attempt."
+        )
+
+    return parsed.code
+
+
+def _wait_for_callback_or_paste(
+    *,
+    context: OAuthContext,
+    result: Optional[_OAuthResult],
+    event: Optional[threading.Event],
+    timeout: float,
+) -> Optional[str]:
+    elapsed = 0.0
+    interval = 0.25
+
+    while elapsed < timeout:
+        if event and event.is_set() and result:
+            if result.error:
+                emit_error(f"OAuth callback error: {result.error}")
+                return None
+
+            if result.state != context.state:
+                emit_error("State mismatch detected; aborting authentication.")
+                return None
+
+            return result.code
+
+        pasted = read_available_stdin_line()
+        if pasted is not None and pasted.strip():
+            code = _parse_pasted_callback(context, pasted)
+            if code:
+                return code
+
+        time.sleep(interval)
+        elapsed += interval
+
+    emit_error("OAuth callback timed out. Please try again.")
+    return None
+
+
 def _await_callback(context: OAuthContext) -> Optional[str]:
     timeout = CLAUDE_CODE_OAUTH_CONFIG["callback_timeout"]
 
     started = _start_callback_server(context)
-    if not started:
-        return None
+    server: Optional[HTTPServer] = None
+    result: Optional[_OAuthResult] = None
+    event: Optional[threading.Event] = None
+    if started:
+        server, result, event = started
+    else:
+        emit_warning("Continuing Claude Code OAuth in paste-back mode.")
+        if not _assign_manual_redirect_uri(context):
+            return None
 
-    server, result, event = started
     redirect_uri = context.redirect_uri
     if not redirect_uri:
         emit_error("Failed to assign redirect URI for OAuth flow")
-        server.shutdown()
+        if server:
+            server.shutdown()
         return None
 
     auth_url = build_authorization_url(context)
 
+    suppress_browser = False
     try:
         import webbrowser
 
         from code_puppy.tools.common import should_suppress_browser
 
-        if should_suppress_browser():
+        suppress_browser = should_suppress_browser()
+        if suppress_browser:
             emit_info(
                 "[HEADLESS MODE] Would normally open browser for Claude Code OAuth…"
             )
@@ -147,32 +236,30 @@ def _await_callback(context: OAuthContext) -> Optional[str]:
             webbrowser.open(auth_url)
             emit_info(f"If it doesn't open automatically, visit: {auth_url}")
     except Exception as exc:  # pragma: no cover
-        if not should_suppress_browser():
+        if not suppress_browser:
             emit_warning(f"Failed to open browser automatically: {exc}")
             emit_info(f"Please open the URL manually: {auth_url}")
 
-    emit_info(f"Listening for callback on {redirect_uri}")
+    if server:
+        emit_info(f"Listening for callback on {redirect_uri}")
+    else:
+        emit_info(f"Using redirect URI for paste-back: {redirect_uri}")
     emit_info(
-        "If Claude redirects you to the console callback page, copy the full URL "
-        "and paste it back into Code Puppy."
+        "If localhost cannot be reached, paste the full callback URL or "
+        "authorization code here and press Enter."
     )
 
-    if not event.wait(timeout=timeout):
-        emit_error("OAuth callback timed out. Please try again.")
+    code = _wait_for_callback_or_paste(
+        context=context,
+        result=result,
+        event=event,
+        timeout=timeout,
+    )
+
+    if server:
         server.shutdown()
-        return None
 
-    server.shutdown()
-
-    if result.error:
-        emit_error(f"OAuth callback error: {result.error}")
-        return None
-
-    if result.state != context.state:
-        emit_error("State mismatch detected; aborting authentication.")
-        return None
-
-    return result.code
+    return code
 
 
 def _custom_help() -> List[Tuple[str, str]]:
@@ -186,6 +273,10 @@ def _custom_help() -> List[Tuple[str, str]]:
             "Check Claude Code OAuth authentication status and configured models",
         ),
         ("claude-code-logout", "Remove Claude Code OAuth tokens and imported models"),
+        (
+            "claude-code-fast",
+            "Toggle fast mode (speed=fast + fast-mode beta) for the active Claude Code model",
+        ),
     ]
 
 
@@ -229,6 +320,29 @@ def _perform_authentication() -> None:
         )
 
 
+def _reauthenticate_after_expired_oauth(model_name: str) -> Optional[str]:
+    """Run full Claude Code OAuth only for configured claude-code-* models."""
+    prefix = CLAUDE_CODE_OAUTH_CONFIG["prefix"]
+    if not model_name.startswith(prefix):
+        logger.debug(
+            "Skipping Claude Code OAuth flow for non-prefixed model: %s", model_name
+        )
+        return None
+
+    emit_warning(
+        "Claude Code OAuth refresh failed; launching the browser sign-in flow again."
+    )
+    _perform_authentication()
+
+    access_token = get_valid_access_token()
+    if access_token:
+        emit_success("Claude Code OAuth restored. Retrying the failed request…")
+        return access_token
+
+    emit_error("Claude Code OAuth reauthentication did not produce a usable token.")
+    return None
+
+
 def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     if not name:
         return None
@@ -241,7 +355,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
                 "Existing Claude Code tokens found. Continuing will overwrite them."
             )
         _perform_authentication()
-        set_model_and_reload_agent("claude-code-claude-opus-4-6")
+        set_model_and_reload_agent("claude-code-claude-opus-4-8-long")
         return True
 
     if name == "claude-code-status":
@@ -266,6 +380,38 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
         else:
             emit_warning("Claude Code OAuth: Not authenticated")
             emit_info("Run /claude-code-auth to begin the browser sign-in flow.")
+        return True
+
+    if name == "claude-code-fast":
+        from code_puppy.config import (
+            get_global_model_name,
+            set_model_setting,
+        )
+
+        active_model = get_global_model_name() or ""
+        if not active_model.startswith(CLAUDE_CODE_OAUTH_CONFIG["prefix"]):
+            emit_warning(
+                "Fast mode only applies to Claude Code models. "
+                "Switch to a claude-code-* model first."
+            )
+            return True
+
+        currently_on = is_fast_mode_enabled(active_model)
+        new_value = not currently_on
+        # Config stores bools as string values; "true"/"false" round-trips cleanly
+        set_model_setting(active_model, FAST_SETTING_KEY, str(new_value).lower())
+
+        if new_value:
+            emit_success(f"Fast mode ENABLED for {active_model}")
+            emit_info(
+                "Injecting speed=fast into payloads and fast-mode-2026-02-01 beta header."
+            )
+        else:
+            emit_info(f"Fast mode DISABLED for {active_model}")
+
+        # Reload agent so the anthropic-beta header update (set at client
+        # construction time) takes effect. Payload side is live either way.
+        set_model_and_reload_agent(active_model, warn_on_pinned_mismatch=False)
         return True
 
     if name == "claude-code-logout":
@@ -297,7 +443,6 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         ClaudeCacheAsyncClient,
         patch_anthropic_client_messages,
     )
-    from code_puppy.config import get_effective_model_settings
     from code_puppy.http_utils import get_cert_bundle_path
     from code_puppy.model_factory import get_custom_config
 
@@ -318,9 +463,16 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         )
         return None
 
-    # Check if interleaved thinking is enabled (defaults to True for OAuth models)
-    effective_settings = get_effective_model_settings(model_name)
-    interleaved_thinking = effective_settings.get("interleaved_thinking", True)
+    # Check if interleaved thinking is enabled (defaults to True for OAuth models).
+    # NOTE: we read via get_all_model_settings (not get_effective_model_settings)
+    # because these are plugin-owned settings that aren't in the core
+    # supported_settings allowlist and would otherwise be filtered out.
+    # See fast_mode.FAST_SETTING_KEY for the full rationale.
+    from code_puppy.config import get_all_model_settings
+
+    per_model_settings = get_all_model_settings(model_name)
+    interleaved_thinking = per_model_settings.get("interleaved_thinking", True)
+    fast_enabled = bool(per_model_settings.get(FAST_SETTING_KEY, False))
 
     # Handle anthropic-beta header based on interleaved_thinking setting
     if "anthropic-beta" in headers:
@@ -348,6 +500,9 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         else:
             headers["anthropic-beta"] = CONTEXT_1M_BETA
 
+    # Fast mode: append fast-mode-2026-02-01 beta marker when enabled
+    ensure_fast_beta_header(headers, fast_enabled)
+
     # Use a dedicated client wrapper that injects cache_control on /v1/messages
     if verify is None:
         verify = get_cert_bundle_path()
@@ -360,6 +515,12 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         verify=verify,
         timeout=180,
         http2=False,
+        # Claude Code OAuth requires the ``cp_`` tool-name prefix; the wire
+        # format Anthropic's CLI uses won't accept un-prefixed tools.
+        apply_claude_code_prefix=True,
+        oauth_reauthentication_callback=lambda: _reauthenticate_after_expired_oauth(
+            model_name
+        ),
     )
 
     anthropic_client = AsyncAnthropic(
@@ -367,7 +528,18 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         http_client=client,
         auth_token=api_key,
     )
+
+    def _update_runtime_token(access_token: str) -> None:
+        anthropic_client.auth_token = access_token
+        custom_endpoint = model_config.get("custom_endpoint")
+        if isinstance(custom_endpoint, dict):
+            custom_endpoint["api_key"] = access_token
+
+    client.set_token_update_callback(_update_runtime_token)
     patch_anthropic_client_messages(anthropic_client)
+    # Fast mode wrapper sits outside cache-control injector and re-reads
+    # the setting on every call so /claude-code-fast takes effect live.
+    patch_anthropic_client_fast_mode(anthropic_client, model_name)
     anthropic_client.api_key = None
     anthropic_client.auth_token = api_key
     provider = make_anthropic_provider(
@@ -455,5 +627,6 @@ async def _on_agent_run_end(
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
 register_callback("register_model_type", _register_model_types)
+register_callback("prepare_model_prompt", prepare_claude_code_prompt)
 register_callback("agent_run_start", _on_agent_run_start)
 register_callback("agent_run_end", _on_agent_run_end)

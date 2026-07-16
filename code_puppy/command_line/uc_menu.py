@@ -27,6 +27,7 @@ from code_puppy.messaging import emit_error, emit_info, emit_success
 from code_puppy.plugins.universal_constructor.models import UCToolInfo
 from code_puppy.plugins.universal_constructor.registry import get_registry
 from code_puppy.tools.command_runner import set_awaiting_user_input
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 PAGE_SIZE = 10  # Tools per page
 SOURCE_PAGE_SIZE = 30  # Lines of source per page
@@ -208,13 +209,13 @@ def _render_menu_panel(
     total_pages = get_total_pages(len(tools), PAGE_SIZE)
     start_idx, end_idx = get_page_bounds(page, len(tools), PAGE_SIZE)
 
-    lines.append(("bold", "UC Tools"))
-    lines.append(("fg:ansibrightblack", f" (Page {page + 1}/{total_pages})"))
+    lines.append(("class:tui.header", "UC Tools"))
+    lines.append(("class:tui.muted", f" (Page {page + 1}/{total_pages})"))
     lines.append(("", "\n\n"))
 
     if not tools:
-        lines.append(("fg:yellow", "  No UC tools found.\n"))
-        lines.append(("fg:ansibrightblack", "  Ask the LLM to create one!\n"))
+        lines.append(("class:tui.warning", "  No UC tools found.\n"))
+        lines.append(("class:tui.muted", "  Ask the LLM to create one!\n"))
         lines.append(("", "\n"))
     else:
         for i in range(start_idx, end_idx):
@@ -225,37 +226,37 @@ def _render_menu_panel(
 
             # Selection indicator
             if is_selected:
-                lines.append(("fg:ansigreen", "> "))
-                lines.append(("fg:ansigreen bold", safe_name))
+                lines.append(("class:tui.selected", "> "))
+                lines.append(("class:tui.selected", safe_name))
             else:
                 lines.append(("", "  "))
                 lines.append(("", safe_name))
 
             # Status indicator
             if tool.meta.enabled:
-                lines.append(("fg:ansigreen", " [on]"))
+                lines.append(("class:tui.success", " [on]"))
             else:
-                lines.append(("fg:ansired", " [off]"))
+                lines.append(("class:tui.error", " [off]"))
 
             # Namespace tag if present
             if tool.meta.namespace:
-                lines.append(("fg:ansiblue", f" ({tool.meta.namespace})"))
+                lines.append(("class:tui.title", f" ({tool.meta.namespace})"))
 
             lines.append(("", "\n"))
 
     # Navigation hints
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "  [up]/[down] "))
+    lines.append(("class:tui.help-key", "  [up]/[down] "))
     lines.append(("", "Navigate\n"))
-    lines.append(("fg:ansibrightblack", "  [left]/[right] "))
+    lines.append(("class:tui.help-key", "  [left]/[right] "))
     lines.append(("", "Page\n"))
-    lines.append(("fg:green", "  Enter  "))
+    lines.append(("class:tui.help-key", "  Enter  "))
     lines.append(("", "View source\n"))
-    lines.append(("fg:ansiyellow", "  E "))
+    lines.append(("class:tui.help-key", "  E "))
     lines.append(("", "Toggle enabled\n"))
-    lines.append(("fg:ansired", "  D "))
+    lines.append(("class:tui.error", "  D "))
     lines.append(("", "Delete tool\n"))
-    lines.append(("fg:ansibrightblack", "  Esc "))
+    lines.append(("class:tui.help-key", "  Esc "))
     lines.append(("", "Exit"))
 
     return lines
@@ -272,85 +273,85 @@ def _render_preview_panel(tool: Optional[UCToolInfo]) -> List:
     """
     lines = []
 
-    lines.append(("dim cyan", " TOOL DETAILS"))
+    lines.append(("class:tui.title", " TOOL DETAILS"))
     lines.append(("", "\n\n"))
 
     if not tool:
-        lines.append(("fg:yellow", "  No tool selected.\n"))
-        lines.append(("fg:ansibrightblack", "  Create some with the LLM!\n"))
+        lines.append(("class:tui.warning", "  No tool selected.\n"))
+        lines.append(("class:tui.muted", "  Create some with the LLM!\n"))
         return lines
 
     safe_name = _sanitize_display_text(tool.meta.name)
     safe_desc = _sanitize_display_text(tool.meta.description)
 
     # Tool name
-    lines.append(("bold", "Name: "))
-    lines.append(("fg:ansicyan", safe_name))
+    lines.append(("class:tui.label", "Name: "))
+    lines.append(("class:tui.help-key", safe_name))
     lines.append(("", "\n\n"))
 
     # Full name (with namespace)
     if tool.meta.namespace:
-        lines.append(("bold", "Full Name: "))
+        lines.append(("class:tui.label", "Full Name: "))
         lines.append(("", tool.full_name))
         lines.append(("", "\n\n"))
 
     # Status
-    lines.append(("bold", "Status: "))
+    lines.append(("class:tui.label", "Status: "))
     if tool.meta.enabled:
-        lines.append(("fg:ansigreen bold", "ENABLED"))
+        lines.append(("class:tui.success", "ENABLED"))
     else:
-        lines.append(("fg:ansired bold", "DISABLED"))
+        lines.append(("class:tui.error", "DISABLED"))
     lines.append(("", "\n\n"))
 
     # Version
-    lines.append(("bold", "Version: "))
+    lines.append(("class:tui.label", "Version: "))
     lines.append(("", tool.meta.version))
     lines.append(("", "\n\n"))
 
     # Author (if present)
     if tool.meta.author:
-        lines.append(("bold", "Author: "))
+        lines.append(("class:tui.label", "Author: "))
         lines.append(("", tool.meta.author))
         lines.append(("", "\n\n"))
 
     # Signature
-    lines.append(("bold", "Signature: "))
-    lines.append(("fg:ansiyellow", tool.signature))
+    lines.append(("class:tui.label", "Signature: "))
+    lines.append(("class:tui.warning", tool.signature))
     lines.append(("", "\n\n"))
 
     # Description (word-wrapped)
-    lines.append(("bold", "Description:"))
+    lines.append(("class:tui.label", "Description:"))
     lines.append(("", "\n"))
 
     words = safe_desc.split()
     current_line = ""
     for word in words:
         if len(current_line) + len(word) + 1 > 50:
-            lines.append(("fg:ansibrightblack", f"  {current_line}"))
+            lines.append(("class:tui.muted", f"  {current_line}"))
             lines.append(("", "\n"))
             current_line = word
         else:
             current_line = word if not current_line else current_line + " " + word
     if current_line:
-        lines.append(("fg:ansibrightblack", f"  {current_line}"))
+        lines.append(("class:tui.muted", f"  {current_line}"))
         lines.append(("", "\n"))
 
     lines.append(("", "\n"))
 
     # Docstring preview (if available)
     if tool.docstring:
-        lines.append(("bold", "Docstring:"))
+        lines.append(("class:tui.label", "Docstring:"))
         lines.append(("", "\n"))
         doc_preview = tool.docstring[:150]
         if len(tool.docstring) > 150:
             doc_preview += "..."
-        lines.append(("fg:ansibrightblack", f"  {doc_preview}"))
+        lines.append(("class:tui.muted", f"  {doc_preview}"))
         lines.append(("", "\n\n"))
 
     # Source path
-    lines.append(("bold", "Source:"))
+    lines.append(("class:tui.label", "Source:"))
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", f"  {tool.source_path}"))
+    lines.append(("class:tui.muted", f"  {tool.source_path}"))
     lines.append(("", "\n"))
 
     return lines
@@ -376,19 +377,19 @@ def _render_source_panel(
     lines = []
 
     # Header
-    lines.append(("bold cyan", f" SOURCE: {tool.full_name}"))
+    lines.append(("class:tui.header", f" SOURCE: {tool.full_name}"))
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", f" {tool.source_path}"))
+    lines.append(("class:tui.muted", f" {tool.source_path}"))
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "─" * 70))
+    lines.append(("class:tui.muted", "─" * 70))
     lines.append(("", "\n"))
 
     if error:
-        lines.append(("fg:ansired", f"  Error: {error}\n"))
+        lines.append(("class:tui.error", f"  Error: {error}\n"))
         return lines
 
     if not source_lines:
-        lines.append(("fg:yellow", "  (empty file)\n"))
+        lines.append(("class:tui.warning", "  (empty file)\n"))
         return lines
 
     # Calculate visible range
@@ -405,7 +406,7 @@ def _render_source_panel(
         line_content = source_lines[i]
 
         # Line number
-        lines.append(("fg:ansibrightblack", f" {line_num:>{line_num_width}} │ "))
+        lines.append(("class:tui.muted", f" {line_num:>{line_num_width}} │ "))
 
         # Basic syntax highlighting
         highlighted = _highlight_python_line(line_content)
@@ -413,7 +414,7 @@ def _render_source_panel(
         lines.append(("", "\n"))
 
     # Footer with scroll info
-    lines.append(("fg:ansibrightblack", "─" * 70))
+    lines.append(("class:tui.muted", "─" * 70))
     lines.append(("", "\n"))
 
     # Scroll position indicator
@@ -421,21 +422,21 @@ def _render_source_panel(
     total_pages = (total_lines + SOURCE_PAGE_SIZE - 1) // SOURCE_PAGE_SIZE
     lines.append(
         (
-            "fg:ansibrightblack",
+            "class:tui.muted",
             f" Lines {scroll_offset + 1}-{end_offset} of {total_lines}",
         )
     )
-    lines.append(("fg:ansibrightblack", f" (Page {current_page}/{total_pages})"))
+    lines.append(("class:tui.muted", f" (Page {current_page}/{total_pages})"))
     lines.append(("", "\n\n"))
 
     # Navigation hints for source view
-    lines.append(("fg:ansibrightblack", "  [up]/[down] "))
+    lines.append(("class:tui.muted", "  [up]/[down] "))
     lines.append(("", "Scroll\n"))
-    lines.append(("fg:ansibrightblack", "  [PgUp]/[PgDn] "))
+    lines.append(("class:tui.muted", "  [PgUp]/[PgDn] "))
     lines.append(("", "Page\n"))
-    lines.append(("fg:ansiyellow", "  Esc/Q "))
+    lines.append(("class:tui.help-key", "  Esc/Q "))
     lines.append(("", "Back to list\n"))
-    lines.append(("fg:ansibrightred", "  Ctrl+C "))
+    lines.append(("class:tui.error", "  Ctrl+C "))
     lines.append(("", "Exit"))
 
     return lines
@@ -494,7 +495,7 @@ def _highlight_python_line(line: str) -> List[Tuple[str, str]]:
 
     # Check for comments
     if line.lstrip().startswith("#"):
-        result.append(("fg:ansibrightblack italic", line))
+        result.append(("class:tui.muted italic", line))
         return result
 
     # Check for strings (simplified)
@@ -815,6 +816,7 @@ async def interactive_uc_picker() -> Optional[str]:
                     key_bindings=list_kb,
                     full_screen=False,
                     mouse_support=False,
+                    style=on_prompt_toolkit_style(),
                 )
             else:
                 # Source view
@@ -825,6 +827,7 @@ async def interactive_uc_picker() -> Optional[str]:
                     key_bindings=source_kb,
                     full_screen=False,
                     mouse_support=False,
+                    style=on_prompt_toolkit_style(),
                 )
 
             await app.run_async()

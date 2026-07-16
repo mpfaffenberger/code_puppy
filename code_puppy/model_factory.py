@@ -14,7 +14,7 @@ from pydantic_ai.models.openai import (
     OpenAIResponsesModel,
     OpenAIResponsesModelSettings,
 )
-from pydantic_ai.profiles import ModelProfile
+from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.providers.cerebras import CerebrasProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.settings import ModelSettings
@@ -59,6 +59,18 @@ _load_plugin_model_providers()
 
 # Anthropic beta header required for 1M context window support.
 CONTEXT_1M_BETA = "context-1m-2025-08-07"
+_CUSTOM_OPENAI_MODEL_TYPES = {"custom_openai", "custom_openai_responses"}
+_LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL = "codex-gpt-5-codex"
+
+
+def _custom_openai_uses_responses_api(
+    model_name: str, model_config: Dict[str, Any]
+) -> bool:
+    """Return whether a custom OpenAI model should use the Responses API."""
+    return (
+        model_config.get("type") == "custom_openai_responses"
+        or model_name == _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL
+    )
 
 
 def _build_anthropic_beta_header(
@@ -71,6 +83,7 @@ def _build_anthropic_beta_header(
     Combines beta flags based on model capabilities:
     - interleaved-thinking-2025-05-14  (when interleaved_thinking is enabled)
     - context-1m-2025-08-07            (when context_length >= 1_000_000)
+    - advisor-tool-2026-03-01          (when advisor_tool_enabled is True)
 
     Returns None if no beta flags are needed.
     """
@@ -79,6 +92,10 @@ def _build_anthropic_beta_header(
         parts.append("interleaved-thinking-2025-05-14")
     if model_config.get("context_length", 0) >= 1_000_000:
         parts.append(CONTEXT_1M_BETA)
+    # Dormant opt-in: no models.json entry sets ``advisor_tool_enabled`` yet,
+    # so this beta stays inert until a model config explicitly turns it on.
+    if model_config.get("advisor_tool_enabled"):
+        parts.append("advisor-tool-2026-03-01")
     return ",".join(parts) if parts else None
 
 
@@ -105,7 +122,9 @@ def get_api_key(env_var_name: str) -> str | None:
 
 # Model types that use the Anthropic Messages API under the hood.
 # These all need Anthropic-specific settings (thinking, effort, etc.).
-_ANTHROPIC_MODEL_TYPES = frozenset({"anthropic", "azure_foundry", "claude_code"})
+_ANTHROPIC_MODEL_TYPES = frozenset(
+    {"anthropic", "aws_bedrock", "azure_foundry", "claude_code"}
+)
 
 
 def _is_anthropic_model(model_name: str, model_config: dict[str, Any]) -> bool:
@@ -113,6 +132,23 @@ def _is_anthropic_model(model_name: str, model_config: dict[str, Any]) -> bool:
     if model_name.startswith("claude-") or model_name.startswith("anthropic-"):
         return True
     return model_config.get("type") in _ANTHROPIC_MODEL_TYPES
+
+
+def _thinking_tags_profile(
+    model_name: str, model_config: dict[str, Any]
+) -> OpenAIModelProfile | None:
+    """Build an OpenAIModelProfile overriding thinking_tags, if needed.
+
+    Returns None when the model uses pydantic-ai's default ``<think>``/
+    ``</think>`` tags, so callers can pass this straight through as
+    ``profile=`` without an extra None-check.
+    """
+    from code_puppy.model_utils import get_thinking_tags
+
+    tags = get_thinking_tags(model_name, model_config)
+    if tags is None:
+        return None
+    return OpenAIModelProfile(thinking_tags=tags)
 
 
 def make_model_settings(
@@ -170,13 +206,46 @@ def make_model_settings(
     if not get_yolo_mode():
         model_settings_dict["parallel_tool_calls"] = False
 
-    # Default to clear_thinking=False for GLM-4.7 and GLM-5 models (preserved thinking)
-    if "glm-4.7" in model_name.lower() or "glm-5" in model_name.lower():
+    # GLM-4.5+ models: thinking.type / reasoning_effort are GLM-specific
+    # OpenAI-compatible request fields pydantic-ai doesn't know natively, so
+    # they have to ride along in extra_body to actually reach the API.
+    from code_puppy.model_utils import (
+        supports_glm_reasoning_effort,
+        supports_glm_thinking,
+    )
+
+    if supports_glm_thinking(model_name):
+        glm_extra_body = model_settings_dict.get("extra_body") or {}
+        thinking_type = effective_settings.get("thinking_type", "enabled")
         clear_thinking = effective_settings.get("clear_thinking", False)
-        model_settings_dict["thinking"] = {
-            "type": "enabled",
-            "clear_thinking": clear_thinking,
-        }
+
+        # Lilac's GLM proxy expects chat_template_kwargs instead of the
+        # raw thinking object that Zhipu's native API uses.
+        is_lilac = model_config.get("provider") == "lilac"
+        if is_lilac:
+            glm_extra_body["chat_template_kwargs"] = {
+                "enable_thinking": thinking_type != "disabled",
+                "clear_thinking": clear_thinking,
+            }
+        else:
+            glm_extra_body["thinking"] = {
+                "type": thinking_type,
+                "clear_thinking": clear_thinking,
+            }
+
+        # Only send reasoning_effort when thinking is enabled. When thinking
+        # is disabled, including reasoning_effort can cause some API proxies
+        # to interpret its mere presence as "enable reasoning",
+        # overriding the disabled flag.
+        if thinking_type != "disabled" and supports_glm_reasoning_effort(model_name):
+            glm_extra_body["reasoning_effort"] = effective_settings.get(
+                "glm_reasoning_effort", "max"
+            )
+        model_settings_dict["extra_body"] = glm_extra_body
+        # These aren't real ModelSettings/OpenAI fields - only extra_body is
+        # read downstream, so strip the raw keys to avoid dict clutter.
+        for key in ("thinking_type", "clear_thinking", "glm_reasoning_effort"):
+            model_settings_dict.pop(key, None)
 
     model_settings: ModelSettings = ModelSettings(**model_settings_dict)
 
@@ -228,8 +297,12 @@ def make_model_settings(
 
         uses_responses_api = (
             model_type == "chatgpt_oauth"
+            or model_type == "azure_foundry_openai"
             or (model_type == "openai" and "codex" in model_name)
-            or (model_type == "custom_openai" and "codex" in model_name)
+            or (
+                model_type in _CUSTOM_OPENAI_MODEL_TYPES
+                and _custom_openai_uses_responses_api(model_name, model_config)
+            )
         )
 
         if uses_responses_api:
@@ -256,9 +329,13 @@ def make_model_settings(
         if model_settings_dict.get("temperature") is None:
             model_settings_dict["temperature"] = 1.0
 
-        from code_puppy.model_utils import get_default_extended_thinking
+        from code_puppy.model_utils import (
+            get_default_extended_thinking,
+            resolve_anthropic_thinking_payload,
+        )
 
-        default_thinking = get_default_extended_thinking(model_name)
+        actual_model_id = model_config.get("name", model_name)
+        default_thinking = get_default_extended_thinking(model_name, actual_model_id)
         extended_thinking = effective_settings.get(
             "extended_thinking", default_thinking
         )
@@ -269,35 +346,49 @@ def make_model_settings(
             extended_thinking = "off"
 
         budget_tokens = effective_settings.get("budget_tokens", 10000)
-        if extended_thinking in ("enabled", "adaptive"):
-            model_settings_dict["anthropic_thinking"] = {
-                "type": extended_thinking,
-            }
-            # Only send budget_tokens for classic "enabled" mode
-            if extended_thinking == "enabled" and budget_tokens:
-                model_settings_dict["anthropic_thinking"]["budget_tokens"] = (
-                    budget_tokens
-                )
+        # Single choke point: coerce the internal mode (enabled/adaptive/...) to
+        # whatever wire shape THIS model actually accepts. Different Claude
+        # generations disagree: classic models want type:enabled+budget_tokens,
+        # newer adaptive-supporting models (Opus 4.6+/Sonnet 5/Fable 5) want
+        # type:adaptive and reject type:enabled. The helper picks correctly.
+        thinking_payload = resolve_anthropic_thinking_payload(
+            extended_thinking,
+            budget_tokens=budget_tokens,
+            model_name=model_name,
+            actual_model_id=actual_model_id,
+        )
+        if thinking_payload is not None:
+            model_settings_dict["anthropic_thinking"] = thinking_payload
 
-        # Opus 4-6 models support the `effort` setting via output_config.
-        # pydantic-ai doesn't have a native field for output_config yet,
-        # so we inject it through extra_body which gets merged into the
-        # HTTP request body.
-        # NOTE: effort/output_config only applies to adaptive thinking.
-        # With standard "enabled" thinking, budget_tokens controls depth.
+        # Opus 4-6+ models support the `effort` setting via output_config.
+        # pydantic-ai has no native field for output_config yet, so we inject
+        # it through extra_body which gets merged into the HTTP request body.
+        # All three gate conditions are load-bearing and must stay:
+        #   1. `thinking_payload is not None` -- user turned thinking OFF
+        #      (mode was "off"/"disabled"); don't add effort where there's
+        #      no thinking to steer.
+        #   2. `type == "adaptive"` -- verified at wire level: classic
+        #      Claude models 400 on output_config.effort; only adaptive-
+        #      shape requests may carry it.
+        #   3. `model_supports_setting(..., "effort")` -- per-model opt-in
+        #      from models.json, gives operators a kill-switch without a
+        #      code change if a specific model regresses.
+        # "Simplify" this at your peril.
         if (
-            model_supports_setting(model_name, "effort")
-            and extended_thinking == "adaptive"
+            thinking_payload is not None
+            and thinking_payload.get("type") == "adaptive"
+            and model_supports_setting(model_name, "effort")
         ):
-            effort = effective_settings.get("effort", "high")
-            if "anthropic_thinking" in model_settings_dict:
-                extra_body = model_settings_dict.get("extra_body") or {}
-                extra_body["output_config"] = {"effort": effort}
-                model_settings_dict["extra_body"] = extra_body
+            effort = effective_settings.get(
+                "effort", model_config.get("default_effort", "high")
+            )
+            extra_body = model_settings_dict.get("extra_body") or {}
+            extra_body["output_config"] = {"effort": effort}
+            model_settings_dict["extra_body"] = extra_body
 
         model_settings = AnthropicModelSettings(**model_settings_dict)
 
-    # Handle thinking models (e.g. Antigravity Gemini models)
+    # Handle thinking models
     # Check if model supports thinking settings and apply defaults
     if model_supports_setting(model_name, "thinking_level"):
         # Apply defaults if not explicitly set by user
@@ -411,7 +502,6 @@ class ModelFactory:
 
         # Import OAuth model file paths from main config
         from code_puppy.config import (
-            ANTIGRAVITY_MODELS_FILE,
             CHATGPT_MODELS_FILE,
             CLAUDE_MODELS_FILE,
             COPILOT_MODELS_FILE,
@@ -424,7 +514,6 @@ class ModelFactory:
             (pathlib.Path(CHATGPT_MODELS_FILE), "ChatGPT OAuth models", False),
             (pathlib.Path(CLAUDE_MODELS_FILE), "Claude Code OAuth models", True),
             (pathlib.Path(GEMINI_MODELS_FILE), "Gemini OAuth models", False),
-            (pathlib.Path(ANTIGRAVITY_MODELS_FILE), "Antigravity OAuth models", False),
             (pathlib.Path(COPILOT_MODELS_FILE), "Copilot models", False),
         ]
 
@@ -471,6 +560,43 @@ class ModelFactory:
         except Exception as exc:
             logging.getLogger(__name__).debug(
                 f"Failed to load plugin models config: {exc}"
+            )
+
+        # Final pass: apply description-only overlays from bundled + plugins.
+        # This avoids shallow update() calls clobbering remote model settings.
+        try:
+            from code_puppy.model_descriptions import apply_description_overlays
+
+            bundled_models = pathlib.Path(__file__).parent / "models.json"
+            with open(bundled_models, "r") as f:
+                bundled_config = json.load(f)
+
+            bundled_descriptions = {
+                name: (cfg.get("description") or "")
+                for name, cfg in bundled_config.items()
+                if isinstance(cfg, dict)
+            }
+
+            plugin_descriptions: dict[str, str] = {}
+            try:
+                from code_puppy.callbacks import on_load_model_descriptions
+
+                for result in on_load_model_descriptions():
+                    if isinstance(result, dict):
+                        plugin_descriptions.update(result)
+            except Exception as exc:
+                logging.getLogger(__name__).debug(
+                    f"Failed to load plugin model descriptions: {exc}"
+                )
+
+            apply_description_overlays(
+                config,
+                bundled_descriptions,
+                plugin_descriptions,
+            )
+        except Exception as exc:
+            logging.getLogger(__name__).debug(
+                f"Failed to apply model description overlays: {exc}"
             )
 
         return config
@@ -520,7 +646,11 @@ class ModelFactory:
                 return None
 
             provider = make_openai_provider(provider_identity, api_key=api_key)
-            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            model = OpenAIChatModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=_thinking_tags_profile(model_name, model_config),
+            )
             if "codex" in model_name:
                 model = OpenAIResponsesModel(
                     model_name=model_config["name"], provider=provider
@@ -681,7 +811,7 @@ class ModelFactory:
             )
             return OpenAIChatModel(model_name=model_config["name"], provider=provider)
 
-        elif model_type == "custom_openai":
+        elif model_type in _CUSTOM_OPENAI_MODEL_TYPES:
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
             client = create_async_client(
                 headers=headers,
@@ -694,10 +824,15 @@ class ModelFactory:
             if api_key:
                 provider_args["api_key"] = api_key
             provider = make_openai_provider(provider_identity, **provider_args)
-            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
-            if model_name == "chatgpt-gpt-5-codex":
-                model = OpenAIResponsesModel(model_config["name"], provider=provider)
-            return model
+            if _custom_openai_uses_responses_api(model_name, model_config):
+                return OpenAIResponsesModel(
+                    model_name=model_config["name"], provider=provider
+                )
+            return OpenAIChatModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=_thinking_tags_profile(model_name, model_config),
+            )
         elif model_type == "zai_coding":
             api_key = get_api_key("ZAI_API_KEY")
             if not api_key:
@@ -730,42 +865,8 @@ class ModelFactory:
                 model_name=model_config["name"],
                 provider=provider,
             )
-        # NOTE: 'antigravity' model type is now handled by the antigravity_oauth plugin
-        # via the register_model_type callback. See plugins/antigravity_oauth/register_callbacks.py
 
         elif model_type == "custom_gemini":
-            # Backwards compatibility: delegate to antigravity plugin if antigravity flag is set
-            # New configs use type="antigravity" directly, but old configs may have
-            # type="custom_gemini" with antigravity=True
-            if model_config.get("antigravity"):
-                # Find and call the antigravity handler from the plugin
-                registered_handlers = callbacks.on_register_model_types()
-                for handler_info in registered_handlers:
-                    handlers = (
-                        handler_info
-                        if isinstance(handler_info, list)
-                        else [handler_info]
-                        if handler_info
-                        else []
-                    )
-                    for handler_entry in handlers:
-                        if (
-                            isinstance(handler_entry, dict)
-                            and handler_entry.get("type") == "antigravity"
-                        ):
-                            handler = handler_entry.get("handler")
-                            if callable(handler):
-                                try:
-                                    return handler(model_name, model_config, config)
-                                except Exception as e:
-                                    logger.error(f"Antigravity handler failed: {e}")
-                                    return None
-                # If no antigravity handler found, warn and fall through
-                emit_warning(
-                    f"Model '{model_config.get('name')}' has antigravity=True but antigravity plugin not loaded."
-                )
-                return None
-
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
             if not api_key:
                 emit_warning(
@@ -786,17 +887,18 @@ class ModelFactory:
             )
             return model
         elif model_type == "cerebras":
+            # Cerebras models may have a custom_endpoint (for proxy/custom URLs)
+            # or may use the default Cerebras endpoint with CEREBRAS_API_KEY.
+            custom_endpoint = model_config.get("custom_endpoint")
+            if custom_endpoint:
+                url, headers, verify, api_key, timeout = get_custom_config(model_config)
+            else:
+                # Default Cerebras setup: API key from env/config, no custom URL
+                api_key = get_api_key("CEREBRAS_API_KEY")
+                headers = {}
+                verify = get_cert_bundle_path()
+                timeout = None
 
-            class ZaiCerebrasProvider(CerebrasProvider):
-                def model_profile(self, model_name: str) -> ModelProfile | None:
-                    profile = super().model_profile(model_name)
-                    if model_name.startswith("zai"):
-                        from pydantic_ai.profiles.qwen import qwen_model_profile
-
-                        profile = profile.update(qwen_model_profile("qwen-3-coder"))
-                    return profile
-
-            url, headers, verify, api_key, timeout = get_custom_config(model_config)
             if not api_key:
                 emit_warning(
                     f"API key is not set for Cerebras endpoint; skipping model '{model_config.get('name')}'."
@@ -813,13 +915,23 @@ class ModelFactory:
                 model_name="cerebras",
                 timeout=timeout if timeout is not None else 180,
             )
-            provider_args = dict(
+            provider = CerebrasProvider(
                 api_key=api_key,
                 http_client=client,
             )
-            provider = ZaiCerebrasProvider(**provider_args)
 
-            return OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            # Cerebras rejects requests with mixed 'strict' values on tools.
+            # Disable strict tool definitions so pydantic-ai never sends the
+            # 'strict' field, avoiding wrong_api_format errors.
+            profile = OpenAIModelProfile(
+                openai_supports_strict_tool_definition=False,
+            )
+
+            return OpenAIChatModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=profile,
+            )
 
         elif model_type == "openrouter":
             # Get API key from config, which can be an environment variable reference or raw value
@@ -850,7 +962,11 @@ class ModelFactory:
 
             provider = OpenRouterProvider(api_key=api_key)
 
-            return OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            return OpenAIChatModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=_thinking_tags_profile(model_name, model_config),
+            )
 
         elif model_type == "gemini_oauth":
             # Gemini OAuth models use the Code Assist API (cloudcode-pa.googleapis.com)

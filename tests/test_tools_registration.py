@@ -26,6 +26,8 @@ class TestToolRegistration:
             "agent_run_shell_command",
             "list_agents",
             "invoke_agent",
+            "invoke_agent_with_model",
+            "list_available_models",
         ]
 
         assert isinstance(TOOL_REGISTRY, dict)
@@ -178,7 +180,7 @@ class TestRemovedReasoningToolBehavior:
         register_tools_for_agent(
             mock_agent,
             ["list_files", "agent_share_your_reasoning"],
-            model_name="chatgpt-gpt-5.4",
+            model_name="codex-gpt-5.4",
         )
 
         mock_warning.assert_not_called()

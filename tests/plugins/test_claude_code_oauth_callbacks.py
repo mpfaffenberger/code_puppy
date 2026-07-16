@@ -105,13 +105,29 @@ class TestStartCallbackServer:
 
 
 class TestAwaitCallback:
+    @patch("code_puppy.tools.common.should_suppress_browser", return_value=True)
+    @patch(f"{MOD}.read_available_stdin_line")
+    @patch(f"{MOD}.build_authorization_url", return_value="https://auth.example.com")
+    @patch(
+        f"{MOD}.CLAUDE_CODE_OAUTH_CONFIG",
+        {"callback_timeout": 5, "callback_port_range": (8765, 8765)},
+    )
     @patch(f"{MOD}._start_callback_server", return_value=None)
-    def test_server_start_fails(self, _):
+    def test_server_start_falls_back_to_pasteback(
+        self, mock_start, mock_build, mock_read, mock_suppress
+    ):
         from code_puppy.plugins.claude_code_oauth.register_callbacks import (
             _await_callback,
         )
 
-        assert _await_callback(MagicMock()) is None
+        ctx = MagicMock()
+        ctx.redirect_uri = None
+        ctx.state = "state123"
+        mock_read.return_value = (
+            "http://localhost:8765/callback?code=pasted_code&state=state123"
+        )
+
+        assert _await_callback(ctx) == "pasted_code"
 
     @patch(f"{MOD}._start_callback_server")
     @patch(f"{MOD}.emit_error")
@@ -352,11 +368,12 @@ class TestCustomHelpCommands:
         from code_puppy.plugins.claude_code_oauth.register_callbacks import _custom_help
 
         commands = _custom_help()
-        assert len(commands) == 3
+        assert len(commands) == 4
         names = [n for n, _ in commands]
         assert "claude-code-auth" in names
         assert "claude-code-status" in names
         assert "claude-code-logout" in names
+        assert "claude-code-fast" in names
 
 
 class TestHandleCustomCommand:
@@ -830,7 +847,25 @@ class TestAgentRunEnd:
 
 class TestCallbackRegistration:
     def test_callbacks_registered(self):
-        from code_puppy.callbacks import get_callbacks
+        from code_puppy.callbacks import get_callbacks, register_callback
+
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            _custom_help,
+            _handle_custom_command,
+            _on_agent_run_end,
+            _on_agent_run_start,
+            _register_model_types,
+        )
+
+        # Re-register explicitly — other tests may have called clear_callbacks(),
+        # and Python's import cache means a bare `import` won't re-execute the
+        # module-scope register_callback() calls.  The dedup check in
+        # register_callback makes this safe even if they're already registered.
+        register_callback("custom_command_help", _custom_help)
+        register_callback("custom_command", _handle_custom_command)
+        register_callback("register_model_type", _register_model_types)
+        register_callback("agent_run_start", _on_agent_run_start)
+        register_callback("agent_run_end", _on_agent_run_end)
 
         assert len(get_callbacks("custom_command_help")) > 0
         assert len(get_callbacks("custom_command")) > 0

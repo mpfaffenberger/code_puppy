@@ -679,3 +679,37 @@ class TestStartupBuffer:
             with patch.object(mq._queue, "get_nowait", side_effect=queue_module.Empty):
                 msg = UIMessage(type=MessageType.INFO, content="x")
                 mq.emit(msg)  # Should not raise
+
+
+class TestDrain:
+    """Tests for MessageQueue.drain (used to flush before stdin reads)."""
+
+    def test_drain_returns_true_when_already_empty(self):
+        mq = MessageQueue()
+        assert mq.drain(timeout=0.5) is True
+
+    def test_drain_returns_true_after_messages_processed(self):
+        mq = MessageQueue()
+        mq._has_active_renderer = True
+        # Enqueue a couple messages, then start the daemon so they drain.
+        mq.emit_simple(MessageType.INFO, "hi")
+        mq.emit_simple(MessageType.INFO, "there")
+        mq.start()
+        try:
+            assert mq.drain(timeout=2.0) is True
+            assert mq._queue.empty()
+        finally:
+            mq.stop()
+
+    def test_drain_returns_false_when_timeout_exceeded(self):
+        """If nothing pulls from the queue, drain should give up gracefully."""
+        mq = MessageQueue()
+        mq._has_active_renderer = True
+        mq.emit_simple(MessageType.INFO, "stuck")
+        # No .start() — so _process_messages never runs and the queue stays full.
+        assert mq.drain(timeout=0.2) is False
+
+    def test_drain_handles_zero_timeout(self):
+        mq = MessageQueue()
+        # Empty queue + zero timeout should still return True immediately.
+        assert mq.drain(timeout=0.0) is True

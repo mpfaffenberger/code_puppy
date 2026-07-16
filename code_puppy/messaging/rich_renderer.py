@@ -18,7 +18,13 @@ from rich.rule import Rule
 # Note: Syntax import removed - file content not displayed, only header
 from rich.table import Table
 
-from code_puppy.config import get_subagent_verbose
+from code_puppy.config import (
+    get_output_level,
+    get_subagent_verbose,
+    get_suppress_directory_listing,
+    get_suppress_informational_messages,
+    get_suppress_thinking_messages,
+)
 from code_puppy.tools.common import format_diff_with_colors
 from code_puppy.tools.subagent_context import is_subagent
 
@@ -99,9 +105,26 @@ DIFF_STYLES = {
 }
 
 
+def _is_paused() -> bool:
+    """Cheap, never-raising check against the PauseController singleton.
+
+    Imported lazily so the messaging package's import graph stays acyclic
+    and so a broken/missing PauseController never takes down the renderer.
+    """
+    try:
+        from code_puppy.messaging.pause_controller import get_pause_controller
+
+        return get_pause_controller().is_paused()
+    except Exception:
+        return False
+
+
 # =============================================================================
 # Rich Console Renderer
 # =============================================================================
+
+# Max length for low-mode peek lines.
+_PEEK_MAX_LEN = 100
 
 
 class RichConsoleRenderer:
@@ -127,7 +150,12 @@ class RichConsoleRenderer:
         import threading
 
         self._bus = bus
-        self._console = console or Console()
+        self._console = console or Console(highlight=False)
+        # ReprHighlighter is useful in a Python REPL, but this is a themed
+        # message bus: it unpredictably recolors numbers, parentheses, paths,
+        # and shell/grep output. Explicit markup and syntax renderables still
+        # carry their own styles, so disable only the console's implicit pass.
+        self._console.highlighter = None
         self._styles = styles or DEFAULT_STYLES.copy()
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -167,10 +195,130 @@ class RichConsoleRenderer:
     def _should_suppress_subagent_output(self) -> bool:
         """Check if sub-agent output should be suppressed.
 
+        In ``high`` output mode, sub-agent output is never suppressed
+        regardless of the ``subagent_verbose`` toggle.
+
         Returns:
-            True if we're in a sub-agent context and verbose mode is disabled
+            True if we're in a sub-agent context and verbose mode is disabled.
         """
+        if get_output_level() == "high":
+            return False
         return is_subagent() and not get_subagent_verbose()
+
+    # -- Output-level density helpers ----------------------------------------
+
+    # Types that render fully even in low mode: interactive prompts,
+    # structural controls, and signal messages (invocations, responses).
+    # StatusPanelMessage excluded — it’s multi-line, gets a peek instead.
+    _NEVER_COLLAPSE = (
+        UserInputRequest,
+        ConfirmationRequest,
+        SelectionRequest,
+        SpinnerControl,
+        DividerMessage,
+        VersionCheckMessage,
+        AgentResponseMessage,
+        SubAgentInvocationMessage,
+        SubAgentResponseMessage,
+    )
+
+    def _should_collapse(self, message: AnyMessage) -> bool:
+        """Return True if *message* should be rendered as a one-line peek.
+
+        Only applies when ``output_level`` is ``low``. Individual suppress
+        toggles (``suppress_informational_messages``,
+        ``suppress_thinking_messages``) are handled separately and may hide
+        a message entirely even when the level is ``medium``.
+        """
+        if get_output_level() != "low":
+            return False
+        if isinstance(message, self._NEVER_COLLAPSE):
+            return False
+        # Error-level text messages always render fully.
+        if isinstance(message, TextMessage) and message.level == MessageLevel.ERROR:
+            return False
+        return True
+
+    def _render_peek(self, message: AnyMessage) -> None:
+        """Emit a single dim peek line for low mode.
+
+        Body is escaped to avoid Rich markup mis-parsing.
+        """
+        peek = self._build_peek_text(message)
+        if not peek:
+            return
+        if len(peek) > _PEEK_MAX_LEN:
+            peek = peek[: _PEEK_MAX_LEN - 1] + "\u2026"
+        self._console.print(f"[dim]  {escape_rich_markup(peek)}[/dim]")
+
+    @staticmethod
+    def _peek_label_for_level(level: MessageLevel) -> str:
+        """Map a text message level to its ``label: summary`` peek label."""
+        labels = {
+            MessageLevel.WARNING: "warning",
+            MessageLevel.SUCCESS: "success",
+            MessageLevel.INFO: "info",
+            MessageLevel.DEBUG: "debug",
+        }
+        return labels.get(level, "info")
+
+    def _build_peek_text(self, message: AnyMessage) -> str:  # noqa: C901
+        """Build the human-readable one-liner for a collapsed message."""
+        if isinstance(message, FileListingMessage):
+            return (
+                f"list_files: {message.directory} "
+                f"({message.file_count} files, "
+                f"{self._format_size(message.total_size)})"
+            )
+        if isinstance(message, FileContentMessage):
+            line_info = ""
+            if message.start_line is not None and message.num_lines is not None:
+                end = message.start_line + message.num_lines - 1
+                line_info = f" (lines {message.start_line}-{end})"
+            return f"read_file: {message.path}{line_info}"
+        if isinstance(message, GrepResultMessage):
+            files = len({m.file_path for m in message.matches})
+            return f"grep: {message.total_matches} matches in {files} files"
+        if isinstance(message, DiffMessage):
+            adds = sum(1 for d in message.diff_lines if d.type == "add")
+            removes = sum(1 for d in message.diff_lines if d.type == "remove")
+            return f"diff: {message.path} (+{adds}/-{removes})"
+        if isinstance(message, ShellStartMessage):
+            cmd = message.command
+            if len(cmd) > 60:
+                cmd = cmd[:57] + "..."
+            return f"shell: $ {cmd}"
+        if isinstance(message, (ShellLineMessage, ShellOutputMessage)):
+            # Shell lines silently collapsed — the start banner has the info.
+            return ""
+        if isinstance(message, AgentReasoningMessage):
+            tokens = max(1, len(message.reasoning) // 3)
+            return f"thinking: ~{tokens} tokens"
+        if isinstance(message, SubAgentInvocationMessage):
+            prompt = message.prompt.replace("\n", " ").strip()
+            return f"invoke_agent: {message.agent_name} -- '{prompt}'"
+        if isinstance(message, SubAgentResponseMessage):
+            resp = message.response.replace("\n", " ").strip()
+            return f"agent_response: {message.agent_name} -- '{resp}'"
+        if isinstance(message, UniversalConstructorMessage):
+            tool = f" tool={message.tool_name}" if message.tool_name else ""
+            return f"constructor: {message.action}{tool}"
+        if isinstance(message, SkillListMessage):
+            return f"skills: {len(message.skills)} available"
+        if isinstance(message, SkillActivateMessage):
+            return f"skill: activated {message.skill_name}"
+        if isinstance(message, StatusPanelMessage):
+            fields = ", ".join(f"{k}={v}" for k, v in message.fields.items())
+            summary = f"{message.title} ({fields})" if fields else message.title
+            return f"status: {summary}"
+        if isinstance(message, TextMessage):
+            # label: text format.
+            text = message.text
+            if len(text) > 80:
+                text = text[:77] + "..."
+            label = self._peek_label_for_level(message.level)
+            return f"{label}: {text}"
+        return ""
 
     # =========================================================================
     # Lifecycle (Synchronous - for compatibility with main.py)
@@ -223,7 +371,13 @@ class RichConsoleRenderer:
                 time.sleep(0.01)
 
     def _render_sync(self, message: AnyMessage) -> None:
-        """Render a message synchronously with error handling."""
+        """Render a message synchronously with error handling.
+
+        The pause-silencing check lives in ``_do_render`` so both the
+        sync and async render paths share it. Don't move it back here
+        without also patching ``render()`` — last time we did that, shell
+        output leaked through the async path during steering. 🐛
+        """
         try:
             self._do_render(message)
         except Exception as e:
@@ -231,6 +385,26 @@ class RichConsoleRenderer:
             # Escape the error message to prevent nested markup errors
             safe_error = escape_rich_markup(str(e))
             self._console.print(f"[dim red]Render error: {safe_error}[/dim red]")
+
+    def _should_silence_during_pause(self, message: AnyMessage) -> bool:
+        """Return True iff this message must be silently dropped right now.
+
+        While the ``PauseController`` is paused (Ctrl+T steering), shell
+        command stdout/stderr/banners are dropped on the floor — they're
+        firehose-noisy and would trash the steering prompt. The agent
+        still records full stdout in ``command_runner.py``'s
+        ``stdout_lines`` independently, so the data isn't lost; we're
+        only silencing the visual stream. Non-shell messages render
+        normally; pause-buffering those is the legacy
+        ``SynchronousInteractiveRenderer``'s job.
+        """
+        return (
+            isinstance(
+                message,
+                (ShellStartMessage, ShellLineMessage, ShellOutputMessage),
+            )
+            and _is_paused()
+        )
 
     # =========================================================================
     # Async Lifecycle (for future async-first usage)
@@ -262,7 +436,49 @@ class RichConsoleRenderer:
         """Synchronously render a message by dispatching to the appropriate handler.
 
         Note: User input requests are skipped in sync mode as they require async.
+
+        Pause silencing lives here (not in ``_render_sync``) so the async
+        ``render()`` path can't end-run the check. See the bug where shell
+        banners triple-printed during a Ctrl+T steer — that was the async
+        path bypassing an earlier sync-only filter.
+
+        **Output-level gate** (low/medium/high) runs after the pause check
+        so paused messages are dropped before we bother classifying them.
+        Individual suppress toggles are also checked here.
         """
+        if self._should_silence_during_pause(message):
+            return
+
+        # -- Individual suppress toggles (dead-code wiring: code_puppy_oss-dzz) --
+        if isinstance(message, TextMessage) and message.level in (
+            MessageLevel.INFO,
+            MessageLevel.WARNING,
+            MessageLevel.SUCCESS,
+        ):
+            # High mode = maximum visibility; override suppress toggles.
+            if get_output_level() != "high" and get_suppress_informational_messages():
+                return
+        if isinstance(message, AgentReasoningMessage):
+            # In high mode, thinking is never suppressed.
+            if get_output_level() != "high" and get_suppress_thinking_messages():
+                return
+
+        # New transcript output is about to scroll (peek or full render):
+        # the bottom bar walks its completion-popup slack back one row
+        # per message so the prompt steps down with the flow. Guarded:
+        # bar geometry plumbing must NEVER break a render path.
+        try:
+            from .bottom_bar import get_bottom_bar
+
+            get_bottom_bar().notify_transcript_output()
+        except Exception:
+            pass
+
+        # -- Output-level density gate --
+        if self._should_collapse(message):
+            self._render_peek(message)
+            return
+
         # Dispatch based on message type
         if isinstance(message, TextMessage):
             self._render_text(message)
@@ -288,8 +504,10 @@ class RichConsoleRenderer:
         elif isinstance(message, SubAgentInvocationMessage):
             self._render_subagent_invocation(message)
         elif isinstance(message, SubAgentResponseMessage):
-            # Skip rendering - we now display sub-agent responses via display_non_streamed_result
-            pass
+            # High mode renders via streaming or render_result_without_streaming
+            # in subagent_invocation.py. Non-high modes render here.
+            if get_output_level() != "high":
+                self._render_subagent_response(message)
         elif isinstance(message, UniversalConstructorMessage):
             self._render_universal_constructor(message)
         elif isinstance(message, UserInputRequest):
@@ -350,7 +568,9 @@ class RichConsoleRenderer:
         prefix = self._get_level_prefix(msg.level)
         # Escape Rich markup to prevent crashes from malformed tags
         safe_text = escape_rich_markup(msg.text)
-        self._console.print(f"{prefix}{safe_text}", style=style)
+        # Rich's default repr highlighter restyles numbers and parentheses,
+        # leaking terminal-profile white through otherwise themed info lines.
+        self._console.print(f"{prefix}{safe_text}", style=style, highlight=False)
 
     def _get_level_prefix(self, level: MessageLevel) -> str:
         """Get a prefix icon for the message level."""
@@ -380,6 +600,9 @@ class RichConsoleRenderer:
         if self._should_suppress_subagent_output():
             return
 
+        if get_suppress_directory_listing():
+            return
+
         import os
         from collections import defaultdict
 
@@ -387,8 +610,7 @@ class RichConsoleRenderer:
         rec_flag = f"(recursive={msg.recursive})"
         banner = self._format_banner("directory_listing", "DIRECTORY LISTING")
         self._console.print(
-            f"\n{banner} "
-            f"📂 [bold cyan]{msg.directory}[/bold cyan] [dim]{rec_flag}[/dim]\n"
+            f"\n{banner} [bold cyan]{msg.directory}[/bold cyan] [dim]{rec_flag}[/dim]\n"
         )
 
         # Build a tree structure: {parent_path: {files: [], dirs: set(), size: int}}
@@ -479,7 +701,7 @@ class RichConsoleRenderer:
 
                 summary = f" [dim]({', '.join(parts)})[/dim]" if parts else ""
                 self._console.print(
-                    f"{indent}📁 [bold blue]{dir_name}/[/bold blue]{summary}"
+                    f"{indent}[bold blue]{dir_name}/[/bold blue]{summary}"
                 )
 
                 # Recursively show subdirectories
@@ -492,8 +714,8 @@ class RichConsoleRenderer:
         # Summary
         self._console.print("\n[bold cyan]Summary:[/bold cyan]")
         self._console.print(
-            f"📁 [blue]{msg.dir_count} directories[/blue], "
-            f"📄 [green]{msg.file_count} files[/green] "
+            f"[blue]{msg.dir_count} directories[/blue], "
+            f"[green]{msg.file_count} files[/green] "
             f"[dim]({self._format_size(msg.total_size)} total)[/dim]"
         )
 
@@ -514,9 +736,13 @@ class RichConsoleRenderer:
 
         # Just print the header - content is for LLM only
         banner = self._format_banner("read_file", "READ FILE")
-        self._console.print(
-            f"\n{banner} 📂 [bold cyan]{msg.path}[/bold cyan]{line_info}"
-        )
+        self._console.print(f"\n{banner} [bold cyan]{msg.path}[/bold cyan]{line_info}")
+
+        # High mode: show token count and total lines.
+        if get_output_level() == "high":
+            self._console.print(
+                f"[dim]  {msg.total_lines} total lines, ~{msg.num_tokens} tokens[/dim]"
+            )
 
     def _render_grep_result(self, msg: GrepResultMessage) -> None:
         """Render grep results grouped by file matching old format."""
@@ -529,8 +755,15 @@ class RichConsoleRenderer:
         # Header
         banner = self._format_banner("grep", "GREP")
         self._console.print(
-            f"\n{banner} 📂 [dim]{msg.directory} for '{msg.search_term}'[/dim]"
+            f"\n{banner} [dim]{msg.directory} for '{msg.search_term}'[/dim]"
         )
+
+        # High mode: show total files searched.
+        if get_output_level() == "high":
+            self._console.print(
+                f"[dim]  {msg.files_searched} files searched, "
+                f"{msg.total_matches} matches[/dim]"
+            )
 
         if not msg.matches:
             self._console.print(
@@ -544,14 +777,16 @@ class RichConsoleRenderer:
         for match in msg.matches:
             by_file.setdefault(match.file_path, []).append(match)
 
-        # Show verbose or concise based on message flag
-        if msg.verbose:
+        # Show verbose or concise based on message flag.
+        # High output level forces verbose regardless of the per-message flag.
+        verbose = msg.verbose or get_output_level() == "high"
+        if verbose:
             # Verbose mode: Show full output with line numbers and content
             for file_path in sorted(by_file.keys()):
                 file_matches = by_file[file_path]
                 match_word = "match" if len(file_matches) == 1 else "matches"
                 self._console.print(
-                    f"\n[dim]📄 {file_path} ({len(file_matches)} {match_word})[/dim]"
+                    f"\n[dim]{file_path} ({len(file_matches)} {match_word})[/dim]"
                 )
 
                 # Show each match with line number and content
@@ -585,7 +820,7 @@ class RichConsoleRenderer:
                 file_matches = by_file[file_path]
                 match_word = "match" if len(file_matches) == 1 else "matches"
                 self._console.print(
-                    f"[dim]📄 {file_path} ({len(file_matches)} {match_word})[/dim]"
+                    f"[dim]{file_path} ({len(file_matches)} {match_word})[/dim]"
                 )
 
         # Summary - subtle
@@ -611,9 +846,7 @@ class RichConsoleRenderer:
             return
 
         # Operation-specific styling
-        op_icons = {"create": "✨", "modify": "✏️", "delete": "🗑️"}
         op_colors = {"create": "green", "modify": "yellow", "delete": "red"}
-        icon = op_icons.get(msg.operation, "📄")
         op_color = op_colors.get(msg.operation, "white")
 
         # Choose banner based on operation type
@@ -625,9 +858,15 @@ class RichConsoleRenderer:
             banner = self._format_banner("replace_in_file", "EDIT FILE")
         self._console.print(
             f"\n{banner} "
-            f"{icon} [{op_color}]{msg.operation.upper()}[/{op_color}] "
+            f"[{op_color}]{msg.operation.upper()}[/{op_color}] "
             f"[bold cyan]{msg.path}[/bold cyan]"
         )
+
+        # High mode: show line-change summary.
+        if get_output_level() == "high" and msg.diff_lines:
+            adds = sum(1 for d in msg.diff_lines if d.type == "add")
+            removes = sum(1 for d in msg.diff_lines if d.type == "remove")
+            self._console.print(f"[dim]  +{adds}/-{removes} lines[/dim]")
 
         if not msg.diff_lines:
             return
@@ -671,21 +910,21 @@ class RichConsoleRenderer:
         # Add background indicator if running in background mode
         if msg.background:
             self._console.print(
-                f"\n{banner} 🚀 [dim]$ {safe_command}[/dim]  [bold magenta][BACKGROUND 🌙][/bold magenta]"
+                f"\n{banner} [dim]$ {safe_command}[/dim]  [bold magenta][BACKGROUND][/bold magenta]"
             )
         else:
-            self._console.print(f"\n{banner} 🚀 [dim]$ {safe_command}[/dim]")
+            self._console.print(f"\n{banner} [dim]$ {safe_command}[/dim]")
 
         # Show working directory if specified
         if msg.cwd:
             safe_cwd = escape_rich_markup(msg.cwd)
-            self._console.print(f"[dim]📂 Working directory: {safe_cwd}[/dim]")
+            self._console.print(f"[dim]Working directory: {safe_cwd}[/dim]")
 
         # Show timeout or background status
         if msg.background:
-            self._console.print("[dim]⏱ Runs detached (no timeout)[/dim]")
+            self._console.print("[dim]Runs detached (no timeout)[/dim]")
         else:
-            self._console.print(f"[dim]⏱ Timeout: {msg.timeout}s[/dim]")
+            self._console.print(f"[dim]Timeout: {msg.timeout}s[/dim]")
 
     def _render_shell_line(self, msg: ShellLineMessage) -> None:
         """Render shell output line preserving ANSI codes and carriage returns."""
@@ -693,25 +932,41 @@ class RichConsoleRenderer:
 
         from rich.text import Text
 
-        # Check if line contains carriage return (progress bar style output)
-        if "\r" in msg.line:
+        # Strip trailing CRLF first. On Windows, subprocess output ends in
+        # CRLF; a lone trailing CR must NOT be mistaken for an interior
+        # progress-bar redraw, or the line is routed through the raw stdout
+        # bypass below and leaks literal ANSI when the console has not
+        # enabled VT processing (the Windows ANSI-leak bug).
+        line = msg.line.rstrip("\r\n")
+
+        # Only an *interior* carriage return signals a progress-bar redraw
+        # (e.g. uv/pip download bars).
+        if "\r" in line:
             # Bypass Rich entirely - write directly to stdout so terminal interprets \r
             # Apply dim styling manually via ANSI codes
-            sys.stdout.write(f"\033[2m{msg.line}\033[0m")
+            sys.stdout.write(f"\r\033[2m{line}\033[0m")
             sys.stdout.flush()
         else:
-            # Normal line: use Rich for nice formatting
-            text = Text.from_ansi(msg.line)
+            # Normal line: let Rich own terminal/VT detection so rendering is
+            # deterministic across platforms and sessions.
+            text = Text.from_ansi(line)
             self._console.print(text, style="dim")
 
     def _render_shell_output(self, msg: ShellOutputMessage) -> None:
-        """Render shell command output - just a trailing newline for spinner separation.
+        """Render shell command output.
 
-        Shell command results are already returned to the LLM via tool responses,
-        so we don't need to clutter the UI with redundant output.
+        In medium mode this is just a trailing newline for spinner separation.
+        In high mode the exit code and wall-clock duration are displayed.
         """
-        # Just print trailing newline for spinner separation
-        self._console.print()
+        if get_output_level() == "high":
+            exit_style = "green" if msg.exit_code == 0 else "red"
+            self._console.print(
+                f"[dim]  exit=[/dim][{exit_style}]{msg.exit_code}[/{exit_style}]"
+                f"[dim]  {msg.duration_seconds:.1f}s[/dim]"
+            )
+        else:
+            # Just print trailing newline for spinner separation
+            self._console.print()
 
     # =========================================================================
     # Agent Messages
@@ -747,7 +1002,12 @@ class RichConsoleRenderer:
         # Content (markdown or plain)
         if msg.is_markdown:
             md = Markdown(msg.content)
-            self._console.print(md)
+            # Give colorless Markdown styles (bold/headings) an explicit base
+            # foreground. Some terminals ignore OSC 10, making Rich resets leak
+            # the terminal profile's white into otherwise themed responses.
+            from code_puppy.callbacks import on_prompt_text_color
+
+            self._console.print(md, style=on_prompt_text_color())
         else:
             self._console.print(msg.content)
 
@@ -770,13 +1030,21 @@ class RichConsoleRenderer:
             f"[dim]({session_type})[/dim]"
         )
 
-        # Session ID
+        # Invocation details
         self._console.print(f"[dim]Session:[/dim] [bold]{msg.session_id}[/bold]")
+        if msg.model_name:
+            safe_model_name = escape_rich_markup(msg.model_name)
+            self._console.print(
+                f"[dim]Requested model override:[/dim] [bold magenta]{safe_model_name}[/bold magenta]"
+            )
 
-        # Prompt (truncated if too long, rendered as markdown)
-        prompt_display = (
-            msg.prompt[:200] + "..." if len(msg.prompt) > 200 else msg.prompt
-        )
+        # Prompt (truncated in medium, full in high, rendered as markdown)
+        if get_output_level() == "high":
+            prompt_display = msg.prompt
+        else:
+            prompt_display = (
+                msg.prompt[:200] + "..." if len(msg.prompt) > 200 else msg.prompt
+            )
         self._console.print("[dim]Prompt:[/dim]")
         md_prompt = Markdown(prompt_display)
         self._console.print(md_prompt)
@@ -808,23 +1076,26 @@ class RichConsoleRenderer:
 
         # Build the header line with action and optional tool name
         # Escape user-controlled strings to prevent Rich markup injection
-        header_parts = [f"\n{banner} 🔧 [bold cyan]{msg.action.upper()}[/bold cyan]"]
+        # Disable Rich's auto-highlighter on these prints — we already apply
+        # explicit markup, and the ReprHighlighter regexes mangle things like
+        # 'uuid-gen' (stops at the hyphen) and '0.00s' (no word boundary).
+        header_parts = [f"\n{banner} [bold cyan]{msg.action.upper()}[/bold cyan]"]
         if msg.tool_name:
             safe_tool_name = escape_rich_markup(msg.tool_name)
             header_parts.append(f" [dim]tool=[/dim][bold]{safe_tool_name}[/bold]")
-        self._console.print("".join(header_parts))
+        self._console.print("".join(header_parts), highlight=False)
 
         # Status indicator
         safe_summary = escape_rich_markup(msg.summary) if msg.summary else ""
         if msg.success:
-            self._console.print(f"[green]✓[/green] {safe_summary}")
+            self._console.print(f"[green]✓[/green] {safe_summary}", highlight=False)
         else:
-            self._console.print(f"[red]✗[/red] {safe_summary}")
+            self._console.print(f"[red]✗[/red] {safe_summary}", highlight=False)
 
         # Show details if present
         if msg.details:
             safe_details = escape_rich_markup(msg.details)
-            self._console.print(f"[dim]{safe_details}[/dim]")
+            self._console.print(f"[dim]{safe_details}[/dim]", highlight=False)
 
         # Trailing newline for spinner separation
         self._console.print()
@@ -998,75 +1269,8 @@ class RichConsoleRenderer:
             return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
 
     def _get_file_icon(self, file_path: str) -> str:
-        """Get an emoji icon for a file based on its extension."""
-        import os
-
-        ext = os.path.splitext(file_path)[1].lower()
-        icons = {
-            # Python
-            ".py": "🐍",
-            ".pyw": "🐍",
-            # JavaScript/TypeScript
-            ".js": "📜",
-            ".jsx": "📜",
-            ".ts": "📜",
-            ".tsx": "📜",
-            # Web
-            ".html": "🌐",
-            ".htm": "🌐",
-            ".xml": "🌐",
-            ".css": "🎨",
-            ".scss": "🎨",
-            ".sass": "🎨",
-            # Documentation
-            ".md": "📝",
-            ".markdown": "📝",
-            ".rst": "📝",
-            ".txt": "📝",
-            # Config
-            ".json": "⚙️",
-            ".yaml": "⚙️",
-            ".yml": "⚙️",
-            ".toml": "⚙️",
-            ".ini": "⚙️",
-            # Images
-            ".jpg": "🖼️",
-            ".jpeg": "🖼️",
-            ".png": "🖼️",
-            ".gif": "🖼️",
-            ".svg": "🖼️",
-            ".webp": "🖼️",
-            # Audio
-            ".mp3": "🎵",
-            ".wav": "🎵",
-            ".ogg": "🎵",
-            ".flac": "🎵",
-            # Video
-            ".mp4": "🎬",
-            ".avi": "🎬",
-            ".mov": "🎬",
-            ".webm": "🎬",
-            # Documents
-            ".pdf": "📄",
-            ".doc": "📄",
-            ".docx": "📄",
-            ".xls": "📄",
-            ".xlsx": "📄",
-            ".ppt": "📄",
-            ".pptx": "📄",
-            # Archives
-            ".zip": "📦",
-            ".tar": "📦",
-            ".gz": "📦",
-            ".rar": "📦",
-            ".7z": "📦",
-            # Executables
-            ".exe": "⚡",
-            ".dll": "⚡",
-            ".so": "⚡",
-            ".dylib": "⚡",
-        }
-        return icons.get(ext, "📄")
+        """Return the neutral marker used for files in tool output."""
+        return "-"
 
     # =========================================================================
     # Skills

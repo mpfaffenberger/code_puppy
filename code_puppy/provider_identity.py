@@ -46,11 +46,14 @@ _TYPE_PROVIDER_OVERRIDES = {
     "chatgpt_oauth": "chatgpt",
     "gemini": "google",
     "gemini_oauth": "google",
+    "aws_bedrock": "aws_bedrock",
     "azure_openai": "azure_openai",
+    "azure_foundry_openai": "azure_foundry_openai",
 }
 
 _KEY_PREFIX_OVERRIDES = (
     ("claude-code-", "claude_code"),
+    ("codex-", "chatgpt"),
     ("chatgpt-", "chatgpt"),
     ("azure-openai-", "azure_openai"),
     ("openrouter-", "openrouter"),
@@ -85,8 +88,8 @@ def resolve_provider_identity(model_key: str, model_config: dict[str, Any]) -> s
 
     if model_type == "custom_anthropic":
         return "custom_anthropic"
-    if model_type == "custom_openai":
-        return "custom_openai"
+    if model_type in {"custom_openai", "custom_openai_responses"}:
+        return model_type
 
     return model_type or "unknown"
 

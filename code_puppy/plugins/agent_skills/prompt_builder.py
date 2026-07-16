@@ -1,4 +1,9 @@
-"""Build available_skills XML for system prompt injection."""
+"""Build the `available skills` section for system-prompt injection.
+
+Keep the verbosity floor-low. Each skill becomes a single line of the form
+``- <name>: <description>``. That is essentially the frontmatter `name` and
+`description` fields, flattened. No XML, no ceremony, no escaping circus.
+"""
 
 from typing import TYPE_CHECKING, List
 
@@ -6,55 +11,39 @@ if TYPE_CHECKING:
     from .metadata import SkillMetadata
 
 
-def build_available_skills_xml(skills: List["SkillMetadata"]) -> str:
-    """Build Claude-optimized XML listing available skills.
+def _one_line(text: str) -> str:
+    """Collapse whitespace so each skill stays on a single line."""
+    return " ".join(text.split())
 
-    Args:
-        skills: List of SkillMetadata objects to include in the XML.
 
-    Returns:
-        XML string listing available skills in the format:
-        <available_skills>
-          <skill>
-            <name>skill-name</name>
-            <description>What the skill does...</description>
-          </skill>
-          ...
-        </available_skills>
+def build_available_skills_block(skills: List["SkillMetadata"]) -> str:
+    """Render a minimal markdown list of available skills.
 
-    To use a skill, call activate_skill(skill_name) to load full instructions.
+    Format::
+
+        ## Available Skills
+        - skill-one: short description
+        - skill-two: short description
+
+    Returns an empty string when there are no skills — callers can simply
+    concatenate without worrying about stray headings.
     """
     if not skills:
-        return "<available_skills></available_skills>"
+        return ""
 
-    xml_parts = ["<available_skills>"]
-
+    lines = ["## Available Skills"]
     for skill in skills:
-        xml_parts.append("  <skill>")
-        xml_parts.append(f"    <name>{skill.name}</name>")
-        if skill.description:
-            # Escape any XML special characters in the description
-            escaped_desc = (
-                skill.description.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace('"', "&quot;")
-                .replace("'", "&#39;")
-            )
-            xml_parts.append(f"    <description>{escaped_desc}</description>")
-        xml_parts.append("  </skill>")
-
-    xml_parts.append("</available_skills>")
-
-    return "\n".join(xml_parts)
+        desc = _one_line(skill.description) if skill.description else ""
+        lines.append(f"- {skill.name}: {desc}" if desc else f"- {skill.name}")
+    return "\n".join(lines)
 
 
 def build_skills_guidance() -> str:
-    """Return guidance text for how to use skills."""
-    return """
-# Agent Skills
-
-When `<available_skills>` appears in context, match user tasks to skill descriptions.
-Call `activate_skill(skill_name)` to load full instructions before starting the task.
-Use `list_or_search_skills(query)` to search for relevant skills.
-"""
+    """Tell the model when and how to use a skill."""
+    return (
+        "When the user's question or task relates to a skill listed above, "
+        "activate it with `activate_skill(name)` **before** answering so its "
+        "full instructions are loaded into context. Use "
+        "`list_or_search_skills(query)` to discover skills by keyword — it "
+        "matches any individual word in the query."
+    )

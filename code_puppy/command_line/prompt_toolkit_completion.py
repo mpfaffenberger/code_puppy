@@ -18,6 +18,7 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
+from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.processors import Processor, Transformation
 from prompt_toolkit.styles import Style
 
@@ -29,7 +30,6 @@ from code_puppy.command_line.attachments import (
 )
 from code_puppy.command_line.clipboard import (
     capture_clipboard_image_to_pending,
-    has_image_in_clipboard,
 )
 from code_puppy.command_line.command_registry import get_unique_commands
 from code_puppy.command_line.file_path_completion import FilePathCompleter
@@ -42,6 +42,7 @@ from code_puppy.command_line.model_picker_completion import (
 from code_puppy.command_line.pin_command_completion import PinCompleter, UnpinCompleter
 from code_puppy.command_line.skills_completion import SkillsCompleter
 from code_puppy.command_line.utils import list_directory
+from code_puppy.callbacks import on_prompt_text_color, on_prompt_toolkit_style
 from code_puppy.config import (
     COMMAND_HISTORY_FILE,
     get_config_keys,
@@ -142,18 +143,21 @@ class SetCompleter(Completer):
         # Extract the input after /set and space (up to cursor)
         trigger_end = actual_trigger_pos + len(self.trigger) + 1  # +1 for the space
         text_after_trigger = text_before_cursor[trigger_end:cursor_position].lstrip()
-        start_position = -(len(text_after_trigger))
+        start_position = -len(text_after_trigger)
 
         # --- SPECIAL HANDLING FOR 'model' KEY ---
         if text_after_trigger == "model":
             # Don't return any completions -- let ModelNameCompleter handle it
             return
 
-        # Get config keys and sort them alphabetically for consistent display
+        # Get config keys and sort them alphabetically for consistent display.
+        # Per-model controls belong exclusively to /model_settings.
+        from code_puppy.command_line.config_apply import MODEL_SETTINGS_ONLY_KEYS
+
         config_keys = sorted(get_config_keys())
 
         for key in config_keys:
-            if key == "model" or key == "puppy_token":
+            if key in {"model", "puppy_token"} | MODEL_SETTINGS_ONLY_KEYS:
                 continue  # exclude 'model' and 'puppy_token' from regular /set completions
             if key.startswith(text_after_trigger):
                 prev_value = get_value(key)
@@ -170,7 +174,7 @@ class SetCompleter(Completer):
 class AttachmentPlaceholderProcessor(Processor):
     """Display friendly placeholders for recognised attachments."""
 
-    _PLACEHOLDER_STYLE = "class:attachment-placeholder"
+    _PLACEHOLDER_STYLE = "class:attachment-placeholder class:tui.title"
     # Skip expensive path detection for very long input (likely pasted content)
     _MAX_TEXT_LENGTH_FOR_REALTIME = 500
 
@@ -351,8 +355,9 @@ class AgentCompleter(Completer):
     Usage: /agent <agent-name>
     """
 
-    def __init__(self, trigger: str = "/agent"):
+    def __init__(self, trigger: str = "/agent", prefix: str = ""):
         self.trigger = trigger
+        self.prefix = prefix
 
     def get_completions(self, document, complete_event):
         cursor_position = document.cursor_position
@@ -367,7 +372,11 @@ class AgentCompleter(Completer):
         trigger_pos = text_before_cursor.find(self.trigger)
         trigger_end = trigger_pos + len(self.trigger) + 1  # +1 for the space
         text_after_trigger = text_before_cursor[trigger_end:cursor_position].lstrip()
-        start_position = -(len(text_after_trigger))
+        if self.prefix:
+            if not text_after_trigger.startswith(self.prefix):
+                return
+            text_after_trigger = text_after_trigger[len(self.prefix) :]
+        start_position = -len(text_after_trigger)
 
         # Load all available agent names
         try:
@@ -410,15 +419,10 @@ class SlashCompleter(Completer):
         if not stripped_text.startswith("/"):
             return
 
-        # Get the text after the initial slash
-        if len(stripped_text) == 1:
-            # User just typed '/', show all commands
-            partial = ""
-            start_position = 0  # Don't replace anything, just insert at cursor
-        else:
-            # User is typing a command after the slash
-            partial = stripped_text[1:]  # text after '/'
-            start_position = -(len(partial))  # Replace what was typed after '/'
+        # Get the text after the initial slash. A bare slash intentionally
+        # yields every command so the menu appears immediately while typing.
+        partial = stripped_text[1:]
+        start_position = -len(partial)
 
         # Load all available commands
         try:
@@ -502,21 +506,72 @@ class SlashCompleter(Completer):
         # Sort all completions alphabetically
         all_completions.sort(key=lambda x: x["sort_key"])
 
-        # Yield the sorted completions
+        # Yield the sorted completions.
+        # Strip variation selectors (U+FE00-FE0F) from display strings to avoid
+        # width-calculation mismatches between prompt_toolkit and the terminal,
+        # which manifest as phantom spaces in the input line (e.g. /judges ⚖️).
         for completion in all_completions:
             yield Completion(
                 completion["text"],
                 start_position=start_position,
-                display=completion["display"],
-                display_meta=completion["meta"],
+                display=_strip_variation_selectors(completion["display"]),
+                display_meta=_strip_variation_selectors(completion["meta"]),
             )
+
+
+def _strip_variation_selectors(text: str) -> str:
+    """Remove variation selectors (U+FE00-FE0F) from text.
+
+    These invisible characters modify emoji rendering but cause width
+    calculation mismatches between prompt_toolkit and terminal emulators.
+    """
+    return "".join(c for c in text if not (0xFE00 <= ord(c) <= 0xFE0F))
+
+
+def _normalize_emoji_spacing(text: str) -> str:
+    """Normalize emoji spacing for consistent terminal rendering.
+
+    Some emojis have East Asian Width 'N' (Neutral) which terminals render
+    inconsistently. This adds a space after such emojis to prevent
+    the following character from overlapping.
+    """
+    import unicodedata
+
+    result = []
+    text = _strip_variation_selectors(text)
+    for char in text:
+        result.append(char)
+        # Add padding after Neutral-width emoji to prevent overlap
+        if (
+            0x1F300 <= ord(char) <= 0x1FAFF
+            and unicodedata.east_asian_width(char) == "N"
+        ):
+            result.append(" ")  # Extra space buffer
+    return "".join(result)
+
+
+# Classic prompt palette (single source of truth — the persistent bottom-bar
+# prompt converts these to raw SGR codes via messaging.prompt_prefix_style).
+# IMPORTANT: use `ansi*`-prefixed names — bare names like "magenta" resolve to
+# truecolor hex (#ff00ff) in prompt_toolkit and would IGNORE the terminal
+# palette. The ansi names emit real ANSI codes, so the /theme plugin's OSC
+# palette remap (Level 3) restyles the prompt to the chosen theme.
+PROMPT_STYLES = {
+    "puppy": "bold ansimagenta",
+    "agent": "bold ansiblue",
+    "model": "bold ansicyan",
+    "cwd": "bold ansigreen",
+    "arrow": "bold ansiyellow",
+}
 
 
 def get_prompt_with_active_model(base: str = ">>> "):
     from code_puppy.agents.agent_manager import get_current_agent
 
     puppy = get_puppy_name()
-    global_model = get_active_model() or "(default)"
+    # When nothing is configured this is None - surface that explicitly as
+    # [None] so the user immediately sees they need to /add_model.
+    global_model = get_active_model()
 
     # Get current agent information
     current_agent = get_current_agent()
@@ -530,12 +585,13 @@ def get_prompt_with_active_model(base: str = ">>> "):
     # Determine which model to display
     if agent_model and agent_model != global_model:
         # Show both models when they differ
-        model_display = f"[{global_model} → {agent_model}]"
+        model_display = f"[{global_model} \u2192 {agent_model}]"
     elif agent_model:
         # Show only the agent model when pinned
         model_display = f"[{agent_model}]"
     else:
-        # Show only the global model when no agent model is pinned
+        # Show only the global model when no agent model is pinned.
+        # global_model may be None -> renders as [None].
         model_display = f"[{global_model}]"
 
     cwd = os.getcwd()
@@ -546,15 +602,98 @@ def get_prompt_with_active_model(base: str = ">>> "):
         cwd_display = cwd
     return FormattedText(
         [
-            ("bold", "🐶 "),
-            ("class:puppy", f"{puppy}"),
+            ("class:puppy class:tui.header", f"{puppy}"),
             ("", " "),
-            ("class:agent", f"[{agent_display}] "),
-            ("class:model", model_display + " "),
-            ("class:cwd", "(" + str(cwd_display) + ") "),
-            ("class:arrow", str(base)),
+            (
+                "class:agent class:tui.label",
+                f"[{_normalize_emoji_spacing(agent_display)}] ",
+            ),
+            ("class:model class:tui.title", model_display + " "),
+            ("class:cwd class:tui.muted", "(" + str(cwd_display) + ") "),
+            ("class:arrow class:tui.help-key", str(base)),
         ]
     )
+
+
+class _NoGhostLinesPromptSession(PromptSession):
+    """A `PromptSession` that only reserves menu space while the menu is open.
+
+    Stock prompt_toolkit reserves `reserve_space_for_menu` (8) rows for the
+    completion menu for the *entire lifetime* of the prompt whenever
+    `complete_while_typing=True` — see `_get_default_buffer_control_height`.
+    The renderer then moves the cursor to the bottom of that taller canvas on
+    first paint, force-scrolling the terminal and leaving a block of ghost
+    blank lines under (or above, after scroll) the prompt even if the
+    completion menu never appears — and terminals can't un-scroll.
+
+    Overriding the height hook so the space is reserved *only while a
+    completion state is active* means the prompt stays a single line until a
+    menu is genuinely on screen. The scroll still happens while the menu is
+    visible (physics), but it no longer haunts every prompt render or
+    lingers after a `/` is typo'd and deleted.
+    """
+
+    def _get_default_buffer_control_height(self) -> Dimension:
+        if self.default_buffer.complete_state is None:
+            return Dimension()
+        return super()._get_default_buffer_control_height()
+
+
+def _left_justify_completion_menu(session: PromptSession) -> None:
+    """Pin the completion menu's `Float` to the left edge of the screen.
+
+    prompt_toolkit's default `PromptSession` layout attaches the completion
+    menu as a `Float(xcursor=True, ycursor=True, content=CompletionsMenu(...))`,
+    so the menu drifts horizontally with the cursor. We walk the layout,
+    find every `Float` whose content is a `CompletionsMenu` (or the
+    multi-column variant), and flip it to `left=0` / `xcursor=False` so the
+    menu always anchors to column 0 regardless of where the cursor sits.
+
+    Wrapped in a broad try/except: prompt_toolkit's internal layout layout
+    can shift between versions and we'd rather silently degrade to the
+    default positioning than crash the prompt.
+    """
+    try:
+        from prompt_toolkit.layout.containers import FloatContainer
+        from prompt_toolkit.layout.menus import (
+            CompletionsMenu,
+            MultiColumnCompletionsMenu,
+        )
+
+        menu_types = (CompletionsMenu, MultiColumnCompletionsMenu)
+        for node in session.layout.walk():
+            if not isinstance(node, FloatContainer):
+                continue
+            for float_obj in node.floats or []:
+                if isinstance(float_obj.content, menu_types):
+                    float_obj.xcursor = False
+                    float_obj.ycursor = True  # keep vertical anchoring
+                    float_obj.left = 0
+    except Exception:
+        pass
+
+
+def _complete_or_cycle(buffer) -> None:
+    """Apply an unambiguous completion, otherwise cycle the available choices.
+
+    ``complete_while_typing`` opens a completion state without selecting an
+    item. prompt_toolkit's default Tab binding selects even a sole candidate,
+    requiring a pointless second Tab to apply it. Start completion explicitly
+    when needed, then immediately apply a single candidate while preserving
+    normal cycling for ambiguous input.
+    """
+    if buffer.complete_state is None:
+        buffer.start_completion(select_first=False)
+
+    complete_state = buffer.complete_state
+    if complete_state is None:
+        return
+
+    completions = complete_state.completions
+    if len(completions) == 1:
+        buffer.apply_completion(completions[0])
+    elif completions:
+        buffer.complete_next()
 
 
 async def get_input_with_combined_completion(
@@ -577,6 +716,9 @@ async def get_input_with_combined_completion(
             UnpinCompleter(trigger="/unpin"),
             AgentCompleter(trigger="/agent"),
             AgentCompleter(trigger="/a"),
+            AgentCompleter(trigger="/switch-agent"),
+            AgentCompleter(trigger="/sa"),
+            AgentCompleter(trigger="/fork", prefix="@"),
             MCPCompleter(trigger="/mcp"),
             SkillsCompleter(trigger="/skills"),
             OllamaSetupCompleter(),
@@ -643,40 +785,73 @@ async def get_input_with_combined_completion(
         @bindings.add("c-enter", eager=True)
         def _(event):
             event.app.current_buffer.insert_text("\n")
+
     except Exception:
         pass
 
-    # Enter behavior depends on multiline mode
+    # Enter behavior depends on multiline mode AND completion-menu state.
+    # Priority order:
+    #   1. If the completion menu is open with a highlighted item that would
+    #      actually CHANGE the buffer, accept that completion and close the
+    #      menu (don't submit). This matches how editors like VSCode/Helix
+    #      behave — Enter on a popup = pick, not commit.
+    #   2. If the highlighted completion is a no-op (you've already typed the
+    #      whole word, so applying it changes nothing), don't swallow the
+    #      keystroke — close the menu and fall through to submit. Otherwise
+    #      you'd have to press Enter twice for a fully-typed command.
+    #   3. Multiline mode: insert a newline.
+    #   4. Default: submit the prompt.
     @bindings.add("enter", filter=~is_searching, eager=True)
     def _(event):
+        buffer = event.current_buffer
+        complete_state = buffer.complete_state
+        completion = complete_state.current_completion if complete_state else None
+        if completion is not None:
+            # The fragment this completion would overwrite (start_position is
+            # a <= 0 offset from the cursor). If it already equals the
+            # completion text, applying it is a no-op -> treat Enter as submit.
+            before = buffer.document.text_before_cursor
+            overwritten = before[len(before) + completion.start_position :]
+            if overwritten != completion.text:
+                buffer.apply_completion(completion)
+                return
+            # No-op completion: dismiss the menu and continue to submit/newline.
+            buffer.cancel_completion()
         if multiline["enabled"]:
-            event.app.current_buffer.insert_text("\n")
+            buffer.insert_text("\n")
         else:
-            event.current_buffer.validate_and_handle()
+            buffer.validate_and_handle()
 
-    # Backspace/Delete: trigger completions after deletion
+    # Tab: finish an unambiguous completion in one press. For multiple
+    # candidates, retain prompt_toolkit's familiar select/cycle behavior.
+    @bindings.add(Keys.Tab, eager=True)
+    def handle_tab_completion(event):
+        _complete_or_cycle(event.app.current_buffer)
+
+    # Backspace/Delete: trigger completions after deletion.
     # By default, complete_while_typing only triggers on character insertion,
-    # not deletion. This fixes completions not reappearing after backspace.
+    # not deletion — so the menu vanishes the moment you backspace. We
+    # unconditionally restart completion after a delete and let each
+    # individual Completer decide whether it has anything to yield for the
+    # new buffer state (no-yield = menu naturally closes). This keeps `@`
+    # file completions, `/model <name>` sub-completions, etc. alive while
+    # editing — not just bare `/` slash commands.
+    def _restart_completion(buffer) -> None:
+        if buffer.text:
+            buffer.start_completion(select_first=False)
+
     @bindings.add("c-h", eager=True)  # Backspace (Ctrl+H)
     @bindings.add("backspace", eager=True)
     def handle_backspace_with_completion(event):
         buffer = event.app.current_buffer
-        # Perform the deletion first
         buffer.delete_before_cursor(count=1)
-        # Then trigger completion if text starts with '/'
-        text = buffer.text.lstrip()
-        if text.startswith("/"):
-            buffer.start_completion(select_first=False)
+        _restart_completion(buffer)
 
     @bindings.add("delete", eager=True)
     def handle_delete_with_completion(event):
         buffer = event.app.current_buffer
-        # Perform the deletion first
         buffer.delete(count=1)
-        # Then trigger completion if text starts with '/'
-        text = buffer.text.lstrip()
-        if text.startswith("/"):
-            buffer.start_completion(select_first=False)
+        _restart_completion(buffer)
 
     # Handle bracketed paste - smart detection for text vs images.
     # Most terminals (Windows included!) send Ctrl+V through bracketed paste.
@@ -695,14 +870,16 @@ async def get_input_with_combined_completion(
             event.app.current_buffer.insert_text(sanitized_data)
             return
 
-        # No meaningful text - check if clipboard has an image (Windows image paste!)
+        # No meaningful text - try capturing a clipboard image directly
+        # (Windows image paste!). Single clipboard read: a separate
+        # "has image?" probe would double the (slow, osascript-backed on
+        # macOS) clipboard round-trip and make the keypress feel dead.
         try:
-            if has_image_in_clipboard():
-                placeholder = capture_clipboard_image_to_pending()
-                if placeholder:
-                    event.app.current_buffer.insert_text(placeholder + " ")
-                    event.app.output.bell()
-                    return
+            placeholder = capture_clipboard_image_to_pending()
+            if placeholder:
+                event.app.current_buffer.insert_text(placeholder + " ")
+                event.app.output.bell()
+                return
         except Exception:
             pass
 
@@ -716,15 +893,17 @@ async def get_input_with_combined_completion(
     def handle_smart_paste(event):
         """Handle Ctrl+V - auto-detect image vs text in clipboard."""
         try:
-            # Check for image first
-            if has_image_in_clipboard():
-                placeholder = capture_clipboard_image_to_pending()
-                if placeholder:
-                    event.app.current_buffer.insert_text(placeholder + " ")
-                    # The placeholder itself is visible feedback - no need for extra output
-                    # Use bell for audible feedback (works in most terminals)
-                    event.app.output.bell()
-                    return  # Don't also paste text
+            # Try capturing an image directly — ONE clipboard read. The old
+            # has_image_in_clipboard() probe + capture did two full reads
+            # (each an osascript round-trip on macOS), freezing the prompt
+            # long enough that users pressed Ctrl+V twice.
+            placeholder = capture_clipboard_image_to_pending()
+            if placeholder:
+                event.app.current_buffer.insert_text(placeholder + " ")
+                # The placeholder itself is visible feedback - no need for extra output
+                # Use bell for audible feedback (works in most terminals)
+                event.app.output.bell()
+                return  # Don't also paste text
         except Exception:
             pass  # Fall through to text paste on any error
 
@@ -783,46 +962,55 @@ async def get_input_with_combined_completion(
     def handle_image_paste_f3(event):
         """Handle F3 - paste image from clipboard (image-only, shows error if none)."""
         try:
-            if has_image_in_clipboard():
-                placeholder = capture_clipboard_image_to_pending()
-                if placeholder:
-                    event.app.current_buffer.insert_text(placeholder + " ")
-                    # The placeholder itself is visible feedback
-                    # Use bell for audible feedback (works in most terminals)
-                    event.app.output.bell()
+            placeholder = capture_clipboard_image_to_pending()
+            if placeholder:
+                event.app.current_buffer.insert_text(placeholder + " ")
+                # The placeholder itself is visible feedback
+                # Use bell for audible feedback (works in most terminals)
+                event.app.output.bell()
             else:
                 # Insert a transient message that user can delete
-                event.app.current_buffer.insert_text("[⚠️ no image in clipboard] ")
+                event.app.current_buffer.insert_text("[no image in clipboard] ")
                 event.app.output.bell()
         except Exception:
-            event.app.current_buffer.insert_text("[❌ clipboard error] ")
+            event.app.current_buffer.insert_text("[clipboard error] ")
             event.app.output.bell()
 
-    session = PromptSession(
+    session = _NoGhostLinesPromptSession(
         completer=completer,
         history=history,
         complete_while_typing=True,
         key_bindings=bindings,
         input_processors=[AttachmentPlaceholderProcessor()],
     )
-    # If they pass a string, backward-compat: convert it to formatted_text
+    _left_justify_completion_menu(session)
+    # If they pass a string, backward-compat: convert it to formatted_text.
+    # NOTE: the style field must be a str — `None` crashes `to_formatted_text`.
     if isinstance(prompt_str, str):
-        from prompt_toolkit.formatted_text import FormattedText
-
-        prompt_str = FormattedText([(None, prompt_str)])
-    style = Style.from_dict(
+        prompt_str = FormattedText([("", prompt_str)])
+    prompt_text_color = on_prompt_text_color()
+    default_input_style = f"fg:{prompt_text_color}" if prompt_text_color else ""
+    local_style = Style.from_dict(
         {
-            # Keys must AVOID the 'class:' prefix – that prefix is used only when
-            # tagging tokens in `FormattedText`. See prompt_toolkit docs.
-            "puppy": "bold ansibrightcyan",
-            "owner": "bold ansibrightblue",
-            "agent": "bold ansibrightblue",
-            "model": "bold ansibrightcyan",
-            "cwd": "bold ansibrightgreen",
-            "arrow": "bold ansibrightblue",
-            "attachment-placeholder": "italic ansicyan",
+            # Keep the prompt useful without the theme plugin. With the plugin
+            # active, its semantic root supplies the palette underneath these
+            # structural rules while an explicit prompt-text override still wins.
+            "": default_input_style,
+            "attachment-placeholder": "italic",
+            # Suppress prompt_toolkit's fixed white/grey/reverse completion
+            # presentation. Colors now inherit from the semantic theme root;
+            # only hierarchy and emphasis belong to this local component.
+            "completion-menu": "noreverse",
+            "completion-menu.completion": "noreverse",
+            "completion-menu.completion.current": "noreverse bold underline",
+            "completion-menu.meta.completion": "noreverse italic",
+            "completion-menu.meta.completion.current": "noreverse italic bold",
+            "completion-menu.multi-column-meta": "noreverse",
+            "scrollbar.background": "noreverse",
+            "scrollbar.button": "noreverse bold",
         }
     )
+    style = on_prompt_toolkit_style(local_style)
     text = await session.prompt_async(prompt_str, style=style)
     # NOTE: We used to call update_model_in_input(text) here to handle /model and /m
     # commands at the prompt level, but that prevented the command handler from running

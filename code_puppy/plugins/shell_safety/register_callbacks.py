@@ -22,7 +22,8 @@ from code_puppy.tools.command_runner import ShellSafetyAssessment
 # OAuth model prefixes - these models have their own safety mechanisms
 OAUTH_MODEL_PREFIXES = (
     "claude-code-",  # Anthropic OAuth
-    "chatgpt-",  # OpenAI OAuth
+    "codex-",  # OpenAI OAuth
+    "chatgpt-",  # Legacy OpenAI OAuth
     "gemini-oauth",  # Google OAuth
 )
 

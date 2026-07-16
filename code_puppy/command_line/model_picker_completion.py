@@ -1,4 +1,6 @@
 import os
+import sys
+import logging
 from typing import Iterable, Optional
 
 from prompt_toolkit import Application, PromptSession
@@ -18,15 +20,29 @@ from code_puppy.command_line.pagination import (
 from code_puppy.config import get_global_model_name
 from code_puppy.list_filtering import query_matches_text
 from code_puppy.model_switching import set_model_and_reload_agent
+from code_puppy.provider_credentials import (
+    credential_display,
+    credential_hint,
+    required_env_var_for_model,
+    save_credential,
+)
+from code_puppy.command_line.utils import safe_input
+from code_puppy.callbacks import on_prompt_toolkit_style
+
+logger = logging.getLogger(__name__)
 
 MODEL_PICKER_PAGE_SIZE = 15
 
 
-def load_model_names():
-    """Load model names from the config that's fetched from the endpoint."""
+def _load_models_config() -> dict:
     from code_puppy.model_factory import ModelFactory
 
-    models_config = ModelFactory.load_config()
+    return ModelFactory.load_config()
+
+
+def load_model_names():
+    """Load model names from the config that's fetched from the endpoint."""
+    models_config = _load_models_config()
     return list(models_config.keys())
 
 
@@ -74,6 +90,10 @@ class ModelNameCompleter(Completer):
         ].lstrip()
         start_position = -(len(text_after_trigger))
 
+        from code_puppy.model_descriptions import get_model_description
+
+        models_config = _load_models_config()
+
         # Filter model names based on what's typed after /model (case-insensitive)
         for model_name in self.model_names:
             if text_after_trigger and not query_matches_text(
@@ -81,11 +101,18 @@ class ModelNameCompleter(Completer):
             ):
                 continue  # Skip models that don't match the typed text
 
-            meta = (
-                "Model (selected)"
-                if model_name.lower() == get_active_model().lower()
-                else "Model"
-            )
+            description = get_model_description(models_config, model_name)
+            active_model_name = get_active_model()
+            if model_name.lower() == active_model_name.lower():
+                short = (
+                    description[:45] + "..." if len(description) > 48 else description
+                )
+                meta = f"✓ {short}"
+            else:
+                meta = (
+                    description[:48] + "..." if len(description) > 51 else description
+                )
+
             yield Completion(
                 model_name,
                 start_position=start_position,
@@ -210,6 +237,7 @@ class ModelSelectionMenu:
         self.page = 0
         self.page_size = MODEL_PICKER_PAGE_SIZE
         self.result: Optional[str] = None
+        self.pending_credentials_edit: Optional[str] = None
 
         if self.current_model in self.visible_model_names:
             self.selected_index = self.visible_model_names.index(self.current_model)
@@ -313,12 +341,12 @@ class ModelSelectionMenu:
             self.selected_index = self.page_start
 
     def _render(self):
-        lines = [("bold cyan", " 🤖 Select Active Model")]
+        lines = [("class:tui.header", " 🤖 Select Active Model")]
         filter_label = self.filter_text or "type to filter"
-        lines.append(("fg:ansibrightblack", f"\n  Filter: {filter_label}"))
+        lines.append(("class:tui.muted", f"\n  Filter: {filter_label}"))
         if self.total_pages > 1:
             lines.append(
-                ("fg:ansibrightblack", f"  (Page {self.page + 1}/{self.total_pages})")
+                ("class:tui.muted", f"  (Page {self.page + 1}/{self.total_pages})")
             )
         lines.append(("", "\n"))
 
@@ -328,19 +356,19 @@ class ModelSelectionMenu:
                 if self.filter_text
                 else "No models available."
             )
-            lines.append(("fg:ansiyellow", f"\n  {empty_message}\n"))
-            lines.append(("fg:ansibrightblack", "  Type  "))
-            lines.append(("", "Adjust filter\n"))
-            lines.append(("fg:ansibrightblack", "  Backspace  "))
-            lines.append(("", "Delete filter char\n"))
+            lines.append(("class:tui.warning", f"\n  {empty_message}\n"))
+            lines.append(("class:tui.help-key", "  Type  "))
+            lines.append(("class:tui.help", "Adjust filter\n"))
+            lines.append(("class:tui.help-key", "  Backspace  "))
+            lines.append(("class:tui.help", "Delete filter char\n"))
             if self.filter_text:
-                lines.append(("fg:ansibrightblack", "  Ctrl+U  "))
-                lines.append(("", "Clear filter\n"))
-            lines.append(("fg:ansiyellow", "  Esc  "))
-            lines.append(("", "Exit\n"))
+                lines.append(("class:tui.help-key", "  Ctrl+U  "))
+                lines.append(("class:tui.help", "Clear filter\n"))
+            lines.append(("class:tui.help-key", "  Esc  "))
+            lines.append(("class:tui.help", "Exit\n"))
             return lines
 
-        lines.append(("fg:ansibrightblack", f"\n  Current: {self.current_model}\n\n"))
+        lines.append(("class:tui.muted", f"\n  Current: {self.current_model}\n\n"))
 
         for offset, model_name in enumerate(self.models_on_page):
             absolute_index = self.page_start + offset
@@ -348,29 +376,62 @@ class ModelSelectionMenu:
             is_current = model_name == self.current_model
 
             prefix = " › " if is_selected else "   "
-            style = "fg:ansiwhite bold" if is_selected else "fg:ansibrightblack"
+            style = "class:tui.selected" if is_selected else "class:tui.body"
             lines.append((style, f"{prefix}{model_name}"))
             if is_current:
-                lines.append(("fg:ansigreen", " (active)"))
+                lines.append(("class:tui.success", " (active)"))
             lines.append(("", "\n"))
 
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "  ↑/↓  "))
-        lines.append(("", "Navigate\n"))
+        lines.append(("class:tui.help-key", "  ↑/↓  "))
+        lines.append(("class:tui.help", "Navigate\n"))
         if self.total_pages > 1:
-            lines.append(("fg:ansibrightblack", "  PgUp/PgDn  "))
-            lines.append(("", "Change page\n"))
-        lines.append(("fg:ansibrightblack", "  Type  "))
-        lines.append(("", "Filter models\n"))
-        lines.append(("fg:ansibrightblack", "  Backspace  "))
-        lines.append(("", "Delete filter char\n"))
-        lines.append(("fg:ansibrightblack", "  Ctrl+U  "))
-        lines.append(("", "Clear filter\n"))
-        lines.append(("fg:ansigreen", "  Enter  "))
-        lines.append(("", "Select model\n"))
-        lines.append(("fg:ansiyellow", "  Esc  "))
-        lines.append(("", "Cancel\n"))
+            lines.append(("class:tui.help-key", "  PgUp/PgDn  "))
+            lines.append(("class:tui.help", "Change page\n"))
+        lines.append(("class:tui.help-key", "  Type  "))
+        lines.append(("class:tui.help", "Filter models\n"))
+        lines.append(("class:tui.help-key", "  Backspace  "))
+        lines.append(("class:tui.help", "Delete filter char\n"))
+        lines.append(("class:tui.help-key", "  Ctrl+U  "))
+        lines.append(("class:tui.help", "Clear filter\n"))
+        lines.append(("class:tui.help-key", "  Enter  "))
+        lines.append(("class:tui.help", "Select model\n"))
+        lines.append(("class:tui.help-key", "  Ctrl+E  "))
+        lines.append(("class:tui.help", "Edit credentials\n"))
+        lines.append(("class:tui.help-key", "  Esc  "))
+        lines.append(("class:tui.help", "Cancel\n"))
         return lines
+
+    def _edit_credentials_for_model(self, model_name: str) -> None:
+        """Prompt user to edit the credential for a specific model.
+
+        Looks up the required env var for the model via the merged config
+        and then lets the user update it (or skip).
+        """
+        env_var = required_env_var_for_model(model_name)
+        if not env_var:
+            logger.warning("No env var found for model: %s", model_name)
+            return
+        status = credential_display(env_var)
+        hint = credential_hint(env_var)
+        logger.info(
+            "Editing credential %s for model %s (status: %s)",
+            env_var,
+            model_name,
+            status,
+        )
+        print(f"\n🔑 {model_name} credential: {env_var} ({status})")
+        if hint:
+            print(f"   {hint}")
+        try:
+            value = safe_input("   New value (or Enter to skip): ")
+            if value:
+                save_credential(env_var, value)
+                print(f"✅ Saved {env_var}")
+                logger.info("Saved credential %s for model %s", env_var, model_name)
+        except (KeyboardInterrupt, EOFError):
+            logger.info("Credential editing cancelled by user")
+            print("\n⚠️ Credential editing cancelled")
 
     async def run_async(self) -> Optional[str]:
         control = FormattedTextControl(lambda: self._render())
@@ -423,6 +484,21 @@ class ModelSelectionMenu:
             refresh()
             event.app.invalidate()
 
+        @kb.add("c-e")
+        def _(event):
+            """Edit credentials for the selected model."""
+            selected = self._get_selected_model_name()
+            if not selected:
+                logger.debug("No model selected for credential editing")
+                return
+            env_var = required_env_var_for_model(selected)
+            if not env_var:
+                logger.debug("No env var required for model: %s", selected)
+                return
+            logger.info("User requested credential edit for model: %s", selected)
+            self.pending_credentials_edit = selected
+            event.app.exit()
+
         @kb.add("<any>")
         def _(event):
             if not event.data or not event.data.isprintable():
@@ -443,13 +519,36 @@ class ModelSelectionMenu:
             self.result = None
             event.app.exit()
 
-        app = Application(
-            layout=Layout(Window(content=control, wrap_lines=True)),
-            key_bindings=kb,
-            full_screen=False,
-        )
-        await app.run_async()
-        return self.result
+        while True:
+            # Enter alternate screen buffer for this session
+            sys.stdout.write("\033[?1049h")  # Enter alternate buffer
+            sys.stdout.write("\033[2J\033[H")  # Clear and home
+            sys.stdout.flush()
+
+            # Create a fresh Application each iteration — reusing a
+            # prompt_toolkit Application after exit() is unreliable
+            app = Application(
+                layout=Layout(Window(content=control, wrap_lines=True)),
+                key_bindings=kb,
+                full_screen=False,
+                style=on_prompt_toolkit_style(),
+            )
+            await app.run_async()
+
+            # Exit alternate screen buffer
+            sys.stdout.write("\033[?1049l")  # Exit alternate buffer
+            sys.stdout.flush()
+
+            # Handle credential editing outside the event loop
+            if self.pending_credentials_edit:
+                model_name = self.pending_credentials_edit
+                self.pending_credentials_edit = None
+                logger.info("Editing credentials for model: %s", model_name)
+                self._edit_credentials_for_model(model_name)
+                logger.info("Credential edit completed, restarting application")
+                continue  # Restart the application
+
+            return self.result
 
 
 def _build_legacy_picker_choices(
@@ -504,6 +603,7 @@ async def get_input_with_model_completion(
         completer=ModelNameCompleter(trigger),
         history=history,
         complete_while_typing=True,
+        style=on_prompt_toolkit_style(),
     )
     text = await session.prompt_async(prompt_str)
     possibly_stripped = update_model_in_input(text)

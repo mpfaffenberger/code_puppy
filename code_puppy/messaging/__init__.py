@@ -63,8 +63,22 @@ from .commands import (  # Base; Agent control; User interaction responses; Unio
     CancelAgentCommand,
     ConfirmationResponse,
     InterruptShellCommand,
+    PauseAgentCommand,
+    ResumeAgentCommand,
     SelectionResponse,
+    SteerAgentCommand,
     UserInputResponse,
+)
+from .bottom_bar import (
+    BottomBar,
+    get_bottom_bar,
+    reset_bottom_bar,
+)
+from .line_editor import RunningLineEditor
+from .pause_controller import (
+    PauseController,
+    get_pause_controller,
+    reset_pause_controller,
 )
 from .message_queue import (
     MessageQueue,
@@ -79,6 +93,7 @@ from .message_queue import (
     emit_message,
     emit_planned_next_steps,
     emit_prompt,
+    emit_queued,
     emit_success,
     emit_system_message,
     emit_tool_output,
@@ -124,6 +139,16 @@ from .messages import (  # Enums, Base, Text, File ops, Diff, Shell, Agent, etc.
 from .queue_console import QueueConsole, get_queue_console
 from .renderers import InteractiveRenderer, SynchronousInteractiveRenderer
 
+# NOTE: the ``run_ui()`` context manager itself is intentionally NOT
+# re-exported here — it would shadow the ``messaging.run_ui`` submodule
+# attribute. Import it via ``from code_puppy.messaging.run_ui import run_ui``.
+from .run_ui import (
+    get_run_editor,
+    start_run_ui,
+    stop_run_ui,
+    suspended_run_ui,
+)
+
 # Renderer
 from .rich_renderer import (
     DEFAULT_STYLES,
@@ -163,6 +188,7 @@ __all__ = [
     # Legacy emit functions
     "emit_message",
     "emit_info",
+    "emit_queued",
     "emit_success",
     "emit_warning",
     "emit_divider",
@@ -222,10 +248,28 @@ __all__ = [
     # Command types
     "CancelAgentCommand",
     "InterruptShellCommand",
+    "PauseAgentCommand",
+    "ResumeAgentCommand",
+    "SteerAgentCommand",
     "UserInputResponse",
     "ConfirmationResponse",
     "SelectionResponse",
     "AnyCommand",
+    # Pause controller
+    "PauseController",
+    "get_pause_controller",
+    "reset_pause_controller",
+    # Bottom bar (scroll-region prompt)
+    "BottomBar",
+    "get_bottom_bar",
+    "reset_bottom_bar",
+    # Running line editor
+    "RunningLineEditor",
+    # Composed run UI (bar + editor + key routing)
+    "start_run_ui",
+    "stop_run_ui",
+    "get_run_editor",
+    "suspended_run_ui",
     # Message bus
     "MessageBus",
     "get_message_bus",

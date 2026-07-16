@@ -16,6 +16,7 @@ from code_puppy.agents.base_agent import BaseAgent
 from code_puppy.agents.json_agent import JSONAgent, discover_json_agents
 from code_puppy.callbacks import on_agent_reload, on_register_agents
 from code_puppy.messaging import emit_success, emit_warning
+from code_puppy.tools.common import atomic_write_text
 
 # Registry of available agents (Python classes and JSON file paths)
 _AGENT_REGISTRY: Dict[str, Union[Type[BaseAgent], str]] = {}
@@ -26,6 +27,16 @@ _CURRENT_AGENT: Optional[BaseAgent] = None
 _SESSION_AGENTS_CACHE: dict[str, str] = {}
 _SESSION_FILE_LOADED: bool = False
 _SESSION_LOCK = threading.Lock()
+
+# Serializes _discover_agents(): it clears + repopulates the shared registry,
+# so concurrent passes must not interleave. RLock so plugin callbacks fired
+# during discovery may safely re-enter agent-manager APIs on the same thread.
+_DISCOVERY_LOCK = threading.RLock()
+
+# JSON-agent names we've already warned about being shadowed by builtin
+# Python agents. Discovery runs constantly; warn once per process, not once
+# per pass.
+_WARNED_JSON_SHADOWED: set = set()
 
 
 # Session persistence file path
@@ -60,8 +71,16 @@ def _is_process_alive(pid: int) -> bool:
         pid: Process ID to check
 
     Returns:
-        bool: True if process likely exists, False otherwise
+        bool: True if process likely exists, False otherwise.
     """
+    try:
+        process_id = int(pid)
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+    if process_id <= 0:
+        return False
+
     try:
         if os.name == "nt":
             # Windows: use OpenProcess to probe liveness safely
@@ -77,7 +96,7 @@ def _is_process_alive(pid: int) -> bool:
             ]
             kernel32.OpenProcess.restype = wintypes.HANDLE
             handle = kernel32.OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid)
+                PROCESS_QUERY_LIMITED_INFORMATION, False, process_id
             )
             if handle:
                 kernel32.CloseHandle(handle)
@@ -90,7 +109,7 @@ def _is_process_alive(pid: int) -> bool:
             return False
         else:
             # Unix-like: signal 0 does not deliver a signal but checks existence
-            os.kill(int(pid), 0)
+            os.kill(process_id, 0)
             return True
     except PermissionError:
         # No permission to signal -> process exists
@@ -171,8 +190,31 @@ def _save_session_data(sessions: dict[str, str]) -> None:
         with open(temp_file, "w", encoding="utf-8") as f:
             json.dump(cleaned_sessions, f, indent=2)
 
-        # Atomic rename (works on all platforms)
-        temp_file.replace(session_file)
+        # Atomic rename; on Windows replace() is best-effort if target exists
+        try:
+            temp_file.replace(session_file)
+        except Exception:
+            try:
+                if session_file.exists():
+                    session_file.unlink(
+                        missing_ok=True
+                    )  # Python 3.8+: ignore if missing
+            except Exception:
+                pass
+            try:
+                temp_file.replace(session_file)
+            except Exception:
+                # As a last resort, copy contents
+                try:
+                    with (
+                        open(temp_file, "r", encoding="utf-8") as rf,
+                        open(session_file, "w", encoding="utf-8") as wf,
+                    ):
+                        wf.write(rf.read())
+                    temp_file.unlink(missing_ok=True)
+                except Exception:
+                    # Give up silently; session persistence isn't critical
+                    pass
 
     except (IOError, OSError):
         # File permission issues, etc. - just continue without persistence
@@ -189,7 +231,22 @@ def _ensure_session_cache_loaded() -> None:
 
 
 def _discover_agents(message_group_id: Optional[str] = None):
-    """Dynamically discover all agent classes and JSON agents."""
+    """Dynamically discover all agent classes and JSON agents.
+
+    Thread-safe: discovery does a destructive ``clear()`` + repopulate of the
+    shared ``_AGENT_REGISTRY``, and it gets invoked from multiple threads
+    (agent loads, completion threads, refreshes). Without the lock, two
+    interleaved passes each see the other's freshly-inserted JSON agents
+    during their own step 2 and emit bogus "builtin Python agent takes
+    precedence" warnings for every JSON agent. See the RLock so re-entrant
+    same-thread calls (e.g. plugin callbacks) can't deadlock.
+    """
+    with _DISCOVERY_LOCK:
+        _discover_agents_locked(message_group_id=message_group_id)
+
+
+def _discover_agents_locked(message_group_id: Optional[str] = None):
+    """Actual discovery body. Callers must hold ``_DISCOVERY_LOCK``."""
     # Always clear the registry to force refresh
     _AGENT_REGISTRY.clear()
 
@@ -285,11 +342,17 @@ def _discover_agents(message_group_id: Optional[str] = None):
         # Add JSON agents to registry (store file path instead of class)
         # Python (builtin) agents take precedence over JSON agents.
         for agent_name, json_path in json_agents.items():
-            if agent_name in _AGENT_REGISTRY:
-                emit_warning(
-                    f"JSON agent '{agent_name}' skipped: builtin Python agent with the same name takes precedence.",
-                    message_group=message_group_id,
-                )
+            existing = _AGENT_REGISTRY.get(agent_name)
+            if isinstance(existing, type):
+                # Genuine collision with a builtin Python agent class.
+                # Warn once per process — discovery re-runs on every agent
+                # load, and repeating the same warning is pure noise.
+                if agent_name not in _WARNED_JSON_SHADOWED:
+                    _WARNED_JSON_SHADOWED.add(agent_name)
+                    emit_warning(
+                        f"JSON agent '{agent_name}' skipped: builtin Python agent with the same name takes precedence.",
+                        message_group=message_group_id,
+                    )
                 continue
             _AGENT_REGISTRY[agent_name] = json_path
 
@@ -657,7 +720,12 @@ def clone_agent(agent_name: str) -> Optional[str]:
                     agent_instance.display_name, clone_index
                 ),
                 "description": agent_instance.description,
-                "system_prompt": agent_instance.get_full_system_prompt(),
+                # Persist the AUTHORED prompt only. ``get_full_system_prompt``
+                # would bake in runtime ``load_prompt`` fragments (live
+                # timestamp/CWD, kennel memory, ...) and the instance identity
+                # ID — all of which must be (re)injected fresh at runtime, not
+                # frozen into a static clone definition.
+                "system_prompt": agent_instance.get_system_prompt(),
                 "tools": _filter_available_tools(agent_instance.get_available_tools()),
             }
 
@@ -681,8 +749,10 @@ def clone_agent(agent_name: str) -> Optional[str]:
         return None
 
     try:
-        with open(clone_path, "w", encoding="utf-8") as f:
-            json.dump(clone_config, f, indent=2, ensure_ascii=False)
+        atomic_write_text(
+            str(clone_path),
+            json.dumps(clone_config, indent=2, ensure_ascii=False),
+        )
         emit_success(f"Cloned '{agent_name}' to '{clone_name}'.")
         return clone_name
     except Exception as exc:

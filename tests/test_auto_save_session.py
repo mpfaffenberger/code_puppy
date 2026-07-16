@@ -135,7 +135,7 @@ class TestAutoSaveSessionFunctionality:
 
     @patch("code_puppy.messaging.emit_info")
     @patch("code_puppy.config.save_session")
-    @patch("code_puppy.config.get_current_autosave_session_name")
+    @patch("code_puppy.config.get_current_session_name")
     @patch("code_puppy.config.datetime.datetime")
     @patch("code_puppy.config.get_auto_save_session")
     @patch("code_puppy.agents.agent_manager.get_current_agent")
@@ -203,22 +203,22 @@ class TestAutoSaveSessionFunctionality:
 
 
 class TestFinalizeAutoSaveSession:
-    @patch("code_puppy.config.rotate_autosave_id", return_value="fresh_id")
+    @patch("code_puppy.config.rotate_session_name", return_value="auto_session_fresh")
     @patch("code_puppy.config.auto_save_session_if_enabled", return_value=True)
     def test_finalize_autosave_session_saves_and_rotates(
         self, mock_auto_save, mock_rotate
     ):
         result = cp_config.finalize_autosave_session()
-        assert result == "fresh_id"
+        assert result == "auto_session_fresh"
         mock_auto_save.assert_called_once_with()
         mock_rotate.assert_called_once_with()
 
-    @patch("code_puppy.config.rotate_autosave_id", return_value="fresh_id")
+    @patch("code_puppy.config.rotate_session_name", return_value="auto_session_fresh")
     @patch("code_puppy.config.auto_save_session_if_enabled", return_value=False)
     def test_finalize_autosave_session_rotates_even_without_save(
         self, mock_auto_save, mock_rotate
     ):
         result = cp_config.finalize_autosave_session()
-        assert result == "fresh_id"
+        assert result == "auto_session_fresh"
         mock_auto_save.assert_called_once_with()
         mock_rotate.assert_called_once_with()

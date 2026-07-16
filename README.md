@@ -75,6 +75,21 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 uvx code-puppy
 ```
 
+#### Optional: DBOS durable execution
+
+Code Puppy ships with an optional [DBOS](https://github.com/dbos-inc/dbos-transact-py)-backed
+durable-execution plugin that survives crashes and lets you resume long agent runs.
+It's **off by default in the dependency tree** — install the `durable` extra to opt in:
+
+```bash
+pip install "code-puppy[durable]"
+# or
+uv pip install "code-puppy[durable]"
+```
+
+Then toggle it from inside the app via `/dbos on` (and restart). Use `/dbos status`
+to check, `/dbos off` to disable.
+
 ## Changelog (By Kittylog!)
 
 [📋 View the full changelog on Kittylog](https://kittylog.app/c/mpfaffenberger/code_puppy)
@@ -171,9 +186,25 @@ Please review this code for security issues." > .claude/commands/review.md
 - Ollama endpoint available
 
 ## Agent Rules
-We support AGENT.md files for defining coding standards and styles that your code should comply with. These rules can cover various aspects such as formatting, naming conventions, and even design guidelines.
+
+Code Puppy supports `AGENTS.md` files for defining coding standards, project conventions, and behavioral guidelines that the AI should follow. These rules can cover formatting, naming conventions, architectural patterns, and project-specific instructions.
 
 For examples and more information about agent rules, visit [https://agent.md](https://agent.md)
+
+### AGENTS.md Search Order
+
+Code Puppy loads rules from multiple locations, combining them in order:
+
+| Priority | Location | Purpose |
+|----------|----------|----------|
+| 1 | `~/.code_puppy/AGENTS.md` | Global rules (applied to all projects) |
+| 2 | `.code_puppy/AGENTS.md` | Project rules (preferred location) |
+| 3 | `./AGENTS.md` | Project rules (alternate location) |
+
+**Key behaviors:**
+- Global and project rules are **combined** (global first, then project)
+- `.code_puppy/` directory takes **precedence** over project root
+- All filename variants are supported: `AGENTS.md`, `AGENT.md`, `agents.md`, `agent.md`
 
 ## Using MCP Servers for External Tools
 
@@ -233,6 +264,23 @@ export CEREBRAS_API_KEY3=csk-...
 Then just use /model and tab to select your round-robin model!
 
 The `rotate_every` parameter controls how many requests are made to each model before rotating to the next one. In this example, the round-robin model will use each Qwen model for 5 consecutive requests before moving to the next model in the sequence.
+
+## Custom OpenAI API Types
+
+Use `custom_openai` for OpenAI-compatible Chat Completions endpoints. If an endpoint requires the OpenAI Responses API, use `custom_openai_responses` instead:
+
+```json
+{
+  "reasoning_proxy": {
+    "type": "custom_openai_responses",
+    "name": "gpt-5.5",
+    "custom_endpoint": {
+      "url": "https://proxy.example.com/v1",
+      "api_key": "$API_KEY"
+    }
+  }
+}
+```
 
 ## Custom Model Timeouts
 

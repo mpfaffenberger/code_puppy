@@ -10,6 +10,13 @@ Claude Code Hook Compatibility:
   - Exit code 0  => success, stdout shown in transcript
   - Exit code 1  => block the operation (stderr used as reason)
   - Exit code 2  => error feedback to Claude (stderr fed back as tool error)
+
+Stdout JSON control payloads are also honored (exit code 0 + JSON verdict):
+  - Claude Code official: {"decision": "block", "reason": ...} or
+    {"hookSpecificOutput": {"permissionDecision": "deny", ...}}
+  - Plugin dialect: {"result": "block", "reason": ...}
+Control payloads are stripped from stdout so they never leak into model
+context; hookSpecificOutput.additionalContext replaces stdout when present.
 """
 
 import asyncio
@@ -18,7 +25,7 @@ import logging
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .matcher import _extract_file_path
 from .models import EventData, ExecutionResult, HookConfig
@@ -67,6 +74,63 @@ def _build_stdin_payload(event_data: EventData) -> bytes:
         payload["tool_duration_ms"] = event_data.context["duration_ms"]
 
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+
+# Keys that mark a JSON stdout object as a hook *control* payload rather than
+# ordinary output. A hook legitimately printing {"foo": "bar"} is untouched.
+_CONTROL_KEYS = frozenset(
+    {"result", "decision", "reason", "hookSpecificOutput", "continue", "stopReason"}
+)
+
+
+def _interpret_control_payload(
+    stdout: str,
+    blocked: bool,
+    error: Optional[str],
+) -> Tuple[str, bool, Optional[str]]:
+    """
+    Interpret a stdout JSON control payload, if present.
+
+    Honors both dialects (see module docstring). Returns possibly-updated
+    (stdout, blocked, error). Plain text, non-control JSON, and exit-code
+    semantics are untouched.
+    """
+    text = stdout.strip()
+    if not text.startswith("{"):
+        return stdout, blocked, error
+
+    try:
+        payload = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return stdout, blocked, error
+
+    if not isinstance(payload, dict) or not (_CONTROL_KEYS & payload.keys()):
+        return stdout, blocked, error
+
+    hook_specific = payload.get("hookSpecificOutput")
+    if not isinstance(hook_specific, dict):
+        hook_specific = {}
+
+    if (
+        payload.get("result") == "block"
+        or payload.get("decision") == "block"
+        or hook_specific.get("permissionDecision") == "deny"
+        or payload.get("continue") is False
+    ):
+        blocked = True
+        reason = (
+            payload.get("reason")
+            or hook_specific.get("permissionDecisionReason")
+            or payload.get("stopReason")
+        )
+        if reason:
+            error = str(reason)
+
+    # Strip the control payload from stdout so it never reaches model
+    # context; additionalContext, when present, becomes the hook's output.
+    additional_context = hook_specific.get("additionalContext")
+    new_stdout = additional_context if isinstance(additional_context, str) else ""
+    return new_stdout, blocked, error
 
 
 async def execute_hook(
@@ -144,6 +208,9 @@ async def execute_hook(
 
         blocked = exit_code == 1
         error = stderr_str if exit_code != 0 and stderr_str else None
+        stdout_str, blocked, error = _interpret_control_payload(
+            stdout_str, blocked, error
+        )
 
         return ExecutionResult(
             blocked=blocked,

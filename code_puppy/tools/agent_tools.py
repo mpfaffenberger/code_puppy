@@ -1,65 +1,28 @@
 # agent_tools.py
-import asyncio
 import hashlib
-import itertools
 import json
 import pickle
 import re
-import traceback
 from datetime import datetime
-from functools import partial
 from pathlib import Path
-from typing import List, Set
+from typing import List
 
-from dbos import DBOS, SetWorkflowID
 from pydantic import BaseModel
 
-# Import Agent from pydantic_ai to create temporary agents for invocation
-from pydantic_ai import Agent, RunContext, UsageLimits
+from pydantic_ai import RunContext
 from pydantic_ai.messages import ModelMessage
 
 from code_puppy.config import (
     DATA_DIR,
-    get_message_limit,
-    get_use_dbos,
-    get_value,
 )
 from code_puppy.messaging import (
-    SubAgentInvocationMessage,
-    SubAgentResponseMessage,
     emit_error,
     emit_info,
-    emit_success,
     get_message_bus,
     get_session_context,
     set_session_context,
 )
-from code_puppy.tools.common import generate_group_id
-from code_puppy.tools.subagent_context import subagent_context
-
-# Set to track active subagent invocation tasks
-_active_subagent_tasks: Set[asyncio.Task] = set()
-
-# Atomic counter for DBOS workflow IDs - ensures uniqueness even in rapid back-to-back calls
-# itertools.count() is thread-safe for next() calls
-_dbos_workflow_counter = itertools.count()
-
-
-def _generate_dbos_workflow_id(base_id: str) -> str:
-    """Generate a unique DBOS workflow ID by appending an atomic counter.
-
-    DBOS requires workflow IDs to be unique across all executions.
-    This function ensures uniqueness by combining the base_id with
-    an atomically incrementing counter.
-
-    Args:
-        base_id: The base identifier (e.g., group_id from generate_group_id)
-
-    Returns:
-        A unique workflow ID in format: {base_id}-wf-{counter}
-    """
-    counter = next(_dbos_workflow_counter)
-    return f"{base_id}-wf-{counter}"
+from code_puppy.tools.common import atomic_write_text, generate_group_id
 
 
 def _generate_session_hash_suffix() -> str:
@@ -70,6 +33,21 @@ def _generate_session_hash_suffix() -> str:
     """
     timestamp = str(datetime.now().timestamp())
     return hashlib.sha1(timestamp.encode()).hexdigest()[:6]
+
+
+def _sanitize_for_session_id(value: str) -> str:
+    """Coerce an arbitrary string into kebab-case suitable for a session_id.
+
+    Lowercases everything, replaces any non ``[a-z0-9]`` runs with a single
+    hyphen, and strips leading/trailing hyphens.  This lets us safely embed
+    agent names like ``"LPZ-Main-Coder"`` or ``"My_Agent"`` into auto-
+    generated session IDs without tripping the kebab-case validator.
+    """
+    lowered = value.lower()
+    # Replace any run of disallowed chars with a single hyphen
+    cleaned = re.sub(r"[^a-z0-9]+", "-", lowered)
+    # Strip leading/trailing hyphens
+    return cleaned.strip("-")
 
 
 # Regex pattern for kebab-case session IDs
@@ -146,10 +124,13 @@ def _save_session_history(
 
     sessions_dir = _get_subagent_sessions_dir()
 
-    # Save pickle file with message history
+    # Save pickle file with message history (atomic: write a temp file then
+    # replace, so a crash mid-write can't corrupt an existing session pickle)
     pkl_path = sessions_dir / f"{session_id}.pkl"
-    with open(pkl_path, "wb") as f:
+    tmp_pkl = pkl_path.with_suffix(".tmp")
+    with open(tmp_pkl, "wb") as f:
         pickle.dump(message_history, f)
+    tmp_pkl.replace(pkl_path)
 
     # Save or update txt file with metadata
     txt_path = sessions_dir / f"{session_id}.txt"
@@ -162,17 +143,15 @@ def _save_session_history(
             "created_at": datetime.now().isoformat(),
             "message_count": len(message_history),
         }
-        with open(txt_path, "w") as f:
-            json.dump(metadata, f, indent=2)
+        atomic_write_text(str(txt_path), json.dumps(metadata, indent=2))
     elif txt_path.exists():
         # Update message count on subsequent saves
         try:
-            with open(txt_path, "r") as f:
+            with open(txt_path, "r", encoding="utf-8") as f:
                 metadata = json.load(f)
             metadata["message_count"] = len(message_history)
             metadata["last_updated"] = datetime.now().isoformat()
-            with open(txt_path, "w") as f:
-                json.dump(metadata, f, indent=2)
+            atomic_write_text(str(txt_path), json.dumps(metadata, indent=2))
         except Exception:
             pass  # If we can't update metadata, no big deal
 
@@ -227,6 +206,7 @@ class AgentInvokeOutput(BaseModel):
     response: str | None
     agent_name: str
     session_id: str | None = None
+    model_name: str | None = None
     error: str | None = None
 
 
@@ -270,7 +250,7 @@ def register_list_agents(agent):
             agent_count = len(agents)
             emit_info(
                 Text.from_markup(
-                    f"[bold white on {list_agents_color}] LIST AGENTS [/bold white on {list_agents_color}] "
+                    f"\n[bold white on {list_agents_color}] LIST AGENTS [/bold white on {list_agents_color}] "
                     f"[dim]Found {agent_count} agent(s).[/dim]"
                 ),
                 message_group=group_id,
@@ -286,318 +266,30 @@ def register_list_agents(agent):
     return list_agents
 
 
-def register_invoke_agent(agent):
-    """Register the invoke_agent tool with the provided agent.
+# Backward-compatible exports for callers that import invocation tools from
+# code_puppy.tools.agent_tools. The implementation lives in the focused
+# subagent_invocation module so this file stays below the puppy bloat line.
+from code_puppy.tools.subagent_invocation import (  # noqa: E402
+    _active_subagent_tasks,
+    register_invoke_agent,
+    register_invoke_agent_with_model,
+)
 
-    Args:
-        agent: The agent to register the tool with
-    """
-
-    @agent.tool
-    async def invoke_agent(
-        context: RunContext, agent_name: str, prompt: str, session_id: str | None = None
-    ) -> AgentInvokeOutput:
-        """Invoke a specific sub-agent with a given prompt.
-
-        Returns:
-            AgentInvokeOutput: Contains response, agent_name, session_id, and error fields.
-        """
-        from code_puppy.agents.agent_manager import load_agent
-
-        # Validate user-provided session_id if given
-        if session_id is not None:
-            try:
-                _validate_session_id(session_id)
-            except ValueError as e:
-                # Return error immediately if session_id is invalid
-                group_id = generate_group_id("invoke_agent", agent_name)
-                emit_error(str(e), message_group=group_id)
-                return AgentInvokeOutput(
-                    response=None, agent_name=agent_name, error=str(e)
-                )
-
-        # Generate a group ID for this tool execution
-        group_id = generate_group_id("invoke_agent", agent_name)
-
-        # Check if this is an existing session or a new one
-        # For user-provided session_id, check if it exists
-        # For None, we'll generate a new one below
-        if session_id is not None:
-            message_history = _load_session_history(session_id)
-            is_new_session = len(message_history) == 0
-        else:
-            message_history = []
-            is_new_session = True
-
-        # Generate or finalize session_id
-        if session_id is None:
-            # Auto-generate a session ID with hash suffix for uniqueness
-            # Example: "qa-expert-session-a3f2b1"
-            hash_suffix = _generate_session_hash_suffix()
-            session_id = f"{agent_name}-session-{hash_suffix}"
-        elif is_new_session:
-            # User provided a base name for a NEW session - append hash suffix
-            # Example: "review-auth" -> "review-auth-a3f2b1"
-            hash_suffix = _generate_session_hash_suffix()
-            session_id = f"{session_id}-{hash_suffix}"
-        # else: continuing existing session, use session_id as-is
-
-        # Lazy imports to avoid circular dependency
-        from code_puppy.agents.subagent_stream_handler import subagent_stream_handler
-
-        # Emit structured invocation message via MessageBus
-        bus = get_message_bus()
-        bus.emit(
-            SubAgentInvocationMessage(
-                agent_name=agent_name,
-                session_id=session_id,
-                prompt=prompt,
-                is_new_session=is_new_session,
-                message_count=len(message_history),
-            )
-        )
-
-        # Save current session context and set the new one for this sub-agent
-        previous_session_id = get_session_context()
-        set_session_context(session_id)
-
-        # Set terminal session for browser-based terminal tools
-        # This uses contextvars which properly propagate through async tasks
-        from code_puppy.tools.browser.terminal_tools import (
-            _terminal_session_var,
-            set_terminal_session,
-        )
-
-        terminal_session_token = set_terminal_session(f"terminal-{session_id}")
-
-        # Set browser session for browser tools (qa-kitten, etc.)
-        # This allows parallel agent invocations to each have their own browser
-        from code_puppy.tools.browser.browser_manager import (
-            set_browser_session,
-        )
-
-        browser_session_token = set_browser_session(f"browser-{session_id}")
-
-        try:
-            # Lazy import to break circular dependency with messaging module
-            from code_puppy.model_factory import ModelFactory, make_model_settings
-
-            # Load the specified agent config
-            agent_config = load_agent(agent_name)
-
-            # Get the current model for creating a temporary agent
-            model_name = agent_config.get_model_name()
-            models_config = ModelFactory.load_config()
-
-            # Only proceed if we have a valid model configuration
-            if model_name not in models_config:
-                raise ValueError(f"Model '{model_name}' not found in configuration")
-
-            model = ModelFactory.get_model(model_name, models_config)
-
-            # Create a temporary agent instance to avoid interfering with current agent state
-            instructions = agent_config.get_full_system_prompt()
-
-            # Add AGENTS.md content to subagents
-            puppy_rules = agent_config.load_puppy_rules()
-            if puppy_rules:
-                instructions += f"\n\n{puppy_rules}"
-
-            # Apply prompt additions (like file permission handling) to temporary agents
-            from code_puppy import callbacks
-            from code_puppy.model_utils import prepare_prompt_for_model
-
-            prompt_additions = callbacks.on_load_prompt()
-            if len(prompt_additions):
-                instructions += "\n" + "\n".join(prompt_additions)
-
-            # Handle claude-code models: swap instructions, and prepend system prompt only on first message
-            prepared = prepare_prompt_for_model(
-                model_name,
-                instructions,
-                prompt,
-                prepend_system_to_user=is_new_session,  # Only prepend on first message
-            )
-            instructions = prepared.instructions
-            prompt = prepared.user_prompt
-
-            import uuid as _uuid
-
-            subagent_name = f"temp-invoke-agent-{session_id}-{_uuid.uuid4().hex[:8]}"
-            model_settings = make_model_settings(model_name)
-
-            # Get MCP servers for sub-agents (same as main agent)
-            from code_puppy.mcp_ import get_mcp_manager
-
-            mcp_servers = []
-            mcp_disabled = get_value("disable_mcp_servers")
-            if not (
-                mcp_disabled and str(mcp_disabled).lower() in ("1", "true", "yes", "on")
-            ):
-                manager = get_mcp_manager()
-                mcp_servers = manager.get_servers_for_agent()
-
-            if get_use_dbos():
-                from pydantic_ai.durable_exec.dbos import DBOSAgent
-
-                # For DBOS, create agent without MCP servers (to avoid serialization issues)
-                # and add them at runtime
-                temp_agent = Agent(
-                    model=model,
-                    instructions=instructions,
-                    output_type=str,
-                    retries=3,
-                    toolsets=[],  # MCP servers added separately for DBOS
-                    history_processors=[agent_config.message_history_accumulator],
-                    model_settings=model_settings,
-                )
-
-                # Register the tools that the agent needs
-                from code_puppy.tools import register_tools_for_agent
-
-                agent_tools = agent_config.get_available_tools()
-                register_tools_for_agent(temp_agent, agent_tools, model_name=model_name)
-
-                # Wrap with DBOS - no streaming for sub-agents
-                dbos_agent = DBOSAgent(
-                    temp_agent,
-                    name=subagent_name,
-                )
-                temp_agent = dbos_agent
-
-                # Store MCP servers to add at runtime
-                subagent_mcp_servers = mcp_servers
-            else:
-                # Non-DBOS path - include MCP servers directly in the agent
-                temp_agent = Agent(
-                    model=model,
-                    instructions=instructions,
-                    output_type=str,
-                    retries=3,
-                    toolsets=mcp_servers,
-                    history_processors=[agent_config.message_history_accumulator],
-                    model_settings=model_settings,
-                )
-
-                # Register the tools that the agent needs
-                from code_puppy.tools import register_tools_for_agent
-
-                agent_tools = agent_config.get_available_tools()
-                register_tools_for_agent(temp_agent, agent_tools, model_name=model_name)
-
-                subagent_mcp_servers = None
-
-            # Run the temporary agent with the provided prompt as an asyncio task
-            # Pass the message_history from the session to continue the conversation
-            workflow_id = None  # Track for potential cancellation
-
-            # Always use subagent_stream_handler to silence output and update console manager
-            # This ensures all sub-agent output goes through the aggregated dashboard
-            stream_handler = partial(subagent_stream_handler, session_id=session_id)
-
-            # Wrap the agent run in subagent context for tracking
-            with subagent_context(agent_name):
-                if get_use_dbos():
-                    # Generate a unique workflow ID for DBOS - ensures no collisions in back-to-back calls
-                    workflow_id = _generate_dbos_workflow_id(group_id)
-
-                    # Add MCP servers to the DBOS agent's toolsets
-                    # (temp_agent is discarded after this invocation, so no need to restore)
-                    if subagent_mcp_servers:
-                        temp_agent._toolsets = (
-                            temp_agent._toolsets + subagent_mcp_servers
-                        )
-
-                    with SetWorkflowID(workflow_id):
-                        task = asyncio.create_task(
-                            temp_agent.run(
-                                prompt,
-                                message_history=message_history,
-                                usage_limits=UsageLimits(
-                                    request_limit=get_message_limit()
-                                ),
-                                event_stream_handler=stream_handler,
-                            )
-                        )
-                        _active_subagent_tasks.add(task)
-                else:
-                    task = asyncio.create_task(
-                        temp_agent.run(
-                            prompt,
-                            message_history=message_history,
-                            usage_limits=UsageLimits(request_limit=get_message_limit()),
-                            event_stream_handler=stream_handler,
-                        )
-                    )
-                    _active_subagent_tasks.add(task)
-
-                try:
-                    result = await task
-                finally:
-                    _active_subagent_tasks.discard(task)
-                    if task.cancelled():
-                        if get_use_dbos() and workflow_id:
-                            await DBOS.cancel_workflow_async(workflow_id)
-
-            # Extract the response from the result
-            response = result.output
-
-            # Update the session history with the new messages from this interaction
-            # The result contains all_messages which includes the full conversation
-            updated_history = result.all_messages()
-
-            # Save to filesystem (include initial prompt only for new sessions)
-            _save_session_history(
-                session_id=session_id,
-                message_history=updated_history,
-                agent_name=agent_name,
-                initial_prompt=prompt if is_new_session else None,
-            )
-
-            # Emit structured response message via MessageBus
-            bus.emit(
-                SubAgentResponseMessage(
-                    agent_name=agent_name,
-                    session_id=session_id,
-                    response=response,
-                    message_count=len(updated_history),
-                )
-            )
-
-            # Emit clean completion summary
-            emit_success(
-                f"✓ {agent_name} completed successfully", message_group=group_id
-            )
-
-            return AgentInvokeOutput(
-                response=response, agent_name=agent_name, session_id=session_id
-            )
-
-        except Exception as e:
-            # Emit clean failure summary
-            emit_error(f"✗ {agent_name} failed: {str(e)}", message_group=group_id)
-
-            # Full traceback for debugging
-            error_msg = f"Error invoking agent '{agent_name}': {traceback.format_exc()}"
-            emit_error(error_msg, message_group=group_id)
-
-            return AgentInvokeOutput(
-                response=None,
-                agent_name=agent_name,
-                session_id=session_id,
-                error=error_msg,
-            )
-
-        finally:
-            # Restore the previous session context
-            set_session_context(previous_session_id)
-            # Reset terminal session context
-            _terminal_session_var.reset(terminal_session_token)
-            # Reset browser session context
-            from code_puppy.tools.browser.browser_manager import (
-                _browser_session_var,
-            )
-
-            _browser_session_var.reset(browser_session_token)
-
-    return invoke_agent
+__all__ = [
+    "AgentInfo",
+    "AgentInvokeOutput",
+    "ListAgentsOutput",
+    "_active_subagent_tasks",
+    "_generate_session_hash_suffix",
+    "_get_subagent_sessions_dir",
+    "_load_session_history",
+    "get_message_bus",
+    "get_session_context",
+    "_sanitize_for_session_id",
+    "_save_session_history",
+    "_validate_session_id",
+    "register_invoke_agent",
+    "register_invoke_agent_with_model",
+    "register_list_agents",
+    "set_session_context",
+]

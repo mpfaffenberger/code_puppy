@@ -191,6 +191,34 @@ class TestModelFiltering:
         assert "claude-sonnet-3-5-20241022" not in filtered
         assert "claude-haiku-3-5-20241022" in filtered
 
+    def test_filter_latest_claude_models_sonnet_5_special_case(self):
+        """claude-sonnet-5 (single-digit, no date) should win over 4-x sonnets."""
+        models = [
+            "claude-sonnet-4-5-20250514",
+            "claude-sonnet-4-6",
+            "claude-sonnet-5",
+        ]
+
+        filtered = filter_latest_claude_models(models, max_per_family=1)
+
+        assert "claude-sonnet-5" in filtered
+        assert "claude-sonnet-4-6" not in filtered
+        assert "claude-sonnet-4-5-20250514" not in filtered
+
+    def test_filter_latest_claude_models_opus_47_special_case(self):
+        """claude-opus-4-7 (no date suffix) should be recognized and win over 4-6."""
+        models = [
+            "claude-opus-4-6",
+            "claude-opus-4-7",
+            "claude-opus-4-1-20250805",
+        ]
+
+        filtered = filter_latest_claude_models(models, max_per_family=1)
+
+        assert "claude-opus-4-7" in filtered
+        assert "claude-opus-4-6" not in filtered
+        assert "claude-opus-4-1-20250805" not in filtered
+
     def test_filter_latest_claude_models_max_per_family_one(self):
         """Test that max_per_family=1 keeps only the single latest."""
         models = [
@@ -331,6 +359,26 @@ class TestAddRemoveModels:
             assert model_config["type"] == "claude_code"
             assert "custom_endpoint" in model_config
 
+    @patch("code_puppy.plugins.claude_code_oauth.utils.get_valid_access_token")
+    @patch("code_puppy.plugins.claude_code_oauth.utils.save_claude_models")
+    def test_add_models_sonnet_5_gets_long_variant(self, mock_save, mock_get_token):
+        """claude-sonnet-5 should get both a base entry and a 1M -long variant."""
+        mock_get_token.return_value = "test_token_123"
+        mock_save.return_value = True
+
+        result = add_models_to_extra_config(["claude-sonnet-5"])
+
+        assert result is True
+        saved_models = mock_save.call_args[0][0]
+        assert "claude-code-claude-sonnet-5" in saved_models
+        assert "claude-code-claude-sonnet-5-long" in saved_models
+        # Base keeps default context; -long bumps to 1M.
+        assert saved_models["claude-code-claude-sonnet-5"]["context_length"] == 200000
+        assert (
+            saved_models["claude-code-claude-sonnet-5-long"]["context_length"]
+            == 1000000
+        )
+
     @patch("code_puppy.plugins.claude_code_oauth.utils.load_claude_models")
     @patch("code_puppy.plugins.claude_code_oauth.utils.save_claude_models")
     def test_remove_claude_code_models(self, mock_save, mock_load):
@@ -413,6 +461,13 @@ class TestBuildModelEntry:
         entry = _build_model_entry("claude-opus-4-6", "tok", 200000)
         assert "effort" in entry["supported_settings"]
 
+    def test_opus_47_includes_effort_in_supported_settings(self):
+        """Opus 4-7 model entries should include 'effort' in supported_settings."""
+        from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
+
+        entry = _build_model_entry("claude-opus-4-7", "tok", 200000)
+        assert "effort" in entry["supported_settings"]
+
     def test_4_6_opus_variant_includes_effort(self):
         """The 4-6-opus naming variant should also get effort."""
         from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
@@ -420,15 +475,22 @@ class TestBuildModelEntry:
         entry = _build_model_entry("claude-4-6-opus-20250701", "tok", 200000)
         assert "effort" in entry["supported_settings"]
 
+    def test_4_7_opus_variant_includes_effort(self):
+        """The 4-7-opus naming variant should also get effort."""
+        from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
+
+        entry = _build_model_entry("claude-4-7-opus-20250801", "tok", 200000)
+        assert "effort" in entry["supported_settings"]
+
     def test_non_opus_46_does_not_include_effort(self):
-        """Non Opus 4-6 models should NOT have effort in supported_settings."""
+        """Non Opus 4-6/4-7 models should NOT have effort in supported_settings."""
         from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
 
         entry = _build_model_entry("claude-sonnet-4-20250514", "tok", 200000)
         assert "effort" not in entry["supported_settings"]
 
     def test_opus_45_does_not_include_effort(self):
-        """Opus 4-5 should NOT have effort — it's 4-6 only."""
+        """Opus 4-5 should NOT have effort — it's 4-6+ only."""
         from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
 
         entry = _build_model_entry("claude-opus-4-5-20250620", "tok", 200000)
@@ -438,7 +500,7 @@ class TestBuildModelEntry:
         """All model entries should have the base settings regardless."""
         from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
 
-        entry = _build_model_entry("claude-opus-4-6", "tok", 200000)
+        entry = _build_model_entry("claude-opus-4-7", "tok", 200000)
         for setting in [
             "temperature",
             "extended_thinking",

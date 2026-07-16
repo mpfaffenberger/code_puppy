@@ -1,0 +1,444 @@
+"""Tests for shell Ctrl+X handling via the unified key listener.
+
+Historically ``command_runner`` spawned its OWN cbreak listener thread per
+shell command, alongside the agent run's key listener — two readers on one
+stdin. That's how CPR replies got eaten ("your terminal doesn't support
+cursor position requests") and keystrokes went missing.
+
+The new contract, locked in here:
+
+* There is exactly ONE listener implementation
+  (``code_puppy.agents._key_listeners``).
+* ``command_runner`` binds its shell actions as Ctrl+X CHORDS in
+  ``messaging.chords`` (Ctrl+X Ctrl+X kill, Ctrl+X Ctrl+B background)
+  instead of spawning a rival thread when an agent-run listener is
+  already active.
+* The unified listener parks (drops cbreak, stops reading) while its
+  ``suspend_event`` is set — replacing the old pause-controller polling.
+"""
+
+from __future__ import annotations
+
+import sys
+import threading
+import time
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from code_puppy.agents import _key_listeners
+
+
+@pytest.fixture(autouse=True)
+def _reset_chords():
+    from code_puppy.messaging import chords
+
+    for key in ("\x18", "\x02"):
+        chords.unregister_chord(key)
+    yield
+    for key in ("\x18", "\x02"):
+        chords.unregister_chord(key)
+
+
+# =============================================================================
+# Shell chord registration lifecycle
+# =============================================================================
+
+
+def test_shell_chords_register_and_unregister():
+    from code_puppy.messaging import chords
+    from code_puppy.tools import command_runner
+
+    command_runner._register_shell_chords()
+    assert chords.get_chord("\x18") is command_runner._handle_ctrl_x_press
+    assert chords.get_chord("\x02") is command_runner._handle_ctrl_b_press
+    command_runner._unregister_shell_chords()
+    assert chords.get_chord("\x18") is None
+    assert chords.get_chord("\x02") is None
+
+
+# =============================================================================
+# command_runner routing (no second listener thread)
+# =============================================================================
+
+
+def test_start_keyboard_listener_routes_instead_of_spawning():
+    """With an active agent-run listener, _start_keyboard_listener must NOT
+    spawn a second thread — it just points Ctrl+X dispatch at the shell
+    kill handler. The reuse-or-spawn decision is atomic inside
+    ``acquire_listener`` (spawned=False ⇒ reuse, no new reader).
+    """
+    from code_puppy.tools import command_runner
+
+    fake_handle = MagicMock()
+    with (
+        patch.object(
+            _key_listeners, "acquire_listener", return_value=(fake_handle, False)
+        ) as mock_acquire,
+        patch("signal.signal", return_value=None),
+    ):
+        command_runner._start_keyboard_listener()
+        try:
+            mock_acquire.assert_called_once()
+            # Reused listener: no thread of our own, no handle to stop.
+            assert command_runner._SHELL_CTRL_X_THREAD is None
+            assert command_runner._SHELL_CTRL_X_HANDLE is None
+            from code_puppy.messaging import chords
+
+            assert chords.get_chord("\x18") is command_runner._handle_ctrl_x_press
+            assert chords.get_chord("\x02") is command_runner._handle_ctrl_b_press
+        finally:
+            command_runner._stop_keyboard_listener()
+
+    # Chords cleared on stop.
+    from code_puppy.messaging import chords
+
+    assert chords.get_chord("\x18") is None
+    assert chords.get_chord("\x02") is None
+
+
+def test_start_keyboard_listener_spawns_when_headless():
+    """Without an active agent-run listener, the shim spawn is used."""
+    from code_puppy.tools import command_runner
+
+    with (
+        patch.object(_key_listeners, "get_active_handle", return_value=None),
+        patch.object(
+            command_runner, "_spawn_ctrl_x_key_listener", return_value=None
+        ) as mock_spawn,
+        patch("signal.signal", return_value=None),
+    ):
+        command_runner._start_keyboard_listener()
+        try:
+            mock_spawn.assert_called_once()
+        finally:
+            command_runner._stop_keyboard_listener()
+
+
+def test_spawn_shim_delegates_to_unified_listener():
+    """The compat shim must delegate to _key_listeners.acquire_listener
+    (atomic reuse-or-spawn + registration) and record the handle it owns.
+    """
+    from code_puppy.tools import command_runner
+
+    stop = threading.Event()
+    on_escape = MagicMock()
+
+    fake_handle = MagicMock()
+    with patch.object(
+        _key_listeners, "acquire_listener", return_value=(fake_handle, True)
+    ) as mock_acquire:
+        result = command_runner._spawn_ctrl_x_key_listener(stop, on_escape)
+
+    try:
+        mock_acquire.assert_called_once_with(stop, on_escape=on_escape)
+        assert result is fake_handle.thread
+        assert command_runner._SHELL_CTRL_X_HANDLE is fake_handle
+    finally:
+        command_runner._SHELL_CTRL_X_HANDLE = None
+
+
+def test_spawn_shim_backs_off_when_listener_reused():
+    """spawned=False (someone else owns stdin) ⇒ shim returns None and
+    records nothing — stop must never touch a listener we didn't spawn."""
+    from code_puppy.tools import command_runner
+
+    fake_handle = MagicMock()
+    with patch.object(
+        _key_listeners, "acquire_listener", return_value=(fake_handle, False)
+    ):
+        result = command_runner._spawn_ctrl_x_key_listener(
+            threading.Event(), MagicMock()
+        )
+
+    assert result is None
+    assert command_runner._SHELL_CTRL_X_HANDLE is None
+
+
+def test_spawn_shim_returns_none_without_tty():
+    """No TTY -> unified spawn returns None -> shim returns None."""
+    from code_puppy.tools import command_runner
+
+    stop = threading.Event()
+    with patch.object(_key_listeners, "acquire_listener", return_value=(None, True)):
+        assert command_runner._spawn_ctrl_x_key_listener(stop, MagicMock()) is None
+
+
+# =============================================================================
+# Unified POSIX listener behaviour
+# =============================================================================
+
+
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX-only test")
+def test_posix_listener_parks_while_suspended():
+    """While suspend_event is set, the listener must drop cbreak (restore
+    termios) and never read stdin — so another stdin consumer (e.g. a
+    prompt_toolkit app) can own the terminal cleanly.
+    """
+    stop_event = threading.Event()
+    suspend_event = threading.Event()
+    released_event = threading.Event()
+    on_escape = MagicMock()
+
+    fake_stdin = MagicMock()
+    fake_stdin.fileno.return_value = 7
+
+    with (
+        patch.object(sys, "stdin", fake_stdin),
+        patch("termios.tcgetattr", return_value=["original"]),
+        patch("termios.tcsetattr") as mock_tcset,
+        patch("tty.setcbreak") as mock_setcbreak,
+        patch("select.select", return_value=([], [], [])),
+    ):
+        # Suspend BEFORE starting so the listener parks on its first lap.
+        suspend_event.set()
+
+        def stop_after_a_tick():
+            time.sleep(0.15)
+            stop_event.set()
+
+        stopper = threading.Thread(target=stop_after_a_tick)
+        stopper.start()
+
+        _key_listeners._listen_posix(
+            stop_event,
+            on_escape,
+            suspend_event=suspend_event,
+            released_event=released_event,
+        )
+        stopper.join()
+
+    assert mock_setcbreak.called
+    # tcsetattr restores attrs on suspend + again in finally.
+    assert mock_tcset.call_count >= 1
+    # Parked listener confirmed it released stdin and never read it.
+    assert released_event.is_set()
+    fake_stdin.read.assert_not_called()
+    on_escape.assert_not_called()
+
+
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX-only test")
+def test_posix_listener_feeds_ctrl_x_to_editor_as_chord_prefix():
+    """With an editor installed, Ctrl+X must flow INTO it (chord prefix)
+    instead of firing the spawn-time on_escape callback.
+    """
+    stop_event = threading.Event()
+    fallback = MagicMock()
+
+    fake_stdin = MagicMock()
+    fake_stdin.fileno.return_value = 7
+
+    fed: list = []
+    editor = MagicMock()
+    editor.feed.side_effect = fed.append
+
+    # The listener now reads the RAW fd via _read_chunk (os.read) — the
+    # buffered stdin.read(1) path stranded escape-sequence tails (the
+    # live arrows bug). Fake the chunk reader, not stdin.read.
+    reads = iter(["\x18"])
+
+    def fake_chunk(_fd, _decoder):
+        try:
+            return next(reads)
+        except StopIteration:
+            return None
+        finally:
+            stop_event.set()
+
+    _key_listeners.set_line_editor(editor)
+    try:
+        with (
+            patch.object(sys, "stdin", fake_stdin),
+            patch.object(_key_listeners, "_read_chunk", fake_chunk),
+            patch("termios.tcgetattr", return_value=["original"]),
+            patch("termios.tcsetattr"),
+            patch("tty.setcbreak"),
+            patch("select.select", return_value=([fake_stdin], [], [])),
+        ):
+            _key_listeners._listen_posix(stop_event, fallback)
+    finally:
+        _key_listeners.set_line_editor(None)
+
+    assert fed == ["\x18"]
+    fallback.assert_not_called()
+
+
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX-only test")
+def test_posix_listener_disables_tty_control_char_interception():
+    """The persistent editor must receive control bytes itself.
+
+    cbreak leaves IEXTEN set, so BSD/macOS honors VLNEXT (Ctrl+V) and
+    eats the first press. It also leaves IXON set, so Ctrl+S becomes
+    XOFF: the next synchronous prompt flush blocks the key-listener
+    thread, which then cannot read Ctrl+Q to resume output — a perfect
+    self-deadlock reproduced live in 2026-07. The listener must clear
+    IEXTEN, ICRNL, IXON, and IXOFF (where available), and one Ctrl+V plus
+    one Ctrl+S written to a real PTY must both reach dispatch.
+    """
+    import os
+    import pty
+    import termios
+
+    master, slave = pty.openpty()
+    stop_event = threading.Event()
+    received: list = []
+
+    def recorder(data, _on_escape, _cancel_char, _on_cancel):
+        received.append(data)
+        stop_event.set()
+
+    class SlaveStdin:
+        """Minimal stdin stand-in: fileno() is all the listener needs."""
+
+        def __init__(self, fd: int) -> None:
+            self._fd = fd
+
+        def fileno(self) -> int:
+            return self._fd
+
+    listener = threading.Thread(
+        target=_key_listeners._listen_posix,
+        args=(stop_event, MagicMock()),
+        daemon=True,
+    )
+    with (
+        patch.object(sys, "stdin", SlaveStdin(slave)),
+        patch.object(_key_listeners, "_dispatch_key", recorder),
+    ):
+        listener.start()
+        try:
+            # Wait for the listener to enter cbreak AND clear IEXTEN.
+            deadline = time.time() + 2.0
+            cleared = False
+            while time.time() < deadline:
+                attrs = termios.tcgetattr(slave)
+                if not attrs[3] & termios.IEXTEN:
+                    cleared = True
+                    break
+                time.sleep(0.01)
+            assert cleared, "listener never cleared IEXTEN on its tty"
+            attrs = termios.tcgetattr(slave)
+            assert not attrs[0] & termios.ICRNL
+            assert not attrs[0] & termios.IXON
+            if hasattr(termios, "IXOFF"):
+                assert not attrs[0] & termios.IXOFF
+
+            os.write(master, b"\x16\x13")  # ONE Ctrl+V, then ONE Ctrl+S
+            assert stop_event.wait(timeout=2.0), "control bytes never dispatched"
+        finally:
+            stop_event.set()
+            listener.join(timeout=2.0)
+            os.close(master)
+            os.close(slave)
+
+    assert received == ["\x16", "\x13"]
+
+
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX-only test")
+def test_posix_listener_polls_stdin_when_not_suspended():
+    """Sanity check: unsuspended listener keeps select()-ing stdin."""
+    stop_event = threading.Event()
+    fake_stdin = MagicMock()
+    fake_stdin.fileno.return_value = 7
+
+    select_call_count = {"n": 0}
+
+    def fake_select(*_args, **_kwargs):
+        select_call_count["n"] += 1
+        if select_call_count["n"] >= 2:
+            stop_event.set()
+        return ([], [], [])
+
+    with (
+        patch.object(sys, "stdin", fake_stdin),
+        patch("termios.tcgetattr", return_value=["orig"]),
+        patch("termios.tcsetattr"),
+        patch("tty.setcbreak"),
+        patch("select.select", side_effect=fake_select),
+    ):
+        _key_listeners._listen_posix(stop_event, MagicMock())
+
+    assert select_call_count["n"] >= 2
+
+
+# =============================================================================
+# Unified Windows listener behaviour
+# =============================================================================
+
+
+def test_windows_listener_skips_kbhit_while_suspended(monkeypatch):
+    """While suspended, the Windows listener must NOT drain msvcrt.kbhit().
+
+    Runs cross-platform by stubbing msvcrt as a fake module.
+    """
+    fake_msvcrt = MagicMock()
+    fake_msvcrt.kbhit.return_value = False
+    monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+
+    stop_event = threading.Event()
+    suspend_event = threading.Event()
+    released_event = threading.Event()
+    on_escape = MagicMock()
+
+    suspend_event.set()
+
+    def stop_after_a_tick():
+        time.sleep(0.15)
+        stop_event.set()
+
+    stopper = threading.Thread(target=stop_after_a_tick)
+    stopper.start()
+    _key_listeners._listen_windows(
+        stop_event,
+        on_escape,
+        suspend_event=suspend_event,
+        released_event=released_event,
+    )
+    stopper.join()
+
+    fake_msvcrt.kbhit.assert_not_called()
+    on_escape.assert_not_called()
+    assert released_event.is_set()
+
+
+def test_windows_listener_translates_extended_key_despite_kbhit_lie(monkeypatch):
+    """Arrow keys must translate even though kbhit() can't see the pair's tail.
+
+    Real CRT behaviour (verified on Windows): after ``getwch()`` returns
+    the ``\\xe0`` prefix of an extended key, the second half sits in the
+    CRT's internal pushback buffer — INVISIBLE to ``kbhit()``, which only
+    peeks the console input queue. Gating the second read on ``kbhit()``
+    leaked the prefix into the line editor as a literal 'à' on every
+    arrow press (the slash-menu mystery-character bug).
+    """
+    keys = iter(["\xe0", "K"])  # Left arrow pair
+    kbhits = iter([True])  # True before the prefix, False forever after
+
+    fake_msvcrt = MagicMock()
+    fake_msvcrt.kbhit.side_effect = lambda: next(kbhits, False)
+    fake_msvcrt.getwch.side_effect = lambda: next(keys)
+    monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+
+    fed: list[str] = []
+    editor = MagicMock()
+    editor.feed.side_effect = fed.append
+    _key_listeners.set_line_editor(editor)
+
+    stop_event = threading.Event()
+
+    def stop_after_a_tick():
+        time.sleep(0.15)
+        stop_event.set()
+
+    stopper = threading.Thread(target=stop_after_a_tick)
+    stopper.start()
+    try:
+        _key_listeners._listen_windows(stop_event, MagicMock())
+    finally:
+        stopper.join()
+        _key_listeners.set_line_editor(None)
+
+    assert fed == ["\x1b[D"], (
+        "Left arrow must reach the editor as its xterm sequence — "
+        f"never as raw '\\xe0'/'K' literals (got {fed!r})"
+    )

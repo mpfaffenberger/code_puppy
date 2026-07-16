@@ -234,6 +234,7 @@ def test_sync_renderer_render_messages(mq):
         (MessageType.ERROR, "err"),
         (MessageType.WARNING, "warn"),
         (MessageType.SUCCESS, "ok"),
+        (MessageType.QUEUED, "for next turn: later"),
         (MessageType.TOOL_OUTPUT, "tool"),
         (MessageType.AGENT_REASONING, "think"),
         (MessageType.AGENT_RESPONSE, "**bold**"),
@@ -244,6 +245,39 @@ def test_sync_renderer_render_messages(mq):
 
     output = console.file.getvalue()
     assert "err" in output
+
+
+def test_sync_renderer_queued_banner(mq):
+    console = make_console()
+    renderer = SynchronousInteractiveRenderer(mq, console=console)
+
+    renderer._render_message(
+        UIMessage(type=MessageType.QUEUED, content="for next turn: fix the tests")
+    )
+
+    output = console.file.getvalue()
+    assert output.startswith("\n QUEUED  for next turn: fix the tests")
+    assert chr(0x23ED) not in output
+
+
+def test_sync_renderer_queued_style_includes_trailing_padding(mq):
+    console = make_console()
+    renderer = SynchronousInteractiveRenderer(mq, console=console)
+
+    with patch.object(console, "print") as mock_print:
+        renderer._render_message(
+            UIMessage(type=MessageType.QUEUED, content="for next turn: later")
+        )
+
+    mock_print.assert_any_call()
+    queued = mock_print.call_args_list[1].args[0]
+    assert isinstance(queued, Text)
+    assert queued.plain == " QUEUED  for next turn: later"
+    assert queued.spans[0].start == 0
+    assert queued.spans[0].end == len(" QUEUED ")
+    assert str(queued.spans[0].style).startswith("bold white on ")
+    assert queued.spans[1].start == len(" QUEUED  ")
+    assert queued.spans[1].style == "dim"
 
 
 def test_sync_renderer_version_dim(mq):

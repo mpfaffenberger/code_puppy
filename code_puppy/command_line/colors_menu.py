@@ -18,45 +18,48 @@ from prompt_toolkit.layout import Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 from rich.console import Console
+from code_puppy.callbacks import on_prompt_toolkit_style
 
-# Banner display names with icons
+# Banner display names; decorative icons are intentionally omitted.
 BANNER_DISPLAY_INFO = {
-    "thinking": ("THINKING", "⚡"),
+    "thinking": ("THINKING", ""),
     "agent_response": ("AGENT RESPONSE", ""),
-    "shell_command": ("SHELL COMMAND", "🚀"),
-    "read_file": ("READ FILE", "📂"),
-    "edit_file": ("EDIT FILE", "✏️"),
-    "create_file": ("CREATE FILE", "📝"),
-    "replace_in_file": ("REPLACE IN FILE", "✏️"),
-    "delete_snippet": ("DELETE SNIPPET", "✂️"),
-    "grep": ("GREP", "📂"),
-    "directory_listing": ("DIRECTORY LISTING", "📂"),
+    "shell_command": ("SHELL COMMAND", ""),
+    "read_file": ("READ FILE", ""),
+    "edit_file": ("EDIT FILE", ""),
+    "create_file": ("CREATE FILE", ""),
+    "replace_in_file": ("REPLACE IN FILE", ""),
+    "delete_snippet": ("DELETE SNIPPET", ""),
+    "grep": ("GREP", ""),
+    "directory_listing": ("DIRECTORY LISTING", ""),
     "agent_reasoning": ("AGENT REASONING", ""),
-    "invoke_agent": ("🤖 INVOKE AGENT", ""),
+    "invoke_agent": ("INVOKE AGENT", ""),
     "subagent_response": ("✓ AGENT RESPONSE", ""),
     "list_agents": ("LIST AGENTS", ""),
-    "universal_constructor": ("UNIVERSAL CONSTRUCTOR", "🔧"),
-    "terminal_tool": ("TERMINAL TOOL", "🖥️"),
+    "universal_constructor": ("UNIVERSAL CONSTRUCTOR", ""),
+    "terminal_tool": ("TERMINAL TOOL", ""),
+    "llm_judge": ("LLM JUDGE", ""),
 }
 
 # Sample content to show after each banner
 BANNER_SAMPLE_CONTENT = {
     "thinking": "Let me analyze this code structure and figure out the best approach...",
     "agent_response": "I've implemented the feature you requested. The changes include...",
-    "shell_command": "$ npm run test -- --silent\n⏱ Timeout: 60s",
+    "shell_command": "$ npm run test -- --silent\nTimeout: 60s",
     "read_file": "/path/to/file.py (lines 1-50)",
     "edit_file": "MODIFY /path/to/file.py\n--- a/file.py\n+++ b/file.py",
     "create_file": "CREATE /path/to/new_file.py\nFile created successfully.",
     "replace_in_file": "MODIFY /path/to/file.py\n--- a/file.py\n+++ b/file.py",
     "delete_snippet": "MODIFY /path/to/file.py\nSnippet deleted from file.",
-    "grep": "/src for 'handleClick'\n📄 Button.tsx (3 matches)",
-    "directory_listing": "/src (recursive=True)\n📁 components/\n   └── Button.tsx",
+    "grep": "/src for 'handleClick'\nButton.tsx (3 matches)",
+    "directory_listing": "/src (recursive=True)\ncomponents/\n   └── Button.tsx",
     "agent_reasoning": "Current reasoning:\nI need to refactor this function...",
     "invoke_agent": "code-reviewer (New session)\nSession: review-auth-abc123",
     "subagent_response": "code-reviewer\nThe code looks good overall...",
-    "list_agents": "- code-puppy: Code Puppy 🐶\n- planning-agent: Planning Agent",
-    "universal_constructor": "action=create tool_name=api.weather\n✅ Created successfully",
+    "list_agents": "- code-puppy: Code Puppy\n- planning-agent: Planning Agent",
+    "universal_constructor": "action=create tool_name=api.weather\nCreated successfully",
     "terminal_tool": "$ chromium --headless\nBrowser terminal session started",
+    "llm_judge": "Verdict: Complete\nGoal verified — all tests pass.",
 }
 
 # Available background colors grouped by theme
@@ -267,21 +270,21 @@ async def _split_panel_selector(
         """Generate the selector menu text."""
         try:
             lines = []
-            lines.append(("bold cyan", title))
+            lines.append(("class:tui.header", title))
             lines.append(("", "\n\n"))
 
             if not choices:
-                lines.append(("fg:ansiyellow", "No choices available"))
+                lines.append(("class:tui.warning", "No choices available"))
                 lines.append(("", "\n"))
             else:
                 for i, choice in enumerate(choices):
                     # Skip separator lines for selection highlighting
                     if "───" in choice:
-                        lines.append(("fg:ansigray", f"  {choice}"))
+                        lines.append(("class:tui.muted", f"  {choice}"))
                         lines.append(("", "\n"))
                     elif i == selected_index[0]:
-                        lines.append(("fg:ansigreen", "▶ "))
-                        lines.append(("fg:ansigreen bold", choice))
+                        lines.append(("class:tui.selected", "▶ "))
+                        lines.append(("class:tui.selected", choice))
                         lines.append(("", "\n"))
                     else:
                         lines.append(("", "  "))
@@ -290,11 +293,11 @@ async def _split_panel_selector(
 
             lines.append(("", "\n"))
             lines.append(
-                ("fg:ansicyan", "↑↓ Navigate  │  Enter Select  │  Ctrl-C Cancel")
+                ("class:tui.help-key", "↑↓ Navigate  │  Enter Select  │  Ctrl-C Cancel")
             )
             return FormattedText(lines)
         except Exception as e:
-            return FormattedText([("fg:ansired", f"Error: {e}")])
+            return FormattedText([("class:tui.error", f"Error: {e}")])
 
     def get_right_panel_text():
         """Generate the preview panel text."""
@@ -302,7 +305,7 @@ async def _split_panel_selector(
             preview = get_preview()
             return preview
         except Exception as e:
-            return FormattedText([("fg:ansired", f"Preview error: {e}")])
+            return FormattedText([("class:tui.error", f"Preview error: {e}")])
 
     kb = KeyBindings()
 
@@ -368,6 +371,7 @@ async def _split_panel_selector(
         full_screen=False,
         mouse_support=False,
         color_depth="DEPTH_24_BIT",
+        style=on_prompt_toolkit_style(),
     )
 
     sys.stdout.flush()

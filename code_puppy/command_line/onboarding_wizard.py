@@ -13,29 +13,28 @@ Usage:
 """
 
 import asyncio
-import io
 import os
 import sys
 from typing import List, Optional, Tuple
 
 from prompt_toolkit import Application
-from prompt_toolkit.formatted_text import ANSI
+from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
-from rich.console import Console
-
 from code_puppy.config import CONFIG_DIR
 
 from .onboarding_slides import (
     MODEL_OPTIONS,
+    SlideContent,
     slide_done,
     slide_mcp,
     slide_models,
     slide_use_cases,
     slide_welcome,
 )
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 # ============================================================================
 # State Tracking
@@ -109,7 +108,7 @@ class OnboardingWizard:
             "●" if i == self.current_slide else "○" for i in range(self.TOTAL_SLIDES)
         )
 
-    def get_slide_content(self) -> str:
+    def get_slide_content(self) -> SlideContent:
         """Get content for current slide."""
         if self.current_slide == 0:
             return slide_welcome()
@@ -175,30 +174,18 @@ class OnboardingWizard:
 # ============================================================================
 
 
-def _get_slide_panel_content(wizard: OnboardingWizard) -> ANSI:
-    """Generate slide content for display."""
-    buffer = io.StringIO()
-    console = Console(
-        file=buffer,
-        force_terminal=True,
-        width=80,
-        legacy_windows=False,
-        color_system="truecolor",
-        no_color=False,
-        force_interactive=True,
-    )
-
-    # Progress indicator
+def _get_slide_panel_content(wizard: OnboardingWizard) -> FormattedText:
+    """Generate semantically styled slide content for display."""
     progress = wizard.get_progress_indicator()
-    console.print(f"[dim]{progress}[/dim]")
-    console.print(
-        f"[dim]Slide {wizard.current_slide + 1} of {wizard.TOTAL_SLIDES}[/dim]\n"
-    )
-
-    # Slide content (includes nav footer)
-    console.print(wizard.get_slide_content())
-
-    return ANSI(buffer.getvalue())
+    content: SlideContent = [
+        ("class:tui.muted", f"{progress}\n"),
+        (
+            "class:tui.muted",
+            f"Slide {wizard.current_slide + 1} of {wizard.TOTAL_SLIDES}\n\n",
+        ),
+    ]
+    content.extend(wizard.get_slide_content())
+    return FormattedText(content)
 
 
 # ============================================================================
@@ -300,6 +287,7 @@ async def run_onboarding_wizard() -> Optional[str]:
             full_screen=False,
             mouse_support=False,
             color_depth="DEPTH_24_BIT",
+            style=on_prompt_toolkit_style(),
         )
 
         sys.stdout.write("\033[2J\033[H")
@@ -340,3 +328,36 @@ async def run_onboarding_if_needed() -> Optional[str]:
     if should_show_onboarding():
         return await run_onboarding_wizard()
     return None
+
+
+def require_model_setup_if_needed(wizard_result: Optional[str]) -> None:
+    """Require an explicit model choice when the user skipped OAuth.
+
+    Claude Code and ChatGPT OAuth flows set a model for you. For every other
+    path (API keys, OpenRouter, "skip for now", or a plain completed/skipped
+    tutorial) there is no bundled default model anymore, so the user *must*
+    run ``/add_model`` before they can do anything useful. Surface a loud,
+    unmissable instruction instead of letting them hit a silent [None] model.
+    """
+    # OAuth paths already wired up a model - nothing to nag about.
+    if wizard_result in ("chatgpt", "claude"):
+        return
+
+    from code_puppy import config as cp_config
+    from code_puppy.messaging import emit_warning
+
+    # Pre-arm the generic one-time "no model" warning BEFORE resolving the
+    # model, so the resolution below doesn't double up with our more specific
+    # tutorial message. Harmless if a model turns out to be configured.
+    cp_config._warned_no_model = True
+
+    # If a model somehow is already configured, don't be annoying.
+    if cp_config.get_global_model_name():
+        return
+
+    emit_warning(
+        "\U0001f6a8 No model configured yet!\n"
+        "   Code Puppy ships with an empty model list, so you need to add one:\n"
+        "   \u2022 Run /add_model to browse + add a model (API key required), or\n"
+        "   \u2022 Run /tutorial again and pick Claude Code or ChatGPT OAuth."
+    )

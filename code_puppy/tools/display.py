@@ -7,9 +7,51 @@ agent results and other structured content using termflow for markdown.
 from typing import Optional
 
 from rich.console import Console
+from rich.control import Control
+from rich.segment import ControlType
 
-from code_puppy.config import get_banner_color, get_subagent_verbose
+from code_puppy.config import get_banner_color, get_output_level, get_subagent_verbose
 from code_puppy.tools.subagent_context import is_subagent
+
+#: EL2 (erase entire line) + CR. Rich drops control segments on
+#: non-terminal output, so headless/piped runs stay byte-identical.
+_ERASE_LINE_CONTROL = Control(
+    (ControlType.ERASE_IN_LINE, 2), ControlType.CARRIAGE_RETURN
+)
+
+
+def erase_progress_line(console: Console) -> None:
+    """Erase the current terminal line (the ``\\r``-overwrite slot).
+
+    Replaces the old ``console.print(" " * 50, end="\\r")`` idiom, which
+    assumed progress lines never exceed 50 cells. Longer lines (e.g.
+    ``  \U0001f527 Calling agent_run_shell_command... 348 token(s)`` = 52+
+    cells) left right-edge ghost tails like ``s)`` in the transcript.
+    Erase-in-line clears the whole row regardless of length.
+    """
+    console.control(_ERASE_LINE_CONTROL)
+
+
+def render_markdown(content: str, console: Console) -> None:
+    """Render complete Markdown through the configured Termflow pipeline."""
+    from termflow import Parser as TermflowParser
+    from termflow import Renderer as TermflowRenderer
+    from termflow.render.style import RenderFeatures, RenderStyle
+    from termflow.syntax import Highlighter
+
+    from code_puppy.callbacks import on_termflow_highlighter, on_termflow_style
+
+    parser = TermflowParser()
+    renderer = TermflowRenderer(
+        output=console.file,
+        width=console.width,
+        style=on_termflow_style(RenderStyle.default()),
+        features=RenderFeatures(clipboard=False),
+        highlighter=on_termflow_highlighter(Highlighter()),
+    )
+    for line in content.split("\n"):
+        renderer.render_all(parser.parse_line(line))
+    renderer.render_all(parser.finalize())
 
 
 def display_non_streamed_result(
@@ -34,27 +76,19 @@ def display_non_streamed_result(
         >>> display_non_streamed_result("# Hello\n\nThis is **bold** text.")
         # Renders with AGENT RESPONSE banner and formatted markdown
     """
-    # Skip display for sub-agents unless verbose mode
-    if is_subagent() and not get_subagent_verbose():
+    # Skip display for sub-agents unless verbose mode or high output level.
+    # In ``high`` mode the user has asked for maximum visibility, so sub-agent
+    # responses must render regardless of the legacy ``subagent_verbose`` toggle.
+    if is_subagent() and not get_subagent_verbose() and get_output_level() != "high":
         return
 
-    import time
-
     from rich.text import Text
-    from termflow import Parser as TermflowParser
-    from termflow import Renderer as TermflowRenderer
-
-    from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
 
     if console is None:
         console = Console()
 
-    # Pause spinners and give time to clear
-    pause_all_spinners()
-    time.sleep(0.1)
-
-    # Clear line and print banner
-    console.print(" " * 50, end="\r")
+    # Clear any \r-repainted progress line, then move below it
+    erase_progress_line(console)
     console.print()  # Newline before banner
 
     banner_color = get_banner_color(banner_name)
@@ -64,21 +98,7 @@ def display_non_streamed_result(
         )
     )
 
-    # Use termflow for markdown rendering
-    parser = TermflowParser()
-    renderer = TermflowRenderer(output=console.file, width=console.width)
-
-    # Process content line by line
-    for line in content.split("\n"):
-        events = parser.parse_line(line)
-        renderer.render_all(events)
-
-    # Finalize to close any open markdown blocks
-    final_events = parser.finalize()
-    renderer.render_all(final_events)
-
-    # Resume spinners
-    resume_all_spinners()
+    render_markdown(content, console)
 
 
-__all__ = ["display_non_streamed_result"]
+__all__ = ["display_non_streamed_result", "erase_progress_line", "render_markdown"]

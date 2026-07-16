@@ -35,12 +35,38 @@ jobs:
         run: uv venv
 
       - name: Install dependencies
-        run: uv pip install -e .
+        # [durable] extras pulls in dbos, required by integration test
+        # tests/integration/test_dbos_enabled.py
+        run: uv pip install -e ".[durable]"
 
       - name: Install pexpect for integration tests
         run: uv pip install pexpect>=4.9.0
 
-
+      - name: Provision CI model (lilac synthetic GLM-5.1)
+        # models.json ships empty. CI gets its model from extra_models.json,
+        # exactly like a real user would after running /add_model.
+        run: |
+          mkdir -p "$HOME/.code_puppy"
+          cat > "$HOME/.code_puppy/extra_models.json" <<'JSON'
+          {
+            "lilac-zai-org-glm-5.1": {
+              "type": "custom_openai",
+              "provider": "lilac",
+              "name": "zai-org/glm-5.1",
+              "custom_endpoint": {
+                "url": "https://api.getlilac.com/v1",
+                "api_key": "$LILAC_API_KEY"
+              },
+              "context_length": 202800,
+              "supported_settings": ["temperature", "seed", "top_p"]
+            }
+          }
+          JSON
+          # Tests isolate user config, and several fallback contracts require a
+          # non-empty bundled catalog. Keep this test-only copy out of releases:
+          # the publish job starts from a fresh checkout.
+          cp "$HOME/.code_puppy/extra_models.json" code_puppy/models.json
+          echo "Wrote CI model catalog and test-only bundled fallback"
 
       - name: Debug environment variables
         env:
@@ -49,6 +75,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
           SYN_API_KEY: ${{ secrets.SYN_API_KEY || 'fake-key-for-ci-testing' }}
+          LILAC_API_KEY: ${{ secrets.LILAC_API_KEY || 'fake-key-for-ci-testing' }}
         run: |
           echo "=== DEBUG: Environment Variables ==="
           echo "CEREBRAS_API_KEY is set: ${{ secrets.CEREBRAS_API_KEY != '' }}"
@@ -72,6 +99,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'fake-key-for-ci-testing' }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'fake-key-for-ci-testing' }}
           SYN_API_KEY: ${{ secrets.SYN_API_KEY || 'fake-key-for-ci-testing' }}
+          LILAC_API_KEY: ${{ secrets.LILAC_API_KEY || 'fake-key-for-ci-testing' }}
         run: |
           echo "Running tests (including integration tests) on ${{ runner.os }} with Python ${{ matrix.python-version }}..."
           echo "Required environment variables are set (using CI fallbacks if secrets not available)"
@@ -100,6 +128,13 @@ jobs:
       - name: Bump version
         run: uv version --bump patch
 
+      - name: Capture new version
+        id: version
+        run: |
+          NEW_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "New version: $NEW_VERSION"
+
       - name: Build package
         run: |
           uv build
@@ -110,7 +145,7 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: uv run twine upload --verbose dist/*
 
-      - name: Push version bump to GitHub
+      - name: Push version bump and tag to GitHub
         if: ${{ success() }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -119,4 +154,7 @@ jobs:
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add .
           git commit -m "chore: bump version [ci skip]" || echo "No changes to commit"
+          TAG="v${{ steps.version.outputs.version }}"
+          git tag -a "$TAG" -m "Release $TAG"
           git push
+          git push origin "$TAG"

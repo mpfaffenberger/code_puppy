@@ -40,6 +40,36 @@ TOOL_PREFIX = "cp_"
 # User-Agent to send with Claude Code OAuth requests
 CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
 
+
+def _model_requires_thinking_summary(model_name):
+    # Anthropic's Opus 4.7+ / Fable 5 families reject adaptive-thinking
+    # requests unless 'display: summarized' is present alongside
+    # 'type: adaptive'. Delegate to model_utils — single source of truth.
+    if not model_name:
+        return False
+    from code_puppy.model_utils import should_use_anthropic_thinking_summary
+
+    return should_use_anthropic_thinking_summary(model_name)
+
+
+def _enforce_thinking_display_summary(payload):
+    # Belt-and-suspenders wire-level enforcement of thinking.display='summary'
+    # for Opus 4.7 payloads. Mutates payload in place; returns True if a
+    # change was made. No-ops on non-matching models or payloads without a
+    # thinking dict.
+    if not isinstance(payload, dict):
+        return False
+    if not _model_requires_thinking_summary(payload.get("model")):
+        return False
+    thinking = payload.get("thinking")
+    if not isinstance(thinking, dict):
+        return False
+    if thinking.get("display") == "summarized":
+        return False
+    thinking["display"] = "summarized"
+    return True
+
+
 try:
     from anthropic import AsyncAnthropic
 except ImportError:  # pragma: no cover - optional dep
@@ -57,6 +87,33 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
     - URL modifications (adding ?beta=true)
     - Proactive token refresh
     """
+
+    def __init__(
+        self,
+        *args: Any,
+        oauth_reauthentication_callback: Callable[[], str | None] | None = None,
+        token_update_callback: Callable[[str], None] | None = None,
+        apply_claude_code_prefix: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._oauth_reauthentication_callback = oauth_reauthentication_callback
+        self._token_update_callback = token_update_callback
+        # The ``cp_`` tool-name prefix is a Claude Code OAuth quirk. Only the
+        # claude_code_oauth plugin should enable it; custom_anthropic and
+        # Anthropic-vanilla models keep tool names verbatim.
+        self._apply_claude_code_prefix = apply_claude_code_prefix
+
+    def set_token_update_callback(self, callback: Callable[[str], None] | None) -> None:
+        self._token_update_callback = callback
+
+    def _notify_token_recovered(self, access_token: str) -> None:
+        if not self._token_update_callback:
+            return
+        try:
+            self._token_update_callback(access_token)
+        except Exception as exc:
+            logger.debug("Token update callback failed: %s", exc)
 
     def _get_jwt_age_seconds(self, token: str | None) -> float | None:
         """Decode a JWT and return its age in seconds.
@@ -271,7 +328,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         is_messages_endpoint = request.url.path.endswith("/v1/messages")
 
         # Proactive token refresh: check JWT age before every request
-        if not request.extensions.get("claude_oauth_refresh_attempted"):
+        if not request.extensions.get("claude_oauth_proactive_refresh_attempted"):
             try:
                 if self._should_refresh_token(request):
                     refreshed_token = self._refresh_claude_oauth_token()
@@ -287,7 +344,9 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                             headers=headers,
                             content=body_bytes,
                         )
-                        request.extensions["claude_oauth_refresh_attempted"] = True
+                        request.extensions[
+                            "claude_oauth_proactive_refresh_attempted"
+                        ] = True
             except Exception as exc:
                 logger.debug("Error during proactive token refresh check: %s", exc)
 
@@ -307,8 +366,11 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 # 2. Add ?beta=true query param
                 url = self._add_beta_query_param(url)
 
-                # 3. Prefix tool names in request body
-                if body_bytes:
+                # 3. Prefix tool names in request body (claude_code OAuth only).
+                # The ``cp_`` prefix is required by Anthropic's Claude Code OAuth
+                # endpoint, but vanilla Anthropic / custom_anthropic endpoints
+                # don't expect it — so this is opt-in via the constructor flag.
+                if body_bytes and self._apply_claude_code_prefix:
                     prefixed_body = self._prefix_tool_names(body_bytes)
                     if prefixed_body is not None:
                         body_bytes = prefixed_body
@@ -336,7 +398,12 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         if hasattr(rebuilt, "stream"):
                             request.stream = rebuilt.stream
                         if hasattr(rebuilt, "extensions"):
-                            request.extensions = rebuilt.extensions
+                            # Preserve caller-owned flags (notably oauth retry guards)
+                            # when httpx gives the rebuilt request fresh extensions.
+                            request.extensions = {
+                                **rebuilt.extensions,
+                                **request.extensions,
+                            }
 
                         # Update URL
                         request.url = url
@@ -378,13 +445,15 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         )
 
                 if is_auth_error:
-                    refreshed_token = self._refresh_claude_oauth_token()
-                    if refreshed_token:
-                        logger.info("Token refreshed successfully, retrying request")
+                    recovered_token = (
+                        self._recover_claude_oauth_token_after_auth_error()
+                    )
+                    if recovered_token:
+                        logger.info("Token recovered successfully, retrying request")
                         await response.aclose()
                         body_bytes = self._extract_body_bytes(request)
                         headers = dict(request.headers)
-                        self._update_auth_headers(headers, refreshed_token)
+                        self._update_auth_headers(headers, recovered_token)
                         retry_request = self.build_request(
                             method=request.method,
                             url=request.url,
@@ -398,7 +467,9 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                             retry_request, *args, **kwargs
                         )
                     else:
-                        logger.warning("Token refresh failed, returning original error")
+                        logger.warning(
+                            "Token recovery failed, returning original error"
+                        )
         except Exception as exc:
             logger.debug("Error during token refresh attempt: %s", exc)
 
@@ -569,6 +640,33 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             logger.debug("Error checking for Cloudflare error: %s", exc)
             return False
 
+    def _recover_claude_oauth_token_after_auth_error(self) -> str | None:
+        """Recover an OAuth token after the API rejected the current one.
+
+        First tries a refresh-token exchange. If that fails, an optional
+        provider-specific callback may run a full interactive OAuth flow.
+        """
+        refreshed_token = self._refresh_claude_oauth_token()
+        if refreshed_token:
+            return refreshed_token
+
+        if not self._oauth_reauthentication_callback:
+            return None
+
+        try:
+            reauthenticated_token = self._oauth_reauthentication_callback()
+        except Exception as exc:
+            logger.error("Exception during OAuth reauthentication: %s", exc)
+            return None
+
+        if not reauthenticated_token:
+            logger.warning("OAuth reauthentication returned no token")
+            return None
+
+        self._update_auth_headers(self.headers, reauthenticated_token)
+        self._notify_token_recovered(reauthenticated_token)
+        return reauthenticated_token
+
     def _refresh_claude_oauth_token(self) -> str | None:
         try:
             from code_puppy.plugins.claude_code_oauth.utils import refresh_access_token
@@ -577,6 +675,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             refreshed_token = refresh_access_token(force=True)
             if refreshed_token:
                 self._update_auth_headers(self.headers, refreshed_token)
+                self._notify_token_recovered(refreshed_token)
                 logger.info("Successfully refreshed Claude Code OAuth token")
             else:
                 logger.warning("Token refresh returned None")
@@ -642,6 +741,12 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         last_block["cache_control"] = {"type": "ephemeral"}
                         modified = True
 
+        # 4. Opus 4.7 adaptive-thinking requires display=summarized on the
+        # thinking dict. Enforce at the wire level so the request can't go
+        # out without it, regardless of upstream settings construction.
+        if _enforce_thinking_display_summary(data):
+            modified = True
+
         if not modified:
             return None
 
@@ -686,6 +791,11 @@ def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
                 last_block = content[-1]
                 if isinstance(last_block, dict) and "cache_control" not in last_block:
                     last_block["cache_control"] = {"type": "ephemeral"}
+
+    # 4. Opus 4.7 adaptive-thinking requires display=summarized on the
+    # thinking dict. Enforce here as well so the AsyncAnthropic client
+    # patch path matches the raw httpx path.
+    _enforce_thinking_display_summary(payload)
 
 
 def _make_cache_wrapper(original_create: Callable[..., Any]) -> Callable[..., Any]:

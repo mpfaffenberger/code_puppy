@@ -1,6 +1,7 @@
 import asyncio
 import threading
 import time
+from contextlib import contextmanager
 
 from rich.console import Console
 from rich.live import Live
@@ -29,6 +30,11 @@ class StatusDisplay:
         self.is_active = False
         self.task = None
         self.live = None
+        # Tool-call timing: while a tool is executing no tokens are generated,
+        # so we exclude that wall-clock time from the t/s calculation.
+        self._tool_pause_start = None  # timestamp the current pause began
+        self._paused_total = 0.0  # cumulative seconds spent paused
+        self._paused_total_at_last_update = 0.0  # paused total at last rate calc
         self.loading_messages = [
             "Fetching...",
             "Sniffing around...",
@@ -49,11 +55,51 @@ class StatusDisplay:
         self.current_message_index = 0
         self.spinner = Spinner("dots", text="")
 
+    def pause_for_tool(self) -> None:
+        """Pause t/s timing because a tool is executing (no tokens generated).
+
+        Idempotent: calling it while already paused is a no-op, so nested or
+        duplicate tool-call hooks won't double-count the dead time.
+        """
+        if self._tool_pause_start is None:
+            self._tool_pause_start = time.time()
+
+    def resume_after_tool(self) -> None:
+        """Resume t/s timing after a tool finishes executing."""
+        if self._tool_pause_start is not None:
+            self._paused_total += time.time() - self._tool_pause_start
+            self._tool_pause_start = None
+
+    @contextmanager
+    def tool_execution(self):
+        """Context manager that excludes the wrapped tool's runtime from t/s.
+
+        Usage:
+            with status_display.tool_execution():
+                run_the_tool()
+        """
+        self.pause_for_tool()
+        try:
+            yield
+        finally:
+            self.resume_after_tool()
+
+    def _current_paused_total(self) -> float:
+        """Total seconds spent paused, including any in-progress pause."""
+        paused = self._paused_total
+        if self._tool_pause_start is not None:
+            paused += time.time() - self._tool_pause_start
+        return paused
+
     def _calculate_rate(self) -> float:
-        """Calculate the current token rate"""
+        """Calculate the current token rate (excluding tool-execution time)"""
         current_time = time.time()
+        paused_now = self._current_paused_total()
         if self.last_update_time:
-            time_diff = current_time - self.last_update_time
+            # Subtract any tool-execution time that elapsed in this interval so
+            # idle-but-busy seconds don't deflate the rate.
+            paused_in_interval = paused_now - self._paused_total_at_last_update
+            time_diff = (current_time - self.last_update_time) - paused_in_interval
             token_diff = self.token_count - self.last_token_count
             if time_diff > 0:
                 rate = token_diff / time_diff
@@ -73,6 +119,7 @@ class StatusDisplay:
 
         self.last_update_time = current_time
         self.last_token_count = self.token_count
+        self._paused_total_at_last_update = paused_now
         return self.current_rate
 
     def update_rate_from_sse(
@@ -117,6 +164,10 @@ class StatusDisplay:
             # Reset token counters for new task
             self.last_token_count = 0
             self.current_rate = 0.0
+            # Reset tool-pause accounting for the new task
+            self._tool_pause_start = None
+            self._paused_total = 0.0
+            self._paused_total_at_last_update = 0.0
             # Set initial token count
             self.token_count = tokens if tokens >= 0 else 0
             return  # Don't calculate rate on first initialization
@@ -216,13 +267,25 @@ class StatusDisplay:
             self.token_count = 0
             self.last_token_count = 0
             self.current_rate = 0
+            self._tool_pause_start = None
+            self._paused_total = 0.0
+            self._paused_total_at_last_update = 0.0
             self.task = asyncio.create_task(self._update_display())
+
+    def _emit_final_stats(self) -> None:
+        """Emit the completion summary, excluding tool-execution time from t/s."""
+        from code_puppy.messaging import emit_info
+
+        # Active (token-generating) time only: total wall-clock minus tool time.
+        elapsed = time.time() - self.start_time if self.start_time else 0
+        elapsed = max(0.0, elapsed - self._current_paused_total())
+        avg_rate = self.token_count / elapsed if elapsed > 0 else 0
+        emit_info(
+            f"Completed: {self.token_count} tokens in {elapsed:.1f}s ({avg_rate:.1f} t/s avg)"
+        )
 
     def stop(self) -> None:
         """Stop the status display"""
-        # Lazy import to avoid circular dependency during module initialization
-        from code_puppy.messaging import emit_info
-
         if self.is_active:
             self.is_active = False
             if self.task:
@@ -230,11 +293,7 @@ class StatusDisplay:
             self.task = None
 
             # Print final stats
-            elapsed = time.time() - self.start_time if self.start_time else 0
-            avg_rate = self.token_count / elapsed if elapsed > 0 else 0
-            emit_info(
-                f"Completed: {self.token_count} tokens in {elapsed:.1f}s ({avg_rate:.1f} t/s avg)"
-            )
+            self._emit_final_stats()
 
             # Reset state
             self.start_time = None
@@ -242,6 +301,9 @@ class StatusDisplay:
             self.last_update_time = None
             self.last_token_count = 0
             self.current_rate = 0
+            self._tool_pause_start = None
+            self._paused_total = 0.0
+            self._paused_total_at_last_update = 0.0
 
             # Reset global rate to 0 to avoid affecting subsequent tasks
             global CURRENT_TOKEN_RATE
@@ -250,8 +312,4 @@ class StatusDisplay:
         else:
             # Even if not active, ensure we print stats when stop is called
             # This is for testing purposes
-            elapsed = time.time() - self.start_time if self.start_time else 0
-            avg_rate = self.token_count / elapsed if elapsed > 0 else 0
-            emit_info(
-                f"Completed: {self.token_count} tokens in {elapsed:.1f}s ({avg_rate:.1f} t/s avg)"
-            )
+            self._emit_final_stats()

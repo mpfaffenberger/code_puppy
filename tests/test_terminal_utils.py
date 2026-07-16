@@ -460,3 +460,37 @@ class TestPrintTruecolorWarning:
         # Should use "unknown" for color_system
         calls = [str(c) for c in mock_console.print.call_args_list]
         assert any("unknown" in c for c in calls)
+
+
+# ── disable_mouse_tracking ──
+
+
+class TestDisableMouseTracking:
+    def test_noop_on_windows(self, monkeypatch):
+        monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Windows")
+        stream = MagicMock()
+        terminal_utils.disable_mouse_tracking(stream)
+        stream.write.assert_not_called()
+
+    def test_writes_all_disable_sequences(self, monkeypatch):
+        monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Darwin")
+        stream = MagicMock()
+        terminal_utils.disable_mouse_tracking(stream)
+        written = "".join(str(c.args[0]) for c in stream.write.call_args_list)
+        # Every xterm mouse mode + bracketed paste must be disabled
+        for mode in ("1000", "1002", "1003", "1005", "1006", "1015", "2004"):
+            assert f"[?{mode}l" in written
+        stream.flush.assert_called_once()
+
+    def test_defaults_to_stdout(self, monkeypatch):
+        monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Linux")
+        stdout = MagicMock()
+        monkeypatch.setattr(terminal_utils.sys, "stdout", stdout)
+        terminal_utils.disable_mouse_tracking()
+        stdout.write.assert_called_once()
+
+    def test_exception_silenced(self, monkeypatch):
+        monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Linux")
+        stream = MagicMock()
+        stream.write.side_effect = OSError("broken pipe")
+        terminal_utils.disable_mouse_tracking(stream)  # should not raise

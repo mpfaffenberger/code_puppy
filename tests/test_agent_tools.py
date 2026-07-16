@@ -1,5 +1,6 @@
 """Tests for agent tools functionality."""
 
+import inspect
 import json
 import tempfile
 from pathlib import Path
@@ -11,9 +12,11 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart
 from code_puppy.tools.agent_tools import (
     _generate_session_hash_suffix,
     _load_session_history,
+    _sanitize_for_session_id,
     _save_session_history,
     _validate_session_id,
     register_invoke_agent,
+    register_invoke_agent_with_model,
     register_list_agents,
 )
 
@@ -36,6 +39,44 @@ class TestAgentTools:
 
         # Register the tool - this should not raise an exception
         register_invoke_agent(mock_agent)
+
+    def test_invoke_agent_with_model_tool(self):
+        """Test that invoke_agent_with_model tool registers correctly."""
+        mock_agent = MagicMock()
+
+        register_invoke_agent_with_model(mock_agent)
+
+    def test_invoke_agent_schema_omits_model_name(self):
+        """Default invoke_agent should not advertise model override."""
+        registered_func = None
+        mock_agent = MagicMock()
+
+        def capture_tool(func):
+            nonlocal registered_func
+            registered_func = func
+            return func
+
+        mock_agent.tool = capture_tool
+        register_invoke_agent(mock_agent)
+
+        signature = inspect.signature(registered_func)
+        assert "model_name" not in signature.parameters
+
+    def test_invoke_agent_with_model_requires_model_name(self):
+        """Explicit override tool should require model_name."""
+        registered_func = None
+        mock_agent = MagicMock()
+
+        def capture_tool(func):
+            nonlocal registered_func
+            registered_func = func
+            return func
+
+        mock_agent.tool = capture_tool
+        register_invoke_agent_with_model(mock_agent)
+
+        parameter = inspect.signature(registered_func).parameters["model_name"]
+        assert parameter.default is inspect.Signature.empty
 
     def test_invoke_agent_includes_prompt_additions(self):
         """Test that invoke_agent includes prompt additions like file permission handling."""
@@ -68,42 +109,22 @@ class TestAgentTools:
             assert "User Approval System" in file_permission_text
             assert "user_feedback" in file_permission_text
 
-    def test_invoke_agent_includes_puppy_rules(self):
-        """Test that invoke_agent includes AGENTS.md content for subagents (excluding ShellSafetyAgent)."""
-        from unittest.mock import MagicMock
+    def test_invoke_agent_imports_load_puppy_rules_from_builder(self):
+        """Regression: ``load_puppy_rules`` is a free function in ``_builder``,
+        not a method on the agent config. The previous version of this test
+        asserted against a mock method that no longer exists, letting the
+        real crash (``AttributeError: 'JSONAgent' object has no attribute
+        'load_puppy_rules'``) ship to prod. Pin the actual contract now.
+        """
+        from code_puppy.agents import _builder
+        from code_puppy.agents.base_agent import BaseAgent
 
-        # Mock agent configurations to test the logic
-        mock_agent_config = MagicMock()
-        mock_agent_config.name = "test-agent"
-        mock_agent_config.get_system_prompt.return_value = "Test system prompt"
+        # The method must *not* exist on BaseAgent (or subclasses) — otherwise
+        # we're back to the stale-caller footgun.
+        assert not hasattr(BaseAgent, "load_puppy_rules")
 
-        # Mock AGENTS.md content
-        mock_puppy_rules = "# AGENTS.MD CONTENT\nSome puppy rules here..."
-        mock_agent_config.load_puppy_rules.return_value = mock_puppy_rules
-
-        # Test the core logic that was added to invoke_agent
-        # Test that regular agents get AGENTS.md content
-        instructions = mock_agent_config.get_system_prompt()
-        if mock_agent_config.name != "shell_safety_checker":
-            puppy_rules = mock_agent_config.load_puppy_rules()
-            if puppy_rules:
-                instructions += f"\n{puppy_rules}"
-
-        # Verify AGENTS.md was added to regular agent
-        assert mock_puppy_rules in instructions
-        assert "Test system prompt" in instructions
-
-        # Test that ShellSafetyAgent does NOT get AGENTS.md content
-        mock_agent_config.name = "shell_safety_checker"
-        instructions_safety = mock_agent_config.get_system_prompt()
-        if mock_agent_config.name != "shell_safety_checker":
-            puppy_rules = mock_agent_config.load_puppy_rules()
-            if puppy_rules:
-                instructions_safety += f"\n{puppy_rules}"
-
-        # Should not have added puppy_rules for shell safety agent
-        assert mock_puppy_rules not in instructions_safety
-        assert "Test system prompt" in instructions_safety
+        # The free function is the canonical entry point.
+        assert callable(_builder.load_puppy_rules)
 
 
 class TestGenerateSessionHashSuffix:
@@ -131,6 +152,42 @@ class TestGenerateSessionHashSuffix:
         session_id = f"test-session-{suffix}"
         # Should not raise
         _validate_session_id(session_id)
+
+
+class TestSanitizeForSessionId:
+    """Test suite for _sanitize_for_session_id helper."""
+
+    def test_lowercases_capitalised_agent_name(self):
+        """Capitalised agent names get lowercased (the reported bug)."""
+        assert _sanitize_for_session_id("LPZ-Main-Coder") == "lpz-main-coder"
+
+    def test_already_kebab_case_passes_through(self):
+        assert _sanitize_for_session_id("qa-expert") == "qa-expert"
+
+    def test_underscores_become_hyphens(self):
+        assert _sanitize_for_session_id("my_agent_name") == "my-agent-name"
+
+    def test_spaces_become_hyphens(self):
+        assert _sanitize_for_session_id("My Agent Name") == "my-agent-name"
+
+    def test_special_chars_collapsed(self):
+        assert _sanitize_for_session_id("foo!!@@bar") == "foo-bar"
+
+    def test_leading_trailing_hyphens_stripped(self):
+        assert _sanitize_for_session_id("--foo--") == "foo"
+        assert _sanitize_for_session_id("__foo__") == "foo"
+
+    def test_empty_for_all_invalid(self):
+        assert _sanitize_for_session_id("!!!") == ""
+        assert _sanitize_for_session_id("") == ""
+
+    def test_result_passes_session_id_validation(self):
+        """Sanitized + hash suffix should always be a valid session_id."""
+        sanitized = _sanitize_for_session_id("LPZ-Main-Coder")
+        suffix = _generate_session_hash_suffix()
+        # Mirrors the production format
+        session_id = f"{sanitized}-session-{suffix}"
+        _validate_session_id(session_id)  # should not raise
 
 
 class TestSessionIdValidation:

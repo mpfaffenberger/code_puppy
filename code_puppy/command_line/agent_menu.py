@@ -23,7 +23,12 @@ from code_puppy.agents import (
     get_current_agent,
     is_clone_agent_name,
 )
-from code_puppy.command_line.model_picker_completion import load_model_names
+from code_puppy.command_line.mcp_binding_menu import interactive_mcp_binding_menu
+from code_puppy.mcp_.agent_bindings import get_bound_servers
+from code_puppy.command_line.model_picker_completion import (
+    ModelSelectionMenu,
+    load_model_names,
+)
 from code_puppy.command_line.pagination import (
     ensure_visible_page,
     get_page_bounds,
@@ -37,9 +42,52 @@ from code_puppy.config import (
 )
 from code_puppy.messaging import emit_info, emit_success, emit_warning
 from code_puppy.tools.command_runner import set_awaiting_user_input
-from code_puppy.tools.common import arrow_select_async
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 PAGE_SIZE = 10  # Agents per page
+
+# ---------------------------------------------------------------------------
+# Deferred-reload queue
+# ---------------------------------------------------------------------------
+# ``interactive_agent_picker`` is intentionally executed inside a worker
+# thread + transient ``asyncio.run`` loop by callers (see
+# ``handle_agent_command`` and the ``switch_agent_resume`` plugin). That
+# transient loop dies as soon as the picker coroutine returns.
+#
+# If we trigger ``reload_code_generation_agent()`` from inside the picker,
+# its MCP autostart path schedules long-lived lifecycle tasks on the
+# transient loop. When ``asyncio.run`` enters cleanup it cancels and awaits
+# those tasks, which deadlock on anyio task-group / subprocess teardown ---
+# the worker future never completes and the main thread hangs in
+# ``future.result(timeout=300)``. Symptom: pressing Enter after pinning a
+# model freezes the whole app.
+#
+# Solution: queue the reload here and let the caller drain the queue on the
+# main event loop *after* ``future.result()`` returns. That way MCP tasks
+# live on the main loop where they belong.
+_PENDING_PIN_RELOADS: List[Tuple[str, Optional[str]]] = []
+
+
+def consume_pending_pin_reloads() -> List[Tuple[str, Optional[str]]]:
+    """Drain and return queued (agent_name, pinned_model) reload requests.
+
+    Callers MUST invoke this from the main event loop after the picker
+    worker future has completed, then call
+    :func:`apply_pending_pin_reload` for each tuple.
+    """
+    global _PENDING_PIN_RELOADS
+    pending = _PENDING_PIN_RELOADS
+    _PENDING_PIN_RELOADS = []
+    return pending
+
+
+def apply_pending_pin_reload(agent_name: str, pinned_model: Optional[str]) -> None:
+    """Reload the active agent if its pinned model changed during the picker.
+
+    Safe to call from the main event loop only. No-ops if the named agent
+    is not currently active.
+    """
+    _reload_agent_if_current(agent_name, pinned_model)
 
 
 def _sanitize_display_text(text: str) -> str:
@@ -136,56 +184,16 @@ def _get_pinned_model(agent_name: str) -> Optional[str]:
     return None
 
 
-def _build_model_picker_choices(
-    pinned_model: Optional[str],
-    model_names: List[str],
-) -> List[str]:
-    """Build model picker choices with pinned/unpin indicators."""
-    choices = ["✓ (unpin)" if not pinned_model else "  (unpin)"]
-
-    for model_name in model_names:
-        if model_name == pinned_model:
-            choices.append(f"✓ {model_name} (pinned)")
-        else:
-            choices.append(f"  {model_name}")
-
-    return choices
-
-
-def _normalize_model_choice(choice: str) -> str:
-    """Normalize a picker choice into a model name or '(unpin)' string."""
-    cleaned = choice.strip()
-    if cleaned.startswith("✓"):
-        cleaned = cleaned.lstrip("✓").strip()
-    if cleaned.endswith(" (pinned)"):
-        cleaned = cleaned[: -len(" (pinned)")].strip()
-    return cleaned
-
-
 async def _select_pinned_model(agent_name: str) -> Optional[str]:
-    """Prompt for a model to pin to the agent."""
+    """Prompt for a model to pin to the agent, reusing the /model picker."""
     try:
         model_names = load_model_names() or []
     except Exception as exc:
         emit_warning(f"Failed to load models: {exc}")
         return None
 
-    pinned_model = _get_pinned_model(agent_name)
-    choices = _build_model_picker_choices(pinned_model, model_names)
-    if not choices:
-        emit_warning("No models available to pin.")
-        return None
-
-    try:
-        choice = await arrow_select_async(
-            f"Select a model to pin for '{agent_name}'",
-            choices,
-        )
-    except KeyboardInterrupt:
-        emit_info("Model pinning cancelled")
-        return None
-
-    return _normalize_model_choice(choice)
+    # Prepend the "(unpin)" sentinel that _apply_pinned_model already understands.
+    return await ModelSelectionMenu(model_names=["(unpin)"] + model_names).run_async()
 
 
 def _reload_agent_if_current(
@@ -259,7 +267,11 @@ def _apply_pinned_model(agent_name: str, model_choice: str) -> None:
                 emit_success(f"Pinned '{model_choice}' to '{agent_name}'")
                 pinned_model = model_choice
 
-        _reload_agent_if_current(agent_name, pinned_model)
+        # Defer the reload to the main event loop --- doing it here would
+        # schedule MCP autostart tasks on the picker's transient asyncio
+        # loop and deadlock the worker on shutdown (see
+        # ``_PENDING_PIN_RELOADS`` for the gory details).
+        _PENDING_PIN_RELOADS.append((agent_name, pinned_model))
     except Exception as exc:
         emit_warning(f"Failed to apply pinned model: {exc}")
 
@@ -304,12 +316,12 @@ def _render_menu_panel(
     total_pages = get_total_pages(len(entries), PAGE_SIZE)
     start_idx, end_idx = get_page_bounds(page, len(entries), PAGE_SIZE)
 
-    lines.append(("bold", "Agents"))
-    lines.append(("fg:ansibrightblack", f" (Page {page + 1}/{total_pages})"))
+    lines.append(("class:tui.header", "Agents"))
+    lines.append(("class:tui.muted", f" (Page {page + 1}/{total_pages})"))
     lines.append(("", "\n\n"))
 
     if not entries:
-        lines.append(("fg:yellow", "  No agents found."))
+        lines.append(("class:tui.warning", "  No agents found."))
         lines.append(("", "\n\n"))
     else:
         # Show agents for current page
@@ -324,38 +336,38 @@ def _render_menu_panel(
 
             # Build the line
             if is_selected:
-                lines.append(("fg:ansigreen", "▶ "))
-                lines.append(("fg:ansigreen bold", safe_display_name))
+                lines.append(("class:tui.selected", f"▶ {safe_display_name}"))
             else:
-                lines.append(("", "  "))
-                lines.append(("", safe_display_name))
+                lines.append(("class:tui.body", f"  {safe_display_name}"))
 
             if pinned_model:
                 safe_pinned_model = _sanitize_display_text(pinned_model)
-                lines.append(("fg:ansiyellow", f" → {safe_pinned_model}"))
+                lines.append(("class:tui.label", f" → {safe_pinned_model}"))
 
             # Add current marker
             if is_current:
-                lines.append(("fg:ansicyan", " ← current"))
+                lines.append(("class:tui.success", " ← current"))
 
             lines.append(("", "\n"))
 
     # Navigation hints
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "  ↑↓ "))
-    lines.append(("", "Navigate\n"))
-    lines.append(("fg:ansibrightblack", "  ←→ "))
-    lines.append(("", "Page\n"))
-    lines.append(("fg:green", "  Enter  "))
-    lines.append(("", "Select\n"))
-    lines.append(("fg:ansibrightblack", "  P "))
-    lines.append(("", "Pin model\n"))
-    lines.append(("fg:ansibrightblack", "  C "))
-    lines.append(("", "Clone\n"))
-    lines.append(("fg:ansibrightblack", "  D "))
-    lines.append(("", "Delete clone\n"))
-    lines.append(("fg:ansibrightred", "  Ctrl+C "))
-    lines.append(("", "Cancel"))
+    lines.append(("class:tui.help-key", "  ↑↓ "))
+    lines.append(("class:tui.help", "Navigate\n"))
+    lines.append(("class:tui.help-key", "  ←→ "))
+    lines.append(("class:tui.help", "Page\n"))
+    lines.append(("class:tui.help-key", "  Enter  "))
+    lines.append(("class:tui.help", "Select\n"))
+    lines.append(("class:tui.help-key", "  P "))
+    lines.append(("class:tui.help", "Pin model\n"))
+    lines.append(("class:tui.help-key", "  B "))
+    lines.append(("class:tui.help", "Bind MCP servers\n"))
+    lines.append(("class:tui.help-key", "  C "))
+    lines.append(("class:tui.help", "Clone\n"))
+    lines.append(("class:tui.help-key", "  D "))
+    lines.append(("class:tui.help", "Delete clone\n"))
+    lines.append(("class:tui.help-key", "  Ctrl+C "))
+    lines.append(("class:tui.help", "Cancel"))
 
     return lines
 
@@ -375,11 +387,11 @@ def _render_preview_panel(
     """
     lines = []
 
-    lines.append(("dim cyan", " AGENT DETAILS"))
+    lines.append(("class:tui.title", " AGENT DETAILS"))
     lines.append(("", "\n\n"))
 
     if not entry:
-        lines.append(("fg:yellow", "  No agent selected."))
+        lines.append(("class:tui.warning", "  No agent selected."))
         lines.append(("", "\n"))
         return lines
 
@@ -392,26 +404,42 @@ def _render_preview_panel(
     safe_description = _sanitize_display_text(description)
 
     # Agent name (identifier)
-    lines.append(("bold", "Name: "))
+    lines.append(("class:tui.label", "Name: "))
     lines.append(("", name))
     lines.append(("", "\n\n"))
 
     # Display name
-    lines.append(("bold", "Display Name: "))
-    lines.append(("fg:ansicyan", safe_display_name))
+    lines.append(("class:tui.label", "Display Name: "))
+    lines.append(("class:tui.body", safe_display_name))
     lines.append(("", "\n\n"))
 
     # Pinned model
-    lines.append(("bold", "Pinned Model: "))
+    lines.append(("class:tui.label", "Pinned Model: "))
     if pinned_model:
         safe_pinned_model = _sanitize_display_text(pinned_model)
-        lines.append(("fg:ansiyellow", safe_pinned_model))
+        lines.append(("class:tui.body", safe_pinned_model))
     else:
-        lines.append(("fg:ansibrightblack", "default"))
+        lines.append(("class:tui.muted", "default"))
+    lines.append(("", "\n\n"))
+
+    # MCP bindings summary
+    try:
+        bound = get_bound_servers(name)
+    except Exception:
+        bound = {}
+    lines.append(("class:tui.label", "MCP Servers: "))
+    if bound:
+        auto_count = sum(1 for opts in bound.values() if opts.get("auto_start"))
+        summary = f"{len(bound)} bound"
+        if auto_count:
+            summary += f" ({auto_count} auto-start)"
+        lines.append(("class:tui.success", summary))
+    else:
+        lines.append(("class:tui.muted", "none bound (strict opt-in)"))
     lines.append(("", "\n\n"))
 
     # Description
-    lines.append(("bold", "Description:"))
+    lines.append(("class:tui.label", "Description:"))
     lines.append(("", "\n"))
 
     # Wrap description to fit panel
@@ -422,7 +450,7 @@ def _render_preview_panel(
         current_line = ""
         for word in words:
             if len(current_line) + len(word) + 1 > 55:
-                lines.append(("fg:ansibrightblack", current_line))
+                lines.append(("class:tui.body", current_line))
                 lines.append(("", "\n"))
                 current_line = word
             else:
@@ -431,17 +459,17 @@ def _render_preview_panel(
                 else:
                     current_line += " " + word
         if current_line.strip():
-            lines.append(("fg:ansibrightblack", current_line))
+            lines.append(("class:tui.body", current_line))
             lines.append(("", "\n"))
 
     lines.append(("", "\n"))
 
     # Current status
-    lines.append(("bold", "  Status: "))
+    lines.append(("class:tui.label", "  Status: "))
     if is_current:
-        lines.append(("fg:ansigreen bold", "✓ Currently Active"))
+        lines.append(("class:tui.success", "✓ Currently Active"))
     else:
-        lines.append(("fg:ansibrightblack", "Not active"))
+        lines.append(("class:tui.muted", "Not active"))
     lines.append(("", "\n"))
 
     return lines
@@ -574,6 +602,12 @@ async def interactive_agent_picker() -> Optional[str]:
             pending_action[0] = "pin"
             event.app.exit()
 
+    @kb.add("b")
+    def _(event):
+        if get_current_entry():
+            pending_action[0] = "bind"
+            event.app.exit()
+
     @kb.add("c")
     def _(event):
         if get_current_entry():
@@ -604,6 +638,7 @@ async def interactive_agent_picker() -> Optional[str]:
         key_bindings=kb,
         full_screen=False,
         mouse_support=False,
+        style=on_prompt_toolkit_style(),
     )
 
     set_awaiting_user_input(True)
@@ -633,6 +668,12 @@ async def interactive_agent_picker() -> Optional[str]:
                     selected_model = await _select_pinned_model(entry[0])
                     if selected_model:
                         _apply_pinned_model(entry[0], selected_model)
+                continue
+
+            if pending_action[0] == "bind":
+                entry = get_current_entry()
+                if entry:
+                    await interactive_mcp_binding_menu(entry[0])
                 continue
 
             if pending_action[0] == "clone":

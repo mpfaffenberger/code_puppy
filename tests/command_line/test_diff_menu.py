@@ -252,27 +252,17 @@ class TestPreviewTextGeneration:
 
         result = _get_preview_text_for_prompt_toolkit(config)
 
-        # Should call config functions
+        # Construction reads config, but rendering passes transient preview
+        # colors directly instead of mutating persistent settings.
         mock_get_add.assert_called()
         mock_get_del.assert_called()
-        # Should set config color, then restore original (2 calls total)
-        from unittest.mock import call
-
-        expected_calls = [
-            call("#00aa00"),
-            call("#00ff00"),
-        ]  # set config, restore original
-        assert mock_set_add.call_count == 2
-        mock_set_add.assert_has_calls(expected_calls, any_order=False)
-
-        expected_del_calls = [
-            call("#aa0000"),
-            call("#ff0000"),
-        ]  # set config, restore original
-        assert mock_set_del.call_count == 2
-        mock_set_del.assert_has_calls(expected_del_calls, any_order=False)
-
-        mock_format.assert_called()
+        mock_set_add.assert_not_called()
+        mock_set_del.assert_not_called()
+        mock_format.assert_called_once()
+        assert mock_format.call_args.kwargs == {
+            "addition_color": "#00aa00",
+            "deletion_color": "#aa0000",
+        }
 
         # Should return ANSI object
         assert hasattr(result, "__class__")
@@ -415,6 +405,7 @@ class TestSplitPanelSelector:
                 full_screen=False,
                 mouse_support=False,
                 color_depth=None,
+                style=None,
             ):
                 # Get the formatted text from the layout
                 return mock_instance
@@ -864,14 +855,14 @@ class TestIntegrationScenarios:
             result = _get_preview_text_for_prompt_toolkit(config)
             assert result is not None
 
-            # Verify mock calls - function sets config to current values then restores original
+            # Preview colors are direct arguments; config stays untouched.
             mock_format.assert_called()
-            # Should set to current config colors first
-            mock_set_add.assert_any_call(config.current_add_color)
-            mock_set_del.assert_any_call(config.current_del_color)
-            # Then restore original values
-            mock_set_add.assert_any_call(original_add)
-            mock_set_del.assert_any_call(original_del)
+            assert mock_format.call_args.kwargs == {
+                "addition_color": config.current_add_color,
+                "deletion_color": config.current_del_color,
+            }
+            mock_set_add.assert_not_called()
+            mock_set_del.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_complete_interactive_workflow(self):

@@ -33,14 +33,6 @@ class TestGetXdgDir:
 # Boolean config getters
 # ---------------------------------------------------------------------------
 class TestBooleanGetters:
-    def test_get_use_dbos_default_true(self):
-        """enable_dbos defaults to True when not set."""
-        assert cp_config.get_use_dbos() is True
-
-    def test_get_use_dbos_false(self):
-        cp_config.set_config_value("enable_dbos", "false")
-        assert cp_config.get_use_dbos() is False
-
     def test_get_subagent_verbose_default_false(self):
         assert cp_config.get_subagent_verbose() is False
 
@@ -329,6 +321,10 @@ class TestOpenAISettings:
         cp_config.set_openai_reasoning_effort("high")
         assert cp_config.get_openai_reasoning_effort() == "high"
 
+    def test_set_openai_reasoning_effort_ultra(self):
+        cp_config.set_openai_reasoning_effort("ULTRA")
+        assert cp_config.get_openai_reasoning_effort() == "ultra"
+
     def test_set_openai_reasoning_effort_invalid(self):
         with pytest.raises(ValueError):
             cp_config.set_openai_reasoning_effort("bogus")
@@ -453,6 +449,22 @@ class TestModelSupportsSetting:
         )
         assert cp_config.model_supports_setting("GLM-5-large", "clear_thinking") is True
 
+    def test_glm_thinking_type_supported_from_4_5(self):
+        assert cp_config.model_supports_setting("GLM-4.5-AIR-CODING", "thinking_type")
+        assert cp_config.model_supports_setting("glm-4.6", "thinking_type")
+        assert cp_config.model_supports_setting("zai-glm-5.1-api", "thinking_type")
+        assert not cp_config.model_supports_setting("glm-4.4", "thinking_type")
+        assert not cp_config.model_supports_setting("gpt-5", "thinking_type")
+
+    def test_glm_reasoning_effort_only_5_2_plus(self):
+        assert not cp_config.model_supports_setting(
+            "zai-glm-5.1-api", "glm_reasoning_effort"
+        )
+        assert not cp_config.model_supports_setting("glm-4.7", "glm_reasoning_effort")
+        assert cp_config.model_supports_setting(
+            "zai-glm-5.2-api", "glm_reasoning_effort"
+        )
+
     def test_with_supported_settings_list(self):
         mock_config = {"test-model": {"supported_settings": ["temperature", "seed"]}}
         with patch(
@@ -560,12 +572,14 @@ class TestDefaultModel:
         cp_config._default_model_cache = None
 
     def test_default_model_empty_config(self):
+        # models.json now ships empty; with no models configured the default
+        # resolver returns None so callers can surface a "no model" warning.
         cp_config._default_model_cache = None
         with patch(
             "code_puppy.model_factory.ModelFactory.load_config", return_value={}
         ):
             result = cp_config._default_model_from_models_json()
-            assert result == "gpt-5"
+            assert result is None
         cp_config._default_model_cache = None
 
     def test_default_model_exception(self):
@@ -574,7 +588,7 @@ class TestDefaultModel:
             "code_puppy.model_factory.ModelFactory.load_config", side_effect=Exception
         ):
             result = cp_config._default_model_from_models_json()
-            assert result == "gpt-5"
+            assert result is None
         cp_config._default_model_cache = None
 
 
@@ -727,7 +741,6 @@ class TestConfigKeys:
         assert keys == sorted(keys)
         assert "yolo_mode" in keys
         assert "compaction_strategy" in keys
-        assert "enable_dbos" in keys
         assert "enable_streaming" in keys
         assert "cancel_agent_key" in keys
         assert "resume_message_count" in keys
@@ -799,16 +812,62 @@ class TestDiffColors:
         assert cp_config.get_diff_addition_color() == "#0b1f0b"
 
     def test_set_addition_color(self):
+        # Rich color names are normalized to '#RRGGBB' hex on write so
+        # downstream renderers don't have to re-parse them.
         cp_config.set_diff_addition_color("green")
-        assert cp_config.get_diff_addition_color() == "green"
+        assert cp_config.get_diff_addition_color() == "#008000"
 
     def test_default_deletion_color(self):
         cp_config.reset_value("highlight_deletion_color")
         assert cp_config.get_diff_deletion_color() == "#390e1a"
 
     def test_set_deletion_color(self):
+        # Rich color names are normalized to '#RRGGBB' hex on write.
         cp_config.set_diff_deletion_color("red")
-        assert cp_config.get_diff_deletion_color() == "red"
+        assert cp_config.get_diff_deletion_color() == "#800000"
+
+    def test_unset_colors_are_derived_from_dark_theme_palette(self):
+        cp_config.set_config_value(
+            "osc_palette_json",
+            json.dumps(
+                {
+                    "bg": "#000000",
+                    "ansi": ["#000000", "#ff0000", "#00ff00"],
+                }
+            ),
+        )
+
+        assert cp_config.get_diff_addition_color() == "#003300"
+        assert cp_config.get_diff_deletion_color() == "#330000"
+
+    def test_unset_colors_are_subtle_on_light_themes(self):
+        cp_config.set_config_value(
+            "osc_palette_json",
+            json.dumps(
+                {
+                    "bg": "#ffffff",
+                    "ansi": ["#000000", "#ff0000", "#00ff00"],
+                }
+            ),
+        )
+
+        assert cp_config.get_diff_addition_color() == "#dbffdb"
+        assert cp_config.get_diff_deletion_color() == "#ffdbdb"
+
+    def test_explicit_diff_color_wins_over_theme(self):
+        cp_config.set_config_value(
+            "osc_palette_json",
+            json.dumps({"bg": "#000000", "ansi": ["#000000", "#ff0000"]}),
+        )
+        cp_config.set_diff_addition_color("#123456")
+
+        assert cp_config.get_diff_addition_color() == "#123456"
+
+    def test_malformed_theme_palette_uses_legacy_defaults(self):
+        cp_config.set_config_value("osc_palette_json", "not json")
+
+        assert cp_config.get_diff_addition_color() == "#0b1f0b"
+        assert cp_config.get_diff_deletion_color() == "#390e1a"
 
     def test_set_diff_highlight_style_noop(self):
         # Should not raise
@@ -877,12 +936,17 @@ class TestAutosaveSession:
         assert name.startswith("auto_session_")
 
     def test_set_from_session_name_with_prefix(self):
+        # Post-unification: the deprecation shim stores the full name verbatim
+        # rather than stripping the `auto_session_` prefix. Documented behavior
+        # change so the singleton always holds a loadable session filename.
         result = cp_config.set_current_autosave_from_session_name(
             "auto_session_20250101_120000"
         )
-        assert result == "20250101_120000"
+        assert result == "auto_session_20250101_120000"
 
     def test_set_from_session_name_without_prefix(self):
+        # Post-unification: non-prefixed names are stored verbatim too
+        # (a user-named session like 'mywork' must round-trip unchanged).
         result = cp_config.set_current_autosave_from_session_name("custom_id")
         assert result == "custom_id"
 
@@ -1077,17 +1141,6 @@ class TestAllowRecursion:
     def test_false(self):
         cp_config.set_config_value("allow_recursion", "false")
         assert cp_config.get_allow_recursion() is False
-
-
-# ---------------------------------------------------------------------------
-# set_enable_dbos
-# ---------------------------------------------------------------------------
-class TestSetEnableDbos:
-    def test_set(self):
-        cp_config.set_enable_dbos(True)
-        assert cp_config.get_use_dbos() is True
-        cp_config.set_enable_dbos(False)
-        assert cp_config.get_use_dbos() is False
 
 
 # ---------------------------------------------------------------------------

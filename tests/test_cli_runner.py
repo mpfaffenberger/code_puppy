@@ -12,6 +12,7 @@ Main focus areas:
 - Entry point behavior
 """
 
+import asyncio
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -273,22 +274,6 @@ class TestTerminalReset:
         mock_reset_unix.assert_called_once()
 
 
-class TestDBOSIntegration:
-    """Test DBOS initialization and configuration."""
-
-    @patch("code_puppy.config.get_use_dbos")
-    def test_dbos_flag_can_be_checked(self, mock_get_use_dbos):
-        """Test that DBOS flag can be checked."""
-        from code_puppy.config import get_use_dbos
-
-        mock_get_use_dbos.return_value = True
-        result = get_use_dbos()
-        assert result is True
-        mock_get_use_dbos.return_value = False
-        result = get_use_dbos()
-        assert result is False
-
-
 class TestCancelAgentKeyValidation:
     """Test cancel agent key validation."""
 
@@ -299,20 +284,6 @@ class TestCancelAgentKeyValidation:
 
         validate_cancel_agent_key()
         mock_validate.assert_called_once()
-
-
-class TestUVXDetection:
-    """Test Windows+uvx specific handling."""
-
-    def test_uvx_detection_can_be_imported(self):
-        """Test uvx detection module can be imported."""
-        try:
-            from code_puppy import uvx_detection
-
-            assert uvx_detection is not None
-        except ImportError:
-            # uvx_detection module may not be available in all environments
-            pass
 
 
 class TestConfigInitialization:
@@ -383,3 +354,214 @@ class TestAgentRunning:
         agent = get_current_agent()
         assert agent is not None
         assert agent.name == "test-agent"
+
+
+class TestResumeFlag:
+    """Test --resume flag functionality."""
+
+    def test_resume_session_loading_logic(self, tmp_path):
+        """Test that resume can load from a pickle file path."""
+
+        from code_puppy.session_storage import load_session, save_session
+
+        # Create a fake session
+        fake_history = [{"role": "user", "content": "Hello"}]
+        session_name = "test-resume-session"
+
+        # Save session using the standard save_session function
+        metadata = save_session(
+            history=fake_history,
+            session_name=session_name,
+            base_dir=tmp_path,
+            timestamp="2025-01-01T00:00:00",
+            token_estimator=lambda x: 10,
+        )
+
+        # Verify the session was saved
+        assert metadata.pickle_path.exists()
+
+        # Load session using the standard load_session function
+        loaded_history = load_session(session_name, tmp_path)
+
+        # Verify history was loaded correctly
+        assert len(loaded_history) == 1
+        assert loaded_history[0]["role"] == "user"
+        assert loaded_history[0]["content"] == "Hello"
+
+    def test_resume_path_resolution_full_pkl_path(self, tmp_path):
+        """Test that a full .pkl path is properly resolved."""
+        from pathlib import Path
+
+        # Create a fake pickle file
+        session_file = tmp_path / "my-session.pkl"
+        session_file.write_bytes(b"dummy")
+
+        resume_path = Path(str(session_file))
+        assert resume_path.suffix == ".pkl"
+        assert resume_path.exists()
+        assert resume_path.stem == "my-session"
+        assert resume_path.parent == tmp_path
+
+    def test_resume_path_resolution_session_name(self, tmp_path):
+        """Test that a session name is resolved to the contexts directory."""
+
+        # Simulate a contexts directory with a session file
+        contexts_dir = tmp_path
+        session_name = "saved-session"
+        session_file = contexts_dir / f"{session_name}.pkl"
+        session_file.write_bytes(b"dummy")
+
+        # Check resolution logic
+        assert (contexts_dir / f"{session_name}.pkl").exists()
+
+
+class TestHeadlessSessionPersistence:
+    """-r in headless -p mode lazy-creates the session and saves back.
+
+    These tests pin the wiring between ``cli_runner.execute_single_prompt``
+    and ``session_lifecycle.persist_named_session`` -- specifically that the
+    save happens in a ``finally`` block (so cancel/error paths still persist),
+    that shell-passthrough never clobbers a named session, and that the
+    no-``-r`` default stays disk-silent.
+    """
+
+    @staticmethod
+    def _agent_with_history(history):
+        agent = MagicMock()
+        agent.get_message_history.return_value = history
+        agent.estimate_tokens_for_message.side_effect = lambda _m: 1
+        return agent
+
+    @staticmethod
+    def _renderer():
+        renderer = MagicMock()
+        renderer.console = MagicMock()
+        return renderer
+
+    @pytest.mark.asyncio
+    async def test_save_back_on_success_path(self, tmp_path):
+        from code_puppy.cli_runner import execute_single_prompt
+
+        history = [{"role": "user", "content": "step 1"}]
+        agent = self._agent_with_history(history)
+        run_result = MagicMock()
+        run_result.output = "ok"
+
+        with (
+            patch("code_puppy.cli_runner.get_current_agent", return_value=agent),
+            patch(
+                "code_puppy.cli_runner.run_prompt_with_attachments",
+                new=AsyncMock(return_value=(run_result, MagicMock())),
+            ),
+            patch("code_puppy.config.AUTOSAVE_DIR", str(tmp_path)),
+            patch(
+                "code_puppy.session_lifecycle.fire_post_autosave_callback"
+            ) as fire_cb,
+        ):
+            await execute_single_prompt(
+                "hi",
+                self._renderer(),
+                session_name="mywork",
+            )
+
+        assert (tmp_path / "mywork.pkl").exists()
+        # post_autosave hook is reserved for the periodic background save
+        # path (``config.auto_save_session_if_enabled``). The headless
+        # ``-r NAME -p ...`` save-back deliberately does NOT fire it, so
+        # plugins that decorate the auto-save line (e.g. the walmart
+        # token-quota plugin) don't double-print.
+        assert fire_cb.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_save_back_on_cancelled_error(self, tmp_path):
+        """Partial state still persists when the run is cancelled."""
+        from code_puppy.cli_runner import execute_single_prompt
+
+        agent = self._agent_with_history([{"role": "user", "content": "partial"}])
+
+        async def _raise_cancelled(*_args, **_kwargs):
+            raise asyncio.CancelledError()
+
+        with (
+            patch("code_puppy.cli_runner.get_current_agent", return_value=agent),
+            patch(
+                "code_puppy.cli_runner.run_prompt_with_attachments",
+                new=_raise_cancelled,
+            ),
+            patch("code_puppy.config.AUTOSAVE_DIR", str(tmp_path)),
+            patch("code_puppy.session_lifecycle.fire_post_autosave_callback"),
+        ):
+            await execute_single_prompt("hi", self._renderer(), session_name="mywork")
+
+        assert (tmp_path / "mywork.pkl").exists()
+
+    @pytest.mark.asyncio
+    async def test_save_back_on_generic_exception(self, tmp_path):
+        """Save still fires when the agent raises a non-cancel exception."""
+        from code_puppy.cli_runner import execute_single_prompt
+
+        agent = self._agent_with_history([{"role": "user", "content": "partial"}])
+
+        async def _raise(*_args, **_kwargs):
+            raise RuntimeError("model exploded")
+
+        with (
+            patch("code_puppy.cli_runner.get_current_agent", return_value=agent),
+            patch("code_puppy.cli_runner.run_prompt_with_attachments", new=_raise),
+            patch("code_puppy.config.AUTOSAVE_DIR", str(tmp_path)),
+            patch("code_puppy.session_lifecycle.fire_post_autosave_callback"),
+        ):
+            await execute_single_prompt("hi", self._renderer(), session_name="mywork")
+
+        assert (tmp_path / "mywork.pkl").exists()
+
+    @pytest.mark.asyncio
+    async def test_no_save_when_session_name_is_none(self, tmp_path):
+        """Default headless -p must remain disk-silent (no -r passed)."""
+        from code_puppy.cli_runner import execute_single_prompt
+
+        agent = self._agent_with_history([{"role": "user", "content": "ephemeral"}])
+        run_result = MagicMock()
+        run_result.output = "ok"
+
+        with (
+            patch("code_puppy.cli_runner.get_current_agent", return_value=agent),
+            patch(
+                "code_puppy.cli_runner.run_prompt_with_attachments",
+                new=AsyncMock(return_value=(run_result, MagicMock())),
+            ),
+            patch("code_puppy.config.AUTOSAVE_DIR", str(tmp_path)),
+            patch("code_puppy.session_lifecycle.persist_named_session") as mock_persist,
+        ):
+            await execute_single_prompt("hi", self._renderer(), session_name=None)
+
+        mock_persist.assert_not_called()
+        # And nothing landed on disk under the (empty) contexts dir.
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.asyncio
+    async def test_shell_passthrough_does_not_clobber_session(self, tmp_path):
+        """`-r mywork -p '!ls'` must not zero out an existing named session."""
+        from code_puppy.cli_runner import execute_single_prompt
+
+        # Seed an existing session file with real content.
+        seeded = b"non-empty existing session bytes"
+        (tmp_path / "mywork.pkl").write_bytes(seeded)
+
+        with (
+            patch(
+                "code_puppy.command_line.shell_passthrough.is_shell_passthrough",
+                return_value=True,
+            ),
+            patch(
+                "code_puppy.command_line.shell_passthrough.execute_shell_passthrough"
+            ) as mock_shell,
+            patch("code_puppy.config.AUTOSAVE_DIR", str(tmp_path)),
+            patch("code_puppy.session_lifecycle.persist_named_session") as mock_persist,
+        ):
+            await execute_single_prompt("!ls", self._renderer(), session_name="mywork")
+
+        mock_shell.assert_called_once_with("!ls")
+        mock_persist.assert_not_called()
+        # Pre-existing session bytes must be byte-identical.
+        assert (tmp_path / "mywork.pkl").read_bytes() == seeded

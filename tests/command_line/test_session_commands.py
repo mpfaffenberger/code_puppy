@@ -23,35 +23,55 @@ class TestHandleSessionCommand:
 
     def test_session_show_id(self):
         with (
-            patch("code_puppy.config.get_current_autosave_id", return_value="abc123"),
             patch(
-                "code_puppy.config.get_current_autosave_session_name",
-                return_value="session_abc123",
+                "code_puppy.config.get_current_session_name",
+                return_value="auto_session_abc123",
             ),
             patch("code_puppy.messaging.emit_info") as mock_info,
         ):
             result = self._run("/session")
             assert result is True
             mock_info.assert_called_once()
+            # Both the session-line and the prefix-path show the full name
+            # verbatim (no id/name duality post-unification).
+            assert "auto_session_abc123" in mock_info.call_args[0][0]
 
     def test_session_id_subcommand(self):
         with (
-            patch("code_puppy.config.get_current_autosave_id", return_value="xyz"),
             patch(
-                "code_puppy.config.get_current_autosave_session_name",
-                return_value="s",
+                "code_puppy.config.get_current_session_name",
+                return_value="auto_session_xyz",
             ),
             patch("code_puppy.messaging.emit_info"),
         ):
             assert self._run("/session id") is True
 
+    def test_session_show_user_named(self):
+        """User-named session displays the full name verbatim, no auto_ prefix."""
+        with (
+            patch(
+                "code_puppy.config.get_current_session_name",
+                return_value="mywork",
+            ),
+            patch("code_puppy.messaging.emit_info") as mock_info,
+        ):
+            assert self._run("/session") is True
+            rendered = mock_info.call_args[0][0]
+            assert "mywork" in rendered
+            # Regression guard: must NOT re-synthesize auto_session_mywork
+            assert "auto_session_mywork" not in rendered
+
     def test_session_new(self):
         with (
-            patch("code_puppy.config.rotate_autosave_id", return_value="new123"),
+            patch(
+                "code_puppy.config.rotate_session_name",
+                return_value="auto_session_new123",
+            ),
             patch("code_puppy.messaging.emit_success") as mock_s,
         ):
             assert self._run("/session new") is True
-            assert "new123" in mock_s.call_args[0][0]
+            # Post-LEAN-Phase-2 emits the full name (not the bare id).
+            assert "auto_session_new123" in mock_s.call_args[0][0]
 
     def test_session_invalid(self):
         with patch("code_puppy.messaging.emit_warning") as mock_w:
@@ -64,6 +84,21 @@ class TestHandleCompactCommand:
         from code_puppy.command_line.session_commands import handle_compact_command
 
         return handle_compact_command(cmd)
+
+    def test_mid_run_queues_compaction_for_next_model_call(self):
+        controller = MagicMock()
+        with (
+            patch("code_puppy.messaging.run_ui.is_run_active", return_value=True),
+            patch(
+                "code_puppy.messaging.pause_controller.get_pause_controller",
+                return_value=controller,
+            ),
+            patch("code_puppy.messaging.emit_info") as emit_info,
+        ):
+            assert self._run() is True
+
+        controller.request_compaction.assert_called_once_with()
+        assert "next model call" in emit_info.call_args[0][0]
 
     def test_no_history(self):
         agent = MagicMock()
@@ -82,7 +117,6 @@ class TestHandleCompactCommand:
         agent = MagicMock()
         agent.get_message_history.return_value = ["m1", "m2", "m3"]
         agent.estimate_tokens_for_message.return_value = 100
-        agent.truncation.return_value = ["m3"]
         with (
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
@@ -93,6 +127,7 @@ class TestHandleCompactCommand:
                 return_value="truncation",
             ),
             patch("code_puppy.config.get_protected_token_count", return_value=50),
+            patch("code_puppy.agents._compaction.truncate", return_value=["m3"]),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success") as ms,
         ):
@@ -298,7 +333,7 @@ class TestHandleDumpContextCommand:
                 return_value=agent,
             ),
             patch(
-                "code_puppy.command_line.session_commands.save_session",
+                "code_puppy.session_lifecycle.persist_named_session",
                 return_value=meta,
             ),
             patch("code_puppy.messaging.emit_success"),
@@ -314,13 +349,33 @@ class TestHandleDumpContextCommand:
                 return_value=agent,
             ),
             patch(
-                "code_puppy.command_line.session_commands.save_session",
+                "code_puppy.session_lifecycle.persist_named_session",
                 side_effect=Exception("disk full"),
             ),
             patch("code_puppy.messaging.emit_error") as me,
         ):
             assert self._run("/dump_context mysession") is True
             assert "disk full" in me.call_args[0][0]
+
+    def test_reserved_prefix_rejected(self):
+        """User cannot squat on the auto_session_ namespace via /dump_context.
+
+        Pre-unification, /dump_context bypassed every validator and would
+        happily write ``contexts/auto_session_anything.pkl``, polluting the
+        autosave namespace. The new contract routes through
+        persist_named_session and validates input first.
+        """
+        agent = MagicMock()
+        agent.get_message_history.return_value = ["m1"]
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=agent,
+            ),
+            patch("code_puppy.messaging.emit_error") as me,
+        ):
+            assert self._run("/dump_context auto_session_squat") is True
+            assert "reserved" in me.call_args[0][0].lower()
 
 
 class TestHandleLoadContextCommand:
@@ -379,6 +434,19 @@ class TestHandleLoadContextCommand:
             assert "corrupt" in me.call_args[0][0]
 
     def test_success(self):
+        """/load_context NAME rotates the singleton (does NOT pin).
+
+        This is the deliberate, original ``/load_context`` semantic from
+        commit ``cc04629b`` (Mike Pfaffenberger, 2025-10-11):
+        ``/dump_context`` + ``/load_context`` are a snapshot pair (like
+        ``pg_dump`` / ``pg_restore``, save games, git stash). Loading a
+        named snapshot must NOT cause subsequent autosaves to overwrite
+        that snapshot -- the rotate forks future writes to a fresh
+        ``auto_session_<TS>`` file so the loaded reference point stays
+        frozen on disk. The ``-r NAME`` continuation path pins (and saves
+        back in place); the asymmetry between the two verbs is
+        intentional and load-bearing. Do NOT "unify" them.
+        """
         agent = MagicMock()
         agent.estimate_tokens_for_message.return_value = 50
         with (
@@ -390,29 +458,91 @@ class TestHandleLoadContextCommand:
                 "code_puppy.agents.agent_manager.get_current_agent",
                 return_value=agent,
             ),
-            patch("code_puppy.config.rotate_autosave_id", return_value="new_id"),
-            patch("code_puppy.messaging.emit_success"),
+            patch(
+                "code_puppy.config.rotate_session_name",
+                return_value="auto_session_20260101_120000",
+            ) as mock_rotate,
+            patch("code_puppy.messaging.emit_success") as mock_success,
             patch("code_puppy.command_line.autosave_menu.display_resumed_history"),
         ):
             assert self._run("/load_context mysession") is True
+            mock_rotate.assert_called_once_with()
+            # Success line surfaces the new autosave id so the user is
+            # never surprised about where their next saves are landing.
+            success_text = mock_success.call_args[0][0]
+            assert "auto_session_20260101_120000" in success_text
 
-    def test_success_rotate_fails(self):
+
+class TestHandleClearCommand:
+    """Tests for the /clear command handler.
+
+    Lives in session_commands so it shows up in /help (single source of truth).
+    """
+
+    def _run(self, command="/clear"):
+        from code_puppy.command_line.session_commands import handle_clear_command
+
+        return handle_clear_command(command)
+
+    def test_clear_wipes_history_and_rotates_session(self):
         agent = MagicMock()
-        agent.estimate_tokens_for_message.return_value = 50
+        clipboard = MagicMock()
+        clipboard.get_pending_count.return_value = 0
         with (
-            patch(
-                "code_puppy.command_line.session_commands.load_session",
-                return_value=["m1"],
-            ),
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
                 return_value=agent,
             ),
             patch(
-                "code_puppy.config.rotate_autosave_id",
-                side_effect=Exception("fail"),
+                "code_puppy.command_line.clipboard.get_clipboard_manager",
+                return_value=clipboard,
             ),
-            patch("code_puppy.messaging.emit_success"),
-            patch("code_puppy.command_line.autosave_menu.display_resumed_history"),
+            patch(
+                "code_puppy.config.finalize_autosave_session",
+                return_value="new-session-id",
+            ),
+            patch("code_puppy.messaging.emit_warning") as mock_warn,
+            patch("code_puppy.messaging.emit_system_message"),
+            patch("code_puppy.messaging.emit_info") as mock_info,
         ):
-            assert self._run("/load_context mysession") is True
+            assert self._run() is True
+            agent.clear_message_history.assert_called_once()
+            clipboard.clear_pending.assert_called_once()
+            mock_warn.assert_called_once()
+            # Info called once for the session-rotated message; no clipboard msg
+            assert mock_info.call_count == 1
+
+    def test_clear_reports_dropped_clipboard_images(self):
+        agent = MagicMock()
+        clipboard = MagicMock()
+        clipboard.get_pending_count.return_value = 3
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=agent,
+            ),
+            patch(
+                "code_puppy.command_line.clipboard.get_clipboard_manager",
+                return_value=clipboard,
+            ),
+            patch(
+                "code_puppy.config.finalize_autosave_session",
+                return_value="sid",
+            ),
+            patch("code_puppy.messaging.emit_warning"),
+            patch("code_puppy.messaging.emit_system_message"),
+            patch("code_puppy.messaging.emit_info") as mock_info,
+        ):
+            assert self._run() is True
+            # One info for session rotation, one for the dropped clipboard count
+            assert mock_info.call_count == 2
+            assert any("3" in str(c) for c in mock_info.call_args_list)
+
+    def test_clear_is_registered_and_appears_in_help(self):
+        """Regression: /clear must show up in /help (was previously hidden)."""
+        # Trigger registration via import side-effects
+        import code_puppy.command_line.session_commands  # noqa: F401
+        from code_puppy.command_line.command_registry import get_unique_commands
+
+        names = {c.name for c in get_unique_commands()}
+        assert "clear" in names

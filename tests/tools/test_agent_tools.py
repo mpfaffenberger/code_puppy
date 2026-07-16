@@ -1,20 +1,11 @@
 """Tests for code_puppy/tools/agent_tools.py - 100% coverage."""
 
+import contextlib
 import json
 import pickle
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-
-class TestGenerateDbosWorkflowId:
-    def test_unique_ids(self):
-        from code_puppy.tools.agent_tools import _generate_dbos_workflow_id
-
-        id1 = _generate_dbos_workflow_id("base")
-        id2 = _generate_dbos_workflow_id("base")
-        assert id1 != id2
-        assert id1.startswith("base-wf-")
 
 
 class TestGenerateSessionHashSuffix:
@@ -94,6 +85,24 @@ class TestSaveSessionHistory:
         ):
             _save_session_history("my-session", ["msg1", "msg2"], "agent")
         with open(txt) as f:
+            meta = json.load(f)
+        assert meta["message_count"] == 2
+
+    def test_save_leaves_no_orphan_tmp(self, tmp_path):
+        """Atomic metadata writes must not leak *.tmp into the sessions dir."""
+        from code_puppy.tools.agent_tools import _save_session_history
+
+        with patch(
+            "code_puppy.tools.agent_tools._get_subagent_sessions_dir",
+            return_value=tmp_path,
+        ):
+            # First save (creates metadata) + a second save (updates it).
+            _save_session_history("my-session", ["msg1"], "agent", "hello")
+            _save_session_history("my-session", ["msg1", "msg2"], "agent")
+        orphans = [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+        assert orphans == []
+        # And the metadata still round-trips correctly.
+        with open(tmp_path / "my-session.txt") as f:
             meta = json.load(f)
         assert meta["message_count"] == 2
 
@@ -260,10 +269,8 @@ class TestRegisterInvokeAgent:
         agent.tool = lambda fn: (captured.update({"fn": fn}), fn)[-1]
         register_invoke_agent(agent)
 
-        # Create real context vars for the token reset
-        fake_term_var = contextvars.ContextVar("fake_term")
+        # Create a real context var for the token reset
         fake_browser_var = contextvars.ContextVar("fake_browser")
-        term_token = fake_term_var.set("x")
         browser_token = fake_browser_var.set("y")
 
         ctx = MagicMock()
@@ -277,24 +284,78 @@ class TestRegisterInvokeAgent:
             ),
             patch("code_puppy.tools.agent_tools.set_session_context"),
             patch(
-                "code_puppy.tools.browser.terminal_tools.set_terminal_session",
-                return_value=term_token,
-            ),
-            patch(
                 "code_puppy.tools.browser.browser_manager.set_browser_session",
                 return_value=browser_token,
-            ),
-            patch(
-                "code_puppy.tools.browser.terminal_tools._terminal_session_var",
-                fake_term_var,
             ),
             patch(
                 "code_puppy.tools.browser.browser_manager._browser_session_var",
                 fake_browser_var,
             ),
             patch(
-                "code_puppy.agents.load_agent", side_effect=Exception("Agent not found")
+                "code_puppy.agents.agent_manager.load_agent",
+                side_effect=Exception("Agent not found"),
             ),
         ):
             result = await captured["fn"](ctx, agent_name="nonexistent", prompt="hi")
         assert result.error is not None
+
+    @pytest.mark.asyncio
+    async def test_configured_model_that_cannot_initialize_fails_clearly(self):
+        import contextvars
+
+        from code_puppy.tools.agent_tools import register_invoke_agent
+
+        agent = MagicMock()
+        captured = {}
+        agent.tool = lambda fn: (captured.update({"fn": fn}), fn)[-1]
+        register_invoke_agent(agent)
+
+        fake_agent_config = MagicMock()
+        fake_agent_config.temporary_model_name_override.return_value = (
+            contextlib.nullcontext()
+        )
+        fake_agent_config.get_model_name.return_value = "expired-model"
+        fake_agent_config.get_message_history.return_value = []
+
+        fake_browser_var = contextvars.ContextVar("fake_browser")
+        browser_token = fake_browser_var.set("y")
+
+        ctx = MagicMock()
+        with (
+            patch("code_puppy.tools.agent_tools.generate_group_id", return_value="grp"),
+            patch("code_puppy.tools.agent_tools.emit_error"),
+            patch("code_puppy.tools.agent_tools.emit_info"),
+            patch("code_puppy.tools.agent_tools.get_message_bus"),
+            patch(
+                "code_puppy.tools.agent_tools.get_session_context", return_value=None
+            ),
+            patch("code_puppy.tools.agent_tools.set_session_context"),
+            patch(
+                "code_puppy.tools.browser.browser_manager.set_browser_session",
+                return_value=browser_token,
+            ),
+            patch(
+                "code_puppy.tools.browser.browser_manager._browser_session_var",
+                fake_browser_var,
+            ),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=fake_agent_config,
+            ),
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value={"expired-model": {"type": "openai", "name": "gpt-nope"}},
+            ),
+            patch("code_puppy.model_factory.ModelFactory.get_model", return_value=None),
+        ):
+            result = await captured["fn"](
+                ctx,
+                agent_name="reviewer",
+                prompt="hi",
+                model_name="expired-model",
+            )
+
+        assert result.response is None
+        assert result.model_name == "expired-model"
+        assert result.error is not None
+        assert "could not be initialized" in result.error

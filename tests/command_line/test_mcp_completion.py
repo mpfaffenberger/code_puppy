@@ -43,8 +43,9 @@ class TestMCPCompleter:
         result = self._get_completions("/mcp ")
         names = [c.text for c in result]
         assert "start" in names
-        assert "list" in names
         assert "install" in names
+        # "list" is intentionally not offered: bare /mcp already does that.
+        assert "list" not in names
 
     def test_partial_subcommand(self):
         result = self._get_completions("/mcp st")
@@ -88,3 +89,12 @@ class TestMCPCompleter:
         ):
             result = self.completer._get_server_names()
             assert result == ["new"]
+
+    def test_get_server_names_none_returns_empty(self):
+        self.completer._server_names_cache = None
+        self.completer._cache_timestamp = None
+        with patch(
+            "code_puppy.command_line.mcp_completion.load_server_names",
+            return_value=None,
+        ):
+            assert self.completer._get_server_names() == []

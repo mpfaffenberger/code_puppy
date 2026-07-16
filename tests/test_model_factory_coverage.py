@@ -13,7 +13,7 @@ Targets the 206 uncovered lines including:
 """
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -94,6 +94,170 @@ class TestMakeModelSettings:
         settings = make_model_settings("gpt-5-codex-test", max_tokens=4096)
         assert isinstance(settings, dict)
         # extra_body should NOT be set for codex models
+        assert settings.get("extra_body") is None
+
+    def test_make_model_settings_glm_thinking_in_extra_body(self):
+        """GLM-4.5+ models get thinking.type routed through extra_body so it
+        actually reaches the OpenAI-compatible request (not silently dropped).
+        """
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("zai-glm-5.1-api", max_tokens=4096)
+        assert isinstance(settings, dict)
+        assert "thinking" not in settings  # not a raw top-level key
+        assert settings["extra_body"]["thinking"] == {
+            "type": "enabled",
+            "clear_thinking": False,
+        }
+        # GLM-5.1 is below the 5.2 reasoning_effort threshold
+        assert "reasoning_effort" not in settings["extra_body"]
+
+    def test_make_model_settings_glm_5_2_gets_reasoning_effort(self):
+        """GLM-5.2+ models additionally get reasoning_effort in extra_body."""
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("zai-glm-5.2-api", max_tokens=4096)
+        assert settings["extra_body"]["reasoning_effort"] == "max"
+
+    def test_make_model_settings_glm_respects_per_model_overrides(self):
+        """User-configured thinking_type/glm_reasoning_effort flow through.
+
+        When thinking is disabled, reasoning_effort is intentionally omitted
+        to avoid API proxies interpreting its presence as "enable reasoning".
+        """
+        from code_puppy.model_factory import make_model_settings
+
+        # thinking disabled -> reasoning_effort must NOT be sent
+        with patch(
+            "code_puppy.config.get_effective_model_settings",
+            return_value={
+                "thinking_type": "disabled",
+                "glm_reasoning_effort": "none",
+                "clear_thinking": True,
+            },
+        ):
+            settings = make_model_settings("zai-glm-5.2-api", max_tokens=4096)
+
+        assert settings["extra_body"]["thinking"] == {
+            "type": "disabled",
+            "clear_thinking": True,
+        }
+        assert "reasoning_effort" not in settings["extra_body"]
+
+        # thinking enabled -> reasoning_effort IS sent
+        with patch(
+            "code_puppy.config.get_effective_model_settings",
+            return_value={
+                "thinking_type": "enabled",
+                "glm_reasoning_effort": "none",
+                "clear_thinking": True,
+            },
+        ):
+            settings = make_model_settings("zai-glm-5.2-api", max_tokens=4096)
+
+        assert settings["extra_body"]["thinking"] == {
+            "type": "enabled",
+            "clear_thinking": True,
+        }
+        assert settings["extra_body"]["reasoning_effort"] == "none"
+
+    def test_make_model_settings_glm_lilac_uses_chat_template_kwargs(self):
+        """Lilac GLM models use chat_template_kwargs instead of thinking object."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.model_factory.ModelFactory.load_config",
+            return_value={
+                "lilac-glm-5.2": {
+                    "type": "custom_openai",
+                    "provider": "lilac",
+                    "name": "glm-5.2",
+                    "context_length": 128000,
+                    "supported_settings": ["temperature", "seed", "top_p"],
+                }
+            },
+        ):
+            with patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={
+                    "thinking_type": "enabled",
+                    "clear_thinking": False,
+                    "glm_reasoning_effort": "max",
+                },
+            ):
+                settings = make_model_settings("lilac-glm-5.2", max_tokens=4096)
+
+        assert "chat_template_kwargs" in settings["extra_body"]
+        assert settings["extra_body"]["chat_template_kwargs"] == {
+            "enable_thinking": True,
+            "clear_thinking": False,
+        }
+        assert "thinking" not in settings["extra_body"]
+        assert settings["extra_body"]["reasoning_effort"] == "max"
+
+        # thinking disabled -> enable_thinking False, no reasoning_effort
+        with patch(
+            "code_puppy.model_factory.ModelFactory.load_config",
+            return_value={
+                "lilac-glm-5.2": {
+                    "type": "custom_openai",
+                    "provider": "lilac",
+                    "name": "glm-5.2",
+                    "context_length": 128000,
+                    "supported_settings": ["temperature", "seed", "top_p"],
+                }
+            },
+        ):
+            with patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={
+                    "thinking_type": "disabled",
+                    "clear_thinking": True,
+                    "glm_reasoning_effort": "max",
+                },
+            ):
+                settings = make_model_settings("lilac-glm-5.2", max_tokens=4096)
+
+        assert settings["extra_body"]["chat_template_kwargs"] == {
+            "enable_thinking": False,
+            "clear_thinking": True,
+        }
+        assert "reasoning_effort" not in settings["extra_body"]
+
+    def test_make_model_settings_foundry_gpt5_uses_responses_fields(self):
+        """Test Azure Foundry GPT-5 gets Responses API reasoning summary fields."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.model_factory.ModelFactory.load_config",
+            return_value={
+                "foundry-gpt-5-4": {
+                    "type": "azure_foundry_openai",
+                    "name": "gpt-5-4",
+                    "context_length": 1_000_000,
+                }
+            },
+        ):
+            with patch(
+                "code_puppy.config.get_openai_reasoning_effort",
+                return_value="medium",
+            ):
+                with patch(
+                    "code_puppy.config.get_openai_reasoning_summary",
+                    return_value="auto",
+                ):
+                    with patch(
+                        "code_puppy.config.get_openai_verbosity",
+                        return_value="medium",
+                    ):
+                        settings = make_model_settings(
+                            "foundry-gpt-5-4", max_tokens=4096
+                        )
+
+        assert isinstance(settings, dict)
+        assert settings["openai_reasoning_effort"] == "medium"
+        assert settings["openai_reasoning_summary"] == "auto"
+        assert settings["openai_text_verbosity"] == "medium"
         assert settings.get("extra_body") is None
 
     def test_make_model_settings_claude_has_temperature(self):
@@ -187,80 +351,167 @@ class TestMakeModelSettings:
 
 
 class TestOpus46EffortSetting:
-    """Test the effort setting for Opus 4-6 models.
+    """Tests for the effort setting + adaptive/enabled routing.
 
-    The Anthropic API expects effort as a separate top-level parameter:
-        output_config: {"effort": "high"}
-    Since pydantic-ai doesn't natively support output_config yet,
-    we inject it via extra_body which gets merged into the HTTP request.
+    Two orthogonal facts (verified against real API endpoints):
+
+    1. Adaptive-supporting Claude models (Opus 4.6/4.7/4.8, Sonnet 4.6,
+       Sonnet 5, Fable 5) accept ``thinking.type = "adaptive"`` and
+       optionally ``output_config.effort`` alongside it. Classic Claude
+       models (Sonnet 4.5 and earlier) reject both.
+    2. Code Puppy's internal ``"adaptive"`` mode is not itself a wire
+       value; the resolver picks the wire shape (``adaptive`` vs
+       ``enabled``) based on the target model.
     """
 
-    def test_opus_46_gets_effort_in_extra_body(self):
-        """Opus 4-6 should inject effort via extra_body.output_config."""
-        from code_puppy.model_factory import make_model_settings
-
-        settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
-        extra_body = settings.get("extra_body", {})
-        assert "output_config" in extra_body
-        assert "effort" in extra_body["output_config"]
-
-    def test_opus_46_effort_default_is_high(self):
-        """Default effort for Opus 4-6 should be 'high'."""
-        from code_puppy.model_factory import make_model_settings
-
-        settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
-        assert settings["extra_body"]["output_config"]["effort"] == "high"
-
-    def test_opus_46_effort_user_override(self):
-        """User-configured effort value should be respected."""
-        from code_puppy.model_factory import make_model_settings
-
-        with patch(
-            "code_puppy.config.get_effective_model_settings",
-            return_value={"effort": "low", "extended_thinking": "adaptive"},
-        ):
-            settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
-            assert settings["extra_body"]["output_config"]["effort"] == "low"
-
-    def test_opus_46_reverse_name_also_works(self):
-        """claude-4-6-opus variant should also get effort."""
-        from code_puppy.model_factory import make_model_settings
-
-        settings = make_model_settings("claude-4-6-opus", max_tokens=4096)
-        extra_body = settings.get("extra_body", {})
-        assert "output_config" in extra_body
-        assert "effort" in extra_body["output_config"]
-
-    def test_non_opus_46_does_not_get_effort(self):
-        """Non Opus 4-6 Claude models should NOT have extra_body.output_config."""
-        from code_puppy.model_factory import make_model_settings
-
-        settings = make_model_settings("claude-sonnet-4-20250514", max_tokens=4096)
-        extra_body = settings.get("extra_body", {})
-        assert "output_config" not in extra_body
-
-    def test_opus_45_does_not_get_effort(self):
-        """Opus 4-5 should NOT have effort — it's 4-6 only."""
-        from code_puppy.model_factory import make_model_settings
-
-        settings = make_model_settings("claude-opus-4-5", max_tokens=4096)
-        extra_body = settings.get("extra_body", {})
-        assert "output_config" not in extra_body
-
-    def test_opus_46_thinking_type_is_adaptive_by_default(self):
-        """Opus 4-6 should default to adaptive thinking (from previous change)."""
+    def test_opus_46_injects_output_config_effort_on_adaptive(self):
+        """Opus 4-6 default -> adaptive shape + output_config.effort."""
         from code_puppy.model_factory import make_model_settings
 
         settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
         assert settings["anthropic_thinking"]["type"] == "adaptive"
+        extra_body = settings.get("extra_body", {}) or {}
+        assert extra_body.get("output_config", {}).get("effort") == "high"
 
-    def test_opus_46_effort_not_in_anthropic_thinking(self):
-        """Effort should NOT be inside anthropic_thinking — it's a separate param."""
+    def test_classic_sonnet_does_not_get_output_config(self):
+        """Classic Sonnet -> enabled shape, no output_config injection."""
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("claude-sonnet-4-5", max_tokens=4096)
+        assert settings["anthropic_thinking"]["type"] == "enabled"
+        extra_body = settings.get("extra_body", {}) or {}
+        assert "output_config" not in extra_body
+
+    def test_opus_45_does_not_get_output_config(self):
+        """Opus 4-5 is classic-shape (not in the adaptive-supporting set)."""
+        from code_puppy.model_factory import make_model_settings
+
+        settings = make_model_settings("claude-opus-4-5", max_tokens=4096)
+        extra_body = settings.get("extra_body", {}) or {}
+        assert "output_config" not in extra_body
+
+    def test_opus_46_effort_not_nested_in_anthropic_thinking(self):
+        """Effort belongs in extra_body.output_config, NOT anthropic_thinking."""
         from code_puppy.model_factory import make_model_settings
 
         settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
-        thinking = settings.get("anthropic_thinking", {})
-        assert "effort" not in thinking
+        assert "effort" not in settings.get("anthropic_thinking", {})
+
+    def test_opus_4_7_adaptive_thinking_adds_summary_display(self):
+        """Opus 4.7 under adaptive: wire type=adaptive + display=summarized."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.config.get_effective_model_settings",
+            return_value={"extended_thinking": "adaptive"},
+        ):
+            settings = make_model_settings("claude-opus-4-7", max_tokens=4096)
+        assert settings["anthropic_thinking"]["type"] == "adaptive"
+        assert settings["anthropic_thinking"]["display"] == "summarized"
+
+    def test_opus_4_6_adaptive_thinking_no_display(self):
+        """Opus 4-6 gets adaptive but no display (only 4.7+ gets summary)."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.config.get_effective_model_settings",
+            return_value={"extended_thinking": "adaptive"},
+        ):
+            settings = make_model_settings("claude-opus-4-6", max_tokens=4096)
+        assert settings["anthropic_thinking"]["type"] == "adaptive"
+        assert "display" not in settings["anthropic_thinking"]
+
+    def test_adaptive_forced_on_classic_model_gets_downgraded(self):
+        """Regression: adaptive on a classic-only model must NOT leak.
+
+        Reporter's original scenario: a Sonnet 4-5 variant with
+        ``extended_thinking="adaptive"`` set. Pre-fix this produced
+        ``type: "adaptive"`` on the wire and Anthropic returned HTTP 400
+        (``Input tag 'adaptive' does not match any of the expected tags:
+        'disabled', 'enabled'``). Post-fix it coerces to type:enabled.
+        """
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.config.get_effective_model_settings",
+            return_value={"extended_thinking": "adaptive"},
+        ):
+            settings = make_model_settings("claude-sonnet-4-5", max_tokens=4096)
+        thinking = settings["anthropic_thinking"]
+        assert thinking["type"] == "enabled"
+        assert "budget_tokens" in thinking
+
+    def test_enabled_forced_on_adaptive_only_model_gets_upgraded(self):
+        """Regression (opposite direction): enabled on an adaptive-only model.
+
+        Opus 4.7 rejects ``thinking.type="enabled"`` with a different HTTP 400
+        (``"thinking.type.enabled" is not supported for this model. Use
+        adaptive.``). The resolver must upgrade enabled -> adaptive shape.
+        """
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.config.get_effective_model_settings",
+            return_value={"extended_thinking": "enabled"},
+        ):
+            settings = make_model_settings("claude-opus-4-7", max_tokens=4096)
+        assert settings["anthropic_thinking"]["type"] == "adaptive"
+
+    def test_no_combination_ever_produces_wire_invalid_type(self):
+        """Fuzz: every mode x model combination yields a wire-valid type."""
+        from code_puppy.model_factory import make_model_settings
+
+        for mode in ("enabled", "adaptive"):
+            for model in (
+                "claude-opus-4-6",
+                "claude-opus-4-7",
+                "claude-opus-4-8",
+                "claude-sonnet-4-6",
+                "claude-sonnet-5",
+                "claude-4-5-sonnet",
+                "claude-sonnet-4-5",
+                "claude-3-5-sonnet",
+            ):
+                with patch(
+                    "code_puppy.config.get_effective_model_settings",
+                    return_value={"extended_thinking": mode},
+                ):
+                    settings = make_model_settings(model, max_tokens=4096)
+                wire_type = settings.get("anthropic_thinking", {}).get("type")
+                assert wire_type in ("enabled", "adaptive", "disabled"), (
+                    f"leak: mode={mode!r} model={model!r} wire_type={wire_type!r}"
+                )
+
+    def test_off_modes_omit_anthropic_thinking_entirely(self):
+        """Companion fuzz: 'off'/'disabled'/None must NOT emit thinking at all.
+
+        The resolver returns None for these modes; the factory must translate
+        that to 'omit anthropic_thinking from the settings dict', not
+        'emit an empty dict'. Empty dicts have been known to serialize as
+        ``"thinking": {}`` on the wire and get their own validation errors.
+        """
+        from code_puppy.model_factory import make_model_settings
+
+        for mode in ("off", "disabled", None):
+            for model in (
+                "claude-opus-4-7",
+                "claude-sonnet-4-5",
+                "claude-3-5-sonnet",
+            ):
+                with patch(
+                    "code_puppy.config.get_effective_model_settings",
+                    return_value={"extended_thinking": mode},
+                ):
+                    settings = make_model_settings(model, max_tokens=4096)
+                assert "anthropic_thinking" not in settings, (
+                    f"leak: mode={mode!r} model={model!r} still emitted "
+                    f"anthropic_thinking={settings.get('anthropic_thinking')!r}"
+                )
+                # And no orphaned output_config.effort either.
+                extra_body = settings.get("extra_body") or {}
+                assert "output_config" not in extra_body, (
+                    f"orphan output_config: mode={mode!r} model={model!r}"
+                )
 
 
 class TestZaiChatModel:
@@ -751,8 +1002,13 @@ class TestClaudeCodeModel:
                                     with patch(
                                         "pydantic_ai.models.anthropic.AnthropicModel"
                                     ):
+                                        # NOTE: plugin reads via get_all_model_settings
+                                        # (not get_effective_model_settings) because fast
+                                        # mode / interleaved_thinking aren't in the core
+                                        # supported_settings allowlist. See
+                                        # fast_mode.FAST_SETTING_KEY for rationale.
                                         with patch(
-                                            "code_puppy.config.get_effective_model_settings",
+                                            "code_puppy.config.get_all_model_settings",
                                             return_value={
                                                 "interleaved_thinking": False
                                             },
@@ -881,7 +1137,7 @@ class TestProviderIdentityResolution:
             == "claude_code"
         )
         assert resolve_provider_identity("openrouter-foo", {}) == "openrouter"
-        assert resolve_provider_identity("chatgpt-gpt-5", {}) == "chatgpt"
+        assert resolve_provider_identity("codex-gpt-5", {}) == "chatgpt"
         assert (
             resolve_provider_identity("custom-model", {"type": "custom_openai"})
             == "custom_openai"
@@ -1155,30 +1411,34 @@ class TestCerebrasModel:
             assert model is None
             mock_warn.assert_called()
 
-    def test_cerebras_zai_model_profile(self):
-        """Test ZaiCerebrasProvider model_profile for zai models."""
+    def test_cerebras_no_custom_endpoint(self):
+        """Test cerebras model without custom_endpoint uses env API key."""
         from code_puppy.model_factory import ModelFactory
 
         config = {
-            "zai-cerebras": {
+            "cerebras-direct": {
                 "type": "cerebras",
-                "name": "zai-qwen-coder",
-                "custom_endpoint": {
-                    "url": "https://api.cerebras.ai",
-                    "api_key": "cerebras-key",
-                },
+                "name": "llama-4-scout-17b",
             }
         }
 
-        # Need to mock at a lower level since CerebrasProvider validates http_client type
-        with patch("code_puppy.model_factory.create_async_client") as mock_create:
-            # Return None to skip actual client creation
-            mock_create.return_value = None
-            with patch("code_puppy.model_factory.CerebrasProvider"):
-                with patch("code_puppy.model_factory.OpenAIChatModel") as mock_model:
-                    ModelFactory.get_model("zai-cerebras", config)
-                    # Model should be created with provider
-                    mock_model.assert_called_once()
+        with patch.dict(os.environ, {"CEREBRAS_API_KEY": "test-key"}):
+            with patch(
+                "code_puppy.model_factory.create_async_client"
+            ) as mock_create_client:
+                with patch("code_puppy.model_factory.CerebrasProvider"):
+                    with patch(
+                        "code_puppy.model_factory.OpenAIChatModel"
+                    ) as mock_model:
+                        ModelFactory.get_model("cerebras-direct", config)
+                        mock_model.assert_called_once()
+                        # Verify 3rd party header was added
+                        call_args = mock_create_client.call_args
+                        headers = call_args[1]["headers"]
+                        assert (
+                            headers.get("X-Cerebras-3rd-Party-Integration")
+                            == "code-puppy"
+                        )
 
 
 class TestOpenAICodexModels:
@@ -1205,12 +1465,39 @@ class TestOpenAICodexModels:
                         # Should use OpenAIResponsesModel, not OpenAIChatModel
                         mock_responses.assert_called_once()
 
-    def test_custom_openai_chatgpt_codex(self):
-        """Test chatgpt-gpt-5-codex uses OpenAIResponsesModel."""
+    def test_custom_openai_explicit_responses_api(self):
+        """Test arbitrary custom model keys can select the Responses API."""
         from code_puppy.model_factory import ModelFactory
 
         config = {
-            "chatgpt-gpt-5-codex": {
+            "my-reasoning-proxy": {
+                "type": "custom_openai_responses",
+                "name": "gpt-5.5",
+                "custom_endpoint": {
+                    "url": "https://proxy.example.com/v1",
+                    "headers": {"x-api-key": "secret"},
+                },
+            }
+        }
+
+        with patch("code_puppy.model_factory.create_async_client") as mock_client:
+            with patch("code_puppy.model_factory.make_openai_provider"):
+                with patch(
+                    "code_puppy.model_factory.OpenAIResponsesModel"
+                ) as mock_responses:
+                    with patch("code_puppy.model_factory.OpenAIChatModel") as mock_chat:
+                        ModelFactory.get_model("my-reasoning-proxy", config)
+
+        mock_responses.assert_called_once_with(model_name="gpt-5.5", provider=ANY)
+        mock_chat.assert_not_called()
+        assert mock_client.call_args.kwargs["headers"] == {"x-api-key": "secret"}
+
+    def test_custom_openai_chatgpt_codex(self):
+        """Test legacy codex-gpt-5-codex uses OpenAIResponsesModel."""
+        from code_puppy.model_factory import ModelFactory
+
+        config = {
+            "codex-gpt-5-codex": {
                 "type": "custom_openai",
                 "name": "gpt-5-codex",
                 "custom_endpoint": {
@@ -1224,7 +1511,7 @@ class TestOpenAICodexModels:
                 with patch(
                     "code_puppy.model_factory.OpenAIResponsesModel"
                 ) as mock_responses:
-                    ModelFactory.get_model("chatgpt-gpt-5-codex", config)
+                    ModelFactory.get_model("codex-gpt-5-codex", config)
                     mock_responses.assert_called_once()
 
 

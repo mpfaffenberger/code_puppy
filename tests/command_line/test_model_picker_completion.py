@@ -11,7 +11,7 @@ class TestLoadModelNames:
         from code_puppy.command_line.model_picker_completion import load_model_names
 
         with patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
+            "code_puppy.command_line.model_picker_completion._load_models_config",
             return_value={"gpt-4": {}, "claude-3": {}},
         ):
             result = load_model_names()
@@ -51,7 +51,7 @@ class TestModelNameCompleter:
         from code_puppy.command_line.model_picker_completion import ModelNameCompleter
 
         with patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
+            "code_puppy.command_line.model_picker_completion._load_models_config",
             return_value={"gpt-4": {}},
         ):
             c = ModelNameCompleter(trigger="/model")
@@ -63,8 +63,11 @@ class TestModelNameCompleter:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
-                return_value={"gpt-4": {}, "claude-3": {}},
+                "code_puppy.command_line.model_picker_completion._load_models_config",
+                return_value={
+                    "gpt-4": {"description": "Fast all-round model"},
+                    "claude-3": {"description": "Deep reasoning model"},
+                },
             ),
             patch(
                 "code_puppy.command_line.model_picker_completion.get_active_model",
@@ -74,17 +77,42 @@ class TestModelNameCompleter:
             c = ModelNameCompleter(trigger="/model")
             completions = list(c.get_completions(self._make_doc("/model "), None))
             assert len(completions) == 2
-            # Check that the active model has "(selected)" meta
-            metas = {c.text: str(c.display_meta) for c in completions}
-            assert "selected" in metas["gpt-4"]
-            assert "selected" not in metas["claude-3"]
+            metas = {
+                completion.text: str(completion.display_meta)
+                for completion in completions
+            }
+            assert "✓" in metas["gpt-4"]
+            assert "Fast all-round model" in metas["gpt-4"]
+            assert "Deep reasoning model" in metas["claude-3"]
+
+    def test_uses_fallback_description_when_missing(self):
+        from code_puppy.command_line.model_picker_completion import ModelNameCompleter
+
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion._load_models_config",
+                return_value={"gpt-4": {}, "claude-3": {"description": ""}},
+            ),
+            patch(
+                "code_puppy.command_line.model_picker_completion.get_active_model",
+                return_value="gpt-4",
+            ),
+        ):
+            c = ModelNameCompleter(trigger="/model")
+            completions = list(c.get_completions(self._make_doc("/model "), None))
+            metas = {
+                completion.text: str(completion.display_meta)
+                for completion in completions
+            }
+            assert "No description available." in metas["gpt-4"]
+            assert "No description available." in metas["claude-3"]
 
     def test_filters_by_prefix(self):
         from code_puppy.command_line.model_picker_completion import ModelNameCompleter
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}, "claude-3": {}},
             ),
             patch(
@@ -163,7 +191,7 @@ class TestUpdateModelInInput:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -182,7 +210,7 @@ class TestUpdateModelInInput:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -205,7 +233,7 @@ class TestUpdateModelInInput:
         )
 
         with patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
+            "code_puppy.command_line.model_picker_completion._load_models_config",
             return_value={"gpt-4": {}},
         ):
             assert update_model_in_input("/model xyz") is None
@@ -216,7 +244,7 @@ class TestUpdateModelInInput:
         )
 
         with patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
+            "code_puppy.command_line.model_picker_completion._load_models_config",
             return_value={"gpt-4": {}},
         ):
             assert update_model_in_input("/m xyz") is None
@@ -228,7 +256,7 @@ class TestUpdateModelInInput:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -380,6 +408,94 @@ class TestModelSelectionMenu:
         assert "Clear filter" in rendered
 
 
+def _key_tuple(binding) -> tuple:
+    """Normalise a prompt_toolkit binding's keys into plain strings.
+
+    Control keys / special keys are ``Keys`` enum members whose ``.value`` is
+    the canonical string ('c-e', '<any>', ...); literal characters are plain
+    strings already.
+    """
+    return tuple(getattr(k, "value", k) for k in binding.keys)
+
+
+async def _capture_key_bindings(menu):
+    """Run the menu with the prompt_toolkit Application stubbed out and return
+    the KeyBindings object the menu registered.
+
+    The real bindings are built *inside* ``run_async`` and handed to a fresh
+    ``Application``; we intercept that Application so nothing interactive ever
+    launches.
+    """
+    from code_puppy.command_line import model_picker_completion
+
+    captured = {}
+
+    class _FakeApp:
+        def __init__(self, *args, **kwargs):
+            captured["kb"] = kwargs.get("key_bindings")
+
+        async def run_async(self):  # no-op: exit immediately, result stays None
+            return None
+
+        def exit(self, *args, **kwargs):
+            pass
+
+        def invalidate(self):
+            pass
+
+    with patch.object(model_picker_completion, "Application", _FakeApp):
+        await menu.run_async()
+
+    return captured["kb"]
+
+
+class TestModelSelectionMenuKeybindings:
+    """Footgun guard: editing credentials must NOT shadow type-to-filter.
+
+    The edit-credentials action should live on Ctrl+E ('c-e'). If plain 'e' is
+    bound to it, the more-specific binding wins over the '<any>' filter handler
+    and you can never type the letter 'e' to filter models (deepseek,
+    claude-code, byteplus, ... all contain 'e').
+    """
+
+    @pytest.mark.asyncio
+    async def test_edit_credentials_bound_to_ctrl_e(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(["deepseek", "claude-code", "byteplus"])
+
+        kb = await _capture_key_bindings(menu)
+        all_keys = [_key_tuple(b) for b in kb.bindings]
+
+        assert ("c-e",) in all_keys, (
+            f"edit-credentials must be bound to Ctrl+E; bound keys: {all_keys}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_plain_e_not_bound_so_it_reaches_filter(self):
+        from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
+
+        with patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="missing-model",
+        ):
+            menu = ModelSelectionMenu(["deepseek", "claude-code", "byteplus"])
+
+        kb = await _capture_key_bindings(menu)
+        all_keys = [_key_tuple(b) for b in kb.bindings]
+
+        # The '<any>' handler must still be present to do the filtering.
+        assert ("<any>",) in all_keys, f"missing type-to-filter handler: {all_keys}"
+        # Plain 'e' must NOT be bound, or it shadows '<any>' and breaks filtering.
+        assert ("e",) not in all_keys, (
+            f"plain 'e' is bound and shadows type-to-filter; bound keys: {all_keys}"
+        )
+
+
 class TestInteractiveModelPicker:
     @pytest.mark.asyncio
     async def test_sets_awaiting_user_input_around_picker(self):
@@ -413,7 +529,7 @@ class TestGetInputWithModelCompletion:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -436,7 +552,7 @@ class TestGetInputWithModelCompletion:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -463,7 +579,7 @@ class TestGetInputWithModelCompletion:
         hfile = str(tmp_path / "history.txt")
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={},
             ),
             patch(
@@ -488,7 +604,7 @@ class TestGetInputWithModelCompletion:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -515,7 +631,7 @@ class TestGetInputWithModelCompletion:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(
@@ -532,7 +648,7 @@ class TestGetInputWithModelCompletion:
 
         with (
             patch(
-                "code_puppy.model_factory.ModelFactory.load_config",
+                "code_puppy.command_line.model_picker_completion._load_models_config",
                 return_value={"gpt-4": {}},
             ),
             patch(

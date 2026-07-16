@@ -135,7 +135,7 @@ async def wait_for_load_state(
     """Wait for page to reach a specific load state."""
     group_id = generate_group_id("browser_wait_for_load", f"{state}_{timeout}")
     emit_info(
-        f"BROWSER WAIT FOR LOAD ⏱️ state={state} timeout={timeout}ms",
+        f"BROWSER WAIT FOR LOAD state={state} timeout={timeout}ms",
         message_group=group_id,
     )
     try:

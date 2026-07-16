@@ -143,7 +143,7 @@ class TestManagedMCPServerInit:
             server = ManagedMCPServer(config)
 
         assert server._state == ServerState.STOPPED
-        assert server._enabled is False  # Always starts disabled
+        assert server._enabled is True  # Reflects ServerConfig.enabled (default True)
         assert server._quarantine_until is None
         assert server._start_time is None
         assert server._stop_time is None
@@ -201,6 +201,7 @@ class TestGetPydanticServer:
             id="test-id",
             name="test-server",
             type="sse",
+            enabled=False,
             config={"url": "http://localhost:8080"},
         )
 
@@ -208,7 +209,7 @@ class TestGetPydanticServer:
             mock_sse.return_value = MagicMock()
             server = ManagedMCPServer(config)
 
-        # Server starts disabled by default
+        # Explicitly disabled via ServerConfig.enabled=False
         assert server._enabled is False
 
         with pytest.raises(RuntimeError, match="disabled or quarantined"):
@@ -358,6 +359,17 @@ class TestCreateServerSSE:
 class TestCreateServerStdio:
     """Tests for STDIO server creation."""
 
+    @pytest.fixture(autouse=True)
+    def _no_inherited_ca_bundle(self):
+        """Default the CA-bundle inheritance off so the env assertions below
+        aren't perturbed by a host/CI that has SSL_CERT_FILE set. The
+        dedicated tests at the end re-enable it explicitly."""
+        with patch(
+            "code_puppy.mcp_.managed_server.get_cert_bundle_path",
+            return_value=None,
+        ):
+            yield
+
     def test_stdio_requires_command(self):
         """Test that STDIO server requires command in config."""
         config = ServerConfig(
@@ -478,6 +490,54 @@ class TestCreateServerStdio:
 
             call_kwargs = mock_stdio.call_args.kwargs
             assert call_kwargs["timeout"] == 120
+
+    # -- CA bundle (SSL_CERT_FILE) inheritance into the child env -------------
+    # A stdio subprocess doesn't inherit our environment (MCPServerStdio only
+    # forwards the env dict we pass), so our resolved CA bundle must be copied
+    # into it or the child fails HTTPS behind a TLS-intercepting proxy.
+
+    @staticmethod
+    def _stdio_env(ca_bundle, inner_config):
+        """Build a stdio server with get_cert_bundle_path stubbed, return the
+        env dict handed to the child."""
+        config = ServerConfig(
+            id="test-id", name="test-server", type="stdio", config=inner_config
+        )
+        with (
+            patch(
+                "code_puppy.mcp_.managed_server.get_cert_bundle_path",
+                return_value=ca_bundle,
+            ),
+            patch(
+                "code_puppy.mcp_.managed_server.BlockingMCPServerStdio"
+            ) as mock_stdio,
+        ):
+            mock_stdio.return_value = MagicMock()
+            ManagedMCPServer(config)
+        return mock_stdio.call_args.kwargs["env"]
+
+    def test_bundle_injected_when_resolved(self):
+        env = self._stdio_env("/tmp/ca.pem", {"command": "uvx", "args": ["x"]})
+        assert env["SSL_CERT_FILE"] == "/tmp/ca.pem"
+        assert env["REQUESTS_CA_BUNDLE"] == "/tmp/ca.pem"
+
+    def test_bundle_merges_with_config_env(self):
+        env = self._stdio_env(
+            "/tmp/ca.pem",
+            {"command": "uvx", "args": ["x"], "env": {"MY_TOKEN": "secret"}},
+        )
+        assert env["MY_TOKEN"] == "secret"  # config env preserved
+        assert env["SSL_CERT_FILE"] == "/tmp/ca.pem"
+
+    def test_config_env_pin_wins(self):
+        env = self._stdio_env(
+            "/tmp/ca.pem",
+            {"command": "uvx", "args": ["x"], "env": {"SSL_CERT_FILE": "/pinned.pem"}},
+        )
+        assert env["SSL_CERT_FILE"] == "/pinned.pem"  # user choice wins
+
+    def test_no_bundle_leaves_env_untouched(self):
+        assert self._stdio_env(None, {"command": "uvx", "args": ["x"]}) is None
 
     def test_stdio_with_read_timeout(self):
         """Test STDIO server with read_timeout."""
@@ -677,6 +737,7 @@ class TestEnableDisable:
             id="test-id",
             name="test-server",
             type="sse",
+            enabled=False,
             config={"url": "http://localhost:8080"},
         )
 
@@ -685,7 +746,7 @@ class TestEnableDisable:
             server = ManagedMCPServer(config)
 
         assert server._state == ServerState.STOPPED
-        assert server._enabled is False
+        assert server._enabled is False  # Explicitly disabled via config
 
         server.enable()
 
@@ -721,6 +782,7 @@ class TestEnableDisable:
             id="test-id",
             name="test-server",
             type="sse",
+            enabled=False,
             config={"url": "http://localhost:8080"},
         )
 
@@ -728,7 +790,7 @@ class TestEnableDisable:
             mock_sse.return_value = MagicMock()
             server = ManagedMCPServer(config)
 
-        assert server.is_enabled() is False
+        assert server.is_enabled() is False  # Explicitly disabled via config
         server.enable()
         assert server.is_enabled() is True
         server.disable()
@@ -806,6 +868,7 @@ class TestQuarantine:
             id="test-id",
             name="test-server",
             type="sse",
+            enabled=False,
             config={"url": "http://localhost:8080"},
         )
 
@@ -813,7 +876,7 @@ class TestQuarantine:
             mock_sse.return_value = MagicMock()
             server = ManagedMCPServer(config)
 
-        # Don't enable - stay disabled
+        # Explicitly disabled via config - stays disabled
         server._quarantine_until = datetime.now() - timedelta(seconds=1)
         server._state = ServerState.QUARANTINED
 
@@ -1014,6 +1077,7 @@ class TestGetStatus:
             id="test-id",
             name="test-server",
             type="sse",
+            enabled=False,
             config={"url": "http://localhost:8080"},
         )
 
@@ -1027,7 +1091,7 @@ class TestGetStatus:
         assert status["name"] == "test-server"
         assert status["type"] == "sse"
         assert status["state"] == "stopped"
-        assert status["enabled"] is False
+        assert status["enabled"] is False  # Explicitly disabled via config
         assert status["quarantined"] is False
         assert status["quarantine_remaining_seconds"] is None
         assert status["uptime_seconds"] is None

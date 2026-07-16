@@ -1,6 +1,12 @@
-from code_puppy.callbacks import on_register_tools
+import os
+
+from code_puppy.callbacks import on_register_agent_tools, on_register_tools
 from code_puppy.messaging import emit_warning
-from code_puppy.tools.agent_tools import register_invoke_agent, register_list_agents
+from code_puppy.tools.agent_tools import register_list_agents
+from code_puppy.tools.subagent_invocation import (
+    register_invoke_agent,
+    register_invoke_agent_with_model,
+)
 from code_puppy.tools.ask_user_question import register_ask_user_question
 
 # Browser automation tools
@@ -32,6 +38,14 @@ from code_puppy.tools.browser.browser_locators import (
     register_find_links,
     register_run_xpath_query,
 )
+from code_puppy.tools.browser.browser_page_snapshot import (
+    register_get_page_snapshot,
+)
+from code_puppy.tools.browser.browser_semantic_interactions import (
+    register_click_by_role,
+    register_click_by_text,
+    register_set_text_by_label,
+)
 from code_puppy.tools.browser.browser_navigation import (
     register_browser_go_back,
     register_browser_go_forward,
@@ -57,25 +71,6 @@ from code_puppy.tools.browser.browser_workflows import (
     register_read_workflow,
     register_save_workflow,
 )
-from code_puppy.tools.browser.terminal_command_tools import (
-    register_run_terminal_command,
-    register_send_terminal_keys,
-    register_wait_terminal_output,
-)
-from code_puppy.tools.browser.terminal_screenshot_tools import (
-    register_load_image,
-    register_terminal_compare_mockup,
-    register_terminal_read_output,
-    register_terminal_screenshot,
-)
-
-# Terminal automation tools
-from code_puppy.tools.browser.terminal_tools import (
-    register_check_terminal_server,
-    register_close_terminal,
-    register_open_terminal,
-    register_start_api_server,
-)
 from code_puppy.tools.command_runner import (
     register_agent_run_shell_command,
     register_agent_share_your_reasoning,
@@ -95,19 +90,8 @@ from code_puppy.tools.file_operations import (
     register_list_files,
     register_read_file,
 )
-
-# Scheduler tools
-from code_puppy.tools.scheduler_tools import (
-    register_scheduler_create_task,
-    register_scheduler_daemon_status,
-    register_scheduler_delete_task,
-    register_scheduler_list_tasks,
-    register_scheduler_run_task,
-    register_scheduler_start_daemon,
-    register_scheduler_stop_daemon,
-    register_scheduler_toggle_task,
-    register_scheduler_view_log,
-)
+from code_puppy.tools.image_tools import register_load_image
+from code_puppy.tools.model_tools import register_list_available_models
 from code_puppy.tools.skills_tools import (
     register_activate_skill,
     register_list_or_search_skills,
@@ -119,6 +103,8 @@ TOOL_REGISTRY = {
     # Agent Tools
     "list_agents": register_list_agents,
     "invoke_agent": register_invoke_agent,
+    "invoke_agent_with_model": register_invoke_agent_with_model,
+    "list_available_models": register_list_available_models,
     # File Operations
     "list_files": register_list_files,
     "read_file": register_read_file,
@@ -156,6 +142,11 @@ TOOL_REGISTRY = {
     "browser_xpath_query": register_run_xpath_query,
     "browser_find_buttons": register_find_buttons,
     "browser_find_links": register_find_links,
+    # Browser Semantic Interactions (accessibility-first, DOM progression)
+    "browser_page_snapshot": register_get_page_snapshot,
+    "browser_click_by_role": register_click_by_role,
+    "browser_click_by_text": register_click_by_text,
+    "browser_set_text_by_label": register_set_text_by_label,
     # Browser Element Interactions
     "browser_click": register_click_element,
     "browser_double_click": register_double_click_element,
@@ -180,35 +171,13 @@ TOOL_REGISTRY = {
     "browser_save_workflow": register_save_workflow,
     "browser_list_workflows": register_list_workflows,
     "browser_read_workflow": register_read_workflow,
-    # Terminal Connection Tools
-    "terminal_check_server": register_check_terminal_server,
-    "terminal_open": register_open_terminal,
-    "terminal_close": register_close_terminal,
-    "start_api_server": register_start_api_server,
-    # Terminal Command Execution Tools
-    "terminal_run_command": register_run_terminal_command,
-    "terminal_send_keys": register_send_terminal_keys,
-    "terminal_wait_output": register_wait_terminal_output,
-    # Terminal Screenshot Tools
-    "terminal_screenshot_analyze": register_terminal_screenshot,
-    "terminal_read_output": register_terminal_read_output,
-    "terminal_compare_mockup": register_terminal_compare_mockup,
+    # Image loading (used by browser/QA agents and friends)
     "load_image_for_analysis": register_load_image,
     # Skills Tools
     "activate_skill": register_activate_skill,
     "list_or_search_skills": register_list_or_search_skills,
     # Universal Constructor
     "universal_constructor": register_universal_constructor,
-    # Scheduler Tools
-    "scheduler_list_tasks": register_scheduler_list_tasks,
-    "scheduler_create_task": register_scheduler_create_task,
-    "scheduler_delete_task": register_scheduler_delete_task,
-    "scheduler_toggle_task": register_scheduler_toggle_task,
-    "scheduler_daemon_status": register_scheduler_daemon_status,
-    "scheduler_start_daemon": register_scheduler_start_daemon,
-    "scheduler_stop_daemon": register_scheduler_stop_daemon,
-    "scheduler_run_task": register_scheduler_run_task,
-    "scheduler_view_log": register_scheduler_view_log,
 }
 
 # Tools that expand into multiple tools for backward compatibility.
@@ -222,6 +191,26 @@ TOOL_EXPANSIONS: dict[str, list[str]] = {
 # Keep this for truly removed tools only; backward-compatible tool aliases
 # that still work should stay in TOOL_REGISTRY.
 REMOVED_LEGACY_TOOLS: set[str] = set()
+
+# Process-wide tool kill-switch (issue #182). Set by the builtin ``no_tools``
+# plugin when ``--no-tools`` is passed, or directly by wrappers that spawn
+# Code Puppy as a subprocess. An env var (not puppy.cfg) on purpose: it's
+# scoped to this process and never persists.
+NO_TOOLS_ENV_VAR = "CODE_PUPPY_NO_TOOLS"
+
+
+def tools_disabled() -> bool:
+    """True when the ``CODE_PUPPY_NO_TOOLS`` kill-switch is active.
+
+    When active, no tools are registered on any agent and no MCP toolsets
+    are attached — the model runs pure text-in/text-out.
+    """
+    return os.environ.get(NO_TOOLS_ENV_VAR, "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 
 def _load_plugin_tools() -> None:
@@ -304,7 +293,10 @@ def has_extended_thinking_active(model_name: str | None = None) -> bool:
 
 
 def register_tools_for_agent(
-    agent, tool_names: list[str], model_name: str | None = None
+    agent,
+    tool_names: list[str],
+    model_name: str | None = None,
+    agent_name: str | None = None,
 ):
     """Register specific tools for an agent based on tool names.
 
@@ -314,10 +306,32 @@ def register_tools_for_agent(
         model_name: Optional model name. Used to determine if certain tools
             (like agent_share_your_reasoning) should be skipped. If None,
             falls back to the current global model.
+        agent_name: Optional logical agent name (e.g. ``"code-puppy"``).
+            Passed to the ``register_agent_tools`` callback so plugins can
+            advertise tools per-agent if they want.
     """
     from code_puppy.config import get_universal_constructor_enabled
 
+    if tools_disabled():
+        # --no-tools / CODE_PUPPY_NO_TOOLS: register nothing at all. This
+        # also keeps tool schemas out of the request, trimming token usage.
+        return
+
     _load_plugin_tools()
+
+    # Plugin-advertised tools get unioned into the requested list. This is
+    # the companion to the ``register_tools`` hook that defines them — this
+    # one decides which agent gets which. Keeping it here means every
+    # ``register_tools_for_agent`` call site benefits without duplication.
+    plugin_extras = on_register_agent_tools(agent_name)
+    if plugin_extras:
+        seen = set(tool_names)
+        merged = list(tool_names)
+        for extra in plugin_extras:
+            if extra not in seen:
+                merged.append(extra)
+                seen.add(extra)
+        tool_names = merged
 
     # Expand compound tools (e.g. "edit_file" → three individual tools)
     expanded_tools: list[str] = []
