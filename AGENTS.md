@@ -136,6 +136,28 @@ logged); register only while the binding is meaningful so the armed-chord
 hint stays honest. Keys are single raw control characters -- prefer
 `Ctrl+<letter>` bytes; digits and F-keys are deliberately unsupported.
 
+## Internationalization (i18n)
+
+User-facing CLI/TUI strings are localizable via `code_puppy/i18n/`. See
+**`docs/I18N.md`** for the full guide (architecture, decisions, translator
+quickstart). Rules for new user-facing output (PUP-473):
+
+- **Wrap display strings** in `t("key", **params)` / `ngettext("key", n)`
+  (`from code_puppy.i18n import t, ngettext`). Keys are dotted IDs; catalogs
+  live in `code_puppy/i18n/locales/<locale>.json`. A missing key echoes the
+  key (never crashes).
+- **Interpolate with `{name}`** placeholders — do NOT build strings with
+  f-strings/concatenation, and do NOT rely on `str.format` semantics on
+  catalog text (attribute/index access and format specs are intentionally
+  unsupported; catalogs are untrusted input).
+- The single emit choke point (`messaging/message_queue.py::emit_message`)
+  resolves `i18n.lazy(...)` values; plain strings pass through unchanged.
+- **Model-facing system prompts are OUT of scope** — translating them changes
+  LLM behavior. Don't run them through the i18n seam.
+- Add extraction behind the pseudolocale/coverage CI gate
+  (`tests/i18n/test_i18n_coverage.py`): every translated key must exist in the
+  `en-US` source, and a pseudolocale run must emit only bracketed text.
+
 ## Rules
 
 1. **Plugins over core** — if a hook exists for it, use it

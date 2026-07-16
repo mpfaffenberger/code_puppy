@@ -15,6 +15,8 @@ from typing import Any, Dict, Optional, Union
 
 from rich.text import Text
 
+from code_puppy.i18n import LazyTranslation
+
 logger = logging.getLogger(__name__)
 
 
@@ -306,7 +308,18 @@ def get_buffered_startup_messages():
 
 
 def emit_message(message_type: MessageType, content: Any, **metadata):
-    """Convenience function to emit a message to the global queue."""
+    """Convenience function to emit a message to the global queue.
+
+    This is the single legacy choke point every ``emit_*`` helper funnels
+    through, so it's the natural i18n seam. If a call site passes a
+    :class:`~code_puppy.i18n.LazyTranslation` (from ``i18n.lazy(...)``), it is
+    resolved against the active locale here. Plain strings pass through
+    untouched, so existing call sites are unaffected. (Full render-time
+    deferral — respecting a locale switch *after* emit — lands with the
+    rich_renderer seam in PUP-485.)
+    """
+    if isinstance(content, LazyTranslation):
+        content = str(content)
     queue = get_global_queue()
     queue.emit_simple(message_type, content, **metadata)
 

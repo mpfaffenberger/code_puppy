@@ -1,0 +1,23 @@
+{
+  "startup.welcome": "\u00a1Bienvenido a Code Puppy, {name}!",
+  "startup.ready": "Listo para buscar c\u00f3digo. \ud83d\udc36",
+  "locale.set": "Idioma configurado a {locale}.",
+  "locale.current": "Idioma actual: {locale}",
+  "files.deleted": {
+    "one": "Se elimin\u00f3 {count} archivo.",
+    "other": "Se eliminaron {count} archivos."
+  },
+  "files.written": {
+    "one": "Se escribi\u00f3 {count} archivo.",
+    "other": "Se escribieron {count} archivos."
+  },
+  "error.generic": "Algo sali\u00f3 mal: {detail}",
+  "version.current": "Versi\u00f3n actual: {version}",
+  "version.latest": "\u00daltima versi\u00f3n: {version}",
+  "version.update_available": "Hay una nueva versi\u00f3n de code puppy disponible: {version}",
+  "version.please_update": "\u00a1Considera actualizar!",
+  "version.fetch_failed": "Error al obtener la versi\u00f3n: {error}",
+  "version.undetected": "No se pudo detectar la versi\u00f3n actual, usando un valor de reserva",
+  "confirm.yes": "S\u00ed",
+  "confirm.no": "No"
+}
