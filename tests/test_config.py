@@ -1031,3 +1031,125 @@ class TestStoredNameValidator:
     def test_rejects_whitespace_and_control(self):
         assert cp_config._is_valid_autosave_session_name("bad name") is False
         assert cp_config._is_valid_autosave_session_name("") is False
+
+
+class TestGetPortBase:
+    """Precedence for get_port_base: env var > puppy.cfg > default.
+
+    Also covers bounds validation and graceful skipping of invalid sources.
+    """
+
+    @patch("code_puppy.config.get_value")
+    def test_env_var_overrides_cfg(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = "9500"
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "9700")
+        assert cp_config.get_port_base() == 9700
+
+    @patch("code_puppy.config.get_value")
+    def test_cfg_used_when_no_env(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = "9500"
+        monkeypatch.delenv("CODE_PUPPY_PORT_BASE", raising=False)
+        assert cp_config.get_port_base() == 9500
+
+    @patch("code_puppy.config.get_value")
+    def test_default_when_nothing_set(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = None
+        monkeypatch.delenv("CODE_PUPPY_PORT_BASE", raising=False)
+        assert cp_config.get_port_base() == cp_config.DEFAULT_PORT_BASE
+
+    @patch("code_puppy.config.get_value")
+    def test_bad_env_value_skips_to_cfg(self, mock_get_value, monkeypatch):
+        # env is garbage -> should fall through to cfg, not crash
+        mock_get_value.return_value = "9200"
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "not-a-number")
+        assert cp_config.get_port_base() == 9200
+
+    @patch("code_puppy.config.get_value")
+    def test_bad_env_and_bad_cfg_uses_default(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = "also-not-a-number"
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "not-a-number")
+        assert cp_config.get_port_base() == cp_config.DEFAULT_PORT_BASE
+
+    @patch("code_puppy.config.get_value")
+    def test_whitespace_stripped(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = None
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "  9300  ")
+        assert cp_config.get_port_base() == 9300
+
+    @patch("code_puppy.config.get_value")
+    def test_empty_string_skipped(self, mock_get_value, monkeypatch):
+        # Empty env string shouldn't shadow puppy.cfg.
+        mock_get_value.return_value = "9400"
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "")
+        assert cp_config.get_port_base() == 9400
+
+    @patch("code_puppy.config.get_value")
+    def test_below_min_port_base_rejected(self, mock_get_value, monkeypatch):
+        # Privileged port (< 1024) -> skip and fall through.
+        mock_get_value.return_value = None
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "80")
+        assert cp_config.get_port_base() == cp_config.DEFAULT_PORT_BASE
+
+    @patch("code_puppy.config.get_value")
+    def test_above_max_port_base_rejected(self, mock_get_value, monkeypatch):
+        # port_base + PORT_PROBE_WIDTH would exceed 65535 -> skip.
+        mock_get_value.return_value = None
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", str(cp_config.MAX_PORT_BASE + 1))
+        assert cp_config.get_port_base() == cp_config.DEFAULT_PORT_BASE
+
+    @patch("code_puppy.config.get_value")
+    def test_exact_boundaries_accepted(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = None
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", str(cp_config.MIN_PORT_BASE))
+        assert cp_config.get_port_base() == cp_config.MIN_PORT_BASE
+
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", str(cp_config.MAX_PORT_BASE))
+        assert cp_config.get_port_base() == cp_config.MAX_PORT_BASE
+
+    def test_probe_width_keeps_top_port_valid(self):
+        # Regression guard: MAX_PORT_BASE + PORT_PROBE_WIDTH must fit in a
+        # 16-bit port.  If someone bumps PORT_PROBE_WIDTH without adjusting
+        # MAX_PORT_BASE this test will fail loudly.
+        assert cp_config.MAX_PORT_BASE + cp_config.PORT_PROBE_WIDTH <= 65535
+
+    def test_ensure_config_exists_seeds_port_base(self, mock_config_paths, monkeypatch):
+        """Fresh puppy.cfg should include port_base so users discover the knob."""
+        _, mock_cfg_file = mock_config_paths
+        monkeypatch.setattr(os.path, "exists", MagicMock(return_value=False))
+        monkeypatch.setattr(os.path, "isfile", MagicMock(return_value=False))
+        monkeypatch.setattr(os, "makedirs", MagicMock())
+        monkeypatch.setattr(
+            "builtins.input",
+            MagicMock(side_effect=lambda _: "stub"),
+        )
+
+        with patch("builtins.open", mock_open()):
+            config_parser = cp_config.ensure_config_exists()
+
+        assert config_parser.get(DEFAULT_SECTION_NAME, "port_base") == str(
+            cp_config.DEFAULT_PORT_BASE
+        )
+
+
+class TestResolvePortBase:
+    """CLI value takes highest priority, invalid CLI value falls through."""
+
+    @patch("code_puppy.config.get_value")
+    def test_cli_value_wins(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = "9500"
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "9700")
+        assert cp_config.resolve_port_base(cli_value="9100") == 9100
+        assert cp_config.resolve_port_base(cli_value=9100) == 9100
+
+    @patch("code_puppy.config.get_value")
+    def test_bad_cli_falls_through_to_env(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = None
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "9700")
+        # Non-integer CLI input must NOT crash -- next source wins.
+        assert cp_config.resolve_port_base(cli_value="garbage") == 9700
+
+    @patch("code_puppy.config.get_value")
+    def test_none_cli_defers_to_lower_layers(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = "9500"
+        monkeypatch.delenv("CODE_PUPPY_PORT_BASE", raising=False)
+        assert cp_config.resolve_port_base(cli_value=None) == 9500
