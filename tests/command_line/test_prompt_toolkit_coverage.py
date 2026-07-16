@@ -1476,9 +1476,10 @@ class TestClipboardCoverageAdditions:
         mock_result_img = MagicMock()
         call_count = [0]
 
+        # _safe_open_image now lives in image_utils; patch Image there.
         with (
-            patch("code_puppy.command_line.clipboard.PIL_AVAILABLE", True),
-            patch("code_puppy.command_line.clipboard.Image") as mock_img_mod,
+            patch("code_puppy.command_line.image_utils._PIL_AVAILABLE", True),
+            patch("code_puppy.command_line.image_utils.Image") as mock_img_mod,
         ):
             mock_img_mod.DecompressionBombError = type(
                 "DecompressionBombError", (Exception,), {}

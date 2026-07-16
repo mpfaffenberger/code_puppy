@@ -11,6 +11,8 @@ from typing import Iterable, List, Sequence
 
 from pydantic_ai import BinaryContent, DocumentUrl, ImageUrl
 
+from code_puppy.command_line.image_utils import normalize_image_bytes
+
 SUPPORTED_INLINE_SCHEMES = {"http", "https"}
 
 # Maximum path length to consider - conservative limit to avoid OS errors
@@ -341,6 +343,9 @@ def parse_prompt_attachments(prompt: str) -> ProcessedPrompt:
         except AttachmentParsingError:
             # Silently ignore unreadable attachments to reduce prompt noise
             continue
+        # Resize oversized images to match the same policy applied to clipboard
+        # pastes.  Non-image types and PIL-unavailable cases pass through unchanged.
+        data, media_type = normalize_image_bytes(data, media_type)
         attachments.append(
             PromptAttachment(
                 placeholder=detection.placeholder,

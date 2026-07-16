@@ -21,13 +21,19 @@ try:
     from PIL import Image, ImageGrab
 
     PIL_AVAILABLE = True
-    # SEC-CLIP-002: Protect against decompression bombs
-    # Set explicit limit (PIL default) to prevent memory exhaustion from malicious images
-    Image.MAX_IMAGE_PIXELS = 178956970
+    # Note: Image.MAX_IMAGE_PIXELS is set by image_utils on import (SEC-CLIP-002)
 except ImportError:
     PIL_AVAILABLE = False
     Image = None  # type: ignore[misc, assignment]
     ImageGrab = None  # type: ignore[misc, assignment]
+
+# Shared resize/verify helpers and limits — single source of truth.
+from code_puppy.command_line.image_utils import (  # noqa: E402
+    MAX_IMAGE_DIMENSION,
+    MAX_IMAGE_SIZE_BYTES,
+    _resize_image_if_needed,
+    _safe_open_image,
+)
 
 # Import BinaryContent for pydantic-ai integration
 try:
@@ -41,8 +47,6 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Constants
-MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10MB
-MAX_IMAGE_DIMENSION = 4096  # Max width/height for resize
 MAX_PENDING_IMAGES = (
     10  # SEC-CLIP-001: Limit pending images to prevent memory exhaustion
 )
@@ -51,41 +55,6 @@ CLIPBOARD_RATE_LIMIT_SECONDS: float = 0.5  # SEC-CLIP-004: Max 2 captures per se
 # Rate limiting state
 _last_clipboard_capture: float = 0.0
 
-
-def _safe_open_image(image_bytes: bytes) -> Optional["Image.Image"]:
-    """Safely open and verify an image from bytes.
-
-    Verifies image integrity to protect against malicious images.
-
-    Args:
-        image_bytes: Raw image bytes to open.
-
-    Returns:
-        PIL Image if valid, None if verification fails.
-    """
-    if not PIL_AVAILABLE or Image is None:
-        return None
-
-    try:
-        # First pass: verify integrity without fully loading
-        verify_image = Image.open(io.BytesIO(image_bytes))
-        verify_image.verify()  # Checks for corruption/malicious data
-
-        # Re-open after verify (verify() closes the image)
-        image = Image.open(io.BytesIO(image_bytes))
-        return image
-    except Image.DecompressionBombError as e:
-        logger.warning(f"Rejected decompression bomb image: {e}")
-        return None
-    except Image.UnidentifiedImageError as e:
-        logger.warning(f"Rejected unidentified image format: {e}")
-        return None
-    except OSError as e:
-        logger.warning(f"Rejected potentially malicious image: {e}")
-        return None
-    except Exception as e:
-        logger.warning(f"Failed to open/verify image: {type(e).__name__}: {e}")
-        return None
 
 
 def _check_linux_clipboard_tool() -> Optional[str]:
@@ -160,60 +129,6 @@ def _get_linux_clipboard_image() -> Optional[bytes]:
 
     return None
 
-
-def _resize_image_if_needed(image: "Image.Image", max_bytes: int) -> "Image.Image":
-    """Resize image if it exceeds max size when saved as PNG.
-
-    Args:
-        image: PIL Image to potentially resize.
-        max_bytes: Maximum allowed size in bytes.
-
-    Returns:
-        Original or resized image.
-    """
-    if Image is None:
-        return image
-
-    # Check current size
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG", optimize=True)
-    current_size = buffer.tell()
-
-    if current_size <= max_bytes:
-        return image
-
-    logger.info(
-        f"Image size ({current_size / 1024 / 1024:.2f}MB) exceeds limit "
-        f"({max_bytes / 1024 / 1024:.2f}MB), resizing..."
-    )
-
-    # Calculate scale factor to reduce size
-    # Rough estimate: size scales with area (width * height)
-    scale_factor = (max_bytes / current_size) ** 0.5 * 0.9  # 0.9 for safety margin
-
-    new_width = int(image.width * scale_factor)
-    new_height = int(image.height * scale_factor)
-
-    # Ensure we don't go below minimum dimensions
-    new_width = max(new_width, 100)
-    new_height = max(new_height, 100)
-
-    # Also cap at max dimension
-    if new_width > MAX_IMAGE_DIMENSION:
-        ratio = MAX_IMAGE_DIMENSION / new_width
-        new_width = MAX_IMAGE_DIMENSION
-        new_height = int(new_height * ratio)
-    if new_height > MAX_IMAGE_DIMENSION:
-        ratio = MAX_IMAGE_DIMENSION / new_height
-        new_height = MAX_IMAGE_DIMENSION
-        new_width = int(new_width * ratio)
-
-    resized = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-    logger.info(
-        f"Resized image from {image.width}x{image.height} to {new_width}x{new_height}"
-    )
-
-    return resized
 
 
 def has_image_in_clipboard() -> bool:

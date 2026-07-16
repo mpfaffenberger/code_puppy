@@ -757,7 +757,8 @@ class TestSafeOpenImageEdgeCases:
         mock_verified = MagicMock()
         mock_result = MagicMock()
 
-        with patch("code_puppy.command_line.clipboard.Image") as mock_img:
+        # _safe_open_image now lives in image_utils, so patch Image there.
+        with patch("code_puppy.command_line.image_utils.Image") as mock_img:
             mock_img.DecompressionBombError = RealImage.DecompressionBombError
             mock_img.UnidentifiedImageError = RealImage.UnidentifiedImageError
             mock_img.open.side_effect = [mock_verified, mock_result]

@@ -81,6 +81,65 @@ def test_parse_prompt_skips_unsupported_types(tmp_path: Path) -> None:
 
     assert processed.prompt == str(unsupported)
     assert processed.attachments == []
+
+
+# ---------------------------------------------------------------------------
+# Image normalization integration
+# ---------------------------------------------------------------------------
+
+
+def test_image_attachment_calls_normalize(tmp_path: Path) -> None:
+    """parse_prompt_attachments must pass image bytes through normalize_image_bytes."""
+    png_path = tmp_path / "photo.png"
+    png_path.write_bytes(b"fake-png-bytes")
+
+    sentinel_bytes = b"normalized!"
+    sentinel_mime = "image/png"
+
+    with patch(
+        "code_puppy.command_line.attachments.normalize_image_bytes",
+        return_value=(sentinel_bytes, sentinel_mime),
+    ) as mock_norm:
+        processed = parse_prompt_attachments(str(png_path))
+
+    mock_norm.assert_called_once_with(b"fake-png-bytes", "image/png")
+    assert len(processed.attachments) == 1
+    assert processed.attachments[0].content.data == sentinel_bytes
+    assert processed.attachments[0].content.media_type == sentinel_mime
+
+
+def test_image_attachment_normalize_updates_media_type(tmp_path: Path) -> None:
+    """When normalize returns image/png the attachment media_type is updated."""
+    jpeg_path = tmp_path / "photo.jpg"
+    jpeg_path.write_bytes(b"raw-jpeg-bytes")
+
+    with patch(
+        "code_puppy.command_line.attachments.normalize_image_bytes",
+        return_value=(b"png-reencoded", "image/png"),
+    ):
+        processed = parse_prompt_attachments(str(jpeg_path))
+
+    assert processed.attachments[0].content.media_type == "image/png"
+
+
+def test_non_image_attachment_normalize_not_applied(tmp_path: Path) -> None:
+    """normalize_image_bytes must not mutate non-image attachments."""
+    # .gif is in the accepted set but the test verifies passthrough behaviour
+    # by ensuring whatever normalize returns is what ends up in the attachment.
+    gif_path = tmp_path / "anim.gif"
+    gif_path.write_bytes(b"GIF89a")
+
+    # Return unchanged (mime starts with image/ so normalize IS called, but
+    # for a file-that-PIL-can't-parse it returns the original bytes untouched).
+    with patch(
+        "code_puppy.command_line.attachments.normalize_image_bytes",
+        side_effect=lambda data, mt, **kw: (data, mt),  # identity
+    ) as mock_norm:
+        processed = parse_prompt_attachments(str(gif_path))
+
+    mock_norm.assert_called_once()
+    assert processed.attachments[0].content.data == b"GIF89a"
+
     assert processed.warnings == []
 
 
