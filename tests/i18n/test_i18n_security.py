@@ -58,6 +58,33 @@ def test_bad_attribute_chain_does_not_raise(tmp_path):
     assert i18n.t("evil", n=5) == "{n.__class__.nope.also_nope}"
 
 
+def test_malformed_catalog_entries_are_skipped(tmp_path, caplog):
+    _catalog(
+        tmp_path,
+        "en-US",
+        {
+            "bad.scalar": 123,
+            "bad.plural_value": {"other": 456},
+            "bad.plural_missing_other": {"one": "Only one"},
+            "good.scalar": "Still valid",
+            "good.plural": {"one": "One file", "other": "{count} files"},
+        },
+    )
+
+    assert i18n.t("bad.scalar") == "bad.scalar"
+    assert i18n.ngettext("bad.plural_value", 2) == "bad.plural_value"
+    assert i18n.ngettext("bad.plural_missing_other", 1) == ("bad.plural_missing_other")
+    assert i18n.t("good.scalar") == "Still valid"
+    assert i18n.ngettext("good.plural", 2) == "2 files"
+    assert (
+        sum(
+            "Skipping malformed i18n entry" in record.message
+            for record in caplog.records
+        )
+        == 3
+    )
+
+
 # --- M1: format-spec width DoS is impossible ------------------------------
 def test_width_spec_is_not_expanded(tmp_path):
     _catalog(

@@ -108,6 +108,20 @@ def _search_dirs() -> List[str]:
     return [_BUILTIN_DIR, *_extra_dirs]
 
 
+def _is_valid_entry(entry: object) -> bool:
+    """Return whether an untrusted catalog value matches the public schema."""
+    if isinstance(entry, str):
+        return True
+    return (
+        isinstance(entry, dict)
+        and isinstance(entry.get("other"), str)
+        and all(
+            isinstance(category, str) and isinstance(text, str)
+            for category, text in entry.items()
+        )
+    )
+
+
 def _load_file(path: str) -> Catalog:
     try:
         with open(path, "r", encoding="utf-8") as fh:
@@ -120,7 +134,14 @@ def _load_file(path: str) -> Catalog:
     if not isinstance(data, dict):
         logger.warning("i18n catalog %s is not a JSON object; skipping", path)
         return {}
-    return data
+
+    valid: Catalog = {}
+    for key, entry in data.items():
+        if _is_valid_entry(entry):
+            valid[key] = entry
+        else:
+            logger.warning("Skipping malformed i18n entry %r in catalog %s", key, path)
+    return valid
 
 
 def load_catalog(locale: str) -> Catalog:
