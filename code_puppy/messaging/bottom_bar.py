@@ -1,9 +1,9 @@
 """Persistent bottom prompt bar via a terminal scroll region (DECSTBM).
 
-Reserves the bottom rows of the terminal (3 base rows + up to
-``PANEL_MAX_ROWS`` sub-agent panel rows):
+Reserves the bottom rows of the terminal (3 base rows plus one row for
+every active sub-agent panel entry):
 
-    rows H-2-n..H-3  sub-agent panel (n = 0..4 rows, via set_panel_lines)
+    rows H-2-n..H-3  sub-agent panel (n = number of panel rows, via set_panel_lines)
     row  H-2         status line (token/context info, via set_status)
     row  H-1         prompt line  (the always-available input line)
     row  H           blank margin
@@ -99,9 +99,6 @@ logger = logging.getLogger(__name__)
 #: prompt). The status row (below the prompt) adds one more, but only
 #: while it has content — an empty status row isn't reserved at all.
 RESERVED_ROWS = 2
-
-#: Maximum extra rows for the sub-agent panel (above the status row).
-PANEL_MAX_ROWS = 4
 
 #: Maximum rows for the completion popup (directly BELOW the prompt).
 POPUP_MAX_ROWS = 6
@@ -246,10 +243,10 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
     def set_panel_lines(self, lines: Optional[list]) -> None:
         """Set the sub-agent panel rows (above the status row).
 
-        Accepts up to ``PANEL_MAX_ROWS`` rows (extra lines are dropped),
-        each either a plain string (sanitized here, painted dim) or a
-        ``rich.text.Text`` (kept styled; content sanitized per-segment at
-        paint time -- see ``bar_rendering.render_styled_line``).
+        Accepts every supplied row, each either a plain string (sanitized
+        here, painted dim) or a ``rich.text.Text`` (kept styled; content
+        sanitized per-segment at paint time -- see
+        ``bar_rendering.render_styled_line``).
         An empty list collapses the panel rows and returns them to the
         scroll region. Growing/shrinking re-establishes the region with
         the appropriate row clears so scrollback isn't corrupted.
@@ -261,7 +258,7 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         cleaned = [
             line.copy() if isinstance(line, Text) else _sanitize(str(line))
             for line in (lines or [])
-        ][:PANEL_MAX_ROWS]
+        ]
         with self._lock:
             self._panel_lines = cleaned
             self._sync_reserved(self._panel_seq)
@@ -744,7 +741,6 @@ def reset_bottom_bar() -> None:
 
 
 __all__ = [
-    "PANEL_MAX_ROWS",
     "POPUP_MAX_ROWS",
     "PROMPT_MAX_ROWS",
     "RESERVED_ROWS",

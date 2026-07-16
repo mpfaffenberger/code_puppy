@@ -16,8 +16,8 @@ Milo is thinking... (  o  )
 - Line 2 is a single-char animated spinner + `mm:ss` elapsed + the current
   activity, color-coded: **yellow** = calling a tool, **magenta** = thinking,
   **green** = writing the response.
-- Parallel sub-agents stack, each with its own block. Beyond `MAX_ROWS` the
-  extras collapse to a `(+N more)` line.
+- Parallel sub-agents stack, each with its own live row; the panel does not
+  collapse active agents into an overflow summary.
 - **Nested sub-agents render as a true tree.** A sub-agent that itself calls
   `invoke_agent` is shown indented under its parent. Only top-level (depth-0)
   agents get the full two-line `INVOKE AGENT` banner; deeper agents collapse to
@@ -89,7 +89,6 @@ Environment startup hard-disable:
 |-----|---------|---------|
 | DISABLE_SUBAGENT_PANEL | unset | Set 1 to skip registration entirely |
 | SUBAGENT_PANEL | 1 | Set 0 to skip registration entirely |
-| SUBAGENT_PANEL_MAX_ROWS | 24 | Max sub-agent blocks shown |
 | SUBAGENT_PANEL_IDLE_S | 600 | Prune after this many idle seconds (safety net) |
 
 ## Notes

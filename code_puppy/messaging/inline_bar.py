@@ -22,7 +22,7 @@ from .bar_rendering import (
     render_prompt_block,
     sanitize,
 )
-from .bottom_bar import PANEL_MAX_ROWS, POPUP_MAX_ROWS, BottomBar
+from .bottom_bar import POPUP_MAX_ROWS, BottomBar
 
 
 class InlineBottomBar(BottomBar):
@@ -109,7 +109,7 @@ class InlineBottomBar(BottomBar):
         cleaned = [
             line.copy() if isinstance(line, Text) else sanitize(str(line))
             for line in (lines or [])
-        ][:PANEL_MAX_ROWS]
+        ]
         with self._lock:
             self._panel_lines = cleaned
             self._sync_reserved(None)

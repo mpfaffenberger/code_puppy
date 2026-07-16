@@ -1,6 +1,6 @@
 """Tests for the bottom-bar panel rendering path (Phase 4).
 
-Covers: styled Text row rendering, the >4-agents compression scheme,
+Covers: styled Text row rendering, every tracked agent being visible,
 throttled pushes, collapse on completion, and the swarm-cancel wipe via
 command_runner._tear_down_live_panels.
 """
@@ -78,22 +78,15 @@ def test_nested_child_renders_tree_elbow():
     assert "child-agent" in _plain(lines[1])
 
 
-def test_more_than_cap_compresses_with_overflow_row():
+def test_all_agents_render_without_an_overflow_summary():
     for i in range(6):
         state.register(f"sid-{i}", f"agent-{i}", "gpt-5.4")
-    lines = rc._panel_lines()
-    assert len(lines) == 4  # 3 agent rows + overflow row
-    assert lines[3] == "  (+3 more)"  # overflow row stays a plain string
-    assert "agent-0" in _plain(lines[0])
-    assert "agent-2" in _plain(lines[2])
 
-
-def test_exactly_cap_agents_render_without_overflow_row():
-    for i in range(4):
-        state.register(f"sid-{i}", f"agent-{i}", "gpt-5.4")
     lines = rc._panel_lines()
-    assert len(lines) == 4
-    assert "more)" not in _plain(lines[3])
+
+    assert len(lines) == 6
+    assert [f"agent-{i}" in _plain(line) for i, line in enumerate(lines)] == [True] * 6
+    assert all("more)" not in _plain(line) for line in lines)
 
 
 def test_done_agent_shows_completed():

@@ -23,7 +23,6 @@ _AGENTS: "Dict[str, Dict[str, Any]]" = {}
 _LOCK = threading.RLock()
 
 # --- tunables (env-overridable) -------------------------------------------
-MAX_ROWS = int(os.environ.get("SUBAGENT_PANEL_MAX_ROWS", "24"))
 IDLE_PRUNE_S = float(os.environ.get("SUBAGENT_PANEL_IDLE_S", "600"))
 
 # Single-char braille spinner frames (defined via escapes to keep the source

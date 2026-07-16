@@ -6,7 +6,6 @@ from unittest.mock import patch
 import pytest
 
 from code_puppy.messaging.bottom_bar import (
-    PANEL_MAX_ROWS,
     RESERVED_ROWS,
     BottomBar,
     get_bottom_bar,
@@ -406,15 +405,19 @@ def test_panel_same_count_repaints_without_region_change(bar, tty):
     assert "r" not in out.replace("\r", "")  # no DECSTBM re-issue
 
 
-def test_panel_capped_at_max_rows(bar, tty):
+def test_panel_retains_every_row(bar, tty):
+    lines = [f"line{i}" for i in range(10)]
     bar.start()
     drain(tty)
-    bar.set_panel_lines([f"line{i}" for i in range(10)])
+    bar.set_panel_lines(lines)
+
     out = written(tty)
-    assert bar.get_panel_lines() == ["line0", "line1", "line2", "line3"]
-    # Region for 2 base + PANEL_MAX_ROWS reserved rows: 1..18.
-    assert PANEL_MAX_ROWS == 4
-    assert "\x1b[1;18r" in out
+
+    assert bar.get_panel_lines() == lines
+    # Region for 2 base + 10 panel rows: 1..12.
+    assert "\x1b[1;12r" in out
+    assert "\x1b[14;1H\x1b[2K\x1b[2mline0\x1b[22m" in out
+    assert "\x1b[23;1H\x1b[2K\x1b[2mline9\x1b[22m" in out
 
 
 def test_panel_and_status_coexist(bar, tty):

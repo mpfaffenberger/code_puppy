@@ -94,6 +94,17 @@ def test_overlong_rows_are_cell_clipped_below_terminal_width():
         assert cell_len(line) < cols
 
 
+def test_inline_surface_retains_every_panel_row():
+    bar = InlineBottomBar(stream=FakeTTY(), get_size=lambda: (80, 24))
+    lines = [f"agent-{index}" for index in range(6)]
+
+    bar.start()
+    bar.set_panel_lines(lines)
+
+    assert bar.get_panel_lines() == lines
+    assert bar._inline_lines()[:6] == lines
+
+
 def test_spinner_tick_repaints_in_place_without_growing_block():
     """A status-prefix tick (the 5fps puppy) must erase and repaint the
     same number of rows -- never leaving extra lines behind."""
