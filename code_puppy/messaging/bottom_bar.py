@@ -287,6 +287,12 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
             self._popup_slack = max(0, old_block - len(cleaned))
             self._sync_reserved(self._popup_seq)
 
+    @contextmanager
+    def output_transaction(self) -> Iterator[None]:
+        """Coordinate one transcript render with the live prompt surface."""
+        self.notify_transcript_output()
+        yield
+
     def notify_transcript_output(self) -> None:
         """Release ONE row of popup slack — called per rendered message.
 
@@ -698,12 +704,30 @@ _bottom_bar: Optional[BottomBar] = None
 _bottom_bar_lock = threading.Lock()
 
 
+def _use_inline_surface() -> bool:
+    """Use the DECSTBM-free surface for known-incompatible terminals."""
+    import os
+
+    mode = os.environ.get("CODE_PUPPY_PROMPT_MODE", "auto").strip().lower()
+    if mode in {"inline", "flow"}:
+        return True
+    if mode in {"pinned", "scroll-region"}:
+        return False
+    emulator = os.environ.get("TERMINAL_EMULATOR", "").strip().lower()
+    return emulator == "jetbrains-jediterm"
+
+
 def get_bottom_bar() -> BottomBar:
-    """Get or lazily create the global BottomBar singleton."""
+    """Get or lazily create the terminal-appropriate prompt surface."""
     global _bottom_bar
     with _bottom_bar_lock:
         if _bottom_bar is None:
-            _bottom_bar = BottomBar()
+            if _use_inline_surface():
+                from .inline_bar import InlineBottomBar
+
+                _bottom_bar = InlineBottomBar()
+            else:
+                _bottom_bar = BottomBar()
         return _bottom_bar
 
 
