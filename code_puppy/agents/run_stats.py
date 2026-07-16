@@ -599,7 +599,18 @@ async def _on_post_tool_call(
     duration_ms: float,
     context: Any = None,
 ) -> None:
-    """Render the tool return value inline in ``high`` output mode."""
+    """Render the tool return value inline in ``high`` output mode.
+
+    Skips when running inside a sub-agent context, matching the guards
+    already present on the sibling ``_on_stream_event`` and
+    ``_on_agent_run_end`` callbacks in this module. Sub-agents render
+    through their own path (see ``tools/subagent_invocation.py``); this
+    callback is the global post-tool-return renderer for the main
+    agent, and without the guard it leaks every sub-agent's internal
+    tool returns into the user-facing TUI in high output mode.
+    """
+    if is_subagent():
+        return
     _render_high_mode_tool_result(tool_name, tool_args, result, duration_ms)
 
 
