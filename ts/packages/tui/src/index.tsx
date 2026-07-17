@@ -24,7 +24,9 @@ import { labelForGroup } from "./steps";
 import { pickVerb } from "./spinnerVerbs";
 import type { VerbContext } from "./spinnerVerbs";
 import { Markdown } from "./markdown";
-import { SPARKLE, THEMES, applyTheme, loadPersistedTheme, persistTheme, rampColor, theme } from "./theme";
+import { SPINNERS } from "./spinners";
+import type { Spinner } from "./spinners";
+import { THEMES, applyTheme, loadPersistedTheme, persistTheme, rampColor, theme } from "./theme";
 
 type Item =
   | { id: number; kind: "user"; text: string }
@@ -246,6 +248,9 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const [narration, setNarration] = useState("");
   const [verb, setVerb] = useState("Working");
   const verbContext = useRef<VerbContext>("general");
+  // Glyph set follows the verb context — a distinctive spinner per activity
+  // (scan while reading, fillsweep while editing, cascade while executing).
+  const [spinner, setSpinner] = useState<Spinner>(SPINNERS.general);
 
   const noteActivity = useCallback((label: string) => {
     const next: VerbContext = label.startsWith("$")
@@ -258,6 +263,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
     if (next !== verbContext.current) {
       verbContext.current = next;
       setVerb((v) => pickVerb(v, next)); // switch flavor with the work
+      setSpinner(SPINNERS[next]);
     }
   }, []);
   const stepLog = useRef<string[]>([]);
@@ -299,11 +305,12 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
     return () => clearInterval(id);
   }, [busy]);
 
-  // Animation clock (footer only re-renders the dynamic region — cheap).
+  // Animation clock at the active spinner's native pace — pacing is part of
+  // the character (footer only re-renders the dynamic region — cheap).
   useEffect(() => {
-    const id = setInterval(() => setFrame((f) => f + 1), 110);
+    const id = setInterval(() => setFrame((f) => f + 1), spinner.interval);
     return () => clearInterval(id);
-  }, []);
+  }, [spinner]);
 
   const handleEnvelope = useCallback(
     (env: EventEnvelope) => {
@@ -312,6 +319,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         case "session_running":
           verbContext.current = "general";
           setVerb((v) => pickVerb(v, "general"));
+          setSpinner(SPINNERS.general);
           setBusy(true);
           setStartedAt(Date.now());
           startedAtRef.current = Date.now();
@@ -1074,7 +1082,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           ) : null}
           <Box>
           <Text color={theme.brand} bold>
-            {SPARKLE[frame % SPARKLE.length]}{" "}
+            {spinner.frames[frame % spinner.frames.length]}{" "}
           </Text>
           <Text color={theme.dim}>
             {verb}… · {elapsed}s · {stepCount} step{stepCount === 1 ? "" : "s"}{tokens ? ` · ${tokens.toLocaleString()} tok` : ""}{saved ? ` · ↓${saved.toLocaleString()} saved` : ""}
