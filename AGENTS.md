@@ -1,7 +1,16 @@
 # Contributing to Mist
 
-> **Golden rule:** nearly all new functionality should be a **plugin** under `code_puppy/plugins/`
-> that hooks into core via `code_puppy/callbacks.py`. Don't edit `code_puppy/command_line/`.
+> **⚠️ Legacy Python contributor guide.** Mist is now the **Bun/TypeScript**
+> application in [`ts/`](ts/). New features belong there — see the
+> [Development](README.md#development) section of the README. The plugin system
+> documented below belongs to the deprecated `code_puppy/` package (kept as
+> `mist-py`, bug-fix-only) and is tracked for porting in
+> [`docs/BUN_MIGRATION_PLAN.md`](docs/BUN_MIGRATION_PLAN.md). It is preserved
+> here for contributors still working on the legacy Python codebase.
+>
+> **Legacy golden rule (Python only):** nearly all new functionality should be a
+> **plugin** under `code_puppy/plugins/` that hooks into core via
+> `code_puppy/callbacks.py`. Don't edit `code_puppy/command_line/`.
 
 ## How Plugins Work
 

@@ -237,9 +237,9 @@ CI runs `bun test` and the legacy Python `pytest` suite on every PR — see
 
 Mist uses `~/.mist/` for user config and `.mist/` for project-local agents,
 skills, and plugins. On first startup an existing `~/.code_puppy/` install is
-copied into the new location without overwriting legacy data. Existing
-`code-puppy` and `pup` commands remain as compatibility aliases during the
-transition period.
+copied into the new location without overwriting legacy data. The `code-puppy`
+and `pup` commands are kept only as compatibility aliases for the deprecated
+Python app (`mist-py`) during the transition.
 
 ---
 
