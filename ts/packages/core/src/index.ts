@@ -4,3 +4,4 @@ export { getConfiguredModelName, getModelDef, persistModelChoice, listModelNames
 export { EngineSession } from "./session";
 export { SessionStore, projectSlug } from "./store";
 export type { SessionMeta, StoredSession } from "./store";
+export { clearStaleToolResults, estimateTokens, splitForCompaction } from "./compaction";

@@ -24,6 +24,13 @@ import { applyPreToolHooks, loadHooks } from "./hooks";
 import type { Hooks } from "./hooks";
 import { normalizePlan } from "./plan";
 import type { PlanItem } from "./plan";
+import {
+  clearStaleToolResults,
+  estimateTokens,
+  renderLogForSummary,
+  splitForCompaction,
+  SUMMARIZATION_PROMPT,
+} from "./compaction";
 import { runTool, toolSpecs } from "./tools";
 
 export const SYSTEM_PROMPT = `You are Mist, an AI coding agent helping the developer complete software-engineering work.
@@ -94,6 +101,7 @@ export interface AgentCallbacks {
   onPlan?: (items: PlanItem[]) => void;
   onQuestion?: (question: string) => Promise<string>;
   onSavings?: (tokensSaved: number) => void;
+  onCompacted?: (r: CompactionResult) => void;
 }
 
 export interface AgentTurn {
@@ -101,8 +109,15 @@ export interface AgentTurn {
   steps: number;
 }
 
+export interface CompactionResult {
+  beforeTokens: number;
+  afterTokens: number;
+  summarized: number;
+}
+
 const MAX_REQUESTS_PER_TURN = 25;
 const HEADROOM_MIN_CHARS = 2000;
+const AUTO_COMPACT_TOKENS = Number(process.env.MIST_COMPACT_AT ?? 60_000);
 
 export class MistEngine {
   private history: ChatMessage[] = [];
@@ -113,6 +128,45 @@ export class MistEngine {
   plan: PlanItem[] = [];
 
   constructor(readonly cwd: string = process.cwd()) {}
+
+  /** Estimated tokens currently held in history (chars/2.5 heuristic). */
+  estimateContextTokens(): number {
+    return estimateTokens(this.history);
+  }
+
+  /**
+   * Compact the conversation: clear stale tool results, then summarize
+   * everything before the last safe user-turn boundary into one structured
+   * summary message. Returns null when there is nothing to compact.
+   */
+  async compact(): Promise<CompactionResult | null> {
+    const before = estimateTokens(this.history);
+    const clearedRes = clearStaleToolResults(this.history);
+    this.history = clearedRes.messages;
+    const split = splitForCompaction(this.history);
+    if (!split) {
+      const after = estimateTokens(this.history);
+      return clearedRes.cleared ? { beforeTokens: before, afterTokens: after, summarized: 0 } : null;
+    }
+    const client = await this.ensureClient();
+    const log = renderLogForSummary(split.toSummarize);
+    const res = await client.stream(
+      SUMMARIZATION_PROMPT,
+      [{ role: "user", content: log }],
+      [], // no tools for the summarizer
+      {},
+    );
+    const summary = res.text.trim() || "(summary unavailable — older context dropped)";
+    this.history = [
+      { role: "user", content: `[conversation summary — older context compacted]\n${summary}` },
+      ...split.tail,
+    ];
+    return {
+      beforeTokens: before,
+      afterTokens: estimateTokens(this.history),
+      summarized: split.toSummarize.length,
+    };
+  }
 
   /** Export the full conversation history (for persistence). */
   exportHistory(): ChatMessage[] {
@@ -196,6 +250,13 @@ export class MistEngine {
   async runTurn(prompt: string, cb: AgentCallbacks): Promise<AgentTurn> {
     const client = await this.ensureClient();
     const system = await this.systemPrompt();
+    // Proactive hygiene: stale tool results never accumulate.
+    this.history = clearStaleToolResults(this.history).messages;
+    // Auto-compact when the estimate crosses the threshold.
+    if (estimateTokens(this.history) > AUTO_COMPACT_TOKENS) {
+      const r = await this.compact().catch(() => null);
+      if (r) cb.onCompacted?.(r);
+    }
     this.history.push({ role: "user", content: prompt });
     const specs = [...ENGINE_TOOLS, ...toolSpecs];
     let steps = 0;

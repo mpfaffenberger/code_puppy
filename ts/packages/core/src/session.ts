@@ -85,6 +85,28 @@ export class EngineSession {
     return () => this.listeners.delete(onEvent);
   }
 
+  /** Manual compaction (the /compact command). */
+  async compact(): Promise<void> {
+    try {
+      const r = await this.engine.compact();
+      if (r) {
+        this.emit("context.compacted", {
+          before_tokens: r.beforeTokens,
+          after_tokens: r.afterTokens,
+          summarized: r.summarized,
+        });
+      } else {
+        this.emit("context.compacted", { before_tokens: 0, after_tokens: 0, summarized: 0 });
+      }
+    } catch (err) {
+      this.emit("session.error", { error: `compact failed: ${(err as Error).message}` });
+    }
+  }
+
+  contextTokens(): number {
+    return this.engine.estimateContextTokens();
+  }
+
   historyLength(): number {
     return this.engine.exportHistory().length;
   }
@@ -123,6 +145,12 @@ export class EngineSession {
           this.emit("usage", { input_tokens, output_tokens }),
         onPlan: (items) => this.emit("plan.updated", { items }),
         onSavings: (tokens_saved) => this.emit("headroom.saved", { tokens_saved }),
+        onCompacted: (r) =>
+          this.emit("context.compacted", {
+            before_tokens: r.beforeTokens,
+            after_tokens: r.afterTokens,
+            summarized: r.summarized,
+          }),
         onQuestion: (question) =>
           new Promise<string>((resolve) => {
             this.pendingAnswer = resolve;

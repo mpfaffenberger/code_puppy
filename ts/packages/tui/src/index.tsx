@@ -189,6 +189,13 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         case "steer_queued":
           push(item("info", `↪ steered: ${ev.text}`));
           break;
+        case "context_compacted":
+          push(item("info",
+            ev.summarized
+              ? `⇣ compacted: ${ev.beforeTokens.toLocaleString()} → ${ev.afterTokens.toLocaleString()} tok (${ev.summarized} messages summarized)`
+              : "⇣ nothing to compact yet",
+          ));
+          break;
         case "headroom_saved":
           setSaved((t) => t + ev.tokensSaved);
           break;
@@ -325,7 +332,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       const say = (text: string) => push(item("info", text));
       switch (cmd.toLowerCase()) {
         case "help":
-          say("commands: /help /resume /steps /theme /model /sessions /new(/clear) /tools /status /dump_context /quit");
+          say("commands: /help /resume /compact /steps /theme /model /sessions /new(/clear) /tools /status /dump_context /quit");
           say("keys: Enter send · type+Enter while busy = steer · Esc interrupt · Ctrl+C quit");
           say("flags: -c continue · -r <id> resume · --sessions · MIST_HEADROOM=1");
           break;
@@ -379,6 +386,11 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           if (list.length) say("resume with: mist-ts -r <id>");
           break;
         }
+        case "compact": {
+          say("compacting…");
+          await sessionRef.current?.compact();
+          break;
+        }
         case "steps": {
           if (!lastStepLog.current.length) {
             say("(no tool calls recorded for the last turn)");
@@ -395,7 +407,8 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         case "status": {
           const model = await getConfiguredModelName();
           const hist = sessionRef.current ? sessionRef.current.historyLength() : 0;
-          say(`session ${sessionId.slice(0, 8)} · model ${model} · ${hist} messages · ${tokens.toLocaleString()} tok this run${saved ? ` · ↓${saved} saved` : ""}`);
+          const ctxTok = sessionRef.current ? sessionRef.current.contextTokens() : 0;
+          say(`session ${sessionId.slice(0, 8)} · model ${model} · ${hist} messages · ~${ctxTok.toLocaleString()} tok in context · ${tokens.toLocaleString()} tok this run${saved ? ` · ↓${saved} saved` : ""}`);
           say(`theme ${theme.name} · cwd ${process.cwd()}`);
           break;
         }

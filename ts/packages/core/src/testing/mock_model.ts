@@ -39,7 +39,18 @@ export function startMockModel(port = 9876) {
     port,
     async fetch(req) {
       if (!req.url.endsWith("/v1/messages")) return new Response("nf", { status: 404 });
-      const payload = (await req.json()) as { messages: { role: string; content: unknown }[] };
+      const payload = (await req.json()) as { messages: { role: string; content: unknown }[]; tools?: unknown[] };
+      // Summarizer calls carry no tools — answer with a canned summary.
+      if (!payload.tools || (Array.isArray(payload.tools) && payload.tools.length === 0)) {
+        return sse([
+          { type: "message_start", message: { usage: { input_tokens: 10 } } },
+          { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+          { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "- GOAL: demo\n- NEXT ACTION: continue" } },
+          { type: "content_block_stop", index: 0 },
+          { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 12 } },
+          { type: "message_stop" },
+        ]);
+      }
       // Realistic latency so live UI (plan panel, heartbeat) is observable —
       // and demos feel like a real model. Disable with MOCK_FAST=1 (tests).
       if (process.env.MOCK_FAST !== "1") await Bun.sleep(1500);
