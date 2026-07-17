@@ -246,3 +246,12 @@ plugin ports are highly parallel).
 - **Status granularity: codex as the bar.** One concise line per action
   (`✓ $ cmd`, `✓ read path`, `✓ grep 'x' — N matches`), no narration between
   steps, plan + heartbeat carry the "what's happening" load.
+
+- **2026-07-17 — LIVE-verified with GLM-5.2.** The owner's z.ai subscription
+  (`https://api.z.ai/api/anthropic`, model code `glm-5.2` — note: Claude Code's
+  `glm-5.2[1m]` suffix is client-side, the API rejects it) registered in
+  `~/.mist/extra_models.json` with **zero engine code changes**. tmux-verified
+  full stack on the compiled binary: GLM spontaneously published a 3-item plan
+  (live ▸/○ panel), executed create_file + read_file on real files, streamed
+  the answer token-by-token, returned to input. The strangler payoff: model
+  onboarding is pure config.
