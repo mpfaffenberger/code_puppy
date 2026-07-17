@@ -8,6 +8,10 @@
  * - "mist": the pastel brand ramp (Regent St Blue → We Peep) on cool neutrals.
  * - "cinnamon": the warm autumn palette ported from the Python TUI
  *   (cinnamon / pumpkin / butterscotch / milky tan / creamsicle).
+ * - "hinokami": Sun Breathing / Hinokami Kagura — Tanjiro's checkered
+ *   green-black, Yoriichi's crimson + gold sun crest, flame-arc oranges on
+ *   warm parchment. Firelight, not a stock dark theme. A theme may also
+ *   carry its own spinner `verbs` (hinokami announces Sun Breathing forms).
  */
 
 import { homedir } from "node:os";
@@ -27,6 +31,8 @@ export interface Theme {
   path: string; // file/dir names — distinct so they pop
   border: string;
   user: string;
+  /** Theme-specific spinner verbs — replaces the standard pools when set. */
+  verbs?: readonly string[];
 }
 
 export const THEMES: Record<string, Theme> = {
@@ -60,6 +66,36 @@ export const THEMES: Record<string, Theme> = {
     border: "#7d4e00",
     user: "#ffecd1",
   },
+  hinokami: {
+    name: "hinokami",
+    // Flame arc: deep red → crimson → orange → gold → yellow-gold
+    ramp: ["#7A1F1F", "#C23B3B", "#FF7A29", "#F2A93C", "#FFC94A"],
+    brand: "#FF7A29", // Sun Breathing orange (cursor/functions)
+    accent: "#F2A93C", // gold sun crest
+    text: "#E9E4D8", // warm parchment — firelight, not white
+    dim: "#8B8778",
+    success: "#7FA86E", // muted sage green (git added)
+    warning: "#F2A93C",
+    error: "#C23B3B", // Yoriichi's crimson
+    code: "#E8927A", // ember (strings)
+    path: "#FFC94A", // bright gold — pops on the green-black
+    border: "#4A5442", // checkered-haori sage
+    user: "#FFC94A",
+    verbs: [
+      "Dance",
+      "Clear Blue Sky",
+      "Raging Sun",
+      "Fake Rainbow",
+      "Fire Wheel",
+      "Burning Bones, Summer Sun",
+      "Solar Heat Haze",
+      "Sunflower Thrust",
+      "Setting Sun Transformation",
+      "Beneficent Radiance",
+      "Dragon Sun Halo Head Dance",
+      "Flame Dance",
+    ],
+  },
 };
 
 // The live theme — mutated in place so every module sees switches instantly.
@@ -72,6 +108,7 @@ export function applyTheme(name: string): boolean {
   const next = THEMES[name];
   if (!next) return false;
   Object.assign(theme, next);
+  theme.verbs = next.verbs; // explicit — clears a previous theme's override
   return true;
 }
 

@@ -26,3 +26,15 @@ test("context pool is used ~70% (deterministic rand)", () => {
   const g = pickVerb(undefined, "edit", () => 0.9);
   expect(SPINNER_VERBS).toContain(g);
 });
+
+import { THEMES, applyTheme } from "./theme";
+
+test("themed verbs replace the pools (hinokami → Sun Breathing forms)", () => {
+  applyTheme("hinokami");
+  const forms = THEMES["hinokami"]!.verbs!;
+  for (let i = 0; i < 20; i++) {
+    expect(forms).toContain(pickVerb(undefined, "edit"));
+  }
+  applyTheme("mist"); // clears the override
+  expect(SPINNER_VERBS).toContain(pickVerb(undefined, "general", () => 0.9));
+});
