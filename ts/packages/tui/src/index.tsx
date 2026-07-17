@@ -24,6 +24,7 @@ import { labelForGroup } from "./steps";
 import { pickVerb } from "./spinnerVerbs";
 import type { VerbContext } from "./spinnerVerbs";
 import { Markdown } from "./markdown";
+import { Mascot } from "./mascot";
 import { SPINNERS } from "./spinners";
 import type { Spinner } from "./spinners";
 import { THEMES, applyTheme, loadPersistedTheme, persistTheme, rampColor, theme } from "./theme";
@@ -94,23 +95,98 @@ export function transcriptToMarkdown(items: Item[], sessionId: string): string {
   return out.filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n");
 }
 
-function Brand({ engine, session }: { engine: string; session: string }) {
+function Wordmark() {
   const word = "Mist";
+  return (
+    <Text>
+      <Text color={theme.accent}>◆ </Text>
+      {[...word].map((ch, i) => (
+        <Text key={`b${i}`} bold color={rampColor(i, word.length)}>
+          {ch}
+        </Text>
+      ))}
+    </Text>
+  );
+}
+
+function Brand({ engine, session }: { engine: string; session: string }) {
   return (
     <Box flexDirection="row" marginBottom={1}>
       <Text>
-        <Text color={theme.accent}>◆ </Text>
-        {[...word].map((ch, i) => (
-          <Text key={`b${i}`} bold color={rampColor(i, word.length)}>
-            {ch}
-          </Text>
-        ))}
+        <Wordmark />
         <Text color={theme.dim}> — coding agent · </Text>
         <Text color={theme.dim}>
           {session ? `session ${session.slice(0, 8)} · ` : ""}
           {engine}
         </Text>
       </Text>
+    </Box>
+  );
+}
+
+export interface BannerInfo {
+  model: string;
+  latestTitle: string | null;
+}
+
+/** Claude-Code-style welcome banner: Misty + session facts + tips. */
+function Banner({ engine, session, info }: { engine: string; session: string; info: BannerInfo }) {
+  const rawUser = process.env.USER || process.env.USERNAME || "friend";
+  const user = rawUser.charAt(0).toUpperCase() + rawUser.slice(1);
+  const home = process.env.HOME ?? "";
+  const cwdFull = home && process.cwd().startsWith(home) ? process.cwd().replace(home, "~") : process.cwd();
+  const cwd = cwdFull.length > 52 ? `…${cwdFull.slice(-51)}` : cwdFull;
+  const cols = process.stdout.columns ?? 80;
+  const wide = cols >= 92;
+  const boxWidth = Math.min(cols - 2, 96);
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <Box width={boxWidth} borderStyle="round" borderColor={theme.border} flexDirection="row" paddingX={2}>
+        <Box flexDirection="column" flexGrow={1}>
+          <Text>
+            <Wordmark />
+            <Text color={theme.dim}> v{VERSION}</Text>
+          </Text>
+          <Box flexDirection="column" alignItems="center">
+            <Text bold color={theme.text}>
+              Welcome back, {user}!
+            </Text>
+            <Box marginTop={1}>
+              <Mascot />
+            </Box>
+            <Box marginTop={1}>
+              <Text color={theme.dim}>
+                {info.model} · {engine}
+                {session ? ` · session ${session.slice(0, 8)}` : ""}
+              </Text>
+            </Box>
+            <Text color={theme.dim}>{cwd}</Text>
+          </Box>
+        </Box>
+        {wide ? (
+          <Box flexDirection="column" marginLeft={2} paddingLeft={2} width={34} flexShrink={0} borderStyle="single" borderColor={theme.border} borderTop={false} borderBottom={false} borderRight={false}>
+            <Text bold color={theme.accent}>
+              Tips for getting started
+            </Text>
+            <Text color={theme.dim}>/help — browse every command</Text>
+            <Text color={theme.dim}>/theme — pick a breathing style</Text>
+            <Text color={theme.dim}>type while it works to steer</Text>
+            <Box marginTop={1} flexDirection="column">
+              <Text bold color={theme.accent}>
+                Recent activity
+              </Text>
+              {info.latestTitle ? (
+                <>
+                  <Text color={theme.dim}>{info.latestTitle.length > 30 ? `${info.latestTitle.slice(0, 29)}…` : info.latestTitle}</Text>
+                  <Text color={theme.dim}>resume it with /resume</Text>
+                </>
+              ) : (
+                <Text color={theme.dim}>No recent activity</Text>
+              )}
+            </Box>
+          </Box>
+        ) : null}
+      </Box>
     </Box>
   );
 }
@@ -212,7 +288,7 @@ function TranscriptItem({ it }: { it: Item }) {
   }
 }
 
-function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: StoredSession }) {
+function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume?: StoredSession; banner?: BannerInfo }) {
   const { exit } = useApp();
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
@@ -956,7 +1032,11 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       <Static items={[{ id: 0, kind: "brand" } as unknown as Item, ...items]}>
         {(it) =>
           (it as unknown as { kind: string }).kind === "brand" ? (
-            <Brand key="brand" engine={engine} session={sessionId} />
+            banner ? (
+              <Banner key="brand" engine={engine} session={sessionId} info={banner} />
+            ) : (
+              <Brand key="brand" engine={engine} session={sessionId} />
+            )
           ) : (
             <TranscriptItem key={it.id} it={it} />
           )
@@ -1212,7 +1292,16 @@ async function main(): Promise<void> {
     }
   }
   const argvPrompt = rest.join(" ").trim();
-  render(<App initialPrompt={argvPrompt || undefined} resume={resume} />);
+  // Interactive launches get the full welcome banner; one-shot (argv) runs
+  // keep the compact one-liner so scripted/tmux output stays clean.
+  let banner: BannerInfo | undefined;
+  if (!argvPrompt) {
+    banner = {
+      model: await getConfiguredModelName().catch(() => "no model configured"),
+      latestTitle: resume?.meta.title ?? (await store.latest().catch(() => null))?.title ?? null,
+    };
+  }
+  render(<App initialPrompt={argvPrompt || undefined} resume={resume} banner={banner} />);
 }
 
 void main();
