@@ -45,16 +45,47 @@ export class EngineSession {
     }
   }
 
+  private userNamed = false;
+  private autoTitled = false;
+
+  /** Rename this session (the /rename command); sticks for /resume. */
+  async rename(title: string): Promise<void> {
+    const clean = title.trim();
+    if (!clean) return;
+    this.userNamed = true;
+    const ok = this.created ? await this.store.rename(this.id, clean) : false;
+    if (!ok && !this.created) {
+      // Session not persisted yet — create it now under the chosen name.
+      await this.store.create(this.id, clean);
+      this.created = true;
+    }
+    this.emit("session.renamed", { title: clean, auto: false });
+  }
+
+  /**
+   * One-shot: replace the raw first-prompt title with a short generated name
+   * (skipped once the user has named the session themselves).
+   */
+  private async autoTitle(firstPrompt: string): Promise<void> {
+    if (this.userNamed || this.autoTitled) return;
+    this.autoTitled = true;
+    const title = await this.engine.generateTitle(firstPrompt);
+    if (!title || this.userNamed) return;
+    const ok = await this.store.rename(this.id, title);
+    if (ok) this.emit("session.renamed", { title, auto: true });
+  }
+
   /** Persist any history the store hasn't seen yet (after each turn). */
   private async persist(): Promise<void> {
     try {
       const history = this.engine.exportHistory();
       if (!this.created) {
         const firstUser = history.find((m) => m.role === "user");
-        const title =
-          typeof firstUser?.content === "string" ? firstUser.content : "(tool session)";
-        await this.store.create(this.id, title);
+        const raw = typeof firstUser?.content === "string" ? firstUser.content : "(tool session)";
+        await this.store.create(this.id, raw);
         this.created = true;
+        // Upgrade the raw prompt to a generated name in the background.
+        if (typeof firstUser?.content === "string") void this.autoTitle(firstUser.content);
       }
       if (history.length > this.persistedCount) {
         await this.store.appendMessages(this.id, history.slice(this.persistedCount));

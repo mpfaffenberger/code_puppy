@@ -184,6 +184,28 @@ export class MistEngine {
     return [...this.history];
   }
 
+  /**
+   * Generate a short session title from the opening request (one tiny model
+   * call, no tools). Returns null on any failure — callers fall back to the
+   * raw prompt text.
+   */
+  async generateTitle(firstPrompt: string): Promise<string | null> {
+    try {
+      const client = await this.ensureClient();
+      const res = await client.stream(
+        "Reply with ONLY a session title for this coding request: 3-6 words, no quotes, no trailing period.",
+        [{ role: "user", content: firstPrompt.slice(0, 2000) }],
+        [],
+        {},
+        64,
+      );
+      const title = res.text.trim().split("\n")[0]?.replace(/^["'`]+|["'`.]+$/g, "").trim() ?? "";
+      return title && title.length <= 64 ? title : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Load a persisted conversation history (resume). */
   loadHistory(messages: ChatMessage[]): void {
     this.history = [...messages];

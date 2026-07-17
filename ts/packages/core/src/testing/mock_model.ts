@@ -47,7 +47,18 @@ export function startMockModel(port = 9876) {
     port,
     async fetch(req) {
       if (!req.url.endsWith("/v1/messages")) return new Response("nf", { status: 404 });
-      const payload = (await req.json()) as { messages: { role: string; content: unknown }[]; tools?: unknown[] };
+      const payload = (await req.json()) as { system?: string; messages: { role: string; content: unknown }[]; tools?: unknown[] };
+      // Title-generation calls (no tools, title system prompt) — canned name.
+      if (typeof payload.system === "string" && payload.system.includes("session title")) {
+        return sse([
+          { type: "message_start", message: { usage: { input_tokens: 8 } } },
+          { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+          { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Demo numbers walkthrough" } },
+          { type: "content_block_stop", index: 0 },
+          { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 4 } },
+          { type: "message_stop" },
+        ]);
+      }
       // Summarizer calls carry no tools — answer with a canned summary.
       if (!payload.tools || (Array.isArray(payload.tools) && payload.tools.length === 0)) {
         return sse([

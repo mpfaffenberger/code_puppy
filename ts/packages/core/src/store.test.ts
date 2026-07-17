@@ -25,6 +25,25 @@ test("store: create → append → load → list → latest roundtrip", async ()
   delete process.env.MIST_SESSIONS_DIR;
 });
 
+test("store: rename rewrites the meta title, keeps messages + plan", async () => {
+  const cwd = `/tmp/mist-store-rn-${Date.now()}`;
+  process.env.MIST_SESSIONS_DIR = `${cwd}/.sessions`;
+  const store = new SessionStore(cwd);
+  await store.create("ccc333", "what is the raw first question doing here");
+  await store.appendMessages("ccc333", [{ role: "user", content: "q" }]);
+  await store.snapshotPlan("ccc333", [{ id: "p1", title: "step", status: "done" }]);
+
+  expect(await store.rename("ccc333", "auth bug hunt")).toBe(true);
+  const loaded = await store.load("ccc333");
+  expect(loaded?.meta.title).toBe("auth bug hunt");
+  expect(loaded?.messages.length).toBe(1);
+  expect(loaded?.plan.length).toBe(1);
+  expect((await store.list())[0]?.title).toBe("auth bug hunt");
+
+  expect(await store.rename("nope999", "x")).toBe(false);
+  delete process.env.MIST_SESSIONS_DIR;
+});
+
 test("engine: loadHistory feeds the next request (resume continuity)", async () => {
   const { MistEngine } = await import("./agent");
   const engine = new MistEngine("/tmp");

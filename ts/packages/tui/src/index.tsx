@@ -407,6 +407,9 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         case "session_resumed":
           push(item("info", `↺ resumed “${ev.title}” · ${ev.messages} messages · started ${ev.createdAt.slice(0, 10)}`));
           break;
+        case "session_renamed":
+          push(item("info", ev.auto ? `✎ session named “${ev.title}”` : `✎ session renamed to “${ev.title}”`));
+          break;
         case "steer_queued":
           push(item("info", `↪ steered: ${ev.text}`));
           break;
@@ -555,6 +558,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
             rows: [
               { label: "/resume", desc: "pick a previous session to resume", action: "/resume" },
               { label: "/sessions", desc: "list saved sessions for this directory", action: "/sessions" },
+              { label: "/rename", desc: "name this session (auto-named from your first question otherwise)", action: "/rename" },
               { label: "/new", desc: "start a fresh conversation (alias /clear)", action: "/new" },
               { label: "/compact", desc: "summarize older context to free tokens", action: "/compact" },
               { label: "/steps", desc: "expand the last turn's collapsed tool calls", action: "/steps" },
@@ -634,6 +638,14 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
             say(`${m.id.slice(0, 8)} · ${m.created_at.slice(0, 16).replace("T", " ")} · ${m.title}`);
           }
           if (list.length) say("resume with: mist -r <id>");
+          break;
+        }
+        case "rename": {
+          if (!arg) {
+            say("usage: /rename <new name> — names this session in /resume and /sessions");
+            break;
+          }
+          await sessionRef.current?.rename(arg);
           break;
         }
         case "compact": {

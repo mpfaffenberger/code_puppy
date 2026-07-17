@@ -38,6 +38,7 @@ export type MistEvent =
   | { kind: "steer_queued"; text: string }
   | { kind: "headroom_saved"; tokensSaved: number }
   | { kind: "session_resumed"; title: string; messages: number; createdAt: string }
+  | { kind: "session_renamed"; title: string; auto: boolean }
   | { kind: "context_compacted"; beforeTokens: number; afterTokens: number; summarized: number }
   | { kind: "narration"; text: string }
   | { kind: "step_done"; label: string; preview: string[]; hiddenLines: number }
@@ -169,6 +170,8 @@ export function classifyEvent(env: EventEnvelope): MistEvent {
         afterTokens: typeof d["after_tokens"] === "number" ? d["after_tokens"] : 0,
         summarized: typeof d["summarized"] === "number" ? d["summarized"] : 0,
       };
+    case "session.renamed":
+      return { kind: "session_renamed", title: str(d["title"]), auto: d["auto"] === true };
     case "question.asked":
       return {
         kind: "question_asked",
