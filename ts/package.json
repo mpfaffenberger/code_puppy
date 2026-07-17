@@ -1,0 +1,8 @@
+{
+  "name": "mist-ts",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "test": "bun test"
+  }
+}

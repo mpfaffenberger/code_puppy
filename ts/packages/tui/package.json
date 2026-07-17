@@ -1,0 +1,7 @@
+{
+  "name": "@mist/tui",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": { "@mist/protocol": "workspace:*" }
+}

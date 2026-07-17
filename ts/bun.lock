@@ -1,0 +1,39 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "mist-ts",
+    },
+    "packages/core": {
+      "name": "@mist/core",
+      "version": "0.0.1",
+      "dependencies": {
+        "@mist/protocol": "workspace:*",
+      },
+    },
+    "packages/protocol": {
+      "name": "@mist/protocol",
+      "version": "0.0.1",
+      "dependencies": {
+        "zod": "^3.24.0",
+      },
+    },
+    "packages/tui": {
+      "name": "@mist/tui",
+      "version": "0.0.1",
+      "dependencies": {
+        "@mist/protocol": "workspace:*",
+      },
+    },
+  },
+  "packages": {
+    "@mist/core": ["@mist/core@workspace:packages/core"],
+
+    "@mist/protocol": ["@mist/protocol@workspace:packages/protocol"],
+
+    "@mist/tui": ["@mist/tui@workspace:packages/tui"],
+
+    "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
+  }
+}
