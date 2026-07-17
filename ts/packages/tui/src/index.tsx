@@ -299,7 +299,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       const say = (text: string) => push(item("info", text));
       switch (cmd.toLowerCase()) {
         case "help":
-          say("commands: /help · /resume · /theme [name] · /model [name] · /sessions · /new · /quit");
+          say("commands: /help /resume /theme /model /sessions /new(/clear) /tools /status /dump_context /quit");
           say("keys: Enter send · type+Enter while busy = steer · Esc interrupt · Ctrl+C quit");
           say("flags: -c continue · -r <id> resume · --sessions · MIST_HEADROOM=1");
           break;
@@ -353,6 +353,26 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           if (list.length) say("resume with: mist-ts -r <id>");
           break;
         }
+        case "tools": {
+          say("tools: read_file (ranged) · create_file · replace_in_file (exact-match) · list_files · grep · shell (guarded)");
+          say("engine: update_plan (live plan) · ask_user (clarifying questions)");
+          break;
+        }
+        case "status": {
+          const model = await getConfiguredModelName();
+          const hist = sessionRef.current ? sessionRef.current.historyLength() : 0;
+          say(`session ${sessionId.slice(0, 8)} · model ${model} · ${hist} messages · ${tokens.toLocaleString()} tok this run${saved ? ` · ↓${saved} saved` : ""}`);
+          say(`theme ${theme.name} · cwd ${process.cwd()}`);
+          break;
+        }
+        case "dump_context": {
+          const path = `/tmp/mist-context-${sessionId.slice(0, 8)}.json`;
+          const history = sessionRef.current ? sessionRef.current.exportHistory() : [];
+          await Bun.write(path, JSON.stringify(history, null, 2));
+          say(`context (${history.length} messages) → ${path}`);
+          break;
+        }
+        case "clear":
         case "new": {
           const fresh = new EngineSession(process.cwd());
           sessionRef.current = fresh;
@@ -368,13 +388,14 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         }
         case "quit":
         case "exit":
+        case "q":
           exit();
           break;
         default:
           say(`unknown command /${cmd} — try /help`);
       }
     },
-    [exit, handleEnvelope, push],
+    [exit, handleEnvelope, push, saved, sessionId, tokens],
   );
 
   const submit = useCallback(async () => {

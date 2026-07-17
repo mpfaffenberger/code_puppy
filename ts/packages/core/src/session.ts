@@ -85,6 +85,14 @@ export class EngineSession {
     return () => this.listeners.delete(onEvent);
   }
 
+  historyLength(): number {
+    return this.engine.exportHistory().length;
+  }
+
+  exportHistory() {
+    return this.engine.exportHistory();
+  }
+
   /** Switch models mid-session (next request onward). */
   setModel(name: string): void {
     this.engine.setModel(name);
