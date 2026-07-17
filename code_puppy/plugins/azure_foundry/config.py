@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from code_puppy.config import DATA_DIR
+from code_puppy.config import DATA_DIR, get_value, set_config_value
 
 # Azure AD scope for Cognitive Services (used for token acquisition)
 # This scope is required for authenticating with Azure AI Foundry
@@ -77,14 +77,28 @@ DEFAULT_DEPLOYMENT_NAMES: dict[str, str] = {
 ENV_FOUNDRY_RESOURCE = "ANTHROPIC_FOUNDRY_RESOURCE"
 ENV_FOUNDRY_BASE_URL = "ANTHROPIC_FOUNDRY_BASE_URL"
 
+# puppy.cfg key for persisting the resource name across sessions
+CFG_KEY_FOUNDRY_RESOURCE = "azure_foundry_resource"
+
 
 def get_foundry_resource() -> str | None:
-    """Get the Azure Foundry resource name from environment.
+    """Get the Azure Foundry resource name.
+
+    Resolution order: environment variable first (for explicit overrides),
+    then puppy.cfg (persisted from a prior ``/foundry-setup``).
 
     Returns:
         The resource name if set, None otherwise.
     """
-    return os.environ.get(ENV_FOUNDRY_RESOURCE)
+    env_value = os.environ.get(ENV_FOUNDRY_RESOURCE)
+    if env_value:
+        return env_value
+    return get_value(CFG_KEY_FOUNDRY_RESOURCE) or None
+
+
+def set_foundry_resource(resource: str) -> None:
+    """Persist the Azure Foundry resource name to puppy.cfg."""
+    set_config_value(CFG_KEY_FOUNDRY_RESOURCE, resource)
 
 
 def get_foundry_base_url() -> str | None:
