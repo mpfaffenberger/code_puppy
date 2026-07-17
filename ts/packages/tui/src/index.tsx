@@ -21,7 +21,7 @@ import { EngineSession, SessionStore, getConfiguredModelName, listModelNames, pe
 import type { SessionMeta, StoredSession } from "@mist/core";
 import { MistClient } from "./client";
 import { Markdown } from "./markdown";
-import { HEARTBEAT, SPARKLE, THEMES, applyTheme, loadPersistedTheme, persistTheme, rampColor, theme } from "./theme";
+import { SPARKLE, THEMES, applyTheme, loadPersistedTheme, persistTheme, rampColor, theme } from "./theme";
 
 type Item =
   | { id: number; kind: "user"; text: string }
@@ -615,7 +615,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           ) : null}
           <Box>
           <Text color={theme.brand} bold>
-            {HEARTBEAT[frame % HEARTBEAT.length]} {SPARKLE[frame % SPARKLE.length]}{" "}
+            {SPARKLE[frame % SPARKLE.length]}{" "}
           </Text>
           <Text color={theme.dim}>
             working · {elapsed}s · {stepCount} step{stepCount === 1 ? "" : "s"}{tokens ? ` · ${tokens.toLocaleString()} tok` : ""}{saved ? ` · ↓${saved.toLocaleString()} saved` : ""}
