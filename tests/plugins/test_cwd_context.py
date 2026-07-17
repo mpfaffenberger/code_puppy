@@ -124,9 +124,18 @@ def test_build_file_index_recurses_with_depth(fake_project: Path):
     assert any("util.py" in line for line in indented_lines)
 
 
-def test_build_file_index_respects_budget():
-    """A tiny budget should truncate aggressively."""
-    root = Path("/tmp")  # always huge
+def test_build_file_index_respects_budget(tmp_path: Path):
+    """A tiny budget should truncate aggressively.
+
+    We build a deterministic, large-enough tree under ``tmp_path`` rather than
+    relying on the host's ``/tmp`` — on a fresh CI runner ``/tmp`` can have
+    very few non-skipped entries, which would make this assertion flaky.
+    """
+    root = tmp_path
+    # Create well more than ``max_entries`` entries so truncation is guaranteed
+    # regardless of the host environment.
+    for i in range(30):
+        (root / f"file_{i:02d}.txt").write_text(f"file {i}\n")
     idx = build_file_index(str(root), max_depth=1, budget_chars=200, max_entries=5)
     assert idx.truncated is True
     assert len(idx.lines) <= 5
