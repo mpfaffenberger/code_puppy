@@ -24,6 +24,7 @@ export interface Theme {
   warning: string;
   error: string;
   code: string;
+  path: string; // file/dir names — distinct so they pop
   border: string;
   user: string;
 }
@@ -40,6 +41,7 @@ export const THEMES: Record<string, Theme> = {
     warning: "#d47007",
     error: "#ff6b6b",
     code: "#b3e4e6",
+    path: "#a78bfa",
     border: "#5b6478",
     user: "#f2cad4",
   },
@@ -54,6 +56,7 @@ export const THEMES: Record<string, Theme> = {
     warning: "#d47007",
     error: "#ff6b6b",
     code: "#f2bd7e",
+    path: "#b794f4",
     border: "#7d4e00",
     user: "#ffecd1",
   },

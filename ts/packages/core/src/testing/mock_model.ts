@@ -23,10 +23,15 @@ function sse(events: Record<string, unknown>[]): Response {
 const ANSWER = [
   "## Result\n",
   "\n",
-  "The command printed **four numbers** in order.\n",
+  "The command printed **four numbers** in order (see core/src/agent.rs:42).\n",
   "\n",
   "- `seq 1 4` emitted 1 through 4\n",
   "- exit code was `0`\n",
+  "\n",
+  "| # | Gap | Detail |\n",
+  "|---|-----|--------|\n",
+  "| 1 | Sandboxing | Platform sandboxes constrain every tool exec via sandboxing/src/manager.rs policies |\n",
+  "| 2 | Exec policy | Declarative allow/prompt/forbidden rules in core/src/exec_policy.rs with prefix matching |\n",
 ].flatMap((line) => line.match(/.{1,7}/gs) ?? []);
 
 export function startMockModel(port = 9876) {
