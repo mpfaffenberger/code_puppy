@@ -31,7 +31,7 @@ test("context pool is used ~70% (deterministic rand)", () => {
 });
 
 test("themed verbs replace the pools (breathing forms per theme)", () => {
-  for (const name of ["hinokami", "mist"]) {
+  for (const name of ["hinokami", "mist", "moon"]) {
     applyTheme(name);
     const forms = THEMES[name]!.verbs!;
     for (let i = 0; i < 20; i++) {

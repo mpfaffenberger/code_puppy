@@ -15,6 +15,8 @@
  *   green-black, Yoriichi's crimson + gold sun crest, flame-arc oranges on
  *   warm parchment. Firelight, not a stock dark theme. A theme may also
  *   carry its own spinner `verbs` (breathing-style forms).
+ * - "moon": Moon Breathing (Kokushibo) — moonless-night indigo, kimono
+ *   purple, the living blade's crimson, gold irises. Sixteen forms.
  */
 
 import { homedir } from "node:os";
@@ -108,6 +110,41 @@ export const THEMES: Record<string, Theme> = {
       "Beneficent Radiance",
       "Dragon Sun Halo Head Dance",
       "Flame Dance",
+    ],
+  },
+  moon: {
+    name: "moon",
+    // Moonrise over a moonless night: deep purple → kimono pattern →
+    // living blade → flame markings → gold irises
+    ramp: ["#3D2456", "#6B4088", "#9C2F52", "#B5384A", "#D4AF5A"],
+    brand: "#9C2F52", // the living blade (cursor/functions)
+    accent: "#6B4088", // kimono pattern
+    text: "#E3D9E8", // moonlit lavender-white
+    dim: "#7A6B84", // faded ponytail black, lifted for terminal contrast
+    success: "#6B8C82", // muted moss (git added)
+    warning: "#D4AF5A", // gold irises
+    error: "#E0435A", // red sclera, unsubtle
+    code: "#B5384A", // flame markings (strings)
+    path: "#D4AF5A", // gold irises — six eyes find every file
+    border: "#453A50",
+    user: "#F2ECF5",
+    verbs: [
+      "Dark Moon, Evening Palace",
+      "Pearl Flower Moongazing",
+      "Loathsome Moon, Chains",
+      "Hollow Moon, Redirection",
+      "Moon Spirit Calamitous Eddy",
+      "Perpetual Night, Lonely Moon - Incessant",
+      "Mirror of Misfortune, Moonlit",
+      "Moon-Dragon Ringtail",
+      "Waning Moonswaths",
+      "Drilling Slashes, Moon Through Bamboo Leaves",
+      "Thousand-Ring Eclipse",
+      "Hollow Crescent, Falling Rain",
+      "Waning Gate, Silent Requiem",
+      "Mirrored Heavens, Thousand Moons",
+      "New Moon, Vanishing Point",
+      "Moonbow, Half Moon",
     ],
   },
 };
