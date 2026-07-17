@@ -21,6 +21,7 @@ import { EngineSession, SessionStore, getConfiguredModelName, listModelNames, pe
 import type { SessionMeta, StoredSession } from "@mist/core";
 import { MistClient } from "./client";
 import { labelForGroup } from "./steps";
+import { pickVerb } from "./spinnerVerbs";
 import { Markdown } from "./markdown";
 import { SPARKLE, THEMES, applyTheme, loadPersistedTheme, persistTheme, rampColor, theme } from "./theme";
 
@@ -192,6 +193,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const draftRef = useRef("");
   const [recentSteps, setRecentSteps] = useState<string[]>([]);
   const [narration, setNarration] = useState("");
+  const [verb, setVerb] = useState("Working");
   const stepLog = useRef<string[]>([]);
   const lastStepLog = useRef<string[]>([]);
   const stepGroup = useRef<string[]>([]);
@@ -223,6 +225,13 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
     setRecentSteps([]);
   }, [push]);
 
+  // Rotate the whimsical verb every ~10s while working.
+  useEffect(() => {
+    if (!busy) return;
+    const id = setInterval(() => setVerb((v) => pickVerb(v)), 10_000);
+    return () => clearInterval(id);
+  }, [busy]);
+
   // Animation clock (footer only re-renders the dynamic region — cheap).
   useEffect(() => {
     const id = setInterval(() => setFrame((f) => f + 1), 110);
@@ -234,6 +243,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       const ev = classifyEvent(env);
       switch (ev.kind) {
         case "session_running":
+          setVerb((v) => pickVerb(v));
           setBusy(true);
           setStartedAt(Date.now());
           startedAtRef.current = Date.now();
@@ -859,7 +869,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
             {SPARKLE[frame % SPARKLE.length]}{" "}
           </Text>
           <Text color={theme.dim}>
-            working · {elapsed}s · {stepCount} step{stepCount === 1 ? "" : "s"}{tokens ? ` · ${tokens.toLocaleString()} tok` : ""}{saved ? ` · ↓${saved.toLocaleString()} saved` : ""}
+            {verb}… · {elapsed}s · {stepCount} step{stepCount === 1 ? "" : "s"}{tokens ? ` · ${tokens.toLocaleString()} tok` : ""}{saved ? ` · ↓${saved.toLocaleString()} saved` : ""}
             {"  "}
           </Text>
           <Text color={theme.dim} dimColor>
