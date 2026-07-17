@@ -213,3 +213,36 @@ plugin ports are highly parallel).
   clearing, /commands + config UI, themes, sessions/autosave, DBOS. Live-model
   verification blocked on provider quota (mock-verified; endpoint path proven
   up to the provider's 429).
+
+---
+
+## Product decisions (2026-07-16, owner-directed)
+
+- **Prolog: rejected.** No load-bearing fit — policy rules, plan constraints,
+  and dependency graphs are all better served by plain TS (Zod, small
+  functions) than by embedding a Prolog runtime (tau-prolog is slow/obscure;
+  SWI is a heavyweight native dep). Revisit only if we ever build
+  datalog-style whole-repo code indexing, which is out of scope.
+- **Headroom: integrated behind `MIST_HEADROOM=1`.** `headroom-ai` (TS SDK,
+  local-first) compresses bulky tool results (>2k chars) before they enter
+  history via `compress([{role:"tool",content}])`; savings surface in the
+  status line ("↓N saved") via `headroom.saved` events. Graceful no-op if the
+  lib fails — original content always wins. Off by default until savings are
+  validated on real workloads.
+- **Plan-DST + steering (the workflows-style visualization).** The model
+  maintains a live plan via the `update_plan` tool (full-replace, statuses
+  pending/active/done/skipped); `plan.updated` envelopes re-render a bordered
+  Plan panel in place while the agent works. The user can **type mid-run +
+  Enter to steer**: nudges queue into the engine and inject as user messages
+  before the next model request ("freshest intent — adjust immediately").
+- **Clarifying questions (Claude-Code-style, capped).** `ask_user` engine tool
+  suspends the loop on a Promise; the TUI swaps the input box into an answer
+  box. Prompt caps it: at most 1-2 sharp questions, only when undiscoverable
+  and a wrong guess is costly.
+- **Hooks (intent preservation + guardrails).** `.mist/hooks.json`
+  (project ∪ user): `intent` — a durable project-vision paragraph injected
+  into the system prompt every turn (anti-drift); `pre_tool` regex rules
+  (block/warn) gate tool calls before execution.
+- **Status granularity: codex as the bar.** One concise line per action
+  (`✓ $ cmd`, `✓ read path`, `✓ grep 'x' — N matches`), no narration between
+  steps, plan + heartbeat carry the "what's happening" load.

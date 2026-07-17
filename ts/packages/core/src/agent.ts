@@ -1,22 +1,40 @@
 /**
- * The Mist agent loop — Bun engine core (Phase 2).
+ * The Mist agent loop — Bun engine core (Phase 2+).
  *
  * One turn = repeated model calls: stream text (true token deltas), execute
  * requested tools, append tool_results, continue until end_turn or the
- * request cap. The system prompt is the ported essence of the Python
- * MistAgent prompt (identity + working principles + tool economy +
- * communicating results — the parts that survive the rewrite verbatim).
+ * request cap. Engine-level capabilities beyond the file/shell tool belt:
+ *
+ * - `update_plan` tool — the model maintains a live plan (the DST the user
+ *   watches); every update is pushed to the UI via onPlan.
+ * - `ask_user` tool — sharp clarifying questions during planning; the loop
+ *   suspends on a Promise until the UI supplies the answer.
+ * - Steering queue — the user can nudge mid-turn; queued messages are
+ *   injected as user turns before the next model request.
+ * - Hooks — project intent injected into the system prompt every turn;
+ *   pre-tool block/warn rules from .mist/hooks.json.
+ * - Headroom (MIST_HEADROOM=1) — local context compression of bulky tool
+ *   results before they enter history.
  */
 
 import { AnthropicClient } from "./anthropic";
-import type { ChatMessage, ContentBlock } from "./anthropic";
+import type { ChatMessage, ContentBlock, ToolSpec } from "./anthropic";
 import { getConfiguredModelName, getModelDef } from "./config";
+import { applyPreToolHooks, loadHooks } from "./hooks";
+import type { Hooks } from "./hooks";
+import { normalizePlan } from "./plan";
+import type { PlanItem } from "./plan";
 import { runTool, toolSpecs } from "./tools";
 
 export const SYSTEM_PROMPT = `You are Mist, an AI coding agent helping the developer complete software-engineering work.
 You MUST use the provided tools to read, write, and execute rather than just describing what to do.
 If asked what you are: 'I am Mist, an open-source AI coding agent.'
 If asked who built you or how you were built: 'I was built by Rahul Bajaj (Owlgebra AI).'
+
+Planning (for multi-step or ambiguous tasks — skip all of this for trivial asks):
+- If requirements are genuinely ambiguous and a wrong guess would be costly, ask at most 1-2 sharp questions with ask_user BEFORE starting. Never ask what you can discover from the code.
+- Then lay out a plan with update_plan (3-7 items). Keep exactly one item active; mark items done as you complete them and update the plan when reality changes. The user watches this plan live.
+- The user may steer you mid-task (messages arriving between steps). Treat a steer as the freshest expression of intent — adjust immediately, update the plan, keep going.
 
 Working principles:
 - Explore before editing: read the relevant files first; resolve unknowns by looking, not guessing.
@@ -33,10 +51,49 @@ Communicating results:
 - Don't narrate routine steps ("Let me check…") — the UI shows tool activity live. Work quietly, then summarize once.
 - Don't end with a plan or "Want me to…?" — do the work, then report.`;
 
+const ENGINE_TOOLS: ToolSpec[] = [
+  {
+    name: "update_plan",
+    description:
+      "Maintain your live plan for the user. Pass the FULL list each call (replace semantics). Statuses: pending | active (exactly one) | done | skipped. 3-7 items for most tasks.",
+    input_schema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              title: { type: "string" },
+              status: { type: "string", enum: ["pending", "active", "done", "skipped"] },
+            },
+            required: ["title", "status"],
+          },
+        },
+      },
+      required: ["items"],
+    },
+  },
+  {
+    name: "ask_user",
+    description:
+      "Ask the user ONE sharp clarifying question (only when the answer is undiscoverable and a wrong guess is costly). Returns their reply.",
+    input_schema: {
+      type: "object",
+      properties: { question: { type: "string" } },
+      required: ["question"],
+    },
+  },
+];
+
 export interface AgentCallbacks {
   onTextDelta: (delta: string) => void;
   onStep: (label: string) => void;
   onUsage?: (inputTokens: number, outputTokens: number) => void;
+  onPlan?: (items: PlanItem[]) => void;
+  onQuestion?: (question: string) => Promise<string>;
+  onSavings?: (tokensSaved: number) => void;
 }
 
 export interface AgentTurn {
@@ -45,12 +102,27 @@ export interface AgentTurn {
 }
 
 const MAX_REQUESTS_PER_TURN = 25;
+const HEADROOM_MIN_CHARS = 2000;
 
 export class MistEngine {
   private history: ChatMessage[] = [];
   private client: AnthropicClient | null = null;
+  private hooks: Hooks | null = null;
+  private steerQueue: string[] = [];
+  plan: PlanItem[] = [];
 
   constructor(readonly cwd: string = process.cwd()) {}
+
+  /** Queue a mid-turn user nudge; injected before the next model request. */
+  queueSteer(text: string): void {
+    if (text.trim()) this.steerQueue.push(text.trim());
+  }
+
+  reset(): void {
+    this.history = [];
+    this.plan = [];
+    this.steerQueue = [];
+  }
 
   private async ensureClient(): Promise<AnthropicClient> {
     if (this.client) return this.client;
@@ -65,18 +137,56 @@ export class MistEngine {
     return this.client;
   }
 
-  reset(): void {
-    this.history = [];
+  private async systemPrompt(): Promise<string> {
+    if (this.hooks === null) this.hooks = await loadHooks(this.cwd);
+    return this.hooks.intent
+      ? `${SYSTEM_PROMPT}\n\nPROJECT INTENT (durable — never regress on this):\n${this.hooks.intent}`
+      : SYSTEM_PROMPT;
+  }
+
+  /** Compress a bulky tool result via headroom when enabled; graceful no-op. */
+  private async maybeCompress(content: string, cb: AgentCallbacks): Promise<string> {
+    if (process.env.MIST_HEADROOM !== "1" || content.length < HEADROOM_MIN_CHARS) {
+      return content;
+    }
+    try {
+      const { compress } = await import("headroom-ai");
+      const out = (await compress([{ role: "tool", content }])) as {
+        messages?: { content?: string }[];
+        tokensSaved?: number;
+      };
+      const compressed = out.messages?.[0]?.content;
+      if (typeof compressed === "string" && compressed.length > 0) {
+        if (out.tokensSaved && out.tokensSaved > 0) cb.onSavings?.(out.tokensSaved);
+        return compressed;
+      }
+    } catch {
+      /* headroom unavailable/failed — original content is always safe */
+    }
+    return content;
+  }
+
+  private drainSteers(): void {
+    while (this.steerQueue.length) {
+      const steer = this.steerQueue.shift()!;
+      this.history.push({
+        role: "user",
+        content: `[steer — freshest user intent, adjust immediately] ${steer}`,
+      });
+    }
   }
 
   async runTurn(prompt: string, cb: AgentCallbacks): Promise<AgentTurn> {
     const client = await this.ensureClient();
+    const system = await this.systemPrompt();
     this.history.push({ role: "user", content: prompt });
+    const specs = [...ENGINE_TOOLS, ...toolSpecs];
     let steps = 0;
     let finalText = "";
 
     for (let request = 0; request < MAX_REQUESTS_PER_TURN; request++) {
-      const result = await client.stream(SYSTEM_PROMPT, this.history, toolSpecs, {
+      this.drainSteers();
+      const result = await client.stream(system, this.history, specs, {
         onTextDelta: cb.onTextDelta,
       });
       cb.onUsage?.(result.inputTokens, result.outputTokens);
@@ -97,15 +207,52 @@ export class MistEngine {
 
       const toolResults: ContentBlock[] = [];
       for (const tu of result.toolUses) {
+        const input = (tu.input ?? {}) as Record<string, unknown>;
+
+        // ---- engine-level tools ------------------------------------------
+        if (tu.name === "update_plan") {
+          this.plan = normalizePlan(input["items"]);
+          cb.onPlan?.(this.plan);
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: tu.id,
+            content: `plan updated (${this.plan.length} items)`,
+          });
+          continue;
+        }
+        if (tu.name === "ask_user") {
+          const question = String(input["question"] ?? "").trim();
+          const answer = cb.onQuestion
+            ? await cb.onQuestion(question)
+            : "(no user available — proceed with your best judgment)";
+          toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: answer });
+          continue;
+        }
+
+        // ---- hook gate ----------------------------------------------------
+        const verdict = this.hooks ? applyPreToolHooks(this.hooks, tu.name, input) : null;
+        if (verdict?.action === "block") {
+          cb.onStep(`⊘ ${tu.name} blocked by hook`);
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: tu.id,
+            content: `blocked by project hook: ${verdict.message}`,
+            is_error: true,
+          });
+          continue;
+        }
+
         steps += 1;
-        const res = await runTool(tu.name, (tu.input ?? {}) as Record<string, unknown>, {
-          cwd: this.cwd,
-          onStep: cb.onStep,
-        });
+        const res = await runTool(tu.name, input, { cwd: this.cwd, onStep: cb.onStep });
+        let content = res.content;
+        if (verdict?.action === "warn") {
+          content = `[project hook warning: ${verdict.message}]\n${content}`;
+        }
+        content = await this.maybeCompress(content, cb);
         toolResults.push({
           type: "tool_result",
           tool_use_id: tu.id,
-          content: res.content,
+          content,
           is_error: res.isError,
         });
       }

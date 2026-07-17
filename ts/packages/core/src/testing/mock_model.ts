@@ -35,12 +35,41 @@ export function startMockModel(port = 9876) {
     async fetch(req) {
       if (!req.url.endsWith("/v1/messages")) return new Response("nf", { status: 404 });
       const payload = (await req.json()) as { messages: { role: string; content: unknown }[] };
-      const hasToolResult = payload.messages.some(
+      // Realistic latency so live UI (plan panel, heartbeat) is observable —
+      // and demos feel like a real model. Disable with MOCK_FAST=1 (tests).
+      if (process.env.MOCK_FAST !== "1") await Bun.sleep(1500);
+      const toolResultCount = payload.messages.filter(
         (m) =>
           Array.isArray(m.content) &&
           (m.content as { type?: string }[]).some((b) => b.type === "tool_result"),
-      );
-      if (!hasToolResult) {
+      ).length;
+      if (toolResultCount === 0) {
+        // Scripted step 1: publish a plan (exercises plan.updated → TUI panel).
+        const planJson = JSON.stringify({
+          items: [
+            { id: "p1", title: "Inspect the demo directory", status: "done" },
+            { id: "p2", title: "Run the numbers", status: "active" },
+            { id: "p3", title: "Summarize the result", status: "pending" },
+          ],
+        });
+        return sse([
+          { type: "message_start", message: { usage: { input_tokens: 21 } } },
+          {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "tool_use", id: "tu_plan", name: "update_plan", input: {} },
+          },
+          {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "input_json_delta", partial_json: planJson },
+          },
+          { type: "content_block_stop", index: 0 },
+          { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 9 } },
+          { type: "message_stop" },
+        ]);
+      }
+      if (toolResultCount === 1) {
         return sse([
           { type: "message_start", message: { usage: { input_tokens: 42 } } },
           {

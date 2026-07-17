@@ -41,6 +41,21 @@ export class EngineSession {
     return () => this.listeners.delete(onEvent);
   }
 
+  /** Nudge the running turn; injected before the model's next request. */
+  steer(text: string): void {
+    this.engine.queueSteer(text);
+    this.emit("steer.queued", { text });
+  }
+
+  private pendingAnswer: ((answer: string) => void) | null = null;
+
+  /** Answer the currently pending ask_user question (no-op if none). */
+  answer(text: string): void {
+    const resolve = this.pendingAnswer;
+    this.pendingAnswer = null;
+    resolve?.(text);
+  }
+
   async submit(prompt: string): Promise<void> {
     this.emit("session.running", { prompt });
     try {
@@ -49,6 +64,13 @@ export class EngineSession {
         onStep: (label) => this.emit("step", { label }),
         onUsage: (input_tokens, output_tokens) =>
           this.emit("usage", { input_tokens, output_tokens }),
+        onPlan: (items) => this.emit("plan.updated", { items }),
+        onSavings: (tokens_saved) => this.emit("headroom.saved", { tokens_saved }),
+        onQuestion: (question) =>
+          new Promise<string>((resolve) => {
+            this.pendingAnswer = resolve;
+            this.emit("question.asked", { question });
+          }),
       });
       if (turn.finalText.trim()) {
         this.emit("AgentResponseMessage", { content: turn.finalText });

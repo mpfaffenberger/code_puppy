@@ -104,6 +104,10 @@ function App({ initialPrompt }: { initialPrompt?: string }) {
   const [engine] = useState(process.env.MIST_ENGINE === "python" ? "engine: python" : "engine: bun");
   const [stream, setStream] = useState("");
   const [tokens, setTokens] = useState(0);
+  const [plan, setPlan] = useState<{ id: string; title: string; status: string }[]>([]);
+  const [question, setQuestion] = useState("");
+  const [saved, setSaved] = useState(0);
+  const sessionRef = useRef<EngineSession | null>(null);
   const [sessionId, setSessionId] = useState("");
   const [fatal, setFatal] = useState("");
   const clientRef = useRef<MistClient | null>(null);
@@ -157,6 +161,19 @@ function App({ initialPrompt }: { initialPrompt?: string }) {
         case "usage":
           setTokens((t) => t + ev.inputTokens + ev.outputTokens);
           break;
+        case "plan_updated":
+          setPlan(ev.items);
+          break;
+        case "question_asked":
+          setQuestion(ev.question);
+          setInput("");
+          break;
+        case "steer_queued":
+          push(item("info", `↪ steered: ${ev.text}`));
+          break;
+        case "headroom_saved":
+          setSaved((t) => t + ev.tokensSaved);
+          break;
         case "agent_response":
           setStream("");
           if (ev.content.trim()) push(item("response", ev.content));
@@ -188,6 +205,7 @@ function App({ initialPrompt }: { initialPrompt?: string }) {
         if (process.env.MIST_ENGINE !== "python") {
           // Self-contained mode: the Bun engine runs in-process. No server.
           const session = new EngineSession(process.cwd());
+          sessionRef.current = session;
           setSessionId(session.id);
           cancel = session.subscribe(handleEnvelope);
           clientRef.current = {
@@ -240,10 +258,34 @@ function App({ initialPrompt }: { initialPrompt?: string }) {
 
   useInput((ch, key) => {
     if (key.ctrl && ch === "c") exit();
+    if (question) {
+      // Answer mode: the agent asked a clarifying question.
+      if (key.return) {
+        const answer = input.trim();
+        setInput("");
+        setQuestion("");
+        push(item("info", `❓ ${question}`), item("user", answer || "(no answer)"));
+        sessionRef.current?.answer(answer || "(no answer — use your judgment)");
+        return;
+      }
+      if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return; }
+      if (ch && !key.ctrl && !key.meta && !key.escape) setInput((s) => s + ch);
+      return;
+    }
     if (busy) {
       if (key.escape && clientRef.current && sessionId) {
         void clientRef.current.interrupt(sessionId);
+        return;
       }
+      // Steering: type while the agent works; Enter queues the nudge.
+      if (key.return) {
+        const steer = input.trim();
+        setInput("");
+        if (steer) sessionRef.current?.steer(steer);
+        return;
+      }
+      if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return; }
+      if (ch && !key.ctrl && !key.meta && !key.escape) setInput((s) => s + ch);
       return;
     }
     if (key.return) {
@@ -281,8 +323,35 @@ function App({ initialPrompt }: { initialPrompt?: string }) {
             ✗ {fatal}
           </Text>
         </Box>
+      ) : question ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Box borderStyle="round" borderColor={theme.accent} paddingX={1} flexDirection="column">
+            <Text color={theme.accent} bold>
+              ❓ {question}
+            </Text>
+            <Text>
+              <Text color={theme.accent} bold>{"❯ "}</Text>
+              {input}
+              <Text color={theme.brand}>█</Text>
+            </Text>
+          </Box>
+          <Text color={theme.dim} dimColor>
+            {"  "}enter to answer
+          </Text>
+        </Box>
       ) : busy ? (
         <Box flexDirection="column" marginTop={1}>
+          {plan.length ? (
+            <Box flexDirection="column" marginBottom={1} borderStyle="round" borderColor={theme.border} paddingX={1}>
+              <Text color={theme.dim} bold>Plan</Text>
+              {plan.map((it) => (
+                <Text key={it.id} color={it.status === "active" ? theme.brand : theme.dim}>
+                  {it.status === "done" ? "✓ " : it.status === "active" ? "▸ " : it.status === "skipped" ? "⊘ " : "○ "}
+                  {it.title}
+                </Text>
+              ))}
+            </Box>
+          ) : null}
           {stream ? (
             <Box flexDirection="column" marginBottom={1}>
               <Markdown source={stream} />
@@ -293,13 +362,20 @@ function App({ initialPrompt }: { initialPrompt?: string }) {
             {HEARTBEAT[frame % HEARTBEAT.length]} {SPARKLE[frame % SPARKLE.length]}{" "}
           </Text>
           <Text color={theme.dim}>
-            working · {elapsed}s · {stepCount} step{stepCount === 1 ? "" : "s"}{tokens ? ` · ${tokens.toLocaleString()} tok` : ""}
+            working · {elapsed}s · {stepCount} step{stepCount === 1 ? "" : "s"}{tokens ? ` · ${tokens.toLocaleString()} tok` : ""}{saved ? ` · ↓${saved.toLocaleString()} saved` : ""}
             {"  "}
           </Text>
           <Text color={theme.dim} dimColor>
-            esc to interrupt
+            esc interrupt · type+enter to steer
           </Text>
           </Box>
+          {input ? (
+            <Text color={theme.user}>
+              {"  ↪ "}
+              {input}
+              <Text color={theme.brand}>█</Text>
+            </Text>
+          ) : null}
         </Box>
       ) : (
         <Box

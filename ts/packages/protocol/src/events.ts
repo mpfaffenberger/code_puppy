@@ -33,6 +33,10 @@ export type MistEvent =
   | { kind: "text_delta"; delta: string } // TS engine (Phase 2) only
   | { kind: "step"; label: string } // TS engine generic tool step
   | { kind: "usage"; inputTokens: number; outputTokens: number }
+  | { kind: "plan_updated"; items: { id: string; title: string; status: string }[] }
+  | { kind: "question_asked"; question: string }
+  | { kind: "steer_queued"; text: string }
+  | { kind: "headroom_saved"; tokensSaved: number }
   | { kind: "other"; type: string };
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -98,6 +102,26 @@ export function classifyEvent(env: EventEnvelope): MistEvent {
         kind: "usage",
         inputTokens: typeof d["input_tokens"] === "number" ? d["input_tokens"] : 0,
         outputTokens: typeof d["output_tokens"] === "number" ? d["output_tokens"] : 0,
+      };
+    case "plan.updated": {
+      const items = Array.isArray(d["items"]) ? (d["items"] as Record<string, unknown>[]) : [];
+      return {
+        kind: "plan_updated",
+        items: items.map((it, i) => ({
+          id: str(it["id"]) || `p${i + 1}`,
+          title: str(it["title"]),
+          status: str(it["status"]) || "pending",
+        })),
+      };
+    }
+    case "question.asked":
+      return { kind: "question_asked", question: str(d["question"]) };
+    case "steer.queued":
+      return { kind: "steer_queued", text: str(d["text"]) };
+    case "headroom.saved":
+      return {
+        kind: "headroom_saved",
+        tokensSaved: typeof d["tokens_saved"] === "number" ? d["tokens_saved"] : 0,
       };
     default:
       return { kind: "other", type: env.type };
