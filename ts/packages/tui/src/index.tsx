@@ -549,7 +549,8 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
               { label: "/model", desc: "switch the model — opens a chooser", action: "/model" },
               { label: "/tools", desc: "list the agent's tools", action: "/tools" },
               { label: "/status", desc: "session, model, context tokens, theme, cwd", action: "/status" },
-              { label: "/record", desc: "export the session transcript to markdown", action: "/record" },
+              { label: "/record", desc: "toggle event-trace recording (jsonl, for debugging)", action: "/record" },
+              { label: "/export", desc: "export the session transcript to markdown", action: "/export" },
               { label: "/dump_context", desc: "write conversation history to /tmp", action: "/dump_context" },
               { label: "/quit", desc: "leave mist-ts (aliases /exit, /q)", action: "/quit" },
             ],
@@ -648,7 +649,18 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           say(`theme ${theme.name} · cwd ${process.cwd()}`);
           break;
         }
-        case "record":
+        case "record": {
+          const sess = sessionRef.current;
+          if (!sess) break;
+          if (sess.tracing) {
+            const r = sess.stopTrace();
+            if (r) say(`\u23f9 trace stopped \u2014 ${r.events} events \u2192 ${r.path}`);
+          } else {
+            const path = sess.startTrace(arg || undefined);
+            say(`\u23fa trace recording \u2192 ${path} (run /record again to stop)`);
+          }
+          break;
+        }
         case "export": {
           const file = arg || `mist-session-${sessionId.slice(0, 8)}.md`;
           const md = transcriptToMarkdown(items, sessionId);

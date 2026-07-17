@@ -85,6 +85,7 @@ export class AnthropicClient {
     let thinkingStart = 0;
     let thinkingLast = 0;
 
+    let debugSink: import("bun").FileSink | null = null;
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
@@ -101,6 +102,12 @@ export class AnthropicClient {
           .map((l) => l.slice(5).trim())
           .join("");
         if (!data || data === "[DONE]") continue;
+        // Raw-wire debug capture (the gpt-5.5 bug-hunt hook): every SSE data
+        // payload, exactly as received, appended to MIST_DEBUG_STREAM.
+        if (process.env.MIST_DEBUG_STREAM) {
+          debugSink ??= Bun.file(process.env.MIST_DEBUG_STREAM).writer();
+          debugSink.write(`${data}\n`);
+        }
         let ev: Record<string, unknown>;
         try {
           ev = JSON.parse(data);
@@ -151,6 +158,7 @@ export class AnthropicClient {
         }
       }
     }
+    if (debugSink) void debugSink.end();
     if (thinkingStart) result.thinkingMs = Math.max(0, thinkingLast - thinkingStart);
     for (const { id, name, json } of toolAcc.values()) {
       let input: unknown = {};

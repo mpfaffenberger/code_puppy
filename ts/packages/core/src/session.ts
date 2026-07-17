@@ -66,6 +66,42 @@ export class EngineSession {
     }
   }
 
+  private traceSink: import("bun").FileSink | null = null;
+  private tracePath: string | null = null;
+  private traceCount = 0;
+
+  /** Start recording every envelope to a JSONL trace (for replay debugging). */
+  startTrace(path?: string): string {
+    const file = path ?? `${process.env.HOME}/.mist/traces/${this.id.slice(0, 8)}-${Date.now()}.jsonl`;
+    Bun.spawnSync(["mkdir", "-p", file.slice(0, file.lastIndexOf("/"))]);
+    this.traceSink = Bun.file(file).writer();
+    this.tracePath = file;
+    this.traceCount = 0;
+    // replay context: everything already buffered lands in the trace too
+    for (const env of this.buffer) this.writeTrace(env);
+    return file;
+  }
+
+  /** Stop recording; returns {path, events}. */
+  stopTrace(): { path: string; events: number } | null {
+    if (!this.traceSink || !this.tracePath) return null;
+    void this.traceSink.end();
+    const out = { path: this.tracePath, events: this.traceCount };
+    this.traceSink = null;
+    this.tracePath = null;
+    return out;
+  }
+
+  get tracing(): string | null {
+    return this.tracePath;
+  }
+
+  private writeTrace(env: EventEnvelope): void {
+    if (!this.traceSink) return;
+    this.traceSink.write(`${JSON.stringify(env)}\n`);
+    this.traceCount += 1;
+  }
+
   private emit(type: string, data: Record<string, unknown>): void {
     const env: EventEnvelope = {
       schema_version: 1,
@@ -76,6 +112,7 @@ export class EngineSession {
       data,
     };
     this.buffer.push(env);
+    this.writeTrace(env);
     for (const l of this.listeners) l(env);
   }
 
