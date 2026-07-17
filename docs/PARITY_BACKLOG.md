@@ -205,6 +205,37 @@ Python: ~40 Playwright tools + qa-kitten agent + saved workflows.
 - [ ] **Keymap config** (`keymap.py` — user-remappable cancel/pause keys).
 - [ ] **Emoji filter, prompt_newline, wide completion menu** (cosmetic toggles).
 
+## Ranking by importance TO THE AGENT
+
+A different axis than parity priority: how much each item raises the agent's
+actual capability, autonomy, or task-completion rate — vs. serving the human
+driving it. (User-side items like input UX rank P0 for parity but near-zero
+here.)
+
+| Rank | Item | Why it matters to the agent |
+|---|---|---|
+| 1 | Provider matrix (§1) | Model quality is the ceiling on everything the agent does. Access to frontier models + round-robin over rate limits = smarter agent, fewer stalls. Nothing else compares. |
+| 2 | MCP (§2) | Every connected server is new hands: databases, browsers, issue trackers, internal APIs. The largest tool-surface expansion available per unit of work. |
+| 3 | Subagents (§6) | Context isolation + specialization + parallel fan-out. Long tasks stop drowning the main context; hard tasks get dedicated experts. Core agentic leverage. |
+| 4 | Safety stack (§7) | Counterintuitively high: sandboxing + guards + plan mode are what let the agent act *without asking*. Autonomy is capability; a sandboxed agent can be trusted with more, sooner. Injection probe protects tool-result integrity. |
+| 5 | Vision/images (§10) | A whole input modality: screenshots of broken UIs, design references, error dialogs. Unlocks task classes that are impossible today. |
+| 6 | Goal loops + judges (wiggum, P2) | Self-verification and retry-until-judges-pass directly raise task-completion rate — the project's stated top priority. Cheap to port, underrated. |
+| 7 | Skills (P2) | Packaged expertise the agent activates on demand — prompt-space capability without context bloat. |
+| 8 | Memory / kennel (P2) | Cross-session knowledge: past fixes, project quirks. Compounds over time; the agent stops re-learning the codebase every session. |
+| 9 | Browser automation (§11) | Big capability (web QA, form flows) but niche next to MCP, which can supply a browser server anyway. |
+| 10 | Context surgery + token learning (§5 partial) | Better context hygiene on long runs → fewer confused turns. Compaction already covers the 80%. |
+| 11 | Plugin system (§8) | Pure enabler: matters to the agent only as the delivery vehicle for guards, custom tools, and hooks. Rank rises if UC-style self-made tools land on top of it. |
+| 12 | Universal Constructor (P2) | The agent building its own tools is the highest-leverage idea here in theory, but needs sandboxing (#4) matured first to be safe in practice. |
+| 13 | DBOS durability (§9) | Resilience, not intelligence: crashed runs resume instead of restarting. Valuable for long autonomous jobs, invisible otherwise. |
+| 14 | Headless surfaces (§3) | Changes how humans/CI drive the agent, not what the agent can do. |
+| 15 | Input UX, config menus, themes, tutorial, share/tree, statusline | Human-side entirely. The agent never sees them. |
+
+Reading the two rankings together: §1 and §2 top both lists — do them first
+regardless of lens. The biggest divergence is input UX (P0 for parity, last
+for the agent) and goal loops + skills + memory (P2 long-tail for parity,
+top-8 for the agent). If the goal is the smartest agent rather than the most
+familiar app, pull those three forward.
+
 ## Cross-cutting gotchas
 
 1. **Test asymmetry.** Python: ~45k lines of pytest. TS: 26 bun tests. The
