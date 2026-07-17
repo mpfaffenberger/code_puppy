@@ -630,14 +630,36 @@ def test_empty_status_row_has_no_stray_sgr(bar, tty):
     assert "\x1b[2m" not in out  # _dim() no-ops on empty text
 
 
-def test_panel_too_tall_for_terminal_goes_dormant(tty):
+def test_panel_too_tall_for_terminal_clamps_with_overflow(tty):
+    """A panel taller than the terminal no longer blanks the whole bar:
+    it clamps to the rows that fit and collapses the remainder into a
+    '+N more' summary, keeping the prompt + status on screen."""
     bar = BottomBar(stream=tty, get_size=lambda: (80, 6))
     bar.start()  # 2 reserved + 1 scrollable fits in 6 rows
     assert "\x1b[1;4r" in written(tty)
     drain(tty)
-    bar.set_panel_lines(["a", "b", "c", "d"])  # needs 6 reserved + 1 > 6
+    bar.set_panel_lines(["a", "b", "c", "d"])  # 4 rows, only 3 fit
     out = written(tty)
-    assert "\x1b[r" in out  # region reset -> dormant until there's room
+    # NOT dormant: budget is 3 (6 - 1 margin - 1 prompt - 1 scroll), so
+    # 2 rows show + a summary. Reserved = 5 -> region re-established at 1;1.
+    assert "\x1b[1;1r" in out
+    assert "+2 more" in out  # the 2 clamped rows collapse into a summary
+    assert bar.is_active()
+    # The raw panel state still holds every row (clamp is render-only).
+    assert bar.get_panel_lines() == ["a", "b", "c", "d"]
+    bar.stop()
+
+
+def test_panel_all_rows_render_when_they_fit(bar, tty):
+    """On a roomy terminal every tracked agent renders -- no summary."""
+    lines = [f"agent-{i}" for i in range(12)]
+    bar.start()
+    drain(tty)
+    bar.set_panel_lines(lines)
+    out = written(tty)
+    for i in range(12):
+        assert f"agent-{i}" in out
+    assert "more" not in out  # no overflow summary when everything fits
 
 
 def test_teardown_clears_panel_rows_too(bar, tty):

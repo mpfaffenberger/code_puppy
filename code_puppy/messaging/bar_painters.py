@@ -103,6 +103,14 @@ def _dim(text: str) -> str:
     return f"{_DIM_ON}{text}{_DIM_OFF}" if text else text
 
 
+def _panel_overflow_row(hidden: int) -> str:
+    """A single summary row standing in for ``hidden`` sub-agent panel
+    rows that were clamped off because they don't fit the terminal
+    height. Emitted as a plain string so it dims like every other panel
+    row at paint time (no double-dimming)."""
+    return f"\u2026 +{hidden} more"
+
+
 class BarPainterMixin:
     """Layout math + reserved-row painters for :class:`BottomBar`."""
 
@@ -147,9 +155,45 @@ class BarPainterMixin:
         budget = rows - self._prompt_row_count() - 3 - len(self._visible_popup_lines())
         return max(0, min(slack, budget))
 
+    def _panel_row_budget(self) -> int:
+        """Max panel rows that fit without forcing the bar dormant.
+
+        Mirrors :meth:`_visible_popup_lines`' "prompt viewport WINS" rule:
+        the top margin, prompt, popup, and status always keep their rows,
+        plus one scroll row for the transcript region. Whatever height is
+        left is the panel's budget — so a big sub-agent swarm is shown as
+        tall as the terminal allows instead of overflowing past
+        ``rows - 1`` and tripping the ``rows < reserved + 1`` dormancy
+        guard in :meth:`_establish` (which would blank the panel, prompt,
+        AND status all at once).
+        """
+        rows = self._rows if self._rows > 0 else 24
+        non_panel = (
+            1  # top margin (blank separator below the transcript)
+            + self._prompt_row_count()
+            + len(self._visible_popup_lines())
+            + self._visible_popup_slack()
+            + (1 if self._status_visible() else 0)
+        )
+        return max(0, rows - 1 - non_panel)
+
     def _visible_panel_lines(self) -> list:
-        """Panel rows to paint — popup takes precedence while open."""
-        return [] if self._visible_popup_lines() else self._panel_lines
+        """Panel rows to paint — popup takes precedence while open, and the
+        list is clamped to :meth:`_panel_row_budget` so it can never
+        overflow the terminal height. When the panel is taller than the
+        budget, the last visible row collapses the remainder into a
+        "+N more" summary instead of dropping the whole bar.
+        """
+        if self._visible_popup_lines():
+            return []
+        panel = self._panel_lines
+        budget = self._panel_row_budget()
+        if len(panel) <= budget:
+            return panel
+        if budget <= 0:
+            return []
+        hidden = len(panel) - (budget - 1)
+        return panel[: budget - 1] + [_panel_overflow_row(hidden)]
 
     def _status_visible(self) -> bool:
         """The status row exists only while ANY slot has content."""

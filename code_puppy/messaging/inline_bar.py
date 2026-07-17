@@ -139,7 +139,11 @@ class InlineBottomBar(BottomBar):
         # sabotage.
         max_cells = max(1, self._cols - 1)
         lines: list[str] = []
-        panel = [] if self._popup_lines else self._panel_lines
+        # Height-relative clamp (shared with the DECSTBM path via
+        # BarPainterMixin): the block must never exceed the viewport, or
+        # the cursor-up repaint count in ``_paint_inline`` goes off and
+        # strands stale copies in scrollback every spinner tick.
+        panel = self._visible_panel_lines()
         for line in panel:
             plain = sanitize(line.plain if hasattr(line, "plain") else str(line))
             lines.append(clip_cells(plain, max_cells))
