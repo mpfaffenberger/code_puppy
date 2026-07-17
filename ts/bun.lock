@@ -23,9 +23,11 @@
       "name": "@mist/tui",
       "version": "0.0.1",
       "dependencies": {
+        "@mist/core": "workspace:*",
         "@mist/protocol": "workspace:*",
         "ink": "^7.1.1",
         "react": "^19.2.7",
+        "react-devtools-core": "file:../../stubs/react-devtools-core",
       },
     },
   },
@@ -113,5 +115,7 @@
     "yoga-layout": ["yoga-layout@3.2.1", "", {}, "sha512-0LPOt3AxKqMdFBZA3HBAt/t/8vIKq7VaQYbuA8WxCgung+p9TVyKRYdpvCb80HcdTN2NkbIKbhNwKUfm3tQywQ=="],
 
     "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
+
+    "@mist/tui/react-devtools-core": ["react-devtools-core@file:stubs/react-devtools-core", {}],
   }
 }

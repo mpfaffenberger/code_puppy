@@ -17,6 +17,7 @@ import { Box, Static, Text, render, useApp, useInput } from "ink";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { classifyEvent } from "@mist/protocol";
 import type { EventEnvelope } from "@mist/protocol";
+import { EngineSession } from "@mist/core";
 import { MistClient } from "./client";
 import { Markdown } from "./markdown";
 import { HEARTBEAT, SPARKLE, rampColor, theme } from "./theme";
@@ -34,7 +35,7 @@ const item = (kind: Item["kind"], text: string): Item => ({ id: nextId++, kind, 
 function Brand({ engine, session }: { engine: string; session: string }) {
   const word = "Mist";
   return (
-    <Box flexDirection="row" justifyContent="space-between" marginBottom={1}>
+    <Box flexDirection="row" marginBottom={1}>
       <Text>
         <Text color={theme.accent}>◆ </Text>
         {[...word].map((ch, i) => (
@@ -42,11 +43,11 @@ function Brand({ engine, session }: { engine: string; session: string }) {
             {ch}
           </Text>
         ))}
-        <Text color={theme.dim}> — coding agent</Text>
-      </Text>
-      <Text color={theme.dim}>
-        {session ? `session ${session.slice(0, 8)} · ` : ""}
-        {engine}
+        <Text color={theme.dim}> — coding agent · </Text>
+        <Text color={theme.dim}>
+          {session ? `session ${session.slice(0, 8)} · ` : ""}
+          {engine}
+        </Text>
       </Text>
     </Box>
   );
@@ -100,7 +101,9 @@ function App({ initialPrompt }: { initialPrompt?: string }) {
   const [frame, setFrame] = useState(0);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [stepCount, setStepCount] = useState(0);
-  const [engine] = useState("engine: python");
+  const [engine] = useState(process.env.MIST_ENGINE === "python" ? "engine: python" : "engine: bun");
+  const [stream, setStream] = useState("");
+  const [tokens, setTokens] = useState(0);
   const [sessionId, setSessionId] = useState("");
   const [fatal, setFatal] = useState("");
   const clientRef = useRef<MistClient | null>(null);
@@ -144,7 +147,18 @@ function App({ initialPrompt }: { initialPrompt?: string }) {
           setStepCount((n) => n + 1);
           push(item("step", `delegated to ${ev.agentName}`));
           break;
+        case "text_delta":
+          setStream((t) => t + ev.delta);
+          break;
+        case "step":
+          setStepCount((n) => n + 1);
+          push(item("step", ev.label));
+          break;
+        case "usage":
+          setTokens((t) => t + ev.inputTokens + ev.outputTokens);
+          break;
         case "agent_response":
+          setStream("");
           if (ev.content.trim()) push(item("response", ev.content));
           break;
         case "session_error":
@@ -171,6 +185,23 @@ function App({ initialPrompt }: { initialPrompt?: string }) {
     let cancel: (() => void) | undefined;
     (async () => {
       try {
+        if (process.env.MIST_ENGINE !== "python") {
+          // Self-contained mode: the Bun engine runs in-process. No server.
+          const session = new EngineSession(process.cwd());
+          setSessionId(session.id);
+          cancel = session.subscribe(handleEnvelope);
+          clientRef.current = {
+            submit: (_id: string, prompt: string) => session.submit(prompt),
+            interrupt: async () => {},
+          } as unknown as MistClient;
+          if (initialPrompt) {
+            push(item("user", initialPrompt));
+            setBusy(true);
+            setStartedAt(Date.now());
+            void session.submit(initialPrompt);
+          }
+          return;
+        }
         const client = new MistClient();
         await client.connect();
         clientRef.current = client;
@@ -251,17 +282,24 @@ function App({ initialPrompt }: { initialPrompt?: string }) {
           </Text>
         </Box>
       ) : busy ? (
-        <Box marginTop={1}>
+        <Box flexDirection="column" marginTop={1}>
+          {stream ? (
+            <Box flexDirection="column" marginBottom={1}>
+              <Markdown source={stream} />
+            </Box>
+          ) : null}
+          <Box>
           <Text color={theme.brand} bold>
             {HEARTBEAT[frame % HEARTBEAT.length]} {SPARKLE[frame % SPARKLE.length]}{" "}
           </Text>
           <Text color={theme.dim}>
-            working · {elapsed}s · {stepCount} step{stepCount === 1 ? "" : "s"}
+            working · {elapsed}s · {stepCount} step{stepCount === 1 ? "" : "s"}{tokens ? ` · ${tokens.toLocaleString()} tok` : ""}
             {"  "}
           </Text>
           <Text color={theme.dim} dimColor>
             esc to interrupt
           </Text>
+          </Box>
         </Box>
       ) : (
         <Box

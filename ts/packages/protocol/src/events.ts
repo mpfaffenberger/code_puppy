@@ -31,6 +31,8 @@ export type MistEvent =
   | { kind: "subagent_invocation"; agentName: string; prompt: string }
   | { kind: "subagent_response"; agentName: string; response: string }
   | { kind: "text_delta"; delta: string } // TS engine (Phase 2) only
+  | { kind: "step"; label: string } // TS engine generic tool step
+  | { kind: "usage"; inputTokens: number; outputTokens: number }
   | { kind: "other"; type: string };
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -89,6 +91,14 @@ export function classifyEvent(env: EventEnvelope): MistEvent {
       };
     case "text.delta":
       return { kind: "text_delta", delta: str(d["delta"]) };
+    case "step":
+      return { kind: "step", label: str(d["label"]) };
+    case "usage":
+      return {
+        kind: "usage",
+        inputTokens: typeof d["input_tokens"] === "number" ? d["input_tokens"] : 0,
+        outputTokens: typeof d["output_tokens"] === "number" ? d["output_tokens"] : 0,
+      };
     default:
       return { kind: "other", type: env.type };
   }

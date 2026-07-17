@@ -184,11 +184,32 @@ plugin ports are highly parallel).
 
 ## Discovery log
 
-- **2026-07-16 — Python headless engine hangs (pre-existing).** `mist -p …
-  --output json` and `mist --serve` turns never complete: `pydantic_agent.run`
-  suspends indefinitely (verified at pre-session baseline commit `84b33f1`,
-  DBOS off, MCP stripped, orchestrator off). The interactive TUI path is fine.
-  Consequence: Phase 1's "TUI against Python engine" validates transport +
-  rendering only; full-loop verification moves to the Bun engine (Phase 2),
-  which replaces this path outright. The legacy bug is deliberately not being
-  fixed — it dies with the engine.
+- **2026-07-16 — "Python headless hang" root-caused: provider quota.** The
+  apparent engine hang (`mist --serve` / `-p` turns never completing, even at
+  baseline commit `84b33f1`) coincided with the minimax **Token Plan being
+  exhausted** — the TS engine's first live call surfaced the truth instantly
+  with `HTTP 429: Token Plan usage limit reached`, while the Python engine
+  swallows the condition into silent retries with no user-facing signal.
+  Corrected conclusion: not a pre-existing engine bug; it's quota exhaustion
+  plus poor 429 surfacing. Two follow-ups: (a) live-model verification of the
+  Bun engine is blocked until quota is topped up or another key is provided —
+  everything else is verified against a protocol-faithful mock model;
+  (b) the Python engine's silent-retry-on-429 UX is a real defect worth a
+  loud error, tracked separately.
+
+- **2026-07-16 — Milestone: self-contained `mist-ts` binary runs the full
+  agentic loop.** `bun build --compile` produces a 62MB single binary (TUI +
+  in-proc Bun engine). tmux-verified end-to-end with the protocol-faithful
+  mock model: prompt → tool_use → real shell execution (`✓ $ seq 1 4` step
+  row) → tool_result → token-streamed markdown answer (headers/bold/bullets
+  rendered) → input returns. Zero Python, zero network.
+
+  **Honest parity status (mist-ts v0 vs Python Mist):** shipped — agent loop,
+  Anthropic-protocol streaming (incl. custom endpoints like minimax), 6-tool
+  belt (ranged read / create / exact-match edit / list / grep / guarded
+  shell), ported core system prompt, polished TUI, mock-model test harness.
+  **Not yet ported:** MCP, subagents/orchestration, plugins, safety
+  classifiers beyond the destructive-command guard, compaction/tool-result
+  clearing, /commands + config UI, themes, sessions/autosave, DBOS. Live-model
+  verification blocked on provider quota (mock-verified; endpoint path proven
+  up to the provider's 429).
