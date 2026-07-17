@@ -179,3 +179,16 @@ plugin ports are highly parallel).
    contract-test them against a live `mist --serve`.
 3. Spike: Ink app that connects to `mist --serve`, streams one session with a
    pinned footer — go/no-go on Ink vs custom renderer within a week.
+
+---
+
+## Discovery log
+
+- **2026-07-16 — Python headless engine hangs (pre-existing).** `mist -p …
+  --output json` and `mist --serve` turns never complete: `pydantic_agent.run`
+  suspends indefinitely (verified at pre-session baseline commit `84b33f1`,
+  DBOS off, MCP stripped, orchestrator off). The interactive TUI path is fine.
+  Consequence: Phase 1's "TUI against Python engine" validates transport +
+  rendering only; full-loop verification moves to the Bun engine (Phase 2),
+  which replaces this path outright. The legacy bug is deliberately not being
+  fixed — it dies with the engine.
