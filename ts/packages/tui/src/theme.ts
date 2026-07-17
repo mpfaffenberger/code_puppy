@@ -36,6 +36,8 @@ export interface Theme {
   path: string; // file/dir names — distinct so they pop
   border: string;
   user: string;
+  /** Color of the spinner-verb text in the busy status line. */
+  verb: string;
   /** Theme-specific spinner verbs — replaces the standard pools when set. */
   verbs?: readonly string[];
 }
@@ -57,6 +59,7 @@ export const THEMES: Record<string, Theme> = {
     path: "#C9A227", // gold — file names flash like the gold eye
     border: "#45646E", // calm slate
     user: "#E2E9E8", // deeper haze
+    verb: "#2E8C7C", // forms announced in sudden-clarity green
     verbs: [
       "Low Clouds, Distant Haze",
       "Eight-Layered Mist",
@@ -81,6 +84,7 @@ export const THEMES: Record<string, Theme> = {
     path: "#b794f4",
     border: "#7d4e00",
     user: "#ffecd1",
+    verb: "#df9241",
   },
   hinokami: {
     name: "hinokami",
@@ -97,6 +101,7 @@ export const THEMES: Record<string, Theme> = {
     path: "#FFC94A", // bright gold — pops on the green-black
     border: "#4A5442", // checkered-haori sage
     user: "#FFC94A",
+    verb: "#FF7A29", // forms called out in Sun Breathing flame orange
     verbs: [
       "Dance",
       "Clear Blue Sky",
@@ -128,6 +133,7 @@ export const THEMES: Record<string, Theme> = {
     path: "#D4AF5A", // gold irises — six eyes find every file
     border: "#453A50",
     user: "#F2ECF5",
+    verb: "#C24B72", // forms called out in living-blade crimson
     verbs: [
       "Dark Moon, Evening Palace",
       "Pearl Flower Moongazing",

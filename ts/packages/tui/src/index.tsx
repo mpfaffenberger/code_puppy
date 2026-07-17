@@ -129,6 +129,35 @@ export interface BannerInfo {
   latestTitle: string | null;
 }
 
+/**
+ * Input box with the session name embedded in the top border, right-aligned —
+ * Claude-Code style:  ╭──────────── session-name ──╮
+ */
+function InputFrame({ title, marginTop = 0, children }: { title: string; marginTop?: number; children: React.ReactNode }) {
+  const w = Math.max(24, (process.stdout.columns ?? 80) - 2);
+  const label = title ? ` ${title.length > 32 ? `${title.slice(0, 31)}…` : title} ` : "";
+  const left = Math.max(0, w - 2 - label.length - (label ? 2 : 0));
+  return (
+    <Box flexDirection="column" marginTop={marginTop} width={w}>
+      <Text color={theme.border}>
+        ╭{"─".repeat(left)}
+        {label ? <Text color={theme.accent}>{label}</Text> : null}
+        {label ? "──" : ""}╮
+      </Text>
+      <Box
+        borderStyle="round"
+        borderColor={theme.border}
+        borderTop={false}
+        paddingX={1}
+        flexDirection="row"
+        width={w}
+      >
+        {children}
+      </Box>
+    </Box>
+  );
+}
+
 /** Claude-Code-style welcome banner: Misty + session facts + tips. */
 function Banner({ session, info }: { session: string; info: BannerInfo }) {
   const rawUser = process.env.USER || process.env.USERNAME || "friend";
@@ -253,10 +282,12 @@ function TranscriptItem({ it }: { it: Item }) {
         </Box>
       );
     case "narration":
+      // Explicit width: inside <Static>, a flexGrow child next to the ● can
+      // overflow the terminal and hard-wrap at column 0 — pin the text column.
       return (
         <Box flexDirection="row" marginTop={1}>
           <Text color={theme.accent}>● </Text>
-          <Box flexDirection="column" flexGrow={1}>
+          <Box flexDirection="column" width={Math.max(20, (process.stdout.columns ?? 80) - 5)}>
             <Markdown source={it.text} />
           </Box>
         </Box>
@@ -348,6 +379,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
   const [pickerIndex, setPickerIndex] = useState(0);
   const sessionRef = useRef<EngineSession | null>(null);
   const [sessionId, setSessionId] = useState("");
+  const [sessionTitle, setSessionTitle] = useState("");
   const [fatal, setFatal] = useState("");
   const clientRef = useRef<MistClient | null>(null);
   const headless = Boolean(initialPrompt);
@@ -483,9 +515,11 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
           setInput("");
           break;
         case "session_resumed":
+          setSessionTitle(ev.title);
           push(item("info", `↺ resumed “${ev.title}” · ${ev.messages} messages · started ${ev.createdAt.slice(0, 10)}`));
           break;
         case "session_renamed":
+          setSessionTitle(ev.title);
           push(item("info", ev.auto ? `✎ session named “${ev.title}”` : `✎ session renamed to “${ev.title}”`));
           break;
         case "steer_queued":
@@ -789,6 +823,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
             interrupt: async () => {},
           } as unknown as MistClient;
           setPlan([]);
+          setSessionTitle("");
           say("— new session —");
           break;
         }
@@ -1178,15 +1213,16 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
           <Text color={theme.brand} bold>
             {spinner.frames[frame % spinner.frames.length]}{" "}
           </Text>
+          <Text color={theme.verb}>{verb}…</Text>
           <Text color={theme.dim}>
-            {verb}… · {elapsed}s · {stepCount} step{stepCount === 1 ? "" : "s"}{tokens ? ` · ${tokens.toLocaleString()} tok` : ""}{saved ? ` · ↓${saved.toLocaleString()} saved` : ""}
+            {" "}· {elapsed}s · {stepCount} step{stepCount === 1 ? "" : "s"}{tokens ? ` · ${tokens.toLocaleString()} tok` : ""}{saved ? ` · ↓${saved.toLocaleString()} saved` : ""}
             {"  "}
           </Text>
           <Text color={theme.dim} dimColor>
             esc to interrupt{plan.length ? ` · ctrl+t to ${planVisible ? "hide" : "show"} tasks` : ""}
           </Text>
           </Box>
-          <Box borderStyle="round" borderColor={theme.border} paddingX={1} flexDirection="row">
+          <InputFrame title={sessionTitle}>
             <Text color={input ? theme.accent : theme.dim} bold>
               ❯{" "}
             </Text>
@@ -1194,19 +1230,13 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
               {input || ""}
               <Text color={theme.brand}>█</Text>
             </Text>
-          </Box>
+          </InputFrame>
           <Text color={theme.dim} dimColor>
             {"  "}type + enter to steer the agent mid-task
           </Text>
         </Box>
       ) : (
-        <Box
-          borderStyle="round"
-          borderColor={theme.border}
-          paddingX={1}
-          marginTop={1}
-          flexDirection="row"
-        >
+        <InputFrame title={sessionTitle} marginTop={1}>
           <Text color={theme.accent} bold>
             ❯{" "}
           </Text>
@@ -1214,7 +1244,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
             {input}
             <Text color={theme.brand}>█</Text>
           </Text>
-        </Box>
+        </InputFrame>
       )}
       {!fatal && !busy && (
         <Text color={theme.dim} dimColor>
