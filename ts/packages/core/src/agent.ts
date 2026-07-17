@@ -17,8 +17,9 @@
  *   results before they enter history.
  */
 
-import { AnthropicClient } from "./anthropic";
-import type { ChatMessage, ContentBlock, ToolSpec } from "./anthropic";
+import type { ChatMessage, ContentBlock, ToolSpec } from "./models";
+import { createModelClient, configFromDef } from "./models";
+import type { ModelClient, ModelResolver } from "./models";
 import { getConfiguredModelName, getModelDef } from "./config";
 import { applyPreToolHooks, loadHooks } from "./hooks";
 import type { Hooks } from "./hooks";
@@ -42,6 +43,7 @@ Planning (for multi-step or ambiguous tasks — skip all of this for trivial ask
 - If requirements are genuinely ambiguous and a wrong guess would be costly, ask at most 1-2 sharp questions with ask_user BEFORE starting. Never ask what you can discover from the code.
 - Then lay out a plan with update_plan — one item per meaningful unit of work (3-7 for most tasks, up to 12 for big goals). Keep exactly one item active; mark items done as you complete them and update the plan when reality changes. The user watches this plan live.
 - The user may steer you mid-task (messages arriving between steps). Treat a steer as the freshest expression of intent — adjust immediately, update the plan, keep going.
+- You are long-running: NEVER end your turn while plan items are pending or active. Either complete them, mark them skipped (honestly, with the plan updated), or ask the user via ask_user if truly blocked. Stopping mid-plan to say what you will do next is a failure — do it instead.
 
 Working principles:
 - Explore before editing: read the relevant files first; resolve unknowns by looking, not guessing.
@@ -152,7 +154,7 @@ const AUTO_COMPACT_TOKENS = Number(process.env.MIST_COMPACT_AT ?? 60_000);
 
 export class MistEngine {
   private history: ChatMessage[] = [];
-  private client: AnthropicClient | null = null;
+  private client: ModelClient | null = null;
   private hooks: Hooks | null = null;
   private steerQueue: string[] = [];
   private modelOverride: string | null = null;
@@ -251,16 +253,26 @@ export class MistEngine {
     this.client = null;
   }
 
-  private async ensureClient(): Promise<AnthropicClient> {
+  private async ensureClient(): Promise<ModelClient> {
     if (this.client) return this.client;
     const name = this.modelOverride ?? (await getConfiguredModelName());
+    // Cycle guard: a round_robin whose candidates reach a round_robin already
+    // on the resolution path would recurse forever — fail with a clear error.
+    // (Duplicate LEAF members are legal; only distributor re-entry is a cycle.)
+    const resolving = new Set<string>();
+    const resolve: ModelResolver = async (modelName) => {
+      const def = await getModelDef(modelName);
+      if (def.type === "round_robin") {
+        if (resolving.has(modelName)) {
+          throw new Error(`round_robin cycle detected at '${modelName}'`);
+        }
+        resolving.add(modelName);
+      }
+      return createModelClient(configFromDef(def), resolve);
+    };
     const def = await getModelDef(name);
-    const url = def.custom_endpoint?.url;
-    const key = def.custom_endpoint?.api_key ?? process.env.ANTHROPIC_API_KEY ?? "";
-    if (!url && !process.env.ANTHROPIC_API_KEY) {
-      throw new Error(`model '${name}' has no endpoint/key configured`);
-    }
-    this.client = new AnthropicClient(url ?? "https://api.anthropic.com", key, def.name);
+    if (def.type === "round_robin") resolving.add(name);
+    this.client = await createModelClient(configFromDef(def), resolve);
     return this.client;
   }
 
@@ -325,6 +337,12 @@ export class MistEngine {
     const specs = [...engineTools, ...toolSpecs];
     let steps = 0;
     let finalText = "";
+    // Anti-stall: if the model ends its turn while plan items are still
+    // pending/active after doing real work, nudge it to keep going (capped).
+    const maxAutoContinue = this.isSubagent
+      ? 0
+      : Math.max(0, Number(process.env.MIST_AUTO_CONTINUE ?? "3"));
+    let autoContinues = 0;
 
     for (let request = 0; request < MAX_REQUESTS_PER_TURN; request++) {
       this.drainSteers();
@@ -345,6 +363,19 @@ export class MistEngine {
 
       if (result.stopReason !== "tool_use" || result.toolUses.length === 0) {
         finalText = result.text;
+        const unfinished = this.plan.some((p) => p.status === "pending" || p.status === "active");
+        // Only nudge when this turn actually worked the plan (steps > 0) —
+        // a quick Q&A over a stale plan must not trigger it.
+        if (unfinished && steps > 0 && autoContinues < maxAutoContinue) {
+          autoContinues += 1;
+          cb.onStep(`⟳ auto-continue (${autoContinues}/${maxAutoContinue}) — plan items remain`);
+          this.history.push({
+            role: "user",
+            content:
+              "[auto-continue] Your plan still has pending/active items. Do not stop — keep working through them now. If an item no longer applies, mark it skipped via update_plan (with the rest updated honestly); if you are truly blocked on the user, use ask_user. Otherwise finish the work, then give the final summary.",
+          });
+          continue;
+        }
         break;
       }
       // Intermediate narration (text emitted before tool calls) — surfaced as

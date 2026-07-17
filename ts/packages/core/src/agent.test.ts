@@ -1,6 +1,9 @@
 import { afterAll, expect, test } from "bun:test";
 import { MistEngine } from "./agent";
 process.env.MOCK_FAST = "1";
+// The scripted mock flow intentionally ends with plan items open — disable
+// the anti-stall nudge except in the test that exercises it.
+process.env.MIST_AUTO_CONTINUE = "0";
 import { startMockModel } from "./testing/mock_model";
 
 const mock = startMockModel(9871);
@@ -74,6 +77,63 @@ test("subagents: parallel fan-out, isolated children, reports in history", async
     expect(turn.finalText.length).toBeGreaterThan(0);
   } finally {
     delete process.env.MOCK_SUB;
+  }
+});
+
+test("engine parity: full runTurn loop against the OpenAI-protocol client", async () => {
+  // Regression for the review's test-coverage gap: engine-level behavior was
+  // only ever exercised on the Anthropic path; this drives the SAME loop
+  // (tool dispatch, translated history, stop-reason mapping) via OpenAIClient.
+  const { startMockOpenAI } = await import("./testing/mock_openai");
+  const oai = startMockOpenAI(9879);
+  const prevModel = process.env.MIST_MODEL;
+  try {
+    const dir = `/tmp/mist-ts-oai-${Date.now()}`;
+    await Bun.$`mkdir -p ${dir}`;
+    const models = {
+      "mock-oai": { type: "custom_openai", name: "mock-oai", custom_endpoint: { url: oai.url, api_key: "x" } },
+      // keep the anthropic mock resolvable — later tests reuse MIST_MODELS_JSON
+      "mock-model": { type: "custom_anthropic", name: "mock", custom_endpoint: { url: mock.url, api_key: "x" } },
+    };
+    const mpath = `${dir}/models.json`;
+    await Bun.write(mpath, JSON.stringify(models));
+    process.env.MIST_MODELS_JSON = mpath;
+    process.env.MIST_MODEL = "mock-oai";
+
+    const engine = new MistEngine(dir);
+    const steps: string[] = [];
+    let deltas = 0;
+    const turn = await engine.runTurn("demo", {
+      onTextDelta: () => { deltas++; },
+      onStep: (l) => steps.push(l),
+    });
+    expect(steps.length).toBe(1); // the shell call round-tripped
+    expect(steps[0]).toContain("seq 1 4");
+    expect(deltas).toBeGreaterThan(5); // streamed answer, not one blob
+    expect(turn.finalText).toContain("## Result");
+  } finally {
+    process.env.MIST_MODEL = prevModel;
+    oai.stop();
+  }
+});
+
+test("anti-stall: premature end_turn with open plan items triggers auto-continue", async () => {
+  process.env.MOCK_STALL = "1";
+  process.env.MIST_AUTO_CONTINUE = "2";
+  try {
+    const dir = `/tmp/mist-ts-stall-${Date.now()}`;
+    await Bun.$`mkdir -p ${dir}`;
+    const engine = new MistEngine(dir);
+    const steps: string[] = [];
+    const turn = await engine.runTurn("do the thing", {
+      onTextDelta: () => {},
+      onStep: (l) => steps.push(l),
+    });
+    expect(steps.some((l) => l.includes("auto-continue"))).toBe(true);
+    expect(turn.finalText).toContain("Resumed and finished");
+  } finally {
+    delete process.env.MOCK_STALL;
+    process.env.MIST_AUTO_CONTINUE = "0";
   }
 });
 

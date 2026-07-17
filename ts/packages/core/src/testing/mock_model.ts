@@ -78,6 +78,45 @@ export function startMockModel(port = 9876) {
           Array.isArray(m.content) &&
           (m.content as { type?: string }[]).some((b) => b.type === "tool_result"),
       ).length;
+      // MOCK_STALL=1: publish a plan + run a tool, then prematurely end the
+      // turn with the plan still open — exercises the anti-stall nudge.
+      if (process.env.MOCK_STALL === "1") {
+        if (JSON.stringify(payload.messages).includes("[auto-continue]")) {
+          return sse([
+            { type: "message_start", message: { usage: { input_tokens: 9 } } },
+            { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+            { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Resumed and finished the remaining plan items." } },
+            { type: "content_block_stop", index: 0 },
+            { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 9 } },
+            { type: "message_stop" },
+          ]);
+        }
+        const toolResultCountStall = payload.messages.filter(
+          (m) => Array.isArray(m.content) && (m.content as { type?: string }[]).some((b) => b.type === "tool_result"),
+        ).length;
+        if (toolResultCountStall === 0) {
+          const planJson = JSON.stringify({ items: [{ id: "s1", title: "Do the thing", status: "active" }] });
+          return sse([
+            { type: "message_start", message: { usage: { input_tokens: 11 } } },
+            { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tu_sp", name: "update_plan", input: {} } },
+            { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: planJson } },
+            { type: "content_block_stop", index: 0 },
+            { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "tu_ss", name: "shell", input: {} } },
+            { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"command":"seq 1 2"}' } },
+            { type: "content_block_stop", index: 1 },
+            { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 8 } },
+            { type: "message_stop" },
+          ]);
+        }
+        return sse([
+          { type: "message_start", message: { usage: { input_tokens: 13 } } },
+          { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+          { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Taking a break — I'll do the rest later." } },
+          { type: "content_block_stop", index: 0 },
+          { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 10 } },
+          { type: "message_stop" },
+        ]);
+      }
       // Subagent child conversations carry the subagent marker in the system
       // prompt — answer them with a canned one-shot report.
       if (process.env.MOCK_SUB === "1" && typeof payload.system === "string" && payload.system.includes("SUBAGENT")) {

@@ -7,5 +7,8 @@
   "scripts": {
     "test": "bun test",
     "build": "bun build --compile packages/tui/src/index.tsx --outfile dist/mist"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
   }
 }
