@@ -162,9 +162,11 @@ plugin ports are highly parallel).
 
 ## 4. Open decisions (defaults chosen, revisit at Phase 0)
 
-- **TUI framework:** Ink (React model, mature) vs custom ANSI renderer
-  (opencode-style, maximal control). Default: **Ink**, escape hatch to custom
-  renderer for the streaming pane only.
+- **TUI framework:** ~~Ink vs custom ANSI renderer~~ **DECIDED: Ink (GO,
+  2026-07-16).** Spike verified against the live Python engine: `<Static>`
+  gives print-above semantics natively, footer animated in 12/12 tmux frames
+  while streaming SSE. Escape hatch to a custom renderer remains for the
+  streaming-markdown pane only.
 - **Repo layout:** monorepo `ts/` (default) vs new repo.
 - **Name/binary:** `mist` (TS takes over the name at cutover) — default yes.
 - **pydantic-ai fidelity:** exact event-shape parity vs "close enough +
