@@ -101,6 +101,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const [input, setInput] = useState("");
   const [frame, setFrame] = useState(0);
   const [startedAt, setStartedAt] = useState<number | null>(null);
+  const startedAtRef = useRef<number | null>(null);
   const [stepCount, setStepCount] = useState(0);
   const [engine] = useState(process.env.MIST_ENGINE === "python" ? "engine: python" : "engine: bun");
   const [stream, setStream] = useState("");
@@ -110,6 +111,9 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const [saved, setSaved] = useState(0);
   const [, setThemeTick] = useState(0);
   const [picker, setPicker] = useState<SessionMeta[] | null>(null);
+  const [recentSteps, setRecentSteps] = useState<string[]>([]);
+  const stepLog = useRef<string[]>([]);
+  const lastStepLog = useRef<string[]>([]);
   const [pickerIndex, setPickerIndex] = useState(0);
   const sessionRef = useRef<EngineSession | null>(null);
   const [sessionId, setSessionId] = useState("");
@@ -119,6 +123,16 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const idleExitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const push = useCallback((...xs: Item[]) => setItems((p) => [...p, ...xs]), []);
+
+  // Steps show live (rolling last 3) while working, then collapse to one
+  // summary line in the transcript — codex-style granularity. /steps expands.
+  const addStep = useCallback((label: string) => {
+    setStepCount((n) => n + 1);
+    stepLog.current.push(label);
+    setRecentSteps([...stepLog.current.slice(-3)]);
+    // Hook blocks are exceptions — they must survive in the transcript.
+    if (label.includes("blocked by hook")) push(item("error", label));
+  }, [push]);
 
   // Animation clock (footer only re-renders the dynamic region — cheap).
   useEffect(() => {
@@ -133,34 +147,31 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         case "session_running":
           setBusy(true);
           setStartedAt(Date.now());
+          startedAtRef.current = Date.now();
           setStepCount(0);
+          stepLog.current = [];
+          setRecentSteps([]);
           break;
         case "shell_start":
-          setStepCount((n) => n + 1);
-          push(item("step", ev.command.length > 90 ? `${ev.command.slice(0, 89)}…` : ev.command));
+          addStep(ev.command.length > 90 ? `${ev.command.slice(0, 89)}…` : ev.command);
           break;
         case "file_read":
-          setStepCount((n) => n + 1);
-          push(item("step", `read ${ev.path}`));
+          addStep(`read ${ev.path}`);
           break;
         case "file_diff":
-          setStepCount((n) => n + 1);
-          push(item("step", `edited ${ev.path}`));
+          addStep(`edited ${ev.path}`);
           break;
         case "grep_result":
-          setStepCount((n) => n + 1);
-          push(item("step", `grep — ${ev.totalMatches} matches`));
+          addStep(`grep — ${ev.totalMatches} matches`);
           break;
         case "subagent_invocation":
-          setStepCount((n) => n + 1);
-          push(item("step", `delegated to ${ev.agentName}`));
+          addStep(`delegated to ${ev.agentName}`);
           break;
         case "text_delta":
           setStream((t) => t + ev.delta);
           break;
         case "step":
-          setStepCount((n) => n + 1);
-          push(item("step", ev.label));
+          addStep(ev.label);
           break;
         case "usage":
           setTokens((t) => t + ev.inputTokens + ev.outputTokens);
@@ -190,6 +201,20 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           break;
         case "session_idle":
         case "session_interrupted":
+          if (stepLog.current.length) {
+            const secs = startedAtRef.current
+              ? Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
+              : 0;
+            push(
+              item(
+                "info",
+                `▸ ${stepLog.current.length} tool call${stepLog.current.length === 1 ? "" : "s"}${secs ? ` · ${secs}s` : ""} · /steps to expand`,
+              ),
+            );
+            lastStepLog.current = [...stepLog.current];
+            stepLog.current = [];
+            setRecentSteps([]);
+          }
           setBusy(false);
           setStartedAt(null);
           if (headless) {
@@ -201,7 +226,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           break; // shell lines, reasoning, misc info stay out of the transcript — signal over noise
       }
     },
-    [exit, headless, push],
+    [addStep, exit, headless, push],
   );
 
   // Bootstrap: connect, create session, subscribe, optionally submit argv.
@@ -242,6 +267,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
             push(item("user", initialPrompt));
             setBusy(true);
             setStartedAt(Date.now());
+            startedAtRef.current = Date.now();
             void session.submit(initialPrompt);
           }
           return;
@@ -299,7 +325,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       const say = (text: string) => push(item("info", text));
       switch (cmd.toLowerCase()) {
         case "help":
-          say("commands: /help /resume /theme /model /sessions /new(/clear) /tools /status /dump_context /quit");
+          say("commands: /help /resume /steps /theme /model /sessions /new(/clear) /tools /status /dump_context /quit");
           say("keys: Enter send · type+Enter while busy = steer · Esc interrupt · Ctrl+C quit");
           say("flags: -c continue · -r <id> resume · --sessions · MIST_HEADROOM=1");
           break;
@@ -351,6 +377,14 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
             say(`${m.id.slice(0, 8)} · ${m.created_at.slice(0, 16).replace("T", " ")} · ${m.title}`);
           }
           if (list.length) say("resume with: mist-ts -r <id>");
+          break;
+        }
+        case "steps": {
+          if (!lastStepLog.current.length) {
+            say("(no tool calls recorded for the last turn)");
+            break;
+          }
+          for (const label of lastStepLog.current) say(`✓ ${label}`);
           break;
         }
         case "tools": {
@@ -412,6 +446,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
     push(item("user", prompt));
     setBusy(true);
     setStartedAt(Date.now());
+    startedAtRef.current = Date.now();
     try {
       await clientRef.current.submit(sessionId, prompt);
     } catch (err) {
@@ -559,6 +594,16 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
                 <Text key={it.id} color={it.status === "active" ? theme.brand : theme.dim}>
                   {it.status === "done" ? "✓ " : it.status === "active" ? "▸ " : it.status === "skipped" ? "⊘ " : "○ "}
                   {it.title}
+                </Text>
+              ))}
+            </Box>
+          ) : null}
+          {recentSteps.length ? (
+            <Box flexDirection="column" marginBottom={0}>
+              {recentSteps.map((label, i) => (
+                <Text key={`rs${i}`} color={theme.dim} dimColor={i < recentSteps.length - 1}>
+                  {"  "}
+                  <Text color={theme.success}>✓</Text> {label}
                 </Text>
               ))}
             </Box>
