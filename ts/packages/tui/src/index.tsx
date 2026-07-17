@@ -186,6 +186,10 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const [saved, setSaved] = useState(0);
   const [, setThemeTick] = useState(0);
   const [picker, setPicker] = useState<SessionMeta[] | null>(null);
+  // Input history (↑/↓ recall, shell-style), persisted across sessions.
+  const historyRef = useRef<string[]>([]);
+  const histIndex = useRef<number | null>(null);
+  const draftRef = useRef("");
   const [recentSteps, setRecentSteps] = useState<string[]>([]);
   const [narration, setNarration] = useState("");
   const stepLog = useRef<string[]>([]);
@@ -593,12 +597,14 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
     if (!prompt || busy) return;
     if (prompt.startsWith("/")) {
       setInput("");
+      recordHistory(prompt);
       push(item("user", prompt));
       await runCommand(prompt);
       return;
     }
     if (!clientRef.current || !sessionId) return;
     setInput("");
+    recordHistory(prompt);
     push(item("user", prompt));
     setBusy(true);
     setStartedAt(Date.now());
@@ -610,6 +616,61 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       setBusy(false);
     }
   }, [busy, input, push, runCommand, sessionId]);
+
+  // Load persisted input history once.
+  useEffect(() => {
+    (async () => {
+      try {
+        const path = process.env.MIST_TS_HISTORY ?? `${process.env.HOME}/.mist/ts-history`;
+        const text = await Bun.file(path).text();
+        historyRef.current = text.split("\n").filter((l) => l.trim()).slice(-1000);
+      } catch {
+        /* no history yet */
+      }
+    })();
+  }, []);
+
+  const recordHistory = useCallback((entry: string) => {
+    const trimmed = entry.trim();
+    if (!trimmed) return;
+    const hist = historyRef.current;
+    if (hist[hist.length - 1] !== trimmed) hist.push(trimmed);
+    if (hist.length > 1000) historyRef.current = hist.slice(-1000);
+    histIndex.current = null;
+    const path = process.env.MIST_TS_HISTORY ?? `${process.env.HOME}/.mist/ts-history`;
+    void Bun.write(path, historyRef.current.join("\n") + "\n").catch(() => {});
+  }, []);
+
+  /** ↑/↓ history navigation. Returns true if the key was consumed. */
+  const historyNav = useCallback(
+    (key: { upArrow: boolean; downArrow: boolean }): boolean => {
+      const hist = historyRef.current;
+      if (key.upArrow) {
+        if (!hist.length) return true;
+        if (histIndex.current === null) {
+          draftRef.current = "";
+          histIndex.current = hist.length - 1;
+        } else if (histIndex.current > 0) {
+          histIndex.current -= 1;
+        }
+        setInput(hist[histIndex.current] ?? "");
+        return true;
+      }
+      if (key.downArrow) {
+        if (histIndex.current === null) return true;
+        histIndex.current += 1;
+        if (histIndex.current > hist.length - 1) {
+          histIndex.current = null;
+          setInput(draftRef.current);
+        } else {
+          setInput(hist[histIndex.current] ?? "");
+        }
+        return true;
+      }
+      return false;
+    },
+    [],
+  );
 
   useInput((ch, key) => {
     if (key.ctrl && ch === "c") exit();
@@ -645,6 +706,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
     }
     if (question) {
       // Answer mode: the agent asked a clarifying question.
+      if (historyNav(key)) return;
       if (key.return) {
         const answer = input.trim();
         setInput("");
@@ -663,16 +725,21 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         return;
       }
       // Steering: type while the agent works; Enter queues the nudge.
+      if (historyNav(key)) return;
       if (key.return) {
         const steer = input.trim();
         setInput("");
-        if (steer) sessionRef.current?.steer(steer);
+        if (steer) {
+          recordHistory(steer);
+          sessionRef.current?.steer(steer);
+        }
         return;
       }
       if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return; }
       if (ch && !key.ctrl && !key.meta && !key.escape) setInput((s) => s + ch);
       return;
     }
+    if (historyNav(key)) return;
     if (key.return) {
       void submit();
       return;
@@ -685,7 +752,14 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       setInput("");
       return;
     }
-    if (ch && !key.ctrl && !key.meta && !key.escape) setInput((s) => s + ch);
+    if (ch && !key.ctrl && !key.meta && !key.escape) {
+      histIndex.current = null;
+      setInput((s) => {
+        const next = s + ch;
+        draftRef.current = next;
+        return next;
+      });
+    }
   });
 
   const elapsed = startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0;
