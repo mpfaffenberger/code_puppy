@@ -389,6 +389,68 @@ class TestSkillDiscovery:
         assert "fresh-skill" in str(fresh_skill_files[0])
         assert fresh_skill_files[0].read_text() == "# fresh"
 
+    @pytest.mark.plugin_skills
+    def test_collect_plugin_skills_is_thread_safe(self, tmp_path, monkeypatch):
+        """Concurrent discovery must not race on the shared plugin-skills cache.
+
+        ``discover_skills`` runs on the main loop (prompt assembly) AND on worker
+        threads (pydantic-ai runs the sync ``list_or_search_skills`` tool via
+        ``anyio.to_thread``; a /steer re-triggers prompt assembly mid-run). The
+        old unsynchronised ``rmtree``+rebuild let one thread wipe the cache dir
+        while another was writing into it -> ``OSError: [Errno 22]`` on macOS.
+        Widen the materialize window with a sleep and hammer it from many
+        threads; the lock must keep every call crash-free and complete.
+        """
+        import threading
+
+        from code_puppy.plugins.agent_skills import discovery as discovery_module
+
+        monkeypatch.setattr(
+            discovery_module, "_PLUGIN_SKILLS_CACHE_DIR", tmp_path / "plugin-cache"
+        )
+
+        register_callback(
+            "register_skills",
+            lambda: [
+                {"name": "race-skill-" + str(i), "skill_md": "# race " + str(i)}
+                for i in range(8)
+            ],
+        )
+
+        # The Errno 22 crash is a true concurrent-syscall collision: one thread's
+        # top-level ``rmtree`` physically overlapping another thread's per-skill
+        # ``mkdir``/``write``. Reproduce it with sustained churn -- many threads
+        # each looping the full wipe-and-rebuild -- rather than a paused thread
+        # (a pause can't overlap two live syscalls). The lock must make every
+        # iteration crash-free and complete.
+        errors: list[BaseException] = []
+        counts: list[int] = []
+        n_threads = 12
+        n_iters = 40
+        barrier = threading.Barrier(n_threads)
+
+        def worker():
+            barrier.wait()  # start all threads together for maximum overlap
+            for _ in range(n_iters):
+                try:
+                    skills = discover_skills(directories=[])
+                    counts.append(
+                        sum(1 for s in skills if s.name.startswith("race-skill-"))
+                    )
+                except BaseException as exc:  # noqa: BLE001 - capture the race crash
+                    errors.append(exc)
+                    return
+
+        threads = [threading.Thread(target=worker) for _ in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, "concurrent discovery raced: " + repr(errors[:3])
+        # Every completed call must see the full, consistent set of plugin skills.
+        assert counts and all(c == 8 for c in counts), sorted(set(counts))
+
     def test_discover_skills_caching(self, tmp_path, monkeypatch):
         """Test that skill discovery uses caching correctly."""
         # First discovery

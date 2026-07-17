@@ -2,6 +2,7 @@
 
 import logging
 import shutil
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, List, Optional
@@ -13,6 +14,16 @@ from code_puppy.plugins.agent_skills.config import get_skill_directories
 logger = logging.getLogger(__name__)
 
 _PLUGIN_SKILLS_CACHE_DIR = Path(CACHE_DIR) / "plugin-skills"
+
+# Serialises the wipe-and-rebuild of the shared plugin-skills cache dir.
+# ``discover_skills`` (and thus ``_collect_plugin_skills``) is called from both
+# the main loop (prompt assembly, statusline, the /skills menu) AND from worker
+# threads (pydantic-ai runs the sync ``list_or_search_skills`` tool via anyio
+# ``to_thread``; a /steer re-triggers prompt assembly mid-run). Without this
+# lock two threads race on the same directory -- one ``rmtree``s it while the
+# other is ``mkdir``-ing/writing into it -- which on macOS surfaces as
+# ``OSError: [Errno 22] Invalid argument``.
+_PLUGIN_SKILLS_LOCK = threading.Lock()
 
 
 @dataclass
@@ -181,29 +192,30 @@ def _iter_plugin_skill_registrations() -> Iterable[tuple[str, str, dict[str, Any
 
 
 def _collect_plugin_skills() -> List[SkillInfo]:
-    if _PLUGIN_SKILLS_CACHE_DIR.exists():
-        shutil.rmtree(_PLUGIN_SKILLS_CACHE_DIR, ignore_errors=True)
-    _PLUGIN_SKILLS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with _PLUGIN_SKILLS_LOCK:
+        if _PLUGIN_SKILLS_CACHE_DIR.exists():
+            shutil.rmtree(_PLUGIN_SKILLS_CACHE_DIR, ignore_errors=True)
+        _PLUGIN_SKILLS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    plugin_skills: List[SkillInfo] = []
-    seen_names: set[str] = set()
+        plugin_skills: List[SkillInfo] = []
+        seen_names: set[str] = set()
 
-    for callback_module, callback_name, entry in _iter_plugin_skill_registrations():
-        skill = _materialize_plugin_skill(callback_module, callback_name, entry)
-        if skill is None:
-            continue
-        if skill.name in seen_names:
-            logger.warning(
-                "Skipping duplicate plugin skill registration for '%s' from %s.%s",
-                skill.name,
-                callback_module,
-                callback_name,
-            )
-            continue
-        seen_names.add(skill.name)
-        plugin_skills.append(skill)
+        for callback_module, callback_name, entry in _iter_plugin_skill_registrations():
+            skill = _materialize_plugin_skill(callback_module, callback_name, entry)
+            if skill is None:
+                continue
+            if skill.name in seen_names:
+                logger.warning(
+                    "Skipping duplicate plugin skill registration for '%s' from %s.%s",
+                    skill.name,
+                    callback_module,
+                    callback_name,
+                )
+                continue
+            seen_names.add(skill.name)
+            plugin_skills.append(skill)
 
-    return plugin_skills
+        return plugin_skills
 
 
 def discover_skills(directories: Optional[List[Path]] = None) -> List[SkillInfo]:
