@@ -405,6 +405,24 @@ def test_cd_completer_home_directory_expansion(setup_cd_test_dirs, monkeypatch):
 
 
 @pytest.mark.skipif(IS_WINDOWS, reason="Path separator expectations differ on Windows")
+def test_cd_completer_home_directory_expansion_bare_tilde(
+    setup_cd_test_dirs, monkeypatch
+):
+    _, mock_home_path = setup_cd_test_dirs
+    monkeypatch.setattr(
+        os.path, "expanduser", lambda p: p.replace("~", str(mock_home_path))
+    )
+
+    completer = CDCompleter()
+    doc = Document(text="/cd ~", cursor_position=len("/cd ~"))
+    completions = list(completer.get_completions(doc, None))
+    texts = sorted([c.text for c in completions])
+
+    assert texts == sorted(["~/Desktop/", "~/Documents/", "~/Downloads/"])
+    assert "~/user/" not in texts
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="Path separator expectations differ on Windows")
 def test_cd_completer_home_directory_expansion_partial(setup_cd_test_dirs, monkeypatch):
     _, mock_home_path = setup_cd_test_dirs
     monkeypatch.setattr(
@@ -431,6 +449,20 @@ def test_cd_completer_non_existent_base(setup_cd_test_dirs, monkeypatch):
     )
     completions = list(completer.get_completions(doc, None))
     assert completions == []
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="Path separator expectations differ on Windows")
+def test_cd_completer_root_path_keeps_absolute_prefix():
+    completer = CDCompleter()
+    with patch(
+        "code_puppy.command_line.prompt_toolkit_completion.list_directory",
+        return_value=(["usr", "tmp"], []),
+    ):
+        doc = Document(text="/cd /", cursor_position=len("/cd /"))
+        completions = list(completer.get_completions(doc, None))
+
+    texts = sorted([c.text for c in completions])
+    assert texts == sorted(["/usr/", "/tmp/"])
 
 
 def test_cd_completer_permission_error_silently_handled(monkeypatch):

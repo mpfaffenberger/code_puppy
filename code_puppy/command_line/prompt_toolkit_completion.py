@@ -309,33 +309,39 @@ class CDCompleter(Completer):
         start_position = -(len(dir_path))
 
         try:
-            prefix = os.path.expanduser(dir_path)
-            part = os.path.dirname(prefix) if os.path.dirname(prefix) else "."
-            dirs, _ = list_directory(part)
-            dirnames = [d for d in dirs if d.startswith(os.path.basename(prefix))]
-            base_dir = os.path.dirname(prefix)
+            # Treat a bare `~` as `~/` for lookup so we complete inside the
+            # user's home directory (not the parent directory containing their
+            # username folder).
+            lookup_path = "~/" if dir_path == "~" else dir_path
+            expanded_lookup = os.path.expanduser(lookup_path)
 
-            # Preserve the user's original prefix (e.g., ~/ or relative paths)
-            # Extract what the user originally typed (with ~ or ./ preserved)
-            if dir_path.startswith("~"):
-                # User typed something with ~, preserve it
-                user_prefix = "~" + os.sep
-                # For suggestion, we replace the expanded base_dir back with ~/
-                original_prefix = dir_path.rstrip(os.sep)
+            # If the typed path ends with a separator, we're completing inside
+            # that directory and should match all child names.
+            if lookup_path.endswith(os.sep):
+                part = expanded_lookup
+                name_prefix = ""
             else:
-                user_prefix = None
-                original_prefix = None
+                part = os.path.dirname(expanded_lookup) or "."
+                name_prefix = os.path.basename(expanded_lookup)
+
+            dirs, _ = list_directory(part)
+            dirnames = [d for d in dirs if d.startswith(name_prefix)]
+
+            # Preserve user's typed style (~, relative, absolute) in emitted
+            # completion text instead of leaking expanded absolute paths.
+            if dir_path == "~":
+                typed_base = "~"
+            elif dir_path.endswith(os.sep):
+                stripped_base = dir_path.rstrip(os.sep)
+                if not stripped_base and dir_path.startswith(os.sep):
+                    typed_base = os.sep
+                else:
+                    typed_base = stripped_base
+            else:
+                typed_base = os.path.dirname(dir_path.rstrip(os.sep))
 
             for d in dirnames:
-                # Build the completion text so we keep the already-typed directory parts.
-                if user_prefix and original_prefix:
-                    # Restore ~ prefix
-                    suggestion = user_prefix + d + os.sep
-                elif base_dir and base_dir != ".":
-                    suggestion = os.path.join(base_dir, d)
-                else:
-                    suggestion = d
-                # Append trailing slash so the user can continue tabbing into sub-dirs.
+                suggestion = os.path.join(typed_base, d) if typed_base else d
                 suggestion = suggestion.rstrip(os.sep) + os.sep
                 yield Completion(
                     suggestion,
