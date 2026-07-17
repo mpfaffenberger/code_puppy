@@ -34,7 +34,7 @@ export type MistEvent =
   | { kind: "step"; label: string } // TS engine generic tool step
   | { kind: "usage"; inputTokens: number; outputTokens: number }
   | { kind: "plan_updated"; items: { id: string; title: string; status: string }[] }
-  | { kind: "question_asked"; question: string }
+  | { kind: "question_asked"; question: string; options: string[] }
   | { kind: "steer_queued"; text: string }
   | { kind: "headroom_saved"; tokensSaved: number }
   | { kind: "session_resumed"; title: string; messages: number; createdAt: string }
@@ -170,7 +170,11 @@ export function classifyEvent(env: EventEnvelope): MistEvent {
         summarized: typeof d["summarized"] === "number" ? d["summarized"] : 0,
       };
     case "question.asked":
-      return { kind: "question_asked", question: str(d["question"]) };
+      return {
+        kind: "question_asked",
+        question: str(d["question"]),
+        options: Array.isArray(d["options"]) ? d["options"].map((o) => String(o)) : [],
+      };
     case "steer.queued":
       return { kind: "steer_queued", text: str(d["text"]) };
     case "headroom.saved":

@@ -223,7 +223,10 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const [stream, setStream] = useState("");
   const [tokens, setTokens] = useState(0);
   const [plan, setPlan] = useState<{ id: string; title: string; status: string }[]>([]);
-  const [question, setQuestion] = useState("");
+  // Clarifying question (ask_user): optional arrow-key options + free text.
+  const [question, setQuestion] = useState<{ text: string; options: string[] } | null>(null);
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [questionCustom, setQuestionCustom] = useState(false);
   const [saved, setSaved] = useState(0);
   const [, setThemeTick] = useState(0);
   const [picker, setPicker] = useState<SessionMeta[] | null>(null);
@@ -388,7 +391,9 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           setPlan(ev.items);
           break;
         case "question_asked":
-          setQuestion(ev.question);
+          setQuestion({ text: ev.question, options: ev.options });
+          setQuestionIndex(0);
+          setQuestionCustom(ev.options.length === 0);
           setInput("");
           break;
         case "session_resumed":
@@ -841,15 +846,42 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
     }
     if (question) {
       // Answer mode: the agent asked a clarifying question.
-      if (historyNav(key)) return;
-      if (key.return) {
-        const answer = input.trim();
+      const answerWith = (answer: string) => {
         setInput("");
-        setQuestion("");
-        push(item("info", `❓ ${question}`), item("user", answer || "(no answer)"));
+        setQuestion(null);
+        setQuestionCustom(false);
+        push(item("info", `❓ ${question.text}`), item("user", answer || "(no answer)"));
         sessionRef.current?.answer(answer || "(no answer — use your judgment)");
+      };
+      const rows = question.options.length + 1; // options + "type my own"
+      if (question.options.length && !questionCustom) {
+        // Option mode: ↑/↓ + Enter (Claude-Code style); 1-9 quick-select;
+        // typing any character drops straight into free-text.
+        if (key.upArrow) { setQuestionIndex((i) => (i - 1 + rows) % rows); return; }
+        if (key.downArrow) { setQuestionIndex((i) => (i + 1) % rows); return; }
+        const digit = ch >= "1" && ch <= "9" ? Number(ch) - 1 : -1;
+        if (digit >= 0 && digit < question.options.length) {
+          answerWith(question.options[digit]!);
+          return;
+        }
+        if (key.return) {
+          if (questionIndex < question.options.length) answerWith(question.options[questionIndex]!);
+          else setQuestionCustom(true);
+          return;
+        }
+        if (ch && !key.ctrl && !key.meta && !key.escape && !key.tab) {
+          setQuestionCustom(true);
+          setInput(ch);
+        }
         return;
       }
+      // Free-text mode (no options, or the user chose to type their own).
+      if (key.escape && question.options.length) {
+        setQuestionCustom(false);
+        setInput("");
+        return;
+      }
+      if (key.return) { answerWith(input.trim()); return; }
       if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return; }
       if (ch && !key.ctrl && !key.meta && !key.escape) setInput((s) => s + ch);
       return;
@@ -960,16 +992,38 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         <Box flexDirection="column" marginTop={1}>
           <Box borderStyle="round" borderColor={theme.accent} paddingX={1} flexDirection="column">
             <Text color={theme.accent} bold>
-              ❓ {question}
+              ❓ {question.text}
             </Text>
-            <Text>
-              <Text color={theme.accent} bold>{"❯ "}</Text>
-              {input}
-              <Text color={theme.brand}>█</Text>
-            </Text>
+            {question.options.length && !questionCustom ? (
+              <>
+                {question.options.map((opt, i) => (
+                  <Text key={`qo${i}`} color={i === questionIndex ? theme.brand : theme.text} bold={i === questionIndex}>
+                    {i === questionIndex ? "❯ " : "  "}
+                    {i + 1}. {opt}
+                  </Text>
+                ))}
+                <Text
+                  color={questionIndex === question.options.length ? theme.brand : theme.dim}
+                  bold={questionIndex === question.options.length}
+                >
+                  {questionIndex === question.options.length ? "❯ " : "  "}✎ type my own answer…
+                </Text>
+              </>
+            ) : (
+              <Text>
+                <Text color={theme.accent} bold>{"❯ "}</Text>
+                {input}
+                <Text color={theme.brand}>█</Text>
+              </Text>
+            )}
           </Box>
           <Text color={theme.dim} dimColor>
-            {"  "}enter to answer
+            {"  "}
+            {question.options.length && !questionCustom
+              ? "↑/↓ or 1-9 select · enter confirm · or just start typing"
+              : question.options.length
+                ? "enter to answer · esc back to options"
+                : "enter to answer"}
           </Text>
         </Box>
       ) : busy ? (

@@ -193,10 +193,10 @@ export class EngineSession {
             after_tokens: r.afterTokens,
             summarized: r.summarized,
           }),
-        onQuestion: (question) =>
+        onQuestion: (question, options) =>
           new Promise<string>((resolve) => {
             this.pendingAnswer = resolve;
-            this.emit("question.asked", { question });
+            this.emit("question.asked", { question, options });
           }),
       });
       if (turn.finalText.trim()) {

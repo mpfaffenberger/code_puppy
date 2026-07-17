@@ -67,6 +67,26 @@ export function startMockModel(port = 9876) {
           Array.isArray(m.content) &&
           (m.content as { type?: string }[]).some((b) => b.type === "tool_result"),
       ).length;
+      if (toolResultCount === 0 && process.env.MOCK_ASK === "1") {
+        // MOCK_ASK=1: open with a clarifying question that carries options
+        // (exercises question.asked → TUI arrow-key option menu).
+        const askJson = JSON.stringify({
+          question: "Which flavor should the demo take?",
+          options: ["Fast and shallow", "Slow and thorough", "Dry run only"],
+        });
+        return sse([
+          { type: "message_start", message: { usage: { input_tokens: 12 } } },
+          {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "tool_use", id: "tu_ask", name: "ask_user", input: {} },
+          },
+          { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: askJson } },
+          { type: "content_block_stop", index: 0 },
+          { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 7 } },
+          { type: "message_stop" },
+        ]);
+      }
       if (toolResultCount === 0) {
         // Scripted step 1: publish a plan (exercises plan.updated → TUI panel).
         const planJson = JSON.stringify({

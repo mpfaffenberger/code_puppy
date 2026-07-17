@@ -85,10 +85,17 @@ const ENGINE_TOOLS: ToolSpec[] = [
   {
     name: "ask_user",
     description:
-      "Ask the user ONE sharp clarifying question (only when the answer is undiscoverable and a wrong guess is costly). Returns their reply.",
+      "Ask the user ONE sharp clarifying question (only when the answer is undiscoverable and a wrong guess is costly). When the answer space is enumerable, pass 2-4 short options — the user picks with arrow keys (they can always type their own answer instead). Returns their reply.",
     input_schema: {
       type: "object",
-      properties: { question: { type: "string" } },
+      properties: {
+        question: { type: "string" },
+        options: {
+          type: "array",
+          items: { type: "string" },
+          description: "2-4 short answer choices (optional)",
+        },
+      },
       required: ["question"],
     },
   },
@@ -99,7 +106,7 @@ export interface AgentCallbacks {
   onStep: (label: string) => void;
   onUsage?: (inputTokens: number, outputTokens: number) => void;
   onPlan?: (items: PlanItem[]) => void;
-  onQuestion?: (question: string) => Promise<string>;
+  onQuestion?: (question: string, options: string[]) => Promise<string>;
   onSavings?: (tokensSaved: number) => void;
   onCompacted?: (r: CompactionResult) => void;
   onNarration?: (text: string) => void;
@@ -308,8 +315,12 @@ export class MistEngine {
         }
         if (tu.name === "ask_user") {
           const question = String(input["question"] ?? "").trim();
+          const options = (Array.isArray(input["options"]) ? input["options"] : [])
+            .map((o) => String(o).trim())
+            .filter(Boolean)
+            .slice(0, 6);
           const answer = cb.onQuestion
-            ? await cb.onQuestion(question)
+            ? await cb.onQuestion(question, options)
             : "(no user available — proceed with your best judgment)";
           toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: answer });
           continue;
