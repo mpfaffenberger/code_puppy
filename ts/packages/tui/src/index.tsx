@@ -188,6 +188,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const [saved, setSaved] = useState(0);
   const [, setThemeTick] = useState(0);
   const [picker, setPicker] = useState<SessionMeta[] | null>(null);
+  const [planVisible, setPlanVisible] = useState(true);
   // Input history (↑/↓ recall, shell-style), persisted across sessions.
   const historyRef = useRef<string[]>([]);
   const histIndex = useRef<number | null>(null);
@@ -702,6 +703,10 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
 
   useInput((ch, key) => {
     if (key.ctrl && ch === "c") exit();
+    if (key.ctrl && ch === "t") {
+      setPlanVisible((v) => !v);
+      return;
+    }
     if (picker) {
       if (key.escape) {
         setPicker(null);
@@ -845,13 +850,20 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         </Box>
       ) : busy ? (
         <Box flexDirection="column" marginTop={1}>
-          {plan.length ? (
-            <Box flexDirection="column" marginBottom={1} borderStyle="round" borderColor={theme.border} paddingX={1}>
-              <Text color={theme.dim} bold>Plan</Text>
-              {plan.map((it) => (
-                <Text key={it.id} color={it.status === "active" ? theme.brand : theme.dim}>
-                  {it.status === "done" ? "✓ " : it.status === "active" ? "▸ " : it.status === "skipped" ? "⊘ " : "○ "}
-                  {it.title}
+          {plan.length && planVisible ? (
+            <Box flexDirection="column" marginBottom={1} paddingLeft={1}>
+              {plan.map((it, i) => (
+                <Text
+                  key={it.id}
+                  color={it.status === "active" ? theme.brand : theme.dim}
+                  bold={it.status === "active"}
+                  strikethrough={it.status === "skipped"}
+                  dimColor={it.status === "done"}
+                >
+                  {"⌙ "}
+                  {it.status === "done" ? "☑" : it.status === "skipped" ? "☒" : "☐"}
+                  {" #"}
+                  {i + 1} {it.title}
                 </Text>
               ))}
             </Box>
@@ -891,7 +903,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
             {"  "}
           </Text>
           <Text color={theme.dim} dimColor>
-            esc interrupt · type+enter to steer
+            esc interrupt · type+enter to steer{plan.length ? ` · ctrl+t to ${planVisible ? "hide" : "show"} tasks` : ""}
           </Text>
           </Box>
           {input ? (

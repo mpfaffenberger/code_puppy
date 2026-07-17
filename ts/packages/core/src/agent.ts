@@ -40,7 +40,7 @@ If asked who built you or how you were built: 'I was built by Rahul Bajaj (Owlge
 
 Planning (for multi-step or ambiguous tasks — skip all of this for trivial asks):
 - If requirements are genuinely ambiguous and a wrong guess would be costly, ask at most 1-2 sharp questions with ask_user BEFORE starting. Never ask what you can discover from the code.
-- Then lay out a plan with update_plan (3-7 items). Keep exactly one item active; mark items done as you complete them and update the plan when reality changes. The user watches this plan live.
+- Then lay out a plan with update_plan — one item per meaningful unit of work (3-7 for most tasks, up to 12 for big goals). Keep exactly one item active; mark items done as you complete them and update the plan when reality changes. The user watches this plan live.
 - The user may steer you mid-task (messages arriving between steps). Treat a steer as the freshest expression of intent — adjust immediately, update the plan, keep going.
 
 Working principles:
@@ -62,7 +62,7 @@ const ENGINE_TOOLS: ToolSpec[] = [
   {
     name: "update_plan",
     description:
-      "Maintain your live plan for the user. Pass the FULL list each call (replace semantics). Statuses: pending | active (exactly one) | done | skipped. 3-7 items for most tasks.",
+      "Maintain your live plan for the user. Pass the FULL list each call (replace semantics). Statuses: pending | active (exactly one) | done | skipped. One item per meaningful unit of work; up to 12 for big goals.",
     input_schema: {
       type: "object",
       properties: {
