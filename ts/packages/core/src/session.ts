@@ -147,6 +147,9 @@ export class EngineSession {
         onSavings: (tokens_saved) => this.emit("headroom.saved", { tokens_saved }),
         onNarration: (text) => this.emit("narration", { text }),
         onDiff: (diff) => this.emit("file.edited", { ...diff }),
+        onToolDone: (label, preview, hidden_lines) =>
+          this.emit("step.done", { label, preview, hidden_lines }),
+        onThought: (ms) => this.emit("thought", { ms }),
         onCompacted: (r) =>
           this.emit("context.compacted", {
             before_tokens: r.beforeTokens,

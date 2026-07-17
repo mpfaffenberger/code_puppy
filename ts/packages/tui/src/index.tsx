@@ -31,6 +31,7 @@ type Item =
   | { id: number; kind: "error"; text: string }
   | { id: number; kind: "response"; text: string }
   | { id: number; kind: "narration"; text: string }
+  | { id: number; kind: "toolblock"; label: string; preview: string[]; hiddenLines: number }
   | {
       id: number;
       kind: "diff";
@@ -47,6 +48,8 @@ const item = (kind: "user" | "step" | "info" | "error" | "response" | "narration
   ({ id: nextId++, kind, text }) as Item;
 const diffItem = (d: Omit<Extract<Item, { kind: "diff" }>, "id" | "kind">): Item =>
   ({ id: nextId++, kind: "diff", ...d }) as Item;
+const toolBlockItem = (label: string, preview: string[], hiddenLines: number): Item =>
+  ({ id: nextId++, kind: "toolblock", label, preview, hiddenLines }) as Item;
 
 function Brand({ engine, session }: { engine: string; session: string }) {
   const word = "Mist";
@@ -104,6 +107,30 @@ function TranscriptItem({ it }: { it: Item }) {
       return (
         <Box flexDirection="column" marginTop={1} paddingLeft={0}>
           <Markdown source={it.text} />
+        </Box>
+      );
+    case "toolblock":
+      return (
+        <Box flexDirection="column" marginTop={1}>
+          <Text>
+            <Text color={theme.success}>● </Text>
+            <Text bold>shell</Text>
+            <Text color={theme.dim}>(</Text>
+            <Text color={theme.code}>{it.label.length > 100 ? `${it.label.slice(0, 99)}…` : it.label}</Text>
+            <Text color={theme.dim}>)</Text>
+          </Text>
+          {it.preview.map((l, i) => (
+            <Text key={`tb${it.id}-${i}`} color={theme.dim}>
+              {"  ⌙ "}
+              {l}
+            </Text>
+          ))}
+          {it.hiddenLines > 0 ? (
+            <Text color={theme.dim} dimColor>
+              {"    … +"}
+              {it.hiddenLines} line{it.hiddenLines === 1 ? "" : "s"} (/steps to expand)
+            </Text>
+          ) : null}
         </Box>
       );
     case "narration":
@@ -179,7 +206,6 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const addStep = useCallback((label: string) => {
     setStepCount((n) => n + 1);
     stepLog.current.push(label);
-    stepGroup.current.push(label);
     setRecentSteps([...stepLog.current.slice(-3)]);
     // Hook blocks are exceptions — they must survive in the transcript.
     if (label.includes("blocked by hook")) push(item("error", label));
@@ -229,6 +255,42 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           break;
         case "text_delta":
           setStream((t) => t + ev.delta);
+          break;
+        case "toolblock":
+      return (
+        <Box flexDirection="column" marginTop={1}>
+          <Text>
+            <Text color={theme.success}>● </Text>
+            <Text bold>shell</Text>
+            <Text color={theme.dim}>(</Text>
+            <Text color={theme.code}>{it.label.length > 100 ? `${it.label.slice(0, 99)}…` : it.label}</Text>
+            <Text color={theme.dim}>)</Text>
+          </Text>
+          {it.preview.map((l, i) => (
+            <Text key={`tb${it.id}-${i}`} color={theme.dim}>
+              {"  ⌙ "}
+              {l}
+            </Text>
+          ))}
+          {it.hiddenLines > 0 ? (
+            <Text color={theme.dim} dimColor>
+              {"    … +"}
+              {it.hiddenLines} line{it.hiddenLines === 1 ? "" : "s"} (/steps to expand)
+            </Text>
+          ) : null}
+        </Box>
+      );
+        case "step_done": {
+          if (ev.label.startsWith("$")) {
+            flushStepGroup();
+            push(toolBlockItem(ev.label, ev.preview, ev.hiddenLines));
+          } else if (!ev.label.startsWith("edited") && !ev.label.startsWith("created")) {
+            stepGroup.current.push(ev.label); // quiet ops collapse to Ran-N
+          }
+          break;
+        }
+        case "thought":
+          push(item("info", `Thought for ${Math.max(1, Math.round(ev.ms / 1000))}s`));
           break;
         case "narration": {
           flushStepGroup();

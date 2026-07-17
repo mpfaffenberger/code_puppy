@@ -78,6 +78,20 @@ export function startMockModel(port = 9876) {
         });
         return sse([
           { type: "message_start", message: { usage: { input_tokens: 21 } } },
+          { type: "content_block_start", index: 9, content_block: { type: "thinking", thinking: "" } },
+          { type: "content_block_delta", index: 9, delta: { type: "thinking_delta", thinking: "step 0" } },
+          { type: "content_block_delta", index: 9, delta: { type: "thinking_delta", thinking: "step 1" } },
+          { type: "content_block_delta", index: 9, delta: { type: "thinking_delta", thinking: "step 2" } },
+          { type: "content_block_delta", index: 9, delta: { type: "thinking_delta", thinking: "step 3" } },
+          { type: "content_block_delta", index: 9, delta: { type: "thinking_delta", thinking: "step 4" } },
+          { type: "content_block_delta", index: 9, delta: { type: "thinking_delta", thinking: "step 5" } },
+          { type: "content_block_delta", index: 9, delta: { type: "thinking_delta", thinking: "step 6" } },
+          { type: "content_block_delta", index: 9, delta: { type: "thinking_delta", thinking: "step 7" } },
+          { type: "content_block_delta", index: 9, delta: { type: "thinking_delta", thinking: "step 8" } },
+          { type: "content_block_delta", index: 9, delta: { type: "thinking_delta", thinking: "step 9" } },
+          { type: "content_block_delta", index: 9, delta: { type: "thinking_delta", thinking: "step 10" } },
+          { type: "content_block_delta", index: 9, delta: { type: "thinking_delta", thinking: "step 11" } },
+          { type: "content_block_stop", index: 9 },
           {
             type: "content_block_start",
             index: 0,

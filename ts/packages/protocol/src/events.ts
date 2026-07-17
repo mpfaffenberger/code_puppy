@@ -40,6 +40,8 @@ export type MistEvent =
   | { kind: "session_resumed"; title: string; messages: number; createdAt: string }
   | { kind: "context_compacted"; beforeTokens: number; afterTokens: number; summarized: number }
   | { kind: "narration"; text: string }
+  | { kind: "step_done"; label: string; preview: string[]; hiddenLines: number }
+  | { kind: "thought"; ms: number }
   | {
       kind: "file_edited";
       path: string;
@@ -135,6 +137,15 @@ export function classifyEvent(env: EventEnvelope): MistEvent {
       };
     case "narration":
       return { kind: "narration", text: str(d["text"]) };
+    case "step.done":
+      return {
+        kind: "step_done",
+        label: str(d["label"]),
+        preview: Array.isArray(d["preview"]) ? (d["preview"] as unknown[]).map((x) => str(x)) : [],
+        hiddenLines: typeof d["hidden_lines"] === "number" ? d["hidden_lines"] : 0,
+      };
+    case "thought":
+      return { kind: "thought", ms: typeof d["ms"] === "number" ? d["ms"] : 0 };
     case "file.edited": {
       const rawLines = Array.isArray(d["lines"]) ? (d["lines"] as Record<string, unknown>[]) : [];
       return {

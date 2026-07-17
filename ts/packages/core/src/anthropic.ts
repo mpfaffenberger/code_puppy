@@ -28,6 +28,7 @@ export interface StreamCallbacks {
 
 export interface TurnResult {
   text: string;
+  thinkingMs: number;
   toolUses: { id: string; name: string; input: unknown }[];
   stopReason: string;
   inputTokens: number;
@@ -73,6 +74,7 @@ export class AnthropicClient {
 
     const result: TurnResult = {
       text: "",
+      thinkingMs: 0,
       toolUses: [],
       stopReason: "end_turn",
       inputTokens: 0,
@@ -80,6 +82,8 @@ export class AnthropicClient {
     };
     // Per-index accumulation of tool_use input JSON.
     const toolAcc = new Map<number, { id: string; name: string; json: string }>();
+    let thinkingStart = 0;
+    let thinkingLast = 0;
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -113,6 +117,13 @@ export class AnthropicClient {
             cb.onToolUse?.(name);
           }
         } else if (type === "content_block_delta") {
+          {
+            const delta0 = ev["delta"] as Record<string, unknown> | undefined;
+            if (delta0?.["type"] === "thinking_delta") {
+              if (thinkingStart === 0) thinkingStart = Date.now();
+              thinkingLast = Date.now();
+            }
+          }
           const idx = ev["index"] as number;
           const delta = ev["delta"] as Record<string, unknown> | undefined;
           if (delta?.["type"] === "text_delta") {
@@ -140,6 +151,7 @@ export class AnthropicClient {
         }
       }
     }
+    if (thinkingStart) result.thinkingMs = Math.max(0, thinkingLast - thinkingStart);
     for (const { id, name, json } of toolAcc.values()) {
       let input: unknown = {};
       try {

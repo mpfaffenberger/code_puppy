@@ -104,6 +104,8 @@ export interface AgentCallbacks {
   onCompacted?: (r: CompactionResult) => void;
   onNarration?: (text: string) => void;
   onDiff?: (diff: import("./tools").DiffPayload) => void;
+  onToolDone?: (label: string, preview: string[], hiddenLines: number) => void;
+  onThought?: (ms: number) => void;
 }
 
 export interface AgentTurn {
@@ -270,6 +272,7 @@ export class MistEngine {
         onTextDelta: cb.onTextDelta,
       });
       cb.onUsage?.(result.inputTokens, result.outputTokens);
+      if (result.thinkingMs > 500) cb.onThought?.(result.thinkingMs);
 
       const assistantBlocks: ContentBlock[] = [];
       if (result.text) assistantBlocks.push({ type: "text", text: result.text });
@@ -326,7 +329,20 @@ export class MistEngine {
         }
 
         steps += 1;
-        const res = await runTool(tu.name, input, { cwd: this.cwd, onStep: cb.onStep, onDiff: cb.onDiff });
+        let stepLabel = "";
+        const res = await runTool(tu.name, input, {
+          cwd: this.cwd,
+          onStep: (label) => {
+            stepLabel = label;
+            cb.onStep(label);
+          },
+          onDiff: cb.onDiff,
+        });
+        {
+          const outLines = res.content.split("\n").filter((l) => l.trim());
+          const preview = outLines.slice(0, 2).map((l) => (l.length > 90 ? `${l.slice(0, 89)}…` : l));
+          cb.onToolDone?.(stepLabel || tu.name, preview, Math.max(0, outLines.length - preview.length));
+        }
         let content = res.content;
         if (verdict?.action === "warn") {
           content = `[project hook warning: ${verdict.message}]\n${content}`;
