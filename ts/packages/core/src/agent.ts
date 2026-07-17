@@ -33,6 +33,7 @@ import {
   SUMMARIZATION_PROMPT,
 } from "./compaction";
 import { runTool, toolSpecs } from "./tools";
+import { McpManager, type McpToolSpec } from "./mcp";
 
 export const SYSTEM_PROMPT = `You are Mist, an AI coding agent helping the developer complete software-engineering work.
 You MUST use the provided tools to read, write, and execute rather than just describing what to do.
@@ -148,6 +149,11 @@ export interface CompactionResult {
   summarized: number;
 }
 
+// Per-turn model-request ceiling: a runaway-loop backstop, NOT a work budget.
+// Big implementation turns legitimately need dozens of requests (the P0 session
+// silently died at the old cap of 25). Env-tunable; subagents get half.
+const requestCap = (isSubagent: boolean): number =>
+  Math.max(1, Number(process.env.MIST_MAX_REQUESTS ?? (isSubagent ? 50 : 100)));
 const MAX_REQUESTS_PER_TURN = 25;
 const HEADROOM_MIN_CHARS = 2000;
 const AUTO_COMPACT_TOKENS = Number(process.env.MIST_COMPACT_AT ?? 60_000);
@@ -158,12 +164,23 @@ export class MistEngine {
   private hooks: Hooks | null = null;
   private steerQueue: string[] = [];
   private modelOverride: string | null = null;
+  /** MCP server manager; null until attachMcp() is called. */
+  mcp: McpManager | null = null;
   plan: PlanItem[] = [];
 
   constructor(
     readonly cwd: string = process.cwd(),
     private readonly isSubagent: boolean = false,
   ) {}
+
+  /**
+   * Attach an MCP manager (owned by the caller — typically the TUI boot).
+   * Loads + auto-starts servers, surfaces failures. Idempotent.
+   */
+  async attachMcp(manager: McpManager): Promise<{ started: string[]; failed: { name: string; error: string }[] }> {
+    this.mcp = manager;
+    return manager.loadAndStart();
+  }
 
   /** Estimated tokens currently held in history (chars/2.5 heuristic). */
   estimateContextTokens(): number {
@@ -334,7 +351,8 @@ export class MistEngine {
     const engineTools = this.isSubagent
       ? ENGINE_TOOLS.filter((t) => t.name !== "invoke_subagent")
       : ENGINE_TOOLS;
-    const specs = [...engineTools, ...toolSpecs];
+    const specs: ToolSpec[] = [...engineTools, ...toolSpecs];
+    if (this.mcp) specs.push(...this.mcp.allTools());
     let steps = 0;
     let finalText = "";
     // Anti-stall: if the model ends its turn while plan items are still
@@ -343,8 +361,10 @@ export class MistEngine {
       ? 0
       : Math.max(0, Number(process.env.MIST_AUTO_CONTINUE ?? "3"));
     let autoContinues = 0;
+    const maxRequests = requestCap(this.isSubagent);
+    let endedNaturally = false;
 
-    for (let request = 0; request < MAX_REQUESTS_PER_TURN; request++) {
+    for (let request = 0; request < maxRequests; request++) {
       this.drainSteers();
       const result = await client.stream(system, this.history, specs, {
         onTextDelta: cb.onTextDelta,
@@ -376,6 +396,7 @@ export class MistEngine {
           });
           continue;
         }
+        endedNaturally = true;
         break;
       }
       // Intermediate narration (text emitted before tool calls) — surfaced as
@@ -414,6 +435,38 @@ export class MistEngine {
             ? await cb.onQuestion(question, options)
             : "(no user available — proceed with your best judgment)";
           toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: answer });
+          continue;
+        }
+
+        // ---- MCP-routed tools (namespaced server_tool) --------------------
+        if (this.mcp && this.mcp.allTools().some((t) => t.name === tu.name)) {
+          try {
+            const verdict = this.hooks ? applyPreToolHooks(this.hooks, tu.name, input) : null;
+            if (verdict?.action === "block") {
+              cb.onStep(`⊘ ${tu.name} blocked by hook`);
+              toolResults.push({
+                type: "tool_result",
+                tool_use_id: tu.id,
+                content: `blocked by project hook: ${verdict.message}`,
+                is_error: true,
+              });
+              continue;
+            }
+            const result = await this.mcp.callTool(tu.name, input);
+            const text = typeof result === "string"
+              ? result
+              : (result as { content?: { type: string; text?: string }[] })?.content
+                ?.map((c) => c.text ?? "")
+                .join("\n") ?? JSON.stringify(result);
+            toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: text });
+          } catch (e) {
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: tu.id,
+              content: `mcp tool '${tu.name}' failed: ${(e as Error).message}`,
+              is_error: true,
+            });
+          }
           continue;
         }
 
@@ -459,6 +512,16 @@ export class MistEngine {
       }
       toolResults.push(...(await Promise.all(subagentRuns)));
       this.history.push({ role: "user", content: toolResults });
+    }
+    if (!endedNaturally) {
+      // Cap exit used to be SILENT — the turn just stopped mid-work with no
+      // final text and no signal (how the P0 session died at 25 requests).
+      // Surface it and hand the user a one-word resume path.
+      cb.onStep(`⏸ request cap hit (${maxRequests} model calls this turn)`);
+      finalText =
+        `Paused mid-task: this turn hit the ${maxRequests}-model-request safety cap. ` +
+        `All progress is saved in this session — send "continue" and I'll pick up exactly where I left off. ` +
+        `(Raise MIST_MAX_REQUESTS to allow longer turns.)`;
     }
     return { finalText, steps };
   }

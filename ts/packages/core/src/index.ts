@@ -12,6 +12,27 @@ export { OpenAIClient } from "./openai";
 export { GeminiClient } from "./gemini";
 export { RoundRobinClient } from "./round_robin";
 export { createModelClient, configFromDef, envKeyForType, defaultBaseForType } from "./models";
+export { startHeadlessServer } from "./headless";
+export type { ServeOptions } from "./headless";
+export { runHeadless } from "./headless_run";
+export type { HeadlessRunOptions, HeadlessResult } from "./headless_run";
+export {
+  McpManager,
+  connectServer,
+  loadMcpServers,
+  saveMcpServers,
+  validateConfig,
+  toolPrefix,
+  namespacedToolName,
+  defaultMcpServersPath,
+} from "./mcp";
+export type {
+  McpServerConfig,
+  McpServersFile,
+  McpToolSpec,
+  ManagedServer,
+  ServerStatus,
+} from "./mcp";
 export type {
   ChatMessage,
   ContentBlock,

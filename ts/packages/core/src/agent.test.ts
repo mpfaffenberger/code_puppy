@@ -117,6 +117,28 @@ test("engine parity: full runTurn loop against the OpenAI-protocol client", asyn
   }
 });
 
+test("request cap: hitting the ceiling is loud and hands back a resume path", async () => {
+  // Regression: the old cap (25) exited the loop SILENTLY — no final text, no
+  // event — which is how the P0 session died mid-implementation.
+  process.env.MIST_MAX_REQUESTS = "2"; // scripted flow needs 4 to finish
+  try {
+    const dir = `/tmp/mist-ts-cap-${Date.now()}`;
+    await Bun.$`mkdir -p ${dir}`;
+    await Bun.write(`${dir}/demo.txt`, "say hello now");
+    const engine = new MistEngine(dir);
+    const steps: string[] = [];
+    const turn = await engine.runTurn("demo", {
+      onTextDelta: () => {},
+      onStep: (l) => steps.push(l),
+    });
+    expect(steps.some((l) => l.includes("request cap hit"))).toBe(true);
+    expect(turn.finalText).toContain("Paused mid-task");
+    expect(turn.finalText).toContain('send "continue"');
+  } finally {
+    delete process.env.MIST_MAX_REQUESTS;
+  }
+});
+
 test("anti-stall: premature end_turn with open plan items triggers auto-continue", async () => {
   process.env.MOCK_STALL = "1";
   process.env.MIST_AUTO_CONTINUE = "2";

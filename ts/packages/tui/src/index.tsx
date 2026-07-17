@@ -1285,6 +1285,9 @@ const HELP = `mist ${VERSION} — Mist coding agent (Bun engine)
 Usage:
   mist                        interactive session (new)
   mist "task"                 one-shot: run the task and exit
+  mist -p "task"              one-shot (explicit --prompt form)
+  mist -p "task" --output json   one-shot, emit one JSON envelope per line
+  mist --serve [--port 4096] [--host 127.0.0.1]   headless HTTP/SSE server
   mist -c | --continue        resume the latest session for this directory
   mist -r <id> | --resume     resume a specific session (id prefix ok)
   mist --sessions             list saved sessions for this directory
@@ -1314,6 +1317,42 @@ async function main(): Promise<void> {
       console.log(`${s.id.slice(0, 8)}  ${s.created_at.slice(0, 16).replace("T", " ")}  ${s.title}`);
     }
     return;
+  }
+
+  // --serve: headless HTTP/SSE server (never renders the TUI).
+  if (args.includes("--serve")) {
+    const { startHeadlessServer } = await import("@mist/core");
+    const portIdx = args.indexOf("--port");
+    const hostIdx = args.indexOf("--host");
+    const port = portIdx >= 0 ? Number(args[portIdx + 1]) : undefined;
+    const host = hostIdx >= 0 ? args[hostIdx + 1] : undefined;
+    const server = await startHeadlessServer({ cwd: process.cwd(), port, host });
+    console.error(`mist --serve listening on ${server.url}`);
+    console.error(`auth token: ${server.token}  (also in ~/.mist/server.json)`);
+    return; // server keeps the process alive
+  }
+
+  // -p / --prompt with --output: headless one-shot (never renders the TUI).
+  let explicitPrompt: string | undefined;
+  let outputFormat: "json" | "text" | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "-p" || a === "--prompt") {
+      explicitPrompt = args[++i];
+    } else if (a === "--output") {
+      const v = args[++i];
+      if (v === "json" || v === "text") outputFormat = v;
+      else {
+        console.error(`--output must be 'json' or 'text' (got '${v}')`);
+        process.exit(1);
+      }
+    }
+  }
+  if (explicitPrompt !== undefined || outputFormat) {
+    const { runHeadless } = await import("@mist/core");
+    const prompt = explicitPrompt ?? "";
+    const res = await runHeadless(prompt, { cwd: process.cwd(), output: outputFormat });
+    process.exit(res.exitCode);
   }
 
   let resume: StoredSession | undefined;
