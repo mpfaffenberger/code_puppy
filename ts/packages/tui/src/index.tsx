@@ -53,6 +53,45 @@ const diffItem = (d: Omit<Extract<Item, { kind: "diff" }>, "id" | "kind">): Item
 const toolBlockItem = (label: string, preview: string[], hiddenLines: number): Item =>
   ({ id: nextId++, kind: "toolblock", label, preview, hiddenLines }) as Item;
 
+/** Serialize the transcript to shareable markdown (the /record command). */
+export function transcriptToMarkdown(items: Item[], sessionId: string): string {
+  const out: string[] = [`# Mist session ${sessionId.slice(0, 8)}`, ""];
+  for (const it of items) {
+    switch (it.kind) {
+      case "user":
+        out.push(`## \u276f ${it.text}`, "");
+        break;
+      case "narration":
+      case "response":
+        out.push(it.text, "");
+        break;
+      case "toolblock": {
+        const body = [it.label, ...it.preview];
+        if (it.hiddenLines) body.push(`\u2026 +${it.hiddenLines} lines`);
+        out.push("```", ...body, "```", "");
+        break;
+      }
+      case "diff":
+        out.push(
+          `**${it.action === "create" ? "Create" : "Update"}: ${it.path}** (+${it.added}/-${it.removed})`,
+          "```diff",
+          ...it.lines.map((l) => `${l.type === "add" ? "+" : "-"} ${l.text}`),
+          "```",
+          "",
+        );
+        break;
+      case "step":
+      case "info":
+        out.push(`> ${it.text}`, "");
+        break;
+      case "error":
+        out.push(`> \u26a0\ufe0f ${it.text}`, "");
+        break;
+    }
+  }
+  return out.filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n");
+}
+
 function Brand({ engine, session }: { engine: string; session: string }) {
   const word = "Mist";
   return (
@@ -501,6 +540,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
             ["/model [name]", "show or switch the model — persists to mist.cfg"],
             ["/tools", "list the agent's tools"],
             ["/status", "session, model, context tokens, theme, cwd"],
+            ["/record [file]", "export the session transcript to markdown"],
             ["/dump_context", "write the full conversation history to /tmp"],
             ["/quit, /exit, /q", "leave mist-ts"],
           ];
@@ -588,6 +628,14 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           say(`theme ${theme.name} · cwd ${process.cwd()}`);
           break;
         }
+        case "record":
+        case "export": {
+          const file = arg || `mist-session-${sessionId.slice(0, 8)}.md`;
+          const md = transcriptToMarkdown(items, sessionId);
+          await Bun.write(file, md);
+          say(`transcript (${items.length} entries) \u2192 ${file}`);
+          break;
+        }
         case "dump_context": {
           const path = `/tmp/mist-context-${sessionId.slice(0, 8)}.json`;
           const history = sessionRef.current ? sessionRef.current.exportHistory() : [];
@@ -618,7 +666,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           say(`unknown command /${cmd} — try /help`);
       }
     },
-    [exit, handleEnvelope, push, saved, sessionId, tokens],
+    [exit, handleEnvelope, items, push, saved, sessionId, tokens],
   );
 
   const submit = useCallback(async () => {
