@@ -5,13 +5,16 @@
  * swaps its values in place (callers bump a state tick to re-render). The
  * chosen theme persists to ~/.mist/ts-settings.json.
  *
- * - "mist": the pastel brand ramp (Regent St Blue → We Peep) on cool neutrals.
+ * - "mist": Mist Breathing (Muichiro) — pale fog dissolving into sudden
+ *   clarity: fog neutrals, mint hair tips, calm slate, teal clarity, and the
+ *   gold eye for accents that must pop. Spinner announces the seven Mist
+ *   Breathing forms.
  * - "cinnamon": the warm autumn palette ported from the Python TUI
  *   (cinnamon / pumpkin / butterscotch / milky tan / creamsicle).
  * - "hinokami": Sun Breathing / Hinokami Kagura — Tanjiro's checkered
  *   green-black, Yoriichi's crimson + gold sun crest, flame-arc oranges on
  *   warm parchment. Firelight, not a stock dark theme. A theme may also
- *   carry its own spinner `verbs` (hinokami announces Sun Breathing forms).
+ *   carry its own spinner `verbs` (breathing-style forms).
  */
 
 import { homedir } from "node:os";
@@ -38,18 +41,29 @@ export interface Theme {
 export const THEMES: Record<string, Theme> = {
   mist: {
     name: "mist",
-    ramp: ["#a8d3e1", "#b3e4e6", "#ebf7f9", "#e5b8d1", "#f2cad4"],
-    brand: "#a8d3e1",
-    accent: "#e5b8d1",
-    text: "#e8edf7",
-    dim: "#8a93a6",
-    success: "#df9241",
-    warning: "#d47007",
-    error: "#ff6b6b",
-    code: "#b3e4e6",
-    path: "#a78bfa",
-    border: "#5b6478",
-    user: "#f2cad4",
+    // Fog lifting into clarity: pale fog → deeper haze → distant fog →
+    // mint hair tips → sudden clarity
+    ramp: ["#EEF3F2", "#E2E9E8", "#93A6A4", "#6FAE94", "#2E8C7C"],
+    brand: "#2E8C7C", // sudden clarity (functions/accent)
+    accent: "#6FAE94", // mint hair tips
+    text: "#EEF3F2", // pale fog
+    dim: "#93A6A4", // distant fog (comments)
+    success: "#6FAE94",
+    warning: "#C9A227", // the gold eye
+    error: "#B5555A", // muted, not alarming
+    code: "#6FAE94",
+    path: "#C9A227", // gold — file names flash like the gold eye
+    border: "#45646E", // calm slate
+    user: "#E2E9E8", // deeper haze
+    verbs: [
+      "Low Clouds, Distant Haze",
+      "Eight-Layered Mist",
+      "Scattering Mist Splash",
+      "Shifting Flow Slash",
+      "Sea of Clouds and Haze",
+      "Lunar Dispersing Mist",
+      "Obscuring Clouds",
+    ],
   },
   cinnamon: {
     name: "cinnamon",
