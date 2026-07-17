@@ -28,11 +28,11 @@ if is_enabled():
     except ImportError:
         # Use logger.info (not debug) so it surfaces by default — silently
         # skipping a feature the user enabled is bad UX. Install with
-        # `pip install code-puppy[durable]` to fix.
+        # `pip install mist[durable]` to fix.
         logger.info(
             "DBOS plugin enabled but `dbos` package not installed; "
             "durable-exec hooks not registered. "
-            "Install with: pip install 'code-puppy[durable]'"
+            "Install with: pip install 'mist[durable]'"
         )
     else:
         register_callback("startup", on_startup)

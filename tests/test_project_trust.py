@@ -6,7 +6,12 @@ from code_puppy.project_trust import (
     ensure_project_trusted,
     filter_untrusted_project_paths,
     get_project_trust,
+    get_trust_scope,
+    is_domain_trusted,
+    is_path_trusted,
+    is_url_trusted,
     set_project_trusted,
+    set_trust_scope,
 )
 
 
@@ -56,5 +61,54 @@ def test_untrusted_project_resource_paths_are_filtered(tmp_path: Path):
         patch("code_puppy.project_trust.ensure_project_trusted", return_value=False),
     ):
         assert filter_untrusted_project_paths(
-            [user_path, project / ".code_puppy" / "skills"]
+            [user_path, project / ".mist" / "skills"]
         ) == [str(user_path)]
+
+
+def test_scoped_trust_upgrades_legacy_boolean_record(tmp_path: Path):
+    trust_file = tmp_path / "trust.json"
+    project = tmp_path / "repo"
+    project.mkdir()
+    with (
+        patch("code_puppy.project_trust._trust_file", return_value=trust_file),
+        patch("code_puppy.project_trust._git_remotes", return_value=()),
+    ):
+        set_project_trusted(project, True)
+        scope = set_trust_scope(
+            project,
+            domains=["API.EXAMPLE.COM"],
+            services=["internal-ci"],
+        )
+        assert scope.trusted is True
+        assert is_domain_trusted("sub.api.example.com", project)
+        assert is_url_trusted("https://api.example.com/v1", project)
+        assert get_trust_scope(project).services == ("internal-ci",)
+    raw = json.loads(trust_file.read_text())[str(project.resolve())]
+    assert raw["trusted"] is True
+
+
+def test_trusted_paths_stay_inside_project(tmp_path: Path):
+    trust_file = tmp_path / "trust.json"
+    project = tmp_path / "repo"
+    project.mkdir()
+    with patch("code_puppy.project_trust._trust_file", return_value=trust_file):
+        set_project_trusted(project, True)
+        assert is_path_trusted(project / "src" / "app.py", project)
+        assert not is_path_trusted(tmp_path / "outside.txt", project)
+
+
+def test_git_remotes_extend_default_scope(tmp_path: Path):
+    trust_file = tmp_path / "trust.json"
+    project = tmp_path / "repo"
+    project.mkdir()
+    with (
+        patch("code_puppy.project_trust._trust_file", return_value=trust_file),
+        patch(
+            "code_puppy.project_trust._git_remotes",
+            return_value=("git@github.com:example/mist.git",),
+        ),
+    ):
+        set_project_trusted(project, True)
+        scope = get_trust_scope(project)
+    assert scope.domains == ("github.com",)
+    assert scope.scm_orgs == ("example",)

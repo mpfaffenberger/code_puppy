@@ -150,6 +150,39 @@ CURATED_THEMES: dict[str, dict] = {
         ),
         "terminal_palette": bp.SUNSET,
     },
+    "cinnamon": {
+        "icon": "🍂",
+        "label": "Cinnamon",
+        "blurb": "warm cinnamon, pumpkin & butterscotch",
+        "colors": [
+            "#d47007",  # pumpkin
+            "#df9241",  # butterscotch
+            "#7d4e00",  # cinnamon
+            "#c4a59d",  # milky tan
+            "#e0b067",  # warm gold
+            "#e8a35a",  # warm amber
+            "#a85c08",  # deep pumpkin
+        ],
+        "content_styles": {
+            "info": "#df9241",
+            "warning": "#d47007",
+            "success": "#e0b067",
+            "error": "bold red",
+            "debug": "dim #c4a59d",
+            "diff_add": "#df9241",
+            "diff_remove": "red",
+            "diff_context": "dim #c4a59d",
+        },
+        "color_remap": rt.make_remap(
+            cyan="#df9241",
+            blue="#d47007",
+            magenta="#c4a59d",
+            bright_cyan="#e0b067",
+            bright_blue="#a85c08",
+            bright_magenta="#e8a35a",
+        ),
+        "terminal_palette": bp.CINNAMON,
+    },
     "vaporwave": {
         "icon": "🪩",
         "label": "Vaporwave",
@@ -441,11 +474,11 @@ SURPRISE = {
     "terminal_palette": None,  # randomized at apply time
 }
 
-# The 14th option: restore Code Puppy defaults (banners + content).
+# The 14th option: restore Mist defaults (banners + content).
 DEFAULT = {
     "icon": "🔄",
     "label": "Restore Defaults",
-    "blurb": "back to Code Puppy factory colors",
+    "blurb": "back to Mist factory colors",
     "colors": None,
     "content_styles": None,  # handled specially
     "color_remap": None,  # handled specially (empty)
@@ -457,6 +490,7 @@ MENU: list[tuple[str, dict]] = [
     ("ocean", CURATED_THEMES["ocean"]),
     ("forest", CURATED_THEMES["forest"]),
     ("sunset", CURATED_THEMES["sunset"]),
+    ("cinnamon", CURATED_THEMES["cinnamon"]),
     ("vaporwave", CURATED_THEMES["vaporwave"]),
     ("bubblegum-pink", CURATED_THEMES["bubblegum-pink"]),
     ("catppuccin-mocha", CURATED_THEMES["catppuccin-mocha"]),
@@ -492,7 +526,7 @@ def colors_for(theme_name: str, rng: random.Random | None = None) -> dict[str, s
 
     For curated themes, cycles through the theme palette deterministically.
     For ``surprise``, samples randomly from the full PALETTE.
-    For ``default``, returns the Code Puppy factory banner colors.
+    For ``default``, returns the Mist factory banner colors.
     """
     if theme_name not in MENU_BY_NAME:
         raise KeyError(f"Unknown theme: {theme_name!r}")

@@ -199,7 +199,7 @@ class TestStatusDisplay:
 
         text_str = str(text)
         assert "30.0 t/s" in text_str
-        assert "🐾" in text_str  # Paw emoji
+        assert "💨" in text_str  # ambient mist emoji
         # Check that the message contains loading message content
         found_message = False
         for msg in status_display.loading_messages:
@@ -452,7 +452,7 @@ class TestStatusDisplay:
         assert panel.padding == (1, 2)
 
         # Check title styling exists
-        assert panel.title == "[bold blue]Code Puppy Status[/bold blue]"
+        assert panel.title == "[bold blue]Mist Status[/bold blue]"
 
     def test_memory_efficiency(self, status_display):
         """Test that status display doesn't accumulate memory unnecessarily."""

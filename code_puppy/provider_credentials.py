@@ -2,8 +2,8 @@
 
 Single source of truth for: which env var each configured provider/model needs,
 whether it is currently set (mirroring ``model_factory.get_api_key`` precedence:
-puppy.cfg first, then ``os.environ``), a masked display value, and saving a new
-value so it takes effect immediately (puppy.cfg + current-process env).
+mist.cfg first, then ``os.environ``), a masked display value, and saving a new
+value so it takes effect immediately (mist.cfg + current-process env).
 
 Used by:
 - the ``/model`` picker and ``/add_model`` browser, to view/edit keys, and
@@ -99,7 +99,7 @@ def all_required_env_vars() -> List[str]:
 def get_credential_value(env_var: str) -> Optional[str]:
     """Resolve a credential exactly like ``model_factory.get_api_key``.
 
-    puppy.cfg (case-insensitive key) first, then ``os.environ``.
+    mist.cfg (case-insensitive key) first, then ``os.environ``.
     """
     from code_puppy.config import get_value
 
@@ -133,7 +133,7 @@ def credential_display(env_var: str) -> str:
 
 
 def save_credential(env_var: str, value: str) -> None:
-    """Persist a credential to puppy.cfg and apply it to the current process.
+    """Persist a credential to mist.cfg and apply it to the current process.
 
     Stored under the lowercase key (so ``get_value(env_var.lower())`` resolves
     it) and exported to ``os.environ`` so it is effective without a restart.

@@ -136,7 +136,7 @@ class TestSessionDataPersistence:
         """Test that session file path is correctly constructed."""
         session_file = _get_session_file_path()
         assert session_file.name == "terminal_sessions.json"
-        assert "code_puppy" in str(session_file)
+        assert ".mist" in str(session_file)
 
     def test_save_session_data_creates_directory(self, temp_session_dir):
         """Test that save_session_data creates directory if missing."""
@@ -146,7 +146,7 @@ class TestSessionDataPersistence:
             session_file = temp_session_dir / "sessions" / "terminal_sessions.json"
             mock_path.return_value = session_file
 
-            _save_session_data({"session_123": "code-puppy"})
+            _save_session_data({"session_123": "mist"})
 
             assert session_file.parent.exists()
             assert session_file.exists()
@@ -159,7 +159,7 @@ class TestSessionDataPersistence:
             session_file = temp_session_dir / "terminal_sessions.json"
             mock_path.return_value = session_file
 
-            sessions = {"session_123": "code-puppy", "session_456": "planning-agent"}
+            sessions = {"session_123": "mist", "session_456": "planning-agent"}
             # Mock _is_process_alive to return True so sessions aren't filtered out during cleanup
             with patch(
                 "code_puppy.agents.agent_manager._is_process_alive", return_value=True
@@ -169,7 +169,7 @@ class TestSessionDataPersistence:
             with open(session_file, "r") as f:
                 loaded = json.load(f)
 
-            assert loaded["session_123"] == "code-puppy"
+            assert loaded["session_123"] == "mist"
             assert loaded["session_456"] == "planning-agent"
 
     def test_save_session_data_handles_io_error(self):
@@ -180,7 +180,7 @@ class TestSessionDataPersistence:
             session_file = Path("/invalid/path/sessions.json")
             mock_path.return_value = session_file
             # Should not raise even with invalid path
-            _save_session_data({"session_123": "code-puppy"})
+            _save_session_data({"session_123": "mist"})
 
     def test_load_session_data_returns_empty_dict_if_file_missing(self):
         """Test that load returns empty dict if file doesn't exist."""
@@ -247,7 +247,7 @@ class TestSessionDataPersistence:
 
             # Use non-standard session format to avoid PID-based cleanup
             original = {
-                "fallback_111": "code-puppy",
+                "fallback_111": "mist",
                 "fallback_222": "planning-agent",
                 "fallback_333": "code-reviewer",
             }
@@ -264,7 +264,7 @@ class TestSessionDataPersistence:
             session_file = temp_session_dir / "terminal_sessions.json"
             mock_path.return_value = session_file
 
-            _save_session_data({"session_123": "code-puppy"})
+            _save_session_data({"session_123": "mist"})
 
             # Should not have created .tmp file (it should be renamed)
             temp_file = session_file.with_suffix(".tmp")
@@ -278,7 +278,7 @@ class TestDeadSessionCleanup:
     def test_cleanup_removes_dead_sessions(self):
         """Test that cleanup removes sessions for dead processes."""
         sessions = {
-            "session_12345": "code-puppy",  # Will be dead
+            "session_12345": "mist",  # Will be dead
             "session_99999": "planning-agent",  # Will be dead
         }
 
@@ -290,7 +290,7 @@ class TestDeadSessionCleanup:
     def test_cleanup_preserves_live_sessions(self):
         """Test that cleanup preserves sessions for live processes."""
         sessions = {
-            "session_12345": "code-puppy",
+            "session_12345": "mist",
             "session_99999": "planning-agent",
         }
 
@@ -302,7 +302,7 @@ class TestDeadSessionCleanup:
     def test_cleanup_mixed_sessions(self):
         """Test cleanup with mix of live and dead processes."""
         sessions = {
-            "session_111": "code-puppy",  # alive
+            "session_111": "mist",  # alive
             "session_222": "planning-agent",  # dead
             "session_333": "code-reviewer",  # alive
         }
@@ -321,7 +321,7 @@ class TestDeadSessionCleanup:
     def test_cleanup_handles_invalid_session_format(self):
         """Test cleanup handles non-standard session ID formats."""
         sessions = {
-            "session_12345": "code-puppy",
+            "session_12345": "mist",
             "fallback_99999": "planning-agent",  # Non-standard format
             "invalid": "code-reviewer",  # Also non-standard
         }
@@ -339,7 +339,7 @@ class TestDeadSessionCleanup:
     def test_cleanup_handles_invalid_pid_conversion(self):
         """Test cleanup when PID can't be converted to int."""
         sessions = {
-            "session_invalid": "code-puppy",  # Can't convert to int
+            "session_invalid": "mist",  # Can't convert to int
             "session_12345": "planning-agent",
         }
 
@@ -357,7 +357,7 @@ class TestDeadSessionCleanup:
     def test_cleanup_calls_is_process_alive(self):
         """Test that cleanup properly calls is_process_alive."""
         sessions = {
-            "session_123": "code-puppy",
+            "session_123": "mist",
             "session_456": "planning-agent",
         }
 
@@ -383,7 +383,7 @@ class TestSessionCaching:
         am._SESSION_AGENTS_CACHE.clear()
 
         with patch("code_puppy.agents.agent_manager._load_session_data") as mock_load:
-            mock_load.return_value = {"session_123": "code-puppy"}
+            mock_load.return_value = {"session_123": "mist"}
 
             # First call should load
             _ensure_session_cache_loaded()
@@ -401,7 +401,7 @@ class TestSessionCaching:
         am._SESSION_AGENTS_CACHE.clear()
 
         test_sessions = {
-            "session_111": "code-puppy",
+            "session_111": "mist",
             "session_222": "planning-agent",
         }
 

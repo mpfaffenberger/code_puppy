@@ -6,7 +6,7 @@ status badges, and performance metrics.
 
 Usage:
     >>> manager = SubAgentConsoleManager.get_instance()
-    >>> manager.register_agent("session-123", "code-puppy", "gpt-4o")
+    >>> manager.register_agent("session-123", "mist", "gpt-4o")
     >>> manager.update_agent("session-123", status="running", tool_call_count=5)
     >>> manager.unregister_agent("session-123")
 """
@@ -30,7 +30,7 @@ from code_puppy.messaging.messages import SubAgentStatusMessage
 
 STATUS_STYLES = {
     "starting": {"color": "cyan", "spinner": "dots", "emoji": "🚀"},
-    "running": {"color": "green", "spinner": "dots", "emoji": "🐕"},
+    "running": {"color": "green", "spinner": "dots", "emoji": "💨"},
     "thinking": {"color": "magenta", "spinner": "dots", "emoji": "🤔"},
     "tool_calling": {"color": "yellow", "spinner": "dots12", "emoji": "🔧"},
     "completed": {"color": "green", "spinner": None, "emoji": "✅"},
@@ -173,7 +173,7 @@ class SubAgentConsoleManager:
 
         Args:
             session_id: Unique identifier for this agent session.
-            agent_name: Name of the agent (e.g., 'code-puppy', 'qa-kitten').
+            agent_name: Name of the agent (e.g., 'mist', 'qa-kitten').
             model_name: Name of the model being used (e.g., 'gpt-4o').
         """
         with self._agents_lock:
@@ -402,7 +402,7 @@ class SubAgentConsoleManager:
 
         # Build panel title with spinner for active states
         title = Text()
-        title.append("🐕 ", style="bold")
+        title.append("🫧 ", style="bold")
         title.append(agent.agent_name, style=f"bold {color}")
 
         # Create panel

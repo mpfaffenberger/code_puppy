@@ -472,7 +472,7 @@ def test_clone_class_agent_does_not_bake_runtime_metadata(tmp_path):
 
     with (
         patch.object(am, "_discover_agents"),
-        patch.dict(am._AGENT_REGISTRY, {"code-puppy": CodePuppyAgent}, clear=True),
+        patch.dict(am._AGENT_REGISTRY, {"mist": CodePuppyAgent}, clear=True),
         patch(
             "code_puppy.config.get_user_agents_directory",
             return_value=str(tmp_path),
@@ -487,9 +487,9 @@ def test_clone_class_agent_does_not_bake_runtime_metadata(tmp_path):
         patch.object(am, "emit_warning"),
         patch.object(am, "_filter_available_tools", side_effect=lambda t: t),
     ):
-        clone_name = am.clone_agent("code-puppy")
+        clone_name = am.clone_agent("mist")
 
-    assert clone_name == "code-puppy-clone-1"
+    assert clone_name == "mist-clone-1"
     config = json.loads(captured["content"])
     # Runtime-only metadata must not be frozen into the clone definition.
     assert "KENNEL-SECRET-BLOCK" not in config["system_prompt"]

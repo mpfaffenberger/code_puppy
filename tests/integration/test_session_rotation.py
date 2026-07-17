@@ -61,7 +61,7 @@ def test_session_rotation(
             second_run.child.expect("Enter your coding task", timeout=10)
 
             # Verify we now have two session directories
-            autosave_dir = Path(second_run.temp_home) / ".code_puppy" / "autosaves"
+            autosave_dir = Path(second_run.temp_home) / ".mist" / "autosaves"
             session_dirs = list(autosave_dir.glob("*"))
             assert len(session_dirs) == 2, (
                 f"Should have exactly two autosave sessions, found {len(session_dirs)}"

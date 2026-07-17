@@ -1,1 +1,1 @@
-"""DBOS durable-execution plugin for Code Puppy."""
+"""DBOS durable-execution plugin for Mist."""

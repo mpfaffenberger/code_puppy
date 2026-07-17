@@ -788,7 +788,7 @@ class AddModelMenu:
                 emit_info(f"Model {model_key} is already in extra_models.json")
                 return True  # Not an error, just already exists
 
-            # Convert to Code Puppy config format (dictionary value)
+            # Convert to Mist config format (dictionary value)
             config = self._build_model_config(model, provider)
             extra_models[model_key] = config
 
@@ -809,7 +809,7 @@ class AddModelMenu:
             return False
 
     def _build_model_config(self, model: ModelInfo, provider: ProviderInfo) -> dict:
-        """Build a Code Puppy compatible model configuration.
+        """Build a Mist compatible model configuration.
 
         Format matches models.json structure:
         {
@@ -819,7 +819,7 @@ class AddModelMenu:
             "context_length": 200000
         }
         """
-        # Map provider IDs to Code Puppy types
+        # Map provider IDs to Mist types
         type_mapping = {
             "openai": "openai",
             "anthropic": "anthropic",

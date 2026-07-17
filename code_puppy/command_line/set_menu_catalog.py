@@ -43,6 +43,7 @@ from code_puppy.config import (
     get_mcp_disabled,
     get_mcp_unbound_warning_silenced,
     get_message_limit,
+    get_mist_token,
     get_openai_reasoning_effort,
     get_openai_reasoning_summary,
     get_openai_verbosity,
@@ -50,8 +51,7 @@ from code_puppy.config import (
     get_owner_name,
     get_pack_agents_enabled,
     get_protected_token_count,
-    get_puppy_name,
-    get_puppy_token,
+    get_mist_name,
     get_resume_message_count,
     get_safety_permission_level,
     get_smooth_response_stream,
@@ -77,16 +77,16 @@ _IDENTITY = SettingsCategory(
     name="Identity",
     settings=(
         Setting(
-            key="puppy_name",
-            display_name="Puppy Name",
-            description="The name of your Code Puppy agent.",
+            key="mist_name",
+            display_name="Mist Name",
+            description="The name of your Mist agent.",
             type_hint="string",
-            effective_getter=get_puppy_name,
+            effective_getter=get_mist_name,
         ),
         Setting(
             key="owner_name",
             display_name="Owner Name",
-            description="Your name - how the puppy knows you.",
+            description="Your name, used when Mist addresses you.",
             type_hint="string",
             effective_getter=get_owner_name,
         ),
@@ -176,7 +176,7 @@ _BEHAVIOR = SettingsCategory(
             display_name="Default Agent",
             description=(
                 "Agent loaded at startup when no other selection has been made. "
-                "Default 'code-puppy'."
+                "Default 'mist'."
             ),
             type_hint="string",
             effective_getter=get_default_agent,
@@ -446,11 +446,11 @@ _API_KEYS = SettingsCategory(
     name="API Keys",
     settings=(
         Setting(
-            key="puppy_token",
-            display_name="Puppy Token",
-            description="Authentication token for Code Puppy services.",
+            key="mist_token",
+            display_name="Mist Token",
+            description="Authentication token for Mist services.",
             type_hint="string",
-            effective_getter=get_puppy_token,
+            effective_getter=get_mist_token,
             sensitive=True,
         ),
     ),
@@ -556,7 +556,7 @@ _MCP = SettingsCategory(
             key="disable_mcp",
             display_name="Disable MCP",
             description=(
-                "When True, Code Puppy skips loading MCP servers entirely "
+                "When True, Mist skips loading MCP servers entirely "
                 "at startup. Takes effect after restart."
             ),
             type_hint="bool",

@@ -871,7 +871,7 @@ def register_list_files(agent):
 
             spill = NamedTemporaryFile(
                 mode="w",
-                prefix="code_puppy_listing_",
+                prefix="mist_listing_",
                 suffix=".txt",
                 dir=gettempdir(),
                 delete=False,

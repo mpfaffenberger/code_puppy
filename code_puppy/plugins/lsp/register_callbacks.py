@@ -18,7 +18,7 @@ def _help():
     return [
         (
             "/lsp status",
-            "Show configured language servers from ~/.code_puppy/lsp_servers.json",
+            "Show configured language servers from ~/.mist/lsp_servers.json",
         )
     ]
 

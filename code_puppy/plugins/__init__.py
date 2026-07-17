@@ -10,7 +10,8 @@ from code_puppy.callbacks import clear_loading_context, set_loading_context
 logger = logging.getLogger(__name__)
 
 # User plugins directory
-USER_PLUGINS_DIR = Path.home() / ".code_puppy" / "plugins"
+USER_PLUGINS_DIR = Path.home() / ".mist" / "plugins"
+LEGACY_USER_PLUGINS_DIR = Path.home() / ".code_puppy" / "plugins"
 
 # Track if plugins have already been loaded to prevent duplicate registration
 _PLUGINS_LOADED = False
@@ -93,7 +94,7 @@ def _load_user_plugins(
     user_plugins_dir: Path,
     skip_names: set[str] | None = None,
 ) -> list[str]:
-    """Load user plugins from ~/.code_puppy/plugins/.
+    """Load user plugins from ~/.mist/plugins/.
 
     Each plugin should be a directory containing a register_callbacks.py file.
     Plugins are loaded by adding their parent to sys.path and importing them.
@@ -266,7 +267,7 @@ def _load_project_plugins(
     builtin_names: set[str],
     user_names: set[str],
 ) -> list[str]:
-    """Load project plugins from <CWD>/.code_puppy/plugins/.
+    """Load project plugins from <CWD>/.mist/plugins/.
 
     Mirrors _load_user_plugins() but uses a ``project_plugins.`` sys.modules
     namespace and warns on name collisions with builtin or user plugins.
@@ -377,16 +378,19 @@ def _load_project_plugins(
 def get_project_plugins_directory() -> Path | None:
     """Get the project-local plugins directory path.
 
-    Looks for a .code_puppy/plugins/ directory in the current working directory.
+    Looks for a .mist/plugins/ directory in the current working directory.
     Does NOT create the directory if it doesn't exist — the team must create it
     intentionally.
 
     Returns:
         Path to the project's plugins directory if it exists, or None.
     """
-    project_plugins_dir = Path.cwd() / ".code_puppy" / "plugins"
+    project_plugins_dir = Path.cwd() / ".mist" / "plugins"
     if project_plugins_dir.is_dir():
         return project_plugins_dir
+    legacy_plugins_dir = Path.cwd() / ".code_puppy" / "plugins"
+    if legacy_plugins_dir.is_dir():
+        return legacy_plugins_dir
     return None
 
 
@@ -395,8 +399,8 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
 
     Loads plugins from:
     1. Built-in plugins in the code_puppy/plugins/ directory
-    2. User plugins in ~/.code_puppy/plugins/
-    3. Project plugins in <CWD>/.code_puppy/plugins/
+    2. User plugins in ~/.mist/plugins/
+    3. Project plugins in <CWD>/.mist/plugins/
 
     Returns dict with 'builtin', 'user', and 'project' keys containing
     lists of loaded plugin names.
@@ -411,6 +415,10 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
     if _PLUGINS_LOADED:
         logger.debug("Plugins already loaded, skipping duplicate load")
         return {"builtin": [], "user": [], "project": []}
+
+    from code_puppy.config import _migrate_legacy_storage
+
+    _migrate_legacy_storage()
 
     plugins_dir = Path(__file__).parent
 
@@ -436,7 +444,10 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
 
     builtin_loaded = _load_builtin_plugins(plugins_dir)
     user_skip_names = set(builtin_loaded) | project_plugin_names
-    user_loaded = _load_user_plugins(USER_PLUGINS_DIR, skip_names=user_skip_names)
+    user_dir = (
+        USER_PLUGINS_DIR if USER_PLUGINS_DIR.is_dir() else LEGACY_USER_PLUGINS_DIR
+    )
+    user_loaded = _load_user_plugins(user_dir, skip_names=user_skip_names)
 
     # Load project plugins last (highest precedence)
     project_loaded = []

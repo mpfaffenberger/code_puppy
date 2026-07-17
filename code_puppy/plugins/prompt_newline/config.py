@@ -17,5 +17,5 @@ def is_enabled() -> bool:
 
 
 def set_enabled(enabled: bool) -> None:
-    """Persist the on/off switch to puppy.cfg."""
+    """Persist the on/off switch to mist.cfg."""
     set_config_value(_CONFIG_KEY, "true" if enabled else "false")

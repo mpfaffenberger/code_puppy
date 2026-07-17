@@ -355,6 +355,99 @@ def filter_huge_messages(
     return prune_interrupted_tool_calls(filtered)
 
 
+# Tool-result clearing: once a tool result is deep in history, the agent has
+# already extracted what it needed — the raw payload is dead weight. We replace
+# the bulky content with a short stub, keeping the call/return pair intact so
+# the history stays valid and the model still knows the tool ran.
+_CLEARED_PREFIX = "[tool result cleared"
+_CLEARABLE_RETURN_KINDS: frozenset[str] = frozenset(
+    {"tool-return", "builtin-tool-return"}
+)
+
+
+def _replace_part_content(part: Any, content: str) -> Any:
+    """Return ``part`` with ``content`` swapped, tolerating immutable shapes."""
+    try:
+        return dataclasses.replace(part, content=content)
+    except TypeError:
+        try:
+            part.content = content
+        except (AttributeError, TypeError):
+            pass
+        return part
+
+
+def clear_stale_tool_results(
+    messages: List[ModelMessage],
+    *,
+    keep_recent: int = 4,
+    min_tokens: int = 1500,
+    model_name: Optional[str] = None,
+) -> tuple[List[ModelMessage], int]:
+    """Replace large, old tool-return payloads with compact stubs.
+
+    The most recent ``keep_recent`` tool results are preserved verbatim (the
+    model needs fresh examples of tool behavior). Older returns whose payload
+    exceeds ``min_tokens`` are stubbed. Call/return pairing and ordering are
+    preserved, and already-stubbed results are skipped, so this is idempotent
+    and safe to run on every history-processor cycle.
+
+    Returns ``(new_messages, num_cleared)``.
+    """
+    if not messages or keep_recent < 0:
+        return messages, 0
+
+    locations: List[tuple[int, int]] = []
+    for mi, msg in enumerate(messages):
+        for pi, part in enumerate(getattr(msg, "parts", []) or []):
+            if getattr(part, "part_kind", None) in _CLEARABLE_RETURN_KINDS and getattr(
+                part, "tool_call_id", None
+            ):
+                locations.append((mi, pi))
+
+    if len(locations) <= keep_recent:
+        return messages, 0
+
+    protected = set(locations[-keep_recent:]) if keep_recent else set()
+    targets_by_msg: Dict[int, Set[int]] = {}
+    for loc in locations:
+        if loc in protected:
+            continue
+        targets_by_msg.setdefault(loc[0], set()).add(loc[1])
+
+    new_messages = list(messages)
+    cleared = 0
+    for mi, part_idxs in targets_by_msg.items():
+        parts = list(getattr(messages[mi], "parts", []) or [])
+        changed = False
+        for pi in part_idxs:
+            part = parts[pi]
+            content = getattr(part, "content", None)
+            if isinstance(content, str) and content.startswith(_CLEARED_PREFIX):
+                continue
+            tokens = estimate_tokens(stringify_part(part))
+            if tokens < min_tokens:
+                continue
+            tool_name = getattr(part, "tool_name", None) or "tool"
+            stub = (
+                f"{_CLEARED_PREFIX} to save context — {tool_name} output "
+                f"(~{tokens} tokens) removed from history. Re-run the tool if you "
+                "need it again.]"
+            )
+            parts[pi] = _replace_part_content(part, stub)
+            changed = True
+            cleared += 1
+        if changed:
+            try:
+                new_messages[mi] = dataclasses.replace(messages[mi], parts=parts)
+            except TypeError:
+                try:
+                    messages[mi].parts = parts
+                except (AttributeError, TypeError):
+                    pass
+    return new_messages, cleared
+
+
 # Anthropic's API requires tool_use IDs to match this pattern.
 # Other providers (Kimi, etc.) may generate IDs with dots, colons, etc.
 # that violate this constraint. When switching models mid-conversation,

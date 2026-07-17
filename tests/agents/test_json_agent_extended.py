@@ -374,7 +374,7 @@ class TestDiscoverJsonAgents:
         agent1_file.write_text(json.dumps(config1))
         agent2_file.write_text(json.dumps(config2))
 
-        # Use a temp directory without .code_puppy to isolate from project directory
+        # Use a temp directory without .mist to isolate from project directory
         isolated_dir = tmp_path / "isolated"
         isolated_dir.mkdir()
         monkeypatch.chdir(isolated_dir)
@@ -414,7 +414,7 @@ class TestDiscoverJsonAgents:
         not_json = tmp_path / "not_json.txt"
         not_json.write_text("Not a JSON file")
 
-        # Change to isolated directory to avoid project .code_puppy
+        # Change to isolated directory to avoid project .mist
         isolated_dir = tmp_path / "isolated"
         isolated_dir.mkdir()
         monkeypatch.chdir(isolated_dir)
@@ -430,7 +430,7 @@ class TestDiscoverJsonAgents:
 
     def test_discover_no_agents_directory(self, tmp_path, monkeypatch):
         """Test discovery when agents directory doesn't exist."""
-        # Change to isolated directory to avoid project .code_puppy
+        # Change to isolated directory to avoid project .mist
         monkeypatch.chdir(tmp_path)
 
         with patch("code_puppy.config.get_user_agents_directory") as mock_get_user_dir:
@@ -440,7 +440,7 @@ class TestDiscoverJsonAgents:
 
     def test_discover_empty_directory(self, tmp_path, monkeypatch):
         """Test discovery when agents directory is empty."""
-        # Change to isolated directory to avoid project .code_puppy
+        # Change to isolated directory to avoid project .mist
         monkeypatch.chdir(tmp_path)
 
         with patch("code_puppy.config.get_user_agents_directory") as mock_get_user_dir:
@@ -471,7 +471,7 @@ class TestDiscoverJsonAgents:
         agent1_file.write_text(json.dumps(config1))
         agent2_file.write_text(json.dumps(config2))
 
-        # Change to isolated directory to avoid project .code_puppy
+        # Change to isolated directory to avoid project .mist
         isolated_dir = tmp_path / "isolated"
         isolated_dir.mkdir()
         monkeypatch.chdir(isolated_dir)
@@ -504,7 +504,7 @@ class TestDiscoverProjectJsonAgents:
 
     def test_discover_project_agents(self, tmp_path):
         """Test that project-only agents are discovered."""
-        project_dir = tmp_path / "project" / ".code_puppy" / "agents"
+        project_dir = tmp_path / "project" / ".mist" / "agents"
         project_dir.mkdir(parents=True)
         user_dir = tmp_path / "user_agents"
         user_dir.mkdir()

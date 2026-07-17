@@ -1,4 +1,4 @@
-"""Command handlers for Code Puppy - CONFIG commands.
+"""Command handlers for Mist - CONFIG commands.
 
 This module contains @register_command decorated handlers that are automatically
 discovered by the command registry system.
@@ -22,12 +22,12 @@ def get_commands_help():
 
 @register_command(
     name="show",
-    description="Show puppy config key-values",
+    description="Show Mist configuration values",
     usage="/show",
     category="config",
 )
 def handle_show_command(command: str) -> bool:
-    """Show current puppy configuration."""
+    """Show current Mist configuration."""
     from rich.text import Text
 
     from code_puppy.agents import get_current_agent
@@ -42,7 +42,7 @@ def handle_show_command(command: str) -> bool:
         get_openai_verbosity,
         get_owner_name,
         get_protected_token_count,
-        get_puppy_name,
+        get_mist_name,
         get_resume_message_count,
         get_temperature,
         get_yolo_mode,
@@ -52,7 +52,7 @@ def handle_show_command(command: str) -> bool:
     )
     from code_puppy.messaging import emit_info
 
-    puppy_name = get_puppy_name()
+    mist_name = get_mist_name()
     owner_name = get_owner_name()
     model = get_active_model()
     yolo_mode = get_yolo_mode()
@@ -67,9 +67,9 @@ def handle_show_command(command: str) -> bool:
     current_agent = get_current_agent()
     default_agent = get_default_agent()
 
-    status_msg = f"""[bold magenta]🐶 Puppy Status[/bold magenta]
+    status_msg = f"""[bold magenta]🫧 Mist Status[/bold magenta]
 
-[bold]puppy_name:[/bold]            [cyan]{puppy_name}[/cyan]
+[bold]mist_name:[/bold]            [cyan]{mist_name}[/cyan]
 [bold]owner_name:[/bold]            [cyan]{owner_name}[/cyan]
 [bold]current_agent:[/bold]         [magenta]{current_agent.display_name}[/magenta]
 [bold]default_agent:[/bold]        [cyan]{default_agent}[/cyan]
@@ -172,7 +172,7 @@ def handle_verbosity_command(command: str) -> bool:
 
 @register_command(
     name="set",
-    description="Set puppy config (e.g., /set yolo_mode true) or launch interactive menu",
+    description="Set Mist config (e.g., /set yolo_mode true) or launch interactive menu",
     usage="/set [key [value]]",
     category="config",
 )
@@ -215,7 +215,7 @@ def handle_set_command(command: str) -> bool:
         if is_sensitive_key(key)
         else result.value_after
     )
-    emit_success(f'Set {key} = "{display}" in puppy.cfg!')
+    emit_success(f'Set {key} = "{display}" in mist.cfg!')
     # Restart notices (warning) and the reload-success/failure signal
     # are independent: a restart-required key like ``enable_dbos``
     # should still report whether the live agent reload happened. The

@@ -2,7 +2,7 @@
 Interactive TUI for managing Claude Code hooks.
 
 Launch with /hooks to browse, enable/disable, inspect, and delete hooks
-from both global (~/.code_puppy/hooks.json) and project (.claude/settings.json) sources.
+from both global (~/.mist/hooks.json) and project (.claude/settings.json) sources.
 
 Built with prompt_toolkit to match the existing skills_menu aesthetic exactly
 (VSplit, FormattedTextControl, Frame).
@@ -239,7 +239,7 @@ class HooksMenu:
             lines.append(("", "\n"))
             lines.append((_C_DIM, "  Add hooks to .claude/settings.json (project)"))
             lines.append(("", "\n"))
-            lines.append((_C_DIM, "  or ~/.code_puppy/hooks.json (global)"))
+            lines.append((_C_DIM, "  or ~/.mist/hooks.json (global)"))
             lines.append(("", "\n\n"))
             self._render_nav_hints(lines)
             return lines
@@ -326,7 +326,7 @@ class HooksMenu:
 
         # Source indicator
         source_label = (
-            "Global (~/.code_puppy/hooks.json)"
+            "Global (~/.mist/hooks.json)"
             if entry.source == "global"
             else "Project (.claude/settings.json)"
         )

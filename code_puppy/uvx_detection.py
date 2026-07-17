@@ -1,9 +1,9 @@
-"""Detect if code-puppy was launched via uvx on Windows.
+"""Detect if mist was launched via uvx on Windows.
 
-This module provides utilities to detect the launch method of code-puppy,
+This module provides utilities to detect the launch method of mist,
 specifically to handle signal differences when running via uvx on Windows.
 
-On Windows, when launched via `uvx code-puppy`, Ctrl+C (SIGINT) gets captured
+On Windows, when launched via `uvx mist`, Ctrl+C (SIGINT) gets captured
 by uvx's process handling before reaching our Python process. To work around
 this, we detect the uvx launch scenario and switch to Ctrl+K for cancellation.
 
@@ -186,7 +186,7 @@ def _is_uvx_in_chain(chain: list[str]) -> bool:
 
 @lru_cache(maxsize=1)
 def is_launched_via_uvx() -> bool:
-    """Detect if code-puppy was launched via uvx.
+    """Detect if mist was launched via uvx.
 
     Traverses the parent process chain to find uvx.exe or uv.exe.
     Result is cached for the lifetime of the process.

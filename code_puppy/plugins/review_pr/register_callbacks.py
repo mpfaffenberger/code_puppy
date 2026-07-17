@@ -98,7 +98,7 @@ Honor the Zen of Python even for non-Python code.
 ## Step 3 — Report
 Output a single markdown report with these sections (omit empty ones):
 
-### 🐶 PR Review: <title> (#<number>)
+### 🫧 PR Review: <title> (#<number>)
 - **Author:** …  **Base ← Head:** …  **CI:** …  **Mergeable:** …
 - **TL;DR:** one-sentence verdict.
 
@@ -145,7 +145,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[object]:
         )
         return True
 
-    emit_info(f"🐶 Fetching PR review mission for: {target or '<current branch>'}")
+    emit_info(f"🫧 Fetching PR review mission for: {target or '<current branch>'}")
     return _build_prompt(target)
 
 

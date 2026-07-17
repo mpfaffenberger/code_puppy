@@ -1,4 +1,4 @@
-"""Command models for User → Agent communication in Code Puppy's messaging system.
+"""Command models for User → Agent communication in Mist's messaging system.
 
 This module defines Pydantic models for commands that flow FROM the UI TO the Agent.
 This is the opposite direction of messages.py (which flows Agent → UI).

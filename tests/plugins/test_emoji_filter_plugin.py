@@ -29,7 +29,7 @@ def _stripper_module():
     "raw, expected",
     [
         ("hello world", "hello world"),
-        ("hello 🐶 world", "hello  world"),
+        ("hello 🌫️ world", "hello  world"),
         ("🚀🚀🚀launch🚀", "launch"),
         ("flag: 🇺🇸 done", "flag:  done"),
         ("heart: ❤️ love", "heart:  love"),
@@ -49,7 +49,7 @@ def test_strip_emojis_non_string_passthrough():
 
 def test_contains_emoji_detects():
     contains = _stripper_module().contains_emoji
-    assert contains("hi 🐶")
+    assert contains("hi 🌫️")
     assert not contains("plain text")
     assert not contains(None)
 
@@ -60,13 +60,13 @@ def test_contains_emoji_detects():
 
 
 def test_is_enabled_defaults_to_true(tmp_path, monkeypatch):
-    cfg_file = tmp_path / "puppy.cfg"
+    cfg_file = tmp_path / "mist.cfg"
     monkeypatch.setattr("code_puppy.config.CONFIG_FILE", str(cfg_file))
     assert _config_module().is_enabled() is True
 
 
 def test_set_enabled_persists_off(tmp_path, monkeypatch):
-    cfg_file = tmp_path / "puppy.cfg"
+    cfg_file = tmp_path / "mist.cfg"
     monkeypatch.setattr("code_puppy.config.CONFIG_FILE", str(cfg_file))
     cfg = _config_module()
     cfg.set_enabled(False)
@@ -82,7 +82,7 @@ def test_set_enabled_persists_off(tmp_path, monkeypatch):
 
 def test_pre_tool_call_strips_create_file_content():
     module = _plugin_module()
-    args = {"file_path": "x.py", "content": "print('hi 🐶')"}
+    args = {"file_path": "x.py", "content": "print('hi 🌫️')"}
     with patch.object(module, "is_enabled", return_value=True):
         module._on_pre_tool_call("create_file", args)
     assert args["content"] == "print('hi ')"
@@ -93,7 +93,7 @@ def test_pre_tool_call_strips_replace_in_file_new_str_only():
     args = {
         "file_path": "x.py",
         "replacements": [
-            {"old_str": "keep 🐶 me", "new_str": "no emoji 🎉 here"},
+            {"old_str": "keep 🌫️ me", "new_str": "no emoji 🎉 here"},
             {"old_str": "plain", "new_str": "also plain"},
         ],
     }
@@ -101,7 +101,7 @@ def test_pre_tool_call_strips_replace_in_file_new_str_only():
         module._on_pre_tool_call("replace_in_file", args)
 
     # old_str must be untouched (search string!)
-    assert args["replacements"][0]["old_str"] == "keep 🐶 me"
+    assert args["replacements"][0]["old_str"] == "keep 🌫️ me"
     assert args["replacements"][0]["new_str"] == "no emoji  here"
     assert args["replacements"][1]["new_str"] == "also plain"
 
@@ -119,19 +119,19 @@ def test_pre_tool_call_strips_edit_file_replacements_payload():
     args = {
         "payload": {
             "file_path": "x.py",
-            "replacements": [{"old_str": "🐶 search", "new_str": "🎉 fresh"}],
+            "replacements": [{"old_str": "🌫️ search", "new_str": "🎉 fresh"}],
         }
     }
     with patch.object(module, "is_enabled", return_value=True):
         module._on_pre_tool_call("edit_file", args)
     rep = args["payload"]["replacements"][0]
-    assert rep["old_str"] == "🐶 search"  # search untouched
+    assert rep["old_str"] == "🌫️ search"  # search untouched
     assert rep["new_str"] == " fresh"
 
 
 def test_pre_tool_call_strips_shell_command():
     module = _plugin_module()
-    args = {"command": "echo 🐶 hello"}
+    args = {"command": "echo 🌫️ hello"}
     with patch.object(module, "is_enabled", return_value=True):
         module._on_pre_tool_call("agent_run_shell_command", args)
     assert args["command"] == "echo  hello"
@@ -139,18 +139,18 @@ def test_pre_tool_call_strips_shell_command():
 
 def test_pre_tool_call_noop_when_disabled():
     module = _plugin_module()
-    args = {"file_path": "x.py", "content": "keep 🐶 emoji"}
+    args = {"file_path": "x.py", "content": "keep 🌫️ emoji"}
     with patch.object(module, "is_enabled", return_value=False):
         module._on_pre_tool_call("create_file", args)
-    assert args["content"] == "keep 🐶 emoji"
+    assert args["content"] == "keep 🌫️ emoji"
 
 
 def test_pre_tool_call_ignores_unrelated_tools():
     module = _plugin_module()
-    args = {"file_path": "🐶.txt"}  # delete_file shouldn't strip
+    args = {"file_path": "🌫️.txt"}  # delete_file shouldn't strip
     with patch.object(module, "is_enabled", return_value=True):
         module._on_pre_tool_call("delete_file", args)
-    assert args["file_path"] == "🐶.txt"
+    assert args["file_path"] == "🌫️.txt"
 
 
 def test_pre_tool_call_ignores_delete_snippet():
@@ -250,7 +250,7 @@ def test_streaming_patch_strips_text_part_delta():
     from pydantic_ai.messages import TextPartDelta
 
     with patch.object(module, "is_enabled", return_value=True):
-        delta = TextPartDelta(content_delta="hello 🐶 world")
+        delta = TextPartDelta(content_delta="hello 🌫️ world")
     assert delta.content_delta == "hello  world"
 
 
@@ -287,8 +287,8 @@ def test_streaming_patch_respects_disabled_flag():
     from pydantic_ai.messages import TextPartDelta
 
     with patch.object(module, "is_enabled", return_value=False):
-        delta = TextPartDelta(content_delta="keep 🐶 me")
-    assert delta.content_delta == "keep 🐶 me"
+        delta = TextPartDelta(content_delta="keep 🌫️ me")
+    assert delta.content_delta == "keep 🌫️ me"
 
 
 def test_streaming_patch_is_idempotent():
@@ -317,7 +317,7 @@ def test_handle_command_ignores_unrelated():
 
 
 def test_handle_command_toggles_on(tmp_path, monkeypatch):
-    cfg_file = tmp_path / "puppy.cfg"
+    cfg_file = tmp_path / "mist.cfg"
     monkeypatch.setattr("code_puppy.config.CONFIG_FILE", str(cfg_file))
     module = _plugin_module()
     cfg = _config_module()
@@ -330,7 +330,7 @@ def test_handle_command_toggles_on(tmp_path, monkeypatch):
 
 
 def test_handle_command_toggles_off(tmp_path, monkeypatch):
-    cfg_file = tmp_path / "puppy.cfg"
+    cfg_file = tmp_path / "mist.cfg"
     monkeypatch.setattr("code_puppy.config.CONFIG_FILE", str(cfg_file))
     module = _plugin_module()
     cfg = _config_module()
@@ -343,7 +343,7 @@ def test_handle_command_toggles_off(tmp_path, monkeypatch):
 
 
 def test_handle_command_status(tmp_path, monkeypatch):
-    cfg_file = tmp_path / "puppy.cfg"
+    cfg_file = tmp_path / "mist.cfg"
     monkeypatch.setattr("code_puppy.config.CONFIG_FILE", str(cfg_file))
     module = _plugin_module()
     with patch("code_puppy.messaging.emit_info") as mock_info:

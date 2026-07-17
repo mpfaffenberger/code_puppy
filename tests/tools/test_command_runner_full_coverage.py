@@ -670,7 +670,7 @@ class TestRunShellCommand:
                             return_value=(False, None),
                         ):
                             with patch(
-                                "code_puppy.config.get_puppy_name", return_value="buddy"
+                                "code_puppy.config.get_mist_name", return_value="buddy"
                             ):
                                 result = await run_shell_command(
                                     ctx, "echo hi", timeout=10
@@ -702,7 +702,7 @@ class TestRunShellCommand:
                             return_value=(False, "use ls instead"),
                         ):
                             with patch(
-                                "code_puppy.config.get_puppy_name", return_value="buddy"
+                                "code_puppy.config.get_mist_name", return_value="buddy"
                             ):
                                 result = await run_shell_command(
                                     ctx, "echo hi", timeout=10

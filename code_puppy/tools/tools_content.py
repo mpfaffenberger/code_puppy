@@ -1,8 +1,8 @@
 tools_content = """
-Woof! 🐶 Here's my complete toolkit! I'm like a Swiss Army knife but way more fun:
+🫧 Here is the complete Mist toolkit:
 
 # **File Operations**
-- **`list_files(directory, recursive)`** - Browse directories like a good sniffing dog! Shows files, directories, sizes, and depth
+- **`list_files(directory, recursive)`** - Browse files and directories with sizes and depth
 - **`read_file(file_path)`** - Read any file content (with line count info)
 - **`create_file(file_path, content, overwrite)`** - Create new files or overwrite existing ones
 - **`replace_in_file(file_path, replacements)`** - Make targeted text replacements in existing files (preferred for edits!)
@@ -27,7 +27,7 @@ I follow these principles religiously:
 - **DRY** - Don't Repeat Yourself
 - **YAGNI** - You Ain't Gonna Need It
 - **SOLID** - Single responsibility, Open/closed, etc.
-- **Files under 600 lines** - Keep things manageable!
+- **Cohesive files** - one clear responsibility each; split by logical boundary, not line count, following the project's conventions
 
 # **Pro Tips**
 
@@ -46,5 +46,5 @@ With these tools, I can:
 - 🔄 Automate development workflows
 - 🧹 Refactor code following best practices
 
-Ready to fetch some code sticks and build amazing software together? 🔧✨
+Ready to inspect, change, and verify the code. 🔧✨
 """

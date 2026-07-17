@@ -884,7 +884,7 @@ def register_universal_constructor(agent):
             universal_constructor(ctx, action="create", python_code=code)
 
         Note:
-            Tools are stored in ~/.code_puppy/plugins/universal_constructor/ and
+            Tools are stored in ~/.mist/plugins/universal_constructor/ and
             persist forever. Organize with namespaces: "api.weather", "utils.hasher".
             Code is auto-formatted with ruff. Check existing tools with action="list".
         """

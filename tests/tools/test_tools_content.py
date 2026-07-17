@@ -1,7 +1,7 @@
 """Tests for code_puppy.tools.tools_content.
 
 This module tests the tools_content string constant that provides
-user-facing documentation about Code Puppy's available tools.
+user-facing documentation about Mist's available tools.
 """
 
 # Import directly from the module file to avoid heavy dependencies in __init__.py
@@ -121,17 +121,22 @@ class TestToolsContentPrinciples:
         """Test that SOLID principles are mentioned."""
         assert "SOLID" in tools_content, "Expected 'SOLID' principles to be mentioned"
 
-    def test_mentions_file_size_guideline(self):
-        """Test that the 600 line file size guideline is mentioned."""
-        assert "600" in tools_content, "Expected '600 line' guideline to be mentioned"
+    def test_mentions_file_cohesion_guideline(self):
+        """File-size guidance is intent-based (cohesion), not a hard line count."""
+        assert "Cohesive files" in tools_content, (
+            "Expected a cohesion-based file guideline"
+        )
+        assert "600" not in tools_content, (
+            "Hard 600-line rule should no longer be present"
+        )
 
 
 class TestToolsContentFormatting:
     """Test that tools_content has proper formatting and emojis."""
 
-    def test_contains_dog_emoji(self):
-        """Test that the content contains dog emoji (brand consistency)."""
-        assert "🐶" in tools_content, "Expected dog emoji 🐶 for brand consistency"
+    def test_contains_mist_emoji(self):
+        """Test that the content contains the Mist brand emoji."""
+        assert "🫧" in tools_content, "Expected 🫧 for Mist brand consistency"
 
     def test_contains_markdown_headers(self):
         """Test that content uses markdown-style headers."""

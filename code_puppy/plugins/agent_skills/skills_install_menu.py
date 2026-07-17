@@ -45,7 +45,7 @@ PAGE_SIZE = 12
 def is_skill_installed(skill_id: str) -> bool:
     """Return True if the skill is already installed locally."""
 
-    return (Path.home() / ".code_puppy" / "skills" / skill_id / "SKILL.md").is_file()
+    return (Path.home() / ".mist" / "skills" / skill_id / "SKILL.md").is_file()
 
 
 def _format_bytes(num_bytes: int) -> str:

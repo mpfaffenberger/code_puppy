@@ -139,7 +139,7 @@ def _render_preview(theme_name: str, surprise_seed: int) -> ANSI:
         )
     elif theme_name == "default":
         console.print(
-            "[dim italic]Resets banners + content to Code Puppy defaults.[/dim italic]"
+            "[dim italic]Resets banners + content to Mist defaults.[/dim italic]"
         )
 
     # Terminal-palette note (Level 3 - OSC sequences recolor the whole window)
@@ -159,7 +159,7 @@ def _render_preview(theme_name: str, surprise_seed: int) -> ANSI:
         # Two rows of the bg/fg combo with real text on top for readability check.
         console.print(
             f"  [{sample_fg} on {sample_bg}]"
-            f"  the quick brown puppy jumps over a sleepy log   [/]"
+            f"  Mist keeps the interface clear and readable   [/]"
         )
         console.print(
             f"  [{sample_fg} on {sample_bg}]"

@@ -7,9 +7,9 @@ import pytest
 from code_puppy import config as cp_config
 
 # Define constants used in config.py to avoid direct import if they change
-CONFIG_DIR_NAME = ".code_puppy"
-CONFIG_FILE_NAME = "puppy.cfg"
-DEFAULT_SECTION_NAME = "puppy"
+CONFIG_DIR_NAME = ".mist"
+CONFIG_FILE_NAME = "mist.cfg"
+DEFAULT_SECTION_NAME = "mist"
 
 
 @pytest.fixture
@@ -19,9 +19,9 @@ def mock_config_paths(monkeypatch):
     mock_config_dir = os.path.join(mock_home, CONFIG_DIR_NAME)
     mock_config_file = os.path.join(mock_config_dir, CONFIG_FILE_NAME)
     # XDG directories for the new directory structure
-    mock_data_dir = os.path.join(mock_home, ".local", "share", "code_puppy")
-    mock_cache_dir = os.path.join(mock_home, ".cache", "code_puppy")
-    mock_state_dir = os.path.join(mock_home, ".local", "state", "code_puppy")
+    mock_data_dir = os.path.join(mock_home, ".local", "share", "mist")
+    mock_cache_dir = os.path.join(mock_home, ".cache", "mist")
+    mock_state_dir = os.path.join(mock_home, ".local", "state", "mist")
     mock_skills_dir = os.path.join(mock_data_dir, "skills")
 
     monkeypatch.setattr(cp_config, "CONFIG_DIR", mock_config_dir)
@@ -30,6 +30,10 @@ def mock_config_paths(monkeypatch):
     monkeypatch.setattr(cp_config, "CACHE_DIR", mock_cache_dir)
     monkeypatch.setattr(cp_config, "STATE_DIR", mock_state_dir)
     monkeypatch.setattr(cp_config, "SKILLS_DIR", mock_skills_dir)
+    monkeypatch.setattr(cp_config, "_LEGACY_CONFIG_DIR", "/mock_home/.code_puppy")
+    monkeypatch.setattr(cp_config, "_LEGACY_DATA_DIR", "/mock_home/.legacy_data")
+    monkeypatch.setattr(cp_config, "_LEGACY_CACHE_DIR", "/mock_home/.legacy_cache")
+    monkeypatch.setattr(cp_config, "_LEGACY_STATE_DIR", "/mock_home/.legacy_state")
     monkeypatch.setattr(
         os.path,
         "expanduser",
@@ -55,8 +59,8 @@ class TestEnsureConfigExists:
         monkeypatch.setattr(os, "makedirs", mock_makedirs)
 
         mock_input_values = {
-            "What should we name the puppy? ": "TestPuppy",
-            "What's your name (so Code Puppy knows its owner)? ": "TestOwner",
+            "What should Mist call itself? ": "TestPuppy",
+            "What's your name (so Mist knows you)? ": "TestOwner",
         }
         mock_input = MagicMock(side_effect=lambda prompt: mock_input_values[prompt])
         monkeypatch.setattr("builtins.input", mock_input)
@@ -74,7 +78,7 @@ class TestEnsureConfigExists:
         # We can inspect the calls to that file-like object (m_open())
         # However, it's easier to check the returned config_parser object
         assert config_parser.sections() == [DEFAULT_SECTION_NAME]
-        assert config_parser.get(DEFAULT_SECTION_NAME, "puppy_name") == "TestPuppy"
+        assert config_parser.get(DEFAULT_SECTION_NAME, "mist_name") == "TestPuppy"
         assert config_parser.get(DEFAULT_SECTION_NAME, "owner_name") == "TestOwner"
 
     def test_config_dir_exists_file_does_not_prompts_and_creates(
@@ -93,8 +97,8 @@ class TestEnsureConfigExists:
         monkeypatch.setattr(os, "makedirs", mock_makedirs)
 
         mock_input_values = {
-            "What should we name the puppy? ": "DirExistsPuppy",
-            "What's your name (so Code Puppy knows its owner)? ": "DirExistsOwner",
+            "What should Mist call itself? ": "DirExistsPuppy",
+            "What's your name (so Mist knows you)? ": "DirExistsOwner",
         }
         mock_input = MagicMock(side_effect=lambda prompt: mock_input_values[prompt])
         monkeypatch.setattr("builtins.input", mock_input)
@@ -107,7 +111,7 @@ class TestEnsureConfigExists:
         m_open.assert_called_once_with(mock_cfg_file, "w", encoding="utf-8")
 
         assert config_parser.sections() == [DEFAULT_SECTION_NAME]
-        assert config_parser.get(DEFAULT_SECTION_NAME, "puppy_name") == "DirExistsPuppy"
+        assert config_parser.get(DEFAULT_SECTION_NAME, "mist_name") == "DirExistsPuppy"
         assert config_parser.get(DEFAULT_SECTION_NAME, "owner_name") == "DirExistsOwner"
 
     def test_config_file_exists_and_complete_no_prompt_no_write(
@@ -125,7 +129,7 @@ class TestEnsureConfigExists:
         # Mock configparser.ConfigParser instance and its methods
         mock_config_instance = configparser.ConfigParser()
         mock_config_instance[DEFAULT_SECTION_NAME] = {
-            "puppy_name": "ExistingPuppy",
+            "mist_name": "ExistingPuppy",
             "owner_name": "ExistingOwner",
         }
 
@@ -151,7 +155,7 @@ class TestEnsureConfigExists:
 
         assert returned_config_parser == mock_config_instance
         assert (
-            returned_config_parser.get(DEFAULT_SECTION_NAME, "puppy_name")
+            returned_config_parser.get(DEFAULT_SECTION_NAME, "mist_name")
             == "ExistingPuppy"
         )
 
@@ -165,7 +169,7 @@ class TestEnsureConfigExists:
 
         mock_config_instance = configparser.ConfigParser()
         mock_config_instance[DEFAULT_SECTION_NAME] = {
-            "puppy_name": "PartialPuppy"
+            "mist_name": "PartialPuppy"
         }  # owner_name is missing
 
         def mock_read(file_path):
@@ -176,7 +180,7 @@ class TestEnsureConfigExists:
         monkeypatch.setattr(configparser, "ConfigParser", mock_cp)
 
         mock_input_values = {
-            "What's your name (so Code Puppy knows its owner)? ": "PartialOwnerFilled"
+            "What's your name (so Mist knows you)? ": "PartialOwnerFilled"
         }
         # Only owner_name should be prompted
         mock_input = MagicMock(side_effect=lambda prompt: mock_input_values[prompt])
@@ -191,7 +195,7 @@ class TestEnsureConfigExists:
         mock_config_instance.read.assert_called_once_with(mock_cfg_file)
 
         assert (
-            returned_config_parser.get(DEFAULT_SECTION_NAME, "puppy_name")
+            returned_config_parser.get(DEFAULT_SECTION_NAME, "mist_name")
             == "PartialPuppy"
         )
         assert (
@@ -243,16 +247,19 @@ class TestGetValue:
 
 class TestSimpleGetters:
     @patch("code_puppy.config.get_value")
-    def test_get_puppy_name_exists(self, mock_get_value):
+    def test_get_mist_name_exists(self, mock_get_value):
         mock_get_value.return_value = "MyPuppy"
-        assert cp_config.get_puppy_name() == "MyPuppy"
-        mock_get_value.assert_called_once_with("puppy_name")
+        assert cp_config.get_mist_name() == "MyPuppy"
+        mock_get_value.assert_called_once_with("mist_name")
 
     @patch("code_puppy.config.get_value")
-    def test_get_puppy_name_not_exists_uses_default(self, mock_get_value):
+    def test_get_mist_name_not_exists_uses_default(self, mock_get_value):
         mock_get_value.return_value = None
-        assert cp_config.get_puppy_name() == "Puppy"  # Default value
-        mock_get_value.assert_called_once_with("puppy_name")
+        assert cp_config.get_mist_name() == "Mist"  # Default value
+        assert mock_get_value.call_args_list == [
+            (("mist_name",), {}),
+            (("puppy_name",), {}),
+        ]
 
     @patch("code_puppy.config.get_value")
     def test_get_owner_name_exists(self, mock_get_value):
@@ -263,7 +270,7 @@ class TestSimpleGetters:
     @patch("code_puppy.config.get_value")
     def test_get_owner_name_not_exists_uses_default(self, mock_get_value):
         mock_get_value.return_value = None
-        assert cp_config.get_owner_name() == "Master"  # Default value
+        assert cp_config.get_owner_name() == "Developer"  # Default value
         mock_get_value.assert_called_once_with("owner_name")
 
 
@@ -286,6 +293,7 @@ class TestGetConfigKeys:
         assert keys == sorted(
             [
                 "agents_md_max_chars",
+                "agent_mode",
                 "allow_recursion",
                 "auto_save_session",
                 "banner_color_agent_reasoning",
@@ -312,6 +320,8 @@ class TestGetConfigKeys:
                 "compaction_threshold",
                 "default_agent",
                 "diff_context_lines",
+                "denial_consecutive_threshold",
+                "denial_total_threshold",
                 "disable_dangerous_command_guard",
                 "enable_pack_agents",
                 "enable_streaming",
@@ -321,6 +331,7 @@ class TestGetConfigKeys:
                 "frontend_emitter_queue_size",
                 "goal_max_iterations",
                 "http2",
+                "injection_probe",
                 "key1",
                 "key2",
                 "max_hook_retries",
@@ -335,6 +346,10 @@ class TestGetConfigKeys:
                 "permission_mode",
                 "protected_token_count",
                 "resume_message_count",
+                "sandbox_backend",
+                "sandbox_container_image",
+                "sandbox_container_runtime",
+                "shell_safe_prefixes",
                 "summarization_model",
                 "suppress_directory_listing",
                 "temperature",
@@ -355,6 +370,7 @@ class TestGetConfigKeys:
         assert keys == sorted(
             [
                 "agents_md_max_chars",
+                "agent_mode",
                 "allow_recursion",
                 "auto_save_session",
                 "banner_color_agent_reasoning",
@@ -381,6 +397,8 @@ class TestGetConfigKeys:
                 "compaction_threshold",
                 "default_agent",
                 "diff_context_lines",
+                "denial_consecutive_threshold",
+                "denial_total_threshold",
                 "disable_dangerous_command_guard",
                 "enable_pack_agents",
                 "enable_streaming",
@@ -390,6 +408,7 @@ class TestGetConfigKeys:
                 "frontend_emitter_queue_size",
                 "goal_max_iterations",
                 "http2",
+                "injection_probe",
                 "max_hook_retries",
                 "max_pause_seconds",
                 "max_saved_sessions",
@@ -402,6 +421,10 @@ class TestGetConfigKeys:
                 "permission_mode",
                 "protected_token_count",
                 "resume_message_count",
+                "sandbox_backend",
+                "sandbox_container_image",
+                "sandbox_container_runtime",
+                "shell_safe_prefixes",
                 "summarization_model",
                 "suppress_directory_listing",
                 "temperature",

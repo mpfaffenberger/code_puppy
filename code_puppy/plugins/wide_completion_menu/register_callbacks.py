@@ -137,17 +137,17 @@ def _handle_widemenu_command(command: str) -> bool:
 
     if arg in ("on", "enable", "true", "1"):
         _state["enabled"] = True
-        _emit_info("🐶 widemenu: ON — scrollbar pinned to right edge of screen.")
+        _emit_info("🫧 widemenu: ON — scrollbar pinned to right edge of screen.")
     elif arg in ("off", "disable", "false", "0"):
         _state["enabled"] = False
-        _emit_info("🐶 widemenu: OFF — menu sized to content (default).")
+        _emit_info("🫧 widemenu: OFF — menu sized to content (default).")
     elif arg in ("toggle", "t"):
         _state["enabled"] = not _state["enabled"]
         status = "ON" if _state["enabled"] else "OFF"
-        _emit_info(f"🐶 widemenu: {status}")
+        _emit_info(f"🫧 widemenu: {status}")
     elif arg == "status":
         status = "ON" if _state["enabled"] else "OFF"
-        _emit_info(f"🐶 widemenu is currently {status}. {_USAGE}")
+        _emit_info(f"🫧 widemenu is currently {status}. {_USAGE}")
     else:
         _emit_info(_USAGE)
     return True

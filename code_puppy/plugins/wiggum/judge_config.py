@@ -1,7 +1,7 @@
 """Persisted configuration for goal-mode LLM judges.
 
 Each judge is a (name, model, prompt, enabled) tuple. Judges live in a
-JSON file at ``$XDG_DATA_HOME/code_puppy/judges.json`` so users can
+JSON file at ``$XDG_DATA_HOME/mist/judges.json`` so users can
 configure multiple verifiers — for example, one judge that checks tests
 pass, another that checks docs are updated, etc. The /goal loop fans
 these out in parallel and only declares success when *every* enabled
@@ -26,7 +26,7 @@ _NAME_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
 
 
 DEFAULT_JUDGE_PROMPT = """\
-You are Code Puppy's goal-completion judge.
+You are Mist's goal-completion judge.
 
 Decide whether the user's goal is verifiably complete based on the
 implementor's latest response and (optionally) its message history.

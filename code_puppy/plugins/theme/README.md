@@ -1,4 +1,4 @@
-# theme — `/theme` for Code Puppy
+# theme — `/theme` for Mist
 
 A friendlier `/theme` command with an **interactive picker**, **live preview**,
 and **four layers of theming** — banner headers, body text, inline markup,
@@ -24,7 +24,7 @@ Launches a split-panel TUI with 14 themes (5 neon/dark themes, 7 palette-first/l
 
 **Semantic colors are preserved** at Level 2 (red errors stay angry, yellow warnings warn). Level 3 OSC remap is broader — it changes how *your terminal itself* interprets every ANSI color, so e.g. an `ls` ran after `/theme tokyo-night` will also look Tokyo Night. Pure terminal-level magic.
 
-Themes persist to your Code Puppy config and survive restarts. The OSC palette auto-resets on Code Puppy exit (via `atexit`) so you never get a stuck-pink terminal.
+Themes persist to your Mist config and survive restarts. The OSC palette auto-resets on Mist exit (via `atexit`) so you never get a stuck-pink terminal.
 
 ## Bundled themes
 
@@ -43,7 +43,7 @@ Themes persist to your Code Puppy config and survive restarts. The OSC palette a
 | 11 | 📄 GitHub Light | crisp white, familiar code colors |
 | 12 | 🌸 Rose Pine Dawn | soft pastel rose light |
 | 13 | 🎲 Surprise Me | a fresh random remix every time |
-| 14 | 🔄 Restore Defaults | back to Code Puppy + terminal factory |
+| 14 | 🔄 Restore Defaults | back to Mist + terminal factory |
 
 ## Power-user shortcuts
 
@@ -53,7 +53,7 @@ Themes persist to your Code Puppy config and survive restarts. The OSC palette a
                     solarized, github, rose-pine)
 /theme tokyo-night  apply by canonical name
 /theme surprise     re-roll a random palette
-/theme default      restore Code Puppy + terminal factory colors
+/theme default      restore Mist + terminal factory colors
 /theme reset        alias of /theme default
 /theme show         dump current banner + content style mappings
 ```
@@ -77,6 +77,6 @@ Themes persist to your Code Puppy config and survive restarts. The OSC palette a
 
 **Level 2** — Rich's stock `Theme` only intercepts named styles, not base colors inside `[bold cyan]`. So we monkey-patch `Console.get_style()` on every live `Console`: every resolved `Style` flows throughd if `.color`/`.bgcolor` matches our remap, we swap. Tracked in a `WeakKeyDictionary` for clean swap-without-leak.
 
-**Level 3** — fires xterm OSC sequences (`\\033]10;#fg\\007`, `\\033]11;#bg\\007`, `\\033]4;N;#hex\\007`) which modern terminals honor terminal-wide. Auto-resets on exit via `atexit`. Persists across restarts via JSON in `puppy.cfg`. Supported in iTerm2, Terminal.app, Alacritty, kitty, ode, GNOME Terminal, Windows Terminal. Unsupported terminals silently ignore.
+**Level 3** — fires xterm OSC sequences (`\\033]10;#fg\\007`, `\\033]11;#bg\\007`, `\\033]4;N;#hex\\007`) which modern terminals honor terminal-wide. Auto-resets on exit via `atexit`. Persists across restarts via JSON in `mist.cfg`. Supported in iTerm2, Terminal.app, Alacritty, kitty, ode, GNOME Terminal, Windows Terminal. Unsupported terminals silently ignore.
 
 Plays nice with `/colors` — same color pool, same config keys for banners.

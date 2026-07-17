@@ -1,7 +1,7 @@
 """Build the JSON session payload fed to the status line command on stdin.
 
 Schema mirrors Claude Code's ``statusLine`` stdin contract where the data
-exists in Code Puppy, so scripts written for one are easy to port. Every field
+exists in Mist, so scripts written for one are easy to port. Every field
 is best-effort: a failure in one source must never break the payload.
 """
 
@@ -12,6 +12,8 @@ import logging
 import os
 import subprocess
 from typing import Any, Dict, Optional
+
+from code_puppy.branding import DISTRIBUTION_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -85,17 +87,24 @@ def _tokens_per_second() -> float:
 
 def build_payload() -> Dict[str, Any]:
     """Assemble the full session payload (all fields best-effort)."""
-    from code_puppy.config import get_puppy_name
+    from code_puppy.config import get_mist_name
 
     cwd = _safe(os.getcwd, "") or ""
     payload: Dict[str, Any] = {
         "cwd": cwd,
-        "puppy_name": _safe(get_puppy_name) or "code-puppy",
+        "mist_name": _safe(get_mist_name) or "mist",
         "model": _model_block(),
         "workspace": {"current_dir": cwd},
         "context_window": _context_block(),
         "tokens_per_second": _tokens_per_second(),
     }
+
+    try:
+        from code_puppy.plugins.agent_modes.state import get_agent_mode
+
+        payload["mode"] = get_agent_mode().value
+    except Exception:
+        pass
 
     agent = _agent_block()
     if agent:
@@ -108,7 +117,7 @@ def build_payload() -> Dict[str, Any]:
     try:
         from importlib.metadata import version
 
-        payload["version"] = version("code-puppy")
+        payload["version"] = version(DISTRIBUTION_NAME)
     except Exception:
         pass
 

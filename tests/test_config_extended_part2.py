@@ -18,7 +18,7 @@ class TestConfigExtendedPart2:
     @pytest.fixture
     def mock_config_file(self):
         """Mock config file operations"""
-        with patch("code_puppy.config.CONFIG_FILE", "/mock/config/puppy.cfg"):
+        with patch("code_puppy.config.CONFIG_FILE", "/mock/config/mist.cfg"):
             yield
 
     def test_agent_pinned_model_get_set(self, mock_config_file):

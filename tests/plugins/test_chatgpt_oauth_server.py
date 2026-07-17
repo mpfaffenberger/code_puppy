@@ -373,4 +373,4 @@ class TestCallbackHandler:
                     handler.do_POST()
 
                     mock_failure.assert_called_once()
-                    assert "pups only fetch GET" in mock_failure.call_args[0][1]
+                    assert "POST is not supported" in mock_failure.call_args[0][1]

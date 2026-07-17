@@ -184,7 +184,7 @@ class PluginsMenu:
 
         if self._changed:
             lines.append(("", "\n\n"))
-            lines.append(("fg:ansiyellow bold", "  Restart Code Puppy for"))
+            lines.append(("fg:ansiyellow bold", "  Restart Mist for"))
             lines.append(("", "\n"))
             lines.append(("fg:ansiyellow bold", "  changes to take effect."))
 
@@ -323,6 +323,6 @@ def run_plugins_menu() -> Optional[str]:
     result = menu.run()
 
     if menu._changed:
-        emit_warning("Restart Code Puppy for plugin changes to take effect.")
+        emit_warning("Restart Mist for plugin changes to take effect.")
 
     return result

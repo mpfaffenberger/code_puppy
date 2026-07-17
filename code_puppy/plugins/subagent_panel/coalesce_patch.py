@@ -71,7 +71,7 @@ def _coalesced_fire_callback(
     """Queue a stream-event callback for batched delivery.
 
     When runtime-disabled, this delegates to the exact original core callback so
-    ``/set subagent_panel off`` really behaves like vanilla Code Puppy.
+    ``/set subagent_panel off`` really behaves like vanilla Mist.
     """
     global _drain_scheduled, _last_drain_time
 

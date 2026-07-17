@@ -1,8 +1,8 @@
 """Ollama model type handler for OpenAI Chat Completions-compatible endpoints.
 
-Registers the 'ollama' model type so users can connect Code Puppy to local
+Registers the 'ollama' model type so users can connect Mist to local
 inference servers (Ollama, LM Studio, vLLM, llama.cpp, etc.) via
-~/.code_puppy/extra_models.json.
+~/.mist/extra_models.json.
 
 Minimal config (Ollama on localhost with defaults):
 {
@@ -26,7 +26,7 @@ Full config (remote server, same custom_endpoint format as custom_openai):
     }
 }
 
-Note: Code Puppy requires models with strong tool/function calling support.
+Note: Mist requires models with strong tool/function calling support.
 Models without tool calling will notwork properly.
 """
 

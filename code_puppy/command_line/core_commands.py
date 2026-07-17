@@ -1,4 +1,4 @@
-"""Command handlers for Code Puppy - CORE commands.
+"""Command handlers for Mist - CORE commands.
 
 This module contains @register_command decorated handlers that are automatically
 discovered by the command registry system.

@@ -1,7 +1,7 @@
 """Tests for project-level plugin discovery (_load_project_plugins).
 
 Covers the feature implemented in code_puppy_oss-864:
-- Project plugin loading from <CWD>/.code_puppy/plugins/
+- Project plugin loading from <CWD>/.mist/plugins/
 - Name collision warnings (builtin and user shadows)
 - Error handling (ImportError, RuntimeError)
 - get_project_plugins_directory() helper
@@ -38,7 +38,7 @@ def _make_plugin(plugins_dir: Path, name: str, *, via_init: bool = False) -> Pat
 @pytest.fixture()
 def project_plugins_dir(tmp_path: Path) -> Path:
     """Provide a fresh project plugins directory."""
-    d = tmp_path / ".code_puppy" / "plugins"
+    d = tmp_path / ".mist" / "plugins"
     d.mkdir(parents=True)
     return d
 
@@ -269,7 +269,7 @@ class TestGetProjectPluginsDirectory:
     # -----------------------------------------------------------------------
 
     def test_returns_path_when_exists(self, tmp_path: Path):
-        plugins_dir = tmp_path / ".code_puppy" / "plugins"
+        plugins_dir = tmp_path / ".mist" / "plugins"
         plugins_dir.mkdir(parents=True)
 
         with patch("code_puppy.plugins.Path.cwd", return_value=tmp_path):

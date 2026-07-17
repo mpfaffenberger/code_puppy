@@ -1,4 +1,4 @@
-"""Register the built-in ``code-puppy-agent`` skill.
+"""Register the built-in ``mist-agent`` skill.
 
 The skill's full SKILL.md lives alongside this file.  We register it via
 the ``register_skills`` callback so the agent_skills plugin materializes
@@ -21,7 +21,7 @@ def _register_builtin_skills() -> list[dict]:
     # mismatch would silently break ``/skills enable|disable`` and the alias.
     return [
         {
-            "name": "code-puppy-agent",
+            "name": "mist-agent",
             "skill_md_path": str(_SKILL_DIR / "SKILL.md"),
         }
     ]

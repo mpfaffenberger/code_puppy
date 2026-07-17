@@ -43,14 +43,14 @@ def is_sensitive_key(key: str) -> bool:
     Used by the slash-command path to decide whether to mask values in
     success messages without needing the full :class:`Setting` object.
     """
-    return key in _sensitive_keys()
+    return key in _sensitive_keys() or key == "puppy_token"
 
 
 def is_default_value(setting: Setting) -> bool:
     """Return True when ``setting``'s displayed value comes from a default.
 
     Definition: a value is "from a default" iff the user has NOT written
-    a non-empty value to puppy.cfg AND the typed ``effective_getter``
+    a non-empty value to mist.cfg AND the typed ``effective_getter``
     nevertheless returns something. That's exactly the case the
     ``(Default)`` prefix is meant to flag.
 

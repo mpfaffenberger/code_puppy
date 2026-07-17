@@ -74,7 +74,7 @@ def subagent_context(agent_name: str) -> Generator[None, None, None]:
     proper async isolation and exception safety.
 
     Args:
-        agent_name: Name of the sub-agent being executed (e.g., "retriever", "code-puppy")
+        agent_name: Name of the sub-agent being executed (e.g., "retriever", "mist")
 
     Yields:
         None
@@ -131,9 +131,9 @@ def get_subagent_name() -> str | None:
     Example:
         >>> get_subagent_name()
         None
-        >>> with subagent_context("code-puppy"):
+        >>> with subagent_context("mist"):
         ...     get_subagent_name()
-        'code-puppy'
+        'mist'
     """
     return _subagent_name.get()
 

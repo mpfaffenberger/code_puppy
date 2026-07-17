@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import traceback
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Literal, Optional, Set
 
 PhaseType = Literal[
@@ -28,6 +29,8 @@ PhaseType = Literal[
     "stream_event",
     "register_tools",
     "register_agent_tools",
+    "register_keybindings",
+    "register_settings",
     "register_agents",
     "register_model_type",
     "register_skills",
@@ -57,6 +60,28 @@ PhaseType = Literal[
 ]
 CallbackFunc = Callable[..., Any]
 
+
+@dataclass(frozen=True)
+class ToolResultReplacement:
+    """Explicit replacement returned by a ``post_tool_call`` callback.
+
+    Ordinary callback return values remain observational. A plugin must wrap a
+    value in this type to replace the result sent back to the model, avoiding
+    accidental rewrites by metrics and logging callbacks.
+    """
+
+    value: Any
+
+
+def apply_tool_result_replacements(result: Any, callback_results: List[Any]) -> Any:
+    """Apply explicit post-tool replacements in callback registration order."""
+    current = result
+    for callback_result in callback_results:
+        if isinstance(callback_result, ToolResultReplacement):
+            current = callback_result.value
+    return current
+
+
 _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "startup": [],
     "shutdown": [],
@@ -82,6 +107,8 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "stream_event": [],
     "register_tools": [],
     "register_agent_tools": [],
+    "register_keybindings": [],
+    "register_settings": [],
     "register_agents": [],
     "register_model_type": [],
     "register_skills": [],
@@ -380,7 +407,7 @@ def on_load_prompt():
 
     The documented hook contract is ``() -> str | None`` where ``None`` means
     "skip me, I have nothing to contribute this turn." Filtering here keeps
-    every callsite (agent_code_puppy, agent_planning, agent_tools, ...) free
+    every callsite (default agent, planning agent, agent tools, ...) free
     of the same defensive list comprehension.
     """
     results = _trigger_callbacks_sync("load_prompt")
@@ -563,6 +590,16 @@ def on_register_agent_tools(agent_name: Optional[str] = None) -> List[str]:
                 seen.add(item)
                 flat.append(item)
     return flat
+
+
+def on_register_keybindings(bindings: Any) -> List[Any]:
+    """Let plugins add bindings to the interactive prompt key map."""
+    return _trigger_callbacks_sync("register_keybindings", bindings)
+
+
+def on_register_settings() -> List[Any]:
+    """Collect curated settings categories supplied by plugins."""
+    return _trigger_callbacks_sync("register_settings")
 
 
 def on_register_agents() -> List[Dict[str, Any]]:

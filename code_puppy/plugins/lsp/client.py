@@ -86,7 +86,7 @@ class LSPClient:
                     },
                     "workspace": {"symbol": {}},
                 },
-                "clientInfo": {"name": "code-puppy"},
+                "clientInfo": {"name": "mist"},
             },
         )
         await self.notify("initialized", {})

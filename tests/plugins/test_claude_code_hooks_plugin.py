@@ -48,8 +48,8 @@ class TestGetHooksConfigPaths:
         from code_puppy.plugins.claude_code_hooks.config import get_hooks_config_paths
 
         paths = get_hooks_config_paths()
-        # Second path is user-level (~/.code_puppy/hooks.json)
-        assert ".code_puppy" in paths[1] and "hooks.json" in paths[1]
+        # Second path is user-level (~/.mist/hooks.json)
+        assert ".mist" in paths[1] and "hooks.json" in paths[1]
 
 
 # ---------------------------------------------------------------------------

@@ -270,7 +270,7 @@ def main() -> bool:
     if passed == len(tests):
         print("✅ All sanity checks passed!")
         print("Next steps:")
-        print("1. Restart Code Puppy if it was running")
+        print("1. Restart Mist if it was running")
         print("2. Run /claude-code-auth")
         print("3. Paste the Claude Console authorization code when prompted")
         return True

@@ -1,6 +1,6 @@
 # Obsidian Agent
 
-The Obsidian Agent adds a specialized Code Puppy agent for working with Obsidian vaults through the official `obsidian` CLI.
+The Obsidian Agent adds a specialized Mist agent for working with Obsidian vaults through the official `obsidian` CLI.
 
 ## What it does
 
@@ -28,7 +28,7 @@ obsidian vaults total verbose
 
 ## Usage
 
-Switch to the agent from Code Puppy and ask for an Obsidian task. Include a vault name or vault-relative path when relevant.
+Switch to the agent from Mist and ask for an Obsidian task. Include a vault name or vault-relative path when relevant.
 
 Examples:
 

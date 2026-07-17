@@ -1,4 +1,4 @@
-"""CLI runner for Code Puppy.
+"""CLI runner for Mist.
 
 Contains the main application logic, interactive mode, and entry point.
 """
@@ -19,6 +19,7 @@ from rich.console import Console
 
 from code_puppy import __version__, callbacks, plugins
 from code_puppy.agents import get_current_agent
+from code_puppy.branding import DEFAULT_AGENT_NAME, PRODUCT_EMOJI, PRODUCT_NAME
 from code_puppy.command_line.attachments import parse_prompt_attachments
 from code_puppy.command_line.clipboard import get_clipboard_manager
 from code_puppy.config import (
@@ -49,6 +50,54 @@ from code_puppy.terminal_utils import (
 from code_puppy.version_checker import default_version_mismatch_behavior
 
 plugins.load_plugin_callbacks()
+
+
+async def _run_transport_mode(args: argparse.Namespace) -> bool:
+    """Run server/RPC/JSON modes before terminal renderers are initialized."""
+    if not (args.serve or args.rpc or args.output == "json"):
+        return False
+    if args.output == "json" and not args.prompt:
+        raise SystemExit("--output json requires --prompt")
+
+    ensure_config_exists()
+    from code_puppy.config import load_api_keys_to_environment, set_model_name
+
+    if args.model:
+        set_model_name(args.model.strip())
+    load_api_keys_to_environment()
+    await callbacks.on_startup()
+    try:
+        if args.serve:
+            import uvicorn
+
+            from code_puppy.server import create_app
+
+            config = uvicorn.Config(
+                create_app(), host=args.host, port=args.port, log_level="info"
+            )
+            await uvicorn.Server(config).serve()
+            return True
+        if args.rpc:
+            from code_puppy.rpc import RPCServer
+
+            await RPCServer().serve()
+            return True
+
+        from code_puppy.server.session_manager import SessionManager
+
+        manager = SessionManager()
+        try:
+            record = await manager.create_session(args.agent)
+            task = await manager.submit(record.id, args.prompt)
+            await task
+            await asyncio.sleep(0)
+            for event in record.events:
+                print(event.model_dump_json())
+        finally:
+            manager.close()
+        return True
+    finally:
+        await callbacks.on_shutdown()
 
 
 def _resume_session_from_path(raw_path: str) -> None:
@@ -103,8 +152,8 @@ def _resume_session_from_path(raw_path: str) -> None:
 
 
 async def main():
-    """Main async entry point for Code Puppy CLI."""
-    parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
+    """Main async entry point for the Mist CLI."""
+    parser = argparse.ArgumentParser(description="Mist - AI coding agent")
     parser.add_argument(
         "--version",
         "-v",
@@ -128,7 +177,7 @@ async def main():
         "--agent",
         "-a",
         type=str,
-        help="Specify which agent to use (e.g., --agent code-puppy)",
+        help=f"Specify which agent to use (e.g., --agent {DEFAULT_AGENT_NAME})",
     )
     parser.add_argument(
         "--model",
@@ -141,12 +190,35 @@ async def main():
         "-r",
         type=str,
         metavar="PATH",
-        help="Resume a saved session from a .pkl file (e.g. ~/.code_puppy/contexts/foo.pkl)",
+        help="Resume a saved session from a .pkl file (e.g. ~/.mist/contexts/foo.pkl)",
+    )
+    parser.add_argument(
+        "--serve", action="store_true", help="Run the headless HTTP/SSE server"
+    )
+    parser.add_argument(
+        "--host", default="127.0.0.1", help="Server bind address (default: 127.0.0.1)"
+    )
+    parser.add_argument(
+        "--port", type=int, default=4096, help="Server port (default: 4096)"
+    )
+    parser.add_argument(
+        "--rpc",
+        action="store_true",
+        help="Run newline-delimited JSON RPC on stdin/stdout",
+    )
+    parser.add_argument(
+        "--output",
+        choices=("rich", "json"),
+        default="rich",
+        help="Output format for prompt mode",
     )
     parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
     args = parser.parse_args()
+
+    if await _run_transport_mode(args):
+        return
 
     from code_puppy.messaging import (
         RichConsoleRenderer,
@@ -171,35 +243,67 @@ async def main():
     initialize_command_history_file()
     from code_puppy.messaging import emit_error, emit_system_message
 
-    # Show the awesome Code Puppy logo when entering interactive mode
+    # Show the Mist wordmark when entering interactive mode.
     # This happens when: no -p flag (prompt-only mode) is used
-    # The logo should appear for both `code-puppy` and `code-puppy -i`
+    # The logo should appear for both `mist` and `mist -i`.
     if not args.prompt:
         try:
             import pyfiglet
 
+            # ``georgia11`` is a classical ornate-serif figlet font — the
+            # closest terminal-renderable evocation of Cinzel Decorative
+            # (pyfiglet only supports FIGlet fonts, not TrueType).
             intro_lines = pyfiglet.figlet_format(
-                "CODE PUPPY", font="ansi_shadow"
+                PRODUCT_NAME.upper(), font="georgia11"
             ).split("\n")
 
-            # Simple blue to green gradient (top to bottom)
-            gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
+            # Soft pastel vertical gradient: Regent St blue → powder blue →
+            # aqua spring → Melanie → We Peep (cool blue sweeping into soft
+            # pink). Hex stops render smoothly on truecolor terminals and
+            # degrade to the nearest pastel on limited ones. To restyle the
+            # wordmark, edit these stops.
+            gradient_stops = ("#a8d3e1", "#b3e4e6", "#ebf7f9", "#e5b8d1", "#f2cad4")
+
+            def _gradient_hex(t: float) -> str:
+                """Interpolate the gradient at position t in [0, 1]."""
+                span = t * (len(gradient_stops) - 1)
+                i = min(int(span), len(gradient_stops) - 2)
+                frac = span - i
+                a = gradient_stops[i].lstrip("#")
+                b = gradient_stops[i + 1].lstrip("#")
+                channels = (
+                    round(
+                        int(a[k : k + 2], 16)
+                        + frac * (int(b[k : k + 2], 16) - int(a[k : k + 2], 16))
+                    )
+                    for k in (0, 2, 4)
+                )
+                return "#{:02x}{:02x}{:02x}".format(*channels)
+
             display_console.print("\n")
 
+            body_count = max(sum(1 for ln in intro_lines if ln.strip()) - 1, 1)
             lines = []
-            # Apply gradient line by line
-            for line_num, line in enumerate(intro_lines):
+            row = 0
+            for line in intro_lines:
                 if line.strip():
-                    # Use line position to determine color (top blue, middle cyan, bottom green)
-                    color_idx = min(line_num // 2, len(gradient_colors) - 1)
-                    color = gradient_colors[color_idx]
+                    color = _gradient_hex(row / body_count)
                     lines.append(f"[{color}]{line}[/{color}]")
+                    row += 1
                 else:
                     lines.append("")
             # Print directly to console to avoid the 'dim' style from emit_system_message
             display_console.print("\n".join(lines))
         except ImportError:
-            emit_system_message("🐶 Code Puppy is Loading...")
+            emit_system_message(f"💨 {PRODUCT_NAME} is loading...")
+
+        from code_puppy.messaging import emit_warning
+
+        emit_warning(
+            "⚠ The Python implementation of Mist is deprecated (maintenance mode). "
+            "`mist` now launches the Bun/TS app; this build stays available as "
+            "`mist-py` during the transition. New features land in ts/ only."
+        )
 
         # Truecolor warning moved to interactive_mode() so it prints LAST
         # after all the help stuff - max visibility for the ugly red box!
@@ -288,7 +392,7 @@ async def main():
     except ImportError:
         pass  # uvx_detection module not available, ignore
 
-    # Load API keys from puppy.cfg into environment variables
+    # Load API keys from mist.cfg into environment variables
     from code_puppy.config import load_api_keys_to_environment
 
     load_api_keys_to_environment()
@@ -496,7 +600,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
                 get_message_bus().emit(response_msg)
 
-                emit_success("🐶 Continuing in Interactive Mode")
+                emit_success(f"{PRODUCT_EMOJI} Continuing in interactive mode")
                 emit_system_message(
                     "Your command and response are preserved in the conversation history."
                 )
@@ -714,7 +818,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         )
 
                         # Allow environment variable override for tests
-                        if os.getenv("CODE_PUPPY_NO_TUI") == "1":
+                        if (
+                            os.getenv("MIST_NO_TUI", os.getenv("CODE_PUPPY_NO_TUI", ""))
+                            == "1"
+                        ):
                             use_interactive_picker = False
 
                         if use_interactive_picker:
@@ -1109,7 +1216,7 @@ def _force_utf8_stdio():
     """Ensure stdout/stderr can encode non-ASCII output (e.g. emoji prompts).
 
     On Windows the console often defaults to a legacy code page (e.g. cp1252),
-    so writing UTF-8 characters such as the "🐾" onboarding banner raises
+    so writing UTF-8 characters such as the "🫧" onboarding banner raises
     UnicodeEncodeError and crashes the very first run. Reconfigure the streams
     to UTF-8 where the runtime supports it; no-op otherwise.
     """

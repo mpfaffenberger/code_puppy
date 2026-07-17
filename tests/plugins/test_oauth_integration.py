@@ -761,8 +761,8 @@ class TestOAuthConfigurationIntegration:
 
         # Paths should be in the same directory
         assert chatgpt_token_path.parent == chatgpt_models_path.parent
-        # Parent dir should be code_puppy (either legacy .code_puppy or XDG code_puppy)
-        assert "code_puppy" in chatgpt_token_path.parent.name
+        # Parent dir is ~/.mist by default or an XDG mist directory.
+        assert chatgpt_token_path.parent.name in {".mist", "mist"}
 
 
 class TestOAuthDataIntegrity:
@@ -774,7 +774,7 @@ class TestOAuthDataIntegrity:
         """Test that token data remains intact through save/load cycle."""
         # Add some special characters and unicode to test encoding
         special_tokens = sample_oauth_tokens.copy()
-        special_tokens["description"] = "Token with special chars: 🐾 é 中文"
+        special_tokens["description"] = "Token with special chars: 🌫️ é 中文"
         special_tokens["metadata"] = {"key": "value with spaces and symbols!@#$%"}
 
         with patch(

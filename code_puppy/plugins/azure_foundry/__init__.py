@@ -1,6 +1,6 @@
-"""Azure AI Foundry Plugin for Code Puppy.
+"""Azure AI Foundry Plugin for Mist.
 
-This plugin enables Code Puppy to use Anthropic Claude models hosted on
+This plugin enables Mist to use Anthropic Claude models hosted on
 Microsoft Azure AI Foundry with Azure AD (Entra ID) authentication.
 
 The plugin uses the `az login` credentials from the Azure CLI to authenticate,

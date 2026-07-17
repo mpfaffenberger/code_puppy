@@ -1,4 +1,4 @@
-# Contributing to Code Puppy
+# Contributing to Mist
 
 > **Golden rule:** nearly all new functionality should be a **plugin** under `code_puppy/plugins/`
 > that hooks into core via `code_puppy/callbacks.py`. Don't edit `code_puppy/command_line/`.
@@ -9,9 +9,9 @@ Plugins are discovered from three tiers, loaded in order:
 
 | Tier | Location | When to use |
 |------|----------|-------------|
-| **Builtin** | `code_puppy/plugins/<name>/register_callbacks.py` | Core functionality shipped with Code Puppy |
-| **User** | `~/.code_puppy/plugins/<name>/register_callbacks.py` | Personal plugins, applied to every project |
-| **Project** | `<CWD>/.code_puppy/plugins/<name>/register_callbacks.py` | Repo-specific plugins, shared with your team via git |
+| **Builtin** | `code_puppy/plugins/<name>/register_callbacks.py` | Core functionality shipped with Mist |
+| **User** | `~/.mist/plugins/<name>/register_callbacks.py` | Personal plugins, applied to every project |
+| **Project** | `<CWD>/.mist/plugins/<name>/register_callbacks.py` | Repo-specific plugins, shared with your team via git |
 
 All three tiers use the same pattern — drop a `register_callbacks.py` in a named subdirectory:
 
@@ -28,14 +28,14 @@ That's it. The plugin loader auto-discovers `register_callbacks.py` in subdirs.
 
 ### Project Plugins
 
-Project plugins live at `<CWD>/.code_puppy/plugins/<name>/register_callbacks.py`.
-This mirrors the project-level discovery already used by agents (`<CWD>/.code_puppy/agents/`)
-and skills (`<CWD>/.code_puppy/skills/`).
+Project plugins live at `<CWD>/.mist/plugins/<name>/register_callbacks.py`.
+This mirrors the project-level discovery already used by agents (`<CWD>/.mist/agents/`)
+and skills (`<CWD>/.mist/skills/`).
 
 **Key details:**
 
-- **Directory must be created intentionally.** Code Puppy will never auto-create
-  `.code_puppy/plugins/` — your team opts in by creating it.
+- **Directory must be created intentionally.** Mist will never auto-create
+  `.mist/plugins/` — your team opts in by creating it.
 - **Load order is builtin → user → project.** Project plugins load last, giving
   them highest precedence for override-style hooks.
 - **Project wins on name collision.** If a project plugin shares a name with a
@@ -83,7 +83,7 @@ Full list + rarely-used hooks: see `code_puppy/callbacks.py` source.
 
 1. **Plugins over core** — if a hook exists for it, use it
 2. **One `register_callbacks.py` per plugin** — register at module scope
-3. **600-line hard cap** — split into submodules
+3. **Cohesive modules** — split along responsibility boundaries, not line counts
 4. **Fail gracefully** — never crash the app
 5. **Return `None` from commands you don't own**
 6. **Always run linters - `ruff check --fix`, `ruff format .`

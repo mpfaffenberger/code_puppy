@@ -2,12 +2,12 @@
 
 When enabled, transforms
 
-    🐶 puppy [agent] [model] (~/very/long/cwd) >>> typed text
+    🫧 puppy [agent] [model] (~/very/long/cwd) >>> typed text
 
 into
 
-    🐶 puppy [agent] [model] (~/very/long/cwd) >>>
+    🫧 puppy [agent] [model] (~/very/long/cwd) >>>
     typed text
 
-Toggle at runtime with ``/prompt_newline [on|off]``. Persisted in puppy.cfg.
+Toggle at runtime with ``/prompt_newline [on|off]``. Persisted in mist.cfg.
 """

@@ -1,4 +1,4 @@
-"""Keymap configuration for code-puppy.
+"""Keymap configuration for mist.
 
 This module handles configurable keyboard shortcuts, starting with the
 cancel_agent_key feature that allows users to override Ctrl+C with a
@@ -124,7 +124,7 @@ def validate_cancel_agent_key() -> None:
     if key not in VALID_CANCEL_KEYS:
         valid_keys_str = ", ".join(sorted(VALID_CANCEL_KEYS))
         raise KeymapError(
-            f"Invalid cancel_agent_key '{key}' in puppy.cfg. "
+            f"Invalid cancel_agent_key '{key}' in mist.cfg. "
             f"Valid options are: {valid_keys_str}"
         )
 
@@ -204,7 +204,7 @@ def validate_pause_agent_key() -> None:
     if key not in VALID_PAUSE_KEYS:
         valid_keys_str = ", ".join(sorted(VALID_PAUSE_KEYS))
         raise KeymapError(
-            f"Invalid pause_agent_key '{key}' in puppy.cfg. "
+            f"Invalid pause_agent_key '{key}' in mist.cfg. "
             f"Valid options are: {valid_keys_str}"
         )
 

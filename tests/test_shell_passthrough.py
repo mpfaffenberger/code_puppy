@@ -1,7 +1,7 @@
 """Tests for shell pass-through feature.
 
 The `!` prefix allows users to run shell commands directly from the
-Code Puppy prompt without any agent processing.
+Mist prompt without any agent processing.
 """
 
 import asyncio
@@ -305,8 +305,8 @@ class TestExecuteShellPassthrough:
 class TestInitialCommandPassthrough:
     """Test that shell passthrough works for initial_command and -p paths.
 
-    Regression tests for the bug where `code-puppy "!ls"` or
-    `code-puppy -p "!ls"` would send the command to the AI agent
+    Regression tests for the bug where `mist "!ls"` or
+    `mist -p "!ls"` would send the command to the AI agent
     instead of executing it directly in the shell.
 
     Also covers interactive_mode(initial_command=...) as a separate

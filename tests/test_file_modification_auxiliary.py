@@ -26,11 +26,11 @@ def test_replace_in_file_multiple_replacements(tmp_path):
 
 def test_replace_in_file_unicode(tmp_path):
     path = tmp_path / "unicode.txt"
-    path.write_text("puppy 🐶 says meow")
-    reps = [{"old_str": "meow", "new_str": "woof"}]
+    path.write_text("Mist 🌫️ says hello")
+    reps = [{"old_str": "hello", "new_str": "ready"}]
     res = file_modifications._replace_in_file(None, str(path), reps)
     assert res["success"]
-    assert "woof" in path.read_text()
+    assert "ready" in path.read_text()
 
 
 def test_replace_in_file_near_match(tmp_path):

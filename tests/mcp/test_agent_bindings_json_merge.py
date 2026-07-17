@@ -57,13 +57,13 @@ class TestJsonOnly:
 class TestFileOnly:
     def test_file_bindings_when_no_json(self, tmp_bindings_file):
         _write_file_bindings(
-            tmp_bindings_file, {"code-puppy": {"sqlite": {"auto_start": True}}}
+            tmp_bindings_file, {"mist": {"sqlite": {"auto_start": True}}}
         )
         # Non-JSON agent: load_agent returns something that isn't a JSONAgent.
         with patch(
             "code_puppy.agents.agent_manager.load_agent", return_value=MagicMock()
         ):
-            result = agent_bindings.get_bound_servers("code-puppy")
+            result = agent_bindings.get_bound_servers("mist")
         assert result == {"sqlite": {"auto_start": True}}
 
 

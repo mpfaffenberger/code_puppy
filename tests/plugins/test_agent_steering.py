@@ -274,7 +274,7 @@ async def test_on_pause_requested_calls_pause_all_spinners_before_editor(
 
     Otherwise the Rich Live display + prompt_toolkit fight over the
     terminal, and the editor's cursor lands on top of "Biscuit is
-    thinking... 🐶 Tokens: …". Order is captured via a shared list so
+    thinking... 🌫️ Tokens: …". Order is captured via a shared list so
     we can lock down the exact sequence.
     """
     call_order: list[str] = []

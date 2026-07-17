@@ -1,7 +1,7 @@
 """Ollama cloud model setup — /ollama-setup command.
 
 Pulls an Ollama `:cloud` model and registers it in extra_models.json so the
-model is immediately available for use in Code Puppy.
+model is immediately available for use in Mist.
 
 Cloud models supported (the Ollama "Recommended Models" cloud tier):
     kimi-k2.6:cloud, kimi-k2.5:cloud, glm-5:cloud, glm-5.1:cloud, minimax-m2.7:cloud, qwen3.5:cloud
@@ -78,7 +78,7 @@ def _pull_model(model_tag: str) -> bool:
 
     Returns True on success, False on failure.
     """
-    emit_info(f"🐕 Pulling {model_tag} via ollama …")
+    emit_info(f"🫧 Pulling {model_tag} via ollama …")
     try:
         result = subprocess.run(
             ["ollama", "pull", model_tag],

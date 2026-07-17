@@ -141,7 +141,7 @@ def pack(cwd_override: str | None = None) -> str | None:
 def _render(sections: list[PackSection], repo_w: str) -> str:
     """Render the packed sections into the final markdown block."""
     out: list[str] = [
-        "## Puppy Kennel - Memory",
+        "## Mist Memory - Memory",
         (
             f"_Repo wing: `{repo_w}` | token budget: "
             f"{PROMPT_BUDGET_TOKENS} (~{PROMPT_BUDGET_CHARS} chars)_"

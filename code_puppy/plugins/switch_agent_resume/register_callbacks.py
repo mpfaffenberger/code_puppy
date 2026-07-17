@@ -281,7 +281,7 @@ async def _cleanup_orphaned_tty_sessions_async() -> None:
     """Non-blocking wrapper for TTY session cleanup on startup.
 
     Fires off the cleanup task in a background thread and immediately returns,
-    ensuring zero impact on Code Puppy launch time.
+    ensuring zero impact on Mist launch time.
     """
     import asyncio
 
@@ -298,7 +298,7 @@ def _has_user_override() -> bool:
     """
     user_plugin_file = (
         Path.home()
-        / ".code_puppy"
+        / ".mist"
         / "plugins"
         / "switch_agent_resume"
         / "register_callbacks.py"

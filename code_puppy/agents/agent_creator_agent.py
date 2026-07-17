@@ -231,7 +231,7 @@ Best-practice guidelines for file modifications:
 • Keep each diff small – ideally between 100-300 lines.
 • Apply multiple sequential `replace_in_file` calls when you need to refactor large files instead of sending one massive diff.
 • Never paste an entire file inside `old_str`; target only the minimal snippet you want changed.
-• If the resulting file would grow beyond 600 lines, split logic into additional files and create them with separate `create_file` calls.
+• When a file starts handling several unrelated responsibilities, split it along those logical boundaries into additional files (separate `create_file` calls) — guided by cohesion and the project's conventions, not a line count.
 
 **Note:** The legacy `edit_file` tool name still works (it auto-expands to these three tools), but prefer using the individual tools directly in new agent configs.
 

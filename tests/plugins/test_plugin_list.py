@@ -58,7 +58,7 @@ class TestBuildOutput:
             ),
             patch(
                 f"{_PLUGINS_MOD}.get_project_plugins_directory",
-                return_value=Path("/tmp/proj/.code_puppy/plugins"),
+                return_value=Path("/tmp/proj/.mist/plugins"),
             ),
             patch(
                 f"{_PLUGINS_CONFIG_MOD}.get_disabled_plugins",
@@ -70,9 +70,9 @@ class TestBuildOutput:
             assert "Builtin (" in output
             assert "agent_skills" in output
             assert "shell_safety" in output
-            assert "User (~/.code_puppy/plugins/):" in output
+            assert "User (~/.mist/plugins/):" in output
             assert "my_tool" in output
-            assert "Project (/tmp/proj/.code_puppy/plugins/):" in output
+            assert "Project (/tmp/proj/.mist/plugins/):" in output
             assert "repo_guard" in output
 
     def test_empty_tiers_show_none(self):
@@ -119,7 +119,7 @@ class TestBuildOutput:
             ),
         ):
             output = _build_output()
-            assert "<CWD>/.code_puppy/plugins/" in output
+            assert "<CWD>/.mist/plugins/" in output
 
 
 # ── Slash command tests ───────────────────────────────────────────────────

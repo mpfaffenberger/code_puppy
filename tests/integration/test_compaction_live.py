@@ -45,7 +45,7 @@ _FAKE_CI_KEYS = {"fake-key-for-ci-testing", ""}
 
 
 def _lilac_key_available() -> bool:
-    """True if LILAC_API_KEY is set via env OR in puppy.cfg.
+    """True if LILAC_API_KEY is set via env OR in mist.cfg.
 
     Skips live tests when only a fake/placeholder CI key is available,
     since those cause opaque 401 errors that mask the real problem.
@@ -71,7 +71,7 @@ def _lilac_model_present() -> bool:
 
     ``models.json`` ships EMPTY — the lilac model only exists when someone
     (a dev, or the CI "Provision CI model" step) has written it into
-    ``~/.code_puppy/extra_models.json``. If it was never added, the agent
+    ``~/.mist/extra_models.json``. If it was never added, the agent
     can't instantiate it and ``run_with_mcp`` fails opaquely (returns None).
     Be explicit about that contract: skip loudly instead of failing cryptically.
     """
@@ -93,7 +93,7 @@ def _live_lilac_skip_reason() -> str | None:
     if not _lilac_model_present():
         return (
             f"{LILAC_MODEL!r} not found in models config — models.json is empty "
-            "and it was never added to ~/.code_puppy/extra_models.json; "
+            "and it was never added to ~/.mist/extra_models.json; "
             "live compaction tests skipped."
         )
     return None
@@ -288,7 +288,7 @@ def pinned_code_puppy_agent(monkeypatch):
 
     assert test_model in ModelFactory.load_config(), (
         f"{test_model!r} is not in the model config. models.json ships empty; "
-        "add it to ~/.code_puppy/extra_models.json (CI does this in the "
+        "add it to ~/.mist/extra_models.json (CI does this in the "
         "'Provision CI model' step)."
     )
 

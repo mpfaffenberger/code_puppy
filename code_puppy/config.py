@@ -3,17 +3,27 @@ import datetime
 import json
 import os
 import pathlib
+import shutil
 from typing import Optional
 
+from code_puppy.branding import (
+    CONFIG_DIRNAME,
+    DEFAULT_AGENT_NAME,
+    LEGACY_AGENT_NAME,
+    LEGACY_CONFIG_DIRNAME,
+    LEGACY_XDG_DIRNAME,
+    PRODUCT_NAME,
+    XDG_DIRNAME,
+)
 from code_puppy.session_storage import save_session
 
 
 def _get_xdg_dir(env_var: str, fallback: str) -> str:
     """
-    Get directory for code_puppy files, defaulting to ~/.code_puppy.
+    Get the directory for Mist files, defaulting to ``~/.mist``.
 
     XDG paths are only used when the corresponding environment variable
-    is explicitly set by the user. Otherwise, we use the legacy ~/.code_puppy
+    is explicitly set by the user. Otherwise, new installations use ~/.mist
     directory for all file types (config, data, cache, state).
 
     Args:
@@ -21,15 +31,21 @@ def _get_xdg_dir(env_var: str, fallback: str) -> str:
         fallback: Fallback path relative to home (e.g., ".config") - unused unless XDG var is set
 
     Returns:
-        Path to the directory for code_puppy files
+        Path to the directory for Mist files
     """
     # Use XDG directory ONLY if environment variable is explicitly set
     xdg_base = os.getenv(env_var)
     if xdg_base:
-        return os.path.join(xdg_base, "code_puppy")
+        return os.path.join(xdg_base, XDG_DIRNAME)
 
-    # Default to legacy ~/.code_puppy for all file types
-    return os.path.join(os.path.expanduser("~"), ".code_puppy")
+    return os.path.join(os.path.expanduser("~"), CONFIG_DIRNAME)
+
+
+def _get_legacy_xdg_dir(env_var: str) -> str:
+    xdg_base = os.getenv(env_var)
+    if xdg_base:
+        return os.path.join(xdg_base, LEGACY_XDG_DIRNAME)
+    return os.path.join(os.path.expanduser("~"), LEGACY_CONFIG_DIRNAME)
 
 
 # XDG Base Directory paths
@@ -38,8 +54,13 @@ DATA_DIR = _get_xdg_dir("XDG_DATA_HOME", ".local/share")
 CACHE_DIR = _get_xdg_dir("XDG_CACHE_HOME", ".cache")
 STATE_DIR = _get_xdg_dir("XDG_STATE_HOME", ".local/state")
 
+_LEGACY_CONFIG_DIR = _get_legacy_xdg_dir("XDG_CONFIG_HOME")
+_LEGACY_DATA_DIR = _get_legacy_xdg_dir("XDG_DATA_HOME")
+_LEGACY_CACHE_DIR = _get_legacy_xdg_dir("XDG_CACHE_HOME")
+_LEGACY_STATE_DIR = _get_legacy_xdg_dir("XDG_STATE_HOME")
+
 # Configuration files (XDG_CONFIG_HOME)
-CONFIG_FILE = os.path.join(CONFIG_DIR, "puppy.cfg")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "mist.cfg")
 MCP_SERVERS_FILE = os.path.join(CONFIG_DIR, "mcp_servers.json")
 
 # Data files (XDG_DATA_HOME)
@@ -195,8 +216,70 @@ def get_suppress_directory_listing() -> bool:
     return str(val).lower() in ("1", "true", "yes", "on")
 
 
-DEFAULT_SECTION = "puppy"
-REQUIRED_KEYS = ["puppy_name", "owner_name"]
+DEFAULT_SECTION = "mist"
+REQUIRED_KEYS = ["mist_name", "owner_name"]
+
+
+def _copy_missing_file(source: str, destination: str) -> str:
+    """Copy one migration file only when Mist has no destination file."""
+    if os.path.exists(destination):
+        return destination
+    return shutil.copy2(source, destination)
+
+
+def _migrate_legacy_storage() -> None:
+    """Copy legacy Code Puppy state into Mist locations without overwriting.
+
+    The migration is deliberately additive: the old directories remain in
+    place so older installations and third-party integrations keep working.
+    """
+
+    roots = {
+        (_LEGACY_CONFIG_DIR, CONFIG_DIR),
+        (_LEGACY_DATA_DIR, DATA_DIR),
+        (_LEGACY_CACHE_DIR, CACHE_DIR),
+        (_LEGACY_STATE_DIR, STATE_DIR),
+    }
+    for legacy_raw, target_raw in roots:
+        legacy = pathlib.Path(legacy_raw)
+        target = pathlib.Path(target_raw)
+        if legacy == target or not legacy.is_dir():
+            continue
+        try:
+            shutil.copytree(
+                legacy,
+                target,
+                dirs_exist_ok=True,
+                copy_function=_copy_missing_file,
+            )
+        except OSError:
+            # Migration failure must never prevent Mist from starting. Normal
+            # setup below will create whatever new directories are writable.
+            continue
+
+    config_path = pathlib.Path(CONFIG_FILE)
+    legacy_config = pathlib.Path(CONFIG_DIR) / "puppy.cfg"
+    if config_path.exists() or not legacy_config.is_file():
+        return
+
+    legacy = configparser.ConfigParser()
+    try:
+        legacy.read(legacy_config)
+        source = legacy["puppy"] if "puppy" in legacy else {}
+        migrated = configparser.ConfigParser()
+        migrated[DEFAULT_SECTION] = dict(source)
+        if "puppy_name" in source and "mist_name" not in source:
+            migrated[DEFAULT_SECTION]["mist_name"] = source["puppy_name"]
+        if "puppy_token" in source and "mist_token" not in source:
+            migrated[DEFAULT_SECTION]["mist_token"] = source["puppy_token"]
+        if migrated[DEFAULT_SECTION].get("default_agent") == LEGACY_AGENT_NAME:
+            migrated[DEFAULT_SECTION]["default_agent"] = DEFAULT_AGENT_NAME
+        config_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with config_path.open("w", encoding="utf-8") as handle:
+            migrated.write(handle)
+    except (OSError, configparser.Error):
+        return
+
 
 # Runtime-only autosave session ID (per-process)
 _CURRENT_AUTOSAVE_ID: Optional[str] = None
@@ -216,9 +299,10 @@ _warned_no_model = False
 
 def ensure_config_exists():
     """
-    Ensure that XDG directories and puppy.cfg exist, prompting if needed.
+    Ensure that XDG directories and ``mist.cfg`` exist, prompting if needed.
     Returns configparser.ConfigParser for reading.
     """
+    _migrate_legacy_storage()
     # Create all XDG directories with 0700 permissions per XDG spec
     for directory in [CONFIG_DIR, DATA_DIR, CACHE_DIR, STATE_DIR, SKILLS_DIR]:
         if not os.path.exists(directory):
@@ -237,15 +321,13 @@ def ensure_config_exists():
         # Note: Using sys.stdout here for initial setup before messaging system is available
         import sys
 
-        sys.stdout.write("🐾 Let's get your Puppy ready!\n")
+        sys.stdout.write("🫧 Let's get Mist ready!\n")
         sys.stdout.flush()
         for key in missing:
-            if key == "puppy_name":
-                val = input("What should we name the puppy? ").strip()
+            if key == "mist_name":
+                val = input("What should Mist call itself? ").strip()
             elif key == "owner_name":
-                val = input(
-                    "What's your name (so Code Puppy knows its owner)? "
-                ).strip()
+                val = input(f"What's your name (so {PRODUCT_NAME} knows you)? ").strip()
             else:
                 val = input(f"Enter {key}: ").strip()
             config[DEFAULT_SECTION][key] = val
@@ -270,12 +352,17 @@ def get_value(key: str):
     return val
 
 
+def get_mist_name():
+    return get_value("mist_name") or get_value("puppy_name") or PRODUCT_NAME
+
+
 def get_puppy_name():
-    return get_value("puppy_name") or "Puppy"
+    """Compatibility alias for integrations using the previous config API."""
+    return get_mist_name()
 
 
 def get_owner_name():
-    return get_value("owner_name") or "Master"
+    return get_value("owner_name") or "Developer"
 
 
 # Legacy function removed - message history limit is no longer used
@@ -317,7 +404,7 @@ def get_model_context_length() -> int:
 # --- CONFIG SETTER STARTS HERE ---
 def get_config_keys():
     """
-    Returns the list of all config keys currently in puppy.cfg,
+    Returns the list of all config keys currently in mist.cfg,
     plus certain preset expected keys (e.g. "yolo_mode", "model", "compaction_strategy", "message_limit", "allow_recursion").
     """
     default_keys = [
@@ -342,6 +429,14 @@ def get_config_keys():
         "frontend_emitter_max_recent_events",
         "frontend_emitter_queue_size",
         "permission_mode",
+        "agent_mode",
+        "injection_probe",
+        "shell_safe_prefixes",
+        "denial_consecutive_threshold",
+        "denial_total_threshold",
+        "sandbox_backend",
+        "sandbox_container_runtime",
+        "sandbox_container_image",
     ]
     # 'enable_dbos' is reserved for the dbos_durable_exec plugin and is read
     # via the generic get_value API; intentionally not in default_keys.
@@ -414,7 +509,7 @@ def reset_value(key: str) -> None:
 # --- MODEL STICKY EXTENSION STARTS HERE ---
 def load_mcp_server_configs():
     """
-    Loads the MCP server configurations from XDG_CONFIG_HOME/code_puppy/mcp_servers.json.
+    Loads MCP server configurations from XDG_CONFIG_HOME/mist/mcp_servers.json.
     Returns a dict mapping names to their URL or config dict.
     If file does not exist, returns an empty dict.
     """
@@ -607,7 +702,7 @@ def _warn_no_model_available() -> None:
         from code_puppy.messaging import emit_warning
 
         emit_warning(
-            "\u26a0\ufe0f  No model is configured! Code Puppy can't talk to an LLM "
+            "\u26a0\ufe0f  No model is configured! Mist can't talk to an LLM "
             "until you add one.\n"
             "   \u2022 Run /add_model to pick a model + API key, or\n"
             "   \u2022 Run /tutorial and choose Claude Code or ChatGPT OAuth."
@@ -618,13 +713,13 @@ def _warn_no_model_available() -> None:
 
 
 def get_global_model_name():
-    """Return the model name for Code Puppy to use, or ``None`` if unset.
+    """Return the model name for Mist to use, or ``None`` if unset.
 
     Uses session-local caching so that model changes in other terminals
     don't affect this running instance. The file is only read once at startup.
 
     1. If _SESSION_MODEL is set, return it (session cache)
-    2. Otherwise, look at ``model`` in *puppy.cfg*
+    2. Otherwise, look at ``model`` in *mist.cfg*
     3. If that value exists **and** is a known model, use it
     4. Otherwise return the first available model from the merged config
     5. If no model is available anywhere, warn once and return ``None``
@@ -710,14 +805,24 @@ def set_summarization_model_name(model: str) -> None:
     set_config_value("summarization_model", model or "")
 
 
+def get_mist_token():
+    """Return the Mist service token, including the legacy key fallback."""
+    return get_value("mist_token") or get_value("puppy_token")
+
+
+def set_mist_token(token: str):
+    """Persist the Mist service token."""
+    set_config_value("mist_token", token)
+
+
 def get_puppy_token():
-    """Returns the puppy_token from config, or None if not set."""
-    return get_value("puppy_token")
+    """Compatibility alias for the previous service-token getter."""
+    return get_mist_token()
 
 
 def set_puppy_token(token: str):
-    """Sets the puppy_token in the persistent config file."""
-    set_config_value("puppy_token", token)
+    """Compatibility alias for the previous service-token setter."""
+    set_mist_token(token)
 
 
 def get_openai_reasoning_effort() -> str:
@@ -1125,7 +1230,7 @@ def get_user_agents_directory() -> str:
     """Get the user's agents directory path.
 
     Returns:
-        Path to the user's Code Puppy agents directory.
+        Path to the user's Mist agents directory.
     """
     # Ensure the agents directory exists
     os.makedirs(AGENTS_DIR, exist_ok=True)
@@ -1135,14 +1240,16 @@ def get_user_agents_directory() -> str:
 def get_project_agents_directory() -> Optional[str]:
     """Get the project-local agents directory path.
 
-    Looks for a .code_puppy/agents/ directory in the current working directory.
+    Looks for a .mist/agents/ directory in the current working directory.
     Unlike get_user_agents_directory(), this does NOT create the directory
     if it doesn't exist -- the team must create it intentionally.
 
     Returns:
         Path to the project's agents directory if it exists, or None.
     """
-    project_agents_dir = os.path.join(os.getcwd(), ".code_puppy", "agents")
+    project_agents_dir = os.path.join(os.getcwd(), ".mist", "agents")
+    if not os.path.isdir(project_agents_dir):
+        project_agents_dir = os.path.join(os.getcwd(), ".code_puppy", "agents")
     if os.path.isdir(project_agents_dir):
         from code_puppy.project_trust import ensure_project_trusted
 
@@ -1171,7 +1278,7 @@ def initialize_command_history_file():
 
             # For backwards compatibility, copy the old history file, then remove it
             old_history_file = os.path.join(
-                os.path.expanduser("~"), ".code_puppy_history.txt"
+                os.path.expanduser("~"), ".mist_history.txt"
             )
             old_history_exists = os.path.isfile(old_history_file)
             if old_history_exists:
@@ -1192,7 +1299,7 @@ def initialize_command_history_file():
 
 def get_yolo_mode():
     """
-    Checks puppy.cfg for 'yolo_mode' (case-insensitive in value only).
+    Checks mist.cfg for 'yolo_mode' (case-insensitive in value only).
     Defaults to True if not set.
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     """
@@ -1207,7 +1314,7 @@ def get_yolo_mode():
 
 def get_safety_permission_level():
     """
-    Checks puppy.cfg for 'safety_permission_level' (case-insensitive in value only).
+    Checks mist.cfg for 'safety_permission_level' (case-insensitive in value only).
     Defaults to 'medium' if not set.
     Allowed values: 'none', 'low', 'medium', 'high', 'critical' (all case-insensitive for value).
     Returns the normalized lowercase string.
@@ -1223,10 +1330,10 @@ def get_safety_permission_level():
 
 def get_mcp_disabled():
     """
-    Checks puppy.cfg for 'disable_mcp' (case-insensitive in value only).
+    Checks mist.cfg for 'disable_mcp' (case-insensitive in value only).
     Defaults to False if not set.
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
-    When enabled, Code Puppy will skip loading MCP servers entirely.
+    When enabled, Mist will skip loading MCP servers entirely.
     """
     true_vals = {"1", "true", "yes", "on"}
     cfg_val = get_value("disable_mcp")
@@ -1239,7 +1346,7 @@ def get_mcp_disabled():
 
 def get_grep_output_verbose():
     """
-    Checks puppy.cfg for 'grep_output_verbose' (case-insensitive in value only).
+    Checks mist.cfg for 'grep_output_verbose' (case-insensitive in value only).
     Defaults to False (concise output) if not set.
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
 
@@ -1257,7 +1364,7 @@ def get_grep_output_verbose():
 
 def get_disable_dangerous_command_guard() -> bool:
     """
-    Checks puppy.cfg for 'disable_dangerous_command_guard' (case-insensitive in value only).
+    Checks mist.cfg for 'disable_dangerous_command_guard' (case-insensitive in value only).
     Defaults to False (guards enabled) if not set.
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
 
@@ -1519,7 +1626,7 @@ def get_agents_pinned_to_model(model_name: str) -> list:
 
 def get_auto_save_session() -> bool:
     """
-    Checks puppy.cfg for 'auto_save_session' (case-insensitive in value only).
+    Checks mist.cfg for 'auto_save_session' (case-insensitive in value only).
     Defaults to True if not set.
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     """
@@ -1832,7 +1939,7 @@ def auto_save_session_if_enabled() -> bool:
             pass
 
         emit_info(
-            f"🐾 Auto-saved session: {metadata.message_count} messages "
+            f"💨 Auto-saved session: {metadata.message_count} messages "
             f"({metadata.total_tokens} tokens){stats_suffix}"
         )
 
@@ -1893,7 +2000,7 @@ def record_terminal_session(session_name: str, *, overwrite: bool = True) -> Non
 
     Uses a dedicated file per TTY so concurrent terminals never clobber each
     other. Terminal emulators usually assign a fresh TTY per window/tab, and TTY
-    reassignment while Code Puppy is running is rare, but possible after a
+    reassignment while Mist is running is rare, but possible after a
     terminal closes and the OS later reuses the device name. This mapping is
     therefore best-effort and silently no-ops when no TTY is available or when
     filesystem writes fail. Set ``overwrite=False`` for startup markers so a
@@ -1937,7 +2044,7 @@ def finalize_autosave_session() -> str:
 
 def get_suppress_thinking_messages() -> bool:
     """
-    Checks puppy.cfg for 'suppress_thinking_messages' (case-insensitive in value only).
+    Checks mist.cfg for 'suppress_thinking_messages' (case-insensitive in value only).
     Defaults to False if not set.
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     When enabled, thinking messages (agent_reasoning, planned_next_steps) will be hidden.
@@ -1962,7 +2069,7 @@ def set_suppress_thinking_messages(enabled: bool):
 
 def get_smooth_thinking_stream() -> bool:
     """
-    Checks puppy.cfg for 'smooth_thinking_stream' (case-insensitive in value only).
+    Checks mist.cfg for 'smooth_thinking_stream' (case-insensitive in value only).
     Defaults to True if not set.
     Allowed values for OFF: 0, '0', 'false', 'no', 'off' (all case-insensitive).
     When enabled, THINKING block deltas are buffered and drained to the
@@ -1987,7 +2094,7 @@ def set_smooth_thinking_stream(enabled: bool):
 
 def get_smooth_response_stream() -> bool:
     """
-    Checks puppy.cfg for 'smooth_response_stream' (case-insensitive in value only).
+    Checks mist.cfg for 'smooth_response_stream' (case-insensitive in value only).
     Defaults to True if not set.
     Allowed values for OFF: 0, '0', 'false', 'no', 'off' (all case-insensitive).
     When enabled, the AGENT RESPONSE markdown is typed out one character at a
@@ -2012,7 +2119,7 @@ def set_smooth_response_stream(enabled: bool):
 
 def get_suppress_informational_messages() -> bool:
     """
-    Checks puppy.cfg for 'suppress_informational_messages' (case-insensitive in value only).
+    Checks mist.cfg for 'suppress_informational_messages' (case-insensitive in value only).
     Defaults to False if not set.
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     When enabled, informational messages (info, success, warning) will be hidden.
@@ -2046,7 +2153,7 @@ def get_output_level() -> str:
     """Return the current output density level.
 
     Valid values: ``low``, ``medium``, ``high``.  Default is ``medium``
-    (current behaviour).  The value is read from ``puppy.cfg`` with the
+    (current behaviour).  The value is read from ``mist.cfg`` with the
     key ``output_level``.
 
     * **low** — collapse tool calls, thinking blocks, and info messages
@@ -2080,9 +2187,69 @@ def set_output_level(level: str) -> None:
     set_config_value("output_level", normalised)
 
 
+# ---------------------------------------------------------------------------
+# Compact steps ledger (in-place tool / narration status)
+# ---------------------------------------------------------------------------
+
+
+def get_compact_steps() -> bool:
+    """Return True if the in-place steps ledger is enabled (Option B).
+
+    When enabled, the spinner's ``Live`` region owns the whole turn's
+    output: streamed text and stacked ``✓ step`` rows scroll above the
+    pinned footer via ``ConsoleSpinner.print_above``, eliminating the
+    banner-stacking and escape-corruption bugs that plagued the legacy
+    render path. Defaults to True — Option B is now the recommended path
+    per ``docs/IN_PLACE_STATUS_PLAN.md`` §3b.
+
+    The flag is independent of ``output_level`` — a user can be in
+    ``medium`` and still want the in-place ledger, or in ``low`` /
+    ``high`` and keep the legacy stacking render.
+    """
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("compact_steps")
+    if cfg_val is None:
+        return True
+    return str(cfg_val).strip().lower() in true_vals
+
+
+def set_compact_steps(enabled: bool) -> None:
+    """Set the ``compact_steps`` config flag."""
+    set_config_value("compact_steps", "true" if enabled else "false")
+
+
+def get_compact_steps_max_visible() -> int:
+    """Return how many completed ledger rows to keep on screen.
+
+    Defaults to 5 — enough context without dominating the viewport.
+    """
+    cfg_val = get_value("compact_steps_max_visible")
+    if cfg_val is None:
+        return 5
+    try:
+        n = int(str(cfg_val).strip())
+        return max(0, min(n, 50))
+    except (TypeError, ValueError):
+        return 5
+
+
+def get_compact_steps_summary() -> bool:
+    """Return True if a ``▸ N steps`` summary is printed on turn end."""
+    true_vals = {"1", "true", "yes", "on"}
+    cfg_val = get_value("compact_steps_summary")
+    if cfg_val is None:
+        return True
+    return str(cfg_val).strip().lower() in true_vals
+
+
+def set_compact_steps_summary(enabled: bool) -> None:
+    """Set the ``compact_steps_summary`` config flag."""
+    set_config_value("compact_steps_summary", "true" if enabled else "false")
+
+
 # API Key management functions
 def get_api_key(key_name: str) -> str:
-    """Get an API key from puppy.cfg.
+    """Get an API key from mist.cfg.
 
     Args:
         key_name: The name of the API key (e.g., 'OPENAI_API_KEY')
@@ -2094,7 +2261,7 @@ def get_api_key(key_name: str) -> str:
 
 
 def set_api_key(key_name: str, value: str):
-    """Set an API key in puppy.cfg.
+    """Set an API key in mist.cfg.
 
     Args:
         key_name: The name of the API key (e.g., 'OPENAI_API_KEY')
@@ -2104,11 +2271,11 @@ def set_api_key(key_name: str, value: str):
 
 
 def load_api_keys_to_environment():
-    """Load all API keys from .env and puppy.cfg into environment variables.
+    """Load all API keys from .env and mist.cfg into environment variables.
 
     Priority order:
     1. .env file (highest priority) - if present in current directory
-    2. puppy.cfg - fallback if not in .env
+    2. mist.cfg - fallback if not in .env
     3. Existing environment variables - preserved if already set
 
     This should be called on startup to ensure API keys are available.
@@ -2131,7 +2298,7 @@ def load_api_keys_to_environment():
 
     # Dynamically include every env var referenced by a configured model
     # (e.g. FIREWORKS_API_KEY / WAFER_API_KEY / CROF_API_KEY for local custom
-    # providers). Without this, such keys saved in puppy.cfg never hydrate into
+    # providers). Without this, such keys saved in mist.cfg never hydrate into
     # os.environ at startup. Best-effort: never let discovery break startup.
     try:
         from code_puppy.provider_credentials import all_required_env_vars
@@ -2155,8 +2322,8 @@ def load_api_keys_to_environment():
             # python-dotenv not installed, skip .env loading
             pass
 
-    # Step 2: Load from puppy.cfg, but only if not already set
-    # This ensures .env has priority over puppy.cfg
+    # Step 2: Load from mist.cfg, but only if not already set
+    # This ensures .env has priority over mist.cfg
     for key_name in api_key_names:
         # Only load from config if not already in environment
         if key_name not in os.environ or not os.environ[key_name]:
@@ -2167,17 +2334,20 @@ def load_api_keys_to_environment():
 
 def get_default_agent() -> str:
     """
-    Get the default agent name from puppy.cfg.
+    Get the default agent name from mist.cfg.
 
     Returns:
-        str: The default agent name, or "code-puppy" if not set.
+        str: The default agent name, or ``mist`` if not set.
     """
-    return get_value("default_agent") or "code-puppy"
+    configured = get_value("default_agent")
+    if configured == LEGACY_AGENT_NAME:
+        return DEFAULT_AGENT_NAME
+    return configured or DEFAULT_AGENT_NAME
 
 
 def set_default_agent(agent_name: str) -> None:
     """
-    Set the default agent name in puppy.cfg.
+    Set the default agent name in mist.cfg.
 
     Args:
         agent_name: The name of the agent to set as default.

@@ -1,0 +1,13 @@
+{
+  "name": "@mist/tui",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@mist/protocol": "workspace:*",
+    "ink": "^7.1.1",
+    "react": "^19.2.7",
+    "@mist/core": "workspace:*",
+    "react-devtools-core": "file:../../stubs/react-devtools-core"
+  }
+}

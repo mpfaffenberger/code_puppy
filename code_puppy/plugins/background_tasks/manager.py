@@ -195,9 +195,18 @@ class BackgroundTaskManager:
             Path(record.output_path or "").write_text(output, encoding="utf-8")
             return output
 
-        process = await asyncio.create_subprocess_shell(
+        from code_puppy.sandbox import prepare_shell_command
+
+        prepared = prepare_shell_command(
             request.command or "",
-            cwd=request.cwd,
+            request.cwd,
+            allow_unsandboxed_fallback=bool(
+                request.metadata.get("_sandbox_fallback_approved", False)
+            ),
+        )
+        process = await asyncio.create_subprocess_exec(
+            *prepared.argv,
+            cwd=prepared.cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )

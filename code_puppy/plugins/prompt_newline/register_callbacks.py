@@ -10,7 +10,7 @@ It hooks two things:
   returns gets a trailing ``\\n`` appended **at call time** (so the slash
   command toggle takes effect immediately, no restart needed).
 * ``custom_command`` / ``custom_command_help`` — exposes ``/prompt_newline``
-  for runtime on/off, persisted via ``puppy.cfg``.
+  for runtime on/off, persisted via ``mist.cfg``.
 
 Default: OFF. Opt-in only.
 """
@@ -133,7 +133,7 @@ def _handle_prompt_newline_command(command: str) -> bool:
 
     set_enabled(target)
     state = "ON" if target else "OFF"
-    _emit_success(f"🐶 prompt_newline is now {state}")
+    _emit_success(f"🫧 prompt_newline is now {state}")
     if target:
         _emit_info("Your input will appear on a fresh line below the prompt chrome.")
     else:

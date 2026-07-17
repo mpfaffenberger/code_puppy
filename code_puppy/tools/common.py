@@ -96,14 +96,18 @@ try:
     )
 
     # Use queue console by default, but allow fallback
-    NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
+    NO_COLOR = bool(
+        int(os.environ.get("MIST_NO_COLOR", os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
+    )
     _rich_console = Console(no_color=NO_COLOR)
     console = get_queue_console()
     # Set the fallback console for compatibility
     console.fallback_console = _rich_console
 except ImportError:
     # Fallback to regular Rich console if messaging system not available
-    NO_COLOR = bool(int(os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
+    NO_COLOR = bool(
+        int(os.environ.get("MIST_NO_COLOR", os.environ.get("CODE_PUPPY_NO_COLOR", "0")))
+    )
     console = Console(no_color=NO_COLOR)
 
     # Provide fallback emit functions
@@ -1097,7 +1101,7 @@ def get_user_approval(
     content: Text | str,
     preview: str | None = None,
     border_style: str = "dim white",
-    puppy_name: str | None = None,
+    mist_name: str | None = None,
 ) -> tuple[bool, str | None]:
     """Show a beautiful approval panel with arrow-key selector.
 
@@ -1110,7 +1114,7 @@ def get_user_approval(
         content: Main content to display (Rich Text object or string)
         preview: Optional preview content (like a diff)
         border_style: Border color/style for the panel
-        puppy_name: Name of the assistant (defaults to config value)
+        mist_name: Name of the assistant (defaults to config value)
 
     Returns:
         Tuple of (confirmed: bool, user_feedback: str | None)
@@ -1123,7 +1127,7 @@ def get_user_approval(
             content=content,
             preview=preview,
             border_style=border_style,
-            puppy_name=puppy_name,
+            mist_name=mist_name,
         )
 
 
@@ -1132,7 +1136,7 @@ def _get_user_approval_impl(
     content: Text | str,
     preview: str | None = None,
     border_style: str = "dim white",
-    puppy_name: str | None = None,
+    mist_name: str | None = None,
 ) -> tuple[bool, str | None]:
     """Inner implementation of get_user_approval (lock-free)."""
     import time
@@ -1142,10 +1146,10 @@ def _get_user_approval_impl(
     if not _stdin_supports_interactive_approval():
         return _deny_noninteractive_approval(title)
 
-    if puppy_name is None:
-        from code_puppy.config import get_puppy_name
+    if mist_name is None:
+        from code_puppy.config import get_mist_name
 
-        puppy_name = get_puppy_name().title()
+        mist_name = get_mist_name().title()
 
     # Build panel content
     if isinstance(content, str):
@@ -1222,7 +1226,7 @@ def _get_user_approval_impl(
             [
                 "✓ Approve",
                 "✗ Reject",
-                f"💬 Reject with feedback (tell {puppy_name} what to change)",
+                f"💬 Reject with feedback (tell {mist_name} what to change)",
             ],
         )
 
@@ -1234,7 +1238,7 @@ def _get_user_approval_impl(
             # User wants to provide feedback
             confirmed = False
             emit_info("")
-            emit_info(f"Tell {puppy_name} what to change:")
+            emit_info(f"Tell {mist_name} what to change:")
             # Rich's Prompt.ask reads stdin -- suspend the key listener
             # so it doesn't fight us for keystrokes.
             from code_puppy.agents._key_listeners import suspended_key_listener
@@ -1268,12 +1272,12 @@ def _get_user_approval_impl(
         sys.stdout.flush()
         sys.stderr.flush()
 
-    # Show result BEFORE resuming spinners (no puppy litter!)
+    # Show the result before resuming spinners to avoid interleaved output.
     emit_info("")
     if not confirmed:
         if user_feedback:
             emit_error("Rejected with feedback!")
-            emit_warning(f'Telling {puppy_name}: "{user_feedback}"')
+            emit_warning(f'Telling {mist_name}: "{user_feedback}"')
         else:
             emit_error("Rejected.")
     else:
@@ -1295,7 +1299,7 @@ async def get_user_approval_async(
     content: Text | str,
     preview: str | None = None,
     border_style: str = "dim white",
-    puppy_name: str | None = None,
+    mist_name: str | None = None,
 ) -> tuple[bool, str | None]:
     """Async version of get_user_approval - show a beautiful approval panel with arrow-key selector.
 
@@ -1309,7 +1313,7 @@ async def get_user_approval_async(
         content: Main content to display (Rich Text object or string)
         preview: Optional preview content (like a diff)
         border_style: Border color/style for the panel
-        puppy_name: Name of the assistant (defaults to config value)
+        mist_name: Name of the assistant (defaults to config value)
 
     Returns:
         Tuple of (confirmed: bool, user_feedback: str | None)
@@ -1322,7 +1326,7 @@ async def get_user_approval_async(
             content=content,
             preview=preview,
             border_style=border_style,
-            puppy_name=puppy_name,
+            mist_name=mist_name,
         )
 
 
@@ -1331,7 +1335,7 @@ async def _get_user_approval_async_impl(
     content: Text | str,
     preview: str | None = None,
     border_style: str = "dim white",
-    puppy_name: str | None = None,
+    mist_name: str | None = None,
 ) -> tuple[bool, str | None]:
     """Inner implementation of get_user_approval_async (lock-free)."""
     from code_puppy.tools.command_runner import set_awaiting_user_input
@@ -1339,10 +1343,10 @@ async def _get_user_approval_async_impl(
     if not _stdin_supports_interactive_approval():
         return _deny_noninteractive_approval(title)
 
-    if puppy_name is None:
-        from code_puppy.config import get_puppy_name
+    if mist_name is None:
+        from code_puppy.config import get_mist_name
 
-        puppy_name = get_puppy_name().title()
+        mist_name = get_mist_name().title()
 
     # Build panel content
     if isinstance(content, str):
@@ -1419,7 +1423,7 @@ async def _get_user_approval_async_impl(
             [
                 "✓ Approve",
                 "✗ Reject",
-                f"💬 Reject with feedback (tell {puppy_name} what to change)",
+                f"💬 Reject with feedback (tell {mist_name} what to change)",
             ],
         )
 
@@ -1431,7 +1435,7 @@ async def _get_user_approval_async_impl(
             # User wants to provide feedback
             confirmed = False
             emit_info("")
-            emit_info(f"Tell {puppy_name} what to change:")
+            emit_info(f"Tell {mist_name} what to change:")
             user_feedback = Prompt.ask(
                 "[bold green]➤[/bold green]",
                 default="",
@@ -1460,12 +1464,12 @@ async def _get_user_approval_async_impl(
         sys.stdout.flush()
         sys.stderr.flush()
 
-    # Show result BEFORE resuming spinners (no puppy litter!)
+    # Show the result before resuming spinners to avoid interleaved output.
     emit_info("")
     if not confirmed:
         if user_feedback:
             emit_error("Rejected with feedback!")
-            emit_warning(f'Telling {puppy_name}: "{user_feedback}"')
+            emit_warning(f'Telling {mist_name}: "{user_feedback}"')
         else:
             emit_error("Rejected.")
     else:

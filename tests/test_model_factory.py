@@ -236,7 +236,7 @@ def test_cerebras_timeout_config(monkeypatch):
         model = ModelFactory.get_model("custom", config)
 
     mock_client.assert_called_once_with(
-        headers={"X-Api-Key": "ok", "X-Cerebras-3rd-Party-Integration": "code-puppy"},
+        headers={"X-Api-Key": "ok", "X-Cerebras-3rd-Party-Integration": "mist"},
         verify=False,
         model_name="cerebras",
         timeout=600,

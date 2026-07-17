@@ -47,7 +47,11 @@ class ConsoleSpinner(SpinnerBase):
         # Print blank line before spinner for visual separation from content
         self.console.print()
 
-        # Create a Live display for the spinner
+        # When compact-steps is on, this Live is the *single* owner of the
+        # turn's output — streamed text and stacked step rows scroll above
+        # it via ``print_above`` / ``live.console.print``. transient=True so
+        # the footer disappears cleanly on turn end, leaving only the
+        # above-printed content in scrollback.
         self._live = Live(
             self._generate_spinner_panel(),
             console=self.console,
@@ -130,8 +134,30 @@ class ConsoleSpinner(SpinnerBase):
 
         text = Text()
 
-        # Show thinking message during normal processing
-        text.append(SpinnerBase.THINKING_MESSAGE, style="bold cyan")
+        # Compact-steps mode: footer = heartbeat glyph + activity label +
+        # spinner frame. Completed step rows no longer live inside the Live
+        # region — they're printed above via ``print_above`` (rich's
+        # print-above-Live mechanism) so they persist in scrollback without
+        # this panel having to re-render them every tick. That avoids the
+        # flashing/collapse bug that plagued the in-Live ledger approach
+        # (IN_PLACE_STATUS_PLAN.md §3 "Decision (REVISED)").
+        if SpinnerBase.is_ledger_active():
+            # Render the task list inside the live footer so repeated
+            # update_task_list calls update in place (instead of stacking
+            # full copies in scrollback). Sits above the heartbeat line.
+            task_list = SpinnerBase.get_task_list()
+            if task_list.strip():
+                text.append(task_list.rstrip("\n"), style="bright_white")
+                text.append("\n")
+            beat = self._heartbeat_frame()
+            text.append(f"{beat} ", style="bold cyan")
+
+        # Show the current activity (e.g. "Running: npm test") while a tool is
+        # executing, otherwise the generic thinking message. Either way the
+        # frames keep animating so a long action reads as live progress.
+        activity = SpinnerBase.get_activity()
+        message = f"{activity} " if activity else SpinnerBase.THINKING_MESSAGE
+        text.append(message, style="bold cyan")
         text.append(self.current_frame, style="bold cyan")
 
         context_info = SpinnerBase.get_context_info()
@@ -141,6 +167,46 @@ class ConsoleSpinner(SpinnerBase):
 
         # Return a simple Text object instead of a Panel for a cleaner look
         return text
+
+    def _heartbeat_frame(self) -> str:
+        """Return the current heartbeat glyph (calming "agent is alive" pulse).
+
+        Uses the "breathe" preset so a dot fills and empties — always present,
+        never flashy. Advances in lockstep with the spinner's own frame
+        counter so we don't need a second thread.
+        """
+        frames = SpinnerBase.SPINNER_PRESETS.get("breathe", ["○", "◔", "◑", "◕", "●"])
+        return frames[self._frame_index % len(frames)]
+
+    def print_above(
+        self, renderable, *, soft_wrap: bool = True, end: str = "\n"
+    ) -> None:
+        """Print ``renderable`` above the live footer so it persists in scrollback.
+
+        Rich's ``Live`` intercepts ``console.print`` calls on its own console
+        and scrolls them above the live region — one coordinated output
+        channel, no races with the footer refresh. This is the API the
+        event-stream handler and the spinner-activity plugin use to commit
+        step rows (``✓ label``) and streamed text.
+
+        ``end`` defaults to ``"\\n"`` (good for step rows, which don't carry
+        their own terminator). Streamed text from ``LivePrinterWriter`` passes
+        ``end=""`` because each chunk already includes its own newlines —
+        otherwise every line gets a second newline and the output is
+        double-spaced.
+        """
+        if self._live is None:
+            # Live isn't running — fall back to plain console.print so
+            # callers don't have to special-case pre-start / post-stop.
+            try:
+                self.console.print(renderable, soft_wrap=soft_wrap, end=end)
+            except Exception:
+                pass
+            return
+        try:
+            self._live.console.print(renderable, soft_wrap=soft_wrap, end=end)
+        except Exception:
+            pass
 
     def _update_spinner(self):
         """Update the spinner in a background thread."""

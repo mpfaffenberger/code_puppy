@@ -62,7 +62,7 @@ def test_cli_happy_path_interactive_flow(
     assert "python" in log_output.lower() or "function" in log_output.lower()
     assert "unit testing" in log_output.lower()
 
-    autosave_dir = Path(result.temp_home) / ".code_puppy" / "autosaves"
+    autosave_dir = Path(result.temp_home) / ".mist" / "autosaves"
     meta_files: list[Path] = []
     for _ in range(20):
         meta_files = list(autosave_dir.glob("*_meta.json"))

@@ -7,7 +7,7 @@ Covers:
 - ModelsDevRegistry initialization, data loading, and searching
 - API fetching and fallback mechanisms
 - Model parsing and filtering
-- Code Puppy configuration conversion
+- Mist configuration conversion
 - Edge cases and error handling
 """
 
@@ -1029,7 +1029,7 @@ class TestModelsDevRegistrySearch:
 
 
 class TestConvertToCodePuppyConfig:
-    """Tests for Code Puppy configuration conversion."""
+    """Tests for Mist configuration conversion."""
 
     @pytest.fixture
     def sample_data(self):
@@ -1064,7 +1064,7 @@ class TestConvertToCodePuppyConfig:
         return provider, model
 
     def test_convert_basic(self, sample_data):
-        """Test basic conversion to Code Puppy config."""
+        """Test basic conversion to Mist config."""
         provider, model = sample_data
         config = convert_to_code_puppy_config(model, provider)
 

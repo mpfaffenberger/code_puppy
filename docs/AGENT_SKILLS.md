@@ -2,7 +2,7 @@
 
 > **Official Spec:** [https://agentskills.io](https://agentskills.io)
 
-Agent Skills are reusable, modular capabilities that extend Code Puppy's functionality. Think of them as specialized training packets you can dynamically load when needed—like teaching your puppy new tricks on demand! 🐕
+Agent Skills are reusable, modular capabilities that extend Mist with focused instructions and workflows that can be loaded on demand.
 
 ---
 
@@ -37,13 +37,13 @@ Skills enable you to:
 
 ## Installing Skills
 
-Skills are installed by placing them in designated skill directories. Code Puppy scans these directories at startup to discover available skills.
+Skills are installed by placing them in designated skill directories. Mist scans these directories at startup to discover available skills.
 
 ### Default Skill Directories
 
-By default, Code Puppy looks for skills in:
+By default, Mist looks for skills in:
 
-1. **`~/.code_puppy/skills/`** - User-level skills (global)
+1. **`~/.mist/skills/`** - User-level skills (global)
 2. **`./skills/`** - Project-level skills (local)
 
 ### Installation Steps
@@ -51,15 +51,15 @@ By default, Code Puppy looks for skills in:
 1. **Create the skills directory** (if it doesn't exist):
 
    ```bash
-   mkdir -p ~/.code_puppy/skills
+   mkdir -p ~/.mist/skills
    ```
 
 2. **Download or clone a skill** into the directory:
 
    ```bash
    # Example: Installing a docker skill
-   cd ~/.code_puppy/skills
-   git clone https://github.com/example/code-puppy-docker.git docker
+   cd ~/.mist/skills
+   git clone https://github.com/example/mist-docker.git docker
    
    # Or manually create the skill directory
    mkdir my-custom-skill
@@ -68,7 +68,7 @@ By default, Code Puppy looks for skills in:
 3. **Verify the skill** has a `SKILL.md` file:
 
    ```bash
-   ls ~/.code_puppy/skills/my-custom-skill/SKILL.md
+   ls ~/.mist/skills/my-custom-skill/SKILL.md
    ```
 
 4. **Refresh skill discovery**:
@@ -80,7 +80,7 @@ By default, Code Puppy looks for skills in:
 ### Skill Directory Structure
 
 ```
-~/.code_puppy/skills/
+~/.mist/skills/
 ├── docker/
 │   ├── SKILL.md          # Required: Skill instructions + metadata
 │   ├── docker-compose.yml # Optional: Supporting resource
@@ -97,7 +97,7 @@ By default, Code Puppy looks for skills in:
 
 ## Using the /skills TUI Menu
 
-Code Puppy provides an interactive TUI (Text User Interface) for managing skills.
+Mist provides an interactive TUI (Text User Interface) for managing skills.
 
 ### Launching the Menu
 
@@ -158,7 +158,7 @@ Skills integrate with agents through two mechanisms: **prompt injection** and **
 
 ### 1. Prompt Injection
 
-When skills are enabled, Code Puppy automatically injects available skills into the system prompt:
+When skills are enabled, Mist automatically injects available skills into the system prompt:
 
 ```xml
 <available_skills>
@@ -222,7 +222,7 @@ activate_skill(skill_name="docker")
 
 ### Skill Activation Flow
 
-1. **Discovery** → Code Puppy scans skill directories at startup
+1. **Discovery** → Mist scans skill directories at startup
 2. **Prompt Injection** → Available skills are listed in the system prompt
 3. **User Request** → User asks for help with a specific domain
 4. **Skill Selection** → Agent identifies the relevant skill
@@ -370,7 +370,7 @@ These resources are listed when the skill is activated via the `resources` field
 
 ### Testing Your Skill
 
-1. Place your skill in `~/.code_puppy/skills/`
+1. Place your skill in `~/.mist/skills/`
 2. Run `/skills refresh`
 3. Verify it appears in `/skills list`
 4. Test activation by asking an agent to use it
@@ -379,14 +379,14 @@ These resources are listed when the skill is activated via the `resources` field
 
 ## Configuration Options
 
-Agent Skills can be configured through Code Puppy's configuration system.
+Agent Skills can be configured through Mist's configuration system.
 
 ### Configuration Keys
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `skills_enabled` | boolean | `true` | Globally enable/disable skills integration |
-| `skill_directories` | JSON list | `["~/.code_puppy/skills", "./skills"]` | Directories to scan for skills |
+| `skill_directories` | JSON list | `["~/.mist/skills", "./skills"]` | Directories to scan for skills |
 | `disabled_skills` | JSON list | `[]` | List of skill names to disable |
 
 ### Setting Configuration Values
@@ -401,7 +401,7 @@ Use the `/set` command to configure skills:
 /set skills_enabled = true
 
 # Add a custom skill directory
-/set skill_directories = "[\"/path/to/skills\", \"~/.code_puppy/skills\"]"
+/set skill_directories = "[\"/path/to/skills\", \"~/.mist/skills\"]"
 
 # Disable specific skills
 /set disabled_skills = "[\"skill-one\", \"skill-two\"]"
@@ -418,7 +418,7 @@ You can also manage directories via the TUI:
 This shows:
 ```
 Skill Directories:
-  1. ✓ /home/user/.code_puppy/skills
+  1. ✓ /home/user/.mist/skills
   2. ✓ /path/to/project/skills
   3. ✗ /old/path (does not exist)
 
@@ -431,12 +431,12 @@ Commands:
 
 ### Configuration File Location
 
-Settings are stored in `~/.code_puppy/puppy.cfg`:
+Settings are stored in `~/.mist/mist.cfg`:
 
 ```ini
-[puppy]
+[mist]
 skills_enabled = true
-skill_directories = ["/home/user/.code_puppy/skills", "./skills"]
+skill_directories = ["/home/user/.mist/skills", "./skills"]
 disabled_skills = ["deprecated-skill"]
 ```
 
@@ -444,7 +444,7 @@ disabled_skills = ["deprecated-skill"]
 
 ## Security Considerations
 
-⚠️ **Important:** Skills execute with the same permissions as Code Puppy. Follow these security best practices:
+⚠️ **Important:** Skills execute with the same permissions as Mist. Follow these security best practices:
 
 ### Skill Sources
 
@@ -468,9 +468,9 @@ disabled_skills = ["deprecated-skill"]
 Skills can access:
 - Files within their own directory
 - The project working directory
-- Any files Code Puppy has access to
+- Any files Mist has access to
 
-**Recommendation:** Run Code Puppy with minimal necessary permissions.
+**Recommendation:** Run Mist with minimal necessary permissions.
 
 ### Network Security
 
@@ -497,7 +497,7 @@ If you discover a security vulnerability in a skill:
 
 1. Disable the skill immediately: `/skills disable <skill-name>`
 2. Report to the skill author
-3. For core skills functionality issues, report to Code Puppy
+3. For core skills functionality issues, report to Mist
 
 ### Skill Verification
 
@@ -516,14 +516,14 @@ Before installing a skill, verify:
 Here's a complete example of using Agent Skills:
 
 ```bash
-# 1. Start Code Puppy
-code-puppy
+# 1. Start Mist
+mist
 
 # 2. Check available skills
 /skills list
 
 # 3. Start a conversation with an agent
-/agent code-puppy
+/agent mist
 
 # 4. The agent automatically knows about available skills
 # When you ask for docker help, it activates the docker skill
@@ -544,4 +544,4 @@ code-puppy
 
 ---
 
-*Happy skill building! 🐕🎯*
+*Build focused skills, keep their scope explicit, and verify them in real workflows.*

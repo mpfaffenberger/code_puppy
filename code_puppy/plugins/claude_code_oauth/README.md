@@ -1,13 +1,13 @@
 # Claude Code OAuth Plugin
 
-This plugin adds OAuth authentication for Claude Code to Code Puppy, automatically importing available models into your configuration.
+This plugin adds OAuth authentication for Claude Code to Mist, automatically importing available models into your configuration.
 
 ## Features
 
 - **OAuth Authentication**: Secure OAuth flow for Claude Code using PKCE
 - **Automatic Model Discovery**: Fetches available models from the Claude API once authenticated
 - **Model Registration**: Automatically adds models to `extra_models.json` with the `claude-code-` prefix
-- **Token Management**: Secure storage of OAuth tokens in the Code Puppy config directory
+- **Token Management**: Secure storage of OAuth tokens in the Mist config directory
 - **Browser Integration**: Launches the Claude OAuth consent flow automatically
 - **Callback Capture**: Listens on localhost to receive and process the OAuth redirect
 
@@ -91,7 +91,7 @@ After authentication, the models will reference:
 
 ## Model Configuration
 
-After authentication, models will be added to `~/.code_puppy/extra_models.json`:
+After authentication, models will be added to `~/.mist/extra_models.json`:
 
 ```json
 {
@@ -110,7 +110,7 @@ After authentication, models will be added to `~/.code_puppy/extra_models.json`:
 
 ## Security
 
-- **Token Storage**: Tokens are saved to `~/.code_puppy/claude_code_oauth.json` with `0o600` permissions
+- **Token Storage**: Tokens are saved to `~/.mist/claude_code_oauth.json` with `0o600` permissions
 - **PKCE Support**: Uses Proof Key for Code Exchange for enhanced security
 - **State Validation**: Checks the returned state (if provided) to guard against CSRF
 - **HTTPS Only**: All OAuth communications use HTTPS endpoints
@@ -122,7 +122,7 @@ After authentication, models will be added to `~/.code_puppy/extra_models.json`:
 - Check that a default browser is configured
 
 ### Authentication fails
-- Ensure the browser completed the redirect back to Code Puppy (no pop-up blockers)
+- Ensure the browser completed the redirect back to Mist (no pop-up blockers)
 - Retry if the window shows an error; codes expire quickly
 - Confirm network access to `claude.ai`
 
@@ -150,7 +150,7 @@ claude_code_oauth/
 - **OAuth Flow**: Authorization code flow with PKCE and automatic callback capture
 - **Token Management**: Secure storage and retrieval helpers
 - **Model Discovery**: API integration for model fetching
-- **Plugin Registration**: Custom command handlers wired into Code Puppy
+- **Plugin Registration**: Custom command handlers wired into Mist
 
 ## Notes
 

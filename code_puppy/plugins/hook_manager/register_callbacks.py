@@ -76,7 +76,7 @@ def _handle_hooks_command(command: str, name: str) -> Optional[Any]:
             emit_info("No hooks configured.")
             emit_info("Add hooks to .claude/settings.json (project):")
             emit_info('  { "hooks": { "PreToolUse": [ ... ] } }')
-            emit_info("Or to ~/.code_puppy/hooks.json (global)")
+            emit_info("Or to ~/.mist/hooks.json (global)")
             return True
         emit_info(f"\U0001f3a3 Hooks ({len(entries)} total)\n")
 
@@ -97,7 +97,7 @@ def _handle_hooks_command(command: str, name: str) -> Optional[Any]:
                 emit_info("")
 
         if global_hooks:
-            emit_info("🌍 GLOBAL HOOKS (~/.code_puppy/hooks.json):")
+            emit_info("🌍 GLOBAL HOOKS (~/.mist/hooks.json):")
             for entry in global_hooks:
                 status = (
                     "\U0001f7e2 enabled " if entry.enabled else "\U0001f534 disabled"

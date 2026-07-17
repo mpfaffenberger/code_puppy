@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover - defensive fallback
 
 def _custom_help():
     return [
-        ("woof", "Ask the agent for a dog fact (or any prompt you tack on)"),
+        ("ask", "Send an example prompt to the agent"),
         ("echo", "Echo back your text (display only)"),
     ]
 
@@ -35,16 +35,16 @@ def _handle_custom_command(command: str, name: str):
                                    the agent as a user prompt.
 
     Supports:
-    - /woof [text]   -> sends a prompt to the agent (defaults to a dog fact)
+    - /ask [text]    -> sends a prompt to the agent (defaults to a coding tip)
     - /echo <text>   -> displays the text (no agent round-trip)
     """
     if not name:
         return None
 
-    if name == "woof":
+    if name == "ask":
         parts = command.split(maxsplit=1)
-        prompt = parts[1] if len(parts) == 2 else "Tell me a dog fact"
-        emit_info(f"🐶 Woof! sending prompt: {prompt}")
+        prompt = parts[1] if len(parts) == 2 else "Tell me a concise coding tip"
+        emit_info(f"🫧 Mist is sending prompt: {prompt}")
         # Forward to the agent when possible; otherwise degrade gracefully
         # to display-only so the user at least sees the echoed prompt.
         if MarkdownCommandResult is not None:

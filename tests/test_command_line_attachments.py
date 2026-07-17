@@ -204,7 +204,7 @@ def test_parse_prompt_handles_long_paragraph_paste() -> None:
     """Test that pasting long error messages doesn't cause slowdown."""
     # Simulate pasting a long error message with fake paths
     long_text = (
-        "File /Users/testuser/.code-puppy-venv/lib/python3.13/site-packages/prompt_toolkit/layout/processors.py, "
+        "File /Users/testuser/.mist-venv/lib/python3.13/site-packages/prompt_toolkit/layout/processors.py, "
         "line 948, in apply_transformation return processor.apply_transformation(ti) "
         * 20
     )

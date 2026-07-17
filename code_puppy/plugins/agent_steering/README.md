@@ -1,6 +1,6 @@
 # Agent Steering 🎯
 
-Pause a running Code Puppy agent and inject a steering message without
+Pause a running Mist agent and inject a steering message without
 losing the context it's accumulated so far.
 
 ## How it works
@@ -41,7 +41,7 @@ Valid options: `ctrl+a`, `ctrl+b`, `ctrl+e`, `ctrl+f`, `ctrl+g`,
 `ctrl+u`, `ctrl+v`, `ctrl+w`, `ctrl+x`, `ctrl+y`.
 
 > **tmux users:** `ctrl+b` (default prefix) and `ctrl+a` (common remap)
-> may be swallowed by tmux before reaching Code Puppy. Pick a key your
+> may be swallowed by tmux before reaching Mist. Pick a key your
 > tmux doesn't capture — e.g. `ctrl+o` or `ctrl+g`.
 
 Tune the safety auto-resume timeout (default 180s):

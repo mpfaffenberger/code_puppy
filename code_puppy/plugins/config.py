@@ -1,7 +1,7 @@
 """Central config helpers for the plugin system.
 
 Follows the same pattern as ``agent_skills.config`` — a ``disabled_plugins``
-JSON list in ``puppy.cfg`` controls which plugins are suppressed at runtime.
+JSON list in ``mist.cfg`` controls which plugins are suppressed at runtime.
 
 Plugins listed here are still *loaded* (their ``register_callbacks.py`` is
 imported) but their callbacks are **skipped** during dispatch.  This means
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 def get_disabled_plugins() -> Set[str]:
     """Return the set of explicitly disabled plugin names.
 
-    Reads from ``disabled_plugins`` config key (JSON list in puppy.cfg).
+    Reads from ``disabled_plugins`` config key (JSON list in mist.cfg).
     """
     config_value = get_value("disabled_plugins")
     if config_value:

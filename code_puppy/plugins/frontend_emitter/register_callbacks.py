@@ -10,7 +10,7 @@ None of the emit-sites below pass an explicit ``session_id`` to
 ``code_puppy.plugins.frontend_emitter.session_context.current_emitter_session_id`` -- so any embedder (e.g. a
 WebSocket backend handling multiple sessions concurrently) just needs
 to set the ContextVar at the start of an agent run and every event
-emitted by code-puppy during that run will be tagged with the
+emitted by mist during that run will be tagged with the
 correct session_id automatically.  No imports from
 ``code_puppy.api.*`` are added here; the contract is purely through
 the ContextVar primitive in ``code_puppy.plugins.frontend_emitter.session_context``.

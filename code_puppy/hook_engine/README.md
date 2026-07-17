@@ -57,7 +57,7 @@ Scripts receive JSON on stdin (Claude Code compatible):
 
 ```json
 {
-    "session_id": "codepuppy-session",
+    "session_id": "mist-session",
     "hook_event_name": "PreToolUse",
     "tool_name": "agent_run_shell_command",
     "tool_input": {"command": "git status"},
@@ -79,12 +79,12 @@ See `docs/HOOKS.md` for the full user-facing guide.
 
 ## Tool Name Compatibility
 
-Hooks can be written using **either** the provider's tool name **or** code_puppy's
+Hooks can be written using **either** the provider's tool name **or** Mist's
 internal tool name — the matcher treats them as equivalent.
 
-### Claude Code → code_puppy
+### Claude Code → Mist
 
-| Claude Code (`matcher`) | code_puppy internal | Notes |
+| Claude Code (`matcher`) | Mist internal | Notes |
 |-------------------------|---------------------|-------|
 | `Bash`            | `agent_run_shell_command` | Shell execution |
 | `Glob`            | `list_files`              | File glob / directory listing |

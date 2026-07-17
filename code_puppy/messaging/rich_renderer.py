@@ -1,6 +1,6 @@
 """Rich console renderer for structured messages.
 
-This module implements the presentation layer for Code Puppy's messaging system.
+This module implements the presentation layer for Mist's messaging system.
 It consumes structured messages from the MessageBus and renders them using Rich.
 
 The renderer is responsible for ALL presentation decisions - the messages contain
@@ -19,6 +19,7 @@ from rich.rule import Rule
 from rich.table import Table
 
 from code_puppy.config import (
+    get_compact_steps,
     get_output_level,
     get_subagent_verbose,
     get_suppress_directory_listing,
@@ -217,6 +218,19 @@ class RichConsoleRenderer:
         SubAgentResponseMessage,
     )
 
+    # When ``compact_steps`` is on, tool results live as ledger rows inside
+    # the live spinner region. We never want the *permanent* peek line for
+    # them — collapse further to a silent drop instead.
+    _LEDGERED_TOOL_MESSAGES = (
+        ShellStartMessage,
+        ShellLineMessage,
+        ShellOutputMessage,
+        FileListingMessage,
+        FileContentMessage,
+        GrepResultMessage,
+        DiffMessage,
+    )
+
     def _should_collapse(self, message: AnyMessage) -> bool:
         """Return True if *message* should be rendered as a one-line peek.
 
@@ -230,6 +244,39 @@ class RichConsoleRenderer:
         if isinstance(message, self._NEVER_COLLAPSE):
             return False
         # Error-level text messages always render fully.
+        if isinstance(message, TextMessage) and message.level == MessageLevel.ERROR:
+            return False
+        return True
+
+    def _should_drop_for_ledger(self, message: AnyMessage) -> bool:
+        """Return True if *message* should be silently dropped because the
+        steps ledger is already showing it (or about to).
+
+        Option B (compact-steps default on): tool peeks no longer stack in
+        scrollback during an agent turn — a stacked ``✓`` step row prints
+        above the pinned footer via ``spinner.print_above`` instead. Errors
+        always break out — they must never be hidden behind the ledger.
+
+        Gated on ``SpinnerBase.is_ledger_active()`` (not just the config
+        flag) so messages still render normally *outside* a turn — e.g.
+        when the renderer is driven directly by tests, or by code paths
+        that emit messages without an active spinner.
+        """
+        if not get_compact_steps():
+            return False
+        # Only suppress during a live agent turn — outside of one, there's
+        # no footer / step row to take over the display, so the peek is
+        # the user's only signal.
+        try:
+            from code_puppy.messaging.spinner.spinner_base import SpinnerBase
+
+            if not SpinnerBase.is_ledger_active():
+                return False
+        except Exception:
+            return False
+        if not isinstance(message, self._LEDGERED_TOOL_MESSAGES):
+            return False
+        # Text-message errors override the ledger drop.
         if isinstance(message, TextMessage) and message.level == MessageLevel.ERROR:
             return False
         return True
@@ -442,6 +489,13 @@ class RichConsoleRenderer:
         Individual suppress toggles are also checked here.
         """
         if self._should_silence_during_pause(message):
+            return
+
+        # -- Compact-steps ledger drop --------------------------------------
+        # When the ledger is enabled, tool peek lines are replaced by a
+        # row inside the spinner Live region. Drop them here so they
+        # don't stack in scrollback (Phase 1 of IN_PLACE_STATUS_PLAN.md).
+        if self._should_drop_for_ledger(message):
             return
 
         # -- Individual suppress toggles (dead-code wiring: code_puppy_oss-dzz) --
@@ -1331,9 +1385,7 @@ class RichConsoleRenderer:
 
         if not msg.skills:
             self._console.print("[dim]  No skills found.[/dim]")
-            self._console.print(
-                "[dim]  Install skills in ~/.code_puppy/skills/[/dim]\n"
-            )
+            self._console.print("[dim]  Install skills in ~/.mist/skills/[/dim]\n")
             return
 
         # Create a table for skills

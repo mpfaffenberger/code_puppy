@@ -1,6 +1,6 @@
-"""Interactive TUI onboarding wizard for first-time Code Puppy users.
+"""Interactive TUI onboarding wizard for first-time Mist users.
 
-🐶 Quick 5-slide tutorial. ADHD-friendly!
+🫧 Quick 5-slide tutorial. ADHD-friendly!
 
 Usage:
     from code_puppy.command_line.onboarding_wizard import (
@@ -61,10 +61,12 @@ def should_show_onboarding() -> bool:
 
     Returns False if:
     - User has already completed onboarding
-    - CODE_PUPPY_SKIP_TUTORIAL env var is set to '1' or 'true'
+    - MIST_SKIP_TUTORIAL env var is set to '1' or 'true'
     """
     # Allow skipping tutorial via environment variable (useful for testing)
-    skip_env = os.environ.get("CODE_PUPPY_SKIP_TUTORIAL", "").lower()
+    skip_env = os.environ.get(
+        "MIST_SKIP_TUTORIAL", os.environ.get("CODE_PUPPY_SKIP_TUTORIAL", "")
+    ).lower()
     if skip_env in ("1", "true", "yes"):
         return False
     return not has_completed_onboarding()
@@ -291,7 +293,7 @@ async def run_onboarding_wizard() -> Optional[str]:
             content=FormattedTextControl(lambda: _get_slide_panel_content(wizard))
         )
 
-        root_container = Frame(slide_panel, title="🐶 Code Puppy Tutorial")
+        root_container = Frame(slide_panel, title="🫧 Mist Tutorial")
         layout = Layout(root_container)
 
         app = Application(
@@ -322,7 +324,7 @@ async def run_onboarding_wizard() -> Optional[str]:
     if wizard.result == "skipped":
         emit_info("✓ Tutorial skipped")
     elif wizard.result == "completed":
-        emit_info("✓ Tutorial completed! Welcome to Code Puppy! 🐶")
+        emit_info("✓ Tutorial completed! Welcome to Mist! 🫧")
     else:
         emit_info("✓ Exited tutorial")
 
@@ -369,7 +371,7 @@ def require_model_setup_if_needed(wizard_result: Optional[str]) -> None:
 
     emit_warning(
         "\U0001f6a8 No model configured yet!\n"
-        "   Code Puppy ships with an empty model list, so you need to add one:\n"
+        "   Mist ships with an empty model list, so you need to add one:\n"
         "   \u2022 Run /add_model to browse + add a model (API key required), or\n"
         "   \u2022 Run /tutorial again and pick Claude Code or ChatGPT OAuth."
     )

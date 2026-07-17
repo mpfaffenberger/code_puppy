@@ -145,7 +145,7 @@ class TestIsFastModeEnabledRealConfigRoundTrip:
 
     def test_real_roundtrip_with_claude_code_model(self, tmp_path, monkeypatch):
         # Point config at a throwaway file so we don't clobber user config.
-        cfg = tmp_path / "puppy.cfg"
+        cfg = tmp_path / "mist.cfg"
         monkeypatch.setattr("code_puppy.config.CONFIG_FILE", str(cfg))
 
         from code_puppy.config import set_model_setting

@@ -1,6 +1,6 @@
 """Terminal-level palette swap via OSC escape sequences.
 
-This module reaches *past* Code Puppy and recolors the whole terminal window
+This module reaches *past* Mist and recolors the whole terminal window
 (bg, fg, ANSI palette slots) using widely-supported xterm OSC sequences:
 
     OSC 10 ; spec BEL    -> set default foreground
@@ -14,7 +14,7 @@ Supported by iTerm2, Terminal.app, Alacritty, kitty, VS Code, GNOME
 Terminal, Windows Terminal. Unsupported terminals silently ignore them.
 
 We always register an atexit handler so the terminal is restored when
-Code Puppy quits, even if the user forgets to /theme default first.
+Mist quits, even if the user forgets to /theme default first.
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ def apply_palette(
             "ansi": ["#rrggbb", ...]           # optional, 0..16 entries
         }
 
-    `persist=True` writes the palette to config so the next Code Puppy
+    `persist=True` writes the palette to config so the next Mist
     session can replay it. `register_reset=True` ensures we always
     restore the terminal at process exit.
     """
@@ -157,7 +157,7 @@ def _at_exit_reset() -> None:
 
     We DON'T touch persisted config here — if the user wants the palette
     next session, they get it; this just makes sure the live terminal
-    doesn't stay stuck in a weird color after Code Puppy dies.
+    doesn't stay stuck in a weird color after Mist dies.
     """
     try:
         reset_ansi()

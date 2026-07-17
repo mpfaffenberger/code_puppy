@@ -30,15 +30,15 @@ from code_puppy.command_line.set_menu_values import (
 class TestEffectiveSettingValue:
     def test_every_curated_setting_with_getter_resolves_to_non_none(self):
         """If a curated setting wires up an ``effective_getter`` it must
-        return something, even when puppy.cfg is empty.
+        return something, even when mist.cfg is empty.
 
         Exceptions are keys whose semantics are explicitly "optional with
         no documented default" -- e.g. ``temperature`` means "use the
-        model's own default" when unset, and ``puppy_token`` is simply
+        model's own default" when unset, and ``mist_token`` is simply
         not configured for most users. Add to ``OPTIONAL_KEYS`` only
         when you've confirmed the unset value is meaningful.
         """
-        OPTIONAL_KEYS = {"temperature", "puppy_token"}
+        OPTIONAL_KEYS = {"temperature", "mist_token"}
         failures = []
         for _, setting in iter_curated_settings():
             if setting.effective_getter is None:
@@ -135,8 +135,8 @@ class TestEffectiveSettingValue:
         keys = {s.key for _, s in iter_curated_settings()}
         assert "allow_recursion" in keys
 
-    def test_is_sensitive_key_for_puppy_token(self):
-        assert is_sensitive_key("puppy_token") is True
+    def test_is_sensitive_key_for_mist_token(self):
+        assert is_sensitive_key("mist_token") is True
         assert is_sensitive_key("yolo_mode") is False
         assert is_sensitive_key("") is False
         assert is_sensitive_key("nonexistent") is False
@@ -228,8 +228,8 @@ class TestMaskValue:
 
     def test_display_value_masks_when_sensitive(self):
         s = Setting(
-            key="puppy_token",
-            display_name="Puppy Token",
+            key="mist_token",
+            display_name="Mist Token",
             description="",
             type_hint="string",
             effective_getter=lambda: "abcd1234efgh",

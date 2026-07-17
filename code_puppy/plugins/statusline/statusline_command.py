@@ -6,7 +6,7 @@ agent; we hand you a working template you can tweak immediately).
 
 Subcommands:
     /statusline                 Show current status + quick help
-    /statusline init            Write a starter ~/.code_puppy/statusline.sh,
+    /statusline init            Write a starter ~/.mist/statusline.sh,
                                 point config at it, and enable
     /statusline on | off        Enable / disable rendering
     /statusline show            Run the command once and preview its output
@@ -27,23 +27,24 @@ _COMMAND_NAME = "statusline"
 
 _STARTER_SCRIPT = """\
 #!/usr/bin/env bash
-# Code Puppy status line. Receives session JSON on stdin; prints one line.
+# Mist status line. Receives session JSON on stdin; prints one line.
 # In the default "replace" mode this line REPLACES the default prompt content
 # (so include a name/emoji if you want one). Edit freely.
 # Requires `jq` for the parsing below (or parse however you like).
 input=$(cat)
 
-puppy=$(printf '%s' "$input" | jq -r '.puppy_name // "code-puppy"')
+mist_name=$(printf '%s' "$input" | jq -r '.mist_name // "mist"')
 model=$(printf '%s' "$input" | jq -r '.model.display_name // "model"')
+mode=$(printf '%s' "$input" | jq -r '.mode // "build"' | tr '[:lower:]' '[:upper:]')
 dir=$(printf '%s' "$input" | jq -r '.workspace.current_dir // .cwd // ""')
 branch=$(printf '%s' "$input" | jq -r '.workspace.git_branch // empty')
 ind=$(printf '%s' "$input" | jq -r '.context_window.indicator // ""')
 pct=$(printf '%s' "$input" | jq -r '.context_window.used_percentage // 0')
 tps=$(printf '%s' "$input" | jq -r '.tokens_per_second // 0')
 
-line="\\033[1m🐶 $puppy\\033[0m"
+line="\\033[1m🫧 $mist_name\\033[0m"
 [ -n "$ind" ] && line="$line $ind"
-line="$line \\033[36m[$model]\\033[0m \\033[2m$(basename "$dir")\\033[0m"
+line="$line \\033[36m[$model]\\033[0m \\033[34m[$mode]\\033[0m \\033[2m$(basename "$dir")\\033[0m"
 [ -n "$branch" ] && line="$line \\033[35m($branch)\\033[0m"
 line="$line \\033[33m${pct}%ctx\\033[0m"
 # Show t/s only while generating.
@@ -60,7 +61,7 @@ def statusline_command_help() -> List[Tuple[str, str]]:
 
 
 def _default_script_path() -> Path:
-    return Path.home() / ".code_puppy" / "statusline.sh"
+    return Path.home() / ".mist" / "statusline.sh"
 
 
 def _status_text() -> str:

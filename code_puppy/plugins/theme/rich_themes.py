@@ -18,7 +18,7 @@ bright_*). What we DON'T touch:
 
 That keeps semantic meaning intact across all themes.
 
-Persisted via config so the patch survives Code Puppy restarts.
+Persisted via config so the patch survives Mist restarts.
 """
 
 from __future__ import annotations

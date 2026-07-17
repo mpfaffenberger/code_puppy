@@ -501,9 +501,9 @@ class TestGlobalCommands:
             _COMMAND_DIRECTORIES,
         )
 
-        assert "~/.code-puppy/commands" in _COMMAND_DIRECTORIES
+        assert "~/.mist/commands" in _COMMAND_DIRECTORIES
         # Global should be first (lowest priority, gets overridden by project)
-        assert _COMMAND_DIRECTORIES[0] == "~/.code-puppy/commands"
+        assert _COMMAND_DIRECTORIES[0] == "~/.mist/commands"
 
     def test_global_commands_work_with_expanduser(self):
         """Test that global path with ~ expands correctly."""

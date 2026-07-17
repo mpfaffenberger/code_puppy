@@ -99,7 +99,7 @@ class TestSanitizeString:
 
     def test_unicode_characters_preserved(self):
         """Test that valid unicode characters are preserved."""
-        unicode_str = "Hello 世界 🐾 café"
+        unicode_str = "Hello 世界 🌫️ café"
         result = _sanitize_string(unicode_str)
         assert result == unicode_str
 

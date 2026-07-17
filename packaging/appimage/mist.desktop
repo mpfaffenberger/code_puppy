@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Mist
+Comment=Contextual, adaptive AI coding agent
+Exec=mist
+Icon=mist
+Terminal=true
+Categories=Development;

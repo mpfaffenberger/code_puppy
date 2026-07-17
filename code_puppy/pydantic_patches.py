@@ -1,7 +1,7 @@
 """Monkey patches for third-party libraries.
 
 Historically pydantic-ai focused, this module now collects all runtime
-monkey patches code-puppy applies to its dependencies.  Each patch is
+monkey patches mist applies to its dependencies.  Each patch is
 idempotent and fails silently if the target library is absent.
 
 Usage:
@@ -12,22 +12,24 @@ Usage:
 import importlib.metadata
 from typing import Any
 
+from code_puppy.branding import DISTRIBUTION_NAME
+
 
 def _get_code_puppy_version() -> str:
-    """Get the current code-puppy version."""
+    """Get the current mist version."""
     try:
-        return importlib.metadata.version("code-puppy")
+        return importlib.metadata.version(DISTRIBUTION_NAME)
     except Exception:
         return "0.0.0-dev"
 
 
 def patch_user_agent() -> None:
-    """Patch pydantic-ai's User-Agent to use Code-Puppy's version.
+    """Patch pydantic-ai's User-Agent to use Mist's version.
 
     pydantic-ai sets its own User-Agent ('pydantic-ai/x.x.x') via a @cache-decorated
     function. We replace it with a dynamic function that returns:
     - 'KimiCLI/0.63' for Kimi models
-    - 'Code-Puppy/{version}' for all other models
+    - 'Mist/{version}' for all other models
 
     This MUST be called before any pydantic-ai models are created.
     """
@@ -50,7 +52,7 @@ def patch_user_agent() -> None:
                     return "KimiCLI/0.63"
             except Exception:
                 pass
-            return f"Code-Puppy/{version}"
+            return f"Mist/{version}"
 
         pydantic_models.get_user_agent = _get_dynamic_user_agent
     except Exception:
@@ -390,9 +392,22 @@ def patch_tool_call_callbacks() -> None:
                             )
                         block_msg = f"🚫 Hook blocked this tool call: {clean_reason}"
                         emit_warning(block_msg)
-                        return f"ERROR: {block_msg}\n\nThe hook policy prevented this tool from running. Please inform the user and do not retry this specific command."
+                        try:
+                            from code_puppy.safety.denials import record_denied_action
+
+                            await record_denied_action(clean_reason)
+                        except Exception:
+                            pass
+                        return f"ERROR: {block_msg}\n\nThe policy prevented this action. Find a safer path and do not immediately repeat the same denied call."
             except Exception:
                 pass  # other errors don't block tool execution
+
+            try:
+                from code_puppy.safety.denials import record_allowed_action
+
+                record_allowed_action()
+            except Exception:
+                pass
 
             # Persist pre_tool_call mutations back onto call.args so the
             # downstream tool dispatch (and the conversation history) sees
@@ -424,7 +439,6 @@ def patch_tool_call_callbacks() -> None:
                         result = prefix + result
                     else:
                         result = prefix + str(result)
-                return result
             except Exception as exc:
                 error = exc
                 raise
@@ -434,11 +448,16 @@ def patch_tool_call_callbacks() -> None:
                 try:
                     from code_puppy import callbacks
 
-                    await callbacks.on_post_tool_call(
+                    post_results = await callbacks.on_post_tool_call(
                         tool_name, tool_args, final_result, duration_ms
                     )
+                    if error is None:
+                        result = callbacks.apply_tool_result_replacements(
+                            result, post_results
+                        )
                 except Exception:
                     pass  # never block tool execution
+            return result
 
         ToolManager.get_tool_def = _patched_get_tool_def
         ToolManager.handle_call = _patched_handle_call

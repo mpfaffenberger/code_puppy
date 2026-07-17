@@ -1,8 +1,8 @@
 """
-Models development API parser for Code Puppy.
+Models development API parser for Mist.
 
 This module provides functionality to parse and work with the models.dev API,
-including provider and model information, search capabilities, and conversion to Code Puppy
+including provider and model information, search capabilities, and conversion to Mist
 configuration format.
 
 The parser fetches data from the live models.dev API first, falling back to a bundled
@@ -461,7 +461,7 @@ class ModelsDevRegistry:
         return [m for m in models if m.context_length >= min_context_length]
 
 
-# Provider type mapping for Code Puppy configuration
+# Provider type mapping for Mist configuration
 PROVIDER_TYPE_MAP = {
     "anthropic": "anthropic",
     "openai": "openai",
@@ -478,14 +478,14 @@ def convert_to_code_puppy_config(
     model: ModelInfo, provider: ProviderInfo
 ) -> Dict[str, Any]:
     """
-    Convert a model and provider to Code Puppy configuration format.
+    Convert a model and provider to Mist configuration format.
 
     Args:
         model: ModelInfo object
         provider: ProviderInfo object
 
     Returns:
-        Dictionary in Code Puppy configuration format
+        Dictionary in Mist configuration format
 
     Raises:
         ValueError: If required configuration fields are missing
@@ -575,7 +575,7 @@ if __name__ == "__main__":
         )
         emit_info(f"Found {len(affordable_models)} affordable models")
 
-        # Example: Convert to Code Puppy config
+        # Example: Convert to Mist config
         if providers and registry.get_models():
             provider = providers[0]
             models = registry.get_models(provider.id)

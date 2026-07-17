@@ -181,7 +181,7 @@ class TestMain:
     async def test_prompt_mode(self):
         mock_exec = AsyncMock()
         await self._run_main(
-            ["code-puppy", "-p", "hello world"],
+            ["mist", "-p", "hello world"],
             extra_patches={"code_puppy.cli_runner.execute_single_prompt": mock_exec},
         )
         mock_exec.assert_called_once()
@@ -190,7 +190,7 @@ class TestMain:
     async def test_interactive_mode_default(self):
         mock_inter = AsyncMock()
         await self._run_main(
-            ["code-puppy"],
+            ["mist"],
             extra_patches={
                 "code_puppy.cli_runner.interactive_mode": mock_inter,
                 "pyfiglet.figlet_format": MagicMock(return_value="LOGO\n\n"),
@@ -202,7 +202,7 @@ class TestMain:
     async def test_with_command_args(self):
         mock_inter = AsyncMock()
         await self._run_main(
-            ["code-puppy", "do", "something"],
+            ["mist", "do", "something"],
             extra_patches={
                 "code_puppy.cli_runner.interactive_mode": mock_inter,
                 "pyfiglet.figlet_format": MagicMock(return_value="LOGO\n\n"),
@@ -213,7 +213,7 @@ class TestMain:
     @pytest.mark.anyio
     async def test_no_available_port(self):
         await self._run_main(
-            ["code-puppy", "-p", "test"],
+            ["mist", "-p", "test"],
             base_overrides={
                 "code_puppy.cli_runner.find_available_port": MagicMock(
                     return_value=None
@@ -227,7 +227,7 @@ class TestMain:
 
         with pytest.raises(SystemExit):
             await self._run_main(
-                ["code-puppy", "-p", "test"],
+                ["mist", "-p", "test"],
                 base_overrides={
                     "code_puppy.cli_runner.validate_cancel_agent_key": MagicMock(
                         side_effect=KeymapError("bad key")
@@ -239,7 +239,7 @@ class TestMain:
     async def test_model_valid(self):
         mock_set = MagicMock()
         await self._run_main(
-            ["code-puppy", "-m", "gpt-5", "-p", "hi"],
+            ["mist", "-m", "gpt-5", "-p", "hi"],
             extra_patches={
                 "code_puppy.cli_runner.execute_single_prompt": AsyncMock(),
                 "code_puppy.config.set_model_name": mock_set,
@@ -256,7 +256,7 @@ class TestMain:
         mock_mf.load_config.return_value = {"gpt-5": {}}
         with pytest.raises(SystemExit):
             await self._run_main(
-                ["code-puppy", "-m", "bad-model", "-p", "hi"],
+                ["mist", "-m", "bad-model", "-p", "hi"],
                 extra_patches={
                     "code_puppy.config.set_model_name": MagicMock(),
                     "code_puppy.config._validate_model_exists": MagicMock(
@@ -270,7 +270,7 @@ class TestMain:
     async def test_model_validation_exception(self):
         with pytest.raises(SystemExit):
             await self._run_main(
-                ["code-puppy", "-m", "bad", "-p", "hi"],
+                ["mist", "-m", "bad", "-p", "hi"],
                 extra_patches={
                     "code_puppy.config.set_model_name": MagicMock(),
                     "code_puppy.config._validate_model_exists": MagicMock(
@@ -283,25 +283,25 @@ class TestMain:
     async def test_agent_valid(self):
         mock_set = MagicMock()
         await self._run_main(
-            ["code-puppy", "-a", "code-puppy", "-p", "hi"],
+            ["mist", "-a", "mist", "-p", "hi"],
             extra_patches={
                 "code_puppy.cli_runner.execute_single_prompt": AsyncMock(),
                 "code_puppy.agents.agent_manager.get_available_agents": MagicMock(
-                    return_value={"code-puppy": {}}
+                    return_value={"mist": {}}
                 ),
                 "code_puppy.agents.agent_manager.set_current_agent": mock_set,
             },
         )
-        mock_set.assert_called_with("code-puppy")
+        mock_set.assert_called_with("mist")
 
     @pytest.mark.anyio
     async def test_agent_invalid(self):
         with pytest.raises(SystemExit):
             await self._run_main(
-                ["code-puppy", "-a", "bad-agent", "-p", "hi"],
+                ["mist", "-a", "bad-agent", "-p", "hi"],
                 extra_patches={
                     "code_puppy.agents.agent_manager.get_available_agents": MagicMock(
-                        return_value={"code-puppy": {}}
+                        return_value={"mist": {}}
                     ),
                 },
             )
@@ -310,7 +310,7 @@ class TestMain:
     async def test_agent_exception(self):
         with pytest.raises(SystemExit):
             await self._run_main(
-                ["code-puppy", "-a", "bad", "-p", "hi"],
+                ["mist", "-a", "bad", "-p", "hi"],
                 extra_patches={
                     "code_puppy.agents.agent_manager.get_available_agents": MagicMock(
                         side_effect=RuntimeError("boom")
@@ -332,7 +332,7 @@ class TestMain:
             stack.enter_context(
                 patch.dict(os.environ, {"NO_VERSION_UPDATE": ""}, clear=False)
             )
-            stack.enter_context(patch("sys.argv", ["code-puppy", "-p", "hi"]))
+            stack.enter_context(patch("sys.argv", ["mist", "-p", "hi"]))
             stack.enter_context(
                 patch(
                     "code_puppy.messaging.SynchronousInteractiveRenderer",
@@ -377,7 +377,7 @@ class TestMain:
             stack.enter_context(
                 patch.dict(os.environ, {"NO_VERSION_UPDATE": ""}, clear=False)
             )
-            stack.enter_context(patch("sys.argv", ["code-puppy", "-p", "hi"]))
+            stack.enter_context(patch("sys.argv", ["mist", "-p", "hi"]))
             stack.enter_context(
                 patch(
                     "code_puppy.messaging.SynchronousInteractiveRenderer",
@@ -419,7 +419,7 @@ class TestMain:
             return real_import(name, *args, **kwargs)
 
         await self._run_main(
-            ["code-puppy"],
+            ["mist"],
             extra_patches={
                 "code_puppy.cli_runner.interactive_mode": AsyncMock(),
                 "builtins.__import__": fake_import,
@@ -1492,7 +1492,7 @@ class TestMainUvxAndEdgeCases:
         patches = _base_main_patches()
         with ExitStack() as stack:
             stack.enter_context(patch.dict(os.environ, {"NO_VERSION_UPDATE": "1"}))
-            stack.enter_context(patch("sys.argv", ["code-puppy", "-p", "hi"]))
+            stack.enter_context(patch("sys.argv", ["mist", "-p", "hi"]))
             stack.enter_context(
                 patch(
                     "code_puppy.messaging.SynchronousInteractiveRenderer",

@@ -1,4 +1,4 @@
-"""Code Puppy Messaging System.
+"""Mist Messaging System.
 
 This package provides both the legacy messaging API and the new structured
 messaging system.

@@ -1,0 +1,21 @@
+{
+  "version": "@VERSION@",
+  "description": "Contextual, adaptive AI coding agent",
+  "homepage": "https://github.com/bajajra/mist",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/bajajra/mist/releases/download/v@VERSION@/mist-windows-x64.zip",
+      "hash": "@WINDOWS_X64_SHA256@"
+    }
+  },
+  "bin": "mist.exe",
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/bajajra/mist/releases/download/v$version/mist-windows-x64.zip"
+      }
+    }
+  }
+}

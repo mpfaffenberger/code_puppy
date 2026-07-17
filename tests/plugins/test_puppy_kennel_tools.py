@@ -47,7 +47,7 @@ class _FakeAgent:
         return fn
 
 
-def _ctx(agent_name: str = "code-puppy") -> Any:
+def _ctx(agent_name: str = "mist") -> Any:
     return SimpleNamespace(agent_name=agent_name, deps=None)
 
 
@@ -61,11 +61,11 @@ def test_resolve_wing_shortcuts(kennel_root: Path) -> None:
 
     cwd = Path.cwd()
     # Phase 5: blank default now routes to repo, not agent.
-    assert tools._resolve_wing("", "code-puppy", cwd).startswith("repo:")
-    assert tools._resolve_wing("repo", "code-puppy", cwd).startswith("repo:")
-    assert tools._resolve_wing("agent", "code-puppy", cwd) == "agent:code-puppy"
-    assert tools._resolve_wing("user", "code-puppy", cwd) == "user:default"
-    assert tools._resolve_wing("custom:name", "code-puppy", cwd) == "custom:name"
+    assert tools._resolve_wing("", "mist", cwd).startswith("repo:")
+    assert tools._resolve_wing("repo", "mist", cwd).startswith("repo:")
+    assert tools._resolve_wing("agent", "mist", cwd) == "agent:mist"
+    assert tools._resolve_wing("user", "mist", cwd) == "user:default"
+    assert tools._resolve_wing("custom:name", "mist", cwd) == "custom:name"
 
 
 def test_resolve_scope_combinations(kennel_root: Path) -> None:
@@ -173,7 +173,7 @@ def test_kennel_recent_returns_newest_first(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import recorder, tools
 
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         session_id="s1",
         success=True,
@@ -181,7 +181,7 @@ def test_kennel_recent_returns_newest_first(kennel_root: Path) -> None:
     )
     time.sleep(1.01)  # Distinct timestamps (we store seconds-precision).
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         session_id="s2",
         success=True,
@@ -262,7 +262,7 @@ def test_list_wings_with_counts(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import recorder, tools
 
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         session_id="s1",
         success=True,
@@ -277,7 +277,7 @@ def test_list_wings_with_counts(kennel_root: Path) -> None:
     assert out.total_wings == 1
     names = {w.name for w in out.wings}
     assert any(n.startswith("repo:") for n in names)
-    assert "agent:code-puppy" not in names
+    assert "agent:mist" not in names
     for w in out.wings:
         assert w.drawer_count == 1
 
@@ -291,7 +291,7 @@ def test_kennel_stats_basic(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import recorder, tools
 
     recorder.record_run_end(
-        agent_name="code-puppy",
+        agent_name="mist",
         model_name="m",
         success=True,
         response_text="x",

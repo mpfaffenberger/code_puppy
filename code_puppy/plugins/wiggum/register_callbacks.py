@@ -70,7 +70,7 @@ def handle_wiggum_command(command: str) -> str | bool:
     description="Retry a task until all LLM judges say it is complete 🎯",
     usage="/goal <prompt>",
     # /kibble and /chow are puppy-themed aliases for /goal — same behavior,
-    # just more on-brand for a code puppy.
+    # just more on-brand for a Mist.
     aliases=["kibble", "chow"],
     category="plugin",
 )
@@ -258,7 +258,7 @@ def _resolve_judges(implementor_agent: Any) -> list[JudgeConfig]:
         try:
             fallback_model = implementor_agent.get_model_name()
         except Exception:
-            fallback_model = "code-puppy"
+            fallback_model = "mist"
 
     return get_enabled_judges_or_default(str(fallback_model))
 

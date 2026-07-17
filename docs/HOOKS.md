@@ -1,6 +1,6 @@
-# Code Puppy Hooks
+# Mist Hooks
 
-Hooks let you intercept and control every tool call the agent makes — before it runs, after it runs, or both. They are compatible with the Claude Code `.claude/settings.json` format, so any hook script that works in Claude Code works in Code Puppy out of the box.
+Hooks let you intercept and control every tool call the agent makes — before it runs, after it runs, or both. They are compatible with the Claude Code `.claude/settings.json` format, so any hook script that works in Claude Code works in Mist out of the box.
 
 ---
 
@@ -67,7 +67,7 @@ exit 0
 
 Make it executable: `chmod +x .claude/hooks/no-git.sh`
 
-Restart Code Puppy — any attempt to run a `git` command will be blocked cleanly.
+Restart Mist — any attempt to run a `git` command will be blocked cleanly.
 
 ---
 
@@ -77,7 +77,7 @@ Every hook script receives a JSON object on **stdin**:
 
 ```json
 {
-  "session_id": "codepuppy-session",
+  "session_id": "mist-session",
   "hook_event_name": "PreToolUse",
   "tool_name": "agent_run_shell_command",
   "tool_input": {
@@ -141,9 +141,9 @@ For `PostToolUse`, the payload also includes `tool_result` and `tool_duration_ms
 "replace_in_file"                 exact internal tool name
 ```
 
-**Code Puppy tool name mapping:**
+**Mist tool name mapping:**
 
-| Claude Code Name | Code Puppy Internal Name |
+| Claude Code Name | Mist Internal Name |
 |-----------------|--------------------------|
 | `Bash` | `agent_run_shell_command` |
 | `Edit` | `replace_in_file` |
@@ -189,13 +189,13 @@ Use `Bash|agent_run_shell_command` to catch shell commands with either name.
 
 **Config locations (priority order):**
 1. `.claude/settings.json` — project-level
-2. `~/.code_puppy/hooks.json` — global user hooks
+2. `~/.mist/hooks.json` — global user hooks
 
 ---
 
 ## Implementation Notes
 
-The hook engine lives in `code_puppy/hook_engine/` and is a self-contained library with no dependency on the rest of Code Puppy.
+The hook engine lives in `code_puppy/hook_engine/` and is a self-contained library with no dependency on the rest of Mist.
 
 Hooks are injected at the `pydantic-ai` `ToolManager._call_tool()` level via a patch in `code_puppy/pydantic_patches.py`, so they fire on every tool call regardless of which agent or model is in use.
 

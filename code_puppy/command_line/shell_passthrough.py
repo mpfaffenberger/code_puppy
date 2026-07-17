@@ -93,7 +93,7 @@ def execute_shell_passthrough(task: str) -> None:
     user instantly sees they're in pass-through mode, then inherits stdio
     for raw terminal output.
 
-    Ctrl+C during execution kills the subprocess, not Code Puppy.
+    Ctrl+C during execution kills the subprocess, not Mist.
 
     Args:
         task: Raw user input starting with `!`.

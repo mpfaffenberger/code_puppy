@@ -132,7 +132,7 @@ def _block_command(command: str, match: Any) -> Dict[str, Any]:
         f"  {match.description}\n\n"
         f"This operation could cause irreversible data loss.\n"
         f"If you *really* need to run this, use the exact command directly\n"
-        f"in your terminal (outside code puppy) after double-checking the target."
+        f"in your terminal (outside Mist) after double-checking the target."
     )
 
     emit_warning(error_message)

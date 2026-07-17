@@ -10,7 +10,7 @@ class TestBaseAgentConfiguration:
 
 
 class TestCodePuppyDynamicPrompt:
-    """Test that the Code-Puppy system prompt no longer references the retired reasoning tool."""
+    """Test that the Mist system prompt no longer references the retired reasoning tool."""
 
     @pytest.fixture
     def agent(self):
@@ -33,7 +33,7 @@ class TestCodePuppyDynamicPrompt:
         prompt = agent.get_system_prompt()
 
         for expected in [
-            "the most loyal digital puppy",
+            "AI coding agent helping",
             "replace_in_file",
             "run_shell_command",
             "Zen of Python",

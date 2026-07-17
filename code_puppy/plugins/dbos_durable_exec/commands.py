@@ -20,10 +20,10 @@ def handle_dbos_command(command: str, name: str):
         return f"DBOS durable execution: {status}"
     if sub == "on":
         set_enabled(True)
-        return "DBOS durable execution enabled. Restart code-puppy to apply."
+        return "DBOS durable execution enabled. Restart mist to apply."
     if sub == "off":
         set_enabled(False)
-        return "DBOS durable execution disabled. Restart code-puppy to apply."
+        return "DBOS durable execution disabled. Restart mist to apply."
     return f"Unknown /dbos subcommand: {sub}. Usage: /dbos on|off|status"
 
 

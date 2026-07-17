@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "code-puppy"
+name = "mist-agent"
 version = "0.0.571"
-description = "Code generation agent"
+description = "Mist: a contextual, adaptive AI coding agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
@@ -29,6 +29,8 @@ dependencies = [
     "azure-identity>=1.15.0",
     "anthropic==0.79.0",
     "boto3>=1.43.9",
+    "starlette>=0.40.0",
+    "uvicorn>=0.30.0",
 ]
 dev-dependencies = [
     "pytest>=8.3.4",
@@ -56,11 +58,13 @@ bedrock = ["boto3>=1.35.0"]
 durable = ["dbos>=2.11.0"]
 
 [project.urls]
-repository = "https://github.com/mpfaffenberger/code_puppy"
-HomePage = "https://github.com/mpfaffenberger/code_puppy"
+repository = "https://github.com/bajajra/mist"
+HomePage = "https://github.com/bajajra/mist"
 
 
 [project.scripts]
+mist = "mist.__main__:main_entry"
+# Compatibility entry points for existing installations and automation.
 code-puppy = "code_puppy.main:main_entry"
 pup = "code_puppy.main:main_entry"
 
@@ -68,7 +72,7 @@ pup = "code_puppy.main:main_entry"
 ignore_no_config = true
 
 [tool.hatch.build]
-packages = ["code_puppy"]
+packages = ["code_puppy", "mist"]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "code_puppy/models.json" = "code_puppy/models.json"

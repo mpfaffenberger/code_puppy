@@ -194,7 +194,7 @@ class TestVersionHandling:
 
 
 class TestLogoDisplay:
-    """Test CODE PUPPY logo display."""
+    """Test MIST logo display."""
 
     def test_logo_not_displayed_in_prompt_only_mode(self):
         """Test that logo is skipped in prompt-only mode (-p flag)."""
@@ -214,7 +214,7 @@ class TestLogoDisplay:
 
 
 class TestAPIKeyLoading:
-    """Test API key loading from puppy.cfg."""
+    """Test API key loading from mist.cfg."""
 
     @patch("code_puppy.config.load_api_keys_to_environment")
     def test_api_keys_load_function_called(self, mock_load_keys):

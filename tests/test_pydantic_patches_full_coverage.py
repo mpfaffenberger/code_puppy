@@ -25,11 +25,11 @@ class TestPatchUserAgent:
         from code_puppy.pydantic_patches import patch_user_agent
 
         patch_user_agent()
-        # After patching, calling the function should return Code-Puppy/...
+        # After patching, calling the function should return Mist/...
         import pydantic_ai.models as pydantic_models
 
         ua = pydantic_models.get_user_agent()
-        assert "Code-Puppy" in ua or "KimiCLI" in ua
+        assert "Mist" in ua or "KimiCLI" in ua
 
     def test_kimi_model_returns_kimi_ua(self):
         from code_puppy.pydantic_patches import patch_user_agent
@@ -49,7 +49,7 @@ class TestPatchUserAgent:
 
         with patch("code_puppy.config.get_global_model_name", return_value="gpt-4"):
             ua = pydantic_models.get_user_agent()
-            assert "Code-Puppy" in ua
+            assert "Mist" in ua
 
     def test_get_model_name_exception(self):
         from code_puppy.pydantic_patches import patch_user_agent
@@ -59,7 +59,7 @@ class TestPatchUserAgent:
 
         with patch("code_puppy.config.get_global_model_name", side_effect=Exception):
             ua = pydantic_models.get_user_agent()
-            assert "Code-Puppy" in ua
+            assert "Mist" in ua
 
     def test_patch_user_agent_import_failure(self):
         """Should not crash if pydantic_ai.models is not importable."""

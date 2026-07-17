@@ -22,7 +22,7 @@ import pexpect
 import pytest
 
 CONFIG_TEMPLATE: Final[str] = """[puppy]
-puppy_name = IntegrationPup
+mist_name = IntegrationPup
 owner_name = CodePuppyTester
 auto_save_session = true
 max_saved_sessions = 5
@@ -31,7 +31,7 @@ enable_dbos = true
 """
 
 # models.json now ships empty, so integration tests provision their model the
-# same way a real user would: via ~/.code_puppy/extra_models.json. This is the
+# same way a real user would: via ~/.mist/extra_models.json. This is the
 # "lilac synthetic GLM-5.1" model used for live LLM coverage.
 EXTRA_MODELS_TEMPLATE: Final[str] = """{
   "lilac-zai-org-glm-5.1": {
@@ -210,7 +210,7 @@ def dump_dbos_report(temp_home: pathlib.Path) -> None:
     Appends human-readable text to a global report buffer.
     """
     try:
-        db_path = temp_home / ".code_puppy" / "dbos_store.sqlite"
+        db_path = temp_home / ".mist" / "dbos_store.sqlite"
         if not db_path.exists():
             return
         conn = sqlite3.connect(str(db_path))
@@ -276,24 +276,24 @@ class CliHarness:
         if existing_home is not None:
             temp_home = pathlib.Path(existing_home)
             config_dir = temp_home / ".config" / "code_puppy"
-            code_puppy_dir = temp_home / ".code_puppy"
+            code_puppy_dir = temp_home / ".mist"
             config_dir.mkdir(parents=True, exist_ok=True)
             code_puppy_dir.mkdir(parents=True, exist_ok=True)
-            write_config = not (config_dir / "puppy.cfg").exists()
+            write_config = not (config_dir / "mist.cfg").exists()
         else:
             temp_home = pathlib.Path(
                 tempfile.mkdtemp(prefix=f"code_puppy_home_{_random_name()}_")
             )
             config_dir = temp_home / ".config" / "code_puppy"
-            code_puppy_dir = temp_home / ".code_puppy"
+            code_puppy_dir = temp_home / ".mist"
             config_dir.mkdir(parents=True, exist_ok=True)
             code_puppy_dir.mkdir(parents=True, exist_ok=True)
             write_config = True
 
         if write_config:
-            # Write config to both XDG config dir and ~/.code_puppy for compatibility
-            (config_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
-            (code_puppy_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
+            # Write config to both XDG config dir and ~/.mist for compatibility
+            (config_dir / "mist.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
+            (code_puppy_dir / "mist.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
 
         # Provision the lilac model into extra_models.json since models.json
         # ships EMPTY — without this the spawned CLI resolves the active model
@@ -304,13 +304,13 @@ class CliHarness:
             extra_models_path.write_text(EXTRA_MODELS_TEMPLATE, encoding="utf-8")
 
         log_path = temp_home / f"cli_output_{uuid.uuid4().hex}.log"
-        cmd_args = ["code-puppy"] + (args or [])
+        cmd_args = ["mist"] + (args or [])
 
         spawn_env = os.environ.copy()
         spawn_env.update(env or {})
         spawn_env["HOME"] = str(temp_home)
         spawn_env.pop("PYTHONPATH", None)  # avoid accidental venv confusion
-        # Clear XDG vars so the spawned CLI uses ~/.code_puppy (temp home)
+        # Clear XDG vars so the spawned CLI uses ~/.mist (temp home)
         spawn_env.pop("XDG_CONFIG_HOME", None)
         spawn_env.pop("XDG_DATA_HOME", None)
         spawn_env.pop("XDG_CACHE_HOME", None)

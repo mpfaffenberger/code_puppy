@@ -38,7 +38,8 @@ from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.model_factory import ModelFactory, make_model_settings
 
 _AGENT_RULE_FILES = ("AGENTS.md", "AGENT.md", "agents.md", "agent.md")
-_CODE_PUPPY_DIR = ".code_puppy"
+_MIST_DIR = ".mist"
+_LEGACY_CODE_PUPPY_DIR = ".code_puppy"
 
 # Re-export the default so callers that imported AGENTS_MD_MAX_CHARS from
 # here keep working. The *effective* cap on any given load is whatever
@@ -92,12 +93,12 @@ def _truncate_agents_md(content: str, source: str, max_chars: int) -> str:
 def load_puppy_rules() -> Optional[str]:
     """Load AGENT(S).md from global config dir and/or the current project dir.
 
-    Global rules (``~/.code_puppy/AGENTS.md``) come first; project-local rules
+    Global rules (``~/.mist/AGENTS.md``) come first; project-local rules
     are appended, allowing projects to override/extend global ones.
 
     **Search order for project rules:**
 
-    1. ``.code_puppy/AGENTS.md`` (preferred — keeps root clean)
+    1. ``.mist/AGENTS.md`` (preferred — keeps root clean)
     2. ``./AGENTS.md`` (alternate location)
 
     Each file is independently truncated via :func:`_truncate_agents_md` so
@@ -122,11 +123,18 @@ def load_puppy_rules() -> Optional[str]:
 
     project_rules: Optional[str] = None
 
-    # Priority 1: Check .code_puppy/ directory (preferred location)
-    code_puppy_dir = Path(_CODE_PUPPY_DIR)
-    if code_puppy_dir.is_dir():
+    # Priority 1: Check .mist/ directory (preferred location)
+    rules_dir = next(
+        (
+            candidate
+            for candidate in (Path(_MIST_DIR), Path(_LEGACY_CODE_PUPPY_DIR))
+            if candidate.is_dir()
+        ),
+        None,
+    )
+    if rules_dir is not None:
         for name in _AGENT_RULE_FILES:
-            candidate = code_puppy_dir / name
+            candidate = rules_dir / name
             if candidate.exists():
                 project_rules = _truncate_agents_md(
                     candidate.read_text(encoding="utf-8-sig"),
@@ -418,7 +426,7 @@ def filter_conflicting_mcp_tools(
 
 
 def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
-    """Compose full system prompt + puppy rules + extended-thinking note."""
+    """Compose the system prompt, AGENTS.md rules, and thinking note."""
     from code_puppy.model_utils import prepare_prompt_for_model
     from code_puppy.tools import (
         EXTENDED_THINKING_PROMPT_NOTE,
@@ -426,10 +434,10 @@ def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
     )
 
     sections = agent.get_prompt_sections()
-    puppy_rules = load_puppy_rules()
-    if puppy_rules:
+    agent_rules = load_puppy_rules()
+    if agent_rules:
         sections = type(sections)(
-            static=f"{sections.static.rstrip()}\n{puppy_rules}",
+            static=f"{sections.static.rstrip()}\n{agent_rules}",
             dynamic=sections.dynamic,
         )
 
@@ -454,7 +462,7 @@ def build_pydantic_agent(
     Replaces the old ``reload_code_generation_agent`` + ``_create_agent_with_output_type``
     pair. Side effects on ``agent``:
 
-    - ``agent._puppy_rules = None`` (invalidates any cached rules)
+    - ``agent._puppy_rules = None`` (invalidates the legacy rules cache)
     - ``agent.cur_model``             ← resolved pydantic-ai model
     - ``agent._last_model_name``      ← resolved model name
     - ``agent.pydantic_agent``        ← the final (possibly plugin-wrapped) agent

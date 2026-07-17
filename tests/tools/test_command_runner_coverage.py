@@ -739,7 +739,7 @@ class TestTruncateLine:
 
     def test_truncate_line_unicode(self):
         """Test truncation with unicode characters."""
-        unicode_line = "🐺" * 300
+        unicode_line = "⚡" * 300
         result = _truncate_line(unicode_line)
         assert "... [truncated]" in result
 

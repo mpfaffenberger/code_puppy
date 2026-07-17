@@ -10,7 +10,7 @@ most models.  Real tokenizers vary (GPT-4 ~3.5, Claude ~2.8), but 2.5
 provides a reasonable middle ground.  The max clamp (3.5) prevents
 absurdly high ratios from inflating token estimates.
 
-Storage lives at ``~/.code_puppy/token_ratios.json``, overridable via
+Storage lives at ``~/.mist/token_ratios.json``, overridable via
 the env var ``CODE_PUPPY_TOKEN_RATIOS_PATH``.
 """
 
@@ -56,8 +56,11 @@ _ratios_lock = threading.Lock()
 _TOKEN_RATIOS_PATH: Path = Path(
     os.path.expanduser(
         os.environ.get(
-            "CODE_PUPPY_TOKEN_RATIOS_PATH",
-            str(Path.home() / ".code_puppy" / "token_ratios.json"),
+            "MIST_TOKEN_RATIOS_PATH",
+            os.environ.get(
+                "CODE_PUPPY_TOKEN_RATIOS_PATH",
+                str(Path.home() / ".mist" / "token_ratios.json"),
+            ),
         )
     )
 )

@@ -1,30 +1,24 @@
 <div align="center">
 
-![Code Puppy Logo](code_puppy.png)
+![Mist — AI coding agent](mist_logo.png)
 
-**🐶✨The sassy AI code agent that makes IDEs look outdated** ✨🐶
+**Contextual. Adaptive. Reliable.**
 
-[![Version](https://img.shields.io/pypi/v/code-puppy?style=for-the-badge&logo=python&label=Version&color=purple)](https://pypi.org/project/code-puppy/)
-[![Downloads](https://img.shields.io/badge/Downloads-170k%2B-brightgreen?style=for-the-badge&logo=download)](https://pypi.org/project/code-puppy/)
+[![Version](https://img.shields.io/pypi/v/mist-agent?style=for-the-badge&logo=python&label=Version&color=blue)](https://pypi.org/project/mist-agent/)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/actions)
-[![Tests](https://img.shields.io/badge/Tests-Passing-success?style=for-the-badge&logo=pytest)](https://github.com/mpfaffenberger/code_puppy/tests)
+[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge&logo=github)](https://github.com/bajajra/mist/actions)
+[![Tests](https://img.shields.io/badge/Tests-Passing-success?style=for-the-badge&logo=pytest)](https://github.com/bajajra/mist)
 
-[![100% Open Source](https://img.shields.io/badge/100%25-Open%20Source-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
+[![100% Open Source](https://img.shields.io/badge/100%25-Open%20Source-blue?style=for-the-badge)](https://github.com/bajajra/mist)
 [![Pydantic AI](https://img.shields.io/badge/Pydantic-AI-success?style=for-the-badge)](https://github.com/pydantic/pydantic-ai)
 
-[![100% privacy](https://img.shields.io/badge/FULL-Privacy%20commitment-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy/blob/main/README.md#code-puppy-privacy-commitment)
+[![100% privacy](https://img.shields.io/badge/FULL-Privacy%20commitment-blue?style=for-the-badge)](#mist-privacy-commitment)
 
-[![GitHub stars](https://img.shields.io/github/stars/mpfaffenberger/code_puppy?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/mpfaffenberger/code_puppy?style=for-the-badge&logo=github)](https://github.com/mpfaffenberger/code_puppy/network)
+[![GitHub stars](https://img.shields.io/github/stars/bajajra/mist?style=for-the-badge&logo=github)](https://github.com/bajajra/mist/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/bajajra/mist?style=for-the-badge&logo=github)](https://github.com/bajajra/mist/network)
 
-[![Discord](https://img.shields.io/badge/Discord-Community-purple?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/eAGdE4J7Ca)
-[![Docs](https://img.shields.io/badge/Read-The%20Docs-blue?style=for-the-badge&logo=readthedocs)](https://code-puppy.dev)
-
-**[⭐ Star this repo if you hate expensive IDEs! ⭐](#quick-start)**
-
-*"Who needs an IDE when you have 1024 angry puppies?"* - Someone, probably.
+**[Explore Mist](#overview)**
 
 </div>
 
@@ -34,24 +28,39 @@
 
 ## Overview
 
-*This project was coded angrily in reaction to Windsurf and Cursor removing access to models and raising prices.*
+Mist is an open-source coding agent designed to understand large codebases, execute development workflows, coordinate specialized agents, and work across the model provider of your choice.
 
-*You could also run 50 code puppies at once if you were insane enough.*
+> **The primary Mist app is now the Bun/TypeScript implementation in [`ts/`](ts/).**
+> It ships as a single self-contained binary (no Python, no Node install) with the
+> polished TUI: live plan panel, mid-turn steering, session resume, compaction,
+> trace recording, and themes. The Python implementation below is **deprecated and
+> in maintenance mode** — it remains available as `mist-py` during the transition,
+> and no new features land there.
 
-*Would you rather plow a field with one ox or 1024 puppies?*
-    - If you pick the ox, better slam that back button in your browser.
-
-
-Code Puppy is an AI-powered code generation agent, designed to understand programming tasks, generate high-quality code, and explain its reasoning similar to tools like Windsurf and Cursor.
-
-
-## Quick start
+## Quick start (primary — Bun/TS)
 
 ```bash
-uvx code-puppy -i
-````
+cd ts && bun install && bun run build     # produces ts/dist/mist (single binary)
+ln -sf "$PWD/dist/mist" /opt/homebrew/bin/mist
+mist                                      # interactive session
+mist "fix the failing test"               # one-shot
+mist -c                                   # resume latest session here
+```
 
-## Installation
+Config lives in `~/.mist/mist.cfg` (model) and `~/.mist/extra_models.json`
+(Anthropic-compatible endpoints). `mist --help` lists everything else.
+
+## Python implementation (deprecated)
+
+The original Python app is still installable while the migration completes:
+
+```bash
+uvx --from mist-agent mist -i    # published package still runs the Python app
+```
+
+Locally it is exposed as `mist-py`. Bug fixes only; see
+[docs/BUN_MIGRATION_PLAN.md](docs/BUN_MIGRATION_PLAN.md) for what has moved and
+what remains (MCP, subagents, plugins, DBOS).
 
 ### UV (Recommended)
 
@@ -61,44 +70,91 @@ uvx code-puppy -i
 # Install UV if you don't have it
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-uvx code-puppy
+uvx --from mist-agent mist
 ```
 
 #### Windows
 
-On Windows, we recommend installing code-puppy as a global tool for the best experience with keyboard shortcuts (Ctrl+C/Ctrl+X cancellation):
+On Windows, we recommend installing mist as a global tool for the best experience with keyboard shortcuts (Ctrl+C/Ctrl+X cancellation):
 
 ```powershell
 # Install UV if you don't have it (run in PowerShell as Admin)
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-uvx code-puppy
+uvx --from mist-agent mist
 ```
 
 #### Optional: DBOS durable execution
 
-Code Puppy ships with an optional [DBOS](https://github.com/dbos-inc/dbos-transact-py)-backed
+Mist ships with an optional [DBOS](https://github.com/dbos-inc/dbos-transact-py)-backed
 durable-execution plugin that survives crashes and lets you resume long agent runs.
 It's **off by default in the dependency tree** — install the `durable` extra to opt in:
 
 ```bash
-pip install "code-puppy[durable]"
+pip install "mist-agent[durable]"
 # or
-uv pip install "code-puppy[durable]"
+uv pip install "mist-agent[durable]"
 ```
 
 Then toggle it from inside the app via `/dbos on` (and restart). Use `/dbos status`
 to check, `/dbos off` to disable.
 
-## Changelog (By Kittylog!)
+### Standalone releases
 
-[📋 View the full changelog on Kittylog](https://kittylog.app/c/mpfaffenberger/code_puppy)
+Tagged releases build no-Python-toolchain executables for Linux x64, macOS x64/arm64,
+and Windows x64. Release assets also include an AppImage and generated Homebrew/Scoop
+manifests. The `uvx` and `pip` installation paths remain supported.
+
+### Migrating from Code Puppy
+
+Mist uses `~/.mist/` for user configuration and `.mist/` for project-local
+agents, skills, and plugins. On first startup, an existing `~/.code_puppy/`
+installation is copied into the new location without deleting or overwriting
+the legacy data. Existing `code-puppy` and `pup` commands remain as compatibility
+aliases, and existing Python plugins may continue importing `code_puppy` during
+the compatibility period.
 
 ## Usage
 
+### Headless server, SDK, and structured output
+
+Start the authenticated local server (HTTP API, SSE events, and web client):
+
+```bash
+mist --serve                         # http://127.0.0.1:4096
+cat ~/.mist/server.json             # bearer token for API clients
+mist -p "review this repository" --output json
+mist --rpc                          # JSON-RPC 2.0, one object per line
+```
+
+The server owns independent durable sessions, so clients can disconnect and replay
+events with `Last-Event-ID`. It binds to loopback by default. Supplying `--host
+0.0.0.0` does not disable bearer authentication.
+
+```python
+from code_puppy.sdk import AgentClient
+
+async with AgentClient("http://127.0.0.1:4096", token) as client:
+    session = await client.session()
+    async for event in session.submit("Run the focused tests"):
+        print(event.type, event.data)
+```
+
+Use `/share` for a redacted local HTML export, or `/share --upload URL` to explicitly
+send the redacted bundle to an HTTPS endpoint you control.
+
+### Safety modes
+
+- `/mode plan` makes file mutations unavailable and requires approval for every shell
+  command; `/mode build` restores the normal policy. Tab toggles mode on an empty prompt.
+- `injection_probe=heuristic|model|off` controls untrusted tool-output annotations.
+- `sandbox_backend=none|auto|bubblewrap|sandbox-exec|container` selects shell containment.
+- `shell_safe_prefixes` configures the small command-prefix auto-allowlist.
+- `/trust domain|remote|org|bucket|service VALUE` extends the existing project trust scope.
+
 ### Adding Models from models.dev 🆕
 
-While there are several models configured right out of the box from providers like Synthetic, Cerebras, OpenAI, Google, and Anthropic, Code Puppy integrates with [models.dev](https://models.dev) to let you browse and add models from **65+ providers** with a single command:
+While there are several models configured right out of the box from providers like Synthetic, Cerebras, OpenAI, Google, and Anthropic, Mist integrates with [models.dev](https://models.dev) to let you browse and add models from **65+ providers** with a single command:
 
 ```bash
 /add_model
@@ -120,7 +176,7 @@ The `/add_model` command fetches the latest model data from models.dev in real-t
 
 #### Supported Providers
 
-Code Puppy integrates with https://models.dev giving you access to 65 providers and >1000 different model offerings.
+Mist integrates with https://models.dev giving you access to 65 providers and >1000 different model offerings.
 
 There are **39+ additional providers** that already have OpenAI-compatible APIs configured in models.dev!
 
@@ -140,11 +196,11 @@ These providers are automatically configured with correct OpenAI-compatible endp
 #### Smart Warnings
 
 - **⚠️ Unsupported Providers** - Providers like Amazon Bedrock and Google Vertex that require special authentication are clearly marked
-- **⚠️ No Tool Calling** - Models without tool calling support show a big warning since they can't use Code Puppy's file/shell tools
+- **⚠️ No Tool Calling** - Models without tool calling support show a big warning since they can't use Mist's file/shell tools
 
 ### Durable Execution
 
-Code Puppy now supports **[DBOS](https://github.com/dbos-inc/dbos-transact-py)** durable execution.
+Mist now supports **[DBOS](https://github.com/dbos-inc/dbos-transact-py)** durable execution.
 
 When enabled, every agent is automatically wrapped as a `DBOSAgent`, checkpointing key interactions (including agent inputs, LLM responses, MCP calls, and tool calls) in a database for durability and recovery.
 
@@ -158,10 +214,10 @@ Config takes precedence if set; otherwise the environment variable is used.
 ### Configuration
 
 The following environment variables control DBOS behavior:
-- `DBOS_CONDUCTOR_KEY`: If set, Code Puppy connects to the [DBOS Management Console](https://console.dbos.dev/). Make sure you first register an app named `dbos-code-puppy` on the console to generate a Conductor key. Default: `None`.
+- `DBOS_CONDUCTOR_KEY`: If set, Mist connects to the [DBOS Management Console](https://console.dbos.dev/). Make sure you first register an app named `dbos-mist` on the console to generate a Conductor key. Default: `None`.
 - `DBOS_LOG_LEVEL`: Logging verbosity: `CRITICAL`, `ERROR`, `WARNING`, `INFO`, or `DEBUG`. Default: `ERROR`.
 - `DBOS_SYSTEM_DATABASE_URL`: Database URL used by DBOS. Can point to a local SQLite file or a Postgres instance. Example: `postgresql://postgres:dbos@localhost:5432/postgres`. Default: `dbos_store.sqlite` file in the config directory.
-- `DBOS_APP_VERSION`: If set, Code Puppy uses it as the [DBOS application version](https://docs.dbos.dev/architecture#application-and-workflow-versions) and automatically tries to recover pending workflows for this version. Default: Code Puppy version + Unix timestamp in millisecond (disable automatic recovery).
+- `DBOS_APP_VERSION`: If set, Mist uses it as the [DBOS application version](https://docs.dbos.dev/architecture#application-and-workflow-versions) and automatically tries to recover pending workflows for this version. Default: Mist version + Unix timestamp in millisecond (disable automatic recovery).
 
 ### Custom Commands
 Create markdown files in `.claude/commands/`, `.github/prompts/`, or `.agents/commands/` to define custom slash commands. The filename becomes the command name and the content runs as a prompt.
@@ -172,7 +228,7 @@ echo "# Code Review
 
 Please review this code for security issues." > .claude/commands/review.md
 
-# Use it in Code Puppy
+# Use it in Mist
 /review with focus on authentication
 ```
 
@@ -187,23 +243,23 @@ Please review this code for security issues." > .claude/commands/review.md
 
 ## Agent Rules
 
-Code Puppy supports `AGENTS.md` files for defining coding standards, project conventions, and behavioral guidelines that the AI should follow. These rules can cover formatting, naming conventions, architectural patterns, and project-specific instructions.
+Mist supports `AGENTS.md` files for defining coding standards, project conventions, and behavioral guidelines that the AI should follow. These rules can cover formatting, naming conventions, architectural patterns, and project-specific instructions.
 
 For examples and more information about agent rules, visit [https://agent.md](https://agent.md)
 
 ### AGENTS.md Search Order
 
-Code Puppy loads rules from multiple locations, combining them in order:
+Mist loads rules from multiple locations, combining them in order:
 
 | Priority | Location | Purpose |
 |----------|----------|----------|
-| 1 | `~/.code_puppy/AGENTS.md` | Global rules (applied to all projects) |
-| 2 | `.code_puppy/AGENTS.md` | Project rules (preferred location) |
+| 1 | `~/.mist/AGENTS.md` | Global rules (applied to all projects) |
+| 2 | `.mist/AGENTS.md` | Project rules (preferred location) |
 | 3 | `./AGENTS.md` | Project rules (alternate location) |
 
 **Key behaviors:**
 - Global and project rules are **combined** (global first, then project)
-- `.code_puppy/` directory takes **precedence** over project root
+- `.mist/` directory takes **precedence** over project root
 - All filename variants are supported: `AGENTS.md`, `AGENT.md`, `agents.md`, `agent.md`
 
 ## Using MCP Servers for External Tools
@@ -212,10 +268,10 @@ Use the `/mcp` command to manage MCP (list, start, stop, status, etc.)
 
 ## Round Robin Model Distribution
 
-Code Puppy supports **Round Robin model distribution** to help you overcome rate limits and distribute load across multiple AI models. This feature automatically cycles through configured models with each request, maximizing your API usage while staying within rate limits.
+Mist supports **Round Robin model distribution** to help you overcome rate limits and distribute load across multiple AI models. This feature automatically cycles through configured models with each request, maximizing your API usage while staying within rate limits.
 
 ### Configuration
-Add a round-robin model configuration to your `~/.code_puppy/extra_models.json` file:
+Add a round-robin model configuration to your `~/.mist/extra_models.json` file:
 
 ```bash
 export CEREBRAS_API_KEY1=csk-...
@@ -275,7 +331,7 @@ For custom model endpoints (`custom_openai`, `custom_anthropic`, `custom_gemini`
 - Gemini models: 180 seconds
 
 ### Configuration
-Add a `timeout` field to your model configuration in `~/.code_puppy/extra_models.json`:
+Add a `timeout` field to your model configuration in `~/.mist/extra_models.json`:
 
 ```json
 {
@@ -310,7 +366,7 @@ Timeout values must be positive numbers (integers or floats) representing second
 
 ## Create your own Agent!!!
 
-Code Puppy features a flexible agent system that allows you to work with specialized AI assistants tailored for different coding tasks. The system supports both built-in Python agents and custom JSON agents that you can create yourself.
+Mist features a flexible agent system that allows you to work with specialized AI assistants tailored for different coding tasks. The system supports both built-in Python agents and custom JSON agents that you can create yourself.
 
 ## Quick Start
 
@@ -346,8 +402,8 @@ This is useful for managing context length when you have a long conversation his
 
 ## Available Agents
 
-### Code-Puppy 🐶 (Default)
-- **Name**: `code-puppy`
+### Mist 🌫️ (Default)
+- **Name**: `mist`
 - **Specialty**: General-purpose coding assistant
 - **Personality**: Playful, sarcastic, pedantic about code quality
 - **Tools**: Full access to all tools
@@ -369,7 +425,7 @@ Built-in agents implemented in Python with full system integration:
 - Discovered automatically from `code_puppy/agents/` directory
 - Inherit from `BaseAgent` class
 - Full access to system internals
-- Examples: `code-puppy`, `agent-creator`
+- Examples: `mist`, `agent-creator`
 
 ### JSON Agents
 User-created agents defined in JSON files:
@@ -449,7 +505,7 @@ Agents can access these tools based on their configuration:
 ### Tool Access Examples
 - **Read-only agent**: `["list_files", "read_file", "grep"]`
 - **File editor agent**: `["list_files", "read_file", "create_file", "replace_in_file"]`
-- **Full access agent**: All tools (like Code-Puppy)
+- **Full access agent**: All tools (like Mist)
 
 ## System Prompt Formats
 
@@ -535,7 +591,7 @@ Agents can access these tools based on their configuration:
 ## File Locations
 
 ### JSON Agents Directory
-- **All platforms**: `~/.code_puppy/agents/`
+- **All platforms**: `~/.mist/agents/`
 
 ### Python Agents Directory
 - **Built-in**: `code_puppy/agents/` (in package)
@@ -651,7 +707,7 @@ class MyCustomAgent(BaseAgent):
 ### Agent Not Found
 - Ensure JSON file is in correct directory
 - Check JSON syntax is valid
-- Restart Code Puppy or clear agent cache
+- Restart Mist or clear agent cache
 - Verify filename ends with `-agent.json`
 
 ### Validation Errors
@@ -718,7 +774,7 @@ The agent system supports future expansion:
 - **Testing**: Comprehensive test suite in `tests/test_json_agents.py`
 
 ### JSON Agent Loading Process
-1. System scans `~/.code_puppy/agents/` for `*-agent.json` files
+1. System scans `~/.mist/agents/` for `*-agent.json` files
 2. `JSONAgent` class loads and validates each JSON configuration
 3. Agents are registered in unified agent registry
 4. Users can switch to JSON agents via `/agent <name>` command
@@ -765,13 +821,13 @@ Consider contributing agent templates for:
 
 ---
 
-# Code Puppy Privacy Commitment
+# Mist Privacy Commitment
 
 **Zero-compromise privacy policy. Always.**
 
 Unlike other Agentic Coding software, there is no corporate or investor backing for this project, which means **zero pressure to compromise our principles for profit**. This isn't just a nice-to-have feature – it's fundamental to the project's DNA.
 
-### What Code Puppy _absolutely does not_ collect:
+### What Mist _absolutely does not_ collect:
 - ❌ **Zero telemetry** – no usage analytics, crash reports, or behavioral tracking
 - ❌ **Zero prompt logging** – your code, conversations, or project details are never stored
 - ❌ **Zero behavioral profiling** – we don't track what you build, how you code, or when you use the tool
@@ -779,11 +835,11 @@ Unlike other Agentic Coding software, there is no corporate or investor backing 
 
 ### What data flows where:
 - **LLM Provider Communication**: Your prompts are sent directly to whichever LLM provider you've configured (OpenAI, Anthropic, local models, etc.) – this is unavoidable for AI functionality
-- **Complete Local Option**: Run your own VLLM/SGLang/Llama.cpp server locally → **zero data leaves your network**. Configure this with `~/.code_puppy/extra_models.json`
+- **Complete Local Option**: Run your own VLLM/SGLang/Llama.cpp server locally → **zero data leaves your network**. Configure this with `~/.mist/extra_models.json`
 - **Direct Developer Contact**: All feature requests, bug reports, and discussions happen directly with me – no middleman analytics platforms or customer data harvesting tools
 
 ### Our privacy-first architecture:
-Code Puppy is designed with privacy-by-design principles. Every feature has been evaluated through a privacy lens, and every integration respects user data sovereignty. When you use Code Puppy, you're not the product – you're just a developer getting things done.
+Mist is designed with privacy-by-design principles. Every feature has been evaluated through a privacy lens, and every integration respects user data sovereignty. When you use Mist, you're not the product – you're just a developer getting things done.
 
 **This commitment is enforceable because it's structurally impossible to violate it.** No external pressures, no investor demands, no quarterly earnings targets to hit. Just solid code that respects your privacy.
 

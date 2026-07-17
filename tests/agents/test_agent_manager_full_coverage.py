@@ -328,7 +328,7 @@ class TestDiscoverAgents:
     @patch("code_puppy.agents.agent_manager.discover_json_agents", return_value={})
     def test_discovers_python_agents(self, mock_json, mock_plugins):
         am._discover_agents()
-        # Should have found at least code-puppy agent
+        # Should have found at least mist agent
         assert len(am._AGENT_REGISTRY) > 0
 
     @patch("code_puppy.agents.agent_manager.on_register_agents")
@@ -845,9 +845,9 @@ class TestLoadAgent:
     def test_fallback_to_code_puppy(self, mock_discover):
         from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
-        am._AGENT_REGISTRY["code-puppy"] = CodePuppyAgent
+        am._AGENT_REGISTRY["mist"] = CodePuppyAgent
         agent = am.load_agent("nonexistent")
-        assert agent.name == "code-puppy"
+        assert agent.name == "mist"
 
     @patch("code_puppy.agents.agent_manager._discover_agents")
     def test_no_fallback_raises(self, mock_discover):

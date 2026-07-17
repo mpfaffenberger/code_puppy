@@ -37,20 +37,20 @@ class StatusDisplay:
         self._paused_total_at_last_update = 0.0  # paused total at last rate calc
         self.loading_messages = [
             "Fetching...",
-            "Sniffing around...",
-            "Wagging tail...",
-            "Pawsing for a moment...",
-            "Chasing tail...",
-            "Digging up results...",
-            "Barking at the data...",
-            "Rolling over...",
-            "Panting with excitement...",
-            "Chewing on it...",
-            "Prancing along...",
-            "Howling at the code...",
-            "Snuggling up to the task...",
-            "Bounding through data...",
-            "Puppy pondering...",
+            "Mapping context...",
+            "Tracing dependencies...",
+            "Reviewing the evidence...",
+            "Resolving details...",
+            "Checking assumptions...",
+            "Connecting the pieces...",
+            "Inspecting the code...",
+            "Preparing the next step...",
+            "Scanning for edge cases...",
+            "Validating the approach...",
+            "Organizing the result...",
+            "Following the data flow...",
+            "Refining the answer...",
+            "Mist is reasoning...",
         ]
         self.current_message_index = 0
         self.spinner = Spinner("dots", text="")
@@ -211,7 +211,7 @@ class StatusDisplay:
         # Use expanded panel with more visible formatting
         return Panel(
             status_text,
-            title="[bold blue]Code Puppy Status[/bold blue]",
+            title="[bold blue]Mist Status[/bold blue]",
             border_style="bright_blue",
             expand=False,
             padding=(1, 2),
@@ -234,7 +234,7 @@ class StatusDisplay:
 
         # Create a highly visible status text
         return Text.assemble(
-            Text(f"⏳ {rate_text} 🐾", style="bold cyan"),
+            Text(f"⏳ {rate_text} 💨", style="bold cyan"),
             Text(f" {message}", style="yellow"),
         )
 

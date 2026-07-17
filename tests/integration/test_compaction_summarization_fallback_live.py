@@ -61,13 +61,11 @@ def _live_lilac_skip_reason() -> str | None:
     run would fail opaquely (run_with_mcp returns None) instead of skipping.
     """
     if not _lilac_key_available():
-        return (
-            "LILAC_API_KEY not set (env or puppy.cfg); GLM-5.1 fallback test skipped."
-        )
+        return "LILAC_API_KEY not set (env or mist.cfg); GLM-5.1 fallback test skipped."
     if not _lilac_model_present():
         return (
             f"{LILAC_MODEL!r} not found in models config — models.json is empty "
-            "and it was never added to ~/.code_puppy/extra_models.json; "
+            "and it was never added to ~/.mist/extra_models.json; "
             "GLM-5.1 fallback test skipped."
         )
     return None
@@ -107,7 +105,7 @@ def glm51_agent(monkeypatch):
 
     assert pinned in ModelFactory.load_config(), (
         f"{pinned!r} is not in the model config. models.json ships empty; "
-        "add it to ~/.code_puppy/extra_models.json (CI does this in the "
+        "add it to ~/.mist/extra_models.json (CI does this in the "
         "'Provision CI model' step)."
     )
 

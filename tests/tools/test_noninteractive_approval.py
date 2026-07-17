@@ -21,7 +21,7 @@ def test_get_user_approval_fails_closed_without_tty():
         patch("code_puppy.tools.common.Console"),
         patch("code_puppy.tools.common.time.sleep", return_value=None),
     ):
-        approved, feedback = get_user_approval("Test", "content", puppy_name="Rex")
+        approved, feedback = get_user_approval("Test", "content", mist_name="Rex")
 
     assert approved is False
     assert feedback is None
@@ -37,7 +37,7 @@ async def test_get_user_approval_async_fails_closed_without_tty():
         patch("code_puppy.tools.common.Console"),
     ):
         approved, feedback = await get_user_approval_async(
-            "Test", "content", puppy_name="Rex"
+            "Test", "content", mist_name="Rex"
         )
 
     assert approved is False

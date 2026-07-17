@@ -1,4 +1,4 @@
-"""Agent management system for code-puppy.
+"""Agent management system for mist.
 
 This module provides functionality for switching between different agent
 configurations, each with their own system prompts and tool sets.

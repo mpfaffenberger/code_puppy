@@ -45,7 +45,7 @@ from code_puppy.command_line.utils import list_directory
 from code_puppy.config import (
     COMMAND_HISTORY_FILE,
     get_config_keys,
-    get_puppy_name,
+    get_mist_name,
     get_value,
 )
 
@@ -153,8 +153,8 @@ class SetCompleter(Completer):
         config_keys = sorted(get_config_keys())
 
         for key in config_keys:
-            if key == "model" or key == "puppy_token":
-                continue  # exclude 'model' and 'puppy_token' from regular /set completions
+            if key in {"model", "mist_token", "puppy_token"}:
+                continue  # sensitive/model values use dedicated settings paths
             if key.startswith(text_after_trigger):
                 prev_value = get_value(key)
                 value_part = f" = {prev_value}" if prev_value is not None else " = "
@@ -549,14 +549,14 @@ def _normalize_emoji_spacing(text: str) -> str:
 def get_prompt_with_active_model(base: str = ">>> "):
     from code_puppy.agents.agent_manager import get_current_agent
 
-    puppy = get_puppy_name()
+    mist_name = get_mist_name()
     # When nothing is configured this is None - surface that explicitly as
     # [None] so the user immediately sees they need to /add_model.
     global_model = get_active_model()
 
     # Get current agent information
     current_agent = get_current_agent()
-    agent_display = current_agent.display_name if current_agent else "code-puppy"
+    agent_display = current_agent.display_name if current_agent else "mist"
 
     # Check if current agent has a pinned model
     agent_model = None
@@ -583,8 +583,8 @@ def get_prompt_with_active_model(base: str = ">>> "):
         cwd_display = cwd
     return FormattedText(
         [
-            ("bold", "🐶 "),
-            ("class:puppy", f"{puppy}"),
+            ("bold", "🫧 "),
+            ("class:mist", f"{mist_name}"),
             ("", " "),
             ("class:agent", f"[{_normalize_emoji_spacing(agent_display)}] "),
             ("class:model", model_display + " "),
@@ -658,6 +658,14 @@ async def get_input_with_combined_completion(
     )
     # Add custom key bindings and multiline toggle
     bindings = KeyBindings()
+
+    # Optional prompt bindings are supplied by plugins through this seam.
+    try:
+        from code_puppy.callbacks import on_register_keybindings
+
+        on_register_keybindings(bindings)
+    except Exception:
+        pass
 
     # Multiline mode state
     multiline = {"enabled": False}
@@ -902,7 +910,7 @@ async def get_input_with_combined_completion(
         {
             # Keys must AVOID the 'class:' prefix – that prefix is used only when
             # tagging tokens in `FormattedText`. See prompt_toolkit docs.
-            "puppy": "bold ansibrightcyan",
+            "mist": "bold ansibrightcyan",
             "owner": "bold ansibrightblue",
             "agent": "bold ansibrightblue",
             "model": "bold ansibrightcyan",
@@ -916,7 +924,7 @@ async def get_input_with_combined_completion(
             # ANSI bright-black gets remapped to a mid-grey by most terms).
             "completion-menu": "bg:default fg:ansibrightblack",
             "completion-menu.completion": "bg:default fg:ansibrightblack",
-            # Selection highlight: use cyan to match the puppy/model banner
+            # Selection highlight: use cyan to match the Mist/model banner
             # colors (green is already the `cwd` color, and the bright-green
             # bold variant was way too loud — Mike's eyeballs filed a complaint).
             # `noreverse` is critical: prompt_toolkit's default for this class

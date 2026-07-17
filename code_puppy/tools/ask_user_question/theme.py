@@ -1,6 +1,6 @@
 """Theme configuration for ask_user_question TUI.
 
-This module provides theming support that integrates with code-puppy's
+This module provides theming support that integrates with mist's
 color configuration system. It allows the TUI to inherit colors from
 the global configuration.
 """
@@ -92,7 +92,7 @@ _TUI_CONFIG_MAP: dict[str, str] = {
 def get_tui_colors() -> TUIColors:
     """Get the current TUI color scheme.
 
-    Loads colors from code-puppy's configuration system for custom theming.
+    Loads colors from mist's configuration system for custom theming.
     Falls back to defaults for any missing config values.
 
     Returns:

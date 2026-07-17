@@ -26,7 +26,7 @@ class TestHandleShowCommand:
                 "code_puppy.command_line.model_picker_completion.get_active_model",
                 return_value="gpt-5",
             ),
-            patch("code_puppy.config.get_puppy_name", return_value="Pup"),
+            patch("code_puppy.config.get_mist_name", return_value="Pup"),
             patch("code_puppy.config.get_owner_name", return_value="Owner"),
             patch("code_puppy.config.get_yolo_mode", return_value=yolo),
             patch("code_puppy.config.get_auto_save_session", return_value=True),
@@ -40,7 +40,7 @@ class TestHandleShowCommand:
                 "code_puppy.config.get_effective_temperature",
                 return_value=effective_temp,
             ),
-            patch("code_puppy.config.get_default_agent", return_value="code-puppy"),
+            patch("code_puppy.config.get_default_agent", return_value="mist"),
             patch("code_puppy.config.get_resume_message_count", return_value=50),
             patch(
                 "code_puppy.config.get_openai_reasoning_effort", return_value="medium"
@@ -308,7 +308,7 @@ class TestHandlePinModelCommand:
         defaults = {
             "discover_json_agents": {},
             "load_model_names": ["gpt-5", "claude"],
-            "get_agent_descriptions": {"code-puppy": "Default agent"},
+            "get_agent_descriptions": {"mist": "Default agent"},
         }
         defaults.update(overrides)
         return [
@@ -385,7 +385,7 @@ class TestHandlePinModelCommand:
         from code_puppy.command_line.config_commands import handle_pin_model_command
 
         mock_agent = MagicMock()
-        mock_agent.name = "code-puppy"
+        mock_agent.name = "mist"
         patches = self._make_patches()
         with (
             patches[0],
@@ -396,7 +396,7 @@ class TestHandlePinModelCommand:
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.agents.get_current_agent", return_value=mock_agent),
         ):
-            assert handle_pin_model_command("/pin_model code-puppy gpt-5") is True
+            assert handle_pin_model_command("/pin_model mist gpt-5") is True
 
     def test_pin_json_agent(self, tmp_path):
         from code_puppy.command_line.config_commands import handle_pin_model_command
@@ -504,19 +504,19 @@ class TestHandleUnpinCommand:
         from code_puppy.command_line.config_commands import handle_unpin_command
 
         mock_agent = MagicMock()
-        mock_agent.name = "code-puppy"
+        mock_agent.name = "mist"
         with (
             patch("code_puppy.agents.json_agent.discover_json_agents", return_value={}),
             patch(
                 "code_puppy.agents.agent_manager.get_agent_descriptions",
-                return_value={"code-puppy": "desc"},
+                return_value={"mist": "desc"},
             ),
             patch("code_puppy.config.clear_agent_pinned_model"),
             patch("code_puppy.messaging.emit_success"),
             patch("code_puppy.agents.get_current_agent", return_value=mock_agent),
             patch("code_puppy.messaging.emit_info"),
         ):
-            assert handle_unpin_command("/unpin code-puppy") is True
+            assert handle_unpin_command("/unpin mist") is True
 
     def test_unpin_json_agent(self, tmp_path):
         from code_puppy.command_line.config_commands import handle_unpin_command

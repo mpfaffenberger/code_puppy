@@ -130,7 +130,7 @@ class TestAgentCreatorAgent:
             "delete_snippet",
             "invoke_agent",
         ]
-        mock_agents_dir = "/home/user/.code_puppy/agents"
+        mock_agents_dir = "/home/user/.mist/agents"
         mock_models_config = {
             "gpt-5": {"type": "OpenAI", "context_length": "128k"},
             "claude-4-sonnet": {"type": "Anthropic", "context_length": "200k"},

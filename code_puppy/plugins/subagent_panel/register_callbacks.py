@@ -1,11 +1,11 @@
-"""subagent_panel -- live two-line status per sub-agent in the puppy spinner.
+"""subagent_panel -- live two-line status per sub-agent in the Mist spinner.
 
-While running (transient, in the puppy's Live region):
+While running (transient, in Mist's Live region):
 
      INVOKE AGENT <name>  <model>
       <spin> 00:19  calling read_file
 
-    <bouncing puppy>
+    <Mist activity indicator>
 
 On completion, a PERSISTENT frozen record is printed to the transcript that
 mirrors the live look, with the status line finalized green + check:
@@ -15,7 +15,7 @@ mirrors the live look, with the status line finalized green + check:
 
 Install strategy (startup monkeypatches of seams with no hook + 1 callback):
   1. ConsoleSpinner._generate_spinner_panel  -> render the live block above the
-     puppy (reuses the existing 20fps Live -- no second Live, no flicker).
+     Mist indicator (reuses the existing 20fps Live -- no second Live, no flicker).
   2. RichConsoleRenderer._render_subagent_invocation -> CAPTURE exact metadata
      (name/model/session_id) + SUPPRESS the permanent banner.
   3. RichConsoleRenderer._do_render -> when a SubAgentResponseMessage arrives
@@ -351,7 +351,7 @@ def _make_patched_panel(original_fn):
 # Frozen (persistent) completion record
 # ---------------------------------------------------------------------------
 def _render_console():
-    """The Rich console the puppy spinner's Live is attached to. Printing to it
+    """The Rich console the Mist spinner's Live is attached to. Printing to it
     while the Live is active makes Rich relocate the panel BELOW the print, so
     the flushed group lands cleanly in scrollback above the live region."""
     try:

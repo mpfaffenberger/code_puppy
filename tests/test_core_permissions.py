@@ -51,3 +51,19 @@ async def test_accept_edits_still_prompts_for_shell():
         patch("code_puppy.tools.common.get_user_approval_async", approval),
     ):
         assert await authorize_shell_command("git status") == (False, "no")
+
+
+async def test_force_prompt_overrides_auto_mode():
+    approval = AsyncMock(return_value=(True, None))
+    with (
+        patch(
+            "code_puppy.permissions.get_permission_mode",
+            return_value=PermissionMode.AUTO,
+        ),
+        patch("code_puppy.tools.common.get_user_approval_async", approval),
+    ):
+        assert await authorize_shell_command("git status", force_prompt=True) == (
+            True,
+            None,
+        )
+        approval.assert_awaited_once()

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-_FORMAT = "code-puppy-session-tree-v1"
+_FORMAT = "mist-session-tree-v1"
 
 
 @dataclass(frozen=True, slots=True)

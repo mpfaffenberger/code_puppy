@@ -33,6 +33,16 @@ def wrap_with_dbos_agent(
     `run_with_mcp returned None` regression seen when [durable] extras
     were installed in the CI test environment.
     """
+    # Subagents are ephemeral child runs invoked from the main agent's tool
+    # call. They don't need their own durable DBOS workflow — and wrapping
+    # them forces DBOS to pickle the per-run inputs, which crashes on the
+    # ``event_stream_handler`` closure that subagent_invocation passes
+    # (``Can't get local object '_make_stream_handler_wrapper.<locals>._wrapped'``).
+    # Leave subagents as plain pydantic agents; the main agent's workflow
+    # already provides durability for the tool call that spawned them.
+    if kind != "main":
+        return None
+
     from .lifecycle import is_launched
 
     if not is_launched():

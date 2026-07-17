@@ -1,5 +1,5 @@
 """
-HTTP utilities module for code-puppy.
+HTTP utilities module for mist.
 
 This module provides functions for creating properly configured HTTP clients.
 """
@@ -41,7 +41,8 @@ def _resolve_proxy_config(verify: Union[bool, str, None] = None) -> ProxyConfig:
     http2_enabled = get_http2()
 
     disable_retry = os.environ.get(
-        "CODE_PUPPY_DISABLE_RETRY_TRANSPORT", ""
+        "MIST_DISABLE_RETRY_TRANSPORT",
+        os.environ.get("CODE_PUPPY_DISABLE_RETRY_TRANSPORT", ""),
     ).lower() in ("1", "true", "yes")
 
     has_proxy = bool(

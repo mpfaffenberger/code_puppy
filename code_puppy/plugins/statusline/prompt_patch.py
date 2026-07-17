@@ -6,15 +6,15 @@ stdout may contain ANSI color codes, so we convert it to prompt_toolkit
 
 Three modes (config ``statusline_mode``):
 
-* ``replace`` (default): the custom status line **replaces** Code Puppy's
-  default prompt content (puppy/agent/model/cwd), keeping only the trailing
+* ``replace`` (default): the custom status line **replaces** Mist's
+  default prompt content (Mist/agent/model/cwd), keeping only the trailing
   arrow. No duplicated info, no extra stacked line.
 * ``above``: the custom status line is shown on its own line *above* the
   unchanged default prompt.
 * ``newline``: like ``replace`` but the trailing arrow is pushed to its own
   line, so the user types below the status line::
 
-       [model] code-puppy (main) 0.9%ctx
+       [model] mist (main) 0.9%ctx
       >>> typed text
 """
 

@@ -12,8 +12,8 @@ from code_puppy.session_storage import SessionMetadata
 @pytest.fixture
 def mock_config_paths(monkeypatch):
     mock_home = "/mock_home"
-    mock_config_dir = os.path.join(mock_home, ".code_puppy")
-    mock_config_file = os.path.join(mock_config_dir, "puppy.cfg")
+    mock_config_dir = os.path.join(mock_home, ".mist")
+    mock_config_file = os.path.join(mock_config_dir, "mist.cfg")
     mock_contexts_dir = os.path.join(mock_config_dir, "contexts")
     mock_autosave_dir = os.path.join(mock_config_dir, "autosaves")
 

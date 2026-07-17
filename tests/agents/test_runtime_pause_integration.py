@@ -33,6 +33,17 @@ from code_puppy.messaging.spinner.console_spinner import ConsoleSpinner
 
 
 @pytest.fixture(autouse=True)
+def _legacy_banner_mode(monkeypatch):
+    """Pause tests assert the AGENT RESPONSE banner fires after resume —
+    compact-steps (Option B) suppresses that banner, so opt this module
+    out to keep the assertions meaningful."""
+    monkeypatch.setattr(
+        "code_puppy.agents.event_stream_handler.get_compact_steps",
+        lambda: False,
+    )
+
+
+@pytest.fixture(autouse=True)
 def _reset_pause_controller():
     reset_pause_controller()
     yield

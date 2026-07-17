@@ -241,7 +241,7 @@ def test_file_operations_integration(
     )
 
     # 3. Test edit_file - ask to modify a file
-    edit_prompt = f"Use edit_file to add a new line to {test_dir}/simple.txt that says 'Updated by Code Puppy!'"
+    edit_prompt = f"Use edit_file to add a new line to {test_dir}/simple.txt that says 'Updated by Mist!'"
     result.sendline(f"{edit_prompt}\r")
 
     # Wait for auto-save to indicate completion - with timeout handling
@@ -260,7 +260,7 @@ def test_file_operations_integration(
 
     # Check that the file was actually modified with retry mechanism
     _retry_file_edit_with_content_check(
-        cli_harness, result, test_dir, "simple.txt", "Updated by Code Puppy!"
+        cli_harness, result, test_dir, "simple.txt", "Updated by Mist!"
     )
 
     # 4. Test another edit - modify the Python file

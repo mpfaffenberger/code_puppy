@@ -116,7 +116,7 @@ class TestCommonExtended:
             "测试/test.py",  # Chinese
             "тест/file.rb",  # Cyrillic
             "テスト/app.ts",  # Japanese
-            "🐕/puppy.js",  # Emoji
+            "🌫️/puppy.js",  # Emoji
             "folder with spaces/file.txt",
             "file-with-dashes.py",
             "file_with_underscores.py",
