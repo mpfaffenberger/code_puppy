@@ -36,7 +36,7 @@ type Item =
   | { id: number; kind: "error"; text: string }
   | { id: number; kind: "response"; text: string }
   | { id: number; kind: "narration"; text: string }
-  | { id: number; kind: "toolblock"; label: string; preview: string[]; hiddenLines: number }
+  | { id: number; kind: "toolblock"; label: string; preview: string[]; hiddenLines: number; tool?: string }
   | {
       id: number;
       kind: "diff";
@@ -53,8 +53,8 @@ const item = (kind: "user" | "step" | "info" | "error" | "response" | "narration
   ({ id: nextId++, kind, text }) as Item;
 const diffItem = (d: Omit<Extract<Item, { kind: "diff" }>, "id" | "kind">): Item =>
   ({ id: nextId++, kind: "diff", ...d }) as Item;
-const toolBlockItem = (label: string, preview: string[], hiddenLines: number): Item =>
-  ({ id: nextId++, kind: "toolblock", label, preview, hiddenLines }) as Item;
+const toolBlockItem = (label: string, preview: string[], hiddenLines: number, tool = "shell"): Item =>
+  ({ id: nextId++, kind: "toolblock", label, preview, hiddenLines, tool }) as Item;
 
 /** Serialize the transcript to shareable markdown (the /record command). */
 export function transcriptToMarkdown(items: Item[], sessionId: string): string {
@@ -233,7 +233,7 @@ function TranscriptItem({ it }: { it: Item }) {
         <Box flexDirection="column" marginTop={1}>
           <Text>
             <Text color={theme.success}>● </Text>
-            <Text bold>shell</Text>
+            <Text bold>{it.tool ?? "shell"}</Text>
             <Text color={theme.dim}>(</Text>
             <Text color={theme.code}>{it.label.length > 100 ? `${it.label.slice(0, 99)}…` : it.label}</Text>
             <Text color={theme.dim}>)</Text>
@@ -419,33 +419,35 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
         case "subagent_invocation":
           addStep(`delegated to ${ev.agentName}`);
           break;
+        case "subagent_started": {
+          flushStepGroup();
+          const brief = ev.task.length > 70 ? `${ev.task.slice(0, 69)}…` : ev.task;
+          push(toolBlockItem(brief, [], 0, `◇ subagent “${ev.label}”`));
+          break;
+        }
+        case "subagent_step":
+          addStep(`[${ev.label}] ${ev.step}`);
+          break;
+        case "subagent_done": {
+          const lines = ev.report.split("\n").filter((l) => l.trim());
+          const preview = lines.slice(0, 2).map((l) => (l.length > 90 ? `${l.slice(0, 89)}…` : l));
+          push(
+            toolBlockItem(
+              `${ev.steps} step${ev.steps === 1 ? "" : "s"}`,
+              preview,
+              Math.max(0, lines.length - preview.length),
+              `◇ ${ev.label} done`,
+            ),
+          );
+          setRecentSteps([]);
+          break;
+        }
+        case "subagent_error":
+          push(item("error", `subagent “${ev.label}” failed: ${ev.error}`));
+          break;
         case "text_delta":
           setStream((t) => t + ev.delta);
           break;
-        case "toolblock":
-      return (
-        <Box flexDirection="column" marginTop={1}>
-          <Text>
-            <Text color={theme.success}>● </Text>
-            <Text bold>shell</Text>
-            <Text color={theme.dim}>(</Text>
-            <Text color={theme.code}>{it.label.length > 100 ? `${it.label.slice(0, 99)}…` : it.label}</Text>
-            <Text color={theme.dim}>)</Text>
-          </Text>
-          {it.preview.map((l, i) => (
-            <Text key={`tb${it.id}-${i}`} color={theme.dim}>
-              {"  ⌙ "}
-              {l}
-            </Text>
-          ))}
-          {it.hiddenLines > 0 ? (
-            <Text color={theme.dim} dimColor>
-              {"    … +"}
-              {it.hiddenLines} line{it.hiddenLines === 1 ? "" : "s"} (/steps to expand)
-            </Text>
-          ) : null}
-        </Box>
-      );
         case "step_done": {
           if (ev.label.startsWith("$")) {
             flushStepGroup();
@@ -739,7 +741,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
         }
         case "tools": {
           say("tools: read_file (ranged) · create_file · replace_in_file (exact-match) · list_files · grep · shell (guarded)");
-          say("engine: update_plan (live plan) · ask_user (clarifying questions)");
+          say("engine: update_plan (live plan) · ask_user (clarifying questions) · invoke_subagent (parallel delegation, isolated context)");
           break;
         }
         case "status": {

@@ -105,18 +105,22 @@ Python got these ~free from prompt_toolkit; Ink needs them hand-built:
 
 ### 6. Subagents / multi-agent
 Python: 6 built-in agents (code-puppy, planning, qa-kitten, helios/UC,
-agent-creator), JSON-defined custom agents (discovered from disk, name-collision
-precedence), clones, `invoke_agent` / `invoke_agent_with_model`, persistent
-subagent sessions (`session_id` continuation), streaming subagent panels,
-usage limits, cancellation.
-- [ ] Agent abstraction (name, prompt, tool subset, model, context length)
-      over `MistEngine`; JSON agent loader (`.mist/agents/`).
-- [ ] `/agent` switch command + roster.
-- [ ] `invoke_agent` tool → child EngineSession with scoped event forwarding
-      (UI already groups steps; add a subagent panel item kind).
-- **Gotchas:** subagent streaming UX is where the Python version got
-  complicated (dedicated console, panel plugins); design the envelope
-  namespacing (`agent_id` on events) before building UI.
+agent-creator), JSON-defined custom agents, clones, `invoke_agent` /
+`invoke_agent_with_model`, persistent subagent sessions, streaming panels.
+
+**Decision (2026-07-17, owner):** the specialized-agent roster is DROPPED —
+no code-puppy/planning-agent/qa-kitten/helios/agent-creator port. Subagents
+in TS are **generic**: anonymous, task-scoped children of the one Mist agent
+(Claude-Code-style general-purpose subagents). Context isolation and parallel
+fan-out are the point; named personalities are not.
+- [x] `invoke_subagent` engine tool → fresh child engine with its own
+      context; only the final report returns to the parent.
+- [x] Parallel fan-out: multiple invoke_subagent calls in one model response
+      run concurrently.
+- [x] Depth guard (children cannot spawn children).
+- [x] Namespaced subagent events → TUI activity rendering.
+- [ ] (later, if ever needed) per-subagent model override for cheap grunt
+      work; JSON-defined custom agents only if real demand appears.
 
 ### 7. Safety stack
 Python: `/mode plan|build` (+Tab toggle, prompt injection), sandbox backends

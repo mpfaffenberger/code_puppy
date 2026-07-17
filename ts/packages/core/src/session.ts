@@ -218,6 +218,7 @@ export class EngineSession {
         onToolDone: (label, preview, hidden_lines) =>
           this.emit("step.done", { label, preview, hidden_lines }),
         onThought: (ms) => this.emit("thought", { ms }),
+        onSubagent: (ev) => this.emit(`subagent.${ev.phase}`, { ...ev }),
         onCompacted: (r) =>
           this.emit("context.compacted", {
             before_tokens: r.beforeTokens,

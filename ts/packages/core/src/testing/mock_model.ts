@@ -78,6 +78,34 @@ export function startMockModel(port = 9876) {
           Array.isArray(m.content) &&
           (m.content as { type?: string }[]).some((b) => b.type === "tool_result"),
       ).length;
+      // Subagent child conversations carry the subagent marker in the system
+      // prompt — answer them with a canned one-shot report.
+      if (process.env.MOCK_SUB === "1" && typeof payload.system === "string" && payload.system.includes("SUBAGENT")) {
+        return sse([
+          { type: "message_start", message: { usage: { input_tokens: 15 } } },
+          { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+          { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Report: surveyed the area — 4 files, no anomalies." } },
+          { type: "content_block_stop", index: 0 },
+          { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 12 } },
+          { type: "message_stop" },
+        ]);
+      }
+      if (toolResultCount === 0 && process.env.MOCK_SUB === "1") {
+        // MOCK_SUB=1: parent opens by fanning out two parallel subagents.
+        const subA = JSON.stringify({ task: "Survey the demo directory and report file count.", label: "area survey" });
+        const subB = JSON.stringify({ task: "Double-check the numbers and report anomalies.", label: "number check" });
+        return sse([
+          { type: "message_start", message: { usage: { input_tokens: 18 } } },
+          { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tu_subA", name: "invoke_subagent", input: {} } },
+          { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: subA } },
+          { type: "content_block_stop", index: 0 },
+          { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "tu_subB", name: "invoke_subagent", input: {} } },
+          { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: subB } },
+          { type: "content_block_stop", index: 1 },
+          { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 14 } },
+          { type: "message_stop" },
+        ]);
+      }
       if (toolResultCount === 0 && process.env.MOCK_ASK === "1") {
         // MOCK_ASK=1: open with a clarifying question that carries options
         // (exercises question.asked → TUI arrow-key option menu).

@@ -50,6 +50,33 @@ test("plan tool publishes normalized items; steer is injected into history", asy
   expect(JSON.stringify(hist)).toContain("prefer brevity");
 });
 
+test("subagents: parallel fan-out, isolated children, reports in history", async () => {
+  process.env.MOCK_SUB = "1";
+  try {
+    const dir = `/tmp/mist-ts-sub-${Date.now()}`;
+    await Bun.$`mkdir -p ${dir}`;
+    await Bun.write(`${dir}/demo.txt`, "say hello now");
+    const engine = new MistEngine(dir);
+    const events: { phase: string; label: string }[] = [];
+    const turn = await engine.runTurn("demo", {
+      onTextDelta: () => {},
+      onStep: () => {},
+      onSubagent: (ev) => events.push({ phase: ev.phase, label: ev.label }),
+    });
+    // Two children started and finished; both reports fed the parent history.
+    expect(events.filter((e) => e.phase === "started").length).toBe(2);
+    expect(events.filter((e) => e.phase === "done").length).toBe(2);
+    expect(events.map((e) => e.label)).toContain("area survey");
+    const hist = JSON.stringify((engine as unknown as { history: unknown }).history);
+    expect(hist).toContain('[subagent \\"area survey\\" report]');
+    expect(hist).toContain("no anomalies");
+    // The parent still reached a final answer afterwards.
+    expect(turn.finalText.length).toBeGreaterThan(0);
+  } finally {
+    delete process.env.MOCK_SUB;
+  }
+});
+
 test("pre-tool hook blocks a matching shell command", async () => {
   const dir = `/tmp/mist-ts-hook-${Date.now()}`;
   await Bun.$`mkdir -p ${dir}/.mist`;

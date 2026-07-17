@@ -83,6 +83,19 @@ const ENGINE_TOOLS: ToolSpec[] = [
     },
   },
   {
+    name: "invoke_subagent",
+    description:
+      "Delegate a self-contained task to a subagent with its OWN fresh context — this conversation only receives its final report, so heavy exploration stays out of your context. Use for: context-heavy searching/reading, independent parallel workstreams, or verification passes. Issue SEVERAL invoke_subagent calls in ONE response to run them in parallel. The subagent cannot see this conversation — the task must carry all needed context, plus exactly what to report back.",
+    input_schema: {
+      type: "object",
+      properties: {
+        task: { type: "string", description: "Complete, self-contained instructions + what to report back" },
+        label: { type: "string", description: "2-4 word display label (e.g. 'auth flow survey')" },
+      },
+      required: ["task"],
+    },
+  },
+  {
     name: "ask_user",
     description:
       "Ask the user ONE sharp clarifying question (only when the answer is undiscoverable and a wrong guess is costly). When the answer space is enumerable, pass 2-4 short options — the user picks with arrow keys (they can always type their own answer instead). Returns their reply.",
@@ -113,7 +126,14 @@ export interface AgentCallbacks {
   onDiff?: (diff: import("./tools").DiffPayload) => void;
   onToolDone?: (label: string, preview: string[], hiddenLines: number) => void;
   onThought?: (ms: number) => void;
+  onSubagent?: (ev: SubagentEvent) => void;
 }
+
+export type SubagentEvent =
+  | { phase: "started"; id: string; label: string; task: string }
+  | { phase: "step"; id: string; label: string; step: string }
+  | { phase: "done"; id: string; label: string; steps: number; report: string }
+  | { phase: "error"; id: string; label: string; error: string };
 
 export interface AgentTurn {
   finalText: string;
@@ -138,7 +158,10 @@ export class MistEngine {
   private modelOverride: string | null = null;
   plan: PlanItem[] = [];
 
-  constructor(readonly cwd: string = process.cwd()) {}
+  constructor(
+    readonly cwd: string = process.cwd(),
+    private readonly isSubagent: boolean = false,
+  ) {}
 
   /** Estimated tokens currently held in history (chars/2.5 heuristic). */
   estimateContextTokens(): number {
@@ -243,9 +266,13 @@ export class MistEngine {
 
   private async systemPrompt(): Promise<string> {
     if (this.hooks === null) this.hooks = await loadHooks(this.cwd);
+    let base = SYSTEM_PROMPT;
+    if (this.isSubagent) {
+      base += `\n\nYou are running as a SUBAGENT on one delegated task. No user is available — never ask questions; resolve ambiguity with your best judgment. END with a final report: your last message is returned verbatim to the parent agent, so make it complete and self-contained.`;
+    }
     return this.hooks.intent
-      ? `${SYSTEM_PROMPT}\n\nPROJECT INTENT (durable — never regress on this):\n${this.hooks.intent}`
-      : SYSTEM_PROMPT;
+      ? `${base}\n\nPROJECT INTENT (durable — never regress on this):\n${this.hooks.intent}`
+      : base;
   }
 
   /** Compress a bulky tool result via headroom when enabled; graceful no-op. */
@@ -291,7 +318,11 @@ export class MistEngine {
       if (r) cb.onCompacted?.(r);
     }
     this.history.push({ role: "user", content: prompt });
-    const specs = [...ENGINE_TOOLS, ...toolSpecs];
+    // Children never get invoke_subagent — one level of delegation only.
+    const engineTools = this.isSubagent
+      ? ENGINE_TOOLS.filter((t) => t.name !== "invoke_subagent")
+      : ENGINE_TOOLS;
+    const specs = [...engineTools, ...toolSpecs];
     let steps = 0;
     let finalText = "";
 
@@ -321,7 +352,14 @@ export class MistEngine {
       if (result.text.trim()) cb.onNarration?.(result.text);
 
       const toolResults: ContentBlock[] = [];
+      // Subagent fan-out: every invoke_subagent in this batch starts NOW and
+      // runs concurrently (with each other and with the sequential tools).
+      const subagentRuns = result.toolUses
+        .filter((tu) => tu.name === "invoke_subagent" && !this.isSubagent)
+        .map((tu) => this.runSubagent(tu.id, (tu.input ?? {}) as Record<string, unknown>, cb));
+
       for (const tu of result.toolUses) {
+        if (tu.name === "invoke_subagent" && !this.isSubagent) continue; // gathered below
         const input = (tu.input ?? {}) as Record<string, unknown>;
 
         // ---- engine-level tools ------------------------------------------
@@ -388,8 +426,54 @@ export class MistEngine {
           is_error: res.isError,
         });
       }
+      toolResults.push(...(await Promise.all(subagentRuns)));
       this.history.push({ role: "user", content: toolResults });
     }
     return { finalText, steps };
+  }
+
+  private subagentSeq = 0;
+
+  /** Run one delegated task in a fresh child engine; only the report returns. */
+  private async runSubagent(
+    toolUseId: string,
+    input: Record<string, unknown>,
+    cb: AgentCallbacks,
+  ): Promise<ContentBlock> {
+    const task = String(input["task"] ?? "").trim();
+    const label = String(input["label"] ?? "").trim() || `subagent ${this.subagentSeq + 1}`;
+    const id = `sub${++this.subagentSeq}`;
+    if (!task) {
+      return {
+        type: "tool_result",
+        tool_use_id: toolUseId,
+        content: "invoke_subagent requires a non-empty task",
+        is_error: true,
+      };
+    }
+    cb.onSubagent?.({ phase: "started", id, label, task });
+    const child = new MistEngine(this.cwd, true);
+    if (this.modelOverride) child.setModel(this.modelOverride);
+    try {
+      const turn = await child.runTurn(task, {
+        onTextDelta: () => {},
+        onStep: (step) => cb.onSubagent?.({ phase: "step", id, label, step }),
+        onUsage: cb.onUsage,
+        onDiff: cb.onDiff, // file edits surface in the transcript regardless of who made them
+        onSavings: cb.onSavings,
+      });
+      const report = turn.finalText.trim() || "(subagent finished without a report)";
+      cb.onSubagent?.({ phase: "done", id, label, steps: turn.steps, report });
+      return { type: "tool_result", tool_use_id: toolUseId, content: `[subagent "${label}" report]\n${report}` };
+    } catch (err) {
+      const error = (err as Error).message;
+      cb.onSubagent?.({ phase: "error", id, label, error });
+      return {
+        type: "tool_result",
+        tool_use_id: toolUseId,
+        content: `subagent "${label}" failed: ${error}`,
+        is_error: true,
+      };
+    }
   }
 }

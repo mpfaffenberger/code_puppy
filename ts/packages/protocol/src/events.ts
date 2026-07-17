@@ -39,6 +39,10 @@ export type MistEvent =
   | { kind: "headroom_saved"; tokensSaved: number }
   | { kind: "session_resumed"; title: string; messages: number; createdAt: string }
   | { kind: "session_renamed"; title: string; auto: boolean }
+  | { kind: "subagent_started"; id: string; label: string; task: string }
+  | { kind: "subagent_step"; id: string; label: string; step: string }
+  | { kind: "subagent_done"; id: string; label: string; steps: number; report: string }
+  | { kind: "subagent_error"; id: string; label: string; error: string }
   | { kind: "context_compacted"; beforeTokens: number; afterTokens: number; summarized: number }
   | { kind: "narration"; text: string }
   | { kind: "step_done"; label: string; preview: string[]; hiddenLines: number }
@@ -172,6 +176,20 @@ export function classifyEvent(env: EventEnvelope): MistEvent {
       };
     case "session.renamed":
       return { kind: "session_renamed", title: str(d["title"]), auto: d["auto"] === true };
+    case "subagent.started":
+      return { kind: "subagent_started", id: str(d["id"]), label: str(d["label"]), task: str(d["task"]) };
+    case "subagent.step":
+      return { kind: "subagent_step", id: str(d["id"]), label: str(d["label"]), step: str(d["step"]) };
+    case "subagent.done":
+      return {
+        kind: "subagent_done",
+        id: str(d["id"]),
+        label: str(d["label"]),
+        steps: typeof d["steps"] === "number" ? d["steps"] : 0,
+        report: str(d["report"]),
+      };
+    case "subagent.error":
+      return { kind: "subagent_error", id: str(d["id"]), label: str(d["label"]), error: str(d["error"]) };
     case "question.asked":
       return {
         kind: "question_asked",
