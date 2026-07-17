@@ -85,6 +85,11 @@ export class EngineSession {
     return () => this.listeners.delete(onEvent);
   }
 
+  /** Switch models mid-session (next request onward). */
+  setModel(name: string): void {
+    this.engine.setModel(name);
+  }
+
   /** Nudge the running turn; injected before the model's next request. */
   steer(text: string): void {
     this.engine.queueSteer(text);

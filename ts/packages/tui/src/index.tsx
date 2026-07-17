@@ -17,11 +17,11 @@ import { Box, Static, Text, render, useApp, useInput } from "ink";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { classifyEvent } from "@mist/protocol";
 import type { EventEnvelope } from "@mist/protocol";
-import { EngineSession, SessionStore } from "@mist/core";
+import { EngineSession, SessionStore, getConfiguredModelName, listModelNames, persistModelChoice } from "@mist/core";
 import type { StoredSession } from "@mist/core";
 import { MistClient } from "./client";
 import { Markdown } from "./markdown";
-import { HEARTBEAT, SPARKLE, rampColor, theme } from "./theme";
+import { HEARTBEAT, SPARKLE, THEMES, applyTheme, loadPersistedTheme, persistTheme, rampColor, theme } from "./theme";
 
 type Item =
   | { id: number; kind: "user"; text: string }
@@ -108,6 +108,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const [plan, setPlan] = useState<{ id: string; title: string; status: string }[]>([]);
   const [question, setQuestion] = useState("");
   const [saved, setSaved] = useState(0);
+  const [, setThemeTick] = useState(0);
   const sessionRef = useRef<EngineSession | null>(null);
   const [sessionId, setSessionId] = useState("");
   const [fatal, setFatal] = useState("");
@@ -264,9 +265,91 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
     return () => cancel?.();
   }, [handleEnvelope, initialPrompt, push]);
 
+  const runCommand = useCallback(
+    async (line: string) => {
+      const [cmd = "", ...rest] = line.slice(1).trim().split(/\s+/);
+      const arg = rest.join(" ").trim();
+      const say = (text: string) => push(item("info", text));
+      switch (cmd.toLowerCase()) {
+        case "help":
+          say("commands: /help · /theme [name] · /model [name] · /sessions · /new · /quit");
+          say("keys: Enter send · type+Enter while busy = steer · Esc interrupt · Ctrl+C quit");
+          say("flags: -c continue · -r <id> resume · --sessions · MIST_HEADROOM=1");
+          break;
+        case "theme": {
+          if (!arg) {
+            say(`themes: ${Object.keys(THEMES).join(" · ")} (current: ${theme.name})`);
+            break;
+          }
+          if (applyTheme(arg)) {
+            await persistTheme(arg);
+            setThemeTick((t) => t + 1);
+            say(`theme → ${arg}`);
+          } else {
+            say(`unknown theme '${arg}' — try: ${Object.keys(THEMES).join(", ")}`);
+          }
+          break;
+        }
+        case "model": {
+          if (!arg) {
+            const current = await getConfiguredModelName();
+            const names = await listModelNames();
+            say(`model: ${current} · available: ${names.slice(0, 10).join(", ")}`);
+            break;
+          }
+          const names = await listModelNames();
+          if (!names.includes(arg)) {
+            say(`unknown model '${arg}' — see /model for the list`);
+            break;
+          }
+          sessionRef.current?.setModel(arg);
+          await persistModelChoice(arg);
+          say(`model → ${arg} (persisted; applies from the next request)`);
+          break;
+        }
+        case "sessions": {
+          const list = await new SessionStore(process.cwd()).list();
+          if (!list.length) say("(no saved sessions for this directory)");
+          for (const m of list.slice(0, 8)) {
+            say(`${m.id.slice(0, 8)} · ${m.created_at.slice(0, 16).replace("T", " ")} · ${m.title}`);
+          }
+          if (list.length) say("resume with: mist-ts -r <id>");
+          break;
+        }
+        case "new": {
+          const fresh = new EngineSession(process.cwd());
+          sessionRef.current = fresh;
+          setSessionId(fresh.id);
+          fresh.subscribe(handleEnvelope);
+          clientRef.current = {
+            submit: (_id: string, prompt: string) => fresh.submit(prompt),
+            interrupt: async () => {},
+          } as unknown as MistClient;
+          setPlan([]);
+          say("— new session —");
+          break;
+        }
+        case "quit":
+        case "exit":
+          exit();
+          break;
+        default:
+          say(`unknown command /${cmd} — try /help`);
+      }
+    },
+    [exit, handleEnvelope, push],
+  );
+
   const submit = useCallback(async () => {
     const prompt = input.trim();
-    if (!prompt || busy || !clientRef.current || !sessionId) return;
+    if (!prompt || busy) return;
+    if (prompt.startsWith("/")) {
+      setInput("");
+      push(item("user", prompt));
+      await runCommand(prompt);
+      return;
+    }
+    if (!clientRef.current || !sessionId) return;
     setInput("");
     push(item("user", prompt));
     setBusy(true);
@@ -277,7 +360,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       push(item("error", (err as Error).message));
       setBusy(false);
     }
-  }, [busy, input, push, sessionId]);
+  }, [busy, input, push, runCommand, sessionId]);
 
   useInput((ch, key) => {
     if (key.ctrl && ch === "c") exit();
@@ -419,7 +502,10 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       )}
       {!fatal && !busy && (
         <Text color={theme.dim} dimColor>
-          {"  "}enter to send · ctrl+c to quit
+          {"  "}
+          {input.startsWith("/")
+            ? "/help · /theme · /model · /sessions · /new · /quit"
+            : "enter to send · / for commands · ctrl+c to quit"}
         </Text>
       )}
     </Box>
@@ -444,6 +530,7 @@ Config: ~/.mist/mist.cfg (model), ~/.mist/extra_models.json (endpoints),
 compression).`;
 
 async function main(): Promise<void> {
+  await loadPersistedTheme();
   const args = process.argv.slice(2);
   if (args.includes("--help") || args.includes("-h")) {
     console.log(HELP);

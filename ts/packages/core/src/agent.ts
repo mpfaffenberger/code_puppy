@@ -109,6 +109,7 @@ export class MistEngine {
   private client: AnthropicClient | null = null;
   private hooks: Hooks | null = null;
   private steerQueue: string[] = [];
+  private modelOverride: string | null = null;
   plan: PlanItem[] = [];
 
   constructor(readonly cwd: string = process.cwd()) {}
@@ -134,9 +135,15 @@ export class MistEngine {
     this.steerQueue = [];
   }
 
+  /** Switch models mid-session (takes effect on the next request). */
+  setModel(name: string): void {
+    this.modelOverride = name;
+    this.client = null;
+  }
+
   private async ensureClient(): Promise<AnthropicClient> {
     if (this.client) return this.client;
-    const name = await getConfiguredModelName();
+    const name = this.modelOverride ?? (await getConfiguredModelName());
     const def = await getModelDef(name);
     const url = def.custom_endpoint?.url;
     const key = def.custom_endpoint?.api_key ?? process.env.ANTHROPIC_API_KEY ?? "";
