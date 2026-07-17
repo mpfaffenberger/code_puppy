@@ -40,11 +40,49 @@ export const SPINNER_VERBS: readonly string[] = [
   "Whirring", "Whisking", "Wibbling", "Working", "Wrangling", "Zesting", "Zigzagging",
 ];
 
-/** Pick a random verb, avoiding an immediate repeat. */
-export function pickVerb(current?: string): string {
-  let verb = SPINNER_VERBS[Math.floor(Math.random() * SPINNER_VERBS.length)]!;
+/**
+ * Context-aware pools — a Mist signature: the verb leans into what the agent
+ * is actually doing. 70% pool / 30% full list keeps the variety alive.
+ */
+export type VerbContext = "edit" | "shell" | "study" | "general";
+
+export const VERB_POOLS: Record<Exclude<VerbContext, "general">, readonly string[]> = {
+  // Editing/creating files → kitchen-craft
+  edit: [
+    "Baking", "Blanching", "Brewing", "Caramelizing", "Concocting", "Cooking",
+    "Crafting", "Drizzling", "Fermenting", "Flambéing", "Forging", "Frosting",
+    "Garnishing", "Infusing", "Julienning", "Kneading", "Leavening", "Marinating",
+    "Proofing", "Sautéing", "Seasoning", "Simmering", "Smooshing", "Stewing",
+    "Tempering", "Whisking", "Zesting",
+  ],
+  // Shell commands → motion & energy
+  shell: [
+    "Beaming", "Boogieing", "Catapulting", "Churning", "Galloping", "Gallivanting",
+    "Grooving", "Hyperspacing", "Jitterbugging", "Levitating", "Moonwalking",
+    "Moseying", "Orbiting", "Pouncing", "Scampering", "Scurrying", "Shimmying",
+    "Skedaddling", "Slithering", "Spinning", "Swooping", "Thundering", "Twisting",
+    "Waddling", "Warping", "Whirring", "Zigzagging",
+  ],
+  // Reading/searching → contemplation & spelunking
+  study: [
+    "Burrowing", "Cerebrating", "Cogitating", "Considering", "Contemplating",
+    "Deciphering", "Deliberating", "Elucidating", "Inferring", "Mulling", "Musing",
+    "Perambulating", "Percolating", "Perusing", "Philosophising", "Pondering",
+    "Pontificating", "Puzzling", "Ruminating", "Spelunking", "Thinking", "Wandering",
+  ],
+};
+
+/** Pick a random verb for the context, avoiding an immediate repeat. */
+export function pickVerb(
+  current?: string,
+  context: VerbContext = "general",
+  rand: () => number = Math.random,
+): string {
+  const pool =
+    context !== "general" && rand() < 0.7 ? VERB_POOLS[context] : SPINNER_VERBS;
+  let verb = pool[Math.floor(rand() * pool.length)]!;
   if (verb === current) {
-    verb = SPINNER_VERBS[(SPINNER_VERBS.indexOf(verb) + 1) % SPINNER_VERBS.length]!;
+    verb = pool[(pool.indexOf(verb) + 1) % pool.length]!;
   }
   return verb;
 }

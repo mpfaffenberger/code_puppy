@@ -22,6 +22,7 @@ import type { SessionMeta, StoredSession } from "@mist/core";
 import { MistClient } from "./client";
 import { labelForGroup } from "./steps";
 import { pickVerb } from "./spinnerVerbs";
+import type { VerbContext } from "./spinnerVerbs";
 import { Markdown } from "./markdown";
 import { SPARKLE, THEMES, applyTheme, loadPersistedTheme, persistTheme, rampColor, theme } from "./theme";
 
@@ -194,6 +195,21 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const [recentSteps, setRecentSteps] = useState<string[]>([]);
   const [narration, setNarration] = useState("");
   const [verb, setVerb] = useState("Working");
+  const verbContext = useRef<VerbContext>("general");
+
+  const noteActivity = useCallback((label: string) => {
+    const next: VerbContext = label.startsWith("$")
+      ? "shell"
+      : label.startsWith("edited") || label.startsWith("created")
+        ? "edit"
+        : label.startsWith("read") || label.startsWith("listed") || label.startsWith("grep")
+          ? "study"
+          : "general";
+    if (next !== verbContext.current) {
+      verbContext.current = next;
+      setVerb((v) => pickVerb(v, next)); // switch flavor with the work
+    }
+  }, []);
   const stepLog = useRef<string[]>([]);
   const lastStepLog = useRef<string[]>([]);
   const stepGroup = useRef<string[]>([]);
@@ -210,12 +226,13 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   // Steps show live (rolling last 3) while working, then collapse to one
   // summary line in the transcript — codex-style granularity. /steps expands.
   const addStep = useCallback((label: string) => {
+    noteActivity(label);
     setStepCount((n) => n + 1);
     stepLog.current.push(label);
     setRecentSteps([...stepLog.current.slice(-3)]);
     // Hook blocks are exceptions — they must survive in the transcript.
     if (label.includes("blocked by hook")) push(item("error", label));
-  }, [push]);
+  }, [noteActivity, push]);
 
   /** Collapse the pending tool group into one dim "Ran N …" line. */
   const flushStepGroup = useCallback(() => {
@@ -228,7 +245,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   // Rotate the whimsical verb every ~10s while working.
   useEffect(() => {
     if (!busy) return;
-    const id = setInterval(() => setVerb((v) => pickVerb(v)), 10_000);
+    const id = setInterval(() => setVerb((v) => pickVerb(v, verbContext.current)), 10_000);
     return () => clearInterval(id);
   }, [busy]);
 
@@ -243,7 +260,8 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       const ev = classifyEvent(env);
       switch (ev.kind) {
         case "session_running":
-          setVerb((v) => pickVerb(v));
+          verbContext.current = "general";
+          setVerb((v) => pickVerb(v, "general"));
           setBusy(true);
           setStartedAt(Date.now());
           startedAtRef.current = Date.now();
