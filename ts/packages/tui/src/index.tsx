@@ -130,7 +130,7 @@ export interface BannerInfo {
 }
 
 /** Claude-Code-style welcome banner: Misty + session facts + tips. */
-function Banner({ engine, session, info }: { engine: string; session: string; info: BannerInfo }) {
+function Banner({ session, info }: { session: string; info: BannerInfo }) {
   const rawUser = process.env.USER || process.env.USERNAME || "friend";
   const user = rawUser.charAt(0).toUpperCase() + rawUser.slice(1);
   const home = process.env.HOME ?? "";
@@ -156,7 +156,7 @@ function Banner({ engine, session, info }: { engine: string; session: string; in
             </Box>
             <Box marginTop={1}>
               <Text color={theme.dim}>
-                {info.model} · {engine}
+                {info.model}
                 {session ? ` · session ${session.slice(0, 8)}` : ""}
               </Text>
             </Box>
@@ -1033,7 +1033,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
         {(it) =>
           (it as unknown as { kind: string }).kind === "brand" ? (
             banner ? (
-              <Banner key="brand" engine={engine} session={sessionId} info={banner} />
+              <Banner key="brand" session={sessionId} info={banner} />
             ) : (
               <Brand key="brand" engine={engine} session={sessionId} />
             )
