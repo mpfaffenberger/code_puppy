@@ -227,6 +227,13 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const [saved, setSaved] = useState(0);
   const [, setThemeTick] = useState(0);
   const [picker, setPicker] = useState<SessionMeta[] | null>(null);
+  // Generic modal menu (help browser, theme/model choosers): ↑/↓ + Enter,
+  // Esc closes, 1-9 quick-select. `action` is a slash-command line to run.
+  const [menu, setMenu] = useState<{
+    title: string;
+    rows: { label: string; desc?: string; action: string }[];
+  } | null>(null);
+  const [menuIndex, setMenuIndex] = useState(0);
   const [planVisible, setPlanVisible] = useState(true);
   // Input history (↑/↓ recall, shell-style), persisted across sessions.
   const historyRef = useRef<string[]>([]);
@@ -529,32 +536,38 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       const say = (text: string) => push(item("info", text));
       switch (cmd.toLowerCase()) {
         case "help": {
-          const commands: [string, string][] = [
-            ["/help", "this list"],
-            ["/resume", "pick a previous session to resume (↑/↓ + Enter)"],
-            ["/sessions", "list saved sessions for this directory"],
-            ["/new, /clear", "start a fresh conversation"],
-            ["/compact", "summarize older context to free tokens"],
-            ["/steps", "expand the last turn's collapsed tool calls"],
-            ["/theme [name]", "list or switch themes (mist, cinnamon) — persists"],
-            ["/model [name]", "show or switch the model — persists to mist.cfg"],
-            ["/tools", "list the agent's tools"],
-            ["/status", "session, model, context tokens, theme, cwd"],
-            ["/record [file]", "export the session transcript to markdown"],
-            ["/dump_context", "write the full conversation history to /tmp"],
-            ["/quit, /exit, /q", "leave mist-ts"],
-          ];
-          const width = Math.max(...commands.map(([c]) => c.length)) + 2;
-          for (const [c, desc] of commands) say(`${c.padEnd(width)}${desc}`);
-          say("");
-          say("keys   Enter send · type+Enter while busy = steer the agent · Esc interrupt · Ctrl+C quit");
-          say("flags  mist-ts \"task\" one-shot · -c continue latest · -r <id> resume · --sessions · --help");
-          say("env    MIST_HEADROOM=1 token compression · MIST_COMPACT_AT=<tokens> auto-compact threshold · MIST_MODEL=<name>");
+          setMenuIndex(0);
+          setMenu({
+            title: "Help — commands (↑/↓ · enter run · esc close)",
+            rows: [
+              { label: "/resume", desc: "pick a previous session to resume", action: "/resume" },
+              { label: "/sessions", desc: "list saved sessions for this directory", action: "/sessions" },
+              { label: "/new", desc: "start a fresh conversation (alias /clear)", action: "/new" },
+              { label: "/compact", desc: "summarize older context to free tokens", action: "/compact" },
+              { label: "/steps", desc: "expand the last turn's collapsed tool calls", action: "/steps" },
+              { label: "/theme", desc: "switch themes — opens a chooser", action: "/theme" },
+              { label: "/model", desc: "switch the model — opens a chooser", action: "/model" },
+              { label: "/tools", desc: "list the agent's tools", action: "/tools" },
+              { label: "/status", desc: "session, model, context tokens, theme, cwd", action: "/status" },
+              { label: "/record", desc: "export the session transcript to markdown", action: "/record" },
+              { label: "/dump_context", desc: "write conversation history to /tmp", action: "/dump_context" },
+              { label: "/quit", desc: "leave mist-ts (aliases /exit, /q)", action: "/quit" },
+            ],
+          });
+          say("keys: Enter send · type+Enter while busy = steer · Esc interrupt · ctrl+t toggle tasks · ↑/↓ history");
+          say("flags: -c continue · -r <id> resume · --sessions · --help  |  env: MIST_HEADROOM=1 · MIST_COMPACT_AT · MIST_MODEL");
           break;
         }
         case "theme": {
           if (!arg) {
-            say(`themes: ${Object.keys(THEMES).join(" · ")} (current: ${theme.name})`);
+            setMenuIndex(0);
+            setMenu({
+              title: "Choose a theme (↑/↓ · enter apply · esc close)",
+              rows: Object.keys(THEMES).map((name) => ({
+                label: name === theme.name ? `${name} (current)` : name,
+                action: `/theme ${name}`,
+              })),
+            });
             break;
           }
           if (applyTheme(arg)) {
@@ -570,7 +583,14 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           if (!arg) {
             const current = await getConfiguredModelName();
             const names = await listModelNames();
-            say(`model: ${current} · available: ${names.slice(0, 10).join(", ")}`);
+            setMenuIndex(0);
+            setMenu({
+              title: "Choose a model (↑/↓ · enter apply · esc close)",
+              rows: names.slice(0, 15).map((name) => ({
+                label: name === current ? `${name} (current)` : name,
+                action: `/model ${name}`,
+              })),
+            });
             break;
           }
           const names = await listModelNames();
@@ -755,6 +775,28 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       setPlanVisible((v) => !v);
       return;
     }
+    if (menu) {
+      if (key.escape) {
+        setMenu(null);
+        return;
+      }
+      if (key.upArrow) {
+        setMenuIndex((i) => (i - 1 + menu.rows.length) % menu.rows.length);
+        return;
+      }
+      if (key.downArrow) {
+        setMenuIndex((i) => (i + 1) % menu.rows.length);
+        return;
+      }
+      const digit = ch >= "1" && ch <= "9" ? Number(ch) - 1 : -1;
+      if (key.return || (digit >= 0 && digit < menu.rows.length)) {
+        const row = menu.rows[key.return ? menuIndex : digit];
+        setMenu(null);
+        if (row) void runCommand(row.action);
+        return;
+      }
+      return;
+    }
     if (picker) {
       if (key.escape) {
         setPicker(null);
@@ -862,6 +904,28 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           <Text color={theme.error} bold>
             ✗ {fatal}
           </Text>
+        </Box>
+      ) : menu ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Box borderStyle="round" borderColor={theme.accent} paddingX={1} flexDirection="column">
+            <Text color={theme.accent} bold>
+              {menu.title}
+            </Text>
+            {menu.rows.map((row, i) => (
+              <Box key={row.action} flexDirection="column">
+                <Text color={i === menuIndex ? theme.brand : theme.text} bold={i === menuIndex}>
+                  {i === menuIndex ? "❯ " : "  "}
+                  {row.label}
+                </Text>
+                {row.desc ? (
+                  <Text color={theme.dim}>
+                    {"    "}
+                    {row.desc}
+                  </Text>
+                ) : null}
+              </Box>
+            ))}
+          </Box>
         </Box>
       ) : picker ? (
         <Box flexDirection="column" marginTop={1}>
