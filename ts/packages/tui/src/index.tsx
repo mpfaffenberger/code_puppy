@@ -18,7 +18,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { classifyEvent } from "@mist/protocol";
 import type { EventEnvelope } from "@mist/protocol";
 import { EngineSession, SessionStore, getConfiguredModelName, listModelNames, persistModelChoice } from "@mist/core";
-import type { StoredSession } from "@mist/core";
+import type { SessionMeta, StoredSession } from "@mist/core";
 import { MistClient } from "./client";
 import { Markdown } from "./markdown";
 import { HEARTBEAT, SPARKLE, THEMES, applyTheme, loadPersistedTheme, persistTheme, rampColor, theme } from "./theme";
@@ -109,6 +109,8 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const [question, setQuestion] = useState("");
   const [saved, setSaved] = useState(0);
   const [, setThemeTick] = useState(0);
+  const [picker, setPicker] = useState<SessionMeta[] | null>(null);
+  const [pickerIndex, setPickerIndex] = useState(0);
   const sessionRef = useRef<EngineSession | null>(null);
   const [sessionId, setSessionId] = useState("");
   const [fatal, setFatal] = useState("");
@@ -265,6 +267,31 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
     return () => cancel?.();
   }, [handleEnvelope, initialPrompt, push]);
 
+  const resumeIntoSession = useCallback(
+    (stored: StoredSession) => {
+      const fresh = new EngineSession(process.cwd(), stored);
+      sessionRef.current = fresh;
+      setSessionId(fresh.id);
+      fresh.subscribe(handleEnvelope);
+      clientRef.current = {
+        submit: (_id: string, prompt: string) => fresh.submit(prompt),
+        interrupt: async () => {},
+      } as unknown as MistClient;
+      const lastUser = [...stored.messages].reverse().find(
+        (m) => m.role === "user" && typeof m.content === "string",
+      );
+      if (lastUser) push(item("user", String(lastUser.content)));
+      const lastAssistant = [...stored.messages].reverse().find((m) => m.role === "assistant");
+      if (lastAssistant) {
+        const text = Array.isArray(lastAssistant.content)
+          ? lastAssistant.content.map((b) => (b.type === "text" ? b.text : "")).join("")
+          : String(lastAssistant.content);
+        if (text.trim()) push(item("response", text));
+      }
+    },
+    [handleEnvelope, push],
+  );
+
   const runCommand = useCallback(
     async (line: string) => {
       const [cmd = "", ...rest] = line.slice(1).trim().split(/\s+/);
@@ -272,7 +299,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       const say = (text: string) => push(item("info", text));
       switch (cmd.toLowerCase()) {
         case "help":
-          say("commands: /help · /theme [name] · /model [name] · /sessions · /new · /quit");
+          say("commands: /help · /resume · /theme [name] · /model [name] · /sessions · /new · /quit");
           say("keys: Enter send · type+Enter while busy = steer · Esc interrupt · Ctrl+C quit");
           say("flags: -c continue · -r <id> resume · --sessions · MIST_HEADROOM=1");
           break;
@@ -305,6 +332,16 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           sessionRef.current?.setModel(arg);
           await persistModelChoice(arg);
           say(`model → ${arg} (persisted; applies from the next request)`);
+          break;
+        }
+        case "resume": {
+          const list = await new SessionStore(process.cwd()).list();
+          if (!list.length) {
+            say("(no saved sessions for this directory)");
+            break;
+          }
+          setPicker(list.slice(0, 15));
+          setPickerIndex(0);
           break;
         }
         case "sessions": {
@@ -364,6 +401,36 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
 
   useInput((ch, key) => {
     if (key.ctrl && ch === "c") exit();
+    if (picker) {
+      if (key.escape) {
+        setPicker(null);
+        return;
+      }
+      if (key.upArrow) {
+        setPickerIndex((i) => (i - 1 + picker.length) % picker.length);
+        return;
+      }
+      if (key.downArrow) {
+        setPickerIndex((i) => (i + 1) % picker.length);
+        return;
+      }
+      const digit = ch >= "1" && ch <= "9" ? Number(ch) - 1 : -1;
+      if (digit >= 0 && digit < picker.length) {
+        setPickerIndex(digit);
+      }
+      if (key.return || (digit >= 0 && digit < picker.length)) {
+        const chosen = picker[key.return ? pickerIndex : digit];
+        setPicker(null);
+        if (chosen) {
+          void new SessionStore(process.cwd()).load(chosen.id).then((stored) => {
+            if (stored) resumeIntoSession(stored);
+            else push(item("error", `could not load session ${chosen.id.slice(0, 8)}`));
+          });
+        }
+        return;
+      }
+      return;
+    }
     if (question) {
       // Answer mode: the agent asked a clarifying question.
       if (key.return) {
@@ -427,6 +494,23 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         <Box marginTop={1}>
           <Text color={theme.error} bold>
             ✗ {fatal}
+          </Text>
+        </Box>
+      ) : picker ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Box borderStyle="round" borderColor={theme.accent} paddingX={1} flexDirection="column">
+            <Text color={theme.accent} bold>
+              ↺ Resume a session
+            </Text>
+            {picker.map((m, i) => (
+              <Text key={m.id} color={i === pickerIndex ? theme.brand : theme.dim} bold={i === pickerIndex}>
+                {i === pickerIndex ? "▸ " : "  "}
+                {i + 1}. {m.created_at.slice(0, 16).replace("T", " ")} · {m.title}
+              </Text>
+            ))}
+          </Box>
+          <Text color={theme.dim} dimColor>
+            {"  "}↑/↓ or 1-9 select · enter resume · esc cancel
           </Text>
         </Box>
       ) : question ? (
@@ -504,7 +588,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         <Text color={theme.dim} dimColor>
           {"  "}
           {input.startsWith("/")
-            ? "/help · /theme · /model · /sessions · /new · /quit"
+            ? "/help · /resume · /theme · /model · /sessions · /new · /quit"
             : "enter to send · / for commands · ctrl+c to quit"}
         </Text>
       )}
