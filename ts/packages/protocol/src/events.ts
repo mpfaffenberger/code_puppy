@@ -40,6 +40,15 @@ export type MistEvent =
   | { kind: "session_resumed"; title: string; messages: number; createdAt: string }
   | { kind: "context_compacted"; beforeTokens: number; afterTokens: number; summarized: number }
   | { kind: "narration"; text: string }
+  | {
+      kind: "file_edited";
+      path: string;
+      action: "update" | "create";
+      added: number;
+      removed: number;
+      lines: { type: "add" | "del"; line: number; text: string }[];
+      truncated: boolean;
+    }
   | { kind: "other"; type: string };
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -126,6 +135,22 @@ export function classifyEvent(env: EventEnvelope): MistEvent {
       };
     case "narration":
       return { kind: "narration", text: str(d["text"]) };
+    case "file.edited": {
+      const rawLines = Array.isArray(d["lines"]) ? (d["lines"] as Record<string, unknown>[]) : [];
+      return {
+        kind: "file_edited",
+        path: str(d["path"]),
+        action: d["action"] === "create" ? "create" : "update",
+        added: typeof d["added"] === "number" ? d["added"] : 0,
+        removed: typeof d["removed"] === "number" ? d["removed"] : 0,
+        lines: rawLines.map((l) => ({
+          type: l["type"] === "del" ? ("del" as const) : ("add" as const),
+          line: typeof l["line"] === "number" ? l["line"] : 0,
+          text: str(l["text"]),
+        })),
+        truncated: d["truncated"] === true,
+      };
+    }
     case "context.compacted":
       return {
         kind: "context_compacted",

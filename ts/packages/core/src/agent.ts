@@ -103,6 +103,7 @@ export interface AgentCallbacks {
   onSavings?: (tokensSaved: number) => void;
   onCompacted?: (r: CompactionResult) => void;
   onNarration?: (text: string) => void;
+  onDiff?: (diff: import("./tools").DiffPayload) => void;
 }
 
 export interface AgentTurn {
@@ -325,7 +326,7 @@ export class MistEngine {
         }
 
         steps += 1;
-        const res = await runTool(tu.name, input, { cwd: this.cwd, onStep: cb.onStep });
+        const res = await runTool(tu.name, input, { cwd: this.cwd, onStep: cb.onStep, onDiff: cb.onDiff });
         let content = res.content;
         if (verdict?.action === "warn") {
           content = `[project hook warning: ${verdict.message}]\n${content}`;

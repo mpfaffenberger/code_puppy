@@ -20,6 +20,7 @@ import type { EventEnvelope } from "@mist/protocol";
 import { EngineSession, SessionStore, getConfiguredModelName, listModelNames, persistModelChoice } from "@mist/core";
 import type { SessionMeta, StoredSession } from "@mist/core";
 import { MistClient } from "./client";
+import { labelForGroup } from "./steps";
 import { Markdown } from "./markdown";
 import { SPARKLE, THEMES, applyTheme, loadPersistedTheme, persistTheme, rampColor, theme } from "./theme";
 
@@ -28,10 +29,24 @@ type Item =
   | { id: number; kind: "step"; text: string }
   | { id: number; kind: "info"; text: string }
   | { id: number; kind: "error"; text: string }
-  | { id: number; kind: "response"; text: string };
+  | { id: number; kind: "response"; text: string }
+  | { id: number; kind: "narration"; text: string }
+  | {
+      id: number;
+      kind: "diff";
+      path: string;
+      action: "update" | "create";
+      added: number;
+      removed: number;
+      lines: { type: "add" | "del"; line: number; text: string }[];
+      truncated: boolean;
+    };
 
 let nextId = 1;
-const item = (kind: Item["kind"], text: string): Item => ({ id: nextId++, kind, text });
+const item = (kind: "user" | "step" | "info" | "error" | "response" | "narration", text: string): Item =>
+  ({ id: nextId++, kind, text }) as Item;
+const diffItem = (d: Omit<Extract<Item, { kind: "diff" }>, "id" | "kind">): Item =>
+  ({ id: nextId++, kind: "diff", ...d }) as Item;
 
 function Brand({ engine, session }: { engine: string; session: string }) {
   const word = "Mist";
@@ -91,6 +106,39 @@ function TranscriptItem({ it }: { it: Item }) {
           <Markdown source={it.text} />
         </Box>
       );
+    case "narration":
+      return (
+        <Box flexDirection="row" marginTop={1}>
+          <Text color={theme.accent}>● </Text>
+          <Box flexDirection="column" flexGrow={1}>
+            <Markdown source={it.text} />
+          </Box>
+        </Box>
+      );
+    case "diff":
+      return (
+        <Box flexDirection="column" marginTop={1}>
+          <Text>
+            <Text color={theme.success}>● </Text>
+            <Text bold>{it.action === "create" ? "Create" : "Update"}(</Text>
+            <Text color={theme.path}>{it.path}</Text>
+            <Text bold>)</Text>
+          </Text>
+          <Text color={theme.dim}>
+            {"  "}Added {it.added} line{it.added === 1 ? "" : "s"}
+            {it.removed ? `, removed ${it.removed} line${it.removed === 1 ? "" : "s"}` : ""}
+          </Text>
+          {it.lines.map((l, i) => (
+            <Text key={`dl${it.id}-${i}`} backgroundColor={l.type === "add" ? "#12351a" : "#3a1518"}>
+              <Text color={theme.dim}>{String(l.line).padStart(5)} </Text>
+              <Text color={l.type === "add" ? "#7ddf8a" : "#ff8f8f"}>{l.type === "add" ? "+ " : "- "}{l.text}</Text>
+            </Text>
+          ))}
+          {it.truncated ? (
+            <Text color={theme.dim} dimColor>{"      …diff truncated"}</Text>
+          ) : null}
+        </Box>
+      );
   }
 }
 
@@ -115,6 +163,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const [narration, setNarration] = useState("");
   const stepLog = useRef<string[]>([]);
   const lastStepLog = useRef<string[]>([]);
+  const stepGroup = useRef<string[]>([]);
   const [pickerIndex, setPickerIndex] = useState(0);
   const sessionRef = useRef<EngineSession | null>(null);
   const [sessionId, setSessionId] = useState("");
@@ -130,9 +179,18 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const addStep = useCallback((label: string) => {
     setStepCount((n) => n + 1);
     stepLog.current.push(label);
+    stepGroup.current.push(label);
     setRecentSteps([...stepLog.current.slice(-3)]);
     // Hook blocks are exceptions — they must survive in the transcript.
     if (label.includes("blocked by hook")) push(item("error", label));
+  }, [push]);
+
+  /** Collapse the pending tool group into one dim "Ran N …" line. */
+  const flushStepGroup = useCallback(() => {
+    if (!stepGroup.current.length) return;
+    push(item("info", labelForGroup(stepGroup.current)));
+    stepGroup.current = [];
+    setRecentSteps([]);
   }, [push]);
 
   // Animation clock (footer only re-renders the dynamic region — cheap).
@@ -173,9 +231,10 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           setStream((t) => t + ev.delta);
           break;
         case "narration": {
-          const line = ev.text.replaceAll("\n", " ").trim();
-          setNarration(line.length > 110 ? `${line.slice(0, 109)}…` : line);
+          flushStepGroup();
+          if (ev.text.trim()) push(item("narration", ev.text.trim()));
           setStream("");
+          setNarration("");
           break;
         }
         case "step":
@@ -197,6 +256,9 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         case "steer_queued":
           push(item("info", `↪ steered: ${ev.text}`));
           break;
+        case "file_edited":
+          push(diffItem({ path: ev.path, action: ev.action, added: ev.added, removed: ev.removed, lines: ev.lines, truncated: ev.truncated }));
+          break;
         case "context_compacted":
           push(item("info",
             ev.summarized
@@ -217,20 +279,12 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           break;
         case "session_idle":
         case "session_interrupted":
+          flushStepGroup();
           if (stepLog.current.length) {
-            const secs = startedAtRef.current
-              ? Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
-              : 0;
-            push(
-              item(
-                "info",
-                `▸ ${stepLog.current.length} tool call${stepLog.current.length === 1 ? "" : "s"}${secs ? ` · ${secs}s` : ""} · /steps to expand`,
-              ),
-            );
             lastStepLog.current = [...stepLog.current];
             stepLog.current = [];
-            setRecentSteps([]);
           }
+          setRecentSteps([]);
           setBusy(false);
           setStartedAt(null);
           if (headless) {
@@ -242,7 +296,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           break; // shell lines, reasoning, misc info stay out of the transcript — signal over noise
       }
     },
-    [addStep, exit, headless, push],
+    [addStep, exit, flushStepGroup, headless, push],
   );
 
   // Bootstrap: connect, create session, subscribe, optionally submit argv.

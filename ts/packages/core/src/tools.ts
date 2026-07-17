@@ -8,9 +8,55 @@
 import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
+export interface DiffLine {
+  type: "add" | "del";
+  line: number; // 1-based line number in the file (post-edit for adds, pre-edit for dels)
+  text: string;
+}
+
+export interface DiffPayload {
+  path: string;
+  action: "update" | "create";
+  added: number;
+  removed: number;
+  lines: DiffLine[]; // capped for display
+  truncated: boolean;
+}
+
+const DIFF_DISPLAY_CAP = 12;
+
+/** Compute a display diff for an exact-match replacement. Pure. */
+export function computeEditDiff(
+  path: string,
+  fileContent: string,
+  oldStr: string,
+  newStr: string,
+): DiffPayload {
+  const before = fileContent.slice(0, fileContent.indexOf(oldStr));
+  const startLine = before.split("\n").length;
+  const delLines = oldStr.split("\n");
+  const addLines = newStr.split("\n");
+  const lines: DiffLine[] = [];
+  delLines.slice(0, DIFF_DISPLAY_CAP).forEach((text, i) => {
+    lines.push({ type: "del", line: startLine + i, text });
+  });
+  addLines.slice(0, DIFF_DISPLAY_CAP).forEach((text, i) => {
+    lines.push({ type: "add", line: startLine + i, text });
+  });
+  return {
+    path,
+    action: "update",
+    added: addLines.length,
+    removed: delLines.length,
+    lines,
+    truncated: delLines.length > DIFF_DISPLAY_CAP || addLines.length > DIFF_DISPLAY_CAP,
+  };
+}
+
 export interface ToolContext {
   cwd: string;
   onStep: (label: string) => void;
+  onDiff?: (diff: DiffPayload) => void;
 }
 
 export interface ToolResult {
@@ -80,9 +126,19 @@ export const TOOLS: ToolDef[] = [
     },
     handler: async (input, ctx) => {
       const path = resolve(ctx.cwd, s(input["path"]));
-      await Bun.write(path, s(input["content"]));
+      const content = s(input["content"]);
+      await Bun.write(path, content);
       ctx.onStep(`created ${s(input["path"])}`);
-      return { content: `wrote ${s(input["content"]).length} chars to ${path}` };
+      const allLines = content.split("\n");
+      ctx.onDiff?.({
+        path: s(input["path"]),
+        action: "create",
+        added: allLines.length,
+        removed: 0,
+        lines: allLines.slice(0, DIFF_DISPLAY_CAP).map((text, i) => ({ type: "add" as const, line: i + 1, text })),
+        truncated: allLines.length > DIFF_DISPLAY_CAP,
+      });
+      return { content: `wrote ${content.length} chars to ${path}` };
     },
   },
   {
@@ -105,8 +161,10 @@ export const TOOLS: ToolDef[] = [
       const occurrences = text.split(old).length - 1;
       if (occurrences === 0) return { content: "old_str not found — read the file and retry with an exact snippet", isError: true };
       if (occurrences > 1) return { content: `old_str matches ${occurrences} times — make it unique`, isError: true };
+      const diff = computeEditDiff(s(input["path"]), text, old, s(input["new_str"]));
       await Bun.write(path, text.replace(old, s(input["new_str"])));
       ctx.onStep(`edited ${s(input["path"])}`);
+      ctx.onDiff?.(diff);
       return { content: "edit applied" };
     },
   },

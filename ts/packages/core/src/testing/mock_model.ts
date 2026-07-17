@@ -96,23 +96,50 @@ export function startMockModel(port = 9876) {
       if (toolResultCount === 1) {
         return sse([
           { type: "message_start", message: { usage: { input_tokens: 42 } } },
+          { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+          {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "text_delta", text: "The plan is set — running the numbers first to ground the summary in real output." },
+          },
+          { type: "content_block_stop", index: 0 },
           {
             type: "content_block_start",
-            index: 0,
+            index: 1,
             content_block: { type: "tool_use", id: "tu_1", name: "shell", input: {} },
           },
           {
             type: "content_block_delta",
-            index: 0,
+            index: 1,
             delta: { type: "input_json_delta", partial_json: '{"command":' },
           },
           {
             type: "content_block_delta",
-            index: 0,
+            index: 1,
             delta: { type: "input_json_delta", partial_json: '"seq 1 4"}' },
           },
-          { type: "content_block_stop", index: 0 },
+          { type: "content_block_stop", index: 1 },
           { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 17 } },
+          { type: "message_stop" },
+        ]);
+      }
+      if (toolResultCount === 2) {
+        // Scripted step 3: edit demo.txt (exercises the diff block rendering).
+        const editJson = JSON.stringify({
+          path: "demo.txt",
+          old_str: "say hello now",
+          new_str: "say hello world now\nand then say goodbye",
+        });
+        return sse([
+          { type: "message_start", message: { usage: { input_tokens: 33 } } },
+          {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "tool_use", id: "tu_edit", name: "replace_in_file", input: {} },
+          },
+          { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: editJson } },
+          { type: "content_block_stop", index: 0 },
+          { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 11 } },
           { type: "message_stop" },
         ]);
       }
