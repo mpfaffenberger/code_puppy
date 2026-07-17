@@ -297,6 +297,14 @@ async def main():
         except ImportError:
             emit_system_message(f"💨 {PRODUCT_NAME} is loading...")
 
+        from code_puppy.messaging import emit_warning
+
+        emit_warning(
+            "⚠ The Python implementation of Mist is deprecated (maintenance mode). "
+            "`mist` now launches the Bun/TS app; this build stays available as "
+            "`mist-py` during the transition. New features land in ts/ only."
+        )
+
         # Truecolor warning moved to interactive_mode() so it prints LAST
         # after all the help stuff - max visibility for the ugly red box!
 

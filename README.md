@@ -30,14 +30,37 @@
 
 Mist is an open-source coding agent designed to understand large codebases, execute development workflows, coordinate specialized agents, and work across the model provider of your choice.
 
+> **The primary Mist app is now the Bun/TypeScript implementation in [`ts/`](ts/).**
+> It ships as a single self-contained binary (no Python, no Node install) with the
+> polished TUI: live plan panel, mid-turn steering, session resume, compaction,
+> trace recording, and themes. The Python implementation below is **deprecated and
+> in maintenance mode** — it remains available as `mist-py` during the transition,
+> and no new features land there.
 
-## Quick start
+## Quick start (primary — Bun/TS)
 
 ```bash
-uvx --from mist-agent mist -i
+cd ts && bun install && bun run build     # produces ts/dist/mist (single binary)
+ln -sf "$PWD/dist/mist" /opt/homebrew/bin/mist
+mist                                      # interactive session
+mist "fix the failing test"               # one-shot
+mist -c                                   # resume latest session here
 ```
 
-## Installation
+Config lives in `~/.mist/mist.cfg` (model) and `~/.mist/extra_models.json`
+(Anthropic-compatible endpoints). `mist --help` lists everything else.
+
+## Python implementation (deprecated)
+
+The original Python app is still installable while the migration completes:
+
+```bash
+uvx --from mist-agent mist -i    # published package still runs the Python app
+```
+
+Locally it is exposed as `mist-py`. Bug fixes only; see
+[docs/BUN_MIGRATION_PLAN.md](docs/BUN_MIGRATION_PLAN.md) for what has moved and
+what remains (MCP, subagents, plugins, DBOS).
 
 ### UV (Recommended)
 

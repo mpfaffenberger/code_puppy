@@ -5,6 +5,7 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "build": "bun build --compile packages/tui/src/index.tsx --outfile dist/mist"
   }
 }

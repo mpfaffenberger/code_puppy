@@ -184,6 +184,16 @@ plugin ports are highly parallel).
 
 ## Discovery log
 
+- **2026-07-17 — Cutover executed: `mist` = Bun/TS.** The Phase-5 flip is
+  done ahead of full parity, per user direction: `/opt/homebrew/bin/mist` →
+  `ts/dist/mist` (compiled binary, renamed from `mist-ts`); `mist-ts` kept
+  as a legacy alias to the same binary; `mist-py` → the Python venv build as
+  the transition escape hatch. Python app now prints a deprecation notice at
+  interactive startup and is in maintenance mode (bug fixes only). README
+  rewritten with the TS quickstart as primary. Still Python-only, pending
+  port: MCP, subagents/orchestration, plugins, DBOS, `--serve` HTTP surface,
+  full theme catalog. Packaging cutover (release matrix + pip shim) remains.
+
 - **2026-07-16 — "Python headless hang" root-caused: provider quota.** The
   apparent engine hang (`mist --serve` / `-p` turns never completing, even at
   baseline commit `84b33f1`) coincided with the minimax **Token Plan being

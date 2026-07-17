@@ -552,7 +552,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
               { label: "/record", desc: "toggle event-trace recording (jsonl, for debugging)", action: "/record" },
               { label: "/export", desc: "export the session transcript to markdown", action: "/export" },
               { label: "/dump_context", desc: "write conversation history to /tmp", action: "/dump_context" },
-              { label: "/quit", desc: "leave mist-ts (aliases /exit, /q)", action: "/quit" },
+              { label: "/quit", desc: "leave mist (aliases /exit, /q)", action: "/quit" },
             ],
           });
           say("keys: Enter send · type+Enter while busy = steer · Esc interrupt · ctrl+t toggle tasks · ↑/↓ history");
@@ -620,7 +620,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           for (const m of list.slice(0, 8)) {
             say(`${m.id.slice(0, 8)} · ${m.created_at.slice(0, 16).replace("T", " ")} · ${m.title}`);
           }
-          if (list.length) say("resume with: mist-ts -r <id>");
+          if (list.length) say("resume with: mist -r <id>");
           break;
         }
         case "compact": {
@@ -1069,15 +1069,15 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
 
 const VERSION = "0.1.0";
 
-const HELP = `mist-ts ${VERSION} — Mist coding agent (Bun engine)
+const HELP = `mist ${VERSION} — Mist coding agent (Bun engine)
 
 Usage:
-  mist-ts                     interactive session (new)
-  mist-ts "task"              one-shot: run the task and exit
-  mist-ts -c | --continue     resume the latest session for this directory
-  mist-ts -r <id> | --resume  resume a specific session (id prefix ok)
-  mist-ts --sessions          list saved sessions for this directory
-  mist-ts --help | --version
+  mist                        interactive session (new)
+  mist "task"                 one-shot: run the task and exit
+  mist -c | --continue        resume the latest session for this directory
+  mist -r <id> | --resume     resume a specific session (id prefix ok)
+  mist --sessions             list saved sessions for this directory
+  mist --help | --version
 
 While the agent works: type + Enter to steer it; Esc interrupts; Ctrl+C quits.
 Config: ~/.mist/mist.cfg (model), ~/.mist/extra_models.json (endpoints),
