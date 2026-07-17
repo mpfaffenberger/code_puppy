@@ -1027,16 +1027,21 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
             {"  "}
           </Text>
           <Text color={theme.dim} dimColor>
-            esc interrupt · type+enter to steer{plan.length ? ` · ctrl+t to ${planVisible ? "hide" : "show"} tasks` : ""}
+            esc to interrupt{plan.length ? ` · ctrl+t to ${planVisible ? "hide" : "show"} tasks` : ""}
           </Text>
           </Box>
-          {input ? (
-            <Text color={theme.user}>
-              {"  ↪ "}
-              {input}
+          <Box borderStyle="round" borderColor={theme.border} paddingX={1} flexDirection="row">
+            <Text color={input ? theme.accent : theme.dim} bold>
+              ❯{" "}
+            </Text>
+            <Text color={input ? undefined : theme.dim}>
+              {input || ""}
               <Text color={theme.brand}>█</Text>
             </Text>
-          ) : null}
+          </Box>
+          <Text color={theme.dim} dimColor>
+            {"  "}type + enter to steer the agent mid-task
+          </Text>
         </Box>
       ) : (
         <Box
