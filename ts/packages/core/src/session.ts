@@ -7,19 +7,63 @@
 
 import type { EventEnvelope } from "@mist/protocol";
 import { MistEngine } from "./agent";
+import { SessionStore } from "./store";
+import type { StoredSession } from "./store";
 
 type Listener = (env: EventEnvelope) => void;
 
 export class EngineSession {
-  readonly id = crypto.randomUUID().replaceAll("-", "");
+  readonly id: string;
   private engine: MistEngine;
   private sequence = 0;
   private listeners = new Set<Listener>();
   private buffer: EventEnvelope[] = [];
+  private store: SessionStore;
+  private persistedCount = 0;
+  private created: boolean;
 
-  constructor(cwd: string = process.cwd()) {
+  constructor(cwd: string = process.cwd(), resume?: StoredSession) {
     this.engine = new MistEngine(cwd);
-    this.emit("session.created", { agent_name: "mist" });
+    this.store = new SessionStore(cwd);
+    if (resume) {
+      this.id = resume.meta.id;
+      this.created = true;
+      this.engine.loadHistory(resume.messages);
+      this.engine.plan = resume.plan;
+      this.persistedCount = resume.messages.length;
+      this.emit("session.created", { agent_name: "mist" });
+      this.emit("session.resumed", {
+        title: resume.meta.title,
+        messages: resume.messages.length,
+        created_at: resume.meta.created_at,
+      });
+      if (resume.plan.length) this.emit("plan.updated", { items: resume.plan });
+    } else {
+      this.id = crypto.randomUUID().replaceAll("-", "");
+      this.created = false;
+      this.emit("session.created", { agent_name: "mist" });
+    }
+  }
+
+  /** Persist any history the store hasn't seen yet (after each turn). */
+  private async persist(): Promise<void> {
+    try {
+      const history = this.engine.exportHistory();
+      if (!this.created) {
+        const firstUser = history.find((m) => m.role === "user");
+        const title =
+          typeof firstUser?.content === "string" ? firstUser.content : "(tool session)";
+        await this.store.create(this.id, title);
+        this.created = true;
+      }
+      if (history.length > this.persistedCount) {
+        await this.store.appendMessages(this.id, history.slice(this.persistedCount));
+        this.persistedCount = history.length;
+      }
+      await this.store.snapshotPlan(this.id, this.engine.plan);
+    } catch {
+      /* persistence must never break the session */
+    }
   }
 
   private emit(type: string, data: Record<string, unknown>): void {
@@ -75,9 +119,11 @@ export class EngineSession {
       if (turn.finalText.trim()) {
         this.emit("AgentResponseMessage", { content: turn.finalText });
       }
+      await this.persist();
       this.emit("session.idle", {});
     } catch (err) {
       this.emit("session.error", { error: (err as Error).message });
+      await this.persist();
       this.emit("session.idle", {});
     }
   }

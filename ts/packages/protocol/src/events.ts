@@ -37,6 +37,7 @@ export type MistEvent =
   | { kind: "question_asked"; question: string }
   | { kind: "steer_queued"; text: string }
   | { kind: "headroom_saved"; tokensSaved: number }
+  | { kind: "session_resumed"; title: string; messages: number; createdAt: string }
   | { kind: "other"; type: string };
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -114,6 +115,13 @@ export function classifyEvent(env: EventEnvelope): MistEvent {
         })),
       };
     }
+    case "session.resumed":
+      return {
+        kind: "session_resumed",
+        title: str(d["title"]),
+        messages: typeof d["messages"] === "number" ? d["messages"] : 0,
+        createdAt: str(d["created_at"]),
+      };
     case "question.asked":
       return { kind: "question_asked", question: str(d["question"]) };
     case "steer.queued":

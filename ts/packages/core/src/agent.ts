@@ -113,6 +113,16 @@ export class MistEngine {
 
   constructor(readonly cwd: string = process.cwd()) {}
 
+  /** Export the full conversation history (for persistence). */
+  exportHistory(): ChatMessage[] {
+    return [...this.history];
+  }
+
+  /** Load a persisted conversation history (resume). */
+  loadHistory(messages: ChatMessage[]): void {
+    this.history = [...messages];
+  }
+
   /** Queue a mid-turn user nudge; injected before the next model request. */
   queueSteer(text: string): void {
     if (text.trim()) this.steerQueue.push(text.trim());

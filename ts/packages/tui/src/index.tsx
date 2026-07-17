@@ -17,7 +17,8 @@ import { Box, Static, Text, render, useApp, useInput } from "ink";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { classifyEvent } from "@mist/protocol";
 import type { EventEnvelope } from "@mist/protocol";
-import { EngineSession } from "@mist/core";
+import { EngineSession, SessionStore } from "@mist/core";
+import type { StoredSession } from "@mist/core";
 import { MistClient } from "./client";
 import { Markdown } from "./markdown";
 import { HEARTBEAT, SPARKLE, rampColor, theme } from "./theme";
@@ -93,7 +94,7 @@ function TranscriptItem({ it }: { it: Item }) {
   }
 }
 
-function App({ initialPrompt }: { initialPrompt?: string }) {
+function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: StoredSession }) {
   const { exit } = useApp();
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
@@ -168,6 +169,9 @@ function App({ initialPrompt }: { initialPrompt?: string }) {
           setQuestion(ev.question);
           setInput("");
           break;
+        case "session_resumed":
+          push(item("info", `↺ resumed “${ev.title}” · ${ev.messages} messages · started ${ev.createdAt.slice(0, 10)}`));
+          break;
         case "steer_queued":
           push(item("info", `↪ steered: ${ev.text}`));
           break;
@@ -204,7 +208,7 @@ function App({ initialPrompt }: { initialPrompt?: string }) {
       try {
         if (process.env.MIST_ENGINE !== "python") {
           // Self-contained mode: the Bun engine runs in-process. No server.
-          const session = new EngineSession(process.cwd());
+          const session = new EngineSession(process.cwd(), resume);
           sessionRef.current = session;
           setSessionId(session.id);
           cancel = session.subscribe(handleEnvelope);
@@ -212,6 +216,25 @@ function App({ initialPrompt }: { initialPrompt?: string }) {
             submit: (_id: string, prompt: string) => session.submit(prompt),
             interrupt: async () => {},
           } as unknown as MistClient;
+          if (resume) {
+            // Replay the tail of the conversation so the user sees where
+            // they left off (codex/Claude Code resume behavior, condensed).
+            const lastUser = [...resume.messages].reverse().find(
+              (m) => m.role === "user" && typeof m.content === "string",
+            );
+            if (lastUser) push(item("user", String(lastUser.content)));
+            const lastAssistant = [...resume.messages].reverse().find(
+              (m) => m.role === "assistant",
+            );
+            if (lastAssistant) {
+              const text = Array.isArray(lastAssistant.content)
+                ? lastAssistant.content
+                    .map((b) => (b.type === "text" ? b.text : ""))
+                    .join("")
+                : String(lastAssistant.content);
+              if (text.trim()) push(item("response", text));
+            }
+          }
           if (initialPrompt) {
             push(item("user", initialPrompt));
             setBusy(true);
@@ -403,5 +426,72 @@ function App({ initialPrompt }: { initialPrompt?: string }) {
   );
 }
 
-const argvPrompt = process.argv.slice(2).join(" ").trim();
-render(<App initialPrompt={argvPrompt || undefined} />);
+const VERSION = "0.1.0";
+
+const HELP = `mist-ts ${VERSION} — Mist coding agent (Bun engine)
+
+Usage:
+  mist-ts                     interactive session (new)
+  mist-ts "task"              one-shot: run the task and exit
+  mist-ts -c | --continue     resume the latest session for this directory
+  mist-ts -r <id> | --resume  resume a specific session (id prefix ok)
+  mist-ts --sessions          list saved sessions for this directory
+  mist-ts --help | --version
+
+While the agent works: type + Enter to steer it; Esc interrupts; Ctrl+C quits.
+Config: ~/.mist/mist.cfg (model), ~/.mist/extra_models.json (endpoints),
+.mist/hooks.json (project intent + tool guardrails), MIST_HEADROOM=1 (token
+compression).`;
+
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log(HELP);
+    return;
+  }
+  if (args.includes("--version") || args.includes("-v")) {
+    console.log(VERSION);
+    return;
+  }
+  const store = new SessionStore(process.cwd());
+  if (args.includes("--sessions")) {
+    const sessions = await store.list();
+    if (!sessions.length) console.log("(no saved sessions for this directory)");
+    for (const s of sessions) {
+      console.log(`${s.id.slice(0, 8)}  ${s.created_at.slice(0, 16).replace("T", " ")}  ${s.title}`);
+    }
+    return;
+  }
+
+  let resume: StoredSession | undefined;
+  const rest: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "-c" || a === "--continue") {
+      const latest = await store.latest();
+      if (!latest) {
+        console.log("no session to continue in this directory — starting fresh");
+      } else {
+        resume = (await store.load(latest.id)) ?? undefined;
+      }
+    } else if (a === "-r" || a === "--resume") {
+      const idArg = args[++i];
+      if (!idArg) {
+        console.error("--resume needs a session id (see --sessions)");
+        process.exit(1);
+      }
+      const match = (await store.list()).find((s) => s.id.startsWith(idArg));
+      if (!match) {
+        console.error(`no session matching '${idArg}' (see --sessions)`);
+        process.exit(1);
+      }
+      resume = (await store.load(match.id)) ?? undefined;
+    } else {
+      rest.push(a);
+    }
+  }
+  const argvPrompt = rest.join(" ").trim();
+  render(<App initialPrompt={argvPrompt || undefined} resume={resume} />);
+}
+
+void main();
