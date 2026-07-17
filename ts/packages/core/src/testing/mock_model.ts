@@ -12,12 +12,20 @@
  */
 
 function sse(events: Record<string, unknown>[]): Response {
-  const body = events
-    .map((e) => `event: ${e["type"]}\ndata: ${JSON.stringify(e)}\n\n`)
-    .join("");
-  return new Response(body, {
-    headers: { "content-type": "text/event-stream" },
+  // Paced streaming (unless MOCK_FAST=1) so live UI states — the ⋯ stream
+  // tail, spinner, plan panel — are actually observable in tmux captures.
+  const fast = process.env.MOCK_FAST === "1";
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      for (const e of events) {
+        controller.enqueue(encoder.encode(`event: ${e["type"]}\ndata: ${JSON.stringify(e)}\n\n`));
+        if (!fast && e["type"] === "content_block_delta") await Bun.sleep(60);
+      }
+      controller.close();
+    },
   });
+  return new Response(stream, { headers: { "content-type": "text/event-stream" } });
 }
 
 const ANSWER = [

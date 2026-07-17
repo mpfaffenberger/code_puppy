@@ -145,6 +145,7 @@ export class EngineSession {
           this.emit("usage", { input_tokens, output_tokens }),
         onPlan: (items) => this.emit("plan.updated", { items }),
         onSavings: (tokens_saved) => this.emit("headroom.saved", { tokens_saved }),
+        onNarration: (text) => this.emit("narration", { text }),
         onCompacted: (r) =>
           this.emit("context.compacted", {
             before_tokens: r.beforeTokens,

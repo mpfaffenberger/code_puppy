@@ -112,6 +112,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const [, setThemeTick] = useState(0);
   const [picker, setPicker] = useState<SessionMeta[] | null>(null);
   const [recentSteps, setRecentSteps] = useState<string[]>([]);
+  const [narration, setNarration] = useState("");
   const stepLog = useRef<string[]>([]);
   const lastStepLog = useRef<string[]>([]);
   const [pickerIndex, setPickerIndex] = useState(0);
@@ -151,6 +152,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           setStepCount(0);
           stepLog.current = [];
           setRecentSteps([]);
+          setNarration("");
           break;
         case "shell_start":
           addStep(ev.command.length > 90 ? `${ev.command.slice(0, 89)}…` : ev.command);
@@ -170,6 +172,12 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         case "text_delta":
           setStream((t) => t + ev.delta);
           break;
+        case "narration": {
+          const line = ev.text.replaceAll("\n", " ").trim();
+          setNarration(line.length > 110 ? `${line.slice(0, 109)}…` : line);
+          setStream("");
+          break;
+        }
         case "step":
           addStep(ev.label);
           break;
@@ -201,6 +209,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           break;
         case "agent_response":
           setStream("");
+          setNarration("");
           if (ev.content.trim()) push(item("response", ev.content));
           break;
         case "session_error":
@@ -621,10 +630,21 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
               ))}
             </Box>
           ) : null}
+          {narration && !stream ? (
+            <Text color={theme.dim} italic>
+              {"  ⋯ "}
+              {narration}
+            </Text>
+          ) : null}
           {stream ? (
-            <Box flexDirection="column" marginBottom={1}>
-              <Markdown source={stream} />
-            </Box>
+            <Text color={theme.dim} italic>
+              {"  ⋯ "}
+              {(() => {
+                const lines = stream.split("\n").filter((l) => l.trim());
+                const tail = lines[lines.length - 1] ?? "";
+                return tail.length > 110 ? `${tail.slice(0, 109)}…` : tail;
+              })()}
+            </Text>
           ) : null}
           <Box>
           <Text color={theme.brand} bold>

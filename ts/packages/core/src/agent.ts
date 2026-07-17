@@ -102,6 +102,7 @@ export interface AgentCallbacks {
   onQuestion?: (question: string) => Promise<string>;
   onSavings?: (tokensSaved: number) => void;
   onCompacted?: (r: CompactionResult) => void;
+  onNarration?: (text: string) => void;
 }
 
 export interface AgentTurn {
@@ -282,6 +283,9 @@ export class MistEngine {
         finalText = result.text;
         break;
       }
+      // Intermediate narration (text emitted before tool calls) — surfaced as
+      // a one-line in-place status, never as transcript content.
+      if (result.text.trim()) cb.onNarration?.(result.text);
 
       const toolResults: ContentBlock[] = [];
       for (const tu of result.toolUses) {

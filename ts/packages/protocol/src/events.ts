@@ -39,6 +39,7 @@ export type MistEvent =
   | { kind: "headroom_saved"; tokensSaved: number }
   | { kind: "session_resumed"; title: string; messages: number; createdAt: string }
   | { kind: "context_compacted"; beforeTokens: number; afterTokens: number; summarized: number }
+  | { kind: "narration"; text: string }
   | { kind: "other"; type: string };
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -123,6 +124,8 @@ export function classifyEvent(env: EventEnvelope): MistEvent {
         messages: typeof d["messages"] === "number" ? d["messages"] : 0,
         createdAt: str(d["created_at"]),
       };
+    case "narration":
+      return { kind: "narration", text: str(d["text"]) };
     case "context.compacted":
       return {
         kind: "context_compacted",
