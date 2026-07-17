@@ -18,7 +18,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { classifyEvent } from "@mist/protocol";
 import type { EventEnvelope } from "@mist/protocol";
 import { EngineSession, SessionStore, getConfiguredModelName, listModelNames, persistModelChoice } from "@mist/core";
-import type { SessionMeta, StoredSession } from "@mist/core";
+import type { ChatMessage, SessionMeta, StoredSession } from "@mist/core";
 import { MistClient } from "./client";
 import { labelForGroup } from "./steps";
 import { pickVerb } from "./spinnerVerbs";
@@ -93,6 +93,52 @@ export function transcriptToMarkdown(items: Item[], sessionId: string): string {
     }
   }
   return out.filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n");
+}
+
+/**
+ * Condensed replay of the last few exchanges for session resume: user prompts
+ * and assistant text verbatim, tool activity collapsed to one dim count line.
+ * Steer prefixes are stripped; auto-continue nudges and compaction summaries
+ * are engine plumbing and stay hidden.
+ */
+export function historyTailItems(messages: ChatMessage[], maxTurns = 3): Item[] {
+  const out: Item[] = [];
+  let userTurns = 0;
+  let skippedTools = 0;
+  const flushToolCount = () => {
+    if (skippedTools > 0) {
+      out.push(item("info", `⋯ ran ${skippedTools} tool call${skippedTools === 1 ? "" : "s"}`));
+      skippedTools = 0;
+    }
+  };
+  for (let i = messages.length - 1; i >= 0 && userTurns < maxTurns; i--) {
+    const m = messages[i]!;
+    if (m.role === "user") {
+      // tool_result carriers: the calls are counted from the tool_use side.
+      if (typeof m.content !== "string") continue;
+      if (m.content.startsWith("[auto-continue]") || m.content.startsWith("[conversation summary")) continue;
+      flushToolCount();
+      out.push(item("user", m.content.replace(/^\[steer[^\]]*\]\s*/, "")));
+      userTurns += 1;
+    } else {
+      const blocks = Array.isArray(m.content) ? m.content : [];
+      const text =
+        typeof m.content === "string"
+          ? m.content
+          : blocks.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
+      const toolCount = blocks.filter((b) => b.type === "tool_use").length;
+      skippedTools += toolCount;
+      if (text.trim()) {
+        flushToolCount();
+        // Text alongside tool calls was live-rendered as ● narration.
+        out.push(item(toolCount > 0 ? "narration" : "response", text));
+      }
+    }
+  }
+  if (out.length === 0) return [];
+  flushToolCount();
+  out.push(item("info", "— earlier in this session —"));
+  return out.reverse();
 }
 
 function Wordmark() {
@@ -578,30 +624,14 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
           const session = new EngineSession(process.cwd(), resume);
           sessionRef.current = session;
           setSessionId(session.id);
+          // Replay the tail of the conversation BEFORE subscribing so the
+          // "↺ resumed" line lands beneath the restored context.
+          if (resume) push(...historyTailItems(resume.messages));
           cancel = session.subscribe(handleEnvelope);
           clientRef.current = {
             submit: (_id: string, prompt: string) => session.submit(prompt),
             interrupt: async () => {},
           } as unknown as MistClient;
-          if (resume) {
-            // Replay the tail of the conversation so the user sees where
-            // they left off (codex/Claude Code resume behavior, condensed).
-            const lastUser = [...resume.messages].reverse().find(
-              (m) => m.role === "user" && typeof m.content === "string",
-            );
-            if (lastUser) push(item("user", String(lastUser.content)));
-            const lastAssistant = [...resume.messages].reverse().find(
-              (m) => m.role === "assistant",
-            );
-            if (lastAssistant) {
-              const text = Array.isArray(lastAssistant.content)
-                ? lastAssistant.content
-                    .map((b) => (b.type === "text" ? b.text : ""))
-                    .join("")
-                : String(lastAssistant.content);
-              if (text.trim()) push(item("response", text));
-            }
-          }
           if (initialPrompt) {
             push(item("user", initialPrompt));
             setBusy(true);
@@ -637,22 +667,12 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
       const fresh = new EngineSession(process.cwd(), stored);
       sessionRef.current = fresh;
       setSessionId(fresh.id);
+      push(...historyTailItems(stored.messages));
       fresh.subscribe(handleEnvelope);
       clientRef.current = {
         submit: (_id: string, prompt: string) => fresh.submit(prompt),
         interrupt: async () => {},
       } as unknown as MistClient;
-      const lastUser = [...stored.messages].reverse().find(
-        (m) => m.role === "user" && typeof m.content === "string",
-      );
-      if (lastUser) push(item("user", String(lastUser.content)));
-      const lastAssistant = [...stored.messages].reverse().find((m) => m.role === "assistant");
-      if (lastAssistant) {
-        const text = Array.isArray(lastAssistant.content)
-          ? lastAssistant.content.map((b) => (b.type === "text" ? b.text : "")).join("")
-          : String(lastAssistant.content);
-        if (text.trim()) push(item("response", text));
-      }
     },
     [handleEnvelope, push],
   );
