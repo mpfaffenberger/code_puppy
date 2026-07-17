@@ -230,30 +230,31 @@ def test_pseudo_expands_length():
 def test_spanish_catalog_ships_and_resolves():
     translate.set_locale("es")
     assert i18n.t("confirm.yes") == "S\u00ed"
-    assert i18n.t("startup.welcome", name="TJ") == "\u00a1Bienvenido a Code Puppy, TJ!"
+    assert i18n.t("startup.welcome", name="TJ") == "\u00a1Bienvenido(a) a Code Puppy, TJ!"
+
+
+def test_latin_american_umbrella_ships_and_resolves():
+    # es-419 has no catalog of its own (deprecated); resolves through base es.
+    translate.set_locale("es-419")
+    assert i18n.t("startup.ready") == "Listo para ir por el c\u00f3digo. \U0001f436"
 
 
 def test_spanish_region_falls_back_to_base_language():
-    # es-MX has no catalog of its own -> es-419 -> es.json.
+    # es-MX has no catalog of its own -> es.json (es-419 deprecated).
     translate.set_locale("es-MX")
     assert i18n.t("confirm.no") == "No"
     assert i18n.t("confirm.yes") == "S\u00ed"
 
 
-def test_latin_american_umbrella_ships_and_resolves():
-    translate.set_locale("es-419")
-    assert i18n.t("startup.ready") == "Listo para ir a buscar c\u00f3digo. \U0001f436"
-
-
 def test_central_south_american_dialect_inherits_es419(tmp_path):
     # A country dialect that only overrides ONE string still inherits the rest
-    # from es-419, then es, then en-US.
+    # from es, then es, then en-US.
     _write_catalog(tmp_path, "es-AR", {"confirm.yes": "Dale"})
     catalog.add_catalog_dir(str(tmp_path))
     translate.set_locale("es-AR")
     assert i18n.t("confirm.yes") == "Dale"  # from es-AR
-    # Inherited from the es-419 umbrella (distinct wording from generic es).
-    assert i18n.t("startup.ready") == "Listo para ir a buscar c\u00f3digo. \U0001f436"
+    # Inherited from base es (es-419 deprecated; chain skips missing catalogs).
+    assert i18n.t("startup.ready") == "Listo para ir por el c\u00f3digo. \U0001f436"
     # Inherited from en-US default.
     assert i18n.t("confirm.no") == "No"
 
@@ -297,7 +298,6 @@ def test_target_locales_are_available():
     for expected in (
         "en-US",
         "es",
-        "es-419",
         "fr-CA",
         "es-MX",
         "es-AR",
@@ -308,12 +308,12 @@ def test_target_locales_are_available():
 
 
 def test_dialect_stubs_inherit_from_umbrella():
-    # The empty country stubs must resolve every key via es-419 -> es -> en-US.
+    # The empty country stubs must resolve every key via es -> en-US.
     for dialect in ("es-MX", "es-AR", "es-CO", "es-CL"):
         translate.set_locale(dialect)
         assert i18n.t("confirm.yes") == "S\u00ed"
         assert i18n.t("startup.ready") == (
-            "Listo para ir a buscar c\u00f3digo. \U0001f436"
+            "Listo para ir por el c\u00f3digo. \U0001f436"
         )
         assert i18n.t("confirm.no") == "No"  # inherited from en-US default
 
