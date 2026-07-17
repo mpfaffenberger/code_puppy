@@ -340,11 +340,29 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       const arg = rest.join(" ").trim();
       const say = (text: string) => push(item("info", text));
       switch (cmd.toLowerCase()) {
-        case "help":
-          say("commands: /help /resume /compact /steps /theme /model /sessions /new(/clear) /tools /status /dump_context /quit");
-          say("keys: Enter send · type+Enter while busy = steer · Esc interrupt · Ctrl+C quit");
-          say("flags: -c continue · -r <id> resume · --sessions · MIST_HEADROOM=1");
+        case "help": {
+          const commands: [string, string][] = [
+            ["/help", "this list"],
+            ["/resume", "pick a previous session to resume (↑/↓ + Enter)"],
+            ["/sessions", "list saved sessions for this directory"],
+            ["/new, /clear", "start a fresh conversation"],
+            ["/compact", "summarize older context to free tokens"],
+            ["/steps", "expand the last turn's collapsed tool calls"],
+            ["/theme [name]", "list or switch themes (mist, cinnamon) — persists"],
+            ["/model [name]", "show or switch the model — persists to mist.cfg"],
+            ["/tools", "list the agent's tools"],
+            ["/status", "session, model, context tokens, theme, cwd"],
+            ["/dump_context", "write the full conversation history to /tmp"],
+            ["/quit, /exit, /q", "leave mist-ts"],
+          ];
+          const width = Math.max(...commands.map(([c]) => c.length)) + 2;
+          for (const [c, desc] of commands) say(`${c.padEnd(width)}${desc}`);
+          say("");
+          say("keys   Enter send · type+Enter while busy = steer the agent · Esc interrupt · Ctrl+C quit");
+          say("flags  mist-ts \"task\" one-shot · -c continue latest · -r <id> resume · --sessions · --help");
+          say("env    MIST_HEADROOM=1 token compression · MIST_COMPACT_AT=<tokens> auto-compact threshold · MIST_MODEL=<name>");
           break;
+        }
         case "theme": {
           if (!arg) {
             say(`themes: ${Object.keys(THEMES).join(" · ")} (current: ${theme.name})`);
