@@ -230,7 +230,9 @@ def test_pseudo_expands_length():
 def test_spanish_catalog_ships_and_resolves():
     translate.set_locale("es")
     assert i18n.t("confirm.yes") == "S\u00ed"
-    assert i18n.t("startup.welcome", name="TJ") == "\u00a1Bienvenido(a) a Code Puppy, TJ!"
+    assert (
+        i18n.t("startup.welcome", name="TJ") == "\u00a1Bienvenido(a) a Code Puppy, TJ!"
+    )
 
 
 def test_latin_american_umbrella_ships_and_resolves():
