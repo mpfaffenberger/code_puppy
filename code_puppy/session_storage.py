@@ -242,10 +242,8 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
             summary = (
                 f" and {remaining} more" if (remaining > 0 and not is_last_page) else ""
             )
-            next_label = (
-                "Return to first page" if is_last_page else f"Next page{summary}"
-            )
-            emit_system_message(f"  [6] {next_label}")
+            label = "Return to first page" if is_last_page else f"Next page{summary}"
+            emit_system_message(f"  [6] {label}")
         emit_system_message("  [Enter] Skip loading autosave")
 
     chosen_name: str | None = None
@@ -317,9 +315,9 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
 
     # Set current autosave session id so subsequent autosaves overwrite this session
     try:
-        from code_puppy.config import pin_current_session_name
+        from code_puppy.config import set_current_autosave_from_session_name
 
-        pin_current_session_name(chosen_name)
+        set_current_autosave_from_session_name(chosen_name)
     except Exception:
         pass
 

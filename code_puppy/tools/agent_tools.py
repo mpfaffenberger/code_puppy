@@ -1,14 +1,12 @@
 # agent_tools.py
 import hashlib
 import json
-import pickle
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import List
 
 from pydantic import BaseModel
-
 from pydantic_ai import RunContext
 from pydantic_ai.messages import ModelMessage
 
@@ -22,6 +20,7 @@ from code_puppy.messaging import (
     get_session_context,
     set_session_context,
 )
+from code_puppy.session_storage import load_session, save_session
 from code_puppy.tools.common import atomic_write_text, generate_group_id
 
 
@@ -124,13 +123,36 @@ def _save_session_history(
 
     sessions_dir = _get_subagent_sessions_dir()
 
-    # Save pickle file with message history (atomic: write a temp file then
-    # replace, so a crash mid-write can't corrupt an existing session pickle)
-    pkl_path = sessions_dir / f"{session_id}.pkl"
-    tmp_pkl = pkl_path.with_suffix(".tmp")
-    with open(tmp_pkl, "wb") as f:
-        pickle.dump(message_history, f)
-    tmp_pkl.replace(pkl_path)
+    # Save JSON session history using the shared session storage helpers.
+    from code_puppy.agents._history import estimate_tokens_for_message
+
+    save_session(
+        history=message_history,
+        session_name=session_id,
+        base_dir=sessions_dir,
+        timestamp=datetime.now().isoformat(),
+        token_estimator=estimate_tokens_for_message,
+    )
+
+    # Backward-compat artifact: some tests and legacy tooling still look for
+    # `<session>.json` in the subagent sessions directory.
+    legacy_json_path = sessions_dir / f"{session_id}.json"
+    try:
+        from pydantic_ai.messages import ModelMessagesTypeAdapter
+
+        legacy_payload = ModelMessagesTypeAdapter.dump_json(message_history).decode(
+            "utf-8"
+        )
+    except Exception:
+        try:
+            legacy_payload = json.dumps(
+                [str(msg) for msg in message_history],
+                ensure_ascii=False,
+                indent=2,
+            )
+        except Exception:
+            legacy_payload = "[]"
+    atomic_write_text(str(legacy_json_path), legacy_payload)
 
     # Save or update txt file with metadata
     txt_path = sessions_dir / f"{session_id}.txt"
@@ -172,16 +194,12 @@ def _load_session_history(session_id: str) -> List[ModelMessage]:
     _validate_session_id(session_id)
 
     sessions_dir = _get_subagent_sessions_dir()
-    pkl_path = sessions_dir / f"{session_id}.pkl"
-
-    if not pkl_path.exists():
-        return []
 
     try:
-        with open(pkl_path, "rb") as f:
-            return pickle.load(f)
+        return load_session(session_id, sessions_dir)
+    except FileNotFoundError:
+        return []
     except Exception:
-        # If pickle is corrupted or incompatible, return empty history
         return []
 
 

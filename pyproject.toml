@@ -9,6 +9,10 @@ description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
+    "aiosqlite>=0.22.1",
+    "websockets>=12.0",
+    "uvicorn[standard]>=0.27.0",
+    "fastapi>=0.109.0",
     "pydantic-ai-slim[openai,anthropic,mcp]==1.56.0",
     "typer>=0.12.0",
     "mcp>=1.9.4",
@@ -65,6 +69,7 @@ HomePage = "https://github.com/mpfaffenberger/code_puppy"
 [project.scripts]
 code-puppy = "code_puppy.main:main_entry"
 pup = "code_puppy.main:main_entry"
+code-puppy-api = "code_puppy.api.main:main"
 
 [tool.logfire]
 ignore_no_config = true

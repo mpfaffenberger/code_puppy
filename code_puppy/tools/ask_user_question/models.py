@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, Field, model_validator
 
@@ -66,6 +66,11 @@ def _make_sanitizer(
 _sanitize_required = _make_sanitizer(allow_none=False)
 _sanitize_optional = _make_sanitizer(allow_none=True, default="")
 
+# Legacy direct-construction guard used by unit tests and terminal-oriented callers.
+# Tool payload dictionaries (validated through AskUserQuestionInput) can carry
+# up to MAX_OPTIONS_PER_QUESTION options for browser-first workflows.
+_DIRECT_MODEL_MAX_OPTIONS = 6
+
 
 def _sanitize_header(v: Any) -> str:
     """Sanitize header: remove ANSI, strip, replace spaces with hyphens."""
@@ -116,7 +121,9 @@ class Question(BaseModel):
         question: The full question text displayed to the user
         header: Short label used for compact display and response mapping
         multi_select: Whether user can select multiple options
-        options: List of 2-6 selectable options
+        options: List of selectable options. Usually 2-12 choices; may be empty
+            when ``input_mode`` is ``"text"``.
+        input_mode: Whether the answer is option-based, free-form text, or both
     """
 
     question: Annotated[
@@ -147,16 +154,73 @@ class Question(BaseModel):
     options: Annotated[
         list[QuestionOption],
         Field(
-            min_length=MIN_OPTIONS_PER_QUESTION,
+            default_factory=list,
+            min_length=0,
             max_length=MAX_OPTIONS_PER_QUESTION,
-            description="Array of 2-6 selectable options",
+            description=(
+                f"Array of 0-{MAX_OPTIONS_PER_QUESTION} selectable options. "
+                f"Use at least {MIN_OPTIONS_PER_QUESTION} unless input_mode='text'."
+            ),
+        ),
+    ]
+    input_mode: Annotated[
+        Literal["select", "text", "select_or_text"],
+        Field(
+            default="select",
+            description=(
+                "Answer mode: select from options, enter free-form text, "
+                "or allow either."
+            ),
+        ),
+    ]
+    input_placeholder: Annotated[
+        str,
+        BeforeValidator(_sanitize_optional),
+        Field(
+            default="Type your answer...",
+            max_length=MAX_DESCRIPTION_LENGTH,
+            description="Placeholder for free-form user input modes",
         ),
     ]
 
+    @model_validator(mode="before")
+    @classmethod
+    def validate_direct_model_option_limit(cls, values: Any) -> Any:
+        """Keep direct ``Question(...)`` construction capped for terminal ergonomics.
+
+        Backward-compat nuance: legacy tests instantiate ``Question`` with pre-built
+        ``QuestionOption`` objects and expect >6 options to fail. Browser/tool payloads
+        arrive as dicts via ``AskUserQuestionInput`` and are allowed up to
+        ``MAX_OPTIONS_PER_QUESTION``.
+        """
+        if isinstance(values, dict):
+            options = values.get("options")
+            if (
+                isinstance(options, list)
+                and len(options) > _DIRECT_MODEL_MAX_OPTIONS
+                and options
+                and all(isinstance(opt, QuestionOption) for opt in options)
+            ):
+                raise ValueError(
+                    f"options must include at most {_DIRECT_MODEL_MAX_OPTIONS} items"
+                )
+        return values
+
+    @property
+    def allows_text_input(self) -> bool:
+        """Return True when this question accepts free-form text."""
+        return self.input_mode in {"text", "select_or_text"}
+
     @model_validator(mode="after")
-    def validate_unique_labels(self) -> Question:
-        """Ensure all option labels are unique within a question."""
-        _check_unique([opt.label for opt in self.options], "Option labels")
+    def validate_question_shape(self) -> Question:
+        """Ensure labels are unique and options are present when required."""
+        if self.options:
+            _check_unique([opt.label for opt in self.options], "Option labels")
+        if self.input_mode == "select" and len(self.options) < MIN_OPTIONS_PER_QUESTION:
+            raise ValueError(
+                f"options must include at least {MIN_OPTIONS_PER_QUESTION} items "
+                "when input_mode='select'"
+            )
         return self
 
 
@@ -213,6 +277,14 @@ class QuestionAnswer(BaseModel):
             description="Custom text if 'Other' was selected",
         ),
     ]
+    user_input: Annotated[
+        str | None,
+        Field(
+            default=None,
+            max_length=MAX_OTHER_TEXT_LENGTH,
+            description="Free-form text answer for input-enabled questions",
+        ),
+    ]
 
     @property
     def has_other(self) -> bool:
@@ -222,7 +294,11 @@ class QuestionAnswer(BaseModel):
     @property
     def is_empty(self) -> bool:
         """Check if no options were selected."""
-        return not self.selected_options and self.other_text is None
+        return (
+            not self.selected_options
+            and self.other_text is None
+            and self.user_input is None
+        )
 
 
 class AskUserQuestionOutput(BaseModel):

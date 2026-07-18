@@ -218,6 +218,30 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
                     item["id"] = f"rs_{item_id}"
                     modified = True
 
+        # De-duplicate input items by `id` to satisfy Responses API validation.
+        # Resumed-session reconstruction can occasionally surface repeated
+        # reasoning item IDs (`rs_...`), which the backend rejects with HTTP 400.
+        input_items = data.get("input")
+        if isinstance(input_items, list):
+            seen_ids: set[str] = set()
+            deduped: list[object] = []
+            removed = 0
+            for item in input_items:
+                if not isinstance(item, dict):
+                    deduped.append(item)
+                    continue
+                item_id = item.get("id")
+                if isinstance(item_id, str) and item_id:
+                    if item_id in seen_ids:
+                        removed += 1
+                        modified = True
+                        continue
+                    seen_ids.add(item_id)
+                deduped.append(item)
+            if removed:
+                logger.debug("Dropped %d duplicate input items by id", removed)
+                data["input"] = deduped
+
         # Remove unsupported parameters
         # Note: verbosity should be under "text" object, not top-level
         unsupported_params = ["max_output_tokens", "max_tokens", "verbosity"]
