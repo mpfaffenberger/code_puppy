@@ -43,6 +43,7 @@ export type MistEvent =
   | { kind: "subagent_step"; id: string; label: string; step: string }
   | { kind: "subagent_done"; id: string; label: string; steps: number; report: string }
   | { kind: "subagent_error"; id: string; label: string; error: string }
+  | { kind: "mcp_status"; started: string[]; failed: string[] }
   | { kind: "context_compacted"; beforeTokens: number; afterTokens: number; summarized: number }
   | { kind: "narration"; text: string }
   | { kind: "step_done"; label: string; preview: string[]; hiddenLines: number }
@@ -190,6 +191,12 @@ export function classifyEvent(env: EventEnvelope): MistEvent {
       };
     case "subagent.error":
       return { kind: "subagent_error", id: str(d["id"]), label: str(d["label"]), error: str(d["error"]) };
+    case "mcp.status":
+      return {
+        kind: "mcp_status",
+        started: Array.isArray(d["started"]) ? d["started"].map(String) : [],
+        failed: Array.isArray(d["failed"]) ? d["failed"].map(String) : [],
+      };
     case "question.asked":
       return {
         kind: "question_asked",

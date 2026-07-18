@@ -7,6 +7,7 @@
 
 import type { EventEnvelope } from "@mist/protocol";
 import { MistEngine } from "./agent";
+import { McpManager } from "./mcp";
 import { SessionStore } from "./store";
 import type { StoredSession } from "./store";
 
@@ -43,6 +44,34 @@ export class EngineSession {
       this.created = false;
       this.emit("session.created", { agent_name: "mist" });
     }
+    // MCP: attach + auto-start configured servers in the background. Without
+    // this call, mcp_servers.json was silently ignored in live sessions.
+    void this.initMcp();
+  }
+
+  /** The engine's MCP manager (for the /mcp command). */
+  get mcp(): McpManager | null {
+    return this.engine.mcp;
+  }
+
+  private async initMcp(): Promise<void> {
+    try {
+      // attachMcp loads config + auto-starts enabled servers (idempotent).
+      const res = await this.engine.attachMcp(new McpManager());
+      if (res.started.length || res.failed.length) {
+        this.emit("mcp.status", {
+          started: res.started,
+          failed: res.failed.map((f) => `${f.name}: ${f.error}`),
+        });
+      }
+    } catch {
+      /* MCP is optional — a bad config must never break the session */
+    }
+  }
+
+  /** Graceful teardown (quit): stop MCP child processes. */
+  async shutdown(): Promise<void> {
+    await this.engine.mcp?.stopAll().catch(() => {});
   }
 
   private userNamed = false;
@@ -186,6 +215,27 @@ export class EngineSession {
   /** Switch models mid-session (next request onward). */
   setModel(name: string): void {
     this.engine.setModel(name);
+  }
+
+  /** `/pop` — remove the last user turn + its reply. Returns messages removed. */
+  popLastTurn(): number {
+    const removed = this.engine.popLastTurn();
+    if (removed) this.emit("context.compacted", { summarized: removed, beforeTokens: 0, afterTokens: this.engine.estimateContextTokens() });
+    return removed;
+  }
+
+  /** `/prune N` — keep only the last N turns. Returns messages removed. */
+  pruneHistory(keepTurns: number): number {
+    const removed = this.engine.pruneHistory(keepTurns);
+    if (removed) this.emit("context.compacted", { summarized: removed, beforeTokens: 0, afterTokens: this.engine.estimateContextTokens() });
+    return removed;
+  }
+
+  /** `/truncate BUDGET` — drop oldest until under token budget. */
+  truncateHistory(tokenBudget: number): number {
+    const removed = this.engine.truncateHistory(tokenBudget);
+    if (removed) this.emit("context.compacted", { summarized: removed, beforeTokens: 0, afterTokens: this.engine.estimateContextTokens() });
+    return removed;
   }
 
   /** Nudge the running turn; injected before the model's next request. */

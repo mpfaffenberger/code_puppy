@@ -18,6 +18,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { classifyEvent } from "@mist/protocol";
 import type { EventEnvelope } from "@mist/protocol";
 import { EngineSession, SessionStore, getConfiguredModelName, listModelNames, persistModelChoice } from "@mist/core";
+import { readConfig, getConfig, setConfig, SETTING_DEFS } from "@mist/core";
 import type { ChatMessage, SessionMeta, StoredSession } from "@mist/core";
 import { MistClient } from "./client";
 import { labelForGroup } from "./steps";
@@ -28,6 +29,16 @@ import { Mascot } from "./mascot";
 import { SPINNERS } from "./spinners";
 import type { Spinner } from "./spinners";
 import { THEMES, applyTheme, loadPersistedTheme, persistTheme, rampColor, theme } from "./theme";
+import { useReadline } from "./readline";
+import { completionsFor, isShellPassthrough, shellCommand, type Suggestion } from "./completions";
+
+/** Canonical slash-command list — drives Tab completion and the /help rows. */
+const COMMAND_NAMES = [
+  "help", "theme", "model", "resume", "sessions", "rename", "new", "clear",
+  "compact", "steps", "tools", "status", "record", "export", "dump_context",
+  "quit", "exit", "q", "set", "show", "cd", "reasoning", "verbosity",
+  "pop", "prune", "truncate", "mcp",
+];
 
 type Item =
   | { id: number; kind: "user"; text: string }
@@ -298,8 +309,11 @@ function TranscriptItem({ it }: { it: Item }) {
         </Text>
       );
     case "response":
+      // Explicit width: nested inline <Text> (bold/code spans) can defeat
+      // Ink's wrap measurement inside <Static>, hard-wrapping mid-word at the
+      // terminal edge (the 'compil/e' artifact) — pin the column like narration.
       return (
-        <Box flexDirection="column" marginTop={1} paddingLeft={0}>
+        <Box flexDirection="column" marginTop={1} width={Math.max(20, (process.stdout.columns ?? 80) - 3)}>
           <Markdown source={it.text} />
         </Box>
       );
@@ -369,7 +383,14 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
   const { exit } = useApp();
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
-  const [input, setInput] = useState("");
+  // Completion popup: candidates + the anchor/tail of the token being
+  // completed, captured at first Tab so cycling replaces the right span.
+  const [suggestions, setSuggestions] = useState<{
+    list: Suggestion[];
+    index: number;
+    anchor: number;
+    tail: string;
+  } | null>(null);
   const [frame, setFrame] = useState(0);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const startedAtRef = useRef<number | null>(null);
@@ -404,6 +425,34 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
   // Glyph set follows the verb context — a distinctive spinner per activity
   // (scan while reading, fillsweep while editing, cascade while executing).
   const [spinner, setSpinner] = useState<Spinner>(SPINNERS.general);
+
+  // Cursor-aware input line for idle mode (replaces append-only setInput).
+  // Gives us Ctrl+A/E/K/U/W, ←/→, Alt+B/F word jumps, Ctrl+R reverse search,
+  // Alt+M/Ctrl+J multiline, and ↑/↓ history with draft preservation.
+  // rlValueRef breaks the circular dep between rlHistoryNav (callback) and rl.
+  const rlValueRef = useRef("");
+  const rlHistoryNav = useCallback((direction: "up" | "down"): string | undefined => {
+    const hist = historyRef.current;
+    if (direction === "up") {
+      if (!hist.length) return undefined;
+      if (histIndex.current === null) {
+        draftRef.current = rlValueRef.current;
+        histIndex.current = hist.length - 1;
+      } else if (histIndex.current > 0) {
+        histIndex.current -= 1;
+      }
+      return hist[histIndex.current];
+    }
+    if (histIndex.current === null) return undefined;
+    histIndex.current += 1;
+    if (histIndex.current > hist.length - 1) {
+      histIndex.current = null;
+      return draftRef.current;
+    }
+    return hist[histIndex.current];
+  }, []);
+  const rl = useReadline({ onHistoryNav: rlHistoryNav });
+  rlValueRef.current = rl.handle.state.value; // keep ref fresh for history nav
 
   const noteActivity = useCallback((label: string) => {
     const next: VerbContext = label.startsWith("$")
@@ -523,6 +572,11 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
         case "subagent_error":
           push(item("error", `subagent “${ev.label}” failed: ${ev.error}`));
           break;
+        case "mcp_status": {
+          if (ev.started.length) push(item("info", `⚡ mcp: started ${ev.started.join(", ")}`));
+          for (const f of ev.failed) push(item("error", `mcp: ${f}`));
+          break;
+        }
         case "text_delta":
           setStream((t) => t + ev.delta);
           break;
@@ -558,7 +612,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
           setQuestion({ text: ev.question, options: ev.options });
           setQuestionIndex(0);
           setQuestionCustom(ev.options.length === 0);
-          setInput("");
+          rl.handle.reset();
           break;
         case "session_resumed":
           setSessionTitle(ev.title);
@@ -693,7 +747,15 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
               { label: "/rename", desc: "name this session (auto-named from your first question otherwise)", action: "/rename" },
               { label: "/new", desc: "start a fresh conversation (alias /clear)", action: "/new" },
               { label: "/compact", desc: "summarize older context to free tokens", action: "/compact" },
-              { label: "/steps", desc: "expand the last turn's collapsed tool calls", action: "/steps" },
+              { label: "/pop", desc: "remove the last turn from history", action: "/pop" },
+              { label: "/prune", desc: "keep only the last N turns", action: "/prune" },
+              { label: "/truncate", desc: "drop oldest messages to fit a token budget", action: "/truncate" },
+              { label: "/set", desc: "adjust config (verbosity, reasoning, temperature, …)", action: "/set" },
+              { label: "/show", desc: "show config values from mist.cfg", action: "/show" },
+              { label: "/cd", desc: "change working directory", action: "/cd" },
+              { label: "/reasoning", desc: "set reasoning effort (off·low·medium·high)", action: "/reasoning" },
+              { label: "/verbosity", desc: "set output verbosity (quiet·normal·verbose)", action: "/verbosity" },
+              { label: "/mcp", desc: "manage MCP servers (status·start·stop·restart)", action: "/mcp" },
               { label: "/theme", desc: "switch themes — opens a chooser", action: "/theme" },
               { label: "/model", desc: "switch the model — opens a chooser", action: "/model" },
               { label: "/tools", desc: "list the agent's tools", action: "/tools" },
@@ -832,6 +894,156 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
           say(`context (${history.length} messages) → ${path}`);
           break;
         }
+        case "set": {
+          if (!arg) {
+            // Interactive menu: show all settable keys with current values.
+            const cfg = await readConfig();
+            setMenuIndex(0);
+            setMenu({
+              title: "/set — adjust a config setting (↑/↓ · enter edit · esc close)",
+              rows: SETTING_DEFS.map((s) => ({
+                label: `${s.label} = ${cfg[s.key] ?? "(unset)"}`,
+                desc: s.desc,
+                action: `/set ${s.key}`,
+              })),
+            });
+            break;
+          }
+          const [setKey, ...setRest] = arg.split(/\s+/);
+          const setValue = setRest.join(" ").trim();
+          if (!setValue) {
+            // Show current value of one key.
+            const v = await getConfig(setKey);
+            say(v ? `${setKey} = ${v}` : `${setKey} is not set`);
+            break;
+          }
+          const def = SETTING_DEFS.find((s) => s.key === setKey);
+          if (def?.validate) {
+            const err = def.validate(setValue);
+            if (err) {
+              say(`✗ ${setKey}: ${err}`);
+              break;
+            }
+          }
+          await setConfig(setKey, setValue);
+          say(`✓ ${setKey} = ${setValue} (saved to ~/.mist/mist.cfg)`);
+          break;
+        }
+        case "show": {
+          if (!arg) {
+            const cfg = await readConfig();
+            const keys = Object.keys(cfg).sort();
+            if (!keys.length) say("(mist.cfg is empty)");
+            for (const k of keys) say(`${k} = ${cfg[k]}`);
+          } else {
+            const v = await getConfig(arg);
+            say(v ? `${arg} = ${v}` : `${arg} is not set`);
+          }
+          break;
+        }
+        case "cd": {
+          if (!arg) {
+            say(`cwd: ${process.cwd()}`);
+            break;
+          }
+          try {
+            const resolved = arg.startsWith("/") ? arg : `${process.cwd()}/${arg}`;
+            const stat = await Bun.file(resolved).exists() ? true : false;
+            if (!stat) {
+              say(`✗ not found: ${resolved}`);
+              break;
+            }
+            process.chdir(resolved);
+            say(`✓ cwd → ${process.cwd()}`);
+          } catch (err) {
+            say(`✗ ${(err as Error).message}`);
+          }
+          break;
+        }
+        case "reasoning": {
+          if (!arg) {
+            const v = (await getConfig("reasoning")) ?? "(unset)";
+            say(`reasoning = ${v} (off · low · medium · high)`);
+            break;
+          }
+          if (!["off", "low", "medium", "high"].includes(arg)) {
+            say("✗ reasoning must be off · low · medium · high");
+            break;
+          }
+          await setConfig("reasoning", arg);
+          say(`✓ reasoning = ${arg}`);
+          break;
+        }
+        case "verbosity": {
+          if (!arg) {
+            const v = (await getConfig("verbosity")) ?? "(unset)";
+            say(`verbosity = ${v} (quiet · normal · verbose)`);
+            break;
+          }
+          if (!["quiet", "normal", "verbose"].includes(arg)) {
+            say("✗ verbosity must be quiet · normal · verbose");
+            break;
+          }
+          await setConfig("verbosity", arg);
+          say(`✓ verbosity = ${arg}`);
+          break;
+        }
+        case "pop": {
+          const removed = sessionRef.current?.popLastTurn() ?? 0;
+          say(removed ? `↶ popped ${removed} message${removed === 1 ? "" : "s"} (last turn removed)` : "(nothing to pop — no user turn in history)");
+          break;
+        }
+        case "prune": {
+          const n = Number(arg);
+          // N must be >= 1: /prune 0 used to silently wipe the whole history.
+          if (!Number.isFinite(n) || n < 1) {
+            say("usage: /prune <N> — keep only the last N turns (N ≥ 1; /new to start fresh)");
+            break;
+          }
+          const removed = sessionRef.current?.pruneHistory(n) ?? 0;
+          say(removed ? `✂ pruned ${removed} message${removed === 1 ? "" : "s"} (kept last ${n} turn${n === 1 ? "" : "s"})` : "(nothing to prune)");
+          break;
+        }
+        case "truncate": {
+          const budget = Number(arg);
+          if (!Number.isFinite(budget) || budget <= 0) {
+            say("usage: /truncate <token_budget> — drop oldest until under budget");
+            break;
+          }
+          const removed = sessionRef.current?.truncateHistory(budget) ?? 0;
+          say(removed ? `✂ truncated ${removed} message${removed === 1 ? "" : "s"} (budget: ${budget.toLocaleString()} tok)` : "(already under budget)");
+          break;
+        }
+        case "mcp": {
+          const mcpMgr = sessionRef.current?.mcp;
+          if (!mcpMgr) {
+            say("(MCP not initialized — add servers to ~/.mist/mcp_servers.json)");
+            break;
+          }
+          const sub = rest[0]?.toLowerCase();
+          if (sub === "start" && rest[1]) {
+            try { await mcpMgr.start(rest[1]); say(`✓ started ${rest[1]}`); } catch (e) { say(`✗ ${(e as Error).message}`); }
+            break;
+          }
+          if (sub === "stop" && rest[1]) {
+            await mcpMgr.stop(rest[1]); say(`✓ stopped ${rest[1]}`); break;
+          }
+          if (sub === "restart" && rest[1]) {
+            try { await mcpMgr.restart(rest[1]); say(`✓ restarted ${rest[1]}`); } catch (e) { say(`✗ ${(e as Error).message}`); }
+            break;
+          }
+          // Default: list status.
+          const statuses = mcpMgr.status();
+          const configs = mcpMgr.configsList();
+          if (!configs.length) { say("(no MCP servers configured in ~/.mist/mcp_servers.json)"); break; }
+          for (const c of configs) {
+            const s = statuses.find((s) => s.name === c.name);
+            const glyph = s?.status === "running" ? "✓" : s?.status === "starting" ? "⏳" : s?.status === "error" ? "✗" : "○";
+            say(`${glyph} ${c.name} (${c.type}) — ${s?.status ?? "stopped"}${s?.tools ? ` · ${s.tools} tool${s.tools === 1 ? "" : "s"}` : ""}${s?.restarts ? ` · ${s.restarts} restart${s.restarts === 1 ? "" : "s"}` : ""}`);
+          }
+          say("/mcp start|stop|restart <name>");
+          break;
+        }
         case "clear":
         case "new": {
           const fresh = new EngineSession(process.cwd());
@@ -850,6 +1062,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
         case "quit":
         case "exit":
         case "q":
+          await sessionRef.current?.shutdown().catch(() => {});
           exit();
           break;
         default:
@@ -859,18 +1072,49 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
     [exit, handleEnvelope, items, push, saved, sessionId, tokens],
   );
 
+  // (Declared BEFORE submit — a later declaration put the useCallback dep
+  // array in the temporal dead zone and crashed the first suggestions render.)
+  const recordHistory = useCallback((entry: string) => {
+    const trimmed = entry.trim();
+    if (!trimmed) return;
+    const hist = historyRef.current;
+    if (hist[hist.length - 1] !== trimmed) hist.push(trimmed);
+    if (hist.length > 1000) historyRef.current = hist.slice(-1000);
+    histIndex.current = null;
+    const path = process.env.MIST_TS_HISTORY ?? `${process.env.HOME}/.mist/ts-history`;
+    void Bun.write(path, historyRef.current.join("\n") + "\n").catch(() => {});
+  }, []);
+
   const submit = useCallback(async () => {
-    const prompt = input.trim();
+    const prompt = rl.handle.state.value.trim();
     if (!prompt || busy) return;
+    rl.handle.reset();
+    setSuggestions(null);
+    // !cmd → bare shell passthrough (runs locally, not through the agent).
+    if (isShellPassthrough(prompt)) {
+      const cmd = shellCommand(prompt);
+      recordHistory(prompt);
+      push(item("user", prompt));
+      push(item("info", `$ ${cmd}`));
+      try {
+        const proc = Bun.spawn(["sh", "-c", cmd], { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" });
+        const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+        const code = await proc.exited;
+        const out = (stdout + (stderr ? `\n[stderr]\n${stderr}` : "")).trim();
+        if (out) push(item("info", out.slice(0, 2000)));
+        push(item("info", `[exit ${code}]`));
+      } catch (err) {
+        push(item("error", `shell failed: ${(err as Error).message}`));
+      }
+      return;
+    }
     if (prompt.startsWith("/")) {
-      setInput("");
       recordHistory(prompt);
       push(item("user", prompt));
       await runCommand(prompt);
       return;
     }
     if (!clientRef.current || !sessionId) return;
-    setInput("");
     recordHistory(prompt);
     push(item("user", prompt));
     setBusy(true);
@@ -882,7 +1126,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
       push(item("error", (err as Error).message));
       setBusy(false);
     }
-  }, [busy, input, push, runCommand, sessionId]);
+  }, [busy, push, recordHistory, rl, runCommand, sessionId]);
 
   // Load persisted input history once.
   useEffect(() => {
@@ -897,47 +1141,14 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
     })();
   }, []);
 
-  const recordHistory = useCallback((entry: string) => {
-    const trimmed = entry.trim();
-    if (!trimmed) return;
-    const hist = historyRef.current;
-    if (hist[hist.length - 1] !== trimmed) hist.push(trimmed);
-    if (hist.length > 1000) historyRef.current = hist.slice(-1000);
-    histIndex.current = null;
-    const path = process.env.MIST_TS_HISTORY ?? `${process.env.HOME}/.mist/ts-history`;
-    void Bun.write(path, historyRef.current.join("\n") + "\n").catch(() => {});
-  }, []);
-
-  /** ↑/↓ history navigation. Returns true if the key was consumed. */
-  const historyNav = useCallback(
-    (key: { upArrow: boolean; downArrow: boolean }): boolean => {
-      const hist = historyRef.current;
-      if (key.upArrow) {
-        if (!hist.length) return true;
-        if (histIndex.current === null) {
-          draftRef.current = "";
-          histIndex.current = hist.length - 1;
-        } else if (histIndex.current > 0) {
-          histIndex.current -= 1;
-        }
-        setInput(hist[histIndex.current] ?? "");
-        return true;
-      }
-      if (key.downArrow) {
-        if (histIndex.current === null) return true;
-        histIndex.current += 1;
-        if (histIndex.current > hist.length - 1) {
-          histIndex.current = null;
-          setInput(draftRef.current);
-        } else {
-          setInput(hist[histIndex.current] ?? "");
-        }
-        return true;
-      }
-      return false;
-    },
-    [],
-  );
+  /** Anchor of the completion token at the cursor: for @path completions the
+   * @ sign; for /cmd the token start. */
+  const completionAnchor = (line: string, cursor: number): number => {
+    let start = cursor;
+    while (start > 0 && !/\s/.test(line[start - 1]!)) start -= 1;
+    const atIdx = line.slice(start, cursor).lastIndexOf("@");
+    return atIdx >= 0 ? start + atIdx : start;
+  };
 
   useInput((ch, key) => {
     if (key.ctrl && ch === "c") exit();
@@ -1000,7 +1211,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
     if (question) {
       // Answer mode: the agent asked a clarifying question.
       const answerWith = (answer: string) => {
-        setInput("");
+        rl.handle.reset();
         setQuestion(null);
         setQuestionCustom(false);
         push(item("info", `❓ ${question.text}`), item("user", answer || "(no answer)"));
@@ -1024,19 +1235,19 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
         }
         if (ch && !key.ctrl && !key.meta && !key.escape && !key.tab) {
           setQuestionCustom(true);
-          setInput(ch);
+          rl.handle.setValue(ch);
         }
         return;
       }
-      // Free-text mode (no options, or the user chose to type their own).
+      // Free-text mode (no options, or the user chose to type their own) —
+      // full readline editing, same buffer as everywhere else.
       if (key.escape && question.options.length) {
         setQuestionCustom(false);
-        setInput("");
+        rl.handle.reset();
         return;
       }
-      if (key.return) { answerWith(input.trim()); return; }
-      if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return; }
-      if (ch && !key.ctrl && !key.meta && !key.escape) setInput((s) => s + ch);
+      if (key.return) { answerWith(rl.handle.state.value.trim()); return; }
+      rl.input(ch, key);
       return;
     }
     if (busy) {
@@ -1045,40 +1256,60 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
         return;
       }
       // Steering: type while the agent works; Enter queues the nudge.
-      if (historyNav(key)) return;
+      // Same readline buffer as idle — editing + ↑/↓ history work here too.
       if (key.return) {
-        const steer = input.trim();
-        setInput("");
+        const steer = rl.handle.state.value.trim();
+        rl.handle.reset();
         if (steer) {
           recordHistory(steer);
           sessionRef.current?.steer(steer);
         }
         return;
       }
-      if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return; }
-      if (ch && !key.ctrl && !key.meta && !key.escape) setInput((s) => s + ch);
+      rl.input(ch, key);
       return;
     }
-    if (historyNav(key)) return;
+    // Cursor-aware editing via readline hook (Ctrl+A/E/K/U/W, arrows, ↑/↓
+    // history via rlHistoryNav — no pre-filtering, rl owns the buffer).
+    if (rl.search.active) {
+      // Ctrl+R reverse search: delegate fully, render the search overlay.
+      rl.input(ch, key);
+      return;
+    }
+    // Tab: open the completion popup, or cycle through its candidates. The
+    // anchor + tail are captured at FIRST Tab so each cycle replaces exactly
+    // the candidate span (the old line-comparison guard never matched).
+    if (key.tab) {
+      if (suggestions && suggestions.list.length > 0) {
+        const next = (suggestions.index + 1) % suggestions.list.length;
+        const sug = suggestions.list[next]!;
+        const head = rl.handle.state.value.slice(0, suggestions.anchor);
+        rl.handle.setValue(head + sug.replacement + suggestions.tail, suggestions.anchor + sug.replacement.length);
+        setSuggestions({ ...suggestions, index: next });
+        return;
+      }
+      const { value: line, cursor } = rl.handle.state;
+      const list = completionsFor({ line, cursor, cwd: process.cwd(), commands: COMMAND_NAMES });
+      if (list.length) {
+        const anchor = completionAnchor(line, cursor);
+        const tail = line.slice(cursor);
+        const sug = list[0]!;
+        rl.handle.setValue(line.slice(0, anchor) + sug.replacement + tail, anchor + sug.replacement.length);
+        setSuggestions({ list, index: 0, anchor, tail });
+      } else {
+        setSuggestions(null);
+      }
+      return;
+    }
+    // Any other key: pass to readline; typing dismisses the popup.
+    const consumed = rl.input(ch, key);
+    if (consumed) {
+      if (suggestions) setSuggestions(null);
+      return;
+    }
     if (key.return) {
       void submit();
       return;
-    }
-    if (key.backspace || key.delete) {
-      setInput((s) => s.slice(0, -1));
-      return;
-    }
-    if (key.ctrl && ch === "u") {
-      setInput("");
-      return;
-    }
-    if (ch && !key.ctrl && !key.meta && !key.escape) {
-      histIndex.current = null;
-      setInput((s) => {
-        const next = s + ch;
-        draftRef.current = next;
-        return next;
-      });
     }
   });
 
@@ -1169,8 +1400,9 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
             ) : (
               <Text>
                 <Text color={theme.accent} bold>{"❯ "}</Text>
-                {input}
-                <Text color={theme.brand}>█</Text>
+                {rl.handle.state.value.slice(0, rl.handle.state.cursor)}
+                <Text color={theme.brand}>▏</Text>
+                {rl.handle.state.value.slice(rl.handle.state.cursor)}
               </Text>
             )}
           </Box>
@@ -1243,12 +1475,13 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
           </Text>
           </Box>
           <InputFrame title={sessionTitle}>
-            <Text color={input ? theme.accent : theme.dim} bold>
+            <Text color={rl.handle.state.value ? theme.accent : theme.dim} bold>
               ❯{" "}
             </Text>
-            <Text color={input ? undefined : theme.dim}>
-              {input || ""}
-              <Text color={theme.brand}>█</Text>
+            <Text color={rl.handle.state.value ? undefined : theme.dim}>
+              {rl.handle.state.value.slice(0, rl.handle.state.cursor)}
+              <Text color={theme.brand}>▏</Text>
+              {rl.handle.state.value.slice(rl.handle.state.cursor)}
             </Text>
           </InputFrame>
           <Text color={theme.dim} dimColor>
@@ -1256,22 +1489,54 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
           </Text>
         </Box>
       ) : (
-        <InputFrame title={sessionTitle} marginTop={1}>
-          <Text color={theme.accent} bold>
-            ❯{" "}
-          </Text>
-          <Text>
-            {input}
-            <Text color={theme.brand}>█</Text>
-          </Text>
-        </InputFrame>
+        <Box flexDirection="column" marginTop={1}>
+          {rl.search.active ? (
+            <Box flexDirection="column" marginBottom={1}>
+              <Text color={theme.accent} bold>
+                ↎ reverse-i-search: {rl.search.query || "(type to search)"}
+              </Text>
+              {rl.search.result ? (
+                <Text color={theme.dim}>  {rl.search.result}</Text>
+              ) : rl.search.query ? (
+                <Text color={theme.dim}>  (no match)</Text>
+              ) : null}
+              <Text color={theme.dim} dimColor>  ctrl+r again to cycle · enter to accept · backspace to edit · esc to cancel</Text>
+            </Box>
+          ) : null}
+          {suggestions && suggestions.list.length > 0 ? (
+            <Box flexDirection="column" marginBottom={0}>
+              {suggestions.list.map((sug, i) => (
+                <Text key={`${sug.label}-${i}`} color={i === suggestions.index ? theme.brand : theme.dim} bold={i === suggestions.index}>
+                  {i === suggestions.index ? "❯ " : "  "}
+                  {sug.label}
+                  {sug.detail ? <Text color={theme.dim}> — {sug.detail}</Text> : null}
+                </Text>
+              ))}
+              <Text color={theme.dim} dimColor>  tab to cycle · enter to send</Text>
+            </Box>
+          ) : null}
+          <InputFrame title={sessionTitle} marginTop={1}>
+            <Text color={rl.handle.state.value ? theme.accent : theme.dim} bold>
+              ❯{" "}
+            </Text>
+            <Text color={rl.handle.state.value ? undefined : theme.dim}>
+              {rl.handle.state.value.slice(0, rl.handle.state.cursor)}
+              <Text color={theme.brand}>▏</Text>
+              {rl.handle.state.value.slice(rl.handle.state.cursor)}
+            </Text>
+          </InputFrame>
+        </Box>
       )}
       {!fatal && !busy && (
         <Text color={theme.dim} dimColor>
           {"  "}
-          {input.startsWith("/")
-            ? "/help · /resume · /theme · /model · /sessions · /new · /quit"
-            : "enter to send · / for commands · ctrl+c to quit"}
+          {rl.handle.state.value.startsWith("/")
+            ? "tab completes commands · enter to run"
+            : isShellPassthrough(rl.handle.state.value)
+              ? "enter to run as shell"
+              : rl.search.active
+                ? "ctrl+r cycle · enter accept · esc cancel"
+                : "enter to send · / commands · ! shell · @ files · ctrl+r search · ctrl+t tasks"}
         </Text>
       )}
     </Box>

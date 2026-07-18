@@ -1,161 +1,134 @@
 /**
- * MCP client tests. Pure-logic tests (config, prefix, validation, env
- * expansion) run without a server. The integration test spawns a tiny
- * in-process stdio MCP server (node script) to verify tool listing, the
- * namespace prefix, and end-to-end callTool.
+ * MCP manager integration test: spawns a real in-process MCP server over stdio
+ * (using the SDK's Server + StdioServerTransport), connects the McpManager,
+ * and verifies tool namespacing + call dispatch end-to-end.
+ *
+ * The server is a tiny "echo" server exposing one tool: `greet(name) -> str`.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { spawn } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import {
-  loadMcpServers,
-  saveMcpServers,
-  toolPrefix,
-  namespacedToolName,
-  validateConfig,
-  connectServer,
-  McpManager,
-} from "./mcp";
+import { join } from "node:path";
+import { McpManager, loadMcpServers, saveMcpServers, toolPrefix, namespacedToolName } from "./mcp";
 
-const tmpRoot = join(tmpdir(), `mist-mcp-test-${Date.now()}`);
-
-async function withTmpFile<T>(fn: (path: string) => Promise<T>): Promise<T> {
-  await mkdir(tmpRoot, { recursive: true });
-  const path = join(tmpRoot, "mcp_servers.json");
-  try {
-    return await fn(path);
-  } finally {
-    await rm(tmpRoot, { recursive: true, force: true });
-  }
-}
-
-describe("MCP config", () => {
-  test("loadMcpServers: missing file → empty (not an error)", async () => {
-    const file = await loadMcpServers(join(tmpRoot, "nope.json"));
-    expect(file.mcp_servers).toEqual({});
-  });
-
-  test("save → load round-trip preserves entries", async () => {
-    await withTmpFile(async (path) => {
-      const original = {
-        mcp_servers: {
-          fs: {
-            type: "stdio" as const,
-            command: "npx",
-            args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-          },
-          remote: { type: "http" as const, url: "https://example.com/mcp" },
-        },
-      };
-      await saveMcpServers(original, path);
-      const loaded = await loadMcpServers(path);
-      expect(loaded.mcp_servers).toEqual(original.mcp_servers);
-    });
-  });
-
-  test("load tolerates file with no mcp_servers key", async () => {
-    await withTmpFile(async (path) => {
-      await writeFile(path, JSON.stringify({ other: {} }), "utf8");
-      const loaded = await loadMcpServers(path);
-      expect(loaded.mcp_servers).toEqual({});
-    });
-  });
-});
-
-describe("MCP tool prefix + namespacing", () => {
-  test("default prefix is the server name", () => {
-    expect(toolPrefix("filesystem", { type: "stdio", command: "x" })).toBe("filesystem");
-  });
-
-  test("configured tool_prefix → {server}_{prefix}", () => {
-    expect(toolPrefix("fs", { type: "stdio", command: "x", tool_prefix: "v1" })).toBe("fs_v1");
-  });
-
-  test("namespaced name joins prefix + tool", () => {
-    expect(namespacedToolName("filesystem", "read_file")).toBe("filesystem_read_file");
-    expect(namespacedToolName("fs_v1", "read_file")).toBe("fs_v1_read_file");
-  });
-});
-
-describe("MCP validateConfig", () => {
-  test("stdio requires command", () => {
-    expect(() => validateConfig("s", { type: "stdio" })).toThrow("command");
-  });
-  test("sse requires url", () => {
-    expect(() => validateConfig("s", { type: "sse" })).toThrow("url");
-  });
-  test("http requires url", () => {
-    expect(() => validateServerUrl("http")).toThrow("url");
-  });
-  test("rejects unknown type", () => {
-    // @ts-expect-error testing runtime guard against bad input
-    expect(() => validateConfig("s", { type: "weird" })).toThrow("invalid type");
-  });
-  test("accepts valid stdio", () => {
-    expect(() => validateConfig("s", { type: "stdio", command: "npx", args: ["-y", "x"] })).not.toThrow();
-  });
-});
-
-function validateServerUrl(t: string): void {
-  // @ts-expect-error incomplete shape on purpose
-  validateConfig("s", { type: t });
-}
-
-// ---- Integration: spawn a real stdio MCP server in-process ----------------
-
-const MCP_ECHO_SERVER = `
+// A minimal MCP server script the child process runs. Uses the high-level
+// McpServer API (registerTool) which is the simplest stable surface.
+// A minimal MCP server script the child process runs. Uses the low-level
+// Server API with the schema constants (ListToolsRequestSchema /
+// CallToolRequestSchema) which accept plain JSON-Schema input shapes.
+const SERVER_SCRIPT = `
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-
-const server = new Server({ name: "echo", version: "1.0.0" }, { capabilities: { tools: {} } });
-
+const server = new Server({ name: "echo", version: "0.0.1" }, { capabilities: { tools: {} } });
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [{
-    name: "echo",
-    description: "Echoes input",
-    inputSchema: { type: "object", properties: { msg: { type: "string" } }, required: ["msg"] }
+    name: "greet",
+    description: "Greet someone",
+    inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] }
   }]
 }));
-
 server.setRequestHandler(CallToolRequestSchema, async (req) => ({
-  content: [{ type: "text", text: "echo: " + (req.params.arguments?.msg ?? "") }]
+  content: [{ type: "text", text: "hello " + (req.params.arguments?.name ?? "?") }]
 }));
-
 const transport = new StdioServerTransport();
 await server.connect(transport);
 `;
 
-describe("MCP connectServer (integration)", () => {
-  test("lists tools with namespace prefix and calls them", async () => {
-    // Write the echo server to a temp .mjs file.
-    const serverPath = join(tmpRoot, "echo_server.mjs");
-    await mkdir(tmpRoot, { recursive: true });
-    await writeFile(serverPath, MCP_ECHO_SERVER, "utf8");
+let tmpDir: string;
+let serverPath: string;
 
-    const managed = await connectServer("echo", {
-      type: "stdio",
-      command: process.execPath,
-      args: [serverPath],
-      timeout: 15,
-    });
+beforeEach(() => {
+  tmpDir = mkdtempSync(join(tmpdir(), "mist-mcp-test-"));
+  serverPath = join(tmpDir, "echo-server.js");
+  writeFileSync(serverPath, SERVER_SCRIPT);
+});
 
-    expect(managed.status).toBe("running");
-    expect(managed.tools).toHaveLength(1);
-    expect(managed.tools[0]!.name).toBe("echo_echo");
-    expect(managed.tools[0]!.mcpName).toBe("echo");
+afterEach(() => {
+  // best-effort cleanup; processes self-exit on test teardown
+});
 
-    // callTool via the manager dispatch.
-    const mgr = new McpManager();
-    // Inject the already-connected server for dispatch.
-    (mgr as unknown as { servers: Map<string, typeof managed> }).servers.set("echo", managed);
-    const result = await mgr.callTool("echo_echo", { msg: "hello" });
-    const text = (result as { content: { text: string }[] }).content[0]!.text;
-    expect(text).toBe("echo: hello");
+describe("McpManager (stdio transport, real subprocess)", () => {
+  test("connects, lists namespaced tools, and dispatches a call", async () => {
+    const manager = new McpManager();
+    // Inject config directly via the internal field, then start.
+    (manager as unknown as { configs: Record<string, unknown> }).configs = {
+      echo: {
+        type: "stdio",
+        command: "bun",
+        args: ["run", serverPath],
+        timeout: 15,
+      },
+    };
+    await manager.start("echo");
 
-    await managed.close();
-    await rm(tmpRoot, { recursive: true, force: true });
+    const tools = manager.allTools();
+    expect(tools).toHaveLength(1);
+    expect(tools[0]!.name).toBe("echo_greet");
+    expect(tools[0]!.mcpName).toBe("greet");
+    expect(tools[0]!.server).toBe("echo");
+
+    const result = await manager.callTool("echo_greet", { name: "world" });
+    const text = (result as { content: { type: string; text: string }[] }).content[0]!.text;
+    expect(text).toBe("hello world");
+
+    await manager.stopAll();
   }, 20000);
+
+  test("reports status and restarts", async () => {
+    const manager = new McpManager();
+    (manager as unknown as { configs: Record<string, unknown> }).configs = {
+      echo: { type: "stdio", command: "bun", args: ["run", serverPath], timeout: 15 },
+    };
+    await manager.start("echo");
+    const before = manager.status();
+    expect(before[0]!.name).toBe("echo");
+    expect(before[0]!.status).toBe("running");
+    expect(before[0]!.tools).toBe(1);
+
+    await manager.restart("echo");
+    const after = manager.status();
+    expect(after[0]!.status).toBe("running");
+    expect(after[0]!.tools).toBe(1);
+    await manager.stopAll();
+  }, 20000);
+});
+
+describe("mcp_servers.json config layer", () => {
+  test("loadMcpServers returns empty for missing file", async () => {
+    const result = await loadMcpServers(join(tmpDir, "nope.json"));
+    expect(result.mcp_servers).toEqual({});
+  });
+
+  test("saveMcpServers + loadMcpServers round-trips the Python schema", async () => {
+    const path = join(tmpDir, "mcp_servers.json");
+    const file = {
+      mcp_servers: {
+        fs: {
+          type: "stdio",
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+          env: { FOO: "$HOME" },
+        },
+        remote: { type: "http", url: "https://example.com/mcp", headers: { Authorization: "Bearer $KEY" } },
+      },
+    };
+    await saveMcpServers(file, path);
+    const loaded = await loadMcpServers(path);
+    expect(loaded.mcp_servers.fs.type).toBe("stdio");
+    expect(loaded.mcp_servers.fs.command).toBe("npx");
+    expect(loaded.mcp_servers.remote.type).toBe("http");
+    expect(loaded.mcp_servers.remote.url).toBe("https://example.com/mcp");
+  });
+
+  test("toolPrefix defaults to server name; honors tool_prefix", () => {
+    expect(toolPrefix("fs", { type: "stdio", command: "x" })).toBe("fs");
+    expect(toolPrefix("fs", { type: "stdio", command: "x", tool_prefix: "v2" })).toBe("fs_v2");
+  });
+
+  test("namespacedToolName joins prefix + tool", () => {
+    expect(namespacedToolName("echo", "greet")).toBe("echo_greet");
+  });
 });

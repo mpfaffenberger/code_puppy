@@ -277,6 +277,77 @@ export class MistEngine {
     this.history = [...messages];
   }
 
+  /**
+   * History surgery — `/pop`: remove the last user turn and everything after
+   * it (the assistant reply + any tool calls/results). Returns the number of
+   * messages removed. Safe to call when idle only (never during a turn).
+   */
+  /**
+   * Indices of GENUINE turn starts. A turn starts at a user message with
+   * string content that isn't engine plumbing — tool_results, steers, and
+   * auto-continue nudges also ride in role:"user" messages and must never be
+   * treated as boundaries (slicing at one orphans tool_use/tool_result pairs
+   * and the next request 400s).
+   */
+  private turnStarts(): number[] {
+    const starts: number[] = [];
+    for (let i = 0; i < this.history.length; i++) {
+      const m = this.history[i]!;
+      if (m.role !== "user" || typeof m.content !== "string") continue;
+      if (
+        m.content.startsWith("[auto-continue]") ||
+        m.content.startsWith("[steer") ||
+        m.content.startsWith("[conversation summary")
+      )
+        continue;
+      starts.push(i);
+    }
+    return starts;
+  }
+
+  popLastTurn(): number {
+    const starts = this.turnStarts();
+    const last = starts[starts.length - 1];
+    if (last === undefined) return 0;
+    const removed = this.history.length - last;
+    this.history = this.history.slice(0, last);
+    this.lastInputTokens = 0;
+    return removed;
+  }
+
+  /**
+   * History surgery — `/prune N` (N >= 1): keep only the last N genuine turns
+   * (a turn = a real user prompt through its full reply, tool traffic
+   * included). Returns the number of messages removed.
+   */
+  pruneHistory(keepTurns: number): number {
+    if (keepTurns < 1) return 0; // "/prune 0 wipes everything" was a footgun
+    const starts = this.turnStarts();
+    if (starts.length <= keepTurns) return 0;
+    const cutoff = starts[starts.length - keepTurns]!;
+    this.history = this.history.slice(cutoff);
+    this.lastInputTokens = 0;
+    return cutoff;
+  }
+
+  /**
+   * History surgery — `/truncate BUDGET`: drop oldest WHOLE turns until the
+   * estimated token count is under budget. Always keeps the most recent turn
+   * intact (never cuts inside a turn — a dangling tool_use/tool_result 400s).
+   */
+  truncateHistory(tokenBudget: number): number {
+    const before = this.history.length;
+    for (;;) {
+      if (estimateTokens(this.history) <= tokenBudget) break;
+      const starts = this.turnStarts();
+      if (starts.length <= 1) break; // never drop the last remaining turn
+      // Drop everything before the second genuine turn start.
+      this.history = this.history.slice(starts[1]!);
+    }
+    if (before !== this.history.length) this.lastInputTokens = 0;
+    return before - this.history.length;
+  }
+
   /** Queue a mid-turn user nudge; injected before the next model request. */
   queueSteer(text: string): void {
     if (text.trim()) this.steerQueue.push(text.trim());
