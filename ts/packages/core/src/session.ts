@@ -204,6 +204,11 @@ export class EngineSession {
     return this.engine.estimateContextTokens();
   }
 
+  /** Lens explainability ledger (the /lens command). */
+  lens() {
+    return this.engine.getLens();
+  }
+
   historyLength(): number {
     return this.engine.exportHistory().length;
   }

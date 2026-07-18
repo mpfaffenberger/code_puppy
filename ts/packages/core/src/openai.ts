@@ -190,6 +190,12 @@ export class OpenAIClient implements ModelClient {
             result.inputTokens = chunk.usage.prompt_tokens;
           if (typeof chunk.usage.completion_tokens === "number")
             result.outputTokens = chunk.usage.completion_tokens;
+          // o-series reasoning tokens are REAL usage (billed inside
+          // completion_tokens) — surface them for /lens attribution.
+          const details = (chunk.usage as { completion_tokens_details?: { reasoning_tokens?: number } })
+            .completion_tokens_details;
+          if (typeof details?.reasoning_tokens === "number")
+            result.reasoningTokens = details.reasoning_tokens;
         }
         const choice = chunk.choices?.[0];
         if (!choice) continue;

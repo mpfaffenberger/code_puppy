@@ -116,6 +116,7 @@ export class AnthropicClient implements ModelClient {
             if (delta0?.["type"] === "thinking_delta") {
               if (thinkingStart === 0) thinkingStart = Date.now();
               thinkingLast = Date.now();
+              result.thinkingChars = (result.thinkingChars ?? 0) + String(delta0["thinking"] ?? "").length;
             }
           }
           const idx = ev["index"] as number;

@@ -50,3 +50,5 @@ export type {
   ToolSpec,
   TurnResult,
 } from "./models";
+export { lensTotals, renderLensHtml } from "./lens";
+export type { TurnLens, RequestLens, SubagentLens, ToolCallLens, LensTotals } from "./lens";

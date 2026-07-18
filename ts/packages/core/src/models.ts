@@ -43,6 +43,10 @@ export interface StreamCallbacks {
 export interface TurnResult {
   text: string;
   thinkingMs: number;
+  /** Chars of streamed thinking deltas (reasoning-share estimate for /lens). */
+  thinkingChars?: number;
+  /** REAL reasoning tokens when the provider reports them (OpenAI o-series). */
+  reasoningTokens?: number;
   toolUses: { id: string; name: string; input: unknown }[];
   /** Provider-native stop reason; agent loop checks against "tool_use". */
   stopReason: string;

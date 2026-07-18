@@ -172,6 +172,53 @@ test("anti-stall: premature end_turn with open plan items triggers auto-continue
   }
 });
 
+test("lens: turn ledger records requests, tools, and totals", async () => {
+  const dir = `/tmp/mist-ts-lens-${Date.now()}`;
+  await Bun.$`mkdir -p ${dir}`;
+  await Bun.write(`${dir}/demo.txt`, "say hello now");
+  const engine = new MistEngine(dir);
+  await engine.runTurn("demo", { onTextDelta: () => {}, onStep: () => {} });
+
+  const turns = engine.getLens();
+  expect(turns).toHaveLength(1);
+  const turn = turns[0]!;
+  expect(turn.prompt).toBe("demo");
+  // Scripted mock flow: plan → shell → edit → answer = 4 requests.
+  expect(turn.requests.length).toBe(4);
+  const tools = turn.requests.flatMap((r) => r.toolCalls);
+  expect(tools.map((t) => t.name)).toEqual(["update_plan", "shell", "replace_in_file"]);
+  const shell = tools.find((t) => t.name === "shell")!;
+  expect(shell.outputChars).toBeGreaterThan(0);
+  expect(shell.outputPreview).toContain("1"); // seq 1 4 output captured
+  // Totals: billed input is the SUM across requests; usage came from the mock.
+  const { lensTotals } = await import("./lens");
+  const t = lensTotals(turn);
+  expect(t.requests).toBe(4);
+  expect(t.toolCalls).toBe(3);
+  expect(t.billedInputTokens).toBeGreaterThan(0);
+  expect(t.outputTokens).toBeGreaterThan(0);
+});
+
+test("lens: subagent traffic is attributed to the subagent entry", async () => {
+  process.env.MOCK_SUB = "1";
+  try {
+    const dir = `/tmp/mist-ts-lens-sub-${Date.now()}`;
+    await Bun.$`mkdir -p ${dir}`;
+    await Bun.write(`${dir}/demo.txt`, "say hello now");
+    const engine = new MistEngine(dir);
+    await engine.runTurn("demo", { onTextDelta: () => {}, onStep: () => {} });
+    const turn = engine.getLens()[0]!;
+    expect(turn.subagents.length).toBe(2);
+    for (const s of turn.subagents) {
+      expect(s.inputTokens).toBeGreaterThan(0); // child usage attributed here
+      expect(s.reportChars).toBeGreaterThan(0);
+      expect(s.error).toBeUndefined();
+    }
+  } finally {
+    delete process.env.MOCK_SUB;
+  }
+});
+
 test("pre-tool hook blocks a matching shell command", async () => {
   const dir = `/tmp/mist-ts-hook-${Date.now()}`;
   await Bun.$`mkdir -p ${dir}/.mist`;
