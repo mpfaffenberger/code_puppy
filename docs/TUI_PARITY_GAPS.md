@@ -402,6 +402,85 @@ config) and needs no screen.
 
 ---
 
+## Gap #6: Sub-agent panel overflow — silently clipped in TUI (merge regression)  [FIXED]
+
+> **Resolution (done):** extracted the classic bar's clamp into a shared
+> `code_puppy/messaging/bar_painters.py::clamp_panel_lines(lines, budget)`
+> helper (single source of truth for the `… +N more` overflow behavior).
+> `BarPainterMixin._visible_panel_lines()` now delegates to it (behavior
+> unchanged), and the TUI's `_apply_subagent_panel()` (`tui/app.py`) runs the
+> uncapped plugin list through the SAME helper.
+>
+> **Budget is height-relative, not a fixed cap.** A first pass used a fixed
+> `max-height: 5`, but side-by-side testing (20-agent swarm) showed the TUI
+> looked stingy — 4 rows + `… +16 more` with a whole empty screen below —
+> while classic filled the terminal. So the TUI now mirrors classic's
+> height-relative clamp: `_subagent_panel_budget()` = `terminal_height -
+> _SUBAGENT_PANEL_RESERVE` (floored at `_SUBAGENT_PANEL_MIN_ROWS`), and
+> `widget.styles.max_height` is pinned to the painted row count each update.
+> The panel sits above `#log` (`height: 1fr`), so growth only ever steals
+> transcript rows — never the prompt/footer. Big swarm on a tall terminal =
+> most/all agents shown; on a short one it clamps with `… +N more`.
+> Tests: `tests/messaging/test_bottom_bar.py::test_clamp_panel_lines_helper_contract`,
+> `tests/tui/test_parity_gaps.py::test_subagent_panel_clamps_overflow_with_summary_row`,
+> `::test_subagent_panel_no_summary_when_within_budget`,
+> `::test_subagent_panel_budget_scales_with_terminal_height`. Investigation
+> notes kept below for context.
+
+**Not a fork-point gap — a fresh regression pulled in by rebasing onto `main`
+`fad8955b` (0.0.649).** Surfaced auditing the 26 commits between the old base
+(`1c4d7af0`) and current `main`. Two main commits conspired:
+
+- `b9f5d12a` *"fix: show all sub-agent panel rows"* — **removed** the plugin's
+  fixed `_PANEL_ROW_CAP = 4`. `subagent_panel/register_callbacks.py::_panel_lines()`
+  now returns **every** tracked agent, uncapped.
+- `153063b3` *"fix: clamp sub-agent panel to terminal height with +N more
+  overflow"* — re-added a height-relative clamp, but **only inside the classic
+  `BarPainterMixin`** (`messaging/bar_painters.py::_panel_row_budget` /
+  `_visible_panel_lines` + `_panel_overflow_row`), consumed by `bottom_bar.py`
+  and `inline_bar.py`. **The TUI uses none of those.**
+
+### The problem
+`_push_panel()` sends the identical uncapped `lines` list to *both* sinks:
+```python
+get_bottom_bar().set_panel_lines(lines)                    # classic: clamped in painter
+_trigger_callbacks_sync("subagent_panel_lines_changed", lines)  # TUI: NOT clamped
+```
+The TUI's `code_puppy/tui/app.py::_apply_subagent_panel()` (~line 1707) joins
+**all** lines into the `#subagent-panel` `Static`, which has `max-height: 5`
+in the inline CSS (~line 264). So Textual clips to 5 rows and **silently drops
+the rest with no indicator**.
+
+| | Before this rebase | After (now) |
+|---|---|---|
+| Rows `_panel_lines()` emits | ≤ 4 (incl. `(+N more)`) | **unbounded** |
+| TUI actually shows | ≤ 4, with overflow summary | first 5 agents, **rest clipped, no `… +N more`** |
+
+So on a sub-agent swarm the TUI now hides overflow agents with **zero**
+affordance that more exist — losing the `… +N more` summary the classic bar
+keeps. Not a crash (the CSS `max-height` prevents the layout from blowing up),
+but a genuine parity/UX regression: the classic clamp fix (`153063b3`) never
+reached the Textual render path.
+
+### Where the code lives
+- `code_puppy/plugins/subagent_panel/register_callbacks.py` — `_panel_lines()`
+  (now uncapped), `_push_panel()` (~line 220, fans out to both sinks)
+- `code_puppy/messaging/bar_painters.py` — `_panel_row_budget()` /
+  `_visible_panel_lines()` / `_panel_overflow_row()` (the classic clamp —
+  reference logic to mirror)
+- `code_puppy/tui/app.py` — `_apply_subagent_panel()` (~line 1707, the fix
+  site), `#subagent-panel` CSS (~line 264, `max-height: 5`)
+
+### Suggested approach
+Clamp inside `_apply_subagent_panel()` before building the `Text` block:
+take a row budget, and when `len(lines) > budget` render the first
+`budget - 1` rows plus a `… +N more` summary row (reuse
+`bar_painters._panel_overflow_row()` for the exact same string — DRY — rather
+than hand-rolling the text). See the fix-options discussion in the session
+for budget strategies (fixed vs terminal-height-relative).
+
+---
+
 ## Things confirmed fine (no action needed)
 
 - GLM/Claude-5/reasoning-effort model settings (`thinking_type`,

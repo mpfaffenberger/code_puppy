@@ -85,6 +85,13 @@ async def test_user_approval_routes_through_bus_in_tui(monkeypatch):
             if isinstance(app.screen, ConfirmModal):
                 break
         assert isinstance(app.screen, ConfirmModal)
+        # The screen lands on the stack a pump-cycle before its buttons finish
+        # composing, so poll for the actual node instead of clicking the moment
+        # the modal appears (otherwise #opt-0 may not exist yet -> NoMatches).
+        for _ in range(40):
+            if app.screen.query("#opt-0"):
+                break
+            await pilot.pause(0.05)
         await pilot.click("#opt-0")  # Approve
         await asyncio.wait_for(task, timeout=3)
     assert holder["r"][0] is True

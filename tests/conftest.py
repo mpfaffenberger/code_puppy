@@ -190,7 +190,15 @@ def isolate_global_state_between_tests(tmp_path_factory):
         register_callbacks as _cc_plugin,
     )
 
+    # Keep the plugin's module-level CONFIG_DIR (captured by value at import via
+    # ``from code_puppy.config import CONFIG_DIR``) in lockstep with the dir we
+    # override below. Otherwise the two drift -- e.g.
+    # TestGlobalCommands.test_global_directory_in_command_directories derives
+    # ``os.path.join(rc.CONFIG_DIR, "commands")`` and asserts it equals
+    # ``_COMMAND_DIRECTORIES[0]``, which fails if only the latter is repointed.
+    original_cc_config_dir = _cc_plugin.CONFIG_DIR
     original_cc_dir0 = _cc_plugin._COMMAND_DIRECTORIES[0]
+    _cc_plugin.CONFIG_DIR = temp_config_dir
     _cc_plugin._COMMAND_DIRECTORIES[0] = os.path.join(temp_config_dir, "commands")
 
     # Clear model cache to ensure fresh state.
@@ -200,8 +208,9 @@ def isolate_global_state_between_tests(tmp_path_factory):
 
     yield
 
-    # Restore the plugin's global-commands path.
+    # Restore the plugin's global-commands path and captured CONFIG_DIR.
     _cc_plugin._COMMAND_DIRECTORIES[0] = original_cc_dir0
+    _cc_plugin.CONFIG_DIR = original_cc_config_dir
 
     # Drop any bar a test installed; next test re-neutralizes.
     cp_bottom_bar.reset_bottom_bar()
