@@ -17,20 +17,18 @@ const PALETTE: Record<string, string> = {
   R: "#e8a0b4", // rosy cheeks
 };
 
-// 16 × 12 pixel grid ('.' = transparent) — every row is a mirror image.
+// 12 × 10 pixel grid ('.' = transparent) — every row is a mirror image.
 const GRID = [
-  "....MMMMMMMM....",
-  "..MMMMMMMMMMMM..",
-  ".MMMMMMMMMMMMMM.",
-  ".MMPPMMMMMMPPMM.",
-  ".MMPPMMMMMMPPMM.",
-  "MMRRMMMMMMMMRRMM",
-  "MMMMMMMPPMMMMMMM",
-  "MMMMMMMMMMMMMMMM",
-  ".MMMMMMMMMMMMMM.",
-  ".MMMMMMMMMMMMMM.",
-  "..MMMMMMMMMMMM..",
-  "..MMM..MM..MMM..",
+  "...MMMMMM...",
+  ".MMMMMMMMMM.",
+  ".MPPMMMMPPM.",
+  ".MPPMMMMPPM.",
+  "MMRMMPPMMRMM",
+  "MMMMMMMMMMMM",
+  ".MMMMMMMMMM.",
+  ".MMMMMMMMMM.",
+  "..MMMMMMMM..",
+  "..MM.MM.MM..",
 ];
 
 export function Mascot(): React.JSX.Element {
