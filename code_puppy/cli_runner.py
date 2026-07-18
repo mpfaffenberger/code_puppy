@@ -20,6 +20,7 @@ from rich.console import Console
 
 from code_puppy import __version__, callbacks, plugins
 from code_puppy.agents import get_current_agent
+from code_puppy.i18n import t
 from code_puppy.command_line.attachments import (
     parse_prompt_attachments,
     resolve_user_prompt,
@@ -83,12 +84,7 @@ def _render_turn_exception(exc: Exception) -> None:
         )
         from code_puppy.messaging import emit_error
 
-        emit_error(
-            f"\U0001f50c The model connection hit a transient error "
-            f"({type(exc).__name__}) and didn't recover after auto-retries. "
-            "This is almost always a VPN/WiFi/provider blip \u2014 just re-run "
-            "your last prompt. Your session history is intact."
-        )
+        emit_error(t("cli.error.model_transient", error_type=type(exc).__name__))
         return
 
     log_error(
@@ -132,8 +128,10 @@ def apply_quick_resume(args) -> bool:
     # Diagnostic identifies the lookup scope without leaking full local paths.
     cwd, branch = get_quick_resume_location(target_path)
     emit_info(
-        "\U0001f50d Quick Resume selected - finding latest session for "
-        f"{format_quick_resume_scope(cwd, branch)}"
+        t(
+            "cli.resume.quick_searching",
+            scope=format_quick_resume_scope(cwd, branch),
+        )
     )
 
     quick_resume_pickle = resolve_quick_resume_pickle(target_path)
@@ -141,7 +139,7 @@ def apply_quick_resume(args) -> bool:
         args.resume = quick_resume_pickle
         return True
 
-    emit_info("No previous session found for this scope; starting fresh.")
+    emit_info(t("cli.resume.none_found"))
     return False
 
 
@@ -267,14 +265,14 @@ async def main():
             # Print directly to console to avoid the 'dim' style from emit_system_message
             display_console.print("\n".join(lines))
         except ImportError:
-            emit_system_message("🐶 Code Puppy is Loading...")
+            emit_system_message(t("cli.loading"))
 
         # Truecolor warning moved to interactive_mode() so it prints LAST
         # after all the help stuff - max visibility for the ugly red box!
 
     available_port = find_available_port()
     if available_port is None:
-        emit_error("No available ports in range 8090-9010!")
+        emit_error(t("cli.error.no_ports"))
         return
 
     # Early model setting if specified via command line
@@ -333,14 +331,16 @@ async def main():
                 models_config = ModelFactory.load_config()
                 available_models = list(models_config.keys()) if models_config else []
 
-                emit_error(f"Model '{model_name}' not found")
-                emit_system_message(f"Available models: {', '.join(available_models)}")
+                emit_error(t("cli.model.not_found", model=model_name))
+                emit_system_message(
+                    t("cli.model.available", models=", ".join(available_models))
+                )
                 sys.exit(1)
 
             # Model is valid, show confirmation (already set earlier)
-            emit_system_message(f"🎯 Using model: {model_name}")
+            emit_system_message(t("cli.model.using", model=model_name))
         except Exception as e:
-            emit_error(f"Error validating model: {str(e)}")
+            emit_error(t("cli.model.validate_error", error=str(e)))
             sys.exit(1)
 
     # Handle agent selection from command line
@@ -355,17 +355,17 @@ async def main():
             # First check if the agent exists by getting available agents
             available_agents = get_available_agents()
             if agent_name not in available_agents:
-                emit_error(f"Agent '{agent_name}' not found")
+                emit_error(t("cli.agent.not_found", agent=agent_name))
                 emit_system_message(
-                    f"Available agents: {', '.join(available_agents.keys())}"
+                    t("cli.agent.available", agents=", ".join(available_agents.keys()))
                 )
                 sys.exit(1)
 
             # Agent exists, set it
             set_current_agent(agent_name)
-            emit_system_message(f"🤖 Using agent: {agent_name}")
+            emit_system_message(t("cli.agent.using", agent=agent_name))
         except Exception as e:
-            emit_error(f"Error setting agent: {str(e)}")
+            emit_error(t("cli.agent.set_error", error=str(e)))
             sys.exit(1)
 
     current_version = __version__
@@ -377,10 +377,8 @@ async def main():
         "on",
     )
     if no_version_update:
-        version_msg = f"Current version: {current_version}"
-        update_disabled_msg = (
-            "Update phase disabled because NO_VERSION_UPDATE is set to 1 or true"
-        )
+        version_msg = t("version.current", version=current_version)
+        update_disabled_msg = t("cli.version.update_disabled")
         emit_system_message(version_msg)
         emit_system_message(update_disabled_msg)
     else:
@@ -444,13 +442,18 @@ async def main():
                 emit_info(resolve_exc.hint)
             available = list_sessions(sessions_dir)
             if available:
-                emit_info(f"Available sessions: {', '.join(available[:10])}")
+                emit_info(
+                    t(
+                        "cli.resume.available_sessions",
+                        sessions=", ".join(available[:10]),
+                    )
+                )
             sys.exit(1)
 
         # When lazy-create fired, announce it so scripts and users can
         # distinguish first-run creation from a normal resume.
         if lazy_created:
-            emit_info(f"Created new session: {session_name}")
+            emit_info(t("cli.resume.created", session=session_name))
 
         try:
             history = load_session(session_name, session_dir)
@@ -475,11 +478,15 @@ async def main():
 
             if not lazy_created:
                 emit_success(
-                    f"Resumed: {len(history)} messages "
-                    f"({total_tokens} tokens) from {session_name}"
+                    t(
+                        "cli.resume.resumed",
+                        messages=len(history),
+                        tokens=total_tokens,
+                        session=session_name,
+                    )
                 )
         except Exception as e:
-            emit_error(f"Failed to resume from {resume_target}: {e}")
+            emit_error(t("cli.resume.failed", target=resume_target, error=e))
             sys.exit(1)
 
     global shutdown_flag
@@ -672,40 +679,22 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     display_console = message_renderer.console
     from code_puppy.messaging import emit_info, emit_system_message
 
-    emit_system_message(
-        "Type '/exit', '/quit', or press Ctrl+D to exit the interactive mode."
-    )
-    emit_system_message("Type 'clear' to reset the conversation history.")
-    emit_system_message("Type /help to view all commands")
-    emit_system_message(
-        "Type @ for path completion, or /model to pick a model. Toggle multiline with Alt+M or F2; newline: Shift+Enter."
-    )
-    emit_system_message("Paste images: Ctrl+V (even on Mac!), F3, or /paste command.")
+    emit_system_message(t("cli.help.exit"))
+    emit_system_message(t("cli.help.clear"))
+    emit_system_message(t("cli.help.commands"))
+    emit_system_message(t("cli.help.completion"))
+    emit_system_message(t("cli.help.paste_images"))
     import platform
 
     if platform.system() == "Darwin":
-        emit_system_message(
-            "💡 macOS tip: Use Ctrl+V (not Cmd+V) to paste images in terminal."
-        )
+        emit_system_message(t("cli.help.macos_paste"))
     cancel_key = get_cancel_agent_display_name()
-    emit_system_message(
-        f"Press {cancel_key} during processing to cancel the current task or inference."
-    )
-    emit_system_message(
-        "Use Ctrl+X Ctrl+E to open $EDITOR (Notepad on Windows); "
-        "Ctrl+X Ctrl+B to background running shell commands; "
-        "Ctrl+X Ctrl+X to kill running shell commands."
-    )
-    emit_system_message(
-        "Use /autosave_load to manually load a previous autosave session."
-    )
-    emit_system_message(
-        "Use /diff to configure diff highlighting colors for file changes."
-    )
-    emit_system_message("To re-run the tutorial, use /tutorial.")
-    emit_system_message(
-        "!<command> to run shell commands directly (e.g., !git status)",
-    )
+    emit_system_message(t("cli.help.cancel_key", cancel_key=cancel_key))
+    emit_system_message(t("cli.help.editor_shortcuts"))
+    emit_system_message(t("cli.help.autosave_load"))
+    emit_system_message(t("cli.help.diff"))
+    emit_system_message(t("cli.help.tutorial"))
+    emit_system_message(t("cli.help.shell_passthrough"))
     # Print truecolor warning LAST so it's the most visible thing on startup
     # Big ugly red box should be impossible to miss! 🔴
     print_truecolor_warning(display_console)
@@ -727,7 +716,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         from code_puppy.messaging import emit_info, emit_success, emit_system_message
 
         agent = get_current_agent()
-        emit_info(f"Processing initial command: {initial_command}")
+        emit_info(t("cli.initial_command.processing", command=initial_command))
 
         try:
             # Skip the run UI if a tool is already waiting for user input
@@ -763,15 +752,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
                 get_message_bus().emit(response_msg)
 
-                emit_success("🐶 Continuing in Interactive Mode")
-                emit_system_message(
-                    "Your command and response are preserved in the conversation history."
-                )
+                emit_success(t("cli.initial_command.continuing"))
+                emit_system_message(t("cli.initial_command.preserved"))
 
         except Exception as e:
             from code_puppy.messaging import emit_error
 
-            emit_error(f"Error processing initial command: {str(e)}")
+            emit_error(t("cli.initial_command.error", error=str(e)))
 
     # Check if prompt_toolkit is installed
     try:
@@ -782,7 +769,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     except ImportError:
         from code_puppy.messaging import emit_warning
 
-        emit_warning("Warning: prompt_toolkit not installed. Installing now...")
+        emit_warning(t("cli.prompt_toolkit.installing"))
         try:
             import subprocess
 
@@ -791,7 +778,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             )
             from code_puppy.messaging import emit_success
 
-            emit_success("Successfully installed prompt_toolkit")
+            emit_success(t("cli.prompt_toolkit.installed"))
             from code_puppy.command_line.prompt_toolkit_completion import (
                 get_input_with_combined_completion,
                 get_prompt_with_active_model,
@@ -799,8 +786,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         except Exception as e:
             from code_puppy.messaging import emit_error, emit_warning
 
-            emit_error(f"Error installing prompt_toolkit: {e}")
-            emit_warning("Falling back to basic input without tab completion")
+            emit_error(t("cli.prompt_toolkit.install_error", error=e))
+            emit_warning(t("cli.prompt_toolkit.fallback"))
 
     # Autosave loading is now manual - use /autosave_load command
 
@@ -848,7 +835,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
         # Get the custom prompt from the current agent, or use default
         current_agent = get_current_agent()
-        user_prompt = current_agent.get_user_prompt() or "Enter your coding task:"
+        user_prompt = current_agent.get_user_prompt() or t("cli.prompt.enter_task")
 
         if not persistent_prompt:
             # Persistent path drops the per-iteration banner — the pinned
@@ -877,7 +864,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 if queued_task is not None:
                     task = queued_task
                     emit_info(_prompt_echo_text(task))
-                    emit_info("⏭ running queued prompt")
+                    emit_info(t("cli.queue.running"))
                 else:
                     # Raises EOFError on Ctrl+D-with-empty-buffer, which the
                     # existing quit branch below handles.
@@ -922,17 +909,17 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             from code_puppy.messaging import emit_warning
 
             await on_interactive_turn_cancel("", reason="Ctrl+C")
-            emit_warning("\nInput cancelled")
+            emit_warning(t("cli.input.cancelled"))
             continue
         except EOFError:
             # Handle Ctrl+D - exit the application
             from code_puppy.messaging import emit_success
 
-            emit_success("\nGoodbye! (Ctrl+D)")
+            emit_success(t("cli.goodbye_ctrld"))
 
             # Cancel any running agent task for clean shutdown
             if current_agent_task and not current_agent_task.done():
-                emit_info("Cancelling running agent task...")
+                emit_info(t("cli.agent.cancelling"))
                 current_agent_task.cancel()
                 try:
                     await current_agent_task
@@ -963,11 +950,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         ]:
             from code_puppy.messaging import emit_success
 
-            emit_success("Goodbye!")
+            emit_success(t("cli.goodbye"))
 
             # Cancel any running agent task for clean shutdown
             if current_agent_task and not current_agent_task.done():
-                emit_info("Cancelling running agent task...")
+                emit_info(t("cli.agent.cancelling"))
                 current_agent_task.cancel()
                 try:
                     await current_agent_task
@@ -1000,7 +987,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             except Exception as e:
                 from code_puppy.messaging import emit_error
 
-                emit_error(f"Command error: {e}")
+                emit_error(t("cli.command.error", error=e))
                 # Continue interactive loop instead of exiting
                 continue
             if command_result is True:
@@ -1048,7 +1035,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 chosen_session = await interactive_autosave_picker()
 
                             if not chosen_session:
-                                emit_warning("Autosave load cancelled")
+                                emit_warning(t("cli.autosave.load_cancelled"))
                                 continue
 
                             # Load the session
@@ -1068,8 +1055,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                             session_path = base_dir / f"{chosen_session}.pkl"
 
                             emit_success(
-                                f"✅ Autosave loaded: {len(history)} messages ({total_tokens} tokens)\n"
-                                f"📁 From: {session_path}"
+                                t(
+                                    "cli.autosave.loaded",
+                                    messages=len(history),
+                                    tokens=total_tokens,
+                                    path=session_path,
+                                )
                             )
 
                             # Display recent message history for context
@@ -1085,7 +1076,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     except Exception as e:
                         from code_puppy.messaging import emit_error
 
-                        emit_error(f"Failed to load autosave: {e}")
+                        emit_error(t("cli.autosave.load_failed", error=e))
                     continue
                 else:
                     # Command returned a prompt to execute
@@ -1171,7 +1162,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 from code_puppy.messaging import emit_warning
 
                 await on_interactive_turn_cancel(task, reason="Ctrl+C")
-                emit_warning("\nCancelled")
+                emit_warning(t("cli.turn.cancelled"))
                 continue
             except Exception as e:
                 turn_error = e
@@ -1219,7 +1210,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     new_session_id = finalize_autosave_session()
                     current_agent.clear_message_history()
                     emit_system_message(
-                        f"Context cleared. Session rotated to: {new_session_id}"
+                        t("cli.context.cleared", session=new_session_id)
                     )
 
                 delay = float(continuation.get("delay") or 0)
@@ -1317,19 +1308,28 @@ async def run_prompt_with_attachments(
     # Build summary of all attachments
     summary_parts = []
     if resolved.file_attachments:
-        summary_parts.append(f"files: {len(resolved.file_attachments)}")
+        summary_parts.append(
+            t("cli.attachments.files", count=len(resolved.file_attachments))
+        )
     if resolved.clipboard_images:
-        summary_parts.append(f"clipboard images: {len(resolved.clipboard_images)}")
+        summary_parts.append(
+            t(
+                "cli.attachments.clipboard_images",
+                count=len(resolved.clipboard_images),
+            )
+        )
     if resolved.link_attachments:
-        summary_parts.append(f"urls: {len(resolved.link_attachments)}")
+        summary_parts.append(
+            t("cli.attachments.urls", count=len(resolved.link_attachments))
+        )
     if summary_parts:
-        emit_system_message("Attachments detected -> " + ", ".join(summary_parts))
+        emit_system_message(
+            t("cli.attachments.detected", summary=", ".join(summary_parts))
+        )
 
     cleaned_prompt = resolved.text
     if not cleaned_prompt:
-        emit_warning(
-            "Prompt is empty after removing attachments; add instructions and retry."
-        )
+        emit_warning(t("cli.attachments.empty_prompt"))
         return None, None
 
     attachments = resolved.attachments
@@ -1356,7 +1356,7 @@ async def run_prompt_with_attachments(
             result = await agent_task
             return result, agent_task
         except asyncio.CancelledError:
-            emit_info("Agent task cancelled")
+            emit_info(t("cli.agent.task_cancelled"))
             return None, agent_task
 
     if use_run_ui:
@@ -1416,22 +1416,20 @@ async def execute_single_prompt(
         try:
             command_result = handle_command(command_prompt)
         except Exception as command_error:
-            emit_error(f"Command error: {command_error}")
+            emit_error(t("cli.command.error", error=command_error))
             return
 
         if command_result is True:
             return
         if command_result == "__AUTOSAVE_LOAD__":
-            emit_warning(
-                "/autosave_load requires interactive mode; use -r SESSION in headless mode."
-            )
+            emit_warning(t("cli.autosave.headless_unsupported"))
             return
         if isinstance(command_result, str):
             prompt = command_result
 
     effective_session_name = session_name or get_current_session_name()
     agent = None
-    emit_info(f"Executing prompt: {prompt}")
+    emit_info(t("cli.headless.executing", prompt=prompt))
 
     try:
         agent = get_current_agent()
@@ -1456,9 +1454,9 @@ async def execute_single_prompt(
             agent.set_message_history(list(result.all_messages()))
 
     except asyncio.CancelledError:
-        emit_warning("Execution cancelled by user")
+        emit_warning(t("cli.headless.cancelled"))
     except Exception as error:
-        emit_error(f"Error executing prompt: {error}")
+        emit_error(t("cli.headless.error", error=error))
     finally:
         try:
             session_agent = agent or get_current_agent()
@@ -1476,7 +1474,13 @@ async def execute_single_prompt(
         except Exception as save_error:
             # The response has already been emitted; a persistence failure
             # must not hide the primary result.
-            emit_error(f"Failed to save session {effective_session_name}: {save_error}")
+            emit_error(
+                t(
+                    "cli.headless.save_failed",
+                    session=effective_session_name,
+                    error=save_error,
+                )
+            )
 
 
 def _force_utf8_stdio():
