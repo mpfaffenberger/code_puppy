@@ -422,7 +422,8 @@ class TestHeadlessSessionPersistence:
     and ``session_lifecycle.persist_named_session`` -- specifically that the
     save happens in a ``finally`` block (so cancel/error paths still persist),
     that shell-passthrough never clobbers a named session, and that the
-    no-``-r`` default stays disk-silent.
+    no-``-r`` default autosaves under the process's generated session name
+    rather than being disk-silent.
     """
 
     @staticmethod
@@ -457,6 +458,7 @@ class TestHeadlessSessionPersistence:
             patch(
                 "code_puppy.session_lifecycle.fire_post_autosave_callback"
             ) as fire_cb,
+            patch("code_puppy.config.record_quick_resume_sessions") as mock_qr,
         ):
             await execute_single_prompt(
                 "hi",
@@ -471,6 +473,48 @@ class TestHeadlessSessionPersistence:
         # plugins that decorate the auto-save line (e.g. the walmart
         # token-quota plugin) don't double-print.
         assert fire_cb.call_count == 0
+        # quick-resume pointer must be written after a successful persist so
+        # ``--quick-resume`` can rediscover both auto-generated and ``-r``
+        # headless saves.
+        mock_qr.assert_called_once_with("mywork")
+
+    @pytest.mark.asyncio
+    async def test_quick_resume_pointer_not_written_on_persist_failure(self, tmp_path):
+        """record_quick_resume_sessions is NOT called when persist_named_session fails.
+
+        The quick-resume pointer must only be updated when persistence
+        actually succeeds.  A filesystem error, pickle failure, or any other
+        exception from ``persist_named_session`` must leave the pointer
+        untouched so ``--quick-resume`` does not point at a missing/corrupt
+        session file.
+        """
+        from code_puppy.cli_runner import execute_single_prompt
+
+        agent = self._agent_with_history([{"role": "user", "content": "hi"}])
+        run_result = MagicMock()
+        run_result.output = "ok"
+
+        with (
+            patch("code_puppy.cli_runner.get_current_agent", return_value=agent),
+            patch(
+                "code_puppy.cli_runner.run_prompt_with_attachments",
+                new=AsyncMock(return_value=(run_result, MagicMock())),
+            ),
+            patch("code_puppy.config.AUTOSAVE_DIR", str(tmp_path)),
+            patch(
+                "code_puppy.session_lifecycle.persist_named_session",
+                side_effect=OSError("disk full"),
+            ),
+            patch("code_puppy.config.record_quick_resume_sessions") as mock_qr,
+        ):
+            # Should not raise; error is swallowed and emitted as a message.
+            await execute_single_prompt(
+                "hi",
+                self._renderer(),
+                session_name="mywork",
+            )
+
+        mock_qr.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_save_back_on_cancelled_error(self, tmp_path):
@@ -516,10 +560,20 @@ class TestHeadlessSessionPersistence:
         assert (tmp_path / "mywork.pkl").exists()
 
     @pytest.mark.asyncio
-    async def test_no_save_when_session_name_is_none(self, tmp_path):
-        """Default headless -p must remain disk-silent (no -r passed)."""
+    async def test_default_autosave_uses_generated_session_name(self, tmp_path):
+        """Without -r, headless -p autosaves under the process's generated session name.
+
+        ``execute_single_prompt(..., session_name=None)`` resolves the
+        effective name via ``get_current_session_name()`` and forwards it
+        to ``persist_named_session`` exactly once with the generated name and
+        the configured AUTOSAVE_DIR -- so a clean process always persists its
+        history rather than being disk-silent.
+        """
+        from pathlib import Path
+
         from code_puppy.cli_runner import execute_single_prompt
 
+        generated_name = "auto_session_20250101_000000"
         agent = self._agent_with_history([{"role": "user", "content": "ephemeral"}])
         run_result = MagicMock()
         run_result.output = "ok"
@@ -531,13 +585,20 @@ class TestHeadlessSessionPersistence:
                 new=AsyncMock(return_value=(run_result, MagicMock())),
             ),
             patch("code_puppy.config.AUTOSAVE_DIR", str(tmp_path)),
+            patch(
+                "code_puppy.config.get_current_session_name",
+                return_value=generated_name,
+            ),
             patch("code_puppy.session_lifecycle.persist_named_session") as mock_persist,
         ):
             await execute_single_prompt("hi", self._renderer(), session_name=None)
 
-        mock_persist.assert_not_called()
-        # And nothing landed on disk under the (empty) contexts dir.
-        assert list(tmp_path.iterdir()) == []
+        mock_persist.assert_called_once_with(
+            agent,
+            generated_name,
+            base_dir=Path(str(tmp_path)),
+            auto_saved=True,
+        )
 
     @pytest.mark.asyncio
     async def test_shell_passthrough_does_not_clobber_session(self, tmp_path):

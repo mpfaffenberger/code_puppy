@@ -1953,10 +1953,13 @@ def reset_all_banner_colors():
 def get_current_session_name() -> str:
     """Return the full filename of the session this process is writing to.
 
-    On first call, lazily mints a fresh auto-flavored name
-    (``auto_session_<YYYYMMDD>_<HHMMSS>``). Subsequent calls return the
-    same string until ``rotate_session_name`` or ``pin_current_session_name``
-    is called.
+    On first call, lazily mints a fresh auto-flavored name of the form
+    ``auto_session_<YYYYMMDD>_<HHMMSS>_<ffffff>_<PID>`` where ``ffffff`` is
+    the microsecond field of the current timestamp and ``PID`` is the calling
+    process ID.  The combined suffix eliminates same-second cross-process
+    name collisions when multiple Code Puppy instances start concurrently.
+    Subsequent calls return the same string until ``rotate_session_name`` or
+    ``pin_current_session_name`` is called.
 
     The ``auto_session_`` prefix is RESERVED for system-generated names;
     user-input names cannot start with it (enforced by
@@ -1968,8 +1971,9 @@ def get_current_session_name() -> str:
     """
     global _CURRENT_AUTOSAVE_ID
     if not _CURRENT_AUTOSAVE_ID:
+        now = datetime.datetime.now()
         _CURRENT_AUTOSAVE_ID = (
-            f"auto_session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            f"auto_session_{now.strftime('%Y%m%d_%H%M%S_%f')}_{os.getpid()}"
         )
     return _CURRENT_AUTOSAVE_ID
 
