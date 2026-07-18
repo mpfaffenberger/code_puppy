@@ -86,12 +86,14 @@ def test_fallback_chain():
 
 
 def test_fallback_chain_latin_american_spanish():
-    # Central/South American Spanish resolves through the es-419 umbrella
-    # before generic (Iberian-ish) es.
-    assert locale.fallback_chain("es-AR") == ["es-AR", "es-419", "es", "en-US"]
-    assert locale.fallback_chain("es-MX") == ["es-MX", "es-419", "es", "en-US"]
+    # es-419 is deprecated (folded into base es), so Latin American Spanish
+    # now truncates straight to es -- keeping its own regional override file
+    # on top and never probing the removed es-419 catalog.
+    assert locale.fallback_chain("es-AR") == ["es-AR", "es", "en-US"]
+    assert locale.fallback_chain("es-MX") == ["es-MX", "es", "en-US"]
+    # An explicit es-419 request still degrades gracefully to base es.
     assert locale.fallback_chain("es-419") == ["es-419", "es", "en-US"]
-    # Iberian Spanish does NOT route through es-419.
+    # Iberian Spanish resolves the same way (plain truncation).
     assert locale.fallback_chain("es-ES") == ["es-ES", "es", "en-US"]
 
 
@@ -235,7 +237,7 @@ def test_spanish_catalog_ships_and_resolves():
     )
 
 
-def test_latin_american_umbrella_ships_and_resolves():
+def test_deprecated_es419_resolves_through_base_es():
     # es-419 has no catalog of its own (deprecated); resolves through base es.
     translate.set_locale("es-419")
     assert i18n.t("startup.ready") == "Listo para ir por el c\u00f3digo. \U0001f436"
@@ -248,14 +250,14 @@ def test_spanish_region_falls_back_to_base_language():
     assert i18n.t("confirm.yes") == "S\u00ed"
 
 
-def test_central_south_american_dialect_inherits_es419(tmp_path):
+def test_central_south_american_dialect_inherits_base_es(tmp_path):
     # A country dialect that only overrides ONE string still inherits the rest
-    # from es, then es, then en-US.
+    # from base es, then en-US (es-419 deprecated; no umbrella tier).
     _write_catalog(tmp_path, "es-AR", {"confirm.yes": "Dale"})
     catalog.add_catalog_dir(str(tmp_path))
     translate.set_locale("es-AR")
     assert i18n.t("confirm.yes") == "Dale"  # from es-AR
-    # Inherited from base es (es-419 deprecated; chain skips missing catalogs).
+    # Inherited from base es (chain skips the missing es-419 catalog).
     assert i18n.t("startup.ready") == "Listo para ir por el c\u00f3digo. \U0001f436"
     # Inherited from en-US default.
     assert i18n.t("confirm.no") == "No"
@@ -309,7 +311,7 @@ def test_target_locales_are_available():
         assert expected in available, f"{expected} catalog is missing"
 
 
-def test_dialect_stubs_inherit_from_umbrella():
+def test_dialect_stubs_inherit_from_base_es():
     # The empty country stubs must resolve every key via es -> en-US.
     for dialect in ("es-MX", "es-AR", "es-CO", "es-CL"):
         translate.set_locale(dialect)
