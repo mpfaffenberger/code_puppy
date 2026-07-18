@@ -14,6 +14,7 @@ from code_puppy.agents.agent_manager import (
     _save_session_data,
     get_available_agents,
     get_current_agent,
+    get_registered_agent_names,
     get_terminal_session_id,
     load_agent,
     refresh_agents,
@@ -108,6 +109,19 @@ class TestAgentManagerBasics:
             assert isinstance(display_name, str)
             assert len(agent_name) > 0
             assert len(display_name) > 0
+
+    @patch("code_puppy.agents.agent_manager._discover_agents")
+    def test_get_registered_agent_names_returns_registry_keys(self, mock_discover):
+        """Helper should trigger discovery and return registered names."""
+        mock_discover.return_value = None
+        with patch(
+            "code_puppy.agents.agent_manager._AGENT_REGISTRY",
+            {"code-puppy": MockAgent, "reviewer": MockAgent},
+        ):
+            names = get_registered_agent_names()
+
+        mock_discover.assert_called_once()
+        assert set(names) == {"code-puppy", "reviewer"}
 
     def test_get_terminal_session_id(self):
         """Test that terminal session ID generation works."""
@@ -303,39 +317,34 @@ class TestAgentManagerBasics:
             with pytest.raises(ValueError, match="not found and no fallback"):
                 load_agent("nonexistent-agent")
 
-    @patch("code_puppy.agents.agent_manager.discover_json_agents")
-    @patch("pkgutil.iter_modules")
-    @patch("importlib.import_module")
-    def test_load_agent_fallback_to_code_puppy(
-        self, mock_import, mock_iter_modules, mock_json_agents
-    ):
+    @patch("code_puppy.agents.agent_manager.emit_warning")
+    @patch("code_puppy.agents.agent_manager._discover_agents")
+    def test_load_agent_fallback_to_code_puppy(self, mock_discover, mock_emit_warning):
         """Test fallback to code-puppy agent when requested agent not found."""
 
-        # Setup registry with only code-puppy
         class CodePuppyAgent(MockAgent):
             def __init__(self):
                 super().__init__()
                 self._name = "code-puppy"
 
-        mock_iter_modules.return_value = [("code_puppy.agents", "code_puppy", True)]
+        with patch(
+            "code_puppy.agents.agent_manager._AGENT_REGISTRY",
+            {"code-puppy": CodePuppyAgent},
+        ):
+            # Try to load non-existent agent
+            agent = load_agent("nonexistent-agent")
 
-        mock_module = MagicMock()
-        mock_module.CodePuppyAgent = CodePuppyAgent
+            # Should fallback to code-puppy and emit warning
+            assert agent is not None
+            assert agent.name == "code-puppy"
+            mock_emit_warning.assert_called_once()
+            assert "nonexistent-agent" in mock_emit_warning.call_args[0][0]
 
-        def mock_import_side_effect(module_name):
-            if "code_puppy" in module_name:
-                return mock_module
-            return MagicMock()
-
-        mock_import.side_effect = mock_import_side_effect
-        mock_json_agents.return_value = {}
-
-        # Try to load non-existent agent
-        agent = load_agent("nonexistent-agent")
-
-        # Should fallback to code-puppy
-        assert agent is not None
-        assert agent.name == "code-puppy"
+            # Known agent should not emit this fallback warning
+            mock_emit_warning.reset_mock()
+            known_agent = load_agent("code-puppy")
+            assert known_agent.name == "code-puppy"
+            mock_emit_warning.assert_not_called()
 
     def test_refresh_agents(self):
         """Test refreshing agent discovery."""

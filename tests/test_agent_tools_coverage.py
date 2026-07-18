@@ -28,6 +28,16 @@ from code_puppy.tools.agent_tools import (
 )
 
 
+@pytest.fixture(autouse=True)
+def patch_registered_agent_names_default():
+    """Keep invoke-agent tests deterministic unless a test overrides it."""
+    with patch(
+        "code_puppy.agents.agent_manager.get_registered_agent_names",
+        return_value=["code-puppy", "test-agent", "reviewer", "qa-expert"],
+    ):
+        yield
+
+
 class TestGetSubagentSessionsDir:
     """Test suite for _get_subagent_sessions_dir function."""
 
@@ -180,6 +190,8 @@ class TestPydanticModels:
             )
             assert output.session_id is None
             assert output.model_name is None
+            assert output.requested_agent_name is None
+            assert output.fell_back is False
             assert output.error is None
 
         def test_serialization(self):
@@ -195,6 +207,8 @@ class TestPydanticModels:
             assert data["agent_name"] == "greeter"
             assert data["session_id"] == "session-123"
             assert data["model_name"] == "test-model"
+            assert data["requested_agent_name"] is None
+            assert data["fell_back"] is False
 
 
 class TestRegisterListAgentsExecution:
@@ -402,6 +416,7 @@ class TestRegisterInvokeAgentExecution:
         mock_context = MagicMock()
 
         mock_agent_config = MagicMock()
+        mock_agent_config.name = "test-agent"
         mock_agent_config.get_model_name.return_value = "nonexistent-model"
 
         with (
@@ -448,6 +463,475 @@ class TestRegisterInvokeAgentExecution:
             assert mock_emit_error.called
 
     @pytest.mark.asyncio
+    async def test_invoke_agent_reports_fallback_to_calling_agent(self):
+        """Missing sub-agent should surface fallback details in output payload."""
+        import contextvars
+
+        invoke_agent = self._get_registered_invoke_agent()
+        mock_context = MagicMock()
+
+        mock_agent_config = MagicMock()
+
+        @contextmanager
+        def temporary_override(_model_name):
+            yield
+
+        mock_agent_config.name = "code-puppy"
+        mock_agent_config.temporary_model_name_override.side_effect = temporary_override
+        mock_agent_config.get_model_name.return_value = "default-model"
+        mock_agent_config.get_full_system_prompt.return_value = "Test instructions"
+        mock_agent_config.get_available_tools.return_value = ["list_files"]
+
+        mock_result = MagicMock()
+        mock_result.output = "subagent response"
+        mock_result.all_messages.return_value = ["updated-history"]
+
+        mock_temp_agent = MagicMock()
+        mock_temp_agent.run = AsyncMock(return_value=mock_result)
+
+        fake_browser_var = contextvars.ContextVar("fake_browser")
+        browser_token = fake_browser_var.set("browser-session")
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation.generate_group_id",
+                    return_value="test-group",
+                )
+            )
+            mock_bus = stack.enter_context(
+                patch("code_puppy.tools.subagent_invocation.get_message_bus")
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation.get_session_context",
+                    return_value="parent",
+                )
+            )
+            stack.enter_context(
+                patch("code_puppy.tools.subagent_invocation.set_session_context")
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.agents.agent_manager.get_registered_agent_names",
+                    return_value=["code-puppy", "reviewer"],
+                )
+            )
+            stack.enter_context(patch("code_puppy.tools.subagent_invocation.emit_info"))
+            mock_emit_success = stack.enter_context(
+                patch("code_puppy.tools.subagent_invocation.emit_success")
+            )
+            mock_save_history = stack.enter_context(
+                patch("code_puppy.tools.subagent_invocation._save_session_history")
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.agents.agent_manager.load_agent",
+                    return_value=mock_agent_config,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.model_factory.ModelFactory.load_config",
+                    return_value={"default-model": {}},
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.model_factory.ModelFactory.get_model",
+                    return_value=MagicMock(),
+                )
+            )
+            stack.enter_context(
+                patch("code_puppy.model_factory.make_model_settings", return_value={})
+            )
+            stack.enter_context(
+                patch("code_puppy.agents._builder.load_puppy_rules", return_value=None)
+            )
+            mock_prepare = stack.enter_context(
+                patch("code_puppy.model_utils.prepare_prompt_for_model")
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.agents._builder.autostart_bound_servers_async",
+                    new=AsyncMock(),
+                )
+            )
+            stack.enter_context(
+                patch("code_puppy.config.get_value", return_value="true")
+            )
+            stack.enter_context(
+                patch("code_puppy.config.get_output_level", return_value="medium")
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.agents._compaction.make_history_processor",
+                    return_value=lambda messages: messages,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation.Agent",
+                    return_value=mock_temp_agent,
+                )
+            )
+            stack.enter_context(patch("code_puppy.tools.register_tools_for_agent"))
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation.on_wrap_pydantic_agent",
+                    side_effect=lambda _cfg, agent, **_kwargs: agent,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation.on_agent_run_context",
+                    return_value=[],
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation._load_session_history",
+                    return_value=[],
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation._generate_session_hash_suffix",
+                    return_value="abc123",
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation.get_message_limit",
+                    return_value=50,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.browser.browser_manager.set_browser_session",
+                    return_value=browser_token,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.browser.browser_manager._browser_session_var",
+                    fake_browser_var,
+                )
+            )
+
+            mock_bus.return_value.emit = MagicMock()
+            mock_prepare.return_value = MagicMock(
+                instructions="prepared instructions", user_prompt="prepared prompt"
+            )
+
+            result = await invoke_agent(
+                mock_context,
+                agent_name="architect",
+                prompt="Hello",
+            )
+
+        assert result.agent_name == "code-puppy"
+        assert result.requested_agent_name == "architect"
+        assert result.fell_back is True
+        assert result.response.startswith("[invoke_agent notice]")
+        assert "architect" in result.response
+        assert "--- code-puppy output below ---" in result.response
+        assert result.response.endswith("subagent response")
+
+        assert mock_emit_success.call_count == 1
+        assert (
+            "code-puppy completed successfully" in mock_emit_success.call_args.args[0]
+        )
+        assert mock_save_history.call_count == 1
+        assert mock_save_history.call_args.kwargs["agent_name"] == "code-puppy"
+
+        emitted_messages = [
+            call.args[0] for call in mock_bus.return_value.emit.call_args_list
+        ]
+        assert emitted_messages[0].agent_name == "code-puppy"
+        assert emitted_messages[-1].agent_name == "code-puppy"
+
+    @pytest.mark.asyncio
+    async def test_invoke_agent_fallback_error_prefixes_requested_agent(self):
+        """Fallback failures should include requested-agent context in the error."""
+        invoke_agent = self._get_registered_invoke_agent()
+        mock_context = MagicMock()
+
+        mock_agent_config = MagicMock()
+        mock_agent_config.name = "code-puppy"
+        mock_agent_config.get_model_name.return_value = "missing-model"
+
+        with (
+            patch(
+                "code_puppy.tools.subagent_invocation.generate_group_id",
+                return_value="test-group",
+            ),
+            patch("code_puppy.tools.subagent_invocation.get_message_bus") as mock_bus,
+            patch(
+                "code_puppy.tools.subagent_invocation.get_session_context",
+                return_value="parent",
+            ),
+            patch("code_puppy.tools.subagent_invocation.set_session_context"),
+            patch(
+                "code_puppy.agents.agent_manager.get_registered_agent_names",
+                return_value=["code-puppy", "reviewer"],
+            ),
+            patch("code_puppy.tools.subagent_invocation.emit_error"),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=mock_agent_config,
+            ),
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value={},
+            ),
+            patch(
+                "code_puppy.tools.subagent_invocation._load_session_history",
+                return_value=[],
+            ),
+            patch(
+                "code_puppy.tools.subagent_invocation._generate_session_hash_suffix",
+                return_value="abc123",
+            ),
+        ):
+            mock_bus.return_value.emit = MagicMock()
+            result = await invoke_agent(
+                mock_context,
+                agent_name="architect",
+                prompt="Hello",
+                session_id=None,
+            )
+
+        assert result.response is None
+        assert result.agent_name == "code-puppy"
+        assert result.requested_agent_name == "architect"
+        assert result.fell_back is True
+        assert result.error.startswith(
+            "(requested agent 'architect' not found; ran 'code-puppy' instead)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_invoke_agent_missing_requested_and_missing_code_puppy_no_fallback(
+        self,
+    ):
+        """When no fallback agent exists, do not claim fallback attribution."""
+        invoke_agent = self._get_registered_invoke_agent()
+        mock_context = MagicMock()
+
+        with (
+            patch(
+                "code_puppy.tools.subagent_invocation.generate_group_id",
+                return_value="test-group",
+            ),
+            patch("code_puppy.tools.subagent_invocation.get_message_bus") as mock_bus,
+            patch(
+                "code_puppy.tools.subagent_invocation.get_session_context",
+                return_value="parent",
+            ),
+            patch("code_puppy.tools.subagent_invocation.set_session_context"),
+            patch(
+                "code_puppy.agents.agent_manager.get_registered_agent_names",
+                return_value=["reviewer", "qa-expert"],
+            ),
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                side_effect=ValueError(
+                    "Agent 'architect' not found and no fallback available"
+                ),
+            ),
+            patch("code_puppy.tools.subagent_invocation.emit_error"),
+            patch(
+                "code_puppy.tools.subagent_invocation._load_session_history",
+                return_value=[],
+            ),
+            patch(
+                "code_puppy.tools.subagent_invocation._generate_session_hash_suffix",
+                return_value="abc123",
+            ),
+        ):
+            mock_bus.return_value.emit = MagicMock()
+            result = await invoke_agent(
+                mock_context,
+                agent_name="architect",
+                prompt="Hello",
+                session_id=None,
+            )
+
+        assert result.response is None
+        assert result.fell_back is False
+        assert result.requested_agent_name is None
+        assert result.error is not None
+        assert "not found and no fallback available" in result.error
+        assert "ran 'code-puppy' instead" not in result.error
+
+    @pytest.mark.asyncio
+    async def test_invoke_agent_keeps_response_untouched_when_no_fallback(self):
+        """Valid sub-agent call should not inject fallback metadata or notice."""
+        import contextvars
+
+        invoke_agent = self._get_registered_invoke_agent()
+        mock_context = MagicMock()
+
+        mock_agent_config = MagicMock()
+
+        @contextmanager
+        def temporary_override(_model_name):
+            yield
+
+        mock_agent_config.name = "reviewer"
+        mock_agent_config.temporary_model_name_override.side_effect = temporary_override
+        mock_agent_config.get_model_name.return_value = "default-model"
+        mock_agent_config.get_full_system_prompt.return_value = "Test instructions"
+        mock_agent_config.get_available_tools.return_value = ["list_files"]
+
+        mock_result = MagicMock()
+        mock_result.output = "clean response"
+        mock_result.all_messages.return_value = ["updated-history"]
+
+        mock_temp_agent = MagicMock()
+        mock_temp_agent.run = AsyncMock(return_value=mock_result)
+
+        fake_browser_var = contextvars.ContextVar("fake_browser")
+        browser_token = fake_browser_var.set("browser-session")
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation.generate_group_id",
+                    return_value="test-group",
+                )
+            )
+            mock_bus = stack.enter_context(
+                patch("code_puppy.tools.subagent_invocation.get_message_bus")
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation.get_session_context",
+                    return_value="parent",
+                )
+            )
+            stack.enter_context(
+                patch("code_puppy.tools.subagent_invocation.set_session_context")
+            )
+            stack.enter_context(patch("code_puppy.tools.subagent_invocation.emit_info"))
+            stack.enter_context(
+                patch("code_puppy.tools.subagent_invocation.emit_success")
+            )
+            stack.enter_context(
+                patch("code_puppy.tools.subagent_invocation._save_session_history")
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.agents.agent_manager.load_agent",
+                    return_value=mock_agent_config,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.model_factory.ModelFactory.load_config",
+                    return_value={"default-model": {}},
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.model_factory.ModelFactory.get_model",
+                    return_value=MagicMock(),
+                )
+            )
+            stack.enter_context(
+                patch("code_puppy.model_factory.make_model_settings", return_value={})
+            )
+            stack.enter_context(
+                patch("code_puppy.agents._builder.load_puppy_rules", return_value=None)
+            )
+            mock_prepare = stack.enter_context(
+                patch("code_puppy.model_utils.prepare_prompt_for_model")
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.agents._builder.autostart_bound_servers_async",
+                    new=AsyncMock(),
+                )
+            )
+            stack.enter_context(
+                patch("code_puppy.config.get_value", return_value="true")
+            )
+            stack.enter_context(
+                patch("code_puppy.config.get_output_level", return_value="medium")
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.agents._compaction.make_history_processor",
+                    return_value=lambda messages: messages,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation.Agent",
+                    return_value=mock_temp_agent,
+                )
+            )
+            stack.enter_context(patch("code_puppy.tools.register_tools_for_agent"))
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation.on_wrap_pydantic_agent",
+                    side_effect=lambda _cfg, agent, **_kwargs: agent,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation.on_agent_run_context",
+                    return_value=[],
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation._load_session_history",
+                    return_value=[],
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation._generate_session_hash_suffix",
+                    return_value="abc123",
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.subagent_invocation.get_message_limit",
+                    return_value=50,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.browser.browser_manager.set_browser_session",
+                    return_value=browser_token,
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "code_puppy.tools.browser.browser_manager._browser_session_var",
+                    fake_browser_var,
+                )
+            )
+
+            mock_bus.return_value.emit = MagicMock()
+            mock_prepare.return_value = MagicMock(
+                instructions="prepared instructions", user_prompt="prepared prompt"
+            )
+
+            result = await invoke_agent(
+                mock_context,
+                agent_name="reviewer",
+                prompt="Hello",
+            )
+
+        assert result.agent_name == "reviewer"
+        assert result.requested_agent_name is None
+        assert result.fell_back is False
+        assert result.response == "clean response"
+
+    @pytest.mark.asyncio
     async def test_invoke_agent_with_model_uses_override_for_runtime(self):
         """A supplied model_name should drive all model-specific run setup."""
         invoke_agent = self._get_registered_invoke_agent_with_model()
@@ -459,6 +943,7 @@ class TestRegisterInvokeAgentExecution:
         def temporary_override(model_name):
             yield
 
+        mock_agent_config.name = "test-agent"
         mock_agent_config.temporary_model_name_override.side_effect = temporary_override
         mock_agent_config.get_model_name.return_value = "override-model"
         mock_agent_config.get_full_system_prompt.return_value = "Test instructions"
@@ -610,6 +1095,7 @@ class TestRegisterInvokeAgentExecution:
         def temporary_override(model_name):
             yield
 
+        mock_agent_config.name = "test-agent"
         mock_agent_config.temporary_model_name_override.side_effect = temporary_override
         mock_agent_config.get_model_name.return_value = "missing-model"
 
@@ -666,6 +1152,7 @@ class TestRegisterInvokeAgentExecution:
         mock_context = MagicMock()
 
         mock_agent_config = MagicMock()
+        mock_agent_config.name = "test-agent"
         mock_agent_config.get_model_name.return_value = "test-model"
         mock_agent_config.get_system_prompt.return_value = "Test"
 
@@ -744,6 +1231,7 @@ class TestInvokeAgentPartialSessionSaveOnCrash:
 
     def _make_agent_config(self, partial_history):
         cfg = MagicMock()
+        cfg.name = "test-agent"
         cfg.get_model_name.return_value = "test-model"
         cfg.get_system_prompt.return_value = "Test"
         cfg.get_message_history.return_value = partial_history

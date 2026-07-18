@@ -515,6 +515,13 @@ def get_current_agent() -> BaseAgent:
     return _CURRENT_AGENT
 
 
+def get_registered_agent_names() -> list[str]:
+    """Return the names of all registered agents (after discovery), cheaply."""
+    message_group_id = str(uuid.uuid4())
+    _discover_agents(message_group_id=message_group_id)
+    return list(_AGENT_REGISTRY.keys())
+
+
 def load_agent(agent_name: str) -> BaseAgent:
     """Load an agent configuration by name.
 
@@ -525,7 +532,7 @@ def load_agent(agent_name: str) -> BaseAgent:
         The agent configuration instance.
 
     Raises:
-        ValueError: If the agent is not found.
+        ValueError: If the agent is not found and no fallback is available.
     """
     # Generate a message group ID for agent loading
     message_group_id = str(uuid.uuid4())
@@ -534,6 +541,11 @@ def load_agent(agent_name: str) -> BaseAgent:
     if agent_name not in _AGENT_REGISTRY:
         # Fallback to code-puppy if agent not found
         if "code-puppy" in _AGENT_REGISTRY:
+            emit_warning(
+                f"Requested agent '{agent_name}' isn't available; falling back to "
+                f"the default 'code-puppy' agent.",
+                message_group=message_group_id,
+            )
             agent_name = "code-puppy"
         else:
             raise ValueError(

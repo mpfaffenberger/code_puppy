@@ -207,6 +207,8 @@ class AgentInvokeOutput(BaseModel):
     agent_name: str
     session_id: str | None = None
     model_name: str | None = None
+    requested_agent_name: str | None = None
+    fell_back: bool = False
     error: str | None = None
 
 
