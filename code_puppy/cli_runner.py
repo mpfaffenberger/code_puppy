@@ -909,13 +909,13 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             from code_puppy.messaging import emit_warning
 
             await on_interactive_turn_cancel("", reason="Ctrl+C")
-            emit_warning(t("cli.input.cancelled"))
+            emit_warning("\n" + t("cli.input.cancelled"))
             continue
         except EOFError:
             # Handle Ctrl+D - exit the application
             from code_puppy.messaging import emit_success
 
-            emit_success(t("cli.goodbye_ctrld"))
+            emit_success("\n" + t("cli.goodbye_ctrld"))
 
             # Cancel any running agent task for clean shutdown
             if current_agent_task and not current_agent_task.done():
@@ -1059,9 +1059,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                     "cli.autosave.loaded",
                                     messages=len(history),
                                     tokens=total_tokens,
-                                    path=session_path,
                                 )
                             )
+                            emit_info(t("cli.autosave.loaded_path", path=session_path))
 
                             # Display recent message history for context
                             from code_puppy.command_line.autosave_menu import (
@@ -1162,7 +1162,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 from code_puppy.messaging import emit_warning
 
                 await on_interactive_turn_cancel(task, reason="Ctrl+C")
-                emit_warning(t("cli.turn.cancelled"))
+                emit_warning("\n" + t("cli.turn.cancelled"))
                 continue
             except Exception as e:
                 turn_error = e

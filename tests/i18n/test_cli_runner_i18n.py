@@ -64,6 +64,8 @@ def test_parametrized_cli_keys_interpolate():
         "cli.resume.resumed", messages=3, tokens=1200, session="demo"
     )
     assert "boom" in translate.t("cli.headless.error", error="boom")
+    assert "42" in translate.t("cli.autosave.loaded", messages=42, tokens=999)
+    assert "my.pkl" in translate.t("cli.autosave.loaded_path", path="my.pkl")
 
 
 def test_no_leftover_placeholder_for_supplied_params():
@@ -82,9 +84,6 @@ def test_no_leftover_placeholder_for_supplied_params():
 
 def test_cli_runner_imports_cleanly():
     """The migrated module must import without syntax/import errors."""
-    import importlib
-
     import code_puppy.cli_runner as cli_runner
 
-    importlib.reload(cli_runner)
     assert hasattr(cli_runner, "interactive_mode")

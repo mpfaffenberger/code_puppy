@@ -62,15 +62,15 @@
   "cli.prompt_toolkit.install_error": "Error installing prompt_toolkit: {error}",
   "cli.prompt_toolkit.fallback": "Falling back to basic input without tab completion",
   "cli.queue.running": "\u23ed running queued prompt",
-  "cli.input.cancelled": "\nInput cancelled",
-  "cli.goodbye_ctrld": "\nGoodbye! (Ctrl+D)",
+  "cli.input.cancelled": "Input cancelled",
+  "cli.goodbye_ctrld": "Goodbye! (Ctrl+D)",
   "cli.goodbye": "Goodbye!",
   "cli.command.error": "Command error: {error}",
   "cli.autosave.load_cancelled": "Autosave load cancelled",
-  "cli.autosave.loaded": "\u2705 Autosave loaded: {messages} messages ({tokens} tokens)\n\ud83d\udcc1 From: {path}",
+  "cli.autosave.loaded": "\u2705 Autosave loaded: {messages} messages ({tokens} tokens)",
   "cli.autosave.load_failed": "Failed to load autosave: {error}",
   "cli.autosave.headless_unsupported": "/autosave_load requires interactive mode; use -r SESSION in headless mode.",
-  "cli.turn.cancelled": "\nCancelled",
+  "cli.turn.cancelled": "Cancelled",
   "cli.context.cleared": "Context cleared. Session rotated to: {session}",
   "cli.attachments.files": "files: {count}",
   "cli.attachments.clipboard_images": "clipboard images: {count}",
@@ -80,5 +80,6 @@
   "cli.headless.executing": "Executing prompt: {prompt}",
   "cli.headless.cancelled": "Execution cancelled by user",
   "cli.headless.error": "Error executing prompt: {error}",
-  "cli.headless.save_failed": "Failed to save session {session}: {error}"
+  "cli.headless.save_failed": "Failed to save session {session}: {error}",
+  "cli.autosave.loaded_path": "\ud83d\udcc1 From: {path}"
 }
