@@ -31,7 +31,7 @@ from .fast_mode import (
     is_fast_mode_enabled,
     patch_anthropic_client_fast_mode,
 )
-from .prompt_handler import prepare_claude_code_prompt
+from .prompt_handler import is_claude_code_model, prepare_claude_code_prompt
 from .utils import (
     OAuthContext,
     add_models_to_extra_config,
@@ -430,6 +430,17 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     return None
 
 
+def _resolve_cache_ttl(model_name: str) -> Optional[str]:
+    """Prompt-cache TTL for a claude_code-type model.
+
+    ``claude-code-*`` models (OAuth subscription) always get the free 1-hour
+    TTL; anything else falls back to Anthropic's 5-minute default (None).
+    """
+    from code_puppy.claude_cache_client import CACHE_TTL_1H
+
+    return CACHE_TTL_1H if is_claude_code_model(model_name) else None
+
+
 def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict) -> Any:
     """Create a Claude Code model instance.
 
@@ -507,6 +518,13 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
     if verify is None:
         verify = get_cert_bundle_path()
 
+    # Claude Code OAuth includes 1-hour prompt caching for free, so
+    # claude-code-* models ALWAYS request the extended TTL. Anything else
+    # (hand-rolled claude_code configs without the prefix) keeps Anthropic's
+    # default 5-minute TTL — this is deliberately NOT applied to plain
+    # anthropic/custom_anthropic models.
+    cache_ttl = _resolve_cache_ttl(model_name)
+
     # Disable HTTP/2 for Claude Code OAuth - the UnprefixingStream wrapper
     # that transforms tool names in streaming responses doesn't play well
     # with HTTP/2's compression handling, causing zlib decompression errors.
@@ -518,6 +536,7 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         # Claude Code OAuth requires the ``cp_`` tool-name prefix; the wire
         # format Anthropic's CLI uses won't accept un-prefixed tools.
         apply_claude_code_prefix=True,
+        cache_ttl=cache_ttl,
         oauth_reauthentication_callback=lambda: _reauthenticate_after_expired_oauth(
             model_name
         ),
@@ -536,7 +555,7 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
             custom_endpoint["api_key"] = access_token
 
     client.set_token_update_callback(_update_runtime_token)
-    patch_anthropic_client_messages(anthropic_client)
+    patch_anthropic_client_messages(anthropic_client, cache_ttl=cache_ttl)
     # Fast mode wrapper sits outside cache-control injector and re-reads
     # the setting on every call so /claude-code-fast takes effect live.
     patch_anthropic_client_fast_mode(anthropic_client, model_name)

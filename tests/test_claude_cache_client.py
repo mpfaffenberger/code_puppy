@@ -9,10 +9,13 @@ import httpx
 import pytest
 
 from code_puppy.claude_cache_client import (
+    CACHE_TTL_1H,
     CLAUDE_CLI_USER_AGENT,
+    EXTENDED_CACHE_TTL_BETA,
     TOKEN_MAX_AGE_SECONDS,
     TOOL_PREFIX,
     ClaudeCacheAsyncClient,
+    _inject_cache_control_in_payload,
 )
 
 
@@ -811,3 +814,292 @@ class TestSendAppliesPrefixConditionally:
         sent = json.loads(captured["body"])
         tool_names = [t["name"] for t in sent["tools"]]
         assert tool_names == [f"{TOOL_PREFIX}read_file"]
+
+
+def _sample_payload() -> dict:
+    """A representative /v1/messages payload with all three cache targets."""
+    return {
+        "model": "claude-sonnet-4-5",
+        "system": "You are a helpful pup.",
+        "tools": [
+            {"name": "read_file", "description": "read"},
+            {"name": "edit_file", "description": "edit"},
+        ],
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "hi"}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "yo"}]},
+            {"role": "user", "content": [{"type": "text", "text": "do stuff"}]},
+        ],
+    }
+
+
+def _collect_markers(data: dict) -> list[dict]:
+    """Return every cache_control marker in a payload/body dict."""
+    markers = []
+    for block in data.get("system") or []:
+        if isinstance(block, dict) and "cache_control" in block:
+            markers.append(block["cache_control"])
+    for tool in data.get("tools") or []:
+        if isinstance(tool, dict) and "cache_control" in tool:
+            markers.append(tool["cache_control"])
+    for message in data.get("messages") or []:
+        content = message.get("content")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and "cache_control" in block:
+                    markers.append(block["cache_control"])
+    return markers
+
+
+class TestCacheTtlWireInjection:
+    """Wire-body path: ClaudeCacheAsyncClient._inject_cache_control."""
+
+    def test_default_ttl_omitted(self):
+        """No TTL requested -> plain ephemeral markers (Anthropic 5m default)."""
+        body = json.dumps(_sample_payload()).encode()
+
+        result = ClaudeCacheAsyncClient._inject_cache_control(body)
+
+        assert result is not None
+        markers = _collect_markers(json.loads(result))
+        assert len(markers) == 3  # system + tools + last message
+        assert all(m == {"type": "ephemeral"} for m in markers)
+
+    def test_1h_ttl_stamped_on_all_breakpoints(self):
+        """ttl='1h' -> every marker carries the extended TTL."""
+        body = json.dumps(_sample_payload()).encode()
+
+        result = ClaudeCacheAsyncClient._inject_cache_control(body, CACHE_TTL_1H)
+
+        assert result is not None
+        markers = _collect_markers(json.loads(result))
+        assert len(markers) == 3
+        assert all(m == {"type": "ephemeral", "ttl": "1h"} for m in markers)
+
+    def test_1h_ttl_on_system_list(self):
+        """System already in content-block form also gets the TTL."""
+        payload = _sample_payload()
+        payload["system"] = [{"type": "text", "text": "You are a helpful pup."}]
+        body = json.dumps(payload).encode()
+
+        result = ClaudeCacheAsyncClient._inject_cache_control(body, CACHE_TTL_1H)
+
+        data = json.loads(result)
+        assert data["system"][-1]["cache_control"] == {
+            "type": "ephemeral",
+            "ttl": "1h",
+        }
+
+
+class TestCacheTtlPayloadInjection:
+    """SDK payload path: _inject_cache_control_in_payload."""
+
+    def test_default_ttl_omitted(self):
+        payload = _sample_payload()
+
+        _inject_cache_control_in_payload(payload)
+
+        markers = _collect_markers(payload)
+        assert len(markers) == 3
+        assert all(m == {"type": "ephemeral"} for m in markers)
+
+    def test_1h_ttl_stamped_on_all_breakpoints(self):
+        payload = _sample_payload()
+
+        _inject_cache_control_in_payload(payload, CACHE_TTL_1H)
+
+        markers = _collect_markers(payload)
+        assert len(markers) == 3
+        assert all(m == {"type": "ephemeral", "ttl": "1h"} for m in markers)
+
+    def test_existing_markers_not_overwritten(self):
+        """Pre-existing cache_control survives (no double-stamping)."""
+        payload = _sample_payload()
+        payload["tools"][-1]["cache_control"] = {"type": "ephemeral"}
+
+        _inject_cache_control_in_payload(payload, CACHE_TTL_1H)
+
+        assert payload["tools"][-1]["cache_control"] == {"type": "ephemeral"}
+
+
+class TestCacheTtlPrefixStability:
+    """Consecutive requests must keep the cached prefix byte-stable.
+
+    The moving breakpoint may only ever land on the FINAL content block of
+    the FINAL message — touching anything earlier would rewrite the prefix
+    and defeat caching entirely (issue #640).
+    """
+
+    @pytest.mark.parametrize("ttl", [None, CACHE_TTL_1H])
+    def test_only_final_block_of_final_message_marked(self, ttl):
+        first = _sample_payload()
+        _inject_cache_control_in_payload(first, ttl)
+
+        # Next turn: same conversation plus the assistant reply + new user msg
+        second = _sample_payload()
+        second["messages"] = [
+            {"role": m["role"], "content": [dict(b) for b in m["content"]]}
+            for m in _sample_payload()["messages"]
+        ] + [
+            {"role": "assistant", "content": [{"type": "text", "text": "done"}]},
+            {"role": "user", "content": [{"type": "text", "text": "more"}]},
+        ]
+        _inject_cache_control_in_payload(second, ttl)
+
+        for payload in (first, second):
+            for message in payload["messages"][:-1]:
+                for block in message["content"]:
+                    assert "cache_control" not in block
+            last_content = payload["messages"][-1]["content"]
+            for block in last_content[:-1]:
+                assert "cache_control" not in block
+            assert "cache_control" in last_content[-1]
+
+        # The shared prefix (request 1's messages sans its moving marker)
+        # serializes identically inside request 2.
+        def _strip_markers(messages):
+            return [
+                {
+                    "role": m["role"],
+                    "content": [
+                        {k: v for k, v in b.items() if k != "cache_control"}
+                        for b in m["content"]
+                    ],
+                }
+                for m in messages
+            ]
+
+        prefix_len = len(first["messages"])
+        assert _strip_markers(second["messages"])[:prefix_len] == _strip_markers(
+            first["messages"]
+        )
+
+
+class TestExtendedCacheTtlBetaHeader:
+    """1h TTL requires the extended-cache-ttl beta on the wire."""
+
+    def test_beta_added_for_1h_ttl(self):
+        headers = {}
+
+        ClaudeCacheAsyncClient._transform_headers_for_claude_code(headers, CACHE_TTL_1H)
+
+        assert EXTENDED_CACHE_TTL_BETA in headers["anthropic-beta"]
+
+    def test_beta_not_added_by_default(self):
+        headers = {}
+
+        ClaudeCacheAsyncClient._transform_headers_for_claude_code(headers)
+
+        assert EXTENDED_CACHE_TTL_BETA not in headers["anthropic-beta"]
+
+    def test_beta_not_duplicated(self):
+        headers = {"anthropic-beta": EXTENDED_CACHE_TTL_BETA}
+
+        ClaudeCacheAsyncClient._transform_headers_for_claude_code(headers, CACHE_TTL_1H)
+
+        assert headers["anthropic-beta"].count(EXTENDED_CACHE_TTL_BETA) == 1
+
+
+class TestSendAppliesCacheTtl:
+    """End-to-end: a client built with cache_ttl='1h' stamps body + header."""
+
+    @pytest.mark.asyncio
+    async def test_send_stamps_1h_ttl_and_beta(self):
+        captured: dict = {}
+
+        async def fake_send(self, request, *args, **kwargs):
+            captured["body"] = bytes(request.content)
+            captured["beta"] = request.headers.get("anthropic-beta", "")
+            response = Mock(spec=httpx.Response)
+            response.status_code = 200
+            response.headers = {"content-type": "application/json"}
+            response._content = b"{}"
+            return response
+
+        with (
+            patch.object(httpx.AsyncClient, "send", new=fake_send),
+            patch.object(
+                ClaudeCacheAsyncClient,
+                "_check_stored_token_expiry",
+                return_value=False,
+            ),
+        ):
+            client = ClaudeCacheAsyncClient(
+                headers={"Authorization": "Bearer some_token"},
+                apply_claude_code_prefix=True,
+                cache_ttl=CACHE_TTL_1H,
+            )
+            request = httpx.Request(
+                "POST",
+                "https://api.anthropic.com/v1/messages",
+                headers={"Authorization": "Bearer some_token"},
+                content=json.dumps(_sample_payload()).encode(),
+            )
+
+            await client.send(request)
+
+        sent = json.loads(captured["body"])
+        markers = _collect_markers(sent)
+        assert markers, "expected cache_control markers on the wire"
+        assert all(m == {"type": "ephemeral", "ttl": "1h"} for m in markers)
+        assert EXTENDED_CACHE_TTL_BETA in captured["beta"]
+
+    @pytest.mark.asyncio
+    async def test_send_defaults_to_5m_without_cache_ttl(self):
+        captured: dict = {}
+
+        async def fake_send(self, request, *args, **kwargs):
+            captured["body"] = bytes(request.content)
+            captured["beta"] = request.headers.get("anthropic-beta", "")
+            response = Mock(spec=httpx.Response)
+            response.status_code = 200
+            response.headers = {"content-type": "application/json"}
+            response._content = b"{}"
+            return response
+
+        with (
+            patch.object(httpx.AsyncClient, "send", new=fake_send),
+            patch.object(
+                ClaudeCacheAsyncClient,
+                "_check_stored_token_expiry",
+                return_value=False,
+            ),
+        ):
+            client = ClaudeCacheAsyncClient(
+                headers={"Authorization": "Bearer some_token"},
+                apply_claude_code_prefix=True,
+            )
+            request = httpx.Request(
+                "POST",
+                "https://api.anthropic.com/v1/messages",
+                headers={"Authorization": "Bearer some_token"},
+                content=json.dumps(_sample_payload()).encode(),
+            )
+
+            await client.send(request)
+
+        sent = json.loads(captured["body"])
+        markers = _collect_markers(sent)
+        assert markers
+        assert all(m == {"type": "ephemeral"} for m in markers)
+        assert EXTENDED_CACHE_TTL_BETA not in captured["beta"]
+
+
+class TestPluginCacheTtlResolution:
+    """claude-code-* models ALWAYS get 1h; nothing else does (issue #640)."""
+
+    def test_claude_code_prefix_gets_1h(self):
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            _resolve_cache_ttl,
+        )
+
+        assert _resolve_cache_ttl("claude-code-claude-opus-4-7") == CACHE_TTL_1H
+        assert _resolve_cache_ttl("claude-code-claude-haiku-4-5") == CACHE_TTL_1H
+
+    def test_non_prefixed_models_keep_default(self):
+        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+            _resolve_cache_ttl,
+        )
+
+        assert _resolve_cache_ttl("claude-sonnet-4-5") is None
+        assert _resolve_cache_ttl("my-custom-anthropic") is None
