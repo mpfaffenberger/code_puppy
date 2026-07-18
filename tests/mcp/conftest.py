@@ -237,7 +237,17 @@ def mock_get_current_agent():
     mock_agent = Mock()
     mock_agent.reload_code_generation_agent = Mock()
 
-    with patch("code_puppy.agents.get_current_agent", return_value=mock_agent) as mock:
+    with (
+        patch("code_puppy.agents.get_current_agent", return_value=mock_agent) as mock,
+        patch(
+            "code_puppy.command_line.mcp.start_command.get_current_agent",
+            return_value=mock_agent,
+        ),
+        patch(
+            "code_puppy.command_line.mcp.stop_command.get_current_agent",
+            return_value=mock_agent,
+        ),
+    ):
         mock.agent = mock_agent
         yield mock
 
