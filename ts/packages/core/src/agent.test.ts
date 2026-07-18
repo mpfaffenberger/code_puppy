@@ -117,6 +117,19 @@ test("engine parity: full runTurn loop against the OpenAI-protocol client", asyn
   }
 });
 
+test("context size prefers the API's real input_tokens over the estimate", async () => {
+  const dir = `/tmp/mist-ts-tok-${Date.now()}`;
+  await Bun.$`mkdir -p ${dir}`;
+  await Bun.write(`${dir}/demo.txt`, "say hello now");
+  const engine = new MistEngine(dir);
+  // Cold start: no API reading yet → falls back to the chars/2.5 estimate.
+  expect(engine.estimateContextTokens()).toBeLessThan(10);
+  await engine.runTurn("demo", { onTextDelta: () => {}, onStep: () => {} });
+  // The mock's final request reports input_tokens: 99 — the REAL reading —
+  // while the estimate for this history would be far larger.
+  expect(engine.estimateContextTokens()).toBe(99);
+});
+
 test("request cap: hitting the ceiling is loud and hands back a resume path", async () => {
   // Regression: the old cap (25) exited the loop SILENTLY — no final text, no
   // event — which is how the P0 session died mid-implementation.

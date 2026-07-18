@@ -33,7 +33,7 @@ import {
   SUMMARIZATION_PROMPT,
 } from "./compaction";
 import { runTool, toolSpecs } from "./tools";
-import { McpManager, type McpToolSpec } from "./mcp";
+import { McpManager } from "./mcp";
 
 export const SYSTEM_PROMPT = `You are Mist, an AI coding agent helping the developer complete software-engineering work.
 You MUST use the provided tools to read, write, and execute rather than just describing what to do.
@@ -157,7 +157,11 @@ const requestCap = (isSubagent: boolean): number =>
   Math.max(1, Number(process.env.MIST_MAX_REQUESTS ?? (isSubagent ? 100 : 500)));
 const MAX_REQUESTS_PER_TURN = 25;
 const HEADROOM_MIN_CHARS = 2000;
-const AUTO_COMPACT_TOKENS = Number(process.env.MIST_COMPACT_AT ?? 60_000);
+// Auto-compaction threshold in REAL tokens (the API reports input_tokens on
+// every request — that IS the context size). MIST_COMPACT_AT overrides;
+// clamped to 80% of the model's declared context_length when the registry
+// knows it. The chars/2.5 estimate is only the cold-start fallback.
+const DEFAULT_COMPACT_AT = 200_000;
 
 export class MistEngine {
   private history: ChatMessage[] = [];
@@ -168,6 +172,10 @@ export class MistEngine {
   /** MCP server manager; null until attachMcp() is called. */
   mcp: McpManager | null = null;
   plan: PlanItem[] = [];
+  /** Real context size: input_tokens reported by the last API request. */
+  private lastInputTokens = 0;
+  /** context_length from the model registry, when declared. */
+  private contextLength: number | null = null;
 
   constructor(
     readonly cwd: string = process.cwd(),
@@ -185,7 +193,18 @@ export class MistEngine {
 
   /** Estimated tokens currently held in history (chars/2.5 heuristic). */
   estimateContextTokens(): number {
-    return estimateTokens(this.history);
+    // Prefer the API's real reading; the chars/2.5 estimate only covers the
+    // cold start (fresh or resumed session before the first request).
+    return this.lastInputTokens > 0 ? this.lastInputTokens : estimateTokens(this.history);
+  }
+
+  /** Compaction trigger in real tokens: MIST_COMPACT_AT (default 200k), clamped to 80% of the model's window. */
+  private compactThreshold(): number {
+    const configured = Math.max(1_000, Number(process.env.MIST_COMPACT_AT ?? DEFAULT_COMPACT_AT));
+    const windowCap = this.contextLength
+      ? Math.floor(this.contextLength * 0.8)
+      : Number.POSITIVE_INFINITY;
+    return Math.min(configured, windowCap);
   }
 
   /**
@@ -194,13 +213,16 @@ export class MistEngine {
    * summary message. Returns null when there is nothing to compact.
    */
   async compact(): Promise<CompactionResult | null> {
-    const before = estimateTokens(this.history);
+    // Real reading when we have one (it's what the API actually charged for
+    // the last request); estimate otherwise.
+    const before = this.estimateContextTokens();
     const clearedRes = clearStaleToolResults(this.history);
     this.history = clearedRes.messages;
     const split = splitForCompaction(this.history);
     if (!split) {
-      const after = estimateTokens(this.history);
-      return clearedRes.cleared ? { beforeTokens: before, afterTokens: after, summarized: 0 } : null;
+      if (!clearedRes.cleared) return null;
+      this.lastInputTokens = 0; // history changed — real size unknown until next request
+      return { beforeTokens: before, afterTokens: estimateTokens(this.history), summarized: 0 };
     }
     const client = await this.ensureClient();
     const log = renderLogForSummary(split.toSummarize);
@@ -215,6 +237,7 @@ export class MistEngine {
       { role: "user", content: `[conversation summary — older context compacted]\n${summary}` },
       ...split.tail,
     ];
+    this.lastInputTokens = 0; // history changed — real size unknown until next request
     return {
       beforeTokens: before,
       afterTokens: estimateTokens(this.history),
@@ -290,6 +313,7 @@ export class MistEngine {
     };
     const def = await getModelDef(name);
     if (def.type === "round_robin") resolving.add(name);
+    this.contextLength = def.context_length ?? null;
     this.client = await createModelClient(configFromDef(def), resolve);
     return this.client;
   }
@@ -343,7 +367,7 @@ export class MistEngine {
     // Proactive hygiene: stale tool results never accumulate.
     this.history = clearStaleToolResults(this.history).messages;
     // Auto-compact when the estimate crosses the threshold.
-    if (estimateTokens(this.history) > AUTO_COMPACT_TOKENS) {
+    if (this.estimateContextTokens() > this.compactThreshold()) {
       const r = await this.compact().catch(() => null);
       if (r) cb.onCompacted?.(r);
     }
@@ -364,6 +388,7 @@ export class MistEngine {
     let autoContinues = 0;
     const maxRequests = requestCap(this.isSubagent);
     let endedNaturally = false;
+    let midTurnCompactFailed = false;
 
     for (let request = 0; request < maxRequests; request++) {
       this.drainSteers();
@@ -371,6 +396,9 @@ export class MistEngine {
         onTextDelta: cb.onTextDelta,
       });
       cb.onUsage?.(result.inputTokens, result.outputTokens);
+      // Track the real context size (some third-party endpoints report 0 —
+      // keep the last good reading).
+      if (result.inputTokens > 0) this.lastInputTokens = result.inputTokens;
       if (result.thinkingMs > 500) cb.onThought?.(result.thinkingMs);
 
       const assistantBlocks: ContentBlock[] = [];
@@ -513,6 +541,14 @@ export class MistEngine {
       }
       toolResults.push(...(await Promise.all(subagentRuns)));
       this.history.push({ role: "user", content: toolResults });
+      // Mid-turn guard: with a 500-request cap a single turn can outgrow the
+      // window — the old turn-start-only check never saw it. Uses the fresh
+      // real reading; one failed attempt stops retries for the rest of the turn.
+      if (!midTurnCompactFailed && this.lastInputTokens > this.compactThreshold()) {
+        const r = await this.compact().catch(() => null);
+        if (r) cb.onCompacted?.(r);
+        else midTurnCompactFailed = true;
+      }
     }
     if (!endedNaturally) {
       // Cap exit used to be SILENT — the turn just stopped mid-work with no
