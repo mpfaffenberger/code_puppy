@@ -186,10 +186,10 @@ Do NOT open a browser window.
 
 ## HARD CONSTRAINT
 
-`//flux/create-pr` MUST NOT modify any source files, task files, or config files. The only permitted operations are reading git history, running `gh` commands, and pushing the branch if needed. Write the PR body inline — never via shell variables. Do NOT open a browser window.
+`/flux/create-pr` MUST NOT modify any source files, task files, or config files. The only permitted operations are reading git history, running `gh` commands, and pushing the branch if needed. Write the PR body inline — never via shell variables. Do NOT open a browser window.
 
 ## Propose next step
 
-Then propose the next step: `//flux/review`
+Then propose the next step: `/flux/review`
 
-Valid `//flux` commands: `//flux/config`, `//flux/create-jira`, `//flux/new`, `//flux/ask`, `//flux/split`, `//flux/aug`, `//flux/exec`, `//flux/qa`, `//flux/tests`, `//flux/commit`, `//flux/create-pr`, `//flux/review`, `//flux/address-feedback`, `//flux/status`, `//flux/view-looper`, `//flux/auto-pilot`, `//flux/rebase`. Do NOT suggest any command not on this list.
+Valid `//flux` commands: `/flux/config`, `/flux/new`, `/flux/ask`, `/flux/split`, `/flux/aug`, `/flux/exec`, `/flux/qa`, `/flux/tests`, `/flux/commit`, `/flux/create-pr`, `/flux/review`, `/flux/address-feedback`, `/flux/status`, `/flux/auto-pilot`, `/flux/rebase`. Do NOT suggest any command not on this list.

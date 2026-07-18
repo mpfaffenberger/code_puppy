@@ -2,22 +2,23 @@
 name: status
 description: Display the pipeline stage and status of all task files
 ui-mode: flux-status
-exec: python3 ~/.code_puppy/scripts/flux_status.py
+exec: {python} {script:flux_status.py}
 ---
 
-# //flux/status — PIPELINE STATUS
+# /flux/status — PIPELINE STATUS
 
 Show the current pipeline stage and status of every active task file in `todo/`.
 
-> **Note:** This command is handled natively by the flux_status.py script.
-> The markdown below is reference documentation only — it is not executed by the AI.
+> **Note:** This command is handled natively by the bundled flux_status.py
+> script (resolved under code-puppy's config dir). The markdown below is
+> reference documentation only — it is not executed by the AI.
 
 ## DATA SOURCE
 
 Reads `~/.flux/<flattened-dir>/todo/*.md` only. `<flattened-dir>` is derived from
-the current working directory at the time `//flux/status` is invoked — every
+the current working directory at the time `/flux/status` is invoked — every
 non-alphanumeric character in the absolute path is replaced with a hyphen.
-Completed tasks moved to `done/` by `//flux/qa` are intentionally excluded.
+Completed tasks moved to `done/` by `/flux/qa` are intentionally excluded.
 
 ## DISPLAY
 

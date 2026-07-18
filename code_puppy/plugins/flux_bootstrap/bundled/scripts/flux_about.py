@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the //flux/about overview using Rich's markdown renderer.
+"""Render the /flux/about overview using Rich's markdown renderer.
 
 This is the deterministic, AI-free renderer for /flux/about. The previous
 hand-rolled ANSI version was rough on tables (column widths didn't account
@@ -25,7 +25,26 @@ from pathlib import Path
 from rich.console import Console
 from rich.markdown import Markdown
 
-DEFAULT_SOURCE = "~/.code_puppy/commands/flux/about.md"
+
+def _default_source() -> str:
+    """Resolve about.md under code-puppy's (XDG-aware) config dir.
+
+    Runs inside the code-puppy venv, so importing the canonical resolver is the
+    single source of truth for the config location -- honoring XDG overrides
+    instead of assuming a hard-coded ~/.code_puppy. Falls back to the legacy
+    layout only if that import fails (e.g. run standalone).
+    """
+    try:
+        from code_puppy.config import CONFIG_DIR
+
+        return os.path.join(CONFIG_DIR, "commands", "flux", "about.md")
+    except Exception:
+        return os.path.join(
+            os.path.expanduser("~"), ".code_puppy", "commands", "flux", "about.md"
+        )
+
+
+DEFAULT_SOURCE = _default_source()
 DEFAULT_WIDTH = 120  # most modern terminals are at least this wide
 
 # YAML frontmatter block at the top of the file

@@ -183,25 +183,40 @@ def _install_pass(config_dir: Path, current_version: str) -> InstallReport:
         dest = config_dir / rel
         payload = src.read_bytes()
         payload_hash = _sha256_bytes(payload)
-        new_manifest[rel] = payload_hash
 
         if not dest.exists():
             dest.parent.mkdir(parents=True, exist_ok=True)
             _write_bytes_preserving_mode(dest, payload, src)
             report.installed.append(rel)
+            new_manifest[rel] = payload_hash
             continue
 
         current_hash = _sha256(dest)
         if current_hash == payload_hash:
-            # Already up to date -- nothing to do.
+            # Already exactly our payload -- idempotent no-op. Claim it so we
+            # keep ownership across future bumps.
+            report.skipped.append(rel)
+            new_manifest[rel] = payload_hash
+            continue
+
+        # Content differs from what we ship. Two cases:
+        #
+        #   1. We never installed this file (``rel not in manifest``). It's a
+        #      pre-existing, user-owned file that merely shares a name with our
+        #      payload. Preserve it *in place* -- do NOT back it up, overwrite
+        #      it, or claim it in the manifest. The user's file wins, forever,
+        #      unless they delete it. This is what stops a fresh Flux install
+        #      from stomping a user's own global command of the same name.
+        #
+        #   2. We installed it before (``rel in manifest``). It's ours to
+        #      update. If the on-disk hash matches what the manifest says we
+        #      wrote, it's untouched -> overwrite freely. Otherwise the user
+        #      hand-edited our copy -> preserve theirs as a uniquely-named
+        #      ``.bak`` before laying down the fresh version.
+        if rel not in manifest:
             report.skipped.append(rel)
             continue
 
-        # Content differs. Did *we* write the current copy last time, or did
-        # the user edit it? If the on-disk hash matches what our manifest says
-        # we installed, it's untouched -> overwrite freely. Otherwise the user
-        # (or something else) changed it -> preserve their copy as ``.bak``
-        # (with a unique name so repeated bumps don't clobber older backups).
         if manifest.get(rel) != current_hash:
             backup = _unique_backup_path(dest)
             shutil.copy2(dest, backup)
@@ -209,6 +224,7 @@ def _install_pass(config_dir: Path, current_version: str) -> InstallReport:
 
         _write_bytes_preserving_mode(dest, payload, src)
         report.updated.append(rel)
+        new_manifest[rel] = payload_hash
 
     _save_manifest(config_dir, new_manifest)
     _write_version(config_dir, current_version)

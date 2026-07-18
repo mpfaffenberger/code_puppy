@@ -660,3 +660,56 @@ class TestExecTrustGate:
             ):
                 assert _is_trusted_exec_dir(real) is True
                 assert _is_trusted_exec_dir(Path(tmpdir) / "other") is False
+
+
+class TestExecTokenExpansion:
+    """exec: directives use {python}/{script:...}/{command:...} tokens.
+
+    These keep command files interpreter-, path-, and OS-agnostic (no bare
+    ``python3``, no ``~`` expansion, no hard-coded ~/.code_puppy) so they honor
+    the XDG-configured CONFIG_DIR and work on Windows.
+    """
+
+    def test_python_token_expands_to_sys_executable(self):
+        import sys
+
+        from code_puppy.plugins.customizable_commands.register_callbacks import (
+            _expand_exec_tokens,
+        )
+
+        expanded = _expand_exec_tokens("{python} foo.py")
+        assert sys.executable in expanded
+        # No bare python3 / no leftover token.
+        assert "{python}" not in expanded
+
+    def test_script_and_command_tokens_resolve_under_config_dir(self):
+        from code_puppy.plugins.customizable_commands import register_callbacks as rc
+
+        with patch.object(rc, "CONFIG_DIR", "/tmp/cfghome"):
+            expanded = rc._expand_exec_tokens(
+                "{python} {script:flux_status.py} --docs {command:flux/_docs}"
+            )
+
+        assert "/tmp/cfghome/scripts/flux_status.py" in expanded
+        assert "/tmp/cfghome/commands/flux/_docs" in expanded
+        # No shell-expansion / hard-coded home path residue.
+        assert "~" not in expanded
+        assert "{script:" not in expanded
+        assert "{command:" not in expanded
+
+    def test_path_with_spaces_is_quoted(self):
+        from code_puppy.plugins.customizable_commands import register_callbacks as rc
+
+        with patch.object(rc, "CONFIG_DIR", "/tmp/has space/cfg"):
+            expanded = rc._expand_exec_tokens("{python} {script:flux_status.py}")
+
+        # A space-bearing path must be quoted so shell=True doesn't split it
+        # into two args. shlex.quote wraps the whole token in single quotes.
+        assert "'/tmp/has space/cfg/scripts/flux_status.py'" in expanded
+
+    def test_unknown_tokens_are_left_untouched(self):
+        from code_puppy.plugins.customizable_commands.register_callbacks import (
+            _expand_exec_tokens,
+        )
+
+        assert _expand_exec_tokens("echo {not_a_token}") == "echo {not_a_token}"

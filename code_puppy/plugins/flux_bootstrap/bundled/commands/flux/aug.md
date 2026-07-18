@@ -32,7 +32,7 @@ ls -1 "$FLUX_BASE/todo/"*.md 2>/dev/null || true
 ```
 IF $ARGUMENTS is empty:
   -> List: `ls -1 "$FLUX_BASE/todo/"*.md`
-  -> Use AskUserQuestion to let user select task(s)
+  -> Use ask_user_question to let user select task(s)
   -> Single selection -> Single-task mode
   -> Multiple selection -> Process selected tasks sequentially
 
@@ -155,7 +155,7 @@ updated: <YYYY-MM-DD HH:MM>
 
 ## MULTI-TASK MODE
 
-Use the `Agent` tool to execute tasks IN PARALLEL. _NEVER_ run agents in the background — always foreground.
+Use the `invoke_agent` tool to execute tasks IN PARALLEL. _NEVER_ run agents in the background — always foreground.
 
 - Spawn `$ARGUMENTS` subagents at a time (or fewer if fewer tasks exist)
 - As each completes, spawn a new one until all `$FLUX_BASE/todo/*.md` tasks are done
@@ -168,14 +168,14 @@ Use the single-task mode steps above as the subagent prompt, substituting `{{abs
 
 ## HARD CONSTRAINTS
 
-- **Path**: All `Write`/`Edit` file paths MUST use the exact `FLUX_BASE` value printed by the STEP 1 bash output (e.g. `FLUX_BASE=/Users/...`). Copy it character-for-character — never reconstruct it from `cwd` or memory.
-- `//flux/aug` is a **research-and-augment-only** command. You MUST NOT modify any source files, run any tests, or create new files outside of `./tmp`. The only file operation allowed on the project is editing the target task file in place. If you find yourself about to touch any source file, stop immediately.
+- **Path**: All `create_file`/`replace_in_file` file paths MUST use the exact `FLUX_BASE` value printed by the STEP 1 bash output (e.g. `FLUX_BASE=/Users/...`). Copy it character-for-character — never reconstruct it from `cwd` or memory.
+- `/flux/aug` is a **research-and-augment-only** command. You MUST NOT modify any source files, run any tests, or create new files outside of `./tmp`. The only file operation allowed on the project is editing the target task file in place. If you find yourself about to touch any source file, stop immediately.
 
 ## Propose next step
 
-Then propose the next step: `//flux/exec` (include arguments if needed).
+Then propose the next step: `/flux/exec` (include arguments if needed).
 
-Valid `//flux` commands: `//flux/config`, `//flux/create-jira`, `//flux/new`, `//flux/ask`, `//flux/split`, `//flux/aug`, `//flux/exec`, `//flux/qa`, `//flux/tests`, `//flux/commit`, `//flux/create-pr`, `//flux/review`, `//flux/address-feedback`, `//flux/status`, `//flux/view-looper`, `//flux/auto-pilot`, `//flux/rebase`. Do NOT suggest any command not on this list.
+Valid `//flux` commands: `/flux/config`, `/flux/new`, `/flux/ask`, `/flux/split`, `/flux/aug`, `/flux/exec`, `/flux/qa`, `/flux/tests`, `/flux/commit`, `/flux/create-pr`, `/flux/review`, `/flux/address-feedback`, `/flux/status`, `/flux/auto-pilot`, `/flux/rebase`. Do NOT suggest any command not on this list.
 
 =================
 $ARGUMENTS

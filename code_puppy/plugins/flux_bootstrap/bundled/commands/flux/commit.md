@@ -24,7 +24,7 @@ echo "TICKET: $TICKET"
 ```
 
 - `$TICKET` non-empty → prefix: `$TICKET:` (e.g. `PROJ-123: description`)
-- `$TICKET` empty → `AskUserQuestion`:
+- `$TICKET` empty → `ask_user_question`:
   - Question: "No Jira ticket found in branch name. What type of commit is this?"
   - Header: "Commit type"
   - Options: `feat`, `fix`, `chore`, `refactor`, `docs`, `test`
@@ -53,7 +53,7 @@ If no changes, tell the user and stop.
 
 > ⚠️ `--amend` rewrites history. If this branch has already been pushed, a force-push will be required.
 
-Present the message from STEP 4, then `AskUserQuestion`:
+Present the message from STEP 4, then `ask_user_question`:
 
 - Normal: "Ready to commit with the message above?" → `["Yes, commit now", "No, let me review first"]`
 - Amend: "Ready to amend the previous commit with the message above?" → `["Yes, amend now", "No, let me review first"]`
@@ -91,13 +91,13 @@ Summarize completion. In amend mode, note "Amended previous commit" instead of "
 
 ## HARD CONSTRAINT
 
-`//flux/commit` MUST NOT push to any remote unless the user explicitly asks. MUST NOT modify any source files or task files. The only permitted operations are reading git history, staging files, and creating/amending a commit. Write the commit message inline — never via shell variables.
+`/flux/commit` MUST NOT push to any remote unless the user explicitly asks. MUST NOT modify any source files or task files. The only permitted operations are reading git history, staging files, and creating/amending a commit. Write the commit message inline — never via shell variables.
 
 ## Propose next step
 
-Then propose the next step: `//flux/create-pr` (include arguments if needed).
+Then propose the next step: `/flux/create-pr` (include arguments if needed).
 
-Valid `//flux` commands: `//flux/config`, `//flux/create-jira`, `//flux/new`, `//flux/ask`, `//flux/split`, `//flux/aug`, `//flux/exec`, `//flux/qa`, `//flux/tests`, `//flux/commit`, `//flux/create-pr`, `//flux/review`, `//flux/address-feedback`, `//flux/status`, `//flux/view-looper`, `//flux/auto-pilot`, `//flux/rebase`. Do NOT suggest any command not on this list.
+Valid `//flux` commands: `/flux/config`, `/flux/new`, `/flux/ask`, `/flux/split`, `/flux/aug`, `/flux/exec`, `/flux/qa`, `/flux/tests`, `/flux/commit`, `/flux/create-pr`, `/flux/review`, `/flux/address-feedback`, `/flux/status`, `/flux/auto-pilot`, `/flux/rebase`. Do NOT suggest any command not on this list.
 
 =================
 $ARGUMENTS

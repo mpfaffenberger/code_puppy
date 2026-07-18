@@ -1,7 +1,6 @@
 ---
 name: rebase
 description: Rebase branch onto latest default branch, preserving individual commits
-allowed-tools: AskUserQuestion, Bash
 ---
 
 # REBASE ONTO LATEST DEFAULT BRANCH
@@ -39,7 +38,7 @@ git status --porcelain
 
 If there is **any** output (staged or unstaged changes, untracked files you care about):
 
-`AskUserQuestion` — question: "Your working tree is not clean. Rebase requires a clean tree (or stashed work). How do you want to proceed?" / header: "Unclean working tree" / options:
+`ask_user_question` — question: "Your working tree is not clean. Rebase requires a clean tree (or stashed work). How do you want to proceed?" / header: "Unclean working tree" / options:
 
 - `Stash changes and continue` → run `git stash push -u -m "myproj-flux-rebase-wip"`. Set an internal flag that a stash was created — STEP 9 will offer to pop it.
 - `Abort` → stop. Do not rebase.
@@ -131,7 +130,7 @@ git diff "$DEFAULT_BRANCH" --stat
 
 Confirm history and diffs match expectations (no dropped features). If changes are missing — investigate before pushing.
 
-## STEP 8: Confirm push (AskUserQuestion)
+## STEP 8: Confirm push (ask_user_question)
 
 After a rebase, commit hashes differ from any previous push of the same branch. Choose the right push: first-time upstream vs `--force-with-lease` when the branch already exists on the remote.
 
@@ -139,12 +138,12 @@ After a rebase, commit hashes differ from any previous push of the same branch. 
 git rev-parse @{u} >/dev/null 2>&1 && echo HAS_UPSTREAM || echo NO_UPSTREAM
 ```
 
-- **`NO_UPSTREAM`** (first push of this branch): `AskUserQuestion` — question: "Rebase is complete and verified. Push this branch and set upstream with `git push -u origin \"$BRANCH\"`? (No force needed.)" / header: "Push branch" / options: `Yes, push now` | `No, I'll push manually later`
+- **`NO_UPSTREAM`** (first push of this branch): `ask_user_question` — question: "Rebase is complete and verified. Push this branch and set upstream with `git push -u origin \"$BRANCH\"`? (No force needed.)" / header: "Push branch" / options: `Yes, push now` | `No, I'll push manually later`
 
   - Yes → `git push -u origin "$BRANCH"`
   - No → skip push; say so in STEP 9.
 
-- **`HAS_UPSTREAM`**: `AskUserQuestion` — question: "Rebase rewrote history. Push with `git push --force-with-lease origin \"$BRANCH\"`? Refuses if someone else pushed in the meantime. Only do this for your own feature branch — never `$DEFAULT_BRANCH`." / header: "Push rebased branch" / options: `Yes, force-with-lease now` | `No, I'll push manually later`
+- **`HAS_UPSTREAM`**: `ask_user_question` — question: "Rebase rewrote history. Push with `git push --force-with-lease origin \"$BRANCH\"`? Refuses if someone else pushed in the meantime. Only do this for your own feature branch — never `$DEFAULT_BRANCH`." / header: "Push rebased branch" / options: `Yes, force-with-lease now` | `No, I'll push manually later`
   - Yes → `git push --force-with-lease origin "$BRANCH"`
   - No → skip push; say so in STEP 9.
 
@@ -163,19 +162,19 @@ Report:
 - How many commits from `$DEFAULT_BRANCH` were incorporated under you
 - Conflicts: how many stops, which files, any modify/delete/binary/submodule cases
 - Push: done vs deferred by user choice
-- If STEP 2 stashed: use `AskUserQuestion` — question: "You stashed changes before the rebase. Do you want to pop the stash now?" / header: "Restore stash" / options: `Yes, pop stash now` | `No, I'll pop it manually later`
+- If STEP 2 stashed: use `ask_user_question` — question: "You stashed changes before the rebase. Do you want to pop the stash now?" / header: "Restore stash" / options: `Yes, pop stash now` | `No, I'll pop it manually later`
   - Yes → run `git stash pop`. If it produces conflicts, list the conflicted files and instruct the user to resolve them manually (`git add <file>` after editing, then `git stash drop` once done — do NOT run `git stash pop` again).
   - No → remind the user to run `git stash pop` manually when ready.
 
 ## HARD CONSTRAINT
 
-`//flux/rebase` MUST NOT squash or modify commit content except as required for conflict resolution during `git rebase --continue`. MUST NOT commit to `$DEFAULT_BRANCH`. MUST NOT use `git push --force` (use `--force-with-lease` when updating an existing remote branch). The only permitted history edits are the rebase itself and conflict resolutions in STEP 6.
+`/flux/rebase` MUST NOT squash or modify commit content except as required for conflict resolution during `git rebase --continue`. MUST NOT commit to `$DEFAULT_BRANCH`. MUST NOT use `git push --force` (use `--force-with-lease` when updating an existing remote branch). The only permitted history edits are the rebase itself and conflict resolutions in STEP 6.
 
 ## Propose next step
 
-Then propose the next step: `//flux/create-pr` (include arguments if needed).
+Then propose the next step: `/flux/create-pr` (include arguments if needed).
 
-Valid `//flux` commands: `//flux/config`, `//flux/create-jira`, `//flux/new`, `//flux/ask`, `//flux/split`, `//flux/aug`, `//flux/exec`, `//flux/qa`, `//flux/tests`, `//flux/commit`, `//flux/create-pr`, `//flux/review`, `//flux/address-feedback`, `//flux/status`, `//flux/view-looper`, `//flux/auto-pilot`, `//flux/rebase`. Do NOT suggest any command not on this list.
+Valid `//flux` commands: `/flux/config`, `/flux/new`, `/flux/ask`, `/flux/split`, `/flux/aug`, `/flux/exec`, `/flux/qa`, `/flux/tests`, `/flux/commit`, `/flux/create-pr`, `/flux/review`, `/flux/address-feedback`, `/flux/status`, `/flux/auto-pilot`, `/flux/rebase`. Do NOT suggest any command not on this list.
 
 =================
 $ARGUMENTS

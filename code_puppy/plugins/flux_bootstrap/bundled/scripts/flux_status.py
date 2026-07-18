@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a colorized //flux/status panel for the terminal.
+"""Render a colorized /flux/status panel for the terminal.
 
 This is the code-puppy equivalent of Wibey's native `ui-mode: flux-status`
 renderer. Wibey draws an interactive Ink overlay; code-puppy can't host an
@@ -275,7 +275,7 @@ def render(base: Path, sections: set[str], theme: Theme) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Render //flux/status panel")
+    parser = argparse.ArgumentParser(description="Render /flux/status panel")
     parser.add_argument("--base", default=None, help="Explicit flux base dir")
     parser.add_argument(
         "--sections",

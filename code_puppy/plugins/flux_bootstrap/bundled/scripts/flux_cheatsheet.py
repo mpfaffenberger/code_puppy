@@ -9,9 +9,13 @@ SINGLE SOURCE OF TRUTH: the pipeline definitions are parsed at runtime from
 `pipeline.md` in the flux _docs directory. Editing that doc changes this output
 automatically -- nothing is hardcoded here except presentation.
 
-Wibey writes commands as `//flux/<cmd>`. code-puppy users invoke flux WITHOUT
-slashes (a leading `/` triggers code-puppy's own command parser), so every
-command is rewritten to `flux <cmd>` before display.
+Wibey writes commands as `/flux/<cmd>`; code-puppy's namespaced slash commands
+use a single leading slash, so every command is normalized to `/flux/<cmd>`
+before display -- exactly what a code-puppy user types to run it.
+
+The flux _docs directory defaults to code-puppy's config dir (XDG-aware) rather
+than any hard-coded home path; ``--docs`` overrides it. The command wiring
+passes it explicitly via a ``{command:flux/_docs}`` token.
 
 Usage:
   flux_cheatsheet.py [--docs DIR] [--pipeline A|B|C|D] [--no-color]
@@ -35,9 +39,28 @@ GREY = "\033[90m"
 
 FRAKTUR_F = "\U0001D571"  # mathematical bold fraktur capital F
 
-DEFAULT_DOCS = "~/.wibey/commands/flux/_docs"
 
-# matches `//flux/`, `/flux/`, etc. -> we collapse to `flux `
+def _default_docs() -> str:
+    """Resolve the flux _docs dir under code-puppy's (XDG-aware) config dir.
+
+    Runs inside the code-puppy venv, so importing the canonical resolver is the
+    single source of truth. Falls back to the legacy ~/.code_puppy layout only
+    if that import somehow fails (e.g. run standalone).
+    """
+    try:
+        from code_puppy.config import CONFIG_DIR
+
+        return os.path.join(CONFIG_DIR, "commands", "flux", "_docs")
+    except Exception:
+        return os.path.join(
+            os.path.expanduser("~"), ".code_puppy", "commands", "flux", "_docs"
+        )
+
+
+DEFAULT_DOCS = _default_docs()
+
+# matches `/flux/`, `/flux/`, etc. -> we normalize to `/flux/` (the single-slash
+# namespaced command code-puppy users actually type).
 SLASH_CMD = re.compile(r"/+flux/")
 PIPELINE_HEADING = re.compile(r"^##\s+PIPELINE\s+([A-Za-z0-9]+)\s*:")
 
@@ -51,8 +74,12 @@ class Theme:
 
 
 def strip_slashes(line: str) -> str:
-    """`//flux/new` -> `flux new`, `//flux/review <PR#>` -> `flux review <PR#>`."""
-    return SLASH_CMD.sub("flux ", line)
+    """`/flux/new` -> `/flux/new`, `/flux/review <PR#>` -> `/flux/review <PR#>`.
+
+    Collapses any run of leading slashes to the single-slash namespaced form
+    code-puppy dispatches (``/flux/<cmd>``).
+    """
+    return SLASH_CMD.sub("/flux/", line)
 
 
 def parse_pipelines(md_text: str) -> list[tuple[str, str, list[str]]]:
@@ -134,7 +161,6 @@ def render(pipelines: list[tuple[str, str, list[str]]], theme: Theme) -> str:
 
     out.append("")
     out.append(theme(MAGENTA, "\u2550" * width))
-    out.append(theme(GREY, "Tip: run any step directly, e.g. ") + theme(GREEN, "flux new \"add dark mode\""))
     return "\n".join(out)
 
 

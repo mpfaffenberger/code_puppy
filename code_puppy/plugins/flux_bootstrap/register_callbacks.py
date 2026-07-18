@@ -18,6 +18,23 @@ from code_puppy.messaging import emit_info, emit_warning
 from .installer import install_bundled_commands, needs_install
 
 
+def _reload_command_cache() -> None:
+    """Ask the customizable_commands loader to rescan its dirs. Never raises.
+
+    Imported lazily (not at module scope) so a refactor/rename of that plugin
+    can't break flux_bootstrap's own import, and so we don't create a hard
+    load-order dependency between the two plugins.
+    """
+    try:
+        from code_puppy.plugins.customizable_commands.register_callbacks import (
+            reload_commands,
+        )
+
+        reload_commands()
+    except Exception as exc:  # a stale cache is not worth crashing over
+        emit_warning(f"Flux installed but command cache reload failed: {exc}")
+
+
 def _current_version() -> str:
     try:
         from code_puppy import __version__
@@ -44,6 +61,10 @@ def _install_flux_commands() -> None:
                     "Backed up locally-modified Flux files (see *.bak): "
                     + ", ".join(report.backed_up)
                 )
+            # The command cache was populated at plugin import time -- before we
+            # just wrote these files. Force a rescan so /flux/... is
+            # dispatchable *this* session instead of after a restart.
+            _reload_command_cache()
     except Exception as exc:  # never let bootstrap break startup
         emit_warning(f"Flux bootstrap skipped (install failed): {exc}")
 

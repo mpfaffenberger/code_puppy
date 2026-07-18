@@ -107,7 +107,7 @@ Group files by: key modules, logical areas, high-risk changes (security, perform
 
 ## STEP 6: Spawn code review sub-agents
 
-Launch with `Agent` tool, `run_in_background: false`.
+Launch with `invoke_agent` tool, `run_in_background: false`.
 
 **Agent count:**
 | Changed Files | Agents | Strategy |
@@ -232,7 +232,7 @@ Enumerate with `find "$FLUX_BASE/review/" -name "*.md" -type f | sort`. Report: 
 find "$FLUX_BASE/review/" -name "*.md" -type f | sort
 ```
 
-Use `AskUserQuestion`: present pre-existing issues (full paths), ask which to keep. Default if no response: DELETE pre-existing issue tasks.
+Use `ask_user_question`: present pre-existing issues (full paths), ask which to keep. Default if no response: DELETE pre-existing issue tasks.
 
 ## STEP 11: Consolidation & deduplication
 
@@ -288,17 +288,17 @@ Report zip location. If PR provided: "share with PR author or attach manually." 
 
 ## HARD CONSTRAINTS
 
-- **Path**: All `Write`/`Edit`/`mv`/`cp` file paths MUST use the exact `FLUX_BASE` value printed by STEP 2 or STEP 7 bash output (e.g. `FLUX_BASE=/Users/...`). Copy it character-for-character — never reconstruct it from `cwd` or memory.
-- `//flux/review` MUST NOT modify any source files. The only permitted file operations are: creating issue task files in `$FLUX_BASE/review/`, moving/deleting those files during deduplication, and creating the zip archive. No changes to `./src/`, no git commits, no pushes.
+- **Path**: All `create_file`/`replace_in_file`/`mv`/`cp` file paths MUST use the exact `FLUX_BASE` value printed by STEP 2 or STEP 7 bash output (e.g. `FLUX_BASE=/Users/...`). Copy it character-for-character — never reconstruct it from `cwd` or memory.
+- `/flux/review` MUST NOT modify any source files. The only permitted file operations are: creating issue task files in `$FLUX_BASE/review/`, moving/deleting those files during deduplication, and creating the zip archive. No changes to `./src/`, no git commits, no pushes.
 
 ## NEXT STEP
 
 Then propose the next step:
 
-- if user is reviewing their own branch: `//flux/address-feedback`
+- if user is reviewing their own branch: `/flux/address-feedback`
 - if user is reviewing someone else's PR: `share the zip with the author`
 
-Valid `//flux` commands: `//flux/config`, `//flux/create-jira`, `//flux/new`, `//flux/ask`, `//flux/split`, `//flux/aug`, `//flux/exec`, `//flux/qa`, `//flux/tests`, `//flux/commit`, `//flux/create-pr`, `//flux/review`, `//flux/address-feedback`, `//flux/status`, `//flux/view-looper`, `//flux/auto-pilot`, `//flux/rebase`. Do NOT suggest any command not on this list.
+Valid `//flux` commands: `/flux/config`, `/flux/new`, `/flux/ask`, `/flux/split`, `/flux/aug`, `/flux/exec`, `/flux/qa`, `/flux/tests`, `/flux/commit`, `/flux/create-pr`, `/flux/review`, `/flux/address-feedback`, `/flux/status`, `/flux/auto-pilot`, `/flux/rebase`. Do NOT suggest any command not on this list.
 
 =================
 $ARGUMENTS

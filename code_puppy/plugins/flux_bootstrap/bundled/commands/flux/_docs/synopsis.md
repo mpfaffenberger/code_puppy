@@ -4,12 +4,12 @@ Quick reference for arguments, options, and usage examples for every command in 
 
 ---
 
-## `//flux/config` ⚙️ First-time setup
+## `/flux/config` ⚙️ First-time setup
 
-> **Run this once before using the `//flux` suite on a new project.** It creates the flux `config.env` file (`~/.flux/<flattened-dir>/config.env` for stable, `~/.flux-nightly/<flattened-dir>/config.env` for nightly) with your project-specific settings. All other `//flux` commands read from this file automatically.
+> **Run this once before using the `//flux` suite on a new project.** It creates the flux `config.env` file (`~/.flux/<flattened-dir>/config.env`) with your project-specific settings. All other `//flux` commands read from this file automatically.
 
 ```
-//flux/config
+/flux/config
 ```
 
 | Argument  | Required | Description         |
@@ -21,25 +21,21 @@ Quick reference for arguments, options, and usage examples for every command in 
 | Key                    | Required  | Description                                                          |
 | ---------------------- | --------- | -------------------------------------------------------------------- |
 | `TEST_CMD`             | mandatory | Command to run your test suite (e.g. `bun run test:quiet`)           |
-| `JIRA_BASE_URL`        | auto-set  | Always set to `https://jira.walmart.com`                             |
-| `JIRA_PROJECT_KEY`     | mandatory | Your Jira project key (e.g. `MYPROJ`)                               |
-| `JIRA_TICKET_TEMPLATE` | optional  | Template ticket to clone when creating new tickets (e.g. `PROJ-100`) |
-| `JIRA_TICKET_PREFIX`   | optional  | Prefix prepended to new ticket summaries (e.g. `[frontend]`)        |
 
 **Example:**
 
 ```
-//flux/config
+/flux/config
 ```
 
 ---
 
-## `//flux/new`
+## `/flux/new`
 
 Create a new task file from a description or Jira ticket.
 
 ```
-//flux/new <description | TICKET-ID>
+/flux/new <description | TICKET-ID>
 ```
 
 | Argument      | Required        | Description                                                                                                               |
@@ -50,19 +46,19 @@ Create a new task file from a description or Jira ticket.
 **Examples:**
 
 ```
-//flux/new "Add real-time notifications to the sidebar"
-//flux/new MYPROJ-123
-//flux/new CLIAPP-456
+/flux/new "Add real-time notifications to the sidebar"
+/flux/new MYPROJ-123
+/flux/new CLIAPP-456
 ```
 
 ---
 
-## `//flux/ask`
+## `/flux/ask`
 
 Clarify requirements via structured questions, then augment the task file with research and an implementation plan.
 
 ```
-//flux/ask [todo-file | all]
+/flux/ask [todo-file | all]
 ```
 
 | Argument    | Required       | Description                                                                                                 |
@@ -73,20 +69,20 @@ Clarify requirements via structured questions, then augment the task file with r
 **Examples:**
 
 ```
-//flux/ask NOTIFS
-//flux/ask MYPROJ-123
-//flux/ask all
-//flux/ask                    # interactive selection
+/flux/ask NOTIFS
+/flux/ask MYPROJ-123
+/flux/ask all
+/flux/ask                    # interactive selection
 ```
 
 ---
 
-## `//flux/split`
+## `/flux/split`
 
 Decompose a large task file into multiple focused, single-session subtask files. Deletes the original.
 
 ```
-//flux/split <todo-file>
+/flux/split <todo-file>
 ```
 
 | Argument    | Required  | Description                                            |
@@ -96,18 +92,18 @@ Decompose a large task file into multiple focused, single-session subtask files.
 **Examples:**
 
 ```
-//flux/split NOTIFS
-//flux/split MYPROJ-123
+/flux/split NOTIFS
+/flux/split MYPROJ-123
 ```
 
 ---
 
-## `//flux/aug`
+## `/flux/aug`
 
 Research the codebase and enrich task file(s) with implementation detail and citations.
 
 ```
-//flux/aug [todo-file | N]
+/flux/aug [todo-file | N]
 ```
 
 | Argument    | Required       | Description                                                    |
@@ -119,20 +115,20 @@ Research the codebase and enrich task file(s) with implementation detail and cit
 **Examples:**
 
 ```
-//flux/aug NOTIFS            # single task
-//flux/aug 2                 # all tasks, 2 agents in parallel
-//flux/aug 3                 # all tasks, 3 agents in parallel
-//flux/aug                   # interactive selection
+/flux/aug NOTIFS            # single task
+/flux/aug 2                 # all tasks, 2 agents in parallel
+/flux/aug 3                 # all tasks, 3 agents in parallel
+/flux/aug                   # interactive selection
 ```
 
 ---
 
-## `//flux/exec`
+## `/flux/exec`
 
 Execute task(s) exactly as written — no scope creep.
 
 ```
-//flux/exec [todo_file | N]
+/flux/exec [todo_file | N]
 ```
 
 | Argument    | Required       | Description                                                    |
@@ -144,18 +140,18 @@ Execute task(s) exactly as written — no scope creep.
 **Examples:**
 
 ```
-//flux/exec NOTIFS_1         # single task
-//flux/exec 2                # all tasks, 2 agents in parallel
+/flux/exec NOTIFS_1         # single task
+/flux/exec 2                # all tasks, 2 agents in parallel
 ```
 
 ---
 
-## `//flux/qa`
+## `/flux/qa`
 
 Code-review the implementation for a task. Rates 1–10. Moves to `done/` if perfect; refines the task file if not.
 
 ```
-//flux/qa [todo_file | N]
+/flux/qa [todo_file | N]
 ```
 
 | Argument    | Required       | Description                                               |
@@ -167,21 +163,21 @@ Code-review the implementation for a task. Rates 1–10. Moves to `done/` if per
 **Examples:**
 
 ```
-//flux/qa NOTIFS_1           # single task
-//flux/qa 2                  # all tasks, 2 agents in parallel
-//flux/qa                    # interactive selection
+/flux/qa NOTIFS_1           # single task
+/flux/qa 2                  # all tasks, 2 agents in parallel
+/flux/qa                    # interactive selection
 ```
 
-> **QA loop:** If score < 10/10, re-run `//flux/exec` then `//flux/qa` until the task file is deleted.
+> **QA loop:** If score < 10/10, re-run `/flux/exec` then `/flux/qa` until the task file is deleted.
 
 ---
 
-## `//flux/tests`
+## `/flux/tests`
 
 Run the project's test suite, fix regressions introduced by this branch, and leave pre-existing failures untouched.
 
 ```
-//flux/tests [additional_instructions]
+/flux/tests [additional_instructions]
 ```
 
 | Argument                  | Required | Description                                                                                                      |
@@ -200,21 +196,21 @@ Run the project's test suite, fix regressions introduced by this branch, and lea
 **Examples:**
 
 ```
-//flux/tests
-//flux/tests address all failing tests including pre-existing
-//flux/tests focus only on src/auth/ test failures
+/flux/tests
+/flux/tests address all failing tests including pre-existing
+/flux/tests focus only on src/auth/ test failures
 ```
 
-> **Note:** Requires `TEST_CMD` to be configured via `//flux/config` first.
+> **Note:** Requires `TEST_CMD` to be configured via `/flux/config` first.
 
 ---
 
-## `//flux/commit`
+## `/flux/commit`
 
 Stage all changes and create a detailed commit message derived from the diff vs. main. Asks for confirmation before committing.
 
 ```
-//flux/commit
+/flux/commit
 ```
 
 | Argument  | Required | Description         |
@@ -224,17 +220,17 @@ Stage all changes and create a detailed commit message derived from the diff vs.
 **Example:**
 
 ```
-//flux/commit
+/flux/commit
 ```
 
 ---
 
-## `//flux/create-pr`
+## `/flux/create-pr`
 
 Create a GitHub PR for the current branch, or display the existing PR URL and status if one already exists. Idempotent.
 
 ```
-//flux/create-pr
+/flux/create-pr
 ```
 
 | Argument  | Required | Description         |
@@ -244,17 +240,17 @@ Create a GitHub PR for the current branch, or display the existing PR URL and st
 **Example:**
 
 ```
-//flux/create-pr
+/flux/create-pr
 ```
 
 ---
 
-## `//flux/review`
+## `/flux/review`
 
 Full code review of changed files with severity ratings. Optionally targets a specific PR by number.
 
 ```
-//flux/review [PR#]
+/flux/review [PR#]
 ```
 
 | Argument | Required | Description                                                                                           |
@@ -264,20 +260,20 @@ Full code review of changed files with severity ratings. Optionally targets a sp
 **Examples:**
 
 ```
-//flux/review                # review current branch
-//flux/review 123            # review PR #123
+/flux/review                # review current branch
+/flux/review 123            # review PR #123
 ```
 
-Output: review files are written to the flux review directory (`~/.flux/<flattened-dir>/review/` or `~/.flux-nightly/<flattened-dir>/review/`), and then zipped as `review.zip` in the same parent directory.
+Output: review files are written to the flux review directory (`~/.flux/<flattened-dir>/review/`), and then zipped as `review.zip` in the same parent directory.
 
 ---
 
-## `//flux/address-feedback`
+## `/flux/address-feedback`
 
 Convert review files into actionable todo tasks in the flux todo directory.
 
 ```
-//flux/address-feedback [/path/to/review.zip]
+/flux/address-feedback [/path/to/review.zip]
 ```
 
 | Argument              | Required | Description                                    |
@@ -288,40 +284,18 @@ Convert review files into actionable todo tasks in the flux todo directory.
 **Examples:**
 
 ```
-//flux/address-feedback ~/Desktop/review.zip    # processed received zip file
-//flux/address-feedback                         # uses local review folder
+/flux/address-feedback ~/Desktop/review.zip    # processed received zip file
+/flux/address-feedback                         # uses local review folder
 ```
 
 ---
 
-## `//flux/create-jira`
-
-Create a new Jira ticket in the project configured in the flux `config.env` file, by cloning the standard template (also defined in the same config file). Opens the ticket in the browser after creation.
-
-```
-//flux/create-jira <ticket-summary>
-```
-
-| Argument   | Required  | Description                                                                                                     |
-| ---------- | --------- | --------------------------------------------------------------------------------------------------------------- |
-| `<title>`  | mandatory | Free-form summary/title for the new ticket. The `[frontend]` prefix is prepended automatically if not present. |
-| _(empty)_` | -         | ew ticket. The `[frontend]` prefix is prepended automatically if not present.                                  |
-
-**Examples:**
-
-```
-//flux/create-jira Add dark mode to settings panel
-//flux/create-jira [frontend] Fix auth timeout on token refresh
-```
-
----
-
-## `//flux/rebase`
+## `/flux/rebase`
 
 Rebase the current branch onto the latest `main`, preserving each commit individually. Handles clean-tree check (with stash option), conflict resolution per commit, and force-with-lease push.
 
 ```
-//flux/rebase
+/flux/rebase
 ```
 
 | Argument  | Required | Description         |
@@ -343,17 +317,17 @@ Rebase the current branch onto the latest `main`, preserving each commit individ
 **Example:**
 
 ```
-//flux/rebase
+/flux/rebase
 ```
 
 ---
 
-## `//flux/squash-commits`
+## `/flux/squash-commits`
 
 Squash all unmerged commits (commits on your branch not yet on the default branch) into a single commit. Handles clean-tree check (with stash option), detects out-of-sync remote branches, and offers force-with-lease push.
 
 ```
-//flux/squash-commits
+/flux/squash-commits
 ```
 
 | Argument  | Required | Description         |
@@ -375,38 +349,17 @@ Squash all unmerged commits (commits on your branch not yet on the default branc
 **Example:**
 
 ```
-//flux/squash-commits
+/flux/squash-commits
 ```
 
 ---
 
-## `//flux/view-looper`
+## `/flux/auto-pilot`
 
-Open the Looper CI job for a given PR number in the browser. Uses cmux browser when inside cmux, otherwise the system browser.
-
-```
-//flux/view-looper <PR#>
-```
-
-| Argument | Required  | Description                       |
-| -------- | --------- | --------------------------------- |
-| `PR#`    | mandatory | PR number to look up (e.g. `123`) |
-
-**Examples:**
+Orchestrate the complete **PIPELINE A** sequence end-to-end from a single prompt. Pauses only during `/flux/ask` for clarifying questions.
 
 ```
-//flux/view-looper 123
-//flux/view-looper 456
-```
-
----
-
-## `//flux/auto-pilot`
-
-Orchestrate the complete **PIPELINE A** sequence end-to-end from a single prompt. Pauses only during `//flux/ask` for clarifying questions.
-
-```
-//flux/auto-pilot <prompt | spec.md | spec.txt | TICKET-ID>
+/flux/auto-pilot <prompt | spec.md | spec.txt | TICKET-ID>
 ```
 
 | Argument               | Required           | Description                                                             |
@@ -418,22 +371,22 @@ Orchestrate the complete **PIPELINE A** sequence end-to-end from a single prompt
 **Examples:**
 
 ```
-//flux/auto-pilot "Add real-time notifications"
-//flux/auto-pilot ./specs/notifications.md
-//flux/auto-pilot MYPROJ-123
-//flux/auto-pilot CLIAPP-456
+/flux/auto-pilot "Add real-time notifications"
+/flux/auto-pilot ./specs/notifications.md
+/flux/auto-pilot MYPROJ-123
+/flux/auto-pilot CLIAPP-456
 ```
 
 **Stages executed automatically:**
 
-1. `//flux/new` → create task file
-2. `//flux/ask` → clarify requirements _(only user pause)_
+1. `/flux/new` → create task file
+2. `/flux/ask` → clarify requirements _(only user pause)_
 3. `/clear`
-4. `//flux/split` → decompose into subtasks
-5. `//flux/aug 2` → augment with 2 agents
+4. `/flux/split` → decompose into subtasks
+5. `/flux/aug 2` → augment with 2 agents
 6. `/clear`
-7. `//flux/exec 2` → execute with 2 agents
+7. `/flux/exec 2` → execute with 2 agents
 8. `/clear`
-9. `//flux/qa 2` → QA with 2 agents (up to 3 cycles)
-10. `//flux/tests` → fix test regressions
-11. `//flux/commit` → commit _(asks for confirmation)_
+9. `/flux/qa 2` → QA with 2 agents (up to 3 cycles)
+10. `/flux/tests` → fix test regressions
+11. `/flux/commit` → commit _(asks for confirmation)_

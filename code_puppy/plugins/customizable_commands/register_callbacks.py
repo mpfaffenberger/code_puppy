@@ -2,6 +2,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -263,6 +264,61 @@ def _load_markdown_commands() -> None:
                 emit_error(f"Failed to load command from {md_file}: {e}")
 
 
+_EXEC_TOKEN_RE = re.compile(
+    r"\{(python|scripts|commands|script|command)(?::([^}]+))?\}"
+)
+
+
+def _shell_quote(value: str) -> str:
+    """Quote a single argument for the shell ``subprocess`` will spawn.
+
+    ``_run_exec_directive`` uses ``shell=True``; the shell differs by OS, and so
+    does its quoting. ``shlex.quote`` is POSIX-only (it emits single-quotes that
+    ``cmd.exe`` does not understand), so on Windows we defer to
+    ``subprocess.list2cmdline`` which produces cmd-compatible quoting.
+    """
+    if os.name == "nt":
+        return subprocess.list2cmdline([value])
+    return shlex.quote(value)
+
+
+def _expand_exec_tokens(directive: str) -> str:
+    """Substitute exec tokens ({python}/{script:...}/...) in a directive.
+
+    Command files reference these tokens so they never hard-code an interpreter,
+    a shell-expansion (~), or an OS-specific path -- all three of which break on
+    Windows and ignore code-puppy's XDG-configured CONFIG_DIR:
+
+        {python}          -> sys.executable (the venv interpreter running us)
+        {scripts}         -> <CONFIG_DIR>/scripts          (absolute)
+        {commands}        -> <CONFIG_DIR>/commands         (absolute)
+        {script:foo.py}   -> <CONFIG_DIR>/scripts/foo.py   (absolute)
+        {command:a/b.md}  -> <CONFIG_DIR>/commands/a/b.md  (absolute)
+
+    Each expansion is quoted for the current platform's shell so paths with
+    spaces survive. CONFIG_DIR is read fresh on each call so an env override is
+    honored. Unknown-shaped tokens are left untouched.
+    """
+
+    def _replace(match):
+        kind, arg = match.group(1), match.group(2)
+        if kind == "python":
+            return _shell_quote(sys.executable or "python3")
+        if kind == "scripts":
+            return _shell_quote(os.path.join(CONFIG_DIR, "scripts"))
+        if kind == "commands":
+            return _shell_quote(os.path.join(CONFIG_DIR, "commands"))
+        if kind == "script":
+            rel = (arg or "").strip()
+            return _shell_quote(os.path.join(CONFIG_DIR, "scripts", *rel.split("/")))
+        if kind == "command":
+            rel = (arg or "").strip()
+            return _shell_quote(os.path.join(CONFIG_DIR, "commands", *rel.split("/")))
+        return match.group(0)
+
+    return _EXEC_TOKEN_RE.sub(_replace, directive)
+
+
 def _run_exec_directive(directive: str, name: str, args: str = "") -> None:
     """Run an ``exec:`` directive and stream its output via the message bus.
 
@@ -277,7 +333,12 @@ def _run_exec_directive(directive: str, name: str, args: str = "") -> None:
     Any extra tokens the user typed after the command (e.g. ``/flux/status todo``)
     are shell-quoted and appended to the directive so dangerous shell chars in
     user input can't escape into the command line.
+
+    ``{python}`` / ``{script:...}`` / ``{command:...}`` tokens in the directive
+    are expanded first (see :func:`_expand_exec_tokens`) so command files stay
+    interpreter-, path-, and OS-agnostic.
     """
+    directive = _expand_exec_tokens(directive)
     full_cmd = directive
     if args:
         try:
@@ -314,6 +375,19 @@ def _run_exec_directive(directive: str, name: str, args: str = "") -> None:
 
     if result.returncode != 0:
         emit_warning(f"exec for /{name} exited with code {result.returncode}")
+
+
+def reload_commands() -> None:
+    """Force a fresh rescan of the command directories.
+
+    The cache is populated once at plugin import time. Anything that writes new
+    command files *after* import (e.g. the flux_bootstrap plugin installing the
+    Flux suite during the ``startup`` hook) must call this so the freshly
+    installed commands become dispatchable immediately -- otherwise ``/flux/...``
+    is treated as ordinary input until the next restart. This is the explicit
+    loader API the review asked for; prefer it over poking the private cache.
+    """
+    _load_markdown_commands()
 
 
 def is_custom_command(name: str) -> bool:
@@ -391,7 +465,7 @@ register_callback("custom_command", _handle_custom_command)
 
 # Make the result class available for the command handler
 # Import this in command_handler.py to check for this type
-__all__ = ["MarkdownCommandResult"]
+__all__ = ["MarkdownCommandResult", "reload_commands"]
 
 # Load commands at import time
 _load_markdown_commands()

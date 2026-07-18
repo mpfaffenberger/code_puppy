@@ -33,7 +33,7 @@ If `TEST_CMD` is empty or config file is missing:
 
 ```
 Error: TEST_CMD is not configured.
-Run //flux/config to set your test command.
+Run /flux/config to set your test command.
 ```
 
 Stop.
@@ -143,13 +143,13 @@ If `U > 0`, recommend the user review those manually before committing.
 
 ## HARD CONSTRAINT
 
-`//flux/tests` MUST NOT use `git commit`, `git push`, `git stash`, `git checkout`, or `git branch`. Only `git merge-base`, `git worktree`, and `git remote` are permitted. MUST NOT modify source files beyond the minimal fix required to resolve a regression. MUST NOT touch pre-existing failures. MUST NOT add new test cases or expand test scope.
+`/flux/tests` MUST NOT use `git commit`, `git push`, `git stash`, `git checkout`, or `git branch`. Only `git merge-base`, `git worktree`, and `git remote` are permitted. MUST NOT modify source files beyond the minimal fix required to resolve a regression. MUST NOT touch pre-existing failures. MUST NOT add new test cases or expand test scope.
 
 ## Propose next step
 
-Then propose the next step: `//flux/commit` (include arguments if needed).
+Then propose the next step: `/flux/commit` (include arguments if needed).
 
-Valid `//flux` commands: `//flux/config`, `//flux/create-jira`, `//flux/new`, `//flux/ask`, `//flux/split`, `//flux/aug`, `//flux/exec`, `//flux/qa`, `//flux/tests`, `//flux/commit`, `//flux/create-pr`, `//flux/review`, `//flux/address-feedback`, `//flux/status`, `//flux/view-looper`, `//flux/auto-pilot`, `//flux/rebase`. Do NOT suggest any command not on this list.
+Valid `//flux` commands: `/flux/config`, `/flux/new`, `/flux/ask`, `/flux/split`, `/flux/aug`, `/flux/exec`, `/flux/qa`, `/flux/tests`, `/flux/commit`, `/flux/create-pr`, `/flux/review`, `/flux/address-feedback`, `/flux/status`, `/flux/auto-pilot`, `/flux/rebase`. Do NOT suggest any command not on this list.
 
 =================
 $ARGUMENTS

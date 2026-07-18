@@ -30,7 +30,7 @@ ls -1 "$FLUX_BASE/todo/"*.md 2>/dev/null || true
 ```
 IF $ARGUMENTS is empty:
   -> List all files: `ls -1 "$FLUX_BASE/todo/"*.md`
-  -> Use AskUserQuestion to let user select task(s)
+  -> Use ask_user_question to let user select task(s)
   -> If single selection -> Single-task mode
   -> If multiple selection -> Process selected tasks sequentially
 
@@ -178,7 +178,7 @@ DO NOT USE `git` commands of any type. Other coders are coding and you will be d
 
 ## MULTI-TASK MODE
 
-Use the `Agent` tool (subagents) to execute IN PARALLEL each task in `$FLUX_BASE/todo/*.md`.
+Use the `invoke_agent` tool (subagents) to execute IN PARALLEL each task in `$FLUX_BASE/todo/*.md`.
 _NEVER_ run agents in the background. Always run them in the foreground.
 
 **Before spawning any subagents**, update all target task files' frontmatter:
@@ -208,14 +208,14 @@ Prompt each subagent with the single-task mode steps above, substituting `{{abso
 
 ## HARD CONSTRAINTS
 
-- **Path**: All `Write`/`Edit` file paths MUST use the exact `FLUX_BASE` value printed by the STEP 1 bash output (e.g. `FLUX_BASE=/Users/...`). Copy it character-for-character — never reconstruct it from `cwd` or memory.
-- `//flux/exec` MUST NOT use any `git` commands. MUST NOT modify the task file content (frontmatter status updates are the only exception). MUST NOT expand scope beyond what is written in the task. MUST NOT write to paths outside what the task explicitly specifies. If you find yourself about to do any of these things, stop immediately.
+- **Path**: All `create_file`/`replace_in_file` file paths MUST use the exact `FLUX_BASE` value printed by the STEP 1 bash output (e.g. `FLUX_BASE=/Users/...`). Copy it character-for-character — never reconstruct it from `cwd` or memory.
+- `/flux/exec` MUST NOT use any `git` commands. MUST NOT modify the task file content (frontmatter status updates are the only exception). MUST NOT expand scope beyond what is written in the task. MUST NOT write to paths outside what the task explicitly specifies. If you find yourself about to do any of these things, stop immediately.
 
 ## Propose next step
 
-Then propose the next step: `//flux/qa` (include arguments if needed).
+Then propose the next step: `/flux/qa` (include arguments if needed).
 
-Valid `//flux` commands: `//flux/config`, `//flux/create-jira`, `//flux/new`, `//flux/ask`, `//flux/split`, `//flux/aug`, `//flux/exec`, `//flux/qa`, `//flux/tests`, `//flux/commit`, `//flux/create-pr`, `//flux/review`, `//flux/address-feedback`, `//flux/status`, `//flux/view-looper`, `//flux/auto-pilot`, `//flux/rebase`. Do NOT suggest any command not on this list.
+Valid `//flux` commands: `/flux/config`, `/flux/new`, `/flux/ask`, `/flux/split`, `/flux/aug`, `/flux/exec`, `/flux/qa`, `/flux/tests`, `/flux/commit`, `/flux/create-pr`, `/flux/review`, `/flux/address-feedback`, `/flux/status`, `/flux/auto-pilot`, `/flux/rebase`. Do NOT suggest any command not on this list.
 
 =================
 $ARGUMENTS

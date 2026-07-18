@@ -30,7 +30,7 @@ ls -1 "$FLUX_BASE/todo/"*.md 2>/dev/null || true
 ```
 IF $ARGUMENTS is empty:
   -> List all files: `ls -1 "$FLUX_BASE/todo/"*.md`
-  -> Use AskUserQuestion to let user select task(s)
+  -> Use ask_user_question to let user select task(s)
   -> If single selection -> Single-task mode
   -> If multiple selection -> Process selected tasks sequentially
 
@@ -160,7 +160,7 @@ DO NOT USE `git` commands of any type. Other coders are coding and you will be s
 
 ## MULTI-TASK MODE
 
-Use the `Agent` tool (subagents) to execute IN PARALLEL each task in `$FLUX_BASE/todo/*.md`.
+Use the `invoke_agent` tool (subagents) to execute IN PARALLEL each task in `$FLUX_BASE/todo/*.md`.
 _NEVER_ run agents in the background. Always run them in the foreground.
 
 **Before spawning any subagents**, update all target task files' frontmatter:
@@ -189,20 +189,20 @@ Prompt each subagent with the single-task mode steps above, substituting `{{abso
 ## HARD CONSTRAINTS
 
 - **Path**: All file operations MUST use the exact `FLUX_BASE` value printed by the STEP 1 bash output (e.g. `FLUX_BASE=/Users/...`). Copy it character-for-character — never reconstruct it from `cwd` or memory.
-- `//flux/qa` is a **review-only** command. You MUST NOT write or modify any source files. The only permitted file operations are: updating the task file's frontmatter, updating the task file body to remove completed items, and moving the task file to `$FLUX_BASE/done/`. No git commands under any circumstances.
+- `/flux/qa` is a **review-only** command. You MUST NOT write or modify any source files. The only permitted file operations are: updating the task file's frontmatter, updating the task file body to remove completed items, and moving the task file to `$FLUX_BASE/done/`. No git commands under any circumstances.
 
 ## Propose next steps
 
 After QA completes, present the user with two options:
 
 **Option A — Continue PIPELINE A (fix regressions):**
-`//flux/tests` — run the test suite and fix regressions introduced by this branch before committing.
+`/flux/tests` — run the test suite and fix regressions introduced by this branch before committing.
 
 **Option B — Start PIPELINE B (self-review your changes):**
-`//flux/review` → `//flux/address-feedback` → `//flux/ask all` → `//flux/exec` → `//flux/qa` → `//flux/commit`
+`/flux/review` → `/flux/address-feedback` → `/flux/ask all` → `/flux/exec` → `/flux/qa` → `/flux/commit`
 Start here to review your own changes before creating a PR.
 
-Valid `//flux` commands: `//flux/config`, `//flux/create-jira`, `//flux/new`, `//flux/ask`, `//flux/split`, `//flux/aug`, `//flux/exec`, `//flux/qa`, `//flux/tests`, `//flux/commit`, `//flux/create-pr`, `//flux/review`, `//flux/address-feedback`, `//flux/status`, `//flux/view-looper`, `//flux/auto-pilot`, `//flux/rebase`. Do NOT suggest any command not on this list.
+Valid `//flux` commands: `/flux/config`, `/flux/new`, `/flux/ask`, `/flux/split`, `/flux/aug`, `/flux/exec`, `/flux/qa`, `/flux/tests`, `/flux/commit`, `/flux/create-pr`, `/flux/review`, `/flux/address-feedback`, `/flux/status`, `/flux/auto-pilot`, `/flux/rebase`. Do NOT suggest any command not on this list.
 
 =================
 $ARGUMENTS

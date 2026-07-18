@@ -107,14 +107,14 @@ The original file is preserved in `done/$SESSION_TS/` as an audit trail of the p
 
 ## HARD CONSTRAINTS
 
-- **Path**: All `Write` file paths MUST use the exact `FLUX_BASE` value printed by the STEP 2 bash output (e.g. `FLUX_BASE=/Users/...`). Copy it character-for-character — never reconstruct it from `cwd` or memory.
-- `//flux/split` is a **decompose-only** command. You MUST NOT modify any source files, run any tests, or touch any file outside of `$FLUX_BASE/todo/`. The only file operations allowed are: writing the new subtask files and deleting the original task file. If you find yourself about to do anything else, stop immediately.
+- **Path**: All `create_file` file paths MUST use the exact `FLUX_BASE` value printed by the STEP 2 bash output (e.g. `FLUX_BASE=/Users/...`). Copy it character-for-character — never reconstruct it from `cwd` or memory.
+- `/flux/split` is a **decompose-only** command. You MUST NOT modify any source files, run any tests, or touch any file outside of `$FLUX_BASE/todo/`. The only file operations allowed are: writing the new subtask files and deleting the original task file. If you find yourself about to do anything else, stop immediately.
 
 ## PROPOSE NEXT STEP
 
-Then propose the next step: `//flux/aug` (include arguments if needed).
+Then propose the next step: `/flux/aug` (include arguments if needed).
 
-Valid `//flux` commands: `//flux/config`, `//flux/create-jira`, `//flux/new`, `//flux/ask`, `//flux/split`, `//flux/aug`, `//flux/exec`, `//flux/qa`, `//flux/tests`, `//flux/commit`, `//flux/create-pr`, `//flux/review`, `//flux/address-feedback`, `//flux/status`, `//flux/view-looper`, `//flux/auto-pilot`, `//flux/rebase`. Do NOT suggest any command not on this list.
+Valid `//flux` commands: `/flux/config`, `/flux/new`, `/flux/ask`, `/flux/split`, `/flux/aug`, `/flux/exec`, `/flux/qa`, `/flux/tests`, `/flux/commit`, `/flux/create-pr`, `/flux/review`, `/flux/address-feedback`, `/flux/status`, `/flux/auto-pilot`, `/flux/rebase`. Do NOT suggest any command not on this list.
 
 =================
 $ARGUMENTS

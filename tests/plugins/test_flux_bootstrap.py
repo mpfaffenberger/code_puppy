@@ -1,6 +1,7 @@
 """Tests for the flux_bootstrap installer (copy / version-gate / backup)."""
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -21,8 +22,14 @@ def test_bundled_payload_present():
     assert "commands/flux/rebase.md" in files
     assert "commands/flux/status.md" in files
     assert "scripts/flux_status.py" in files
-    # Everything-in-the-zip: the loose extras came along too.
-    assert "commands/hello-world.md" in files
+    # The stock OSS payload must ship ONLY namespaced flux commands -- no loose
+    # top-level commands that could shadow a user's own same-named globals on a
+    # fresh install (see test_fresh_install_preserves_preexisting_user_command).
+    assert "commands/hello-world.md" not in files
+    assert "commands/smoke-test.md" not in files
+    assert all(
+        rel.startswith("commands/flux/") or rel.startswith("scripts/") for rel in files
+    ), f"unexpected non-flux payload files: {files}"
 
 
 def test_fresh_install_copies_everything(config_dir: Path):
@@ -119,3 +126,103 @@ def test_needs_install_on_version_change(config_dir: Path):
     installer.install_bundled_commands(config_dir, "1.0.0")
     assert installer.needs_install(config_dir, "1.0.0") is False
     assert installer.needs_install(config_dir, "1.0.1") is True
+
+
+def test_fresh_install_preserves_preexisting_user_command(config_dir: Path):
+    """A user's own global command must survive a first Flux install untouched.
+
+    Regression for the finding that a fresh install backed up + overwrote any
+    existing file it didn't have a manifest entry for. A pre-existing,
+    user-owned command that merely shares a name with our payload must be left
+    exactly in place: no overwrite, no ``.bak``, and never claimed in the
+    manifest.
+    """
+    # Pretend the user already had a hand-written command at a path our payload
+    # also happens to occupy. (rebase.md is genuinely in the bundle.)
+    target = config_dir / "commands" / "flux" / "rebase.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("MY OWN REBASE COMMAND", encoding="utf-8")
+
+    report = installer.install_bundled_commands(config_dir, "1.0.0")
+
+    rel = "commands/flux/rebase.md"
+    # Preserved verbatim -- not overwritten.
+    assert target.read_text(encoding="utf-8") == "MY OWN REBASE COMMAND"
+    # No backup was created for a file we never owned.
+    assert not target.with_name(target.name + ".bak").exists()
+    assert rel not in report.backed_up
+    assert rel not in report.updated
+    assert rel in report.skipped
+    # We must NOT have claimed the user's file in the manifest.
+    assert rel not in installer._load_manifest(config_dir)
+
+
+def test_preexisting_user_command_survives_version_bump(config_dir: Path):
+    """Once preserved, a user's same-named command keeps winning across bumps."""
+    target = config_dir / "commands" / "flux" / "rebase.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("MY OWN REBASE COMMAND", encoding="utf-8")
+
+    installer.install_bundled_commands(config_dir, "1.0.0")
+    installer.install_bundled_commands(config_dir, "2.0.0")
+
+    assert target.read_text(encoding="utf-8") == "MY OWN REBASE COMMAND"
+    assert not target.with_name(target.name + ".bak").exists()
+
+
+def test_first_run_lifecycle_makes_flux_dispatchable_without_restart(config_dir: Path):
+    """Full plugin lifecycle: on a fresh install /flux/status is usable *now*.
+
+    Regression for the BLOCKER: the customizable_commands cache is populated at
+    plugin import time (before Flux is installed), and Flux installs later in the
+    ``startup`` hook. Without an explicit cache reload after the install, the
+    freshly-written /flux/... files are invisible until the next restart.
+
+    This drives the real code path: an empty command cache (mirroring the
+    import-time load that happened before Flux existed on disk), then the flux
+    bootstrap ``startup`` callback, then an assertion that the command is
+    dispatchable -- with no manual reload in the test.
+    """
+    from code_puppy.plugins.customizable_commands import register_callbacks as cc
+    from code_puppy.plugins.flux_bootstrap import register_callbacks as flux_rc
+
+    commands_dir = config_dir / "commands"
+
+    # Snapshot + restore the module-level cache so we don't leak into other
+    # tests. IMPORTANT: other test modules import these dicts *by reference*, so
+    # we must restore them in place (clear + update) rather than rebind -- a
+    # rebind would leave those modules pointing at the polluted originals.
+    saved_commands = dict(cc._custom_commands)
+    saved_descriptions = dict(cc._command_descriptions)
+    saved_exec = dict(cc._command_exec_directives)
+    saved_loaded = cc._commands_loaded
+    try:
+        with (
+            patch.object(flux_rc, "CONFIG_DIR", str(config_dir)),
+            patch.object(cc, "_COMMAND_DIRECTORIES", [str(commands_dir)]),
+            patch.object(
+                cc, "_TRUSTED_EXEC_DIRECTORIES", frozenset({str(commands_dir)})
+            ),
+        ):
+            # 1. Simulate the import-time load that ran BEFORE Flux was on disk:
+            #    the dir doesn't exist yet, so the cache comes up empty.
+            cc._load_markdown_commands()
+            assert "flux/status" not in cc._custom_commands
+            assert "flux/status" not in cc._command_exec_directives
+
+            # 2. Run the actual flux bootstrap startup callback (install + reload).
+            flux_rc._install_flux_commands()
+
+            # 3. Files landed AND the cache was reloaded -> dispatchable now,
+            #    no restart. /flux/status is an exec: command.
+            assert (commands_dir / "flux" / "status.md").is_file()
+            assert cc.is_custom_command("flux/status")
+            assert "flux/status" in cc._command_exec_directives
+    finally:
+        cc._custom_commands.clear()
+        cc._custom_commands.update(saved_commands)
+        cc._command_descriptions.clear()
+        cc._command_descriptions.update(saved_descriptions)
+        cc._command_exec_directives.clear()
+        cc._command_exec_directives.update(saved_exec)
+        cc._commands_loaded = saved_loaded
