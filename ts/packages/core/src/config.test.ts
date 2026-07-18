@@ -11,6 +11,8 @@ import {
   readConfig,
   getConfig,
   setConfig,
+  getConfiguredModelName,
+  getModelDef,
   mistCfgPath,
   SETTING_DEFS,
 } from "./config";
@@ -26,6 +28,33 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env.HOME = origHome;
+});
+
+describe("fresh-system zero-config defaults", () => {
+  test("default model is claude-opus-4-8 when nothing is configured", async () => {
+    const prev = process.env.MIST_MODEL; // other test files set this
+    delete process.env.MIST_MODEL;
+    try {
+      expect(await getConfiguredModelName()).toBe("claude-opus-4-8");
+    } finally {
+      if (prev !== undefined) process.env.MIST_MODEL = prev;
+    }
+  });
+
+  test("well-known model names resolve without a registry entry", async () => {
+    const prev = process.env.MIST_MODELS_JSON; // restore — sibling files rely on it
+    process.env.MIST_MODELS_JSON = join(tmpHome, "nonexistent.json");
+    try {
+      expect((await getModelDef("claude-opus-4-8")).type).toBe("anthropic");
+      expect((await getModelDef("gpt-5.2")).type).toBe("openai");
+      expect((await getModelDef("o3")).type).toBe("openai");
+      expect((await getModelDef("gemini-2.0-flash")).type).toBe("gemini");
+      await expect(getModelDef("totally-unknown")).rejects.toThrow("not found");
+    } finally {
+      if (prev !== undefined) process.env.MIST_MODELS_JSON = prev;
+      else delete process.env.MIST_MODELS_JSON;
+    }
+  });
 });
 
 describe("config layer (mist.cfg)", () => {

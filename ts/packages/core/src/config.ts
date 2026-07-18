@@ -141,8 +141,23 @@ export const SETTING_DEFS: {
 
 export async function getConfiguredModelName(): Promise<string> {
   if (process.env.MIST_MODEL) return process.env.MIST_MODEL;
-  const cfg = await readIni(join(homedir(), ".mist", "mist.cfg"));
-  return cfg["model"] || "minimax-m3";
+  const cfg = await readIni(mistCfgPath()); // respects $HOME (tests override it)
+  // Zero-config default: works out of the box with just ANTHROPIC_API_KEY
+  // (the old default, minimax-m3, required a registry entry + live quota).
+  return cfg["model"] || "claude-opus-4-8";
+}
+
+/**
+ * Built-in zero-config model defs: well-known model names work without any
+ * registry entry — the provider is inferred from the name and the API key
+ * comes from the provider's env var (ANTHROPIC_API_KEY / OPENAI_API_KEY /
+ * GEMINI_API_KEY). A registry entry with the same name always wins.
+ */
+function builtinDef(name: string): ModelDef | null {
+  if (/^claude-/.test(name)) return { name, type: "anthropic" };
+  if (/^(gpt-|o\d|chatgpt-)/.test(name)) return { name, type: "openai" };
+  if (/^gemini-/.test(name)) return { name, type: "gemini" };
+  return null;
 }
 
 // Resolved lazily so MIST_MODELS_JSON set after import (tests, wrappers) works.
@@ -166,6 +181,8 @@ export async function getModelDef(name: string): Promise<ModelDef> {
       /* next candidate */
     }
   }
+  const builtin = builtinDef(name);
+  if (builtin) return builtin;
   throw new Error(`model '${name}' not found in models.json (${modelsJsonCandidates().join(", ")})`);
 }
 
