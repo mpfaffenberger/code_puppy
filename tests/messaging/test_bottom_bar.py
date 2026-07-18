@@ -646,6 +646,29 @@ def test_panel_all_rows_render_when_they_fit(bar, tty):
     assert "more" not in out  # no overflow summary when everything fits
 
 
+def test_clamp_panel_lines_helper_contract():
+    """The shared clamp helper (used by BOTH the classic bar and the TUI
+    panel widget) collapses overflow into one '… +N more' row."""
+    from code_puppy.messaging.bar_painters import clamp_panel_lines
+
+    rows = [f"agent-{i}" for i in range(10)]
+
+    # Fits exactly -> returned unchanged (no summary).
+    assert clamp_panel_lines(rows, 10) == rows
+    assert clamp_panel_lines(rows[:3], 5) == rows[:3]
+
+    # Overflow -> budget-1 rows + a summary counting the hidden remainder.
+    clamped = clamp_panel_lines(rows, 4)
+    assert len(clamped) == 4
+    assert clamped[:3] == rows[:3]
+    assert clamped[-1] == "\u2026 +7 more"  # 10 - (4 - 1) = 7 hidden
+
+    # Degenerate budgets fail closed (never raise, never over-paint).
+    assert clamp_panel_lines(rows, 0) == []
+    assert clamp_panel_lines(rows, -5) == []
+    assert clamp_panel_lines([], 5) == []
+
+
 def test_teardown_clears_panel_rows_too(bar, tty):
     bar.start()
     bar.set_panel_lines(["a", "b"])

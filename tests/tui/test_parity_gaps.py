@@ -247,6 +247,85 @@ async def test_subagent_panel_hides_when_empty_lines_pushed():
         assert not widget.has_class("visible"), "Panel should hide when no lines"
 
 
+@pytest.mark.asyncio
+async def test_subagent_panel_clamps_overflow_with_summary_row():
+    """Gap #6: an uncapped row list is clamped to the height-relative budget
+    with a '… +N more' summary instead of being silently clipped."""
+    from rich.text import Text
+
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        widget = app.query_one("#subagent-panel", Static)
+        budget = app._subagent_panel_budget()
+
+        # Emit well past the budget so overflow is unambiguous. The plugin
+        # emits an UNCAPPED list; the TUI must clamp it itself.
+        n = budget + 5
+        lines = [Text(f"agent-{i}") for i in range(n)]
+        app._on_subagent_panel_lines_changed(lines)
+        await pilot.pause()
+
+        rendered = widget.render()
+        text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
+        painted_rows = [ln for ln in text.split("\n") if ln.strip()]
+
+        # Never paint more than the budget (else Textual clips silently).
+        assert len(painted_rows) <= budget
+        # Overflow summary present, counting exactly the hidden agents.
+        hidden = n - (budget - 1)
+        assert f"+{hidden} more" in text, (
+            f"Expected overflow summary '+{hidden} more' in: {text!r}"
+        )
+        # First agents are shown; the ones folded into the summary are not.
+        assert "agent-0" in text
+        assert f"agent-{n - 1}" not in text
+
+
+@pytest.mark.asyncio
+async def test_subagent_panel_no_summary_when_within_budget():
+    """At or under the budget, every row is shown verbatim — no summary row."""
+    from rich.text import Text
+
+    app = build_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        widget = app.query_one("#subagent-panel", Static)
+        budget = app._subagent_panel_budget()
+
+        lines = [Text(f"agent-{i}") for i in range(budget)]
+        app._on_subagent_panel_lines_changed(lines)
+        await pilot.pause()
+
+        rendered = widget.render()
+        text = rendered.plain if hasattr(rendered, "plain") else str(rendered)
+        assert "more" not in text, f"No overflow summary expected, got: {text!r}"
+        for i in range(budget):
+            assert f"agent-{i}" in text
+
+
+@pytest.mark.asyncio
+async def test_subagent_panel_budget_scales_with_terminal_height():
+    """A taller terminal shows more agents than a short one (height-relative,
+    not a stingy fixed cap) — and never drops below the floor."""
+    from code_puppy.tui.app import _SUBAGENT_PANEL_MIN_ROWS
+
+    short = build_app()
+    async with short.run_test(size=(80, 20)) as pilot:
+        await pilot.pause()
+        short_budget = short._subagent_panel_budget()
+
+    tall = build_app()
+    async with tall.run_test(size=(80, 50)) as pilot:
+        await pilot.pause()
+        tall_budget = tall._subagent_panel_budget()
+
+    assert tall_budget > short_budget, (
+        f"Panel should grow with height: short={short_budget} tall={tall_budget}"
+    )
+    assert short_budget >= _SUBAGENT_PANEL_MIN_ROWS
+
+
 # ---------------------------------------------------------------------------
 # Idle queue drain — queued prompts auto-run after current turn ends
 # ---------------------------------------------------------------------------

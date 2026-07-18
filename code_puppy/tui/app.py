@@ -56,6 +56,19 @@ from .screens.question import QuestionModal
 # (None is a valid before-target meaning "mount at the bottom").
 _UNSET = object()
 
+# Live sub-agent panel sizing. The subagent_panel plugin emits an UNCAPPED row
+# list (it delegates height-clamping to each surface), so the TUI clamps here
+# just like the classic bottom bar does in BarPainterMixin -- but
+# height-relative, so a big swarm fills the available space instead of a stingy
+# fixed cap. The panel lives above the transcript (#log, height:1fr), so it can
+# only ever steal transcript rows -- never the prompt/footer -- as it grows.
+#: Always show at least this many rows (or the "… +N more" summary).
+_SUBAGENT_PANEL_MIN_ROWS = 3
+#: Rows kept for the rest of the UI when sizing the panel: header + spinner +
+#: prompt viewport (5) + its top margin + footer bar + a small always-visible
+#: slice of transcript. The panel grows into whatever height is left.
+_SUBAGENT_PANEL_RESERVE = 12
+
 
 class CompletionList(OptionList):
     """Completion dropdown that never steals focus from the prompt."""
@@ -264,7 +277,8 @@ class CooperApp(App):
     #subagent-panel {
         display: none;
         height: auto;
-        max-height: 5;
+        /* max-height is set dynamically in _apply_subagent_panel() from the
+           terminal height, so the panel scales like the classic bar. */
         padding: 0 1;
         background: $surface;
         color: $text-muted;
@@ -1711,13 +1725,26 @@ class CooperApp(App):
         sends to the bottom bar in classic mode — a mix of ``rich.text.Text``
         objects and plain strings.  We join them into one ``Text`` block and
         toggle the widget's visibility based on whether the list is non-empty.
+
+        The plugin emits an UNCAPPED row list (each surface owns its own
+        height clamp), so we run it through the SAME ``clamp_panel_lines``
+        helper the classic bottom bar uses — collapsing overflow into a
+        ``… +N more`` row instead of letting Textual silently clip past the
+        widget's ``max-height`` with no indicator.
         """
         try:
+            from code_puppy.messaging.bar_painters import clamp_panel_lines
+
             widget = self.query_one("#subagent-panel", Static)
             if not lines:
                 widget.remove_class("visible")
                 widget.update("")
                 return
+            budget = self._subagent_panel_budget()
+            lines = clamp_panel_lines(lines, budget)
+            # Pin the widget height to what we actually painted so a shrinking
+            # swarm reclaims transcript rows and Textual never clips silently.
+            widget.styles.max_height = max(1, len(lines))
             combined = Text()
             for i, line in enumerate(lines):
                 if i:
@@ -1730,6 +1757,18 @@ class CooperApp(App):
             widget.add_class("visible")
         except Exception:
             pass
+
+    def _subagent_panel_budget(self) -> int:
+        """Max live-panel rows for the current terminal height.
+
+        Mirrors the classic bar's height-relative clamp
+        (``BarPainterMixin._panel_row_budget``): reserve the fixed UI chrome
+        plus a minimum transcript slice, then give the panel whatever height
+        is left. Falls back to a sane default before the app has a real size
+        (early mount, ``self.size.height == 0``).
+        """
+        total = self.size.height or 24
+        return max(_SUBAGENT_PANEL_MIN_ROWS, total - _SUBAGENT_PANEL_RESERVE)
 
     def _on_subagent_panel_lines_changed(self, lines: list) -> None:
         """Called by the ``subagent_panel_lines_changed`` hook (any thread).
