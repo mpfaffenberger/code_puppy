@@ -94,6 +94,37 @@ def test_overlong_rows_are_cell_clipped_below_terminal_width():
         assert cell_len(line) < cols
 
 
+def test_inline_surface_retains_every_panel_row():
+    bar = InlineBottomBar(stream=FakeTTY(), get_size=lambda: (80, 24))
+    lines = [f"agent-{index}" for index in range(6)]
+
+    bar.start()
+    bar.set_panel_lines(lines)
+
+    assert bar.get_panel_lines() == lines
+    assert bar._inline_lines()[:6] == lines
+
+
+def test_inline_panel_clamps_to_viewport_with_overflow():
+    """On a short viewport the panel can't render one row per agent -- the
+    block would exceed terminal height and desync the cursor-up repaint
+    count. It clamps to what fits and collapses the rest into '+N more',
+    keeping the raw panel state intact."""
+    bar = InlineBottomBar(stream=FakeTTY(), get_size=lambda: (80, 8))
+    lines = [f"agent-{index}" for index in range(10)]
+
+    bar.start()
+    bar.set_panel_lines(lines)
+    rendered = bar._inline_lines()
+
+    # The whole block never exceeds the viewport height.
+    assert len(rendered) <= 8
+    # The clamped overflow is summarized rather than dropped silently.
+    assert any("more" in row for row in rendered)
+    # Raw panel state still holds every tracked agent (clamp is render-only).
+    assert bar.get_panel_lines() == lines
+
+
 def test_spinner_tick_repaints_in_place_without_growing_block():
     """A status-prefix tick (the 5fps puppy) must erase and repaint the
     same number of rows -- never leaving extra lines behind."""

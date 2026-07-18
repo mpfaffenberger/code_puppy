@@ -132,19 +132,13 @@ def _resolve_model(agent_name, override):
 # Live panel rendering (event-driven, pushed to the bottom bar)
 # ---------------------------------------------------------------------------
 #
-# Compression scheme (bottom bar caps the panel at PANEL_MAX_ROWS=4 rows):
-#   * The live format is already ONE aligned row per agent (badge/elbow +
-#     name + model + spin/check + elapsed + status) — information-complete,
-#     so no per-agent compression is needed.
-#   * <= 4 agents: one row each.
-#   * >  4 agents: first 3 rows (DFS order, parents first) + "(+N more)".
+# The live format is one aligned, information-complete row per agent
+# (badge/elbow + name + model + spin/check + elapsed + status). Render every
+# tracked agent in DFS order; a summary row would hide active work.
 # Rows are rendered via the shared _row_lines() (same as the transcript)
 # and pushed as rich.text.Text — the bottom bar paints styled Text rows in
 # full color (SGRs regenerated from trusted Style objects; content still
 # sanitized per-segment), so the live rows match the frozen record.
-
-#: Max rows the bottom bar will display for us (mirrors PANEL_MAX_ROWS).
-_PANEL_ROW_CAP = 4
 
 #: Same-shape repaints (spin frame / elapsed churn) at most 10x/second.
 _PUSH_MIN_INTERVAL = 0.1
@@ -162,18 +156,7 @@ def _panel_lines():
     rows = state.snapshot()
     if not rows:
         return []
-    frame = state.spinner_frame()
-    ordered = _ordered_tree(rows)
-    if len(ordered) <= _PANEL_ROW_CAP:
-        shown = ordered
-        extra = 0
-    else:
-        shown = ordered[: _PANEL_ROW_CAP - 1]
-        extra = len(ordered) - len(shown)
-    lines = list(_row_lines(shown, frame))
-    if extra > 0:
-        lines.append(f"  (+{extra} more)")
-    return lines
+    return list(_row_lines(_ordered_tree(rows), state.spinner_frame()))
 
 
 # ---------------------------------------------------------------------------
