@@ -1,57 +1,50 @@
 /**
  * The Mist mascot — a crow in a witch hat, as terminal pixel art.
  *
- * Side profile from the character sheet: gray-blue crow facing left, big
- * orange beak, green eye, charcoal witch hat (green band, gold buckle,
- * crooked tip), slate wing folded behind a lighter chest.
+ * Front-facing and STRICTLY symmetric (every grid row mirrors), in the
+ * chunky few-color style that makes Anthropic's Clawd read so cleanly:
+ * flat colors, big features, solid silhouette, no stray pixels. Charcoal
+ * witch hat with green band + gold buckle, slate crow body, two big eyes,
+ * orange beak, lighter chest.
  *
  * Rendered with half-block glyphs: each terminal cell shows TWO vertical
- * pixels (▀ foreground = top pixel, background = bottom pixel) — the same
- * technique Claude Code uses for its banner robot.
+ * pixels (▀ foreground = top pixel, background = bottom pixel).
  */
 
 import { Box, Text } from "ink";
 import React from "react";
 
 const PALETTE: Record<string, string> = {
-  H: "#2b3247", // hat charcoal
-  h: "#3d4663", // hat highlight
-  G: "#3f5a36", // hat band green
-  U: "#c9a24b", // buckle gold
-  K: "#d98a3f", // beak orange
-  k: "#b06a2a", // beak shadow
-  F: "#8fa3b8", // face gray-blue
-  f: "#6b7f96", // face shade
-  C: "#a8b4c4", // chest light
-  c: "#7d8899", // chest shade
-  W: "#4a5468", // wing slate
-  w: "#343c50", // wing dark
-  E: "#b8d94a", // eye green
-  P: "#232a3d", // eye socket
+  H: "#262c40", // hat charcoal
+  G: "#48603c", // hat band green
+  U: "#d4af5a", // buckle gold
+  B: "#3d4560", // crow slate
+  E: "#e8eef7", // eye white
+  P: "#10141f", // pupil
+  K: "#e09040", // beak orange
+  L: "#8b96ad", // chest
 };
 
-// 24 × 20 pixel grid ('.' = transparent). Two grid rows per terminal row.
+// 20 × 18 pixel grid ('.' = transparent) — every row is a mirror image.
 const GRID = [
-  "..............wHw.......",
-  ".............wHHh.......",
-  "...........wHHHHh.......",
-  "..........HHHHHh........",
-  ".........HHHHHHh........",
-  ".........HGGGGGh........",
-  "........HHGUUGGHh.......",
-  "....HHHHHHHHHHHHHHHh....",
-  "..hHHHHHHHHHHHHHHHHHH...",
-  "........FFFFFFFFf.......",
-  ".......FFFFFFPPPff......",
-  "...KKKKFFFFFFPEPff......",
-  ".KKKKKKKFFFFFPPPff......",
-  ".KKKKKKkFFFFFFFFff......",
-  "..KKKKkFFFFFFFFfWW......",
-  "....KkFFFFFFFFfWWWw.....",
-  ".....CCCCCCCCcfWWWWw....",
-  "....CCCCCCCCCcWWWWWw....",
-  "....CCCCCCCCCcWWWWww....",
-  "...cCCCCCCCCCcwwwww.....",
+  ".........HH.........",
+  "........HHHH........",
+  "........HHHH........",
+  ".......HHHHHH.......",
+  ".......HHHHHH.......",
+  "......HGGGGGGH......",
+  "......HGGUUGGH......",
+  "..HHHHHHHHHHHHHHHH..",
+  ".HHHHHHHHHHHHHHHHHH.",
+  ".....BBBBBBBBBB.....",
+  "....BEEEBBBBEEEB....",
+  "....BEPEBBBBEPEB....",
+  "....BEEEBKKBEEEB....",
+  "....BBBBBKKBBBBB....",
+  ".....BBBBBBBBBB.....",
+  "....BBLLLLLLLLBB....",
+  "....BBLLLLLLLLBB....",
+  ".....BBBBBBBBBB.....",
 ];
 
 export function Mascot(): React.JSX.Element {
