@@ -566,9 +566,37 @@ PROMPT_STYLES = {
     "puppy": "bold ansimagenta",
     "agent": "bold ansiblue",
     "model": "bold ansicyan",
+    "project": "bold ansired",
     "cwd": "bold ansigreen",
     "arrow": "bold ansiyellow",
 }
+
+
+def _get_project_name(cwd: str) -> str:
+    """Return the name of the project the puppy is working in.
+
+    Preference order:
+      1. Basename of the nearest git worktree root (invariant to which
+         subdirectory of the repo the puppy is currently sitting in —
+         'foo/packages/api' and 'foo/src' both report 'foo').
+      2. Basename of the cwd itself when not inside a git repo.
+      3. ``"~"`` when sitting directly in ``$HOME``.
+
+    Git detection is delegated to ``code_puppy.config._detect_git_toplevel``
+    which already uses a 0.5s subprocess timeout and swallows every error,
+    so this is safe to call on every prompt render.
+    """
+    if os.path.realpath(cwd) == os.path.realpath(os.path.expanduser("~")):
+        return "~"
+    try:
+        from code_puppy.config import _detect_git_toplevel
+
+        git_root = _detect_git_toplevel(cwd)
+        if git_root:
+            return os.path.basename(git_root) or os.path.basename(cwd) or "/"
+    except Exception:
+        pass
+    return os.path.basename(os.path.normpath(cwd)) or "/"
 
 
 def get_prompt_with_active_model(base: str = ">>> "):
@@ -601,6 +629,7 @@ def get_prompt_with_active_model(base: str = ">>> "):
         model_display = f"[{global_model}]"
 
     cwd = os.getcwd()
+    project_name = _get_project_name(cwd)
     home = os.path.expanduser("~")
     if cwd.startswith(home):
         cwd_display = "~" + cwd[len(home) :]
@@ -615,6 +644,7 @@ def get_prompt_with_active_model(base: str = ">>> "):
                 f"[{_normalize_emoji_spacing(agent_display)}] ",
             ),
             ("class:model class:tui.title", model_display + " "),
+            ("class:project class:tui.warning", f"{project_name} "),
             ("class:cwd class:tui.muted", "(" + str(cwd_display) + ") "),
             ("class:arrow class:tui.help-key", str(base)),
         ]
@@ -1003,6 +1033,11 @@ async def get_input_with_combined_completion(
             # structural rules while an explicit prompt-text override still wins.
             "": default_input_style,
             "attachment-placeholder": "italic",
+            # Ensure the project-name segment always renders in a visible,
+            # distinct color even when no theme plugin is loaded. Themes that
+            # define a stronger rule (via the tui.warning class the fragment
+            # also carries) still win because they run after local_style.
+            "project": PROMPT_STYLES["project"],
             # Suppress prompt_toolkit's fixed white/grey/reverse completion
             # presentation. Colors now inherit from the semantic theme root;
             # only hierarchy and emphasis belong to this local component.
