@@ -150,10 +150,11 @@ export interface CompactionResult {
 }
 
 // Per-turn model-request ceiling: a runaway-loop backstop, NOT a work budget.
-// Big implementation turns legitimately need dozens of requests (the P0 session
-// silently died at the old cap of 25). Env-tunable; subagents get half.
+// Big implementation turns legitimately need hundreds of requests (the P0
+// session silently died at the old cap of 25). Env-tunable via
+// MIST_MAX_REQUESTS; cap exit is loud + resumable either way.
 const requestCap = (isSubagent: boolean): number =>
-  Math.max(1, Number(process.env.MIST_MAX_REQUESTS ?? (isSubagent ? 50 : 100)));
+  Math.max(1, Number(process.env.MIST_MAX_REQUESTS ?? (isSubagent ? 100 : 500)));
 const MAX_REQUESTS_PER_TURN = 25;
 const HEADROOM_MIN_CHARS = 2000;
 const AUTO_COMPACT_TOKENS = Number(process.env.MIST_COMPACT_AT ?? 60_000);
