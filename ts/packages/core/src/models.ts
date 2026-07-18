@@ -47,6 +47,10 @@ export interface TurnResult {
   thinkingChars?: number;
   /** REAL reasoning tokens when the provider reports them (OpenAI o-series). */
   reasoningTokens?: number;
+  /** Prompt-cache accounting: tokens served from cache (~0.1x price). */
+  cacheReadTokens?: number;
+  /** Prompt-cache accounting: tokens written to cache (~1.25x price). */
+  cacheWriteTokens?: number;
   toolUses: { id: string; name: string; input: unknown }[];
   /** Provider-native stop reason; agent loop checks against "tool_use". */
   stopReason: string;

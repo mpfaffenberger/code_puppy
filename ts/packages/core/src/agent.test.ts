@@ -125,9 +125,10 @@ test("context size prefers the API's real input_tokens over the estimate", async
   // Cold start: no API reading yet → falls back to the chars/2.5 estimate.
   expect(engine.estimateContextTokens()).toBeLessThan(10);
   await engine.runTurn("demo", { onTextDelta: () => {}, onStep: () => {} });
-  // The mock's final request reports input_tokens: 99 — the REAL reading —
-  // while the estimate for this history would be far larger.
-  expect(engine.estimateContextTokens()).toBe(99);
+  // The mock's final request reports input_tokens: 99 + 40 cache-read +
+  // 10 cache-write — the true prompt size is the SUM (input_tokens is only
+  // the uncached remainder when prompt caching is active).
+  expect(engine.estimateContextTokens()).toBe(149);
 });
 
 test("request cap: hitting the ceiling is loud and hands back a resume path", async () => {
@@ -197,6 +198,41 @@ test("lens: turn ledger records requests, tools, and totals", async () => {
   expect(t.toolCalls).toBe(3);
   expect(t.billedInputTokens).toBeGreaterThan(0);
   expect(t.outputTokens).toBeGreaterThan(0);
+  // Cache accounting from the final request's usage (40 read / 10 written).
+  expect(t.cacheReadTokens).toBe(40);
+  expect(t.cacheWriteTokens).toBe(10);
+  const final = turn.requests[turn.requests.length - 1]!;
+  expect(final.inputTokens).toBe(149); // 99 uncached + 40 read + 10 written
+});
+
+test("prompt-cache breakpoints are sent on the wire (and MIST_CACHE=0 disables)", async () => {
+  let captured: Record<string, unknown> | null = null;
+  const intercept = Bun.serve({
+    port: 9941,
+    async fetch(req) {
+      captured = (await req.json()) as Record<string, unknown>;
+      return new Response(
+        `data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } })}\n\n`,
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    },
+  });
+  try {
+    const { AnthropicClient } = await import("./anthropic");
+    const client = new AnthropicClient(`http://127.0.0.1:9941`, "k", "m");
+    await client.stream("sys", [{ role: "user", content: "hi" }], [], {});
+    const sys = captured!["system"] as { cache_control?: unknown }[];
+    expect(sys[0]!.cache_control).toEqual({ type: "ephemeral" });
+    const msgs = captured!["messages"] as { content: { cache_control?: unknown }[] }[];
+    expect(msgs[0]!.content[msgs[0]!.content.length - 1]!.cache_control).toEqual({ type: "ephemeral" });
+
+    process.env.MIST_CACHE = "0";
+    await client.stream("sys", [{ role: "user", content: "hi" }], [], {});
+    expect(typeof captured!["system"]).toBe("string"); // plain, no breakpoints
+  } finally {
+    delete process.env.MIST_CACHE;
+    intercept.stop(true);
+  }
 });
 
 test("lens: subagent traffic is attributed to the subagent entry", async () => {

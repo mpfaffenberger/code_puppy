@@ -866,7 +866,13 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
           const turn = turns[turns.length - 1]!;
           const t = lensTotals(turn);
           say(`🔍 lens — last turn: “${turn.prompt.slice(0, 60)}” (${Math.round(turn.ms / 1000)}s)`);
-          say(`tokens: ${t.billedInputTokens.toLocaleString()} billed input (history×${t.requests} requests) · ${t.outputTokens.toLocaleString()} output (≈${t.estThinkingTokens.toLocaleString()} thinking) · context now ${t.finalContextTokens.toLocaleString()}`);
+          say(`tokens: ${t.billedInputTokens.toLocaleString()} input (history×${t.requests} requests) · ${t.outputTokens.toLocaleString()} output (≈${t.estThinkingTokens.toLocaleString()} thinking) · context now ${t.finalContextTokens.toLocaleString()}`);
+          if (t.cacheReadTokens || t.cacheWriteTokens) {
+            const pct = t.billedInputTokens ? Math.round((t.cacheReadTokens / t.billedInputTokens) * 100) : 0;
+            say(`cache: ${t.cacheReadTokens.toLocaleString()} read (~0.1x price) · ${t.cacheWriteTokens.toLocaleString()} written · ${pct}% of input served from cache`);
+          } else {
+            say(`cache: no activity — endpoint may not support prompt caching (MIST_CACHE=0 disables sending breakpoints)`);
+          }
           say(`work: ${t.requests} model requests (${Math.round(t.modelMs / 1000)}s) · ${t.toolCalls} tool calls (${Math.round(t.toolMs / 1000)}s) · ${t.subagents} subagents${t.toolErrors ? ` · ${t.toolErrors} tool errors` : ""}${t.hookBlocks ? ` · ${t.hookBlocks} hook blocks` : ""}`);
           if (turn.autoContinues || turn.capHit || turn.compactions.length) {
             say(`events: ${[turn.autoContinues ? `⟳ ${turn.autoContinues} auto-continue` : "", turn.capHit ? "⏸ cap hit" : "", ...turn.compactions.map((c) => `⇣ compacted ${c.beforeTokens.toLocaleString()}→${c.afterTokens.toLocaleString()}`)].filter(Boolean).join(" · ")}`);

@@ -31,7 +31,12 @@ export interface ToolCallLens {
 export interface RequestLens {
   index: number;
   ms: number;
+  /** Full prompt size: uncached + cache-read + cache-write tokens. */
   inputTokens: number;
+  /** Of inputTokens, served from prompt cache (~0.1x price). */
+  cacheReadTokens: number;
+  /** Of inputTokens, written to prompt cache (~1.25x price). */
+  cacheWriteTokens: number;
   /** Includes thinking — see estThinkingTokens for the reasoning share. */
   outputTokens: number;
   estThinkingTokens: number;
@@ -74,11 +79,14 @@ export interface LensTotals {
   requests: number;
   toolCalls: number;
   subagents: number;
-  /** Σ per-request input — what the provider actually billed. */
+  /** Σ per-request prompt tokens (uncached + cached) across the turn. */
   billedInputTokens: number;
+  /** Of billedInputTokens, served from prompt cache at ~0.1x price. */
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
   estThinkingTokens: number;
-  /** input_tokens of the LAST request — the live context size. */
+  /** Prompt size of the LAST request — the live context size. */
   finalContextTokens: number;
   toolMs: number;
   modelMs: number;
@@ -88,6 +96,8 @@ export interface LensTotals {
 
 export function lensTotals(turn: TurnLens): LensTotals {
   let billed = 0;
+  let cacheRead = 0;
+  let cacheWrite = 0;
   let out = 0;
   let think = 0;
   let toolCalls = 0;
@@ -97,6 +107,8 @@ export function lensTotals(turn: TurnLens): LensTotals {
   let blocks = 0;
   for (const r of turn.requests) {
     billed += r.inputTokens;
+    cacheRead += r.cacheReadTokens ?? 0;
+    cacheWrite += r.cacheWriteTokens ?? 0;
     out += r.outputTokens;
     think += r.estThinkingTokens;
     modelMs += r.ms;
@@ -118,6 +130,8 @@ export function lensTotals(turn: TurnLens): LensTotals {
     toolCalls,
     subagents: turn.subagents.length,
     billedInputTokens: billed,
+    cacheReadTokens: cacheRead,
+    cacheWriteTokens: cacheWrite,
     outputTokens: out,
     estThinkingTokens: think,
     finalContextTokens: turn.requests[turn.requests.length - 1]?.inputTokens ?? 0,
@@ -162,7 +176,7 @@ export function renderLensHtml(turns: TurnLens[], sessionId: string): string {
         <div class="reqhead">
           <span class="idx">#${r.index + 1}</span>
           <span class="bar"><span class="in" style="width:${(r.inputTokens / maxTok) * 100}%"></span><span class="out" style="width:${(r.outputTokens / maxTok) * 100}%"></span></span>
-          <span class="meta">in ${fmt(r.inputTokens)} · out ${fmt(r.outputTokens)}${r.estThinkingTokens ? ` (≈${thinkPct}% thinking)` : ""} · ${r.ms}ms · ${esc(r.stopReason)}</span>
+          <span class="meta">in ${fmt(r.inputTokens)}${r.cacheReadTokens ? ` (${fmt(r.cacheReadTokens)} cached)` : ""} · out ${fmt(r.outputTokens)}${r.estThinkingTokens ? ` (≈${thinkPct}% thinking)` : ""} · ${r.ms}ms · ${esc(r.stopReason)}</span>
         </div>
         ${tools}
       </div>`;

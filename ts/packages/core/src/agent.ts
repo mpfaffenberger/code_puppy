@@ -486,10 +486,16 @@ export class MistEngine {
       const result = await client.stream(system, this.history, specs, {
         onTextDelta: cb.onTextDelta,
       });
+      // With prompt caching, input_tokens is only the UNCACHED remainder —
+      // the true prompt size is input + cache_read + cache_write.
+      const promptTokens =
+        result.inputTokens + (result.cacheReadTokens ?? 0) + (result.cacheWriteTokens ?? 0);
       const reqLens: RequestLens = {
         index: request,
         ms: Date.now() - reqStart,
-        inputTokens: result.inputTokens,
+        inputTokens: promptTokens,
+        cacheReadTokens: result.cacheReadTokens ?? 0,
+        cacheWriteTokens: result.cacheWriteTokens ?? 0,
         outputTokens: result.outputTokens,
         // Prefer REAL reasoning tokens (OpenAI o-series); else chars/3.5.
         estThinkingTokens: result.reasoningTokens ?? Math.round((result.thinkingChars ?? 0) / 3.5),
@@ -499,10 +505,10 @@ export class MistEngine {
         toolCalls: [],
       };
       lens.requests.push(reqLens);
-      cb.onUsage?.(result.inputTokens, result.outputTokens);
+      cb.onUsage?.(promptTokens, result.outputTokens);
       // Track the real context size (some third-party endpoints report 0 —
       // keep the last good reading).
-      if (result.inputTokens > 0) this.lastInputTokens = result.inputTokens;
+      if (promptTokens > 0) this.lastInputTokens = promptTokens;
       if (result.thinkingMs > 500) cb.onThought?.(result.thinkingMs);
 
       const assistantBlocks: ContentBlock[] = [];
