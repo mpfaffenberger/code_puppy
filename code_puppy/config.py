@@ -302,6 +302,10 @@ def ensure_config_exists():
     # Set default values for important config keys if they don't exist
     if not config[DEFAULT_SECTION].get("auto_save_session"):
         config[DEFAULT_SECTION]["auto_save_session"] = "true"
+    # port_base: seed so users discover the knob in their generated puppy.cfg
+    # (starting port for the HTTP-server port probe; searches port_base..+920).
+    if not config[DEFAULT_SECTION].get("port_base"):
+        config[DEFAULT_SECTION]["port_base"] = str(DEFAULT_PORT_BASE)
 
     # Write the config if we made any changes
     if missing or not exists:
@@ -2845,3 +2849,69 @@ def get_frontend_emitter_queue_size() -> int:
         return int(val)
     except ValueError:
         return 100
+
+
+# Port-probe bounds:
+#   MIN_PORT_BASE=1024 avoids privileged ports the user process can't bind anyway.
+#   PORT_PROBE_WIDTH is how many consecutive ports find_available_port() scans.
+#   MAX_PORT_BASE keeps port_base + width within the 16-bit port space.
+MIN_PORT_BASE = 1024
+PORT_PROBE_WIDTH = 920
+MAX_PORT_BASE = 65535 - PORT_PROBE_WIDTH
+DEFAULT_PORT_BASE = 8090
+
+
+def _coerce_port_base(raw, source: str) -> int | None:
+    """Parse + range-check a candidate port_base. Returns None (with warning)
+    on invalid input so callers can fall through to the next source.
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    try:
+        val = int(str(raw).strip())
+    except (TypeError, ValueError):
+        _warn_port_base(f"Ignoring invalid {source} port_base={raw!r}: not an integer")
+        return None
+    if not (MIN_PORT_BASE <= val <= MAX_PORT_BASE):
+        _warn_port_base(
+            f"Ignoring {source} port_base={val}: must be in "
+            f"[{MIN_PORT_BASE}, {MAX_PORT_BASE}] so port+{PORT_PROBE_WIDTH} stays valid"
+        )
+        return None
+    return val
+
+
+def _warn_port_base(msg: str) -> None:
+    """Lazy-import emit_warning to avoid config <-> messaging import cycles."""
+    try:
+        from code_puppy.messaging import emit_warning
+
+        emit_warning(msg)
+    except Exception:
+        # Messaging bus not up yet (early startup); silent skip is fine --
+        # the fallback value still applies.
+        pass
+
+
+def resolve_port_base(cli_value=None) -> int:
+    """
+    Full precedence chain for the port probe's starting port:
+    CLI --port-base > CODE_PUPPY_PORT_BASE env > puppy.cfg[port_base] > default.
+
+    Invalid values at any layer are warned about and skipped, not crashed on.
+    """
+    candidates = (
+        (cli_value, "--port-base"),
+        (os.environ.get("CODE_PUPPY_PORT_BASE"), "CODE_PUPPY_PORT_BASE"),
+        (get_value("port_base"), "puppy.cfg[port_base]"),
+    )
+    for raw, source in candidates:
+        val = _coerce_port_base(raw, source)
+        if val is not None:
+            return val
+    return DEFAULT_PORT_BASE
+
+
+def get_port_base() -> int:
+    """Back-compat wrapper: resolve without a CLI-supplied value."""
+    return resolve_port_base(cli_value=None)

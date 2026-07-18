@@ -338,6 +338,50 @@ class TestPortAvailability:
         result = find_available_port()
         assert result is not None
 
+    def test_port_base_argparse_default_is_none(self):
+        """--port-base defaults to None so cli_runner can fall back to config.
+
+        If this ever flips to a hardcoded value, the env-var / puppy.cfg
+        precedence chain silently breaks.
+        """
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        # Mirror production: type=str (not int) so bad input is validated
+        # gracefully in resolve_port_base rather than argparse-exiting.
+        parser.add_argument("--port-base", type=str, default=None)
+        args = parser.parse_args([])
+        assert args.port_base is None
+        args = parser.parse_args(["--port-base", "9100"])
+        assert args.port_base == "9100"
+
+    def test_port_base_cli_wins_over_config(self):
+        """resolve_port_base must honor a valid CLI value over env/cfg."""
+        from code_puppy.config import resolve_port_base
+
+        with patch("code_puppy.config.get_value", return_value="9500"):
+            with patch.dict("os.environ", {"CODE_PUPPY_PORT_BASE": "9700"}):
+                assert resolve_port_base(cli_value="9100") == 9100
+                assert resolve_port_base(cli_value=None) == 9700  # falls to env
+
+    def test_bad_cli_port_base_does_not_crash(self):
+        """Garbage --port-base must be skipped, not raise SystemExit.
+
+        This is the whole point of type=str + resolve_port_base --
+        argparse type=int would hard-exit before we could recover.
+        """
+        from code_puppy.config import DEFAULT_PORT_BASE, resolve_port_base
+
+        with patch("code_puppy.config.get_value", return_value=None):
+            with patch.dict("os.environ", {}, clear=False):
+                import os
+
+                os.environ.pop("CODE_PUPPY_PORT_BASE", None)
+                assert (
+                    resolve_port_base(cli_value="totally-not-a-port")
+                    == DEFAULT_PORT_BASE
+                )
+
 
 class TestAgentRunning:
     """Test agent execution."""
