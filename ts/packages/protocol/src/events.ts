@@ -34,10 +34,16 @@ export type MistEvent =
   | { kind: "step"; label: string } // TS engine generic tool step
   | { kind: "usage"; inputTokens: number; outputTokens: number }
   | { kind: "plan_updated"; items: { id: string; title: string; status: string }[] }
-  | { kind: "question_asked"; question: string }
+  | { kind: "question_asked"; question: string; options: string[] }
   | { kind: "steer_queued"; text: string }
   | { kind: "headroom_saved"; tokensSaved: number }
   | { kind: "session_resumed"; title: string; messages: number; createdAt: string }
+  | { kind: "session_renamed"; title: string; auto: boolean }
+  | { kind: "subagent_started"; id: string; label: string; task: string }
+  | { kind: "subagent_step"; id: string; label: string; step: string }
+  | { kind: "subagent_done"; id: string; label: string; steps: number; report: string }
+  | { kind: "subagent_error"; id: string; label: string; error: string }
+  | { kind: "mcp_status"; started: string[]; failed: string[] }
   | { kind: "context_compacted"; beforeTokens: number; afterTokens: number; summarized: number }
   | { kind: "narration"; text: string }
   | { kind: "step_done"; label: string; preview: string[]; hiddenLines: number }
@@ -169,8 +175,34 @@ export function classifyEvent(env: EventEnvelope): MistEvent {
         afterTokens: typeof d["after_tokens"] === "number" ? d["after_tokens"] : 0,
         summarized: typeof d["summarized"] === "number" ? d["summarized"] : 0,
       };
+    case "session.renamed":
+      return { kind: "session_renamed", title: str(d["title"]), auto: d["auto"] === true };
+    case "subagent.started":
+      return { kind: "subagent_started", id: str(d["id"]), label: str(d["label"]), task: str(d["task"]) };
+    case "subagent.step":
+      return { kind: "subagent_step", id: str(d["id"]), label: str(d["label"]), step: str(d["step"]) };
+    case "subagent.done":
+      return {
+        kind: "subagent_done",
+        id: str(d["id"]),
+        label: str(d["label"]),
+        steps: typeof d["steps"] === "number" ? d["steps"] : 0,
+        report: str(d["report"]),
+      };
+    case "subagent.error":
+      return { kind: "subagent_error", id: str(d["id"]), label: str(d["label"]), error: str(d["error"]) };
+    case "mcp.status":
+      return {
+        kind: "mcp_status",
+        started: Array.isArray(d["started"]) ? d["started"].map(String) : [],
+        failed: Array.isArray(d["failed"]) ? d["failed"].map(String) : [],
+      };
     case "question.asked":
-      return { kind: "question_asked", question: str(d["question"]) };
+      return {
+        kind: "question_asked",
+        question: str(d["question"]),
+        options: Array.isArray(d["options"]) ? d["options"].map((o) => String(o)) : [],
+      };
     case "steer.queued":
       return { kind: "steer_queued", text: str(d["text"]) };
     case "headroom.saved":

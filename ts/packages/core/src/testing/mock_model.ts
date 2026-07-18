@@ -47,7 +47,18 @@ export function startMockModel(port = 9876) {
     port,
     async fetch(req) {
       if (!req.url.endsWith("/v1/messages")) return new Response("nf", { status: 404 });
-      const payload = (await req.json()) as { messages: { role: string; content: unknown }[]; tools?: unknown[] };
+      const payload = (await req.json()) as { system?: string; messages: { role: string; content: unknown }[]; tools?: unknown[] };
+      // Title-generation calls (no tools, title system prompt) — canned name.
+      if (typeof payload.system === "string" && payload.system.includes("session title")) {
+        return sse([
+          { type: "message_start", message: { usage: { input_tokens: 8 } } },
+          { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+          { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Demo numbers walkthrough" } },
+          { type: "content_block_stop", index: 0 },
+          { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 4 } },
+          { type: "message_stop" },
+        ]);
+      }
       // Summarizer calls carry no tools — answer with a canned summary.
       if (!payload.tools || (Array.isArray(payload.tools) && payload.tools.length === 0)) {
         return sse([
@@ -67,6 +78,93 @@ export function startMockModel(port = 9876) {
           Array.isArray(m.content) &&
           (m.content as { type?: string }[]).some((b) => b.type === "tool_result"),
       ).length;
+      // MOCK_STALL=1: publish a plan + run a tool, then prematurely end the
+      // turn with the plan still open — exercises the anti-stall nudge.
+      if (process.env.MOCK_STALL === "1") {
+        if (JSON.stringify(payload.messages).includes("[auto-continue]")) {
+          return sse([
+            { type: "message_start", message: { usage: { input_tokens: 9 } } },
+            { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+            { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Resumed and finished the remaining plan items." } },
+            { type: "content_block_stop", index: 0 },
+            { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 9 } },
+            { type: "message_stop" },
+          ]);
+        }
+        const toolResultCountStall = payload.messages.filter(
+          (m) => Array.isArray(m.content) && (m.content as { type?: string }[]).some((b) => b.type === "tool_result"),
+        ).length;
+        if (toolResultCountStall === 0) {
+          const planJson = JSON.stringify({ items: [{ id: "s1", title: "Do the thing", status: "active" }] });
+          return sse([
+            { type: "message_start", message: { usage: { input_tokens: 11 } } },
+            { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tu_sp", name: "update_plan", input: {} } },
+            { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: planJson } },
+            { type: "content_block_stop", index: 0 },
+            { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "tu_ss", name: "shell", input: {} } },
+            { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"command":"seq 1 2"}' } },
+            { type: "content_block_stop", index: 1 },
+            { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 8 } },
+            { type: "message_stop" },
+          ]);
+        }
+        return sse([
+          { type: "message_start", message: { usage: { input_tokens: 13 } } },
+          { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+          { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Taking a break — I'll do the rest later." } },
+          { type: "content_block_stop", index: 0 },
+          { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 10 } },
+          { type: "message_stop" },
+        ]);
+      }
+      // Subagent child conversations carry the subagent marker in the system
+      // prompt — answer them with a canned one-shot report.
+      if (process.env.MOCK_SUB === "1" && typeof payload.system === "string" && payload.system.includes("SUBAGENT")) {
+        return sse([
+          { type: "message_start", message: { usage: { input_tokens: 15 } } },
+          { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+          { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Report: surveyed the area — 4 files, no anomalies." } },
+          { type: "content_block_stop", index: 0 },
+          { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 12 } },
+          { type: "message_stop" },
+        ]);
+      }
+      if (toolResultCount === 0 && process.env.MOCK_SUB === "1") {
+        // MOCK_SUB=1: parent opens by fanning out two parallel subagents.
+        const subA = JSON.stringify({ task: "Survey the demo directory and report file count.", label: "area survey" });
+        const subB = JSON.stringify({ task: "Double-check the numbers and report anomalies.", label: "number check" });
+        return sse([
+          { type: "message_start", message: { usage: { input_tokens: 18 } } },
+          { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tu_subA", name: "invoke_subagent", input: {} } },
+          { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: subA } },
+          { type: "content_block_stop", index: 0 },
+          { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "tu_subB", name: "invoke_subagent", input: {} } },
+          { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: subB } },
+          { type: "content_block_stop", index: 1 },
+          { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 14 } },
+          { type: "message_stop" },
+        ]);
+      }
+      if (toolResultCount === 0 && process.env.MOCK_ASK === "1") {
+        // MOCK_ASK=1: open with a clarifying question that carries options
+        // (exercises question.asked → TUI arrow-key option menu).
+        const askJson = JSON.stringify({
+          question: "Which flavor should the demo take?",
+          options: ["Fast and shallow", "Slow and thorough", "Dry run only"],
+        });
+        return sse([
+          { type: "message_start", message: { usage: { input_tokens: 12 } } },
+          {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "tool_use", id: "tu_ask", name: "ask_user", input: {} },
+          },
+          { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: askJson } },
+          { type: "content_block_stop", index: 0 },
+          { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 7 } },
+          { type: "message_stop" },
+        ]);
+      }
       if (toolResultCount === 0) {
         // Scripted step 1: publish a plan (exercises plan.updated → TUI panel).
         const planJson = JSON.stringify({

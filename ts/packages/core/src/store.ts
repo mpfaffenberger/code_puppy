@@ -71,6 +71,29 @@ export class SessionStore {
     await Bun.write(path, existing + `${JSON.stringify(line)}\n`);
   }
 
+  /** Rewrite the meta line with a new title (the /rename command + auto-titling). */
+  async rename(id: string, title: string): Promise<boolean> {
+    const path = fileFor(this.cwd, id);
+    const text = await Bun.file(path)
+      .text()
+      .catch(() => "");
+    if (!text) return false;
+    const lines = text.split("\n");
+    let meta: SessionMeta;
+    try {
+      const obj = JSON.parse(lines[0] ?? "") as Record<string, unknown>;
+      if (obj["kind"] !== "meta") return false;
+      meta = obj as unknown as SessionMeta;
+    } catch {
+      return false;
+    }
+    meta.title = title.slice(0, 80);
+    meta.updated_at = new Date().toISOString();
+    lines[0] = JSON.stringify({ kind: "meta", ...meta });
+    await Bun.write(path, lines.join("\n"));
+    return true;
+  }
+
   async appendMessages(id: string, messages: ChatMessage[]): Promise<void> {
     for (const message of messages) {
       await this.append(id, { kind: "message", message });

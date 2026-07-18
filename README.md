@@ -59,7 +59,39 @@ system prompt, the compaction instruction set, the safety model, the
 
 ## Quick start
 
-### Primary — Bun/TS binary
+### Install on a new system (one command)
+
+```bash
+git clone https://github.com/bajajra/mist.git && cd mist && ./scripts/install.sh
+```
+
+The script installs [Bun](https://bun.sh) if missing, builds the
+self-contained binary (`ts/dist/mist`), and links it onto your PATH
+(`~/.local/bin` or `/opt/homebrew/bin`; override with `MIST_BIN_DIR`).
+
+**First run — pick a model** (any one of these):
+
+```bash
+# Anthropic — zero config; default model is claude-opus-4-8
+export ANTHROPIC_API_KEY=sk-ant-...
+mist
+
+# OpenAI or Gemini — set the key, then switch inside mist
+export OPENAI_API_KEY=...     # then: /model gpt-5.2
+export GEMINI_API_KEY=...     # then: /model gemini-2.0-flash
+```
+
+Well-known model names (`claude-*`, `gpt-*`, `o*`, `gemini-*`) need no
+registry entry. Custom or Anthropic-compatible endpoints (z.ai, minimax,
+cerebras, local servers) go in `~/.mist/extra_models.json`:
+
+```json
+{ "glm-5.2": { "type": "custom_anthropic", "name": "glm-5.2",
+  "custom_endpoint": { "url": "https://api.z.ai/api/anthropic", "api_key": "..." },
+  "context_length": 256000 } }
+```
+
+### Manual build (if you'd rather not run the script)
 
 ```bash
 cd ts && bun install && bun run build     # produces ts/dist/mist (single binary)

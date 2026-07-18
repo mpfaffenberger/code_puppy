@@ -17,8 +17,9 @@
  *   results before they enter history.
  */
 
-import { AnthropicClient } from "./anthropic";
-import type { ChatMessage, ContentBlock, ToolSpec } from "./anthropic";
+import type { ChatMessage, ContentBlock, ToolSpec } from "./models";
+import { createModelClient, configFromDef } from "./models";
+import type { ModelClient, ModelResolver } from "./models";
 import { getConfiguredModelName, getModelDef } from "./config";
 import { applyPreToolHooks, loadHooks } from "./hooks";
 import type { Hooks } from "./hooks";
@@ -32,6 +33,7 @@ import {
   SUMMARIZATION_PROMPT,
 } from "./compaction";
 import { runTool, toolSpecs } from "./tools";
+import { McpManager } from "./mcp";
 
 export const SYSTEM_PROMPT = `You are Mist, an AI coding agent helping the developer complete software-engineering work.
 You MUST use the provided tools to read, write, and execute rather than just describing what to do.
@@ -42,6 +44,7 @@ Planning (for multi-step or ambiguous tasks — skip all of this for trivial ask
 - If requirements are genuinely ambiguous and a wrong guess would be costly, ask at most 1-2 sharp questions with ask_user BEFORE starting. Never ask what you can discover from the code.
 - Then lay out a plan with update_plan — one item per meaningful unit of work (3-7 for most tasks, up to 12 for big goals). Keep exactly one item active; mark items done as you complete them and update the plan when reality changes. The user watches this plan live.
 - The user may steer you mid-task (messages arriving between steps). Treat a steer as the freshest expression of intent — adjust immediately, update the plan, keep going.
+- You are long-running: NEVER end your turn while plan items are pending or active. Either complete them, mark them skipped (honestly, with the plan updated), or ask the user via ask_user if truly blocked. Stopping mid-plan to say what you will do next is a failure — do it instead.
 
 Working principles:
 - Explore before editing: read the relevant files first; resolve unknowns by looking, not guessing.
@@ -83,12 +86,32 @@ const ENGINE_TOOLS: ToolSpec[] = [
     },
   },
   {
-    name: "ask_user",
+    name: "invoke_subagent",
     description:
-      "Ask the user ONE sharp clarifying question (only when the answer is undiscoverable and a wrong guess is costly). Returns their reply.",
+      "Delegate a self-contained task to a subagent with its OWN fresh context — this conversation only receives its final report, so heavy exploration stays out of your context. Use for: context-heavy searching/reading, independent parallel workstreams, or verification passes. Issue SEVERAL invoke_subagent calls in ONE response to run them in parallel. The subagent cannot see this conversation — the task must carry all needed context, plus exactly what to report back.",
     input_schema: {
       type: "object",
-      properties: { question: { type: "string" } },
+      properties: {
+        task: { type: "string", description: "Complete, self-contained instructions + what to report back" },
+        label: { type: "string", description: "2-4 word display label (e.g. 'auth flow survey')" },
+      },
+      required: ["task"],
+    },
+  },
+  {
+    name: "ask_user",
+    description:
+      "Ask the user ONE sharp clarifying question (only when the answer is undiscoverable and a wrong guess is costly). When the answer space is enumerable, pass 2-4 short options — the user picks with arrow keys (they can always type their own answer instead). Returns their reply.",
+    input_schema: {
+      type: "object",
+      properties: {
+        question: { type: "string" },
+        options: {
+          type: "array",
+          items: { type: "string" },
+          description: "2-4 short answer choices (optional)",
+        },
+      },
       required: ["question"],
     },
   },
@@ -99,14 +122,21 @@ export interface AgentCallbacks {
   onStep: (label: string) => void;
   onUsage?: (inputTokens: number, outputTokens: number) => void;
   onPlan?: (items: PlanItem[]) => void;
-  onQuestion?: (question: string) => Promise<string>;
+  onQuestion?: (question: string, options: string[]) => Promise<string>;
   onSavings?: (tokensSaved: number) => void;
   onCompacted?: (r: CompactionResult) => void;
   onNarration?: (text: string) => void;
   onDiff?: (diff: import("./tools").DiffPayload) => void;
   onToolDone?: (label: string, preview: string[], hiddenLines: number) => void;
   onThought?: (ms: number) => void;
+  onSubagent?: (ev: SubagentEvent) => void;
 }
+
+export type SubagentEvent =
+  | { phase: "started"; id: string; label: string; task: string }
+  | { phase: "step"; id: string; label: string; step: string }
+  | { phase: "done"; id: string; label: string; steps: number; report: string }
+  | { phase: "error"; id: string; label: string; error: string };
 
 export interface AgentTurn {
   finalText: string;
@@ -119,23 +149,62 @@ export interface CompactionResult {
   summarized: number;
 }
 
+// Per-turn model-request ceiling: a runaway-loop backstop, NOT a work budget.
+// Big implementation turns legitimately need hundreds of requests (the P0
+// session silently died at the old cap of 25). Env-tunable via
+// MIST_MAX_REQUESTS; cap exit is loud + resumable either way.
+const requestCap = (isSubagent: boolean): number =>
+  Math.max(1, Number(process.env.MIST_MAX_REQUESTS ?? (isSubagent ? 100 : 500)));
 const MAX_REQUESTS_PER_TURN = 25;
 const HEADROOM_MIN_CHARS = 2000;
-const AUTO_COMPACT_TOKENS = Number(process.env.MIST_COMPACT_AT ?? 60_000);
+// Auto-compaction threshold in REAL tokens (the API reports input_tokens on
+// every request — that IS the context size). MIST_COMPACT_AT overrides;
+// clamped to 80% of the model's declared context_length when the registry
+// knows it. The chars/2.5 estimate is only the cold-start fallback.
+const DEFAULT_COMPACT_AT = 200_000;
 
 export class MistEngine {
   private history: ChatMessage[] = [];
-  private client: AnthropicClient | null = null;
+  private client: ModelClient | null = null;
   private hooks: Hooks | null = null;
   private steerQueue: string[] = [];
   private modelOverride: string | null = null;
+  /** MCP server manager; null until attachMcp() is called. */
+  mcp: McpManager | null = null;
   plan: PlanItem[] = [];
+  /** Real context size: input_tokens reported by the last API request. */
+  private lastInputTokens = 0;
+  /** context_length from the model registry, when declared. */
+  private contextLength: number | null = null;
 
-  constructor(readonly cwd: string = process.cwd()) {}
+  constructor(
+    readonly cwd: string = process.cwd(),
+    private readonly isSubagent: boolean = false,
+  ) {}
+
+  /**
+   * Attach an MCP manager (owned by the caller — typically the TUI boot).
+   * Loads + auto-starts servers, surfaces failures. Idempotent.
+   */
+  async attachMcp(manager: McpManager): Promise<{ started: string[]; failed: { name: string; error: string }[] }> {
+    this.mcp = manager;
+    return manager.loadAndStart();
+  }
 
   /** Estimated tokens currently held in history (chars/2.5 heuristic). */
   estimateContextTokens(): number {
-    return estimateTokens(this.history);
+    // Prefer the API's real reading; the chars/2.5 estimate only covers the
+    // cold start (fresh or resumed session before the first request).
+    return this.lastInputTokens > 0 ? this.lastInputTokens : estimateTokens(this.history);
+  }
+
+  /** Compaction trigger in real tokens: MIST_COMPACT_AT (default 200k), clamped to 80% of the model's window. */
+  private compactThreshold(): number {
+    const configured = Math.max(1_000, Number(process.env.MIST_COMPACT_AT ?? DEFAULT_COMPACT_AT));
+    const windowCap = this.contextLength
+      ? Math.floor(this.contextLength * 0.8)
+      : Number.POSITIVE_INFINITY;
+    return Math.min(configured, windowCap);
   }
 
   /**
@@ -144,13 +213,16 @@ export class MistEngine {
    * summary message. Returns null when there is nothing to compact.
    */
   async compact(): Promise<CompactionResult | null> {
-    const before = estimateTokens(this.history);
+    // Real reading when we have one (it's what the API actually charged for
+    // the last request); estimate otherwise.
+    const before = this.estimateContextTokens();
     const clearedRes = clearStaleToolResults(this.history);
     this.history = clearedRes.messages;
     const split = splitForCompaction(this.history);
     if (!split) {
-      const after = estimateTokens(this.history);
-      return clearedRes.cleared ? { beforeTokens: before, afterTokens: after, summarized: 0 } : null;
+      if (!clearedRes.cleared) return null;
+      this.lastInputTokens = 0; // history changed — real size unknown until next request
+      return { beforeTokens: before, afterTokens: estimateTokens(this.history), summarized: 0 };
     }
     const client = await this.ensureClient();
     const log = renderLogForSummary(split.toSummarize);
@@ -165,6 +237,7 @@ export class MistEngine {
       { role: "user", content: `[conversation summary — older context compacted]\n${summary}` },
       ...split.tail,
     ];
+    this.lastInputTokens = 0; // history changed — real size unknown until next request
     return {
       beforeTokens: before,
       afterTokens: estimateTokens(this.history),
@@ -177,9 +250,102 @@ export class MistEngine {
     return [...this.history];
   }
 
+  /**
+   * Generate a short session title from the opening request (one tiny model
+   * call, no tools). Returns null on any failure — callers fall back to the
+   * raw prompt text.
+   */
+  async generateTitle(firstPrompt: string): Promise<string | null> {
+    try {
+      const client = await this.ensureClient();
+      const res = await client.stream(
+        "Reply with ONLY a session title for this coding request: 3-6 words, no quotes, no trailing period.",
+        [{ role: "user", content: firstPrompt.slice(0, 2000) }],
+        [],
+        {},
+        64,
+      );
+      const title = res.text.trim().split("\n")[0]?.replace(/^["'`]+|["'`.]+$/g, "").trim() ?? "";
+      return title && title.length <= 64 ? title : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Load a persisted conversation history (resume). */
   loadHistory(messages: ChatMessage[]): void {
     this.history = [...messages];
+  }
+
+  /**
+   * History surgery — `/pop`: remove the last user turn and everything after
+   * it (the assistant reply + any tool calls/results). Returns the number of
+   * messages removed. Safe to call when idle only (never during a turn).
+   */
+  /**
+   * Indices of GENUINE turn starts. A turn starts at a user message with
+   * string content that isn't engine plumbing — tool_results, steers, and
+   * auto-continue nudges also ride in role:"user" messages and must never be
+   * treated as boundaries (slicing at one orphans tool_use/tool_result pairs
+   * and the next request 400s).
+   */
+  private turnStarts(): number[] {
+    const starts: number[] = [];
+    for (let i = 0; i < this.history.length; i++) {
+      const m = this.history[i]!;
+      if (m.role !== "user" || typeof m.content !== "string") continue;
+      if (
+        m.content.startsWith("[auto-continue]") ||
+        m.content.startsWith("[steer") ||
+        m.content.startsWith("[conversation summary")
+      )
+        continue;
+      starts.push(i);
+    }
+    return starts;
+  }
+
+  popLastTurn(): number {
+    const starts = this.turnStarts();
+    const last = starts[starts.length - 1];
+    if (last === undefined) return 0;
+    const removed = this.history.length - last;
+    this.history = this.history.slice(0, last);
+    this.lastInputTokens = 0;
+    return removed;
+  }
+
+  /**
+   * History surgery — `/prune N` (N >= 1): keep only the last N genuine turns
+   * (a turn = a real user prompt through its full reply, tool traffic
+   * included). Returns the number of messages removed.
+   */
+  pruneHistory(keepTurns: number): number {
+    if (keepTurns < 1) return 0; // "/prune 0 wipes everything" was a footgun
+    const starts = this.turnStarts();
+    if (starts.length <= keepTurns) return 0;
+    const cutoff = starts[starts.length - keepTurns]!;
+    this.history = this.history.slice(cutoff);
+    this.lastInputTokens = 0;
+    return cutoff;
+  }
+
+  /**
+   * History surgery — `/truncate BUDGET`: drop oldest WHOLE turns until the
+   * estimated token count is under budget. Always keeps the most recent turn
+   * intact (never cuts inside a turn — a dangling tool_use/tool_result 400s).
+   */
+  truncateHistory(tokenBudget: number): number {
+    const before = this.history.length;
+    for (;;) {
+      if (estimateTokens(this.history) <= tokenBudget) break;
+      const starts = this.turnStarts();
+      if (starts.length <= 1) break; // never drop the last remaining turn
+      // Drop everything before the second genuine turn start.
+      this.history = this.history.slice(starts[1]!);
+    }
+    if (before !== this.history.length) this.lastInputTokens = 0;
+    return before - this.history.length;
   }
 
   /** Queue a mid-turn user nudge; injected before the next model request. */
@@ -199,24 +365,39 @@ export class MistEngine {
     this.client = null;
   }
 
-  private async ensureClient(): Promise<AnthropicClient> {
+  private async ensureClient(): Promise<ModelClient> {
     if (this.client) return this.client;
     const name = this.modelOverride ?? (await getConfiguredModelName());
+    // Cycle guard: a round_robin whose candidates reach a round_robin already
+    // on the resolution path would recurse forever — fail with a clear error.
+    // (Duplicate LEAF members are legal; only distributor re-entry is a cycle.)
+    const resolving = new Set<string>();
+    const resolve: ModelResolver = async (modelName) => {
+      const def = await getModelDef(modelName);
+      if (def.type === "round_robin") {
+        if (resolving.has(modelName)) {
+          throw new Error(`round_robin cycle detected at '${modelName}'`);
+        }
+        resolving.add(modelName);
+      }
+      return createModelClient(configFromDef(def), resolve);
+    };
     const def = await getModelDef(name);
-    const url = def.custom_endpoint?.url;
-    const key = def.custom_endpoint?.api_key ?? process.env.ANTHROPIC_API_KEY ?? "";
-    if (!url && !process.env.ANTHROPIC_API_KEY) {
-      throw new Error(`model '${name}' has no endpoint/key configured`);
-    }
-    this.client = new AnthropicClient(url ?? "https://api.anthropic.com", key, def.name);
+    if (def.type === "round_robin") resolving.add(name);
+    this.contextLength = def.context_length ?? null;
+    this.client = await createModelClient(configFromDef(def), resolve);
     return this.client;
   }
 
   private async systemPrompt(): Promise<string> {
     if (this.hooks === null) this.hooks = await loadHooks(this.cwd);
+    let base = SYSTEM_PROMPT;
+    if (this.isSubagent) {
+      base += `\n\nYou are running as a SUBAGENT on one delegated task. No user is available — never ask questions; resolve ambiguity with your best judgment. END with a final report: your last message is returned verbatim to the parent agent, so make it complete and self-contained.`;
+    }
     return this.hooks.intent
-      ? `${SYSTEM_PROMPT}\n\nPROJECT INTENT (durable — never regress on this):\n${this.hooks.intent}`
-      : SYSTEM_PROMPT;
+      ? `${base}\n\nPROJECT INTENT (durable — never regress on this):\n${this.hooks.intent}`
+      : base;
   }
 
   /** Compress a bulky tool result via headroom when enabled; graceful no-op. */
@@ -257,21 +438,38 @@ export class MistEngine {
     // Proactive hygiene: stale tool results never accumulate.
     this.history = clearStaleToolResults(this.history).messages;
     // Auto-compact when the estimate crosses the threshold.
-    if (estimateTokens(this.history) > AUTO_COMPACT_TOKENS) {
+    if (this.estimateContextTokens() > this.compactThreshold()) {
       const r = await this.compact().catch(() => null);
       if (r) cb.onCompacted?.(r);
     }
     this.history.push({ role: "user", content: prompt });
-    const specs = [...ENGINE_TOOLS, ...toolSpecs];
+    // Children never get invoke_subagent — one level of delegation only.
+    const engineTools = this.isSubagent
+      ? ENGINE_TOOLS.filter((t) => t.name !== "invoke_subagent")
+      : ENGINE_TOOLS;
+    const specs: ToolSpec[] = [...engineTools, ...toolSpecs];
+    if (this.mcp) specs.push(...this.mcp.allTools());
     let steps = 0;
     let finalText = "";
+    // Anti-stall: if the model ends its turn while plan items are still
+    // pending/active after doing real work, nudge it to keep going (capped).
+    const maxAutoContinue = this.isSubagent
+      ? 0
+      : Math.max(0, Number(process.env.MIST_AUTO_CONTINUE ?? "3"));
+    let autoContinues = 0;
+    const maxRequests = requestCap(this.isSubagent);
+    let endedNaturally = false;
+    let midTurnCompactFailed = false;
 
-    for (let request = 0; request < MAX_REQUESTS_PER_TURN; request++) {
+    for (let request = 0; request < maxRequests; request++) {
       this.drainSteers();
       const result = await client.stream(system, this.history, specs, {
         onTextDelta: cb.onTextDelta,
       });
       cb.onUsage?.(result.inputTokens, result.outputTokens);
+      // Track the real context size (some third-party endpoints report 0 —
+      // keep the last good reading).
+      if (result.inputTokens > 0) this.lastInputTokens = result.inputTokens;
       if (result.thinkingMs > 500) cb.onThought?.(result.thinkingMs);
 
       const assistantBlocks: ContentBlock[] = [];
@@ -285,6 +483,20 @@ export class MistEngine {
 
       if (result.stopReason !== "tool_use" || result.toolUses.length === 0) {
         finalText = result.text;
+        const unfinished = this.plan.some((p) => p.status === "pending" || p.status === "active");
+        // Only nudge when this turn actually worked the plan (steps > 0) —
+        // a quick Q&A over a stale plan must not trigger it.
+        if (unfinished && steps > 0 && autoContinues < maxAutoContinue) {
+          autoContinues += 1;
+          cb.onStep(`⟳ auto-continue (${autoContinues}/${maxAutoContinue}) — plan items remain`);
+          this.history.push({
+            role: "user",
+            content:
+              "[auto-continue] Your plan still has pending/active items. Do not stop — keep working through them now. If an item no longer applies, mark it skipped via update_plan (with the rest updated honestly); if you are truly blocked on the user, use ask_user. Otherwise finish the work, then give the final summary.",
+          });
+          continue;
+        }
+        endedNaturally = true;
         break;
       }
       // Intermediate narration (text emitted before tool calls) — surfaced as
@@ -292,7 +504,14 @@ export class MistEngine {
       if (result.text.trim()) cb.onNarration?.(result.text);
 
       const toolResults: ContentBlock[] = [];
+      // Subagent fan-out: every invoke_subagent in this batch starts NOW and
+      // runs concurrently (with each other and with the sequential tools).
+      const subagentRuns = result.toolUses
+        .filter((tu) => tu.name === "invoke_subagent" && !this.isSubagent)
+        .map((tu) => this.runSubagent(tu.id, (tu.input ?? {}) as Record<string, unknown>, cb));
+
       for (const tu of result.toolUses) {
+        if (tu.name === "invoke_subagent" && !this.isSubagent) continue; // gathered below
         const input = (tu.input ?? {}) as Record<string, unknown>;
 
         // ---- engine-level tools ------------------------------------------
@@ -308,10 +527,46 @@ export class MistEngine {
         }
         if (tu.name === "ask_user") {
           const question = String(input["question"] ?? "").trim();
+          const options = (Array.isArray(input["options"]) ? input["options"] : [])
+            .map((o) => String(o).trim())
+            .filter(Boolean)
+            .slice(0, 6);
           const answer = cb.onQuestion
-            ? await cb.onQuestion(question)
+            ? await cb.onQuestion(question, options)
             : "(no user available — proceed with your best judgment)";
           toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: answer });
+          continue;
+        }
+
+        // ---- MCP-routed tools (namespaced server_tool) --------------------
+        if (this.mcp && this.mcp.allTools().some((t) => t.name === tu.name)) {
+          try {
+            const verdict = this.hooks ? applyPreToolHooks(this.hooks, tu.name, input) : null;
+            if (verdict?.action === "block") {
+              cb.onStep(`⊘ ${tu.name} blocked by hook`);
+              toolResults.push({
+                type: "tool_result",
+                tool_use_id: tu.id,
+                content: `blocked by project hook: ${verdict.message}`,
+                is_error: true,
+              });
+              continue;
+            }
+            const result = await this.mcp.callTool(tu.name, input);
+            const text = typeof result === "string"
+              ? result
+              : (result as { content?: { type: string; text?: string }[] })?.content
+                ?.map((c) => c.text ?? "")
+                .join("\n") ?? JSON.stringify(result);
+            toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: text });
+          } catch (e) {
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: tu.id,
+              content: `mcp tool '${tu.name}' failed: ${(e as Error).message}`,
+              is_error: true,
+            });
+          }
           continue;
         }
 
@@ -355,8 +610,72 @@ export class MistEngine {
           is_error: res.isError,
         });
       }
+      toolResults.push(...(await Promise.all(subagentRuns)));
       this.history.push({ role: "user", content: toolResults });
+      // Mid-turn guard: with a 500-request cap a single turn can outgrow the
+      // window — the old turn-start-only check never saw it. Uses the fresh
+      // real reading; one failed attempt stops retries for the rest of the turn.
+      if (!midTurnCompactFailed && this.lastInputTokens > this.compactThreshold()) {
+        const r = await this.compact().catch(() => null);
+        if (r) cb.onCompacted?.(r);
+        else midTurnCompactFailed = true;
+      }
+    }
+    if (!endedNaturally) {
+      // Cap exit used to be SILENT — the turn just stopped mid-work with no
+      // final text and no signal (how the P0 session died at 25 requests).
+      // Surface it and hand the user a one-word resume path.
+      cb.onStep(`⏸ request cap hit (${maxRequests} model calls this turn)`);
+      finalText =
+        `Paused mid-task: this turn hit the ${maxRequests}-model-request safety cap. ` +
+        `All progress is saved in this session — send "continue" and I'll pick up exactly where I left off. ` +
+        `(Raise MIST_MAX_REQUESTS to allow longer turns.)`;
     }
     return { finalText, steps };
+  }
+
+  private subagentSeq = 0;
+
+  /** Run one delegated task in a fresh child engine; only the report returns. */
+  private async runSubagent(
+    toolUseId: string,
+    input: Record<string, unknown>,
+    cb: AgentCallbacks,
+  ): Promise<ContentBlock> {
+    const task = String(input["task"] ?? "").trim();
+    const label = String(input["label"] ?? "").trim() || `subagent ${this.subagentSeq + 1}`;
+    const id = `sub${++this.subagentSeq}`;
+    if (!task) {
+      return {
+        type: "tool_result",
+        tool_use_id: toolUseId,
+        content: "invoke_subagent requires a non-empty task",
+        is_error: true,
+      };
+    }
+    cb.onSubagent?.({ phase: "started", id, label, task });
+    const child = new MistEngine(this.cwd, true);
+    if (this.modelOverride) child.setModel(this.modelOverride);
+    try {
+      const turn = await child.runTurn(task, {
+        onTextDelta: () => {},
+        onStep: (step) => cb.onSubagent?.({ phase: "step", id, label, step }),
+        onUsage: cb.onUsage,
+        onDiff: cb.onDiff, // file edits surface in the transcript regardless of who made them
+        onSavings: cb.onSavings,
+      });
+      const report = turn.finalText.trim() || "(subagent finished without a report)";
+      cb.onSubagent?.({ phase: "done", id, label, steps: turn.steps, report });
+      return { type: "tool_result", tool_use_id: toolUseId, content: `[subagent "${label}" report]\n${report}` };
+    } catch (err) {
+      const error = (err as Error).message;
+      cb.onSubagent?.({ phase: "error", id, label, error });
+      return {
+        type: "tool_result",
+        tool_use_id: toolUseId,
+        content: `subagent "${label}" failed: ${error}`,
+        is_error: true,
+      };
+    }
   }
 }

@@ -4,6 +4,8 @@
  * turn and rotated every few seconds while the agent works.
  */
 
+import { theme } from "./theme";
+
 export const SPINNER_VERBS: readonly string[] = [
   "Accomplishing", "Actioning", "Actualizing", "Architecting", "Baking", "Beaming",
   "Beboppin'", "Befuddling", "Billowing", "Blanching", "Bloviating", "Boogieing",
@@ -78,8 +80,14 @@ export function pickVerb(
   context: VerbContext = "general",
   rand: () => number = Math.random,
 ): string {
-  const pool =
-    context !== "general" && rand() < 0.7 ? VERB_POOLS[context] : SPINNER_VERBS;
+  // A theme can bring its own vocabulary (e.g. hinokami announces Sun
+  // Breathing forms) — it replaces the standard pools entirely.
+  const themed = theme.verbs;
+  const pool = themed?.length
+    ? themed
+    : context !== "general" && rand() < 0.7
+      ? VERB_POOLS[context]
+      : SPINNER_VERBS;
   let verb = pool[Math.floor(rand() * pool.length)]!;
   if (verb === current) {
     verb = pool[(pool.indexOf(verb) + 1) % pool.length]!;

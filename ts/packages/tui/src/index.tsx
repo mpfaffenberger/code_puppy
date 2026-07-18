@@ -18,13 +18,27 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { classifyEvent } from "@mist/protocol";
 import type { EventEnvelope } from "@mist/protocol";
 import { EngineSession, SessionStore, getConfiguredModelName, listModelNames, persistModelChoice } from "@mist/core";
-import type { SessionMeta, StoredSession } from "@mist/core";
+import { readConfig, getConfig, setConfig, SETTING_DEFS } from "@mist/core";
+import type { ChatMessage, SessionMeta, StoredSession } from "@mist/core";
 import { MistClient } from "./client";
 import { labelForGroup } from "./steps";
 import { pickVerb } from "./spinnerVerbs";
 import type { VerbContext } from "./spinnerVerbs";
 import { Markdown } from "./markdown";
-import { SPARKLE, THEMES, applyTheme, loadPersistedTheme, persistTheme, rampColor, theme } from "./theme";
+import { Mascot } from "./mascot";
+import { SPINNERS } from "./spinners";
+import type { Spinner } from "./spinners";
+import { THEMES, applyTheme, loadPersistedTheme, persistTheme, rampColor, theme } from "./theme";
+import { useReadline } from "./readline";
+import { completionsFor, isShellPassthrough, shellCommand, type Suggestion } from "./completions";
+
+/** Canonical slash-command list — drives Tab completion and the /help rows. */
+const COMMAND_NAMES = [
+  "help", "theme", "model", "resume", "sessions", "rename", "new", "clear",
+  "compact", "steps", "tools", "status", "record", "export", "dump_context",
+  "quit", "exit", "q", "set", "show", "cd", "reasoning", "verbosity",
+  "pop", "prune", "truncate", "mcp",
+];
 
 type Item =
   | { id: number; kind: "user"; text: string }
@@ -33,7 +47,7 @@ type Item =
   | { id: number; kind: "error"; text: string }
   | { id: number; kind: "response"; text: string }
   | { id: number; kind: "narration"; text: string }
-  | { id: number; kind: "toolblock"; label: string; preview: string[]; hiddenLines: number }
+  | { id: number; kind: "toolblock"; label: string; preview: string[]; hiddenLines: number; tool?: string }
   | {
       id: number;
       kind: "diff";
@@ -50,8 +64,8 @@ const item = (kind: "user" | "step" | "info" | "error" | "response" | "narration
   ({ id: nextId++, kind, text }) as Item;
 const diffItem = (d: Omit<Extract<Item, { kind: "diff" }>, "id" | "kind">): Item =>
   ({ id: nextId++, kind: "diff", ...d }) as Item;
-const toolBlockItem = (label: string, preview: string[], hiddenLines: number): Item =>
-  ({ id: nextId++, kind: "toolblock", label, preview, hiddenLines }) as Item;
+const toolBlockItem = (label: string, preview: string[], hiddenLines: number, tool = "shell"): Item =>
+  ({ id: nextId++, kind: "toolblock", label, preview, hiddenLines, tool }) as Item;
 
 /** Serialize the transcript to shareable markdown (the /record command). */
 export function transcriptToMarkdown(items: Item[], sessionId: string): string {
@@ -92,23 +106,173 @@ export function transcriptToMarkdown(items: Item[], sessionId: string): string {
   return out.filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n");
 }
 
-function Brand({ engine, session }: { engine: string; session: string }) {
+/**
+ * Condensed replay of the last few exchanges for session resume: user prompts
+ * and assistant text verbatim, tool activity collapsed to one dim count line.
+ * Steer prefixes are stripped; auto-continue nudges and compaction summaries
+ * are engine plumbing and stay hidden.
+ */
+export function historyTailItems(messages: ChatMessage[], maxTurns = 3): Item[] {
+  const out: Item[] = [];
+  let userTurns = 0;
+  let skippedTools = 0;
+  const flushToolCount = () => {
+    if (skippedTools > 0) {
+      out.push(item("info", `⋯ ran ${skippedTools} tool call${skippedTools === 1 ? "" : "s"}`));
+      skippedTools = 0;
+    }
+  };
+  for (let i = messages.length - 1; i >= 0 && userTurns < maxTurns; i--) {
+    const m = messages[i]!;
+    if (m.role === "user") {
+      // tool_result carriers: the calls are counted from the tool_use side.
+      if (typeof m.content !== "string") continue;
+      if (m.content.startsWith("[auto-continue]") || m.content.startsWith("[conversation summary")) continue;
+      flushToolCount();
+      out.push(item("user", m.content.replace(/^\[steer[^\]]*\]\s*/, "")));
+      userTurns += 1;
+    } else {
+      const blocks = Array.isArray(m.content) ? m.content : [];
+      const text =
+        typeof m.content === "string"
+          ? m.content
+          : blocks.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
+      const toolCount = blocks.filter((b) => b.type === "tool_use").length;
+      skippedTools += toolCount;
+      if (text.trim()) {
+        flushToolCount();
+        // Text alongside tool calls was live-rendered as ● narration.
+        out.push(item(toolCount > 0 ? "narration" : "response", text));
+      }
+    }
+  }
+  if (out.length === 0) return [];
+  flushToolCount();
+  out.push(item("info", "— earlier in this session —"));
+  return out.reverse();
+}
+
+function Wordmark() {
   const word = "Mist";
+  return (
+    <Text>
+      <Text color={theme.accent}>◆ </Text>
+      {[...word].map((ch, i) => (
+        <Text key={`b${i}`} bold color={rampColor(i, word.length)}>
+          {ch}
+        </Text>
+      ))}
+    </Text>
+  );
+}
+
+function Brand({ engine, session }: { engine: string; session: string }) {
   return (
     <Box flexDirection="row" marginBottom={1}>
       <Text>
-        <Text color={theme.accent}>◆ </Text>
-        {[...word].map((ch, i) => (
-          <Text key={`b${i}`} bold color={rampColor(i, word.length)}>
-            {ch}
-          </Text>
-        ))}
+        <Wordmark />
         <Text color={theme.dim}> — coding agent · </Text>
         <Text color={theme.dim}>
           {session ? `session ${session.slice(0, 8)} · ` : ""}
           {engine}
         </Text>
       </Text>
+    </Box>
+  );
+}
+
+export interface BannerInfo {
+  model: string;
+  latestTitle: string | null;
+}
+
+/**
+ * Input box with the session name embedded in the top border, right-aligned —
+ * Claude-Code style:  ╭──────────── session-name ──╮
+ */
+function InputFrame({ title, marginTop = 0, children }: { title: string; marginTop?: number; children: React.ReactNode }) {
+  const w = Math.max(24, (process.stdout.columns ?? 80) - 2);
+  const label = title ? ` ${title.length > 32 ? `${title.slice(0, 31)}…` : title} ` : "";
+  const left = Math.max(0, w - 2 - label.length - (label ? 2 : 0));
+  return (
+    <Box flexDirection="column" marginTop={marginTop} width={w}>
+      <Text color={theme.border}>
+        ╭{"─".repeat(left)}
+        {label ? <Text color={theme.accent}>{label}</Text> : null}
+        {label ? "──" : ""}╮
+      </Text>
+      <Box
+        borderStyle="round"
+        borderColor={theme.border}
+        borderTop={false}
+        paddingX={1}
+        flexDirection="row"
+        width={w}
+      >
+        {children}
+      </Box>
+    </Box>
+  );
+}
+
+/** Claude-Code-style welcome banner: Misty + session facts + tips. */
+function Banner({ session, info }: { session: string; info: BannerInfo }) {
+  const rawUser = process.env.USER || process.env.USERNAME || "friend";
+  const user = rawUser.charAt(0).toUpperCase() + rawUser.slice(1);
+  const home = process.env.HOME ?? "";
+  const cwdFull = home && process.cwd().startsWith(home) ? process.cwd().replace(home, "~") : process.cwd();
+  const cwd = cwdFull.length > 52 ? `…${cwdFull.slice(-51)}` : cwdFull;
+  const cols = process.stdout.columns ?? 80;
+  const wide = cols >= 92;
+  const boxWidth = Math.min(cols - 2, 96);
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <Box width={boxWidth} borderStyle="round" borderColor={theme.border} flexDirection="row" paddingX={2}>
+        <Box flexDirection="column" flexGrow={1}>
+          <Text>
+            <Wordmark />
+            <Text color={theme.dim}> v{VERSION}</Text>
+          </Text>
+          <Box flexDirection="column" alignItems="center">
+            <Text bold color={theme.text}>
+              Welcome back, {user}!
+            </Text>
+            <Box marginTop={1}>
+              <Mascot />
+            </Box>
+            <Box marginTop={1}>
+              <Text color={theme.dim}>
+                {info.model}
+                {session ? ` · session ${session.slice(0, 8)}` : ""}
+              </Text>
+            </Box>
+            <Text color={theme.dim}>{cwd}</Text>
+          </Box>
+        </Box>
+        {wide ? (
+          <Box flexDirection="column" marginLeft={2} paddingLeft={2} width={34} flexShrink={0} borderStyle="single" borderColor={theme.border} borderTop={false} borderBottom={false} borderRight={false}>
+            <Text bold color={theme.accent}>
+              Tips for getting started
+            </Text>
+            <Text color={theme.dim}>/help — browse every command</Text>
+            <Text color={theme.dim}>/theme — pick a breathing style</Text>
+            <Text color={theme.dim}>type while it works to steer</Text>
+            <Box marginTop={1} flexDirection="column">
+              <Text bold color={theme.accent}>
+                Recent activity
+              </Text>
+              {info.latestTitle ? (
+                <>
+                  <Text color={theme.dim}>{info.latestTitle.length > 30 ? `${info.latestTitle.slice(0, 29)}…` : info.latestTitle}</Text>
+                  <Text color={theme.dim}>resume it with /resume</Text>
+                </>
+              ) : (
+                <Text color={theme.dim}>No recent activity</Text>
+              )}
+            </Box>
+          </Box>
+        ) : null}
+      </Box>
     </Box>
   );
 }
@@ -145,8 +309,11 @@ function TranscriptItem({ it }: { it: Item }) {
         </Text>
       );
     case "response":
+      // Explicit width: nested inline <Text> (bold/code spans) can defeat
+      // Ink's wrap measurement inside <Static>, hard-wrapping mid-word at the
+      // terminal edge (the 'compil/e' artifact) — pin the column like narration.
       return (
-        <Box flexDirection="column" marginTop={1} paddingLeft={0}>
+        <Box flexDirection="column" marginTop={1} width={Math.max(20, (process.stdout.columns ?? 80) - 3)}>
           <Markdown source={it.text} />
         </Box>
       );
@@ -155,7 +322,7 @@ function TranscriptItem({ it }: { it: Item }) {
         <Box flexDirection="column" marginTop={1}>
           <Text>
             <Text color={theme.success}>● </Text>
-            <Text bold>shell</Text>
+            <Text bold>{it.tool ?? "shell"}</Text>
             <Text color={theme.dim}>(</Text>
             <Text color={theme.code}>{it.label.length > 100 ? `${it.label.slice(0, 99)}…` : it.label}</Text>
             <Text color={theme.dim}>)</Text>
@@ -175,10 +342,12 @@ function TranscriptItem({ it }: { it: Item }) {
         </Box>
       );
     case "narration":
+      // Explicit width: inside <Static>, a flexGrow child next to the ● can
+      // overflow the terminal and hard-wrap at column 0 — pin the text column.
       return (
         <Box flexDirection="row" marginTop={1}>
           <Text color={theme.accent}>● </Text>
-          <Box flexDirection="column" flexGrow={1}>
+          <Box flexDirection="column" width={Math.max(20, (process.stdout.columns ?? 80) - 5)}>
             <Markdown source={it.text} />
           </Box>
         </Box>
@@ -210,11 +379,18 @@ function TranscriptItem({ it }: { it: Item }) {
   }
 }
 
-function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: StoredSession }) {
+function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume?: StoredSession; banner?: BannerInfo }) {
   const { exit } = useApp();
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
-  const [input, setInput] = useState("");
+  // Completion popup: candidates + the anchor/tail of the token being
+  // completed, captured at first Tab so cycling replaces the right span.
+  const [suggestions, setSuggestions] = useState<{
+    list: Suggestion[];
+    index: number;
+    anchor: number;
+    tail: string;
+  } | null>(null);
   const [frame, setFrame] = useState(0);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const startedAtRef = useRef<number | null>(null);
@@ -223,7 +399,10 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const [stream, setStream] = useState("");
   const [tokens, setTokens] = useState(0);
   const [plan, setPlan] = useState<{ id: string; title: string; status: string }[]>([]);
-  const [question, setQuestion] = useState("");
+  // Clarifying question (ask_user): optional arrow-key options + free text.
+  const [question, setQuestion] = useState<{ text: string; options: string[] } | null>(null);
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [questionCustom, setQuestionCustom] = useState(false);
   const [saved, setSaved] = useState(0);
   const [, setThemeTick] = useState(0);
   const [picker, setPicker] = useState<SessionMeta[] | null>(null);
@@ -243,6 +422,37 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const [narration, setNarration] = useState("");
   const [verb, setVerb] = useState("Working");
   const verbContext = useRef<VerbContext>("general");
+  // Glyph set follows the verb context — a distinctive spinner per activity
+  // (scan while reading, fillsweep while editing, cascade while executing).
+  const [spinner, setSpinner] = useState<Spinner>(SPINNERS.general);
+
+  // Cursor-aware input line for idle mode (replaces append-only setInput).
+  // Gives us Ctrl+A/E/K/U/W, ←/→, Alt+B/F word jumps, Ctrl+R reverse search,
+  // Alt+M/Ctrl+J multiline, and ↑/↓ history with draft preservation.
+  // rlValueRef breaks the circular dep between rlHistoryNav (callback) and rl.
+  const rlValueRef = useRef("");
+  const rlHistoryNav = useCallback((direction: "up" | "down"): string | undefined => {
+    const hist = historyRef.current;
+    if (direction === "up") {
+      if (!hist.length) return undefined;
+      if (histIndex.current === null) {
+        draftRef.current = rlValueRef.current;
+        histIndex.current = hist.length - 1;
+      } else if (histIndex.current > 0) {
+        histIndex.current -= 1;
+      }
+      return hist[histIndex.current];
+    }
+    if (histIndex.current === null) return undefined;
+    histIndex.current += 1;
+    if (histIndex.current > hist.length - 1) {
+      histIndex.current = null;
+      return draftRef.current;
+    }
+    return hist[histIndex.current];
+  }, []);
+  const rl = useReadline({ onHistoryNav: rlHistoryNav });
+  rlValueRef.current = rl.handle.state.value; // keep ref fresh for history nav
 
   const noteActivity = useCallback((label: string) => {
     const next: VerbContext = label.startsWith("$")
@@ -255,6 +465,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
     if (next !== verbContext.current) {
       verbContext.current = next;
       setVerb((v) => pickVerb(v, next)); // switch flavor with the work
+      setSpinner(SPINNERS[next]);
     }
   }, []);
   const stepLog = useRef<string[]>([]);
@@ -263,6 +474,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
   const [pickerIndex, setPickerIndex] = useState(0);
   const sessionRef = useRef<EngineSession | null>(null);
   const [sessionId, setSessionId] = useState("");
+  const [sessionTitle, setSessionTitle] = useState("");
   const [fatal, setFatal] = useState("");
   const clientRef = useRef<MistClient | null>(null);
   const headless = Boolean(initialPrompt);
@@ -296,11 +508,12 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
     return () => clearInterval(id);
   }, [busy]);
 
-  // Animation clock (footer only re-renders the dynamic region — cheap).
+  // Animation clock at the active spinner's native pace — pacing is part of
+  // the character (footer only re-renders the dynamic region — cheap).
   useEffect(() => {
-    const id = setInterval(() => setFrame((f) => f + 1), 110);
+    const id = setInterval(() => setFrame((f) => f + 1), spinner.interval);
     return () => clearInterval(id);
-  }, []);
+  }, [spinner]);
 
   const handleEnvelope = useCallback(
     (env: EventEnvelope) => {
@@ -309,6 +522,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         case "session_running":
           verbContext.current = "general";
           setVerb((v) => pickVerb(v, "general"));
+          setSpinner(SPINNERS.general);
           setBusy(true);
           setStartedAt(Date.now());
           startedAtRef.current = Date.now();
@@ -332,33 +546,40 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         case "subagent_invocation":
           addStep(`delegated to ${ev.agentName}`);
           break;
+        case "subagent_started": {
+          flushStepGroup();
+          const brief = ev.task.length > 70 ? `${ev.task.slice(0, 69)}…` : ev.task;
+          push(toolBlockItem(brief, [], 0, `◇ subagent “${ev.label}”`));
+          break;
+        }
+        case "subagent_step":
+          addStep(`[${ev.label}] ${ev.step}`);
+          break;
+        case "subagent_done": {
+          const lines = ev.report.split("\n").filter((l) => l.trim());
+          const preview = lines.slice(0, 2).map((l) => (l.length > 90 ? `${l.slice(0, 89)}…` : l));
+          push(
+            toolBlockItem(
+              `${ev.steps} step${ev.steps === 1 ? "" : "s"}`,
+              preview,
+              Math.max(0, lines.length - preview.length),
+              `◇ ${ev.label} done`,
+            ),
+          );
+          setRecentSteps([]);
+          break;
+        }
+        case "subagent_error":
+          push(item("error", `subagent “${ev.label}” failed: ${ev.error}`));
+          break;
+        case "mcp_status": {
+          if (ev.started.length) push(item("info", `⚡ mcp: started ${ev.started.join(", ")}`));
+          for (const f of ev.failed) push(item("error", `mcp: ${f}`));
+          break;
+        }
         case "text_delta":
           setStream((t) => t + ev.delta);
           break;
-        case "toolblock":
-      return (
-        <Box flexDirection="column" marginTop={1}>
-          <Text>
-            <Text color={theme.success}>● </Text>
-            <Text bold>shell</Text>
-            <Text color={theme.dim}>(</Text>
-            <Text color={theme.code}>{it.label.length > 100 ? `${it.label.slice(0, 99)}…` : it.label}</Text>
-            <Text color={theme.dim}>)</Text>
-          </Text>
-          {it.preview.map((l, i) => (
-            <Text key={`tb${it.id}-${i}`} color={theme.dim}>
-              {"  ⌙ "}
-              {l}
-            </Text>
-          ))}
-          {it.hiddenLines > 0 ? (
-            <Text color={theme.dim} dimColor>
-              {"    … +"}
-              {it.hiddenLines} line{it.hiddenLines === 1 ? "" : "s"} (/steps to expand)
-            </Text>
-          ) : null}
-        </Box>
-      );
         case "step_done": {
           if (ev.label.startsWith("$")) {
             flushStepGroup();
@@ -388,11 +609,18 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           setPlan(ev.items);
           break;
         case "question_asked":
-          setQuestion(ev.question);
-          setInput("");
+          setQuestion({ text: ev.question, options: ev.options });
+          setQuestionIndex(0);
+          setQuestionCustom(ev.options.length === 0);
+          rl.handle.reset();
           break;
         case "session_resumed":
+          setSessionTitle(ev.title);
           push(item("info", `↺ resumed “${ev.title}” · ${ev.messages} messages · started ${ev.createdAt.slice(0, 10)}`));
+          break;
+        case "session_renamed":
+          setSessionTitle(ev.title);
+          push(item("info", ev.auto ? `✎ session named “${ev.title}”` : `✎ session renamed to “${ev.title}”`));
           break;
         case "steer_queued":
           push(item("info", `↪ steered: ${ev.text}`));
@@ -450,30 +678,14 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           const session = new EngineSession(process.cwd(), resume);
           sessionRef.current = session;
           setSessionId(session.id);
+          // Replay the tail of the conversation BEFORE subscribing so the
+          // "↺ resumed" line lands beneath the restored context.
+          if (resume) push(...historyTailItems(resume.messages));
           cancel = session.subscribe(handleEnvelope);
           clientRef.current = {
             submit: (_id: string, prompt: string) => session.submit(prompt),
             interrupt: async () => {},
           } as unknown as MistClient;
-          if (resume) {
-            // Replay the tail of the conversation so the user sees where
-            // they left off (codex/Claude Code resume behavior, condensed).
-            const lastUser = [...resume.messages].reverse().find(
-              (m) => m.role === "user" && typeof m.content === "string",
-            );
-            if (lastUser) push(item("user", String(lastUser.content)));
-            const lastAssistant = [...resume.messages].reverse().find(
-              (m) => m.role === "assistant",
-            );
-            if (lastAssistant) {
-              const text = Array.isArray(lastAssistant.content)
-                ? lastAssistant.content
-                    .map((b) => (b.type === "text" ? b.text : ""))
-                    .join("")
-                : String(lastAssistant.content);
-              if (text.trim()) push(item("response", text));
-            }
-          }
           if (initialPrompt) {
             push(item("user", initialPrompt));
             setBusy(true);
@@ -509,22 +721,12 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       const fresh = new EngineSession(process.cwd(), stored);
       sessionRef.current = fresh;
       setSessionId(fresh.id);
+      push(...historyTailItems(stored.messages));
       fresh.subscribe(handleEnvelope);
       clientRef.current = {
         submit: (_id: string, prompt: string) => fresh.submit(prompt),
         interrupt: async () => {},
       } as unknown as MistClient;
-      const lastUser = [...stored.messages].reverse().find(
-        (m) => m.role === "user" && typeof m.content === "string",
-      );
-      if (lastUser) push(item("user", String(lastUser.content)));
-      const lastAssistant = [...stored.messages].reverse().find((m) => m.role === "assistant");
-      if (lastAssistant) {
-        const text = Array.isArray(lastAssistant.content)
-          ? lastAssistant.content.map((b) => (b.type === "text" ? b.text : "")).join("")
-          : String(lastAssistant.content);
-        if (text.trim()) push(item("response", text));
-      }
     },
     [handleEnvelope, push],
   );
@@ -542,9 +744,18 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
             rows: [
               { label: "/resume", desc: "pick a previous session to resume", action: "/resume" },
               { label: "/sessions", desc: "list saved sessions for this directory", action: "/sessions" },
+              { label: "/rename", desc: "name this session (auto-named from your first question otherwise)", action: "/rename" },
               { label: "/new", desc: "start a fresh conversation (alias /clear)", action: "/new" },
               { label: "/compact", desc: "summarize older context to free tokens", action: "/compact" },
-              { label: "/steps", desc: "expand the last turn's collapsed tool calls", action: "/steps" },
+              { label: "/pop", desc: "remove the last turn from history", action: "/pop" },
+              { label: "/prune", desc: "keep only the last N turns", action: "/prune" },
+              { label: "/truncate", desc: "drop oldest messages to fit a token budget", action: "/truncate" },
+              { label: "/set", desc: "adjust config (verbosity, reasoning, temperature, …)", action: "/set" },
+              { label: "/show", desc: "show config values from mist.cfg", action: "/show" },
+              { label: "/cd", desc: "change working directory", action: "/cd" },
+              { label: "/reasoning", desc: "set reasoning effort (off·low·medium·high)", action: "/reasoning" },
+              { label: "/verbosity", desc: "set output verbosity (quiet·normal·verbose)", action: "/verbosity" },
+              { label: "/mcp", desc: "manage MCP servers (status·start·stop·restart)", action: "/mcp" },
               { label: "/theme", desc: "switch themes — opens a chooser", action: "/theme" },
               { label: "/model", desc: "switch the model — opens a chooser", action: "/model" },
               { label: "/tools", desc: "list the agent's tools", action: "/tools" },
@@ -623,6 +834,14 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           if (list.length) say("resume with: mist -r <id>");
           break;
         }
+        case "rename": {
+          if (!arg) {
+            say("usage: /rename <new name> — names this session in /resume and /sessions");
+            break;
+          }
+          await sessionRef.current?.rename(arg);
+          break;
+        }
         case "compact": {
           say("compacting…");
           await sessionRef.current?.compact();
@@ -638,7 +857,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         }
         case "tools": {
           say("tools: read_file (ranged) · create_file · replace_in_file (exact-match) · list_files · grep · shell (guarded)");
-          say("engine: update_plan (live plan) · ask_user (clarifying questions)");
+          say("engine: update_plan (live plan) · ask_user (clarifying questions) · invoke_subagent (parallel delegation, isolated context)");
           break;
         }
         case "status": {
@@ -675,6 +894,156 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           say(`context (${history.length} messages) → ${path}`);
           break;
         }
+        case "set": {
+          if (!arg) {
+            // Interactive menu: show all settable keys with current values.
+            const cfg = await readConfig();
+            setMenuIndex(0);
+            setMenu({
+              title: "/set — adjust a config setting (↑/↓ · enter edit · esc close)",
+              rows: SETTING_DEFS.map((s) => ({
+                label: `${s.label} = ${cfg[s.key] ?? "(unset)"}`,
+                desc: s.desc,
+                action: `/set ${s.key}`,
+              })),
+            });
+            break;
+          }
+          const [setKey, ...setRest] = arg.split(/\s+/);
+          const setValue = setRest.join(" ").trim();
+          if (!setValue) {
+            // Show current value of one key.
+            const v = await getConfig(setKey);
+            say(v ? `${setKey} = ${v}` : `${setKey} is not set`);
+            break;
+          }
+          const def = SETTING_DEFS.find((s) => s.key === setKey);
+          if (def?.validate) {
+            const err = def.validate(setValue);
+            if (err) {
+              say(`✗ ${setKey}: ${err}`);
+              break;
+            }
+          }
+          await setConfig(setKey, setValue);
+          say(`✓ ${setKey} = ${setValue} (saved to ~/.mist/mist.cfg)`);
+          break;
+        }
+        case "show": {
+          if (!arg) {
+            const cfg = await readConfig();
+            const keys = Object.keys(cfg).sort();
+            if (!keys.length) say("(mist.cfg is empty)");
+            for (const k of keys) say(`${k} = ${cfg[k]}`);
+          } else {
+            const v = await getConfig(arg);
+            say(v ? `${arg} = ${v}` : `${arg} is not set`);
+          }
+          break;
+        }
+        case "cd": {
+          if (!arg) {
+            say(`cwd: ${process.cwd()}`);
+            break;
+          }
+          try {
+            const resolved = arg.startsWith("/") ? arg : `${process.cwd()}/${arg}`;
+            const stat = await Bun.file(resolved).exists() ? true : false;
+            if (!stat) {
+              say(`✗ not found: ${resolved}`);
+              break;
+            }
+            process.chdir(resolved);
+            say(`✓ cwd → ${process.cwd()}`);
+          } catch (err) {
+            say(`✗ ${(err as Error).message}`);
+          }
+          break;
+        }
+        case "reasoning": {
+          if (!arg) {
+            const v = (await getConfig("reasoning")) ?? "(unset)";
+            say(`reasoning = ${v} (off · low · medium · high)`);
+            break;
+          }
+          if (!["off", "low", "medium", "high"].includes(arg)) {
+            say("✗ reasoning must be off · low · medium · high");
+            break;
+          }
+          await setConfig("reasoning", arg);
+          say(`✓ reasoning = ${arg}`);
+          break;
+        }
+        case "verbosity": {
+          if (!arg) {
+            const v = (await getConfig("verbosity")) ?? "(unset)";
+            say(`verbosity = ${v} (quiet · normal · verbose)`);
+            break;
+          }
+          if (!["quiet", "normal", "verbose"].includes(arg)) {
+            say("✗ verbosity must be quiet · normal · verbose");
+            break;
+          }
+          await setConfig("verbosity", arg);
+          say(`✓ verbosity = ${arg}`);
+          break;
+        }
+        case "pop": {
+          const removed = sessionRef.current?.popLastTurn() ?? 0;
+          say(removed ? `↶ popped ${removed} message${removed === 1 ? "" : "s"} (last turn removed)` : "(nothing to pop — no user turn in history)");
+          break;
+        }
+        case "prune": {
+          const n = Number(arg);
+          // N must be >= 1: /prune 0 used to silently wipe the whole history.
+          if (!Number.isFinite(n) || n < 1) {
+            say("usage: /prune <N> — keep only the last N turns (N ≥ 1; /new to start fresh)");
+            break;
+          }
+          const removed = sessionRef.current?.pruneHistory(n) ?? 0;
+          say(removed ? `✂ pruned ${removed} message${removed === 1 ? "" : "s"} (kept last ${n} turn${n === 1 ? "" : "s"})` : "(nothing to prune)");
+          break;
+        }
+        case "truncate": {
+          const budget = Number(arg);
+          if (!Number.isFinite(budget) || budget <= 0) {
+            say("usage: /truncate <token_budget> — drop oldest until under budget");
+            break;
+          }
+          const removed = sessionRef.current?.truncateHistory(budget) ?? 0;
+          say(removed ? `✂ truncated ${removed} message${removed === 1 ? "" : "s"} (budget: ${budget.toLocaleString()} tok)` : "(already under budget)");
+          break;
+        }
+        case "mcp": {
+          const mcpMgr = sessionRef.current?.mcp;
+          if (!mcpMgr) {
+            say("(MCP not initialized — add servers to ~/.mist/mcp_servers.json)");
+            break;
+          }
+          const sub = rest[0]?.toLowerCase();
+          if (sub === "start" && rest[1]) {
+            try { await mcpMgr.start(rest[1]); say(`✓ started ${rest[1]}`); } catch (e) { say(`✗ ${(e as Error).message}`); }
+            break;
+          }
+          if (sub === "stop" && rest[1]) {
+            await mcpMgr.stop(rest[1]); say(`✓ stopped ${rest[1]}`); break;
+          }
+          if (sub === "restart" && rest[1]) {
+            try { await mcpMgr.restart(rest[1]); say(`✓ restarted ${rest[1]}`); } catch (e) { say(`✗ ${(e as Error).message}`); }
+            break;
+          }
+          // Default: list status.
+          const statuses = mcpMgr.status();
+          const configs = mcpMgr.configsList();
+          if (!configs.length) { say("(no MCP servers configured in ~/.mist/mcp_servers.json)"); break; }
+          for (const c of configs) {
+            const s = statuses.find((s) => s.name === c.name);
+            const glyph = s?.status === "running" ? "✓" : s?.status === "starting" ? "⏳" : s?.status === "error" ? "✗" : "○";
+            say(`${glyph} ${c.name} (${c.type}) — ${s?.status ?? "stopped"}${s?.tools ? ` · ${s.tools} tool${s.tools === 1 ? "" : "s"}` : ""}${s?.restarts ? ` · ${s.restarts} restart${s.restarts === 1 ? "" : "s"}` : ""}`);
+          }
+          say("/mcp start|stop|restart <name>");
+          break;
+        }
         case "clear":
         case "new": {
           const fresh = new EngineSession(process.cwd());
@@ -686,12 +1055,14 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
             interrupt: async () => {},
           } as unknown as MistClient;
           setPlan([]);
+          setSessionTitle("");
           say("— new session —");
           break;
         }
         case "quit":
         case "exit":
         case "q":
+          await sessionRef.current?.shutdown().catch(() => {});
           exit();
           break;
         default:
@@ -701,18 +1072,49 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
     [exit, handleEnvelope, items, push, saved, sessionId, tokens],
   );
 
+  // (Declared BEFORE submit — a later declaration put the useCallback dep
+  // array in the temporal dead zone and crashed the first suggestions render.)
+  const recordHistory = useCallback((entry: string) => {
+    const trimmed = entry.trim();
+    if (!trimmed) return;
+    const hist = historyRef.current;
+    if (hist[hist.length - 1] !== trimmed) hist.push(trimmed);
+    if (hist.length > 1000) historyRef.current = hist.slice(-1000);
+    histIndex.current = null;
+    const path = process.env.MIST_TS_HISTORY ?? `${process.env.HOME}/.mist/ts-history`;
+    void Bun.write(path, historyRef.current.join("\n") + "\n").catch(() => {});
+  }, []);
+
   const submit = useCallback(async () => {
-    const prompt = input.trim();
+    const prompt = rl.handle.state.value.trim();
     if (!prompt || busy) return;
+    rl.handle.reset();
+    setSuggestions(null);
+    // !cmd → bare shell passthrough (runs locally, not through the agent).
+    if (isShellPassthrough(prompt)) {
+      const cmd = shellCommand(prompt);
+      recordHistory(prompt);
+      push(item("user", prompt));
+      push(item("info", `$ ${cmd}`));
+      try {
+        const proc = Bun.spawn(["sh", "-c", cmd], { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" });
+        const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+        const code = await proc.exited;
+        const out = (stdout + (stderr ? `\n[stderr]\n${stderr}` : "")).trim();
+        if (out) push(item("info", out.slice(0, 2000)));
+        push(item("info", `[exit ${code}]`));
+      } catch (err) {
+        push(item("error", `shell failed: ${(err as Error).message}`));
+      }
+      return;
+    }
     if (prompt.startsWith("/")) {
-      setInput("");
       recordHistory(prompt);
       push(item("user", prompt));
       await runCommand(prompt);
       return;
     }
     if (!clientRef.current || !sessionId) return;
-    setInput("");
     recordHistory(prompt);
     push(item("user", prompt));
     setBusy(true);
@@ -724,7 +1126,7 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       push(item("error", (err as Error).message));
       setBusy(false);
     }
-  }, [busy, input, push, runCommand, sessionId]);
+  }, [busy, push, recordHistory, rl, runCommand, sessionId]);
 
   // Load persisted input history once.
   useEffect(() => {
@@ -739,47 +1141,14 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
     })();
   }, []);
 
-  const recordHistory = useCallback((entry: string) => {
-    const trimmed = entry.trim();
-    if (!trimmed) return;
-    const hist = historyRef.current;
-    if (hist[hist.length - 1] !== trimmed) hist.push(trimmed);
-    if (hist.length > 1000) historyRef.current = hist.slice(-1000);
-    histIndex.current = null;
-    const path = process.env.MIST_TS_HISTORY ?? `${process.env.HOME}/.mist/ts-history`;
-    void Bun.write(path, historyRef.current.join("\n") + "\n").catch(() => {});
-  }, []);
-
-  /** ↑/↓ history navigation. Returns true if the key was consumed. */
-  const historyNav = useCallback(
-    (key: { upArrow: boolean; downArrow: boolean }): boolean => {
-      const hist = historyRef.current;
-      if (key.upArrow) {
-        if (!hist.length) return true;
-        if (histIndex.current === null) {
-          draftRef.current = "";
-          histIndex.current = hist.length - 1;
-        } else if (histIndex.current > 0) {
-          histIndex.current -= 1;
-        }
-        setInput(hist[histIndex.current] ?? "");
-        return true;
-      }
-      if (key.downArrow) {
-        if (histIndex.current === null) return true;
-        histIndex.current += 1;
-        if (histIndex.current > hist.length - 1) {
-          histIndex.current = null;
-          setInput(draftRef.current);
-        } else {
-          setInput(hist[histIndex.current] ?? "");
-        }
-        return true;
-      }
-      return false;
-    },
-    [],
-  );
+  /** Anchor of the completion token at the cursor: for @path completions the
+   * @ sign; for /cmd the token start. */
+  const completionAnchor = (line: string, cursor: number): number => {
+    let start = cursor;
+    while (start > 0 && !/\s/.test(line[start - 1]!)) start -= 1;
+    const atIdx = line.slice(start, cursor).lastIndexOf("@");
+    return atIdx >= 0 ? start + atIdx : start;
+  };
 
   useInput((ch, key) => {
     if (key.ctrl && ch === "c") exit();
@@ -841,17 +1210,44 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
     }
     if (question) {
       // Answer mode: the agent asked a clarifying question.
-      if (historyNav(key)) return;
-      if (key.return) {
-        const answer = input.trim();
-        setInput("");
-        setQuestion("");
-        push(item("info", `❓ ${question}`), item("user", answer || "(no answer)"));
+      const answerWith = (answer: string) => {
+        rl.handle.reset();
+        setQuestion(null);
+        setQuestionCustom(false);
+        push(item("info", `❓ ${question.text}`), item("user", answer || "(no answer)"));
         sessionRef.current?.answer(answer || "(no answer — use your judgment)");
+      };
+      const rows = question.options.length + 1; // options + "type my own"
+      if (question.options.length && !questionCustom) {
+        // Option mode: ↑/↓ + Enter (Claude-Code style); 1-9 quick-select;
+        // typing any character drops straight into free-text.
+        if (key.upArrow) { setQuestionIndex((i) => (i - 1 + rows) % rows); return; }
+        if (key.downArrow) { setQuestionIndex((i) => (i + 1) % rows); return; }
+        const digit = ch >= "1" && ch <= "9" ? Number(ch) - 1 : -1;
+        if (digit >= 0 && digit < question.options.length) {
+          answerWith(question.options[digit]!);
+          return;
+        }
+        if (key.return) {
+          if (questionIndex < question.options.length) answerWith(question.options[questionIndex]!);
+          else setQuestionCustom(true);
+          return;
+        }
+        if (ch && !key.ctrl && !key.meta && !key.escape && !key.tab) {
+          setQuestionCustom(true);
+          rl.handle.setValue(ch);
+        }
         return;
       }
-      if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return; }
-      if (ch && !key.ctrl && !key.meta && !key.escape) setInput((s) => s + ch);
+      // Free-text mode (no options, or the user chose to type their own) —
+      // full readline editing, same buffer as everywhere else.
+      if (key.escape && question.options.length) {
+        setQuestionCustom(false);
+        rl.handle.reset();
+        return;
+      }
+      if (key.return) { answerWith(rl.handle.state.value.trim()); return; }
+      rl.input(ch, key);
       return;
     }
     if (busy) {
@@ -860,40 +1256,60 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         return;
       }
       // Steering: type while the agent works; Enter queues the nudge.
-      if (historyNav(key)) return;
+      // Same readline buffer as idle — editing + ↑/↓ history work here too.
       if (key.return) {
-        const steer = input.trim();
-        setInput("");
+        const steer = rl.handle.state.value.trim();
+        rl.handle.reset();
         if (steer) {
           recordHistory(steer);
           sessionRef.current?.steer(steer);
         }
         return;
       }
-      if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return; }
-      if (ch && !key.ctrl && !key.meta && !key.escape) setInput((s) => s + ch);
+      rl.input(ch, key);
       return;
     }
-    if (historyNav(key)) return;
+    // Cursor-aware editing via readline hook (Ctrl+A/E/K/U/W, arrows, ↑/↓
+    // history via rlHistoryNav — no pre-filtering, rl owns the buffer).
+    if (rl.search.active) {
+      // Ctrl+R reverse search: delegate fully, render the search overlay.
+      rl.input(ch, key);
+      return;
+    }
+    // Tab: open the completion popup, or cycle through its candidates. The
+    // anchor + tail are captured at FIRST Tab so each cycle replaces exactly
+    // the candidate span (the old line-comparison guard never matched).
+    if (key.tab) {
+      if (suggestions && suggestions.list.length > 0) {
+        const next = (suggestions.index + 1) % suggestions.list.length;
+        const sug = suggestions.list[next]!;
+        const head = rl.handle.state.value.slice(0, suggestions.anchor);
+        rl.handle.setValue(head + sug.replacement + suggestions.tail, suggestions.anchor + sug.replacement.length);
+        setSuggestions({ ...suggestions, index: next });
+        return;
+      }
+      const { value: line, cursor } = rl.handle.state;
+      const list = completionsFor({ line, cursor, cwd: process.cwd(), commands: COMMAND_NAMES });
+      if (list.length) {
+        const anchor = completionAnchor(line, cursor);
+        const tail = line.slice(cursor);
+        const sug = list[0]!;
+        rl.handle.setValue(line.slice(0, anchor) + sug.replacement + tail, anchor + sug.replacement.length);
+        setSuggestions({ list, index: 0, anchor, tail });
+      } else {
+        setSuggestions(null);
+      }
+      return;
+    }
+    // Any other key: pass to readline; typing dismisses the popup.
+    const consumed = rl.input(ch, key);
+    if (consumed) {
+      if (suggestions) setSuggestions(null);
+      return;
+    }
     if (key.return) {
       void submit();
       return;
-    }
-    if (key.backspace || key.delete) {
-      setInput((s) => s.slice(0, -1));
-      return;
-    }
-    if (key.ctrl && ch === "u") {
-      setInput("");
-      return;
-    }
-    if (ch && !key.ctrl && !key.meta && !key.escape) {
-      histIndex.current = null;
-      setInput((s) => {
-        const next = s + ch;
-        draftRef.current = next;
-        return next;
-      });
     }
   });
 
@@ -904,7 +1320,11 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
       <Static items={[{ id: 0, kind: "brand" } as unknown as Item, ...items]}>
         {(it) =>
           (it as unknown as { kind: string }).kind === "brand" ? (
-            <Brand key="brand" engine={engine} session={sessionId} />
+            banner ? (
+              <Banner key="brand" session={sessionId} info={banner} />
+            ) : (
+              <Brand key="brand" engine={engine} session={sessionId} />
+            )
           ) : (
             <TranscriptItem key={it.id} it={it} />
           )
@@ -960,16 +1380,39 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
         <Box flexDirection="column" marginTop={1}>
           <Box borderStyle="round" borderColor={theme.accent} paddingX={1} flexDirection="column">
             <Text color={theme.accent} bold>
-              ❓ {question}
+              ❓ {question.text}
             </Text>
-            <Text>
-              <Text color={theme.accent} bold>{"❯ "}</Text>
-              {input}
-              <Text color={theme.brand}>█</Text>
-            </Text>
+            {question.options.length && !questionCustom ? (
+              <>
+                {question.options.map((opt, i) => (
+                  <Text key={`qo${i}`} color={i === questionIndex ? theme.brand : theme.text} bold={i === questionIndex}>
+                    {i === questionIndex ? "❯ " : "  "}
+                    {i + 1}. {opt}
+                  </Text>
+                ))}
+                <Text
+                  color={questionIndex === question.options.length ? theme.brand : theme.dim}
+                  bold={questionIndex === question.options.length}
+                >
+                  {questionIndex === question.options.length ? "❯ " : "  "}✎ type my own answer…
+                </Text>
+              </>
+            ) : (
+              <Text>
+                <Text color={theme.accent} bold>{"❯ "}</Text>
+                {rl.handle.state.value.slice(0, rl.handle.state.cursor)}
+                <Text color={theme.brand}>▏</Text>
+                {rl.handle.state.value.slice(rl.handle.state.cursor)}
+              </Text>
+            )}
           </Box>
           <Text color={theme.dim} dimColor>
-            {"  "}enter to answer
+            {"  "}
+            {question.options.length && !questionCustom
+              ? "↑/↓ or 1-9 select · enter confirm · or just start typing"
+              : question.options.length
+                ? "enter to answer · esc back to options"
+                : "enter to answer"}
           </Text>
         </Box>
       ) : busy ? (
@@ -1020,47 +1463,80 @@ function App({ initialPrompt, resume }: { initialPrompt?: string; resume?: Store
           ) : null}
           <Box>
           <Text color={theme.brand} bold>
-            {SPARKLE[frame % SPARKLE.length]}{" "}
+            {spinner.frames[frame % spinner.frames.length]}{" "}
           </Text>
+          <Text color={theme.verb}>{verb}…</Text>
           <Text color={theme.dim}>
-            {verb}… · {elapsed}s · {stepCount} step{stepCount === 1 ? "" : "s"}{tokens ? ` · ${tokens.toLocaleString()} tok` : ""}{saved ? ` · ↓${saved.toLocaleString()} saved` : ""}
+            {" "}· {elapsed}s · {stepCount} step{stepCount === 1 ? "" : "s"}{tokens ? ` · ${tokens.toLocaleString()} tok` : ""}{saved ? ` · ↓${saved.toLocaleString()} saved` : ""}
             {"  "}
           </Text>
           <Text color={theme.dim} dimColor>
-            esc interrupt · type+enter to steer{plan.length ? ` · ctrl+t to ${planVisible ? "hide" : "show"} tasks` : ""}
+            esc to interrupt{plan.length ? ` · ctrl+t to ${planVisible ? "hide" : "show"} tasks` : ""}
           </Text>
           </Box>
-          {input ? (
-            <Text color={theme.user}>
-              {"  ↪ "}
-              {input}
-              <Text color={theme.brand}>█</Text>
+          <InputFrame title={sessionTitle}>
+            <Text color={rl.handle.state.value ? theme.accent : theme.dim} bold>
+              ❯{" "}
             </Text>
-          ) : null}
+            <Text color={rl.handle.state.value ? undefined : theme.dim}>
+              {rl.handle.state.value.slice(0, rl.handle.state.cursor)}
+              <Text color={theme.brand}>▏</Text>
+              {rl.handle.state.value.slice(rl.handle.state.cursor)}
+            </Text>
+          </InputFrame>
+          <Text color={theme.dim} dimColor>
+            {"  "}type + enter to steer the agent mid-task
+          </Text>
         </Box>
       ) : (
-        <Box
-          borderStyle="round"
-          borderColor={theme.border}
-          paddingX={1}
-          marginTop={1}
-          flexDirection="row"
-        >
-          <Text color={theme.accent} bold>
-            ❯{" "}
-          </Text>
-          <Text>
-            {input}
-            <Text color={theme.brand}>█</Text>
-          </Text>
+        <Box flexDirection="column" marginTop={1}>
+          {rl.search.active ? (
+            <Box flexDirection="column" marginBottom={1}>
+              <Text color={theme.accent} bold>
+                ↎ reverse-i-search: {rl.search.query || "(type to search)"}
+              </Text>
+              {rl.search.result ? (
+                <Text color={theme.dim}>  {rl.search.result}</Text>
+              ) : rl.search.query ? (
+                <Text color={theme.dim}>  (no match)</Text>
+              ) : null}
+              <Text color={theme.dim} dimColor>  ctrl+r again to cycle · enter to accept · backspace to edit · esc to cancel</Text>
+            </Box>
+          ) : null}
+          {suggestions && suggestions.list.length > 0 ? (
+            <Box flexDirection="column" marginBottom={0}>
+              {suggestions.list.map((sug, i) => (
+                <Text key={`${sug.label}-${i}`} color={i === suggestions.index ? theme.brand : theme.dim} bold={i === suggestions.index}>
+                  {i === suggestions.index ? "❯ " : "  "}
+                  {sug.label}
+                  {sug.detail ? <Text color={theme.dim}> — {sug.detail}</Text> : null}
+                </Text>
+              ))}
+              <Text color={theme.dim} dimColor>  tab to cycle · enter to send</Text>
+            </Box>
+          ) : null}
+          <InputFrame title={sessionTitle} marginTop={1}>
+            <Text color={rl.handle.state.value ? theme.accent : theme.dim} bold>
+              ❯{" "}
+            </Text>
+            <Text color={rl.handle.state.value ? undefined : theme.dim}>
+              {rl.handle.state.value.slice(0, rl.handle.state.cursor)}
+              <Text color={theme.brand}>▏</Text>
+              {rl.handle.state.value.slice(rl.handle.state.cursor)}
+            </Text>
+          </InputFrame>
         </Box>
       )}
       {!fatal && !busy && (
         <Text color={theme.dim} dimColor>
           {"  "}
-          {input.startsWith("/")
-            ? "/help · /resume · /theme · /model · /sessions · /new · /quit"
-            : "enter to send · / for commands · ctrl+c to quit"}
+          {rl.handle.state.value.startsWith("/")
+            ? "tab completes commands · enter to run"
+            : isShellPassthrough(rl.handle.state.value)
+              ? "enter to run as shell"
+              : rl.search.active
+                ? "ctrl+r cycle · enter accept · esc cancel"
+                : "enter to send · / commands · ! shell · @ files · ctrl+r search · ctrl+t tasks"}
         </Text>
       )}
     </Box>
@@ -1074,6 +1550,9 @@ const HELP = `mist ${VERSION} — Mist coding agent (Bun engine)
 Usage:
   mist                        interactive session (new)
   mist "task"                 one-shot: run the task and exit
+  mist -p "task"              one-shot (explicit --prompt form)
+  mist -p "task" --output json   one-shot, emit one JSON envelope per line
+  mist --serve [--port 4096] [--host 127.0.0.1]   headless HTTP/SSE server
   mist -c | --continue        resume the latest session for this directory
   mist -r <id> | --resume     resume a specific session (id prefix ok)
   mist --sessions             list saved sessions for this directory
@@ -1105,6 +1584,42 @@ async function main(): Promise<void> {
     return;
   }
 
+  // --serve: headless HTTP/SSE server (never renders the TUI).
+  if (args.includes("--serve")) {
+    const { startHeadlessServer } = await import("@mist/core");
+    const portIdx = args.indexOf("--port");
+    const hostIdx = args.indexOf("--host");
+    const port = portIdx >= 0 ? Number(args[portIdx + 1]) : undefined;
+    const host = hostIdx >= 0 ? args[hostIdx + 1] : undefined;
+    const server = await startHeadlessServer({ cwd: process.cwd(), port, host });
+    console.error(`mist --serve listening on ${server.url}`);
+    console.error(`auth token: ${server.token}  (also in ~/.mist/server.json)`);
+    return; // server keeps the process alive
+  }
+
+  // -p / --prompt with --output: headless one-shot (never renders the TUI).
+  let explicitPrompt: string | undefined;
+  let outputFormat: "json" | "text" | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "-p" || a === "--prompt") {
+      explicitPrompt = args[++i];
+    } else if (a === "--output") {
+      const v = args[++i];
+      if (v === "json" || v === "text") outputFormat = v;
+      else {
+        console.error(`--output must be 'json' or 'text' (got '${v}')`);
+        process.exit(1);
+      }
+    }
+  }
+  if (explicitPrompt !== undefined || outputFormat) {
+    const { runHeadless } = await import("@mist/core");
+    const prompt = explicitPrompt ?? "";
+    const res = await runHeadless(prompt, { cwd: process.cwd(), output: outputFormat });
+    process.exit(res.exitCode);
+  }
+
   let resume: StoredSession | undefined;
   const rest: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -1133,7 +1648,16 @@ async function main(): Promise<void> {
     }
   }
   const argvPrompt = rest.join(" ").trim();
-  render(<App initialPrompt={argvPrompt || undefined} resume={resume} />);
+  // Interactive launches get the full welcome banner; one-shot (argv) runs
+  // keep the compact one-liner so scripted/tmux output stays clean.
+  let banner: BannerInfo | undefined;
+  if (!argvPrompt) {
+    banner = {
+      model: await getConfiguredModelName().catch(() => "no model configured"),
+      latestTitle: resume?.meta.title ?? (await store.latest().catch(() => null))?.title ?? null,
+    };
+  }
+  render(<App initialPrompt={argvPrompt || undefined} resume={resume} banner={banner} />);
 }
 
 void main();

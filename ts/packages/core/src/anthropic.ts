@@ -1,41 +1,27 @@
 /**
  * Minimal streaming client for the Anthropic Messages API — including
- * Anthropic-compatible endpoints (minimax's `/anthropic` base, etc.).
+ * Anthropic-compatible endpoints (register them as `custom_anthropic`;
+ * e.g. z.ai's or minimax's `/anthropic` bases). The bare `minimax` type
+ * routes to the OpenAI-protocol client instead.
  * Lenient parser: third-party endpoints omit fields; we only rely on the
  * event kinds the loop needs (text deltas, tool_use blocks, stop reason).
+ *
+ * Implements the provider-neutral `ModelClient` contract from ./models.ts;
+ * the shared message/tool/result types live there.
  */
 
-export interface ToolSpec {
-  name: string;
-  description: string;
-  input_schema: Record<string, unknown>;
-}
+import type {
+  ChatMessage,
+  ContentBlock,
+  ModelClient,
+  StreamCallbacks,
+  ToolSpec,
+  TurnResult,
+} from "./models";
 
-export type ContentBlock =
-  | { type: "text"; text: string }
-  | { type: "tool_use"; id: string; name: string; input: unknown }
-  | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean };
+export type { ChatMessage, ContentBlock, StreamCallbacks, ToolSpec, TurnResult };
 
-export interface ChatMessage {
-  role: "user" | "assistant";
-  content: string | ContentBlock[];
-}
-
-export interface StreamCallbacks {
-  onTextDelta?: (text: string) => void;
-  onToolUse?: (name: string) => void;
-}
-
-export interface TurnResult {
-  text: string;
-  thinkingMs: number;
-  toolUses: { id: string; name: string; input: unknown }[];
-  stopReason: string;
-  inputTokens: number;
-  outputTokens: number;
-}
-
-export class AnthropicClient {
+export class AnthropicClient implements ModelClient {
   constructor(
     private readonly baseUrl: string,
     private readonly apiKey: string,
@@ -86,6 +72,7 @@ export class AnthropicClient {
     let thinkingLast = 0;
 
     let debugSink: import("bun").FileSink | null = null;
+    const debugPath = process.env.MIST_DEBUG_STREAM;
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
@@ -104,8 +91,8 @@ export class AnthropicClient {
         if (!data || data === "[DONE]") continue;
         // Raw-wire debug capture (the gpt-5.5 bug-hunt hook): every SSE data
         // payload, exactly as received, appended to MIST_DEBUG_STREAM.
-        if (process.env.MIST_DEBUG_STREAM) {
-          debugSink ??= Bun.file(process.env.MIST_DEBUG_STREAM).writer();
+        if (debugPath) {
+          debugSink ??= Bun.file(debugPath).writer();
           debugSink.write(`${data}\n`);
         }
         let ev: Record<string, unknown>;

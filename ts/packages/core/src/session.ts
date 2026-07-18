@@ -7,6 +7,7 @@
 
 import type { EventEnvelope } from "@mist/protocol";
 import { MistEngine } from "./agent";
+import { McpManager } from "./mcp";
 import { SessionStore } from "./store";
 import type { StoredSession } from "./store";
 
@@ -43,6 +44,64 @@ export class EngineSession {
       this.created = false;
       this.emit("session.created", { agent_name: "mist" });
     }
+    // MCP: attach + auto-start configured servers in the background. Without
+    // this call, mcp_servers.json was silently ignored in live sessions.
+    void this.initMcp();
+  }
+
+  /** The engine's MCP manager (for the /mcp command). */
+  get mcp(): McpManager | null {
+    return this.engine.mcp;
+  }
+
+  private async initMcp(): Promise<void> {
+    try {
+      // attachMcp loads config + auto-starts enabled servers (idempotent).
+      const res = await this.engine.attachMcp(new McpManager());
+      if (res.started.length || res.failed.length) {
+        this.emit("mcp.status", {
+          started: res.started,
+          failed: res.failed.map((f) => `${f.name}: ${f.error}`),
+        });
+      }
+    } catch {
+      /* MCP is optional — a bad config must never break the session */
+    }
+  }
+
+  /** Graceful teardown (quit): stop MCP child processes. */
+  async shutdown(): Promise<void> {
+    await this.engine.mcp?.stopAll().catch(() => {});
+  }
+
+  private userNamed = false;
+  private autoTitled = false;
+
+  /** Rename this session (the /rename command); sticks for /resume. */
+  async rename(title: string): Promise<void> {
+    const clean = title.trim();
+    if (!clean) return;
+    this.userNamed = true;
+    const ok = this.created ? await this.store.rename(this.id, clean) : false;
+    if (!ok && !this.created) {
+      // Session not persisted yet — create it now under the chosen name.
+      await this.store.create(this.id, clean);
+      this.created = true;
+    }
+    this.emit("session.renamed", { title: clean, auto: false });
+  }
+
+  /**
+   * One-shot: replace the raw first-prompt title with a short generated name
+   * (skipped once the user has named the session themselves).
+   */
+  private async autoTitle(firstPrompt: string): Promise<void> {
+    if (this.userNamed || this.autoTitled) return;
+    this.autoTitled = true;
+    const title = await this.engine.generateTitle(firstPrompt);
+    if (!title || this.userNamed) return;
+    const ok = await this.store.rename(this.id, title);
+    if (ok) this.emit("session.renamed", { title, auto: true });
   }
 
   /** Persist any history the store hasn't seen yet (after each turn). */
@@ -51,10 +110,11 @@ export class EngineSession {
       const history = this.engine.exportHistory();
       if (!this.created) {
         const firstUser = history.find((m) => m.role === "user");
-        const title =
-          typeof firstUser?.content === "string" ? firstUser.content : "(tool session)";
-        await this.store.create(this.id, title);
+        const raw = typeof firstUser?.content === "string" ? firstUser.content : "(tool session)";
+        await this.store.create(this.id, raw);
         this.created = true;
+        // Upgrade the raw prompt to a generated name in the background.
+        if (typeof firstUser?.content === "string") void this.autoTitle(firstUser.content);
       }
       if (history.length > this.persistedCount) {
         await this.store.appendMessages(this.id, history.slice(this.persistedCount));
@@ -157,6 +217,27 @@ export class EngineSession {
     this.engine.setModel(name);
   }
 
+  /** `/pop` — remove the last user turn + its reply. Returns messages removed. */
+  popLastTurn(): number {
+    const removed = this.engine.popLastTurn();
+    if (removed) this.emit("context.compacted", { summarized: removed, beforeTokens: 0, afterTokens: this.engine.estimateContextTokens() });
+    return removed;
+  }
+
+  /** `/prune N` — keep only the last N turns. Returns messages removed. */
+  pruneHistory(keepTurns: number): number {
+    const removed = this.engine.pruneHistory(keepTurns);
+    if (removed) this.emit("context.compacted", { summarized: removed, beforeTokens: 0, afterTokens: this.engine.estimateContextTokens() });
+    return removed;
+  }
+
+  /** `/truncate BUDGET` — drop oldest until under token budget. */
+  truncateHistory(tokenBudget: number): number {
+    const removed = this.engine.truncateHistory(tokenBudget);
+    if (removed) this.emit("context.compacted", { summarized: removed, beforeTokens: 0, afterTokens: this.engine.estimateContextTokens() });
+    return removed;
+  }
+
   /** Nudge the running turn; injected before the model's next request. */
   steer(text: string): void {
     this.engine.queueSteer(text);
@@ -187,16 +268,17 @@ export class EngineSession {
         onToolDone: (label, preview, hidden_lines) =>
           this.emit("step.done", { label, preview, hidden_lines }),
         onThought: (ms) => this.emit("thought", { ms }),
+        onSubagent: (ev) => this.emit(`subagent.${ev.phase}`, { ...ev }),
         onCompacted: (r) =>
           this.emit("context.compacted", {
             before_tokens: r.beforeTokens,
             after_tokens: r.afterTokens,
             summarized: r.summarized,
           }),
-        onQuestion: (question) =>
+        onQuestion: (question, options) =>
           new Promise<string>((resolve) => {
             this.pendingAnswer = resolve;
-            this.emit("question.asked", { question });
+            this.emit("question.asked", { question, options });
           }),
       });
       if (turn.finalText.trim()) {
