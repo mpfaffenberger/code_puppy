@@ -246,12 +246,12 @@ def handle_pin_model_command(command: str) -> bool:
             emit_info(f"  {model}")
 
         if builtin_agents:
-            emit_info(t("cfg.listing.builtin_agents"))
+            emit_info("\n" + t("cfg.listing.builtin_agents"))
             for agent_name, description in builtin_agents.items():
                 emit_info(f"  {agent_name} - {description}")
 
         if json_agents:
-            emit_info(t("cfg.listing.json_agents"))
+            emit_info("\n" + t("cfg.listing.json_agents"))
             for agent_name, agent_path in json_agents.items():
                 emit_info(f"  {agent_name} ({agent_path})")
         return True
@@ -287,12 +287,12 @@ def handle_pin_model_command(command: str) -> bool:
 
         # Show available agents
         if builtin_agents:
-            emit_info(t("cfg.listing.builtin_agents"))
+            emit_info("\n" + t("cfg.listing.builtin_agents"))
             for name, desc in builtin_agents.items():
                 emit_info(f"  {name} - {desc}")
 
         if json_agents:
-            emit_info(t("cfg.listing.json_agents"))
+            emit_info("\n" + t("cfg.listing.json_agents"))
             for name, path in json_agents.items():
                 emit_info(f"  {name} ({path})")
         return True
@@ -367,7 +367,7 @@ def handle_unpin_command(command: str) -> bool:
         builtin_agents = get_agent_descriptions()
 
         if builtin_agents:
-            emit_info(t("cfg.listing.builtin_agents"))
+            emit_info("\n" + t("cfg.listing.builtin_agents"))
             for agent_name, description in builtin_agents.items():
                 pinned_model = get_agent_pinned_model(agent_name)
                 if pinned_model:
@@ -376,7 +376,7 @@ def handle_unpin_command(command: str) -> bool:
                     emit_info(f"  {agent_name} - {description}")
 
         if json_agents:
-            emit_info(t("cfg.listing.json_agents"))
+            emit_info("\n" + t("cfg.listing.json_agents"))
             for agent_name, agent_path in json_agents.items():
                 # Read the JSON file to check for pinned model
                 try:
@@ -426,12 +426,12 @@ def handle_unpin_command(command: str) -> bool:
 
         # Show available agents
         if builtin_agents:
-            emit_info(t("cfg.listing.builtin_agents"))
+            emit_info("\n" + t("cfg.listing.builtin_agents"))
             for name, desc in builtin_agents.items():
                 emit_info(f"  {name} - {desc}")
 
         if json_agents:
-            emit_info(t("cfg.listing.json_agents"))
+            emit_info("\n" + t("cfg.listing.json_agents"))
             for name, path in json_agents.items():
                 emit_info(f"  {name} ({path})")
         return True
@@ -644,7 +644,7 @@ def _show_color_options(color_type: str):
                 )
             )
 
-    emit_info(t("cfg.colors.all_available"))
+    emit_info("\n" + t("cfg.colors.all_available"))
     for category, colors in color_categories.items():
         emit_info(f"\n{category}:")
         # Display in columns for better readability
@@ -653,6 +653,6 @@ def _show_color_options(color_type: str):
             row_text = "  ".join([f"[{color}]■[/{color}] {color}" for color, _ in row])
             emit_info(Text.from_markup(f"  {row_text}"))
 
-    emit_info(t("cfg.colors.usage"))
+    emit_info("\n" + t("cfg.colors.usage"))
     emit_info(t("cfg.colors.white_text_note"))
     emit_info(t("cfg.colors.hex_note"))

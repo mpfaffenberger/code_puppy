@@ -88,8 +88,8 @@
   "cfg.set.agent_reloaded": "Agent reloaded with updated config",
   "cfg.set.reload_failed": "Config saved but agent reload failed: {error}",
   "cfg.listing.available_models": "Available models:",
-  "cfg.listing.builtin_agents": "\nAvailable built-in agents:",
-  "cfg.listing.json_agents": "\nAvailable JSON agents:",
+  "cfg.listing.builtin_agents": "Available built-in agents:",
+  "cfg.listing.json_agents": "Available JSON agents:",
   "cfg.model.not_found": "Model '{model}' not found",
   "cfg.model.available_list": "Available models: {models}",
   "cfg.agent.not_found": "Agent '{agent}' not found",
@@ -106,8 +106,8 @@
   "cfg.diff.apply_failed": "Failed to apply diff settings: {error}",
   "cfg.colors.saved": "Banner colors saved! \ud83c\udfa8",
   "cfg.colors.apply_failed": "Failed to apply banner color settings: {error}",
-  "cfg.colors.all_available": "\n\ud83c\udfa8 All Available Rich Colors:",
-  "cfg.colors.usage": "\nUsage: /diff {color_type} <color_name>",
+  "cfg.colors.all_available": "\ud83c\udfa8 All Available Rich Colors:",
+  "cfg.colors.usage": "Usage: /diff {{color_type}} <color_name>",
   "cfg.colors.white_text_note": "All diffs use white text on your chosen background colors",
   "cfg.colors.hex_note": "You can also use hex colors like #ff0000 or rgb(255,0,0)"
 }

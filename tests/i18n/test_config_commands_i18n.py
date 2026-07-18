@@ -53,12 +53,26 @@ def test_parametrized_cfg_keys_interpolate():
     assert "boom" in translate.t("cfg.unpin.failed", agent="coder", error="boom")
 
 
+def test_colors_usage_renders_as_literal_placeholder():
+    """{{color_type}} must render as the literal text {color_type}, never substituted."""
+    translate.set_locale("en-US")
+    rendered = translate.t("cfg.colors.usage")
+    assert "{color_type}" in rendered, (
+        f"Expected literal {{color_type}} in output, got: {rendered!r}"
+    )
+
+
 def test_no_leftover_placeholder_for_supplied_params():
     translate.set_locale("en-US")
     src = catalog.load_catalog("en-US")
     for key in _cfg_keys():
         entry = src[key]
         text = entry if isinstance(entry, str) else entry.get("other", "")
+        # Skip entries with intentional double-brace escapes like {{color_type}}.
+        # Those render to literal {color_type} in output — correct display text,
+        # not an unsubstituted slot — so the brace-presence check is meaningless.
+        if "{{" in text:
+            continue
         params = {name: "X" for name in _PLACEHOLDER.findall(text)}
         rendered = translate.t(key, **params)
         assert "{" not in rendered.replace("{{", "").replace("}}", ""), (
