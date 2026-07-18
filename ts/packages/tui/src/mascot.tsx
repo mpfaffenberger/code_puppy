@@ -1,49 +1,57 @@
 /**
- * The Mist mascot — an owl caricature (Owlgebra AI), as terminal pixel art.
+ * The Mist mascot — a crow in a witch hat, as terminal pixel art.
  *
- * Drawn on a pixel grid and rendered with half-block glyphs: each terminal
- * cell shows TWO vertical pixels (▀ foreground = top pixel, background =
- * bottom pixel), the same technique Claude Code uses for its banner robot.
- * Palette from the character sheet: blue body deepening at the wings, light
- * face/belly, big amber eyes with white glints, yellow beak + talons on a
- * brown branch, sparkles in the margins.
+ * Side profile from the character sheet: gray-blue crow facing left, big
+ * orange beak, green eye, charcoal witch hat (green band, gold buckle,
+ * crooked tip), slate wing folded behind a lighter chest.
+ *
+ * Rendered with half-block glyphs: each terminal cell shows TWO vertical
+ * pixels (▀ foreground = top pixel, background = bottom pixel) — the same
+ * technique Claude Code uses for its banner robot.
  */
 
 import { Box, Text } from "ink";
 import React from "react";
 
 const PALETTE: Record<string, string> = {
-  D: "#2a4db8", // deep blue — tufts, wing edges
-  B: "#5b8dd9", // mid blue — head, wings
-  L: "#aecdf0", // light blue — face, belly
-  A: "#f0a821", // amber iris
-  W: "#ffffff", // eye glint
-  P: "#20264d", // pupil
-  Y: "#f6c445", // beak + talons
-  T: "#7a5230", // branch
-  S: "#7b8fe8", // sparkles
+  H: "#2b3247", // hat charcoal
+  h: "#3d4663", // hat highlight
+  G: "#3f5a36", // hat band green
+  U: "#c9a24b", // buckle gold
+  K: "#d98a3f", // beak orange
+  k: "#b06a2a", // beak shadow
+  F: "#8fa3b8", // face gray-blue
+  f: "#6b7f96", // face shade
+  C: "#a8b4c4", // chest light
+  c: "#7d8899", // chest shade
+  W: "#4a5468", // wing slate
+  w: "#343c50", // wing dark
+  E: "#b8d94a", // eye green
+  P: "#232a3d", // eye socket
 };
 
-// 22 × 18 pixel grid ('.' = transparent). Two grid rows per terminal row.
+// 24 × 20 pixel grid ('.' = transparent). Two grid rows per terminal row.
 const GRID = [
-  "..DB....S.....S...BD..",
-  "..BDB..BBBBBBBB..BDB..",
-  "S.BBBBBBBBBBBBBBBBBB.S",
-  ".BBLLLLLLBBBBLLLLLLBB.",
-  ".BLLAAAALLBBLLAAAALLB.",
-  ".BLAWPAALLBBLLAAPWALB.",
-  ".BLLAAAALLYYLLAAAALLB.",
-  ".BBLLLLLLLYYLLLLLLLBB.",
-  "..DBLLLLLLLLLLLLLLBD..",
-  "..DBLLBLLBLLBLLBLLBD.S",
-  "..DBLLLLLLLLLLLLLLBD..",
-  "S.DBBLLLLLLLLLLLLBBD..",
-  "...DBBLLLLLLLLLLBBD...",
-  "....DBBLLLLLLLLBBD....",
-  "......YYY....YYY......",
-  ".TTTTTTTTTTTTTTTTTTTT.",
-  ".........DLLD.........",
-  "..........DD..........",
+  "..............wHw.......",
+  ".............wHHh.......",
+  "...........wHHHHh.......",
+  "..........HHHHHh........",
+  ".........HHHHHHh........",
+  ".........HGGGGGh........",
+  "........HHGUUGGHh.......",
+  "....HHHHHHHHHHHHHHHh....",
+  "..hHHHHHHHHHHHHHHHHHH...",
+  "........FFFFFFFFf.......",
+  ".......FFFFFFPPPff......",
+  "...KKKKFFFFFFPEPff......",
+  ".KKKKKKKFFFFFPPPff......",
+  ".KKKKKKkFFFFFFFFff......",
+  "..KKKKkFFFFFFFFfWW......",
+  "....KkFFFFFFFFfWWWw.....",
+  ".....CCCCCCCCcfWWWWw....",
+  "....CCCCCCCCCcWWWWWw....",
+  "....CCCCCCCCCcWWWWww....",
+  "...cCCCCCCCCCcwwwww.....",
 ];
 
 export function Mascot(): React.JSX.Element {
