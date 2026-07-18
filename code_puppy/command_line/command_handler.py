@@ -8,6 +8,23 @@ import code_puppy.command_line.uc_menu  # noqa: F401
 _PLUGINS_LOADED = False
 
 
+def _is_namespaced_custom_command(first_token: str) -> bool:
+    """True if ``first_token`` (e.g. ``/flux/status``) is a loaded custom command.
+
+    Namespaced custom commands legitimately contain multiple slashes, which
+    would otherwise trip the file-path disambiguation heuristic in
+    :func:`handle_command`. Fails closed (returns False) if the plugin isn't
+    available so genuine paths still fall through to normal input.
+    """
+    try:
+        from code_puppy.plugins.customizable_commands.register_callbacks import (
+            is_custom_command,
+        )
+    except ImportError:
+        return False
+    return is_custom_command(first_token.lstrip("/"))
+
+
 def get_commands_help():
     """Generate aligned commands help using Rich Text for safe markup.
 
@@ -187,6 +204,19 @@ def handle_command(command: str):
     _ensure_plugins_loaded()
 
     command = command.strip()
+
+    # Disambiguate file paths from commands:
+    # Commands have a single slash (e.g., /agent, /model)
+    # File paths have multiple slashes (e.g., /Users/username/workspace/file.py)
+    # EXCEPTION: namespaced custom commands (e.g., /flux/status) legitimately
+    # carry multiple slashes -- only bail to normal input if the token isn't a
+    # known custom command.
+    if command.startswith("/"):
+        first_token = command.split()[0] if command.split() else command
+        slash_count = first_token.count("/")
+        if slash_count > 1 and not _is_namespaced_custom_command(first_token):
+            # This looks like a file path, not a command - let it be processed as normal input
+            return False
 
     # Check if this is a registered command
     if command.startswith("/"):

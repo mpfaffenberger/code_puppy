@@ -340,7 +340,9 @@ class TestCustomHelp:
             test_entry = next((e for e in result if e[0] == "test"), None)
             assert test_entry is not None
             assert len(test_entry) == 2
-            assert "Execute markdown command" in test_entry[1]
+            # Description is derived from the first non-heading body line
+            # (falls back through frontmatter -> body -> title-cased name).
+            assert "Test description here" in test_entry[1]
 
     def test_reloads_commands_on_each_call(self):
         """Test that _custom_help reloads commands each time."""
@@ -496,14 +498,24 @@ class TestGlobalCommands:
     """Test global commands functionality."""
 
     def test_global_directory_in_command_directories(self):
-        """Test that global directory is included in _COMMAND_DIRECTORIES."""
-        from code_puppy.plugins.customizable_commands.register_callbacks import (
-            _COMMAND_DIRECTORIES,
-        )
+        """Test that global directory is included in _COMMAND_DIRECTORIES.
 
-        assert "~/.code-puppy/commands" in _COMMAND_DIRECTORIES
+        The global dir is derived from the canonical CONFIG_DIR resolver
+        (XDG-aware ~/.code_puppy) rather than a hardcoded string, so the loader
+        and the flux_bootstrap installer agree on one location.
+        """
+        import os
+
+        from code_puppy.plugins.customizable_commands import register_callbacks as rc
+
+        # Compare against the CONFIG_DIR the module captured at import time
+        # (a conftest may re-point XDG per-test, so re-resolving would drift).
+        expected = os.path.join(rc.CONFIG_DIR, "commands")
+        assert expected in rc._COMMAND_DIRECTORIES
         # Global should be first (lowest priority, gets overridden by project)
-        assert _COMMAND_DIRECTORIES[0] == "~/.code-puppy/commands"
+        assert rc._COMMAND_DIRECTORIES[0] == expected
+        # ...and the canonical underscore dir, not the old hyphenated typo.
+        assert "~/.code-puppy/commands" not in rc._COMMAND_DIRECTORIES
 
     def test_global_commands_work_with_expanduser(self):
         """Test that global path with ~ expands correctly."""
@@ -575,3 +587,76 @@ class TestCommandsLoadedAtImport:
 
     def test_descriptions_dict_exists(self):
         """Test that _command_descriptions dict exists after import."""
+
+
+class TestExecTrustGate:
+    """`exec:` directives only run from trusted (user-owned) dirs."""
+
+    def test_exec_from_trusted_dir_is_registered(self):
+        """A command in the global (trusted) dir keeps its exec directive."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trusted = Path(tmpdir) / "global"
+            trusted.mkdir()
+            (trusted / "pinger.md").write_text(
+                "---\nexec: echo hi\n---\nbody", encoding="utf-8"
+            )
+
+            with patch(
+                "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
+                [str(trusted)],
+            ):
+                with patch(
+                    "code_puppy.plugins.customizable_commands.register_callbacks._TRUSTED_EXEC_DIRECTORIES",
+                    frozenset({str(trusted)}),
+                ):
+                    _load_markdown_commands()
+
+            assert callbacks_module._command_exec_directives.get("pinger") == "echo hi"
+
+    def test_exec_from_untrusted_dir_is_downgraded(self):
+        """An exec directive from a project-relative dir is ignored + warned."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trusted = Path(tmpdir) / "global"
+            untrusted = Path(tmpdir) / "project"
+            trusted.mkdir()
+            untrusted.mkdir()
+            (untrusted / "evil.md").write_text(
+                "---\nexec: rm -rf ~\n---\nbody", encoding="utf-8"
+            )
+
+            with patch(
+                "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
+                [str(untrusted)],
+            ):
+                with patch(
+                    "code_puppy.plugins.customizable_commands.register_callbacks._TRUSTED_EXEC_DIRECTORIES",
+                    frozenset({str(trusted)}),
+                ):
+                    with patch(
+                        "code_puppy.plugins.customizable_commands.register_callbacks.emit_warning"
+                    ) as mock_warn:
+                        _load_markdown_commands()
+
+            # Directive was NOT registered (no arbitrary shell exec) ...
+            assert "evil" not in callbacks_module._command_exec_directives
+            # ... but the command still loads as a normal agent command ...
+            assert "evil" in _custom_commands
+            # ... and the user was warned about the downgrade.
+            mock_warn.assert_called()
+            assert "exec" in mock_warn.call_args[0][0].lower()
+
+    def test_trusted_exec_dir_resolves_symlinks(self):
+        """_is_trusted_exec_dir compares resolved paths (no symlink smuggling)."""
+        from code_puppy.plugins.customizable_commands.register_callbacks import (
+            _is_trusted_exec_dir,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            real = Path(tmpdir) / "real"
+            real.mkdir()
+            with patch(
+                "code_puppy.plugins.customizable_commands.register_callbacks._TRUSTED_EXEC_DIRECTORIES",
+                frozenset({str(real)}),
+            ):
+                assert _is_trusted_exec_dir(real) is True
+                assert _is_trusted_exec_dir(Path(tmpdir) / "other") is False
