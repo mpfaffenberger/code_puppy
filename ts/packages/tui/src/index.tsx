@@ -282,8 +282,10 @@ function TranscriptItem({ it }: { it: Item }) {
     case "user":
       return (
         <Box marginTop={1}>
-          <Text bold color={theme.user}>
-            ❯ {it.text}
+          <Text bold color={theme.user} backgroundColor={theme.userBg}>
+            {" ❯ "}
+            {it.text}
+            {" "}
           </Text>
         </Box>
       );

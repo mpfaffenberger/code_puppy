@@ -36,6 +36,9 @@ export interface Theme {
   path: string; // file/dir names — distinct so they pop
   border: string;
   user: string;
+  /** Background band behind user prompts in the transcript — the "find my
+   *  input while scrolling" cue. Subtle, theme-tinted, darker than text. */
+  userBg: string;
   /** Color of the spinner-verb text in the busy status line. */
   verb: string;
   /** Theme-specific spinner verbs — replaces the standard pools when set. */
@@ -58,7 +61,8 @@ export const THEMES: Record<string, Theme> = {
     code: "#6FAE94",
     path: "#C9A227", // gold — file names flash like the gold eye
     border: "#45646E", // calm slate
-    user: "#E2E9E8", // deeper haze
+    user: "#9FD4C2", // soft mint — clearly not body text
+    userBg: "#1F3330", // deep misty teal band
     verb: "#2E8C7C", // forms announced in sudden-clarity green
     verbs: [
       "Low Clouds, Distant Haze",
@@ -83,7 +87,8 @@ export const THEMES: Record<string, Theme> = {
     code: "#f2bd7e",
     path: "#b794f4",
     border: "#7d4e00",
-    user: "#ffecd1",
+    user: "#f2bd7e", // butterscotch — pops against the milky body text
+    userBg: "#3A2410", // dark toasted-brown band
     verb: "#df9241",
   },
   hinokami: {
@@ -101,6 +106,7 @@ export const THEMES: Record<string, Theme> = {
     path: "#FFC94A", // bright gold — pops on the green-black
     border: "#4A5442", // checkered-haori sage
     user: "#FFC94A",
+    userBg: "#2E2313", // embered dark-gold band
     verb: "#FF7A29", // forms called out in Sun Breathing flame orange
     verbs: [
       "Dance",
@@ -132,7 +138,8 @@ export const THEMES: Record<string, Theme> = {
     code: "#B5384A", // flame markings (strings)
     path: "#D4AF5A", // gold irises — six eyes find every file
     border: "#453A50",
-    user: "#F2ECF5",
+    user: "#D4AF5A", // gold irises — unmistakable against lavender text
+    userBg: "#2A2138", // deep kimono-purple band
     verb: "#C24B72", // forms called out in living-blade crimson
     verbs: [
       "Dark Moon, Evening Palace",
