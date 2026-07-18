@@ -102,7 +102,10 @@ describe("OpenAIClient", () => {
     expect(result.toolUses).toHaveLength(0);
     expect(result.stopReason).toBe("stop");
     expect(deltas.join("")).toContain("**four numbers**");
-    expect(result.inputTokens).toBe(42);
+    // prompt_tokens 42 with 30 cached → inputTokens is the uncached
+    // remainder, cacheReadTokens the cached subset (sum = 42).
+    expect(result.inputTokens).toBe(12);
+    expect(result.cacheReadTokens).toBe(30);
     expect(result.outputTokens).toBe(55);
 
     mock.stop();

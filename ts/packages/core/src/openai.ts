@@ -242,6 +242,15 @@ export class OpenAIClient implements ModelClient {
             .completion_tokens_details;
           if (typeof details?.reasoning_tokens === "number")
             result.reasoningTokens = details.reasoning_tokens;
+          // OpenAI caches automatically (prompts ≥1024 tok) and reports the
+          // cached SUBSET of prompt_tokens. TurnResult's contract is
+          // inputTokens = uncached remainder (Anthropic semantics), so split.
+          const pDetails = (chunk.usage as { prompt_tokens_details?: { cached_tokens?: number } })
+            .prompt_tokens_details;
+          if (typeof pDetails?.cached_tokens === "number" && pDetails.cached_tokens > 0) {
+            result.cacheReadTokens = pDetails.cached_tokens;
+            result.inputTokens = Math.max(0, result.inputTokens - pDetails.cached_tokens);
+          }
         }
         const choice = chunk.choices?.[0];
         if (!choice) continue;

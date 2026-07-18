@@ -77,7 +77,10 @@ describe("GeminiClient", () => {
     expect(result.toolUses).toHaveLength(0);
     expect(result.stopReason).toBe("stop");
     expect(deltas.join("")).toContain("**four numbers**");
-    expect(result.inputTokens).toBe(50);
+    // promptTokenCount 50 with 35 cached → uncached remainder + cached
+    // subset (sum = 50).
+    expect(result.inputTokens).toBe(15);
+    expect(result.cacheReadTokens).toBe(35);
     mock.stop();
   });
 

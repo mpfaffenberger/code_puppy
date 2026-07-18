@@ -59,7 +59,17 @@ export function startMockOpenAI(port = 9877) {
         return sse([
           ...ANSWER.map((t) => chunk({ role: "assistant", content: t })),
           chunk({}, "stop"),
-          { choices: [], usage: { prompt_tokens: 42, completion_tokens: 55, total_tokens: 97 } },
+          {
+            choices: [],
+            usage: {
+              prompt_tokens: 42,
+              completion_tokens: 55,
+              total_tokens: 97,
+              // OpenAI automatic caching: cached_tokens is a SUBSET of
+              // prompt_tokens — the client must split it out.
+              prompt_tokens_details: { cached_tokens: 30 },
+            },
+          },
         ]);
       }
 
