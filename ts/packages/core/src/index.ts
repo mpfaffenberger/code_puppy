@@ -18,6 +18,7 @@ export { AnthropicClient } from "./anthropic";
 export { OpenAIClient } from "./openai";
 export { GeminiClient } from "./gemini";
 export { RoundRobinClient } from "./round_robin";
+export { RetryingClient, isRetryableError } from "./retry";
 export { createModelClient, configFromDef, envKeyForType, defaultBaseForType } from "./models";
 export { startHeadlessServer } from "./headless";
 export type { ServeOptions } from "./headless";

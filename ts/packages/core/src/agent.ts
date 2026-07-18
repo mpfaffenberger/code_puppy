@@ -131,6 +131,8 @@ export interface AgentCallbacks {
   onToolDone?: (label: string, preview: string[], hiddenLines: number) => void;
   onThought?: (ms: number) => void;
   onSubagent?: (ev: SubagentEvent) => void;
+  /** A transient API failure is being retried after a backoff wait. */
+  onRetry?: (attempt: number, maxAttempts: number, delayMs: number, reason: string) => void;
 }
 
 export type SubagentEvent =
@@ -485,6 +487,7 @@ export class MistEngine {
       const reqStart = Date.now();
       const result = await client.stream(system, this.history, specs, {
         onTextDelta: cb.onTextDelta,
+        onRetry: cb.onRetry,
       });
       // With prompt caching, input_tokens is only the UNCACHED remainder —
       // the true prompt size is input + cache_read + cache_write.

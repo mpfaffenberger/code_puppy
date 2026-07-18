@@ -273,6 +273,13 @@ export class EngineSession {
         onToolDone: (label, preview, hidden_lines) =>
           this.emit("step.done", { label, preview, hidden_lines }),
         onThought: (ms) => this.emit("thought", { ms }),
+        onRetry: (attempt, maxAttempts, delayMs, reason) =>
+          this.emit("model.retry", {
+            attempt,
+            max_attempts: maxAttempts,
+            delay_ms: delayMs,
+            reason,
+          }),
         onSubagent: (ev) => this.emit(`subagent.${ev.phase}`, { ...ev }),
         onCompacted: (r) =>
           this.emit("context.compacted", {

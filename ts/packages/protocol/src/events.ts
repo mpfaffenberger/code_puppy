@@ -46,6 +46,7 @@ export type MistEvent =
   | { kind: "mcp_status"; started: string[]; failed: string[] }
   | { kind: "context_compacted"; beforeTokens: number; afterTokens: number; summarized: number }
   | { kind: "narration"; text: string }
+  | { kind: "model_retry"; attempt: number; maxAttempts: number; delayMs: number; reason: string }
   | { kind: "step_done"; label: string; preview: string[]; hiddenLines: number }
   | { kind: "thought"; ms: number }
   | {
@@ -143,6 +144,14 @@ export function classifyEvent(env: EventEnvelope): MistEvent {
       };
     case "narration":
       return { kind: "narration", text: str(d["text"]) };
+    case "model.retry":
+      return {
+        kind: "model_retry",
+        attempt: typeof d["attempt"] === "number" ? d["attempt"] : 0,
+        maxAttempts: typeof d["max_attempts"] === "number" ? d["max_attempts"] : 0,
+        delayMs: typeof d["delay_ms"] === "number" ? d["delay_ms"] : 0,
+        reason: str(d["reason"]),
+      };
     case "step.done":
       return {
         kind: "step_done",

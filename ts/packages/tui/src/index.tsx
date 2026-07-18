@@ -594,6 +594,14 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
         case "thought":
           push(item("info", `Thought for ${Math.max(1, Math.round(ev.ms / 1000))}s`));
           break;
+        case "model_retry":
+          push(
+            item(
+              "info",
+              `⚠ API error (${ev.reason}) — retrying in ${Math.max(1, Math.round(ev.delayMs / 1000))}s (attempt ${ev.attempt}/${ev.maxAttempts})`,
+            ),
+          );
+          break;
         case "narration": {
           flushStepGroup();
           if (ev.text.trim()) push(item("narration", ev.text.trim()));
