@@ -1377,23 +1377,13 @@ async def execute_single_prompt(
     *,
     session_name: str | None = None,
 ) -> None:
-    """Execute a single prompt and exit (for -p flag).
+    """Execute one headless ``-p`` prompt, dispatching commands and autosaving.
 
-    When ``session_name`` is supplied (i.e. the user passed ``-r NAME``),
-    history is persisted back to that named session in a ``finally`` block
-    so partial state still lands on cancel / error paths. The runtime
-    prunes interrupted tool calls before returning so the saved history is
-    coherent (see ``agents/_runtime.py`` -- the two ``_message_history``
-    commit/prune sites around lines 446 and 498).
-
-    Edge case worth knowing: when the agent returns ``(None, None)`` for an
-    empty-prompt scenario, the response emit is skipped but the ``finally``
-    still fires, producing a no-op idempotent rewrite of an existing
-    session (and a phantom ``post_autosave`` event for plugin authors who
-    count saves). Acceptable trade-off versus the complexity of a
-    'something-actually-ran' tracking flag.
+    Agent turns persist under the explicitly resumed session, when supplied,
+    or under this process's generated autosave session otherwise. Handled
+    slash commands and shell pass-through do not create or overwrite sessions
+    because they never invoke the agent.
     """
-    # Shell pass-through: !<cmd> bypasses the agent even in -p mode
     from code_puppy.command_line.shell_passthrough import (
         execute_shell_passthrough,
         is_shell_passthrough,
@@ -1401,12 +1391,10 @@ async def execute_single_prompt(
 
     if is_shell_passthrough(prompt):
         execute_shell_passthrough(prompt)
-        # Agent never ran — do NOT touch the named session, otherwise
-        # `-r mywork -p '!ls'` would clobber existing history with an empty
-        # save-back. Return before the try/finally so the save path is
-        # genuinely unreachable, not just guarded.
         return
 
+    from code_puppy.command_line.command_handler import handle_command
+    from code_puppy.config import AUTOSAVE_DIR, get_current_session_name
     from code_puppy.messaging import (
         emit_error,
         emit_info,
@@ -1414,18 +1402,34 @@ async def execute_single_prompt(
         get_message_bus,
     )
     from code_puppy.messaging.messages import AgentResponseMessage
-
-    # Hoist save-back imports here rather than into the ``finally`` block --
-    # if the user passed ``-r`` we will exercise these on every code path,
-    # and lazy-importing inside ``finally`` just hides the dependency without
-    # buying any actual startup savings (the module is already loaded).
-    from code_puppy.config import AUTOSAVE_DIR
     from code_puppy.session_lifecycle import persist_named_session
 
+    # Match interactive mode: detect commands after stripping prompt
+    # attachments, let handled commands finish without an agent run, and
+    # allow command-provided replacement text to reach the agent.
+    command_prompt = (parse_prompt_attachments(prompt).prompt or "").strip()
+    if command_prompt.startswith("/"):
+        try:
+            command_result = handle_command(command_prompt)
+        except Exception as command_error:
+            emit_error(f"Command error: {command_error}")
+            return
+
+        if command_result is True:
+            return
+        if command_result == "__AUTOSAVE_LOAD__":
+            emit_warning(
+                "/autosave_load requires interactive mode; use -r SESSION in headless mode."
+            )
+            return
+        if isinstance(command_result, str):
+            prompt = command_result
+
+    effective_session_name = session_name or get_current_session_name()
+    agent = None
     emit_info(f"Executing prompt: {prompt}")
 
     try:
-        # Get agent through runtime manager and use helper for attachments
         agent = get_current_agent()
         # Headless -p mode: no run UI (no bottom bar, no line editor) —
         # output must stay plain for pipes/CI even when stdout is a TTY.
@@ -1435,47 +1439,35 @@ async def execute_single_prompt(
             display_console=message_renderer.console,
             use_run_ui=False,
         )
-        if result is not None:
-            response_msg = AgentResponseMessage(
-                content=result.output,
-                is_markdown=True,
-            )
-            get_message_bus().emit(response_msg)
+        if result is None:
+            return
 
-            # Commit the completed turn (user prompt + assistant response)
-            # into the agent's history BEFORE the finally-block save-back.
-            # Without this, headless -r save-back persists only user prompts
-            # (the normal _do_run path never writes result.all_messages()
-            # back to agent._message_history), so resumed sessions feed the
-            # model a pile of unanswered prompts and it re-answers them all.
-            # Mirrors interactive_mode's post-run set_message_history call.
-            if hasattr(result, "all_messages"):
-                agent.set_message_history(list(result.all_messages()))
+        get_message_bus().emit(
+            AgentResponseMessage(content=result.output, is_markdown=True)
+        )
+
+        # The runtime result includes the final assistant response that the
+        # incremental history can otherwise miss.
+        if hasattr(result, "all_messages"):
+            agent.set_message_history(list(result.all_messages()))
 
     except asyncio.CancelledError:
         emit_warning("Execution cancelled by user")
-    except Exception as e:
-        emit_error(f"Error executing prompt: {str(e)}")
+    except Exception as error:
+        emit_error(f"Error executing prompt: {error}")
     finally:
-        if session_name:
-            try:
-                persist_named_session(
-                    get_current_agent(),
-                    session_name,
-                    base_dir=Path(AUTOSAVE_DIR),
-                    # Headless -r save-back is automated (user passed a
-                    # flag and walked away) rather than an explicit
-                    # /dump_context-style intent, so it carries the same
-                    # auto_saved=True bit as autosave proper. Plugins
-                    # that filter on `metadata.auto_saved` get the right
-                    # signal.
-                    auto_saved=True,
-                )
-            except Exception as save_exc:
-                # The user's primary deliverable (the agent response) has
-                # already been emitted. Report the save failure but do not
-                # re-raise -- a save bug shouldn't mask a successful turn.
-                emit_error(f"Failed to save session {session_name}: {save_exc}")
+        try:
+            session_agent = agent or get_current_agent()
+            persist_named_session(
+                session_agent,
+                effective_session_name,
+                base_dir=Path(AUTOSAVE_DIR),
+                auto_saved=True,
+            )
+        except Exception as save_error:
+            # The response has already been emitted; a persistence failure
+            # must not hide the primary result.
+            emit_error(f"Failed to save session {effective_session_name}: {save_error}")
 
 
 def _force_utf8_stdio():

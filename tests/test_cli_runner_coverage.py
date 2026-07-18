@@ -221,6 +221,231 @@ class TestExecuteSinglePrompt:
             await execute_single_prompt("hello", mock_renderer)
 
 
+class TestExecuteSinglePromptRegression:
+    """Focused regression tests for the freshly-updated execute_single_prompt.
+
+    Four cases:
+      1. Handled slash command → handle_command called, no agent run, no persist.
+      2. Slash command returning replacement → replacement forwarded to agent.
+      3. Ordinary headless turn → persist_named_session called with AUTOSAVE_DIR
+         and full result.all_messages() history; both auto and explicit session.
+      4. Shell ! pass-through → execute_shell_passthrough called, no persist.
+    """
+
+    def _renderer(self):
+        r = MagicMock()
+        r.console = MagicMock()
+        return r
+
+    def _parsed(self, text):
+        """Stub for parse_prompt_attachments result."""
+        m = MagicMock()
+        m.prompt = text
+        return m
+
+    @pytest.mark.anyio
+    async def test_slash_handled_skips_run_and_persist(self):
+        """Case 1: handle_command returns True → no agent run, no session persist."""
+        from code_puppy.cli_runner import execute_single_prompt
+
+        with (
+            patch(
+                "code_puppy.command_line.shell_passthrough.is_shell_passthrough",
+                return_value=False,
+            ),
+            patch(
+                "code_puppy.cli_runner.parse_prompt_attachments",
+                return_value=self._parsed("/help"),
+            ),
+            patch(
+                "code_puppy.command_line.command_handler.handle_command",
+                return_value=True,
+            ) as mock_handle,
+            patch(
+                "code_puppy.cli_runner.run_prompt_with_attachments",
+                new_callable=AsyncMock,
+            ) as mock_run,
+            patch("code_puppy.session_lifecycle.persist_named_session") as mock_persist,
+            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.messaging.emit_error"),
+            patch("code_puppy.messaging.emit_warning"),
+            patch("code_puppy.messaging.get_message_bus", return_value=MagicMock()),
+        ):
+            await execute_single_prompt("/help", self._renderer())
+
+        mock_handle.assert_called_once_with("/help")
+        mock_run.assert_not_called()
+        mock_persist.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_slash_replacement_prompt_forwarded_to_agent(self):
+        """Case 2: handle_command returning a string sends that string to agent."""
+        from code_puppy.cli_runner import execute_single_prompt
+
+        replacement = "refactor all dead code"
+        mock_result = MagicMock()
+        mock_result.output = "done"
+        mock_result.all_messages.return_value = []
+        mock_agent = MagicMock()
+        mock_agent.set_message_history = MagicMock()
+
+        with (
+            patch(
+                "code_puppy.command_line.shell_passthrough.is_shell_passthrough",
+                return_value=False,
+            ),
+            patch(
+                "code_puppy.cli_runner.parse_prompt_attachments",
+                return_value=self._parsed("/do-stuff"),
+            ),
+            patch(
+                "code_puppy.command_line.command_handler.handle_command",
+                return_value=replacement,
+            ),
+            patch("code_puppy.cli_runner.get_current_agent", return_value=mock_agent),
+            patch(
+                "code_puppy.cli_runner.run_prompt_with_attachments",
+                new_callable=AsyncMock,
+                return_value=(mock_result, MagicMock()),
+            ) as mock_run,
+            patch("code_puppy.session_lifecycle.persist_named_session"),
+            patch(
+                "code_puppy.config.get_current_session_name",
+                return_value="auto_session_test",
+            ),
+            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.messaging.emit_error"),
+            patch("code_puppy.messaging.emit_warning"),
+            patch("code_puppy.messaging.get_message_bus", return_value=MagicMock()),
+            patch("code_puppy.messaging.messages.AgentResponseMessage", MagicMock()),
+        ):
+            await execute_single_prompt("/do-stuff", self._renderer())
+
+        mock_run.assert_called_once()
+        # Second positional arg to run_prompt_with_attachments is the prompt.
+        assert mock_run.call_args[0][1] == replacement
+        # Headless mode must always pass use_run_ui=False.
+        assert mock_run.call_args[1].get("use_run_ui") is False
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "explicit_session",
+        [None, "headless-explicit"],
+        ids=["default-session", "explicit-session"],
+    )
+    async def test_ordinary_turn_persists_to_disk(self, tmp_path, explicit_session):
+        """Case 3: real persist_named_session + load_session prove history reloadable.
+
+        Covers both sub-cases:
+        - default-session: session_name=None uses get_current_session_name().
+        - explicit-session: session_name provided; get_current_session_name never called.
+
+        Uses a temp AUTOSAVE_DIR so the real I/O path runs end-to-end and the
+        completed result.all_messages() history is verifiable after a roundtrip.
+        External messaging is mocked; persist_named_session and load_session are real.
+        """
+        from code_puppy.cli_runner import execute_single_prompt
+        from code_puppy.session_storage import load_session
+
+        autosaves_dir = tmp_path / "autosaves"
+        auto_session = "auto_session_20240101_120000"
+
+        # Plain strings are picklable — survive persist/load roundtrip faithfully.
+        fake_msgs = ["user: write some code", "assistant: here is the code"]
+
+        # Wire the mock agent so set_message_history feeds get_message_history,
+        # giving the real persist_named_session genuine data to pickle.
+        history_store: list = []
+
+        def _set(msgs):
+            history_store.clear()
+            history_store.extend(msgs)
+
+        mock_agent = MagicMock()
+        mock_agent.set_message_history.side_effect = _set
+        mock_agent.get_message_history.side_effect = lambda: list(history_store)
+        mock_agent.estimate_tokens_for_message.return_value = 0
+
+        mock_result = MagicMock()
+        mock_result.output = "here is the code"
+        mock_result.all_messages.return_value = fake_msgs
+
+        with (
+            patch(
+                "code_puppy.command_line.shell_passthrough.is_shell_passthrough",
+                return_value=False,
+            ),
+            patch(
+                "code_puppy.cli_runner.parse_prompt_attachments",
+                return_value=self._parsed("write some code"),
+            ),
+            patch("code_puppy.cli_runner.get_current_agent", return_value=mock_agent),
+            patch(
+                "code_puppy.cli_runner.run_prompt_with_attachments",
+                new_callable=AsyncMock,
+                return_value=(mock_result, MagicMock()),
+            ),
+            # Redirect AUTOSAVE_DIR to our temp tree so real I/O stays isolated.
+            patch("code_puppy.config.AUTOSAVE_DIR", str(autosaves_dir)),
+            patch(
+                "code_puppy.config.get_current_session_name",
+                return_value=auto_session,
+            ) as mock_gcsn,
+            patch("code_puppy.messaging.emit_info"),
+            patch("code_puppy.messaging.emit_error"),
+            patch("code_puppy.messaging.emit_warning"),
+            patch("code_puppy.messaging.get_message_bus", return_value=MagicMock()),
+            patch("code_puppy.messaging.messages.AgentResponseMessage", MagicMock()),
+        ):
+            await execute_single_prompt(
+                "write some code", self._renderer(), session_name=explicit_session
+            )
+
+        # ── session-name routing assertions ──────────────────────────────────
+        expected_session = explicit_session or auto_session
+        if explicit_session is None:
+            # Default path: auto-generated name must be fetched.
+            mock_gcsn.assert_called_once()
+        else:
+            # Explicit name short-circuits get_current_session_name entirely.
+            mock_gcsn.assert_not_called()
+
+        # ── agent history populated before persist ────────────────────────────
+        mock_agent.set_message_history.assert_called_once_with(fake_msgs)
+
+        # ── real disk roundtrip: load_session must reproduce the full history ─
+        loaded = load_session(expected_session, autosaves_dir)
+        assert loaded == fake_msgs, (
+            f"Disk roundtrip mismatch for session {expected_session!r}: {loaded!r}"
+        )
+
+    @pytest.mark.anyio
+    async def test_shell_passthrough_skips_agent_and_persist(self):
+        """Case 4: ! prefix routes to execute_shell_passthrough; nothing else fires."""
+        from code_puppy.cli_runner import execute_single_prompt
+
+        with (
+            patch(
+                "code_puppy.command_line.shell_passthrough.is_shell_passthrough",
+                return_value=True,
+            ) as mock_is_shell,
+            patch(
+                "code_puppy.command_line.shell_passthrough.execute_shell_passthrough"
+            ) as mock_exec_shell,
+            patch(
+                "code_puppy.cli_runner.run_prompt_with_attachments",
+                new_callable=AsyncMock,
+            ) as mock_run,
+            patch("code_puppy.session_lifecycle.persist_named_session") as mock_persist,
+        ):
+            await execute_single_prompt("!ls -la", self._renderer())
+
+        mock_is_shell.assert_called_once_with("!ls -la")
+        mock_exec_shell.assert_called_once_with("!ls -la")
+        mock_run.assert_not_called()
+        mock_persist.assert_not_called()
+
+
 class TestMainEntry:
     @patch("asyncio.run")
     def test_normal_exit(self, mock_run):
