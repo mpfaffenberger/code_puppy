@@ -145,9 +145,18 @@ class TestSkillDiscovery:
 
     def setup_method(self):
         clear_callbacks("register_skills")
+        self._reset_plugin_skills_cache()
 
     def teardown_method(self):
         clear_callbacks("register_skills")
+        self._reset_plugin_skills_cache()
+
+    @staticmethod
+    def _reset_plugin_skills_cache():
+        from code_puppy.plugins.agent_skills import discovery as discovery_module
+
+        discovery_module._plugin_skills_cache = None
+        discovery_module._plugin_skills_signature = None
 
     def test_get_default_skill_directories(self):
         """Test default skill directories are correctly returned."""
@@ -450,6 +459,75 @@ class TestSkillDiscovery:
         assert not errors, "concurrent discovery raced: " + repr(errors[:3])
         # Every completed call must see the full, consistent set of plugin skills.
         assert counts and all(c == 8 for c in counts), sorted(set(counts))
+
+    @pytest.mark.plugin_skills
+    def test_plugin_skill_files_readable_during_concurrent_discovery(
+        self, tmp_path, monkeypatch
+    ):
+        """Lock-free readers of ``SkillInfo.path`` must not race the rebuild.
+
+        Consumers read the materialised ``SKILL.md`` files *after*
+        ``_collect_plugin_skills`` releases the lock (e.g. ``parse_skill_metadata``
+        on the prompt path, ``load_full_skill_content`` in the /skills command).
+        If discovery wiped-and-rebuilt the shared dir on every call, a concurrent
+        rebuild could ``rmtree`` a SKILL.md out from under a reader mid-read.
+        Because the registrations are unchanged here, discovery must reuse the
+        cache and leave the files in place, so every read succeeds.
+        """
+        import threading
+
+        from code_puppy.plugins.agent_skills import discovery as discovery_module
+
+        monkeypatch.setattr(
+            discovery_module, "_PLUGIN_SKILLS_CACHE_DIR", tmp_path / "plugin-cache"
+        )
+
+        register_callback(
+            "register_skills",
+            lambda: [
+                {"name": "reader-skill-" + str(i), "skill_md": "# body " + str(i)}
+                for i in range(6)
+            ],
+        )
+
+        # Prime the cache so readers have real paths to consume.
+        primed = [s for s in discover_skills(directories=[]) if s.has_skill_md]
+        assert len(primed) == 6
+
+        errors: list[BaseException] = []
+        stop = threading.Event()
+        barrier = threading.Barrier(2)
+
+        def rebuilder():
+            barrier.wait()
+            while not stop.is_set():
+                try:
+                    discover_skills(directories=[])
+                except BaseException as exc:  # noqa: BLE001
+                    errors.append(exc)
+                    return
+
+        def reader():
+            barrier.wait()
+            for _ in range(200):
+                for skill in primed:
+                    try:
+                        skill_md = skill.path / "SKILL.md"
+                        # The file must exist and be readable throughout.
+                        assert skill_md.read_text().startswith("# body")
+                    except BaseException as exc:  # noqa: BLE001 - capture the race
+                        errors.append(exc)
+                        return
+
+        t_read = threading.Thread(target=reader)
+        t_build = threading.Thread(target=rebuilder)
+        t_read.start()
+        t_build.start()
+        t_read.join()
+        stop.set()
+        t_build.join()
+
+        assert not errors, "reader raced the rebuild: " + repr(errors[:3])
 
     def test_discover_skills_caching(self, tmp_path, monkeypatch):
         """Test that skill discovery uses caching correctly."""

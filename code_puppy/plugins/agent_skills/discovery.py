@@ -25,6 +25,16 @@ _PLUGIN_SKILLS_CACHE_DIR = Path(CACHE_DIR) / "plugin-skills"
 # ``OSError: [Errno 22] Invalid argument``.
 _PLUGIN_SKILLS_LOCK = threading.Lock()
 
+# Memoised result of the last successful build, keyed by a signature of the
+# plugin skill registrations. Registrations are deterministic within a process,
+# so the cache dir is rebuilt only when they actually change. This keeps the
+# lock's producers serialised AND stops the wipe-and-rebuild from tearing the
+# shared dir out from under lock-free readers of ``SkillInfo.path`` (e.g.
+# ``parse_skill_metadata`` on the prompt path, ``load_full_skill_content`` in
+# the /skills command) that consume the returned paths after the lock releases.
+_plugin_skills_cache: Optional[List["SkillInfo"]] = None
+_plugin_skills_signature: Optional[tuple] = None
+
 
 @dataclass
 class SkillInfo:
@@ -191,8 +201,39 @@ def _iter_plugin_skill_registrations() -> Iterable[tuple[str, str, dict[str, Any
             yield callback.__module__, callback.__name__, entry
 
 
+def _plugin_registration_signature(
+    registrations: List[tuple[str, str, dict[str, Any]]],
+) -> tuple:
+    """Deterministic signature of the plugin skill registrations.
+
+    Used to decide whether the on-disk cache still reflects the registered
+    skills. Sorting each entry's items by key keeps the signature stable
+    regardless of dict ordering.
+    """
+    return tuple(
+        (module, name, repr(sorted(entry.items(), key=lambda kv: kv[0])))
+        for module, name, entry in registrations
+    )
+
+
 def _collect_plugin_skills() -> List[SkillInfo]:
+    global _plugin_skills_cache, _plugin_skills_signature
+
     with _PLUGIN_SKILLS_LOCK:
+        registrations = list(_iter_plugin_skill_registrations())
+        signature = _plugin_registration_signature(registrations)
+
+        # Reuse the already-materialised cache when the registrations are
+        # unchanged and the files are still on disk. Skipping the wipe here is
+        # what prevents a concurrent rebuild from deleting a SKILL.md while a
+        # lock-free reader is consuming a path returned by an earlier call.
+        if (
+            _plugin_skills_cache is not None
+            and signature == _plugin_skills_signature
+            and _PLUGIN_SKILLS_CACHE_DIR.exists()
+        ):
+            return list(_plugin_skills_cache)
+
         if _PLUGIN_SKILLS_CACHE_DIR.exists():
             shutil.rmtree(_PLUGIN_SKILLS_CACHE_DIR, ignore_errors=True)
         _PLUGIN_SKILLS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -200,7 +241,7 @@ def _collect_plugin_skills() -> List[SkillInfo]:
         plugin_skills: List[SkillInfo] = []
         seen_names: set[str] = set()
 
-        for callback_module, callback_name, entry in _iter_plugin_skill_registrations():
+        for callback_module, callback_name, entry in registrations:
             skill = _materialize_plugin_skill(callback_module, callback_name, entry)
             if skill is None:
                 continue
@@ -215,7 +256,9 @@ def _collect_plugin_skills() -> List[SkillInfo]:
             seen_names.add(skill.name)
             plugin_skills.append(skill)
 
-        return plugin_skills
+        _plugin_skills_cache = plugin_skills
+        _plugin_skills_signature = signature
+        return list(plugin_skills)
 
 
 def discover_skills(directories: Optional[List[Path]] = None) -> List[SkillInfo]:
