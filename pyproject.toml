@@ -81,6 +81,17 @@ path = "code_puppy/models.json"
 
 [[tool.hatch.build.targets.sdist.include]]
 path = "code_puppy/models_dev_api.json"
+
+# Ship the bundled Flux command suite (markdown + helper scripts) in the sdist
+# so flux_bootstrap can install it into ~/.code_puppy at runtime. (The wheel
+# already includes package-dir data files by default.)
+[[tool.hatch.build.targets.sdist.include]]
+path = "code_puppy/plugins/flux_bootstrap/bundled"
+
+[tool.ruff]
+# The bundled Flux helper scripts are vendored third-party data, not our source
+# -- don't lint/format them (they install verbatim into ~/.code_puppy/scripts).
+extend-exclude = ["code_puppy/plugins/flux_bootstrap/bundled"]
 [tool.ruff.lint.per-file-ignores]
 "code_puppy/main.py" = ["E402"]
 "code_puppy/cli_runner.py" = ["E402"]
