@@ -1,11 +1,8 @@
 /**
- * The Mist mascot — a crow in a witch hat, as terminal pixel art.
- *
- * Front-facing and STRICTLY symmetric (every grid row mirrors), in the
- * chunky few-color style that makes Anthropic's Clawd read so cleanly:
- * flat colors, big features, solid silhouette, no stray pixels. Charcoal
- * witch hat with green band + gold buckle, slate crow body, two big eyes,
- * orange beak, lighter chest.
+ * The Mist mascot — a simple mist-cloud blob ("Misty"), as terminal pixel
+ * art. Clawd-style minimalism: ONE body color, dot eyes, rosy cheeks, a tiny
+ * mouth, cloud-puff base. Strictly symmetric, 3 colors, 16×12 grid — small
+ * enough that nothing can read as noise.
  *
  * Rendered with half-block glyphs: each terminal cell shows TWO vertical
  * pixels (▀ foreground = top pixel, background = bottom pixel).
@@ -15,36 +12,25 @@ import { Box, Text } from "ink";
 import React from "react";
 
 const PALETTE: Record<string, string> = {
-  H: "#262c40", // hat charcoal
-  G: "#48603c", // hat band green
-  U: "#d4af5a", // buckle gold
-  B: "#3d4560", // crow slate
-  E: "#e8eef7", // eye white
-  P: "#10141f", // pupil
-  K: "#e09040", // beak orange
-  L: "#8b96ad", // chest
+  M: "#a5c3e8", // mist blue
+  P: "#232a3d", // eyes + mouth
+  R: "#e8a0b4", // rosy cheeks
 };
 
-// 20 × 18 pixel grid ('.' = transparent) — every row is a mirror image.
+// 16 × 12 pixel grid ('.' = transparent) — every row is a mirror image.
 const GRID = [
-  ".........HH.........",
-  "........HHHH........",
-  "........HHHH........",
-  ".......HHHHHH.......",
-  ".......HHHHHH.......",
-  "......HGGGGGGH......",
-  "......HGGUUGGH......",
-  "..HHHHHHHHHHHHHHHH..",
-  ".HHHHHHHHHHHHHHHHHH.",
-  ".....BBBBBBBBBB.....",
-  "....BEEEBBBBEEEB....",
-  "....BEPEBBBBEPEB....",
-  "....BEEEBKKBEEEB....",
-  "....BBBBBKKBBBBB....",
-  ".....BBBBBBBBBB.....",
-  "....BBLLLLLLLLBB....",
-  "....BBLLLLLLLLBB....",
-  ".....BBBBBBBBBB.....",
+  "....MMMMMMMM....",
+  "..MMMMMMMMMMMM..",
+  ".MMMMMMMMMMMMMM.",
+  ".MMPPMMMMMMPPMM.",
+  ".MMPPMMMMMMPPMM.",
+  "MMRRMMMMMMMMRRMM",
+  "MMMMMMMPPMMMMMMM",
+  "MMMMMMMMMMMMMMMM",
+  ".MMMMMMMMMMMMMM.",
+  ".MMMMMMMMMMMMMM.",
+  "..MMMMMMMMMMMM..",
+  "..MMM..MM..MMM..",
 ];
 
 export function Mascot(): React.JSX.Element {
