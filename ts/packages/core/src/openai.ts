@@ -38,7 +38,7 @@ interface OAIFunctionSpec {
   };
 }
 
-interface OAIMessage {
+export interface OAIMessage {
   role: "system" | "user" | "assistant" | "tool";
   content?: string | null;
   tool_calls?: {
@@ -47,6 +47,52 @@ interface OAIMessage {
     function: { name: string; arguments: string };
   }[];
   tool_call_id?: string;
+}
+
+/**
+ * Anthropic-shaped history → OpenAI chat messages. Shared by the streaming
+ * client and the training-data exporter (open-model SFT stacks consume the
+ * OpenAI function-calling shape).
+ */
+export function toOpenAIMessages(system: string, messages: ChatMessage[]): OAIMessage[] {
+  const out: OAIMessage[] = [];
+  if (system) out.push({ role: "system", content: system });
+  for (const msg of messages) {
+    if (typeof msg.content === "string") {
+      out.push({ role: msg.role, content: msg.content });
+      continue;
+    }
+    // Assistant turn: split into content + tool_calls.
+    if (msg.role === "assistant") {
+      const texts: string[] = [];
+      const calls: NonNullable<OAIMessage["tool_calls"]> = [];
+      for (const block of msg.content) {
+        if (block.type === "text") texts.push(block.text);
+        else if (block.type === "tool_use")
+          calls.push({
+            id: block.id,
+            type: "function",
+            function: { name: block.name, arguments: JSON.stringify(block.input ?? {}) },
+          });
+      }
+      const entry: OAIMessage = { role: "assistant", content: texts.join("") || null };
+      if (calls.length) entry.tool_calls = calls;
+      out.push(entry);
+      continue;
+    }
+    // User turn: may contain tool_result blocks and/or text.
+    const toolResults: ContentBlock[] = [];
+    const textParts: string[] = [];
+    for (const block of msg.content) {
+      if (block.type === "tool_result") toolResults.push(block);
+      else if (block.type === "text") textParts.push(block.text);
+    }
+    for (const tr of toolResults) {
+      out.push({ role: "tool", tool_call_id: tr.tool_use_id, content: tr.content });
+    }
+    if (textParts.length) out.push({ role: "user", content: textParts.join("\n") });
+  }
+  return out;
 }
 
 interface OAIChoiceDelta {
@@ -250,47 +296,10 @@ export class OpenAIClient implements ModelClient {
     return result;
   }
 
-  // ---- Anthropic history → OpenAI messages --------------------------------
+  // ---- Anthropic history → OpenAI messages (shared helper above) ----------
 
   private translateHistory(system: string, messages: ChatMessage[]): OAIMessage[] {
-    const out: OAIMessage[] = [];
-    if (system) out.push({ role: "system", content: system });
-    for (const msg of messages) {
-      if (typeof msg.content === "string") {
-        out.push({ role: msg.role, content: msg.content });
-        continue;
-      }
-      // Assistant turn: split into content + tool_calls.
-      if (msg.role === "assistant") {
-        const texts: string[] = [];
-        const calls: NonNullable<OAIMessage["tool_calls"]> = [];
-        for (const block of msg.content) {
-          if (block.type === "text") texts.push(block.text);
-          else if (block.type === "tool_use")
-            calls.push({
-              id: block.id,
-              type: "function",
-              function: { name: block.name, arguments: JSON.stringify(block.input ?? {}) },
-            });
-        }
-        const entry: OAIMessage = { role: "assistant", content: texts.join("") || null };
-        if (calls.length) entry.tool_calls = calls;
-        out.push(entry);
-        continue;
-      }
-      // User turn: may contain tool_result blocks and/or text.
-      const toolResults: ContentBlock[] = [];
-      const textParts: string[] = [];
-      for (const block of msg.content) {
-        if (block.type === "tool_result") toolResults.push(block);
-        else if (block.type === "text") textParts.push(block.text);
-      }
-      for (const tr of toolResults) {
-        out.push({ role: "tool", tool_call_id: tr.tool_use_id, content: tr.content });
-      }
-      if (textParts.length) out.push({ role: "user", content: textParts.join("\n") });
-    }
-    return out;
+    return toOpenAIMessages(system, messages);
   }
 
   private translateTools(tools: ToolSpec[]): OAIFunctionSpec[] {

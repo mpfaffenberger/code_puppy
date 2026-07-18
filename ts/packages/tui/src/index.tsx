@@ -1598,6 +1598,8 @@ Usage:
   mist -c | --continue        resume the latest session for this directory
   mist -r <id> | --resume     resume a specific session (id prefix ok)
   mist --sessions             list saved sessions for this directory
+  mist --export-training [f]  sessions → SFT JSONL (--format=openai,
+                              --min-turns=N, --no-redact)
   mist --help | --version
 
 While the agent works: type + Enter to steer it; Esc interrupts; Ctrl+C quits.
@@ -1623,6 +1625,24 @@ async function main(): Promise<void> {
     for (const s of sessions) {
       console.log(`${s.id.slice(0, 8)}  ${s.created_at.slice(0, 16).replace("T", " ")}  ${s.title}`);
     }
+    return;
+  }
+
+  // --export-training: dump stored sessions as SFT-ready JSONL trajectories.
+  if (args.includes("--export-training")) {
+    const { exportTraining } = await import("@mist/core");
+    const idx = args.indexOf("--export-training");
+    const next = args[idx + 1];
+    const outPath = next && !next.startsWith("--") ? next : `mist-training-${Date.now()}.jsonl`;
+    const format = args.includes("--format=openai") ? "openai" as const : "anthropic" as const;
+    const mt = args.find((a) => a.startsWith("--min-turns="));
+    const minTurns = mt ? Math.max(1, Number(mt.split("=")[1])) : 1;
+    const redact = !args.includes("--no-redact");
+    const res = await exportTraining(process.cwd(), outPath, { format, minTurns, redact });
+    console.log(
+      `exported ${res.written} trajectories (${format}${redact ? ", secrets redacted" : ", RAW — review before sharing"}) → ${res.outPath}` +
+        (res.skipped ? ` · ${res.skipped} skipped (< ${minTurns} turns)` : ""),
+    );
     return;
   }
 

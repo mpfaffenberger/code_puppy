@@ -52,3 +52,5 @@ export type {
 } from "./models";
 export { lensTotals, renderLensHtml } from "./lens";
 export type { TurnLens, RequestLens, SubagentLens, ToolCallLens, LensTotals } from "./lens";
+export { exportTraining, redactSecrets } from "./training_export";
+export type { TrainingExportOptions, TrainingExportResult } from "./training_export";

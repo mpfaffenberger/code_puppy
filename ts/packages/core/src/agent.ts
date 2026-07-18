@@ -62,7 +62,7 @@ Communicating results:
 - Don't narrate routine steps ("Let me check…") — the UI shows tool activity live. Work quietly, then summarize once.
 - Don't end with a plan or "Want me to…?" — do the work, then report.`;
 
-const ENGINE_TOOLS: ToolSpec[] = [
+export const ENGINE_TOOLS: ToolSpec[] = [
   {
     name: "update_plan",
     description:
