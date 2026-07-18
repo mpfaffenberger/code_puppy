@@ -1394,7 +1394,11 @@ async def execute_single_prompt(
         return
 
     from code_puppy.command_line.command_handler import handle_command
-    from code_puppy.config import AUTOSAVE_DIR, get_current_session_name
+    from code_puppy.config import (
+        AUTOSAVE_DIR,
+        get_current_session_name,
+        record_quick_resume_sessions,
+    )
     from code_puppy.messaging import (
         emit_error,
         emit_info,
@@ -1464,6 +1468,11 @@ async def execute_single_prompt(
                 base_dir=Path(AUTOSAVE_DIR),
                 auto_saved=True,
             )
+            # Point quick-resume at the just-saved session so both
+            # auto-generated and ``-r NAME`` headless saves are discoverable
+            # by ``--quick-resume``.  Only written on success; any exception
+            # from persist_named_session above skips this block entirely.
+            record_quick_resume_sessions(effective_session_name)
         except Exception as save_error:
             # The response has already been emitted; a persistence failure
             # must not hide the primary result.

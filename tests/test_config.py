@@ -1005,6 +1005,43 @@ class TestSessionSingletonAndAliases:
             warnings.simplefilter("ignore", DeprecationWarning)
             assert cp_config.get_current_autosave_id() == "mywork"
 
+    def test_distinct_pids_generate_distinct_names(self):
+        """Same wall-clock timestamp but different PIDs produce distinct names.
+
+        Regression guard for the cross-process autosave collision fix: two
+        processes that happen to call ``get_current_session_name()`` within
+        the same second must never mint the same filename.  Microseconds alone
+        are not sufficient when the OS schedules two processes in the same
+        microsecond (unlikely but possible), so the PID is appended as a
+        second disambiguator.
+        """
+        import datetime as dt
+        from unittest.mock import patch
+
+        fixed_dt = dt.datetime(2026, 1, 1, 12, 0, 0, 123456)
+
+        self._reset_singleton()
+        with (
+            patch("code_puppy.config.datetime") as mock_dt_mod,
+            patch("code_puppy.config.os.getpid", return_value=1111),
+        ):
+            mock_dt_mod.datetime.now.return_value = fixed_dt
+            name_pid1 = cp_config.get_current_session_name()
+
+        self._reset_singleton()
+        with (
+            patch("code_puppy.config.datetime") as mock_dt_mod,
+            patch("code_puppy.config.os.getpid", return_value=2222),
+        ):
+            mock_dt_mod.datetime.now.return_value = fixed_dt
+            name_pid2 = cp_config.get_current_session_name()
+
+        assert name_pid1 != name_pid2
+        assert name_pid1.startswith("auto_session_")
+        assert name_pid2.startswith("auto_session_")
+        assert name_pid1.endswith("_1111")
+        assert name_pid2.endswith("_2222")
+
 
 class TestStoredNameValidator:
     """``_is_valid_autosave_session_name`` is now a stored-name validator.
