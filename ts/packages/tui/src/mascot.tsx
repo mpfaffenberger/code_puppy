@@ -1,47 +1,49 @@
 /**
- * Misty — the Mist mascot, as terminal pixel art.
+ * The Mist mascot — an owl caricature (Owlgebra AI), as terminal pixel art.
  *
- * The ghost is drawn on a pixel grid and rendered with half-block glyphs:
- * each terminal cell shows TWO vertical pixels (▀ foreground = top pixel,
- * background = bottom pixel), the same technique Claude Code uses for its
- * banner robot. Truecolor hexes are taken straight from the character sheet:
- * a blue-gray cloud body deepening toward the tail, mint arc on the crown,
- * navy eyes, soft highlight.
+ * Drawn on a pixel grid and rendered with half-block glyphs: each terminal
+ * cell shows TWO vertical pixels (▀ foreground = top pixel, background =
+ * bottom pixel), the same technique Claude Code uses for its banner robot.
+ * Palette from the character sheet: blue body deepening at the wings, light
+ * face/belly, big amber eyes with white glints, yellow beak + talons on a
+ * brown branch, sparkles in the margins.
  */
 
 import { Box, Text } from "ink";
 import React from "react";
 
 const PALETTE: Record<string, string> = {
-  G: "#8fd9c4", // mint crown arc
-  w: "#f2f6fc", // wisp / shine
-  H: "#dce6f5", // highlight
-  L: "#b9c9e4", // light body
-  M: "#9db0d2", // mid body
-  B: "#7d8fb8", // lower body
-  D: "#5d6f9e", // tail
-  E: "#232a4d", // eyes
-  S: "#5c6890", // smile
+  D: "#2a4db8", // deep blue — tufts, wing edges
+  B: "#5b8dd9", // mid blue — head, wings
+  L: "#aecdf0", // light blue — face, belly
+  A: "#f0a821", // amber iris
+  W: "#ffffff", // eye glint
+  P: "#20264d", // pupil
+  Y: "#f6c445", // beak + talons
+  T: "#7a5230", // branch
+  S: "#7b8fe8", // sparkles
 };
 
-// 20 × 16 pixel grid ('.' = transparent). Two grid rows per terminal row.
+// 22 × 18 pixel grid ('.' = transparent). Two grid rows per terminal row.
 const GRID = [
-  "....GG...w..........",
-  "..GG.HHHLLLL........",
-  "..G.HHLLLLLLLL......",
-  "...HLLELLLLELLL.....",
-  "...LLLELLLLELLL.....",
-  "...LLLLLSSLLLLL.....",
-  "..MLLLLLLLLLLLLM....",
-  ".MMMLLLLLLLLLLMMM...",
-  "MMM.MLLLLLLLLM.MMM..",
-  ".M...MMMMMMMM....M..",
-  "......MMMMMMM.......",
-  "......BMMMMMB.......",
-  ".......BBMMBB.......",
-  "........BBBD........",
-  ".........DDD........",
-  ".......D..DD........",
+  "..DB....S.....S...BD..",
+  "..BDB..BBBBBBBB..BDB..",
+  "S.BBBBBBBBBBBBBBBBBB.S",
+  ".BBLLLLLLBBBBLLLLLLBB.",
+  ".BLLAAAALLBBLLAAAALLB.",
+  ".BLAWPAALLBBLLAAPWALB.",
+  ".BLLAAAALLYYLLAAAALLB.",
+  ".BBLLLLLLLYYLLLLLLLBB.",
+  "..DBLLLLLLLLLLLLLLBD..",
+  "..DBLLBLLBLLBLLBLLBD.S",
+  "..DBLLLLLLLLLLLLLLBD..",
+  "S.DBBLLLLLLLLLLLLBBD..",
+  "...DBBLLLLLLLLLLBBD...",
+  "....DBBLLLLLLLLBBD....",
+  "......YYY....YYY......",
+  ".TTTTTTTTTTTTTTTTTTTT.",
+  ".........DLLD.........",
+  "..........DD..........",
 ];
 
 export function Mascot(): React.JSX.Element {
