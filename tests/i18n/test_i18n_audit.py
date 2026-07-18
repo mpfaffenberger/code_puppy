@@ -122,5 +122,4 @@ def test_audits_the_real_package_without_error():
     root = os.path.dirname(os.path.dirname(os.path.abspath(i18n.__file__)))
     report = audit.audit_tree(root)
     assert report.sites, "expected to find user-facing emit sites"
-    assert len(report.raw) > 0  # extraction is still very much in progress
     assert 0.0 <= report.coverage <= 100.0
