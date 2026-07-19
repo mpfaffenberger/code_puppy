@@ -37,7 +37,7 @@ GREEN = "\033[32m"
 WHITE = "\033[1;37m"
 GREY = "\033[90m"
 
-FRAKTUR_F = "\U0001D571"  # mathematical bold fraktur capital F
+FRAKTUR_F = "\U0001d571"  # mathematical bold fraktur capital F
 
 
 def _default_docs() -> str:
@@ -164,7 +164,24 @@ def render(pipelines: list[tuple[str, str, list[str]]], theme: Theme) -> str:
     return "\n".join(out)
 
 
+def force_utf8_stdout() -> None:
+    """Reconfigure stdout to UTF-8 so emoji survive legacy Windows codepages.
+
+    Under the exec runner the env already forces UTF-8 (PYTHONIOENCODING);
+    this covers standalone runs in a cp1252 console, where printing a single
+    emoji or box-drawing glyph would otherwise raise UnicodeEncodeError.
+    Best-effort by design -- these scripts must never crash on an IO quirk.
+    (Duplicated across the flux_* scripts on purpose: each is a standalone,
+    dependency-free file.)
+    """
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    force_utf8_stdout()
     parser = argparse.ArgumentParser(description="Render //flux cheatsheet panel")
     parser.add_argument("--docs", default=DEFAULT_DOCS, help="flux _docs directory")
     parser.add_argument(
@@ -200,14 +217,18 @@ def main(argv: list[str] | None = None) -> int:
     # environment even though isatty() is False. flux_about.py documents the
     # same contract via Rich's force_terminal=True -- keep the FORCE_COLOR branch
     # so the cheatsheet doesn't silently degrade to monochrome under the runner.
-    color_on = not args.no_color and (sys.stdout.isatty() or os.environ.get("FORCE_COLOR"))
+    color_on = not args.no_color and (
+        sys.stdout.isatty() or os.environ.get("FORCE_COLOR")
+    )
     theme = Theme(bool(color_on))
 
     if not pipeline_md.is_file():
         print(theme(GREY, f"(pipeline doc not found at {pipeline_md})"))
         return 1
 
-    pipelines = parse_pipelines(pipeline_md.read_text(encoding="utf-8", errors="replace"))
+    pipelines = parse_pipelines(
+        pipeline_md.read_text(encoding="utf-8", errors="replace")
+    )
 
     if args.pipeline:
         # Already validated + normalized above

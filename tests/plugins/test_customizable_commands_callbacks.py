@@ -683,6 +683,8 @@ class TestExecTokenExpansion:
         assert "{python}" not in expanded
 
     def test_script_and_command_tokens_resolve_under_config_dir(self):
+        import os
+
         from code_puppy.plugins.customizable_commands import register_callbacks as rc
 
         with patch.object(rc, "CONFIG_DIR", "/tmp/cfghome"):
@@ -690,22 +692,29 @@ class TestExecTokenExpansion:
                 "{python} {script:flux_status.py} --docs {command:flux/_docs}"
             )
 
-        assert "/tmp/cfghome/scripts/flux_status.py" in expanded
-        assert "/tmp/cfghome/commands/flux/_docs" in expanded
+        # os.path.join yields the platform separator (backslash on Windows),
+        # so build the expected paths the same way instead of hard-coding '/'.
+        assert os.path.join("/tmp/cfghome", "scripts", "flux_status.py") in expanded
+        assert os.path.join("/tmp/cfghome", "commands", "flux", "_docs") in expanded
         # No shell-expansion / hard-coded home path residue.
         assert "~" not in expanded
         assert "{script:" not in expanded
         assert "{command:" not in expanded
 
     def test_path_with_spaces_is_quoted(self):
+        import os
+
         from code_puppy.plugins.customizable_commands import register_callbacks as rc
 
         with patch.object(rc, "CONFIG_DIR", "/tmp/has space/cfg"):
             expanded = rc._expand_exec_tokens("{python} {script:flux_status.py}")
 
         # A space-bearing path must be quoted so shell=True doesn't split it
-        # into two args. shlex.quote wraps the whole token in single quotes.
-        assert "'/tmp/has space/cfg/scripts/flux_status.py'" in expanded
+        # into two args. POSIX (shlex.quote) wraps in single quotes; Windows
+        # (list2cmdline, for cmd.exe) wraps in double quotes.
+        path = os.path.join("/tmp/has space/cfg", "scripts", "flux_status.py")
+        quote = '"' if os.name == "nt" else "'"
+        assert f"{quote}{path}{quote}" in expanded
 
     def test_unknown_tokens_are_left_untouched(self):
         from code_puppy.plugins.customizable_commands.register_callbacks import (
@@ -713,3 +722,68 @@ class TestExecTokenExpansion:
         )
 
         assert _expand_exec_tokens("echo {not_a_token}") == "echo {not_a_token}"
+
+
+class TestExecUtf8Contract:
+    """The exec runner must speak UTF-8 on both ends of the pipe.
+
+    Regression tests for the Windows cp1252 crash: a child Python attached to
+    a pipe defaults its stdout to the legacy codepage and raises
+    UnicodeEncodeError the moment a flux script prints an emoji; the parent's
+    locale-default decode mojibakes for the same reason. The runner therefore
+    injects PYTHONIOENCODING (the narrowest sufficient lever -- deliberately
+    NOT PYTHONUTF8, which would also flip default open() encoding for every
+    child) and decodes explicitly as UTF-8.
+    """
+
+    def test_runner_injects_utf8_env_and_decodes_utf8(self):
+        import os
+
+        from unittest.mock import MagicMock
+
+        from code_puppy.plugins.customizable_commands import register_callbacks as rc
+
+        fake_result = MagicMock(stdout="ok", stderr="", returncode=0)
+        with patch.object(rc.subprocess, "run", return_value=fake_result) as mock_run:
+            rc._run_exec_directive("echo ok", "pinger")
+
+        kwargs = mock_run.call_args.kwargs
+        assert kwargs["encoding"] == "utf-8"
+        assert kwargs["errors"] == "replace"
+        env = kwargs["env"]
+        assert env["PYTHONIOENCODING"] == "utf-8"
+        assert env["FORCE_COLOR"] == "1"
+        # Deliberately NOT injected: PYTHONUTF8 flips full UTF-8 mode (default
+        # open() encoding etc.) for every Python child of every exec command --
+        # far broader than the stdio fix requires. Pin its absence so it can't
+        # sneak back in without a conscious decision.
+        assert "PYTHONUTF8" not in env or env["PYTHONUTF8"] == os.environ.get(
+            "PYTHONUTF8"
+        )
+
+    def test_child_python_emoji_survives_the_pipe(self, tmp_path):
+        """End-to-end: a real child Python printing an emoji must not crash.
+
+        Without the env injection this reproduces the /flux/about failure on
+        Windows (cp1252 child stdout). The emoji must arrive intact and the
+        script must exit 0 (no 'exited with code 1' warning).
+        """
+        import sys
+
+        from code_puppy.plugins.customizable_commands import register_callbacks as rc
+
+        script = tmp_path / "emoji.py"
+        script.write_text("print('\\U0001F300 flux')\n", encoding="utf-8")
+        directive = f"{rc._shell_quote(sys.executable)} {rc._shell_quote(str(script))}"
+
+        lines = []
+        with (
+            patch.object(
+                rc, "emit_shell_line", side_effect=lambda line, **kw: lines.append(line)
+            ),
+            patch.object(rc, "emit_warning") as mock_warn,
+        ):
+            rc._run_exec_directive(directive, "emoji-test")
+
+        assert any("\U0001f300 flux" in line for line in lines)
+        mock_warn.assert_not_called()
