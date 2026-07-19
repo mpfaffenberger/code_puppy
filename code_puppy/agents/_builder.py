@@ -423,6 +423,103 @@ def filter_conflicting_mcp_tools(
     return filtered
 
 
+# --------------------------------------------------------------------- #
+# GPT-5.6 sub-agent delegation guardrail                                #
+# --------------------------------------------------------------------- #
+# GPT-5.6 family models tend to over-delegate work to sub-agents via
+# ``invoke_agent`` (and in particular to the ``planning-agent``, which
+# isn't well-suited to drive their own execution). When such a model
+# is paired with an agent that exposes ``invoke_agent``, we append a
+# short guardrail reminding the model to delegate sparingly and to
+# never invoke the planning-agent.
+
+_GPT_5_6_INVOKE_AGENT_GUARD_TEXT = """
+
+## Sub-Agent Delegation Guardrail (GPT-5.6)
+
+You are running on a GPT-5.6 family model. Treat the ``invoke_agent`` tool
+as a last resort: only delegate when the sub-task is highly specific,
+focused, and clearly benefits from isolation (a separate context window
+or a specialized tool the sub-agent owns). Do not delegate tasks you can
+handle directly with your own tools.
+
+**Never invoke the ``planning-agent``** — the agent whose role is to
+break complex tasks into execution roadmaps. If a request genuinely
+needs upfront planning, ask the user for clarification instead of
+delegating to ``planning-agent``; that agent is not safe to invoke from
+GPT-5.6 models and may produce plans that don't translate into
+actionable code changes in this environment.
+"""
+
+# GPT-5.6 family models also tend to fire off destructive shell commands
+# without thinking. When the agent exposes ``agent_run_shell_command`` we
+# append a guardrail asking the model to be cautious about anything that
+# deletes, overwrites, or otherwise mutates state irreversibly.
+
+_GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT = """
+
+## Destructive-Command Caution (GPT-5.6)
+
+You are running on a GPT-5.6 family model with access to the
+``agent_run_shell_command`` tool (or any equivalent shell/exec tool).
+**Be cautious with commands or API calls that can delete, overwrite,
+or otherwise make unrecoverable changes.** Common dangerous shapes:
+
+* bulk ``rm`` / ``rm -rf`` / wildcard deletions
+* ``git push --force`` or rewriting pushed history
+* overwriting or truncating files without explicit user direction
+* database migrations, schema drops, or production writes
+* API calls that mutate state without an obvious rollback path
+* any destructive action across a multi-host or production surface
+
+Prefer read-only inspection (``ls``, ``cat``, ``grep``, dry-run flags)
+or staging operations first, and confirm intent with the user before
+running anything that cannot be undone.
+"""
+
+
+def _is_gpt_5_6_family(model_name: Optional[str]) -> bool:
+    """Return ``True`` when ``model_name`` names a GPT-5.6 family model.
+
+    Treats ``gpt-5.6`` as a delimited segment so ``gpt-5.6-sol``,
+    ``codex-gpt-5.6-sol``, or a bare ``gpt-5.6`` all match, while names
+    like ``gpt-5.61-foo`` (digit right after) or ``xgpt-5.6`` (alnum
+    on the left) correctly do not.
+    """
+    if not model_name:
+        return False
+    target = "gpt-5.6"
+    candidate = model_name.lower()
+    start = 0
+    while True:
+        index = candidate.find(target, start)
+        if index == -1:
+            return False
+        end = index + len(target)
+        left_ok = index == 0 or not candidate[index - 1].isalnum()
+        right_ok = end == len(candidate) or not candidate[end].isalnum()
+        if left_ok and right_ok:
+            return True
+        start = index + 1
+    return False  # pragma: no cover - defensive
+
+
+def _agent_exposes_tool(agent: Any, tool_name: str) -> bool:
+    """Return ``True`` if ``agent.get_available_tools()`` lists ``tool_name``.
+
+    Used by the GPT-5.6 guardrail to gate on whether the active agent
+    actually exposes the tools we want to rein in (e.g. ``invoke_agent``,
+    ``agent_run_shell_command``). Wraps ``get_available_tools`` so any
+    exception or ``None`` return value is treated as "not exposed" — the
+    guardrail stays opt-in and never blows up the prompt build.
+    """
+    try:
+        tools = agent.get_available_tools()
+    except Exception:
+        return False
+    return tool_name in (tools or [])
+
+
 def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
     """Compose full system prompt + puppy rules + extended-thinking note."""
     from code_puppy.model_utils import prepare_prompt_for_model
@@ -438,6 +535,24 @@ def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
 
     if has_extended_thinking_active(resolved_model_name):
         instructions += EXTENDED_THINKING_PROMPT_NOTE
+
+    # GPT-5.6 family models tend to over-delegate. When such a model is
+    # paired with an agent that exposes ``invoke_agent``, append a
+    # guardrail reminding the model to delegate sparingly and to never
+    # invoke the planning-agent.
+    if _is_gpt_5_6_family(resolved_model_name) and _agent_exposes_tool(
+        agent, "invoke_agent"
+    ):
+        instructions += _GPT_5_6_INVOKE_AGENT_GUARD_TEXT
+
+    # GPT-5.6 family models also tend to fire off destructive shell
+    # commands. When the agent exposes ``agent_run_shell_command``,
+    # append a guardrail asking the model to be cautious about anything
+    # that deletes, overwrites, or otherwise mutates state irreversibly.
+    if _is_gpt_5_6_family(resolved_model_name) and _agent_exposes_tool(
+        agent, "agent_run_shell_command"
+    ):
+        instructions += _GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT
 
     prepared = prepare_prompt_for_model(
         agent.get_model_name(), instructions, "", prepend_system_to_user=False
