@@ -554,6 +554,11 @@ emit_info(lazy("startup.ready"))                 # resolved at render time
   (`tests/i18n/test_i18n_coverage.py`): every translated key must exist in the
   `en-US` source, and a pseudolocale (`en-XA`) run must emit only bracketed
   text (catches un-externalized strings).
+- **Find what's left to extract** with the static audit:
+  `python -m code_puppy.i18n.audit --top 15` lists the worst files;
+  `--list` shows every raw `emit_*`/`console.print` site, `--json` is
+  machine-readable, and `--fail-under PCT` is a CI gate. Use it to pick the
+  next module, then the pseudolocale test above to prove it's fully migrated.
 
 ---
 
