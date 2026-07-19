@@ -205,6 +205,37 @@ test("lens: turn ledger records requests, tools, and totals", async () => {
   expect(final.inputTokens).toBe(149); // 99 uncached + 40 read + 10 written
 });
 
+test("GLM-style usage (zeroed message_start, real numbers in message_delta) parses", async () => {
+  // Captured from the live z.ai endpoint: message_start carries zeros; the
+  // true usage arrives in message_delta. Regression for /lens showing
+  // "0 input · context now 0" on GLM sessions.
+  const glm = Bun.serve({
+    port: 9942,
+    fetch() {
+      return new Response(
+        [
+          `data: ${JSON.stringify({ type: "message_start", message: { usage: { input_tokens: 0, output_tokens: 0 } } })}`,
+          `data: ${JSON.stringify({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } })}`,
+          `data: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } })}`,
+          `data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { input_tokens: 1337, output_tokens: 2, cache_read_input_tokens: 40, service_tier: "standard" } })}`,
+          "",
+        ].join("\n\n"),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    },
+  });
+  try {
+    const { AnthropicClient } = await import("./anthropic");
+    const client = new AnthropicClient("http://127.0.0.1:9942", "k", "m");
+    const result = await client.stream("sys", [{ role: "user", content: "hi" }], [], {});
+    expect(result.inputTokens).toBe(1337);
+    expect(result.outputTokens).toBe(2);
+    expect(result.cacheReadTokens).toBe(40);
+  } finally {
+    glm.stop(true);
+  }
+});
+
 test("prompt-cache breakpoints are sent on the wire (and MIST_CACHE=0 disables)", async () => {
   let captured: Record<string, unknown> | null = null;
   const intercept = Bun.serve({

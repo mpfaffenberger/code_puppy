@@ -155,6 +155,23 @@ export class AnthropicClient implements ModelClient {
           const usage = ev["usage"] as Record<string, unknown> | undefined;
           if (typeof usage?.["output_tokens"] === "number")
             result.outputTokens = usage["output_tokens"] as number;
+          // Some Anthropic-compatible endpoints (GLM/z.ai, verified on the
+          // wire) send ZEROED usage in message_start and the real numbers
+          // here at stream end. Take any positive reading — Anthropic's own
+          // API omits these fields in message_delta, so its message_start
+          // values are never overwritten.
+          if (typeof usage?.["input_tokens"] === "number" && (usage["input_tokens"] as number) > 0)
+            result.inputTokens = usage["input_tokens"] as number;
+          if (
+            typeof usage?.["cache_read_input_tokens"] === "number" &&
+            (usage["cache_read_input_tokens"] as number) > 0
+          )
+            result.cacheReadTokens = usage["cache_read_input_tokens"] as number;
+          if (
+            typeof usage?.["cache_creation_input_tokens"] === "number" &&
+            (usage["cache_creation_input_tokens"] as number) > 0
+          )
+            result.cacheWriteTokens = usage["cache_creation_input_tokens"] as number;
         } else if (type === "message_start") {
           const msg = ev["message"] as Record<string, unknown> | undefined;
           const usage = msg?.["usage"] as Record<string, unknown> | undefined;
