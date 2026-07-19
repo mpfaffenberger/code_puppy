@@ -28,40 +28,17 @@ _POSIX_LOCALE_VARS = ("LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE")
 _LOCALE_RE = re.compile(r"^[A-Za-z]{2,3}(?:[_-][A-Za-z0-9]+)*")
 
 # CLDR parent-locale overrides: locales whose fallback parent is NOT simply
-# their truncated form. The big one for us is Latin American Spanish, where
-# every Central/South American country falls back through the ``es-419``
-# umbrella before reaching generic (Iberian-ish) ``es``.
+# their truncated form (see :func:`fallback_chain`). Source: CLDR
+# supplementalData <parentLocales>. Kept as an explicit, testable map so a
+# plugin / the private fork can register a non-truncation parent in one line.
 #
-# Source: CLDR supplementalData <parentLocales>. Kept as an explicit map so
-# adding a dialect is a one-line change and the behavior is testable.
-_LATIN_AMERICAN_ES = (
-    # Central America (+ Mexico)
-    "es-MX",
-    "es-GT",
-    "es-HN",
-    "es-SV",
-    "es-NI",
-    "es-CR",
-    "es-PA",
-    "es-BZ",
-    # South America
-    "es-AR",
-    "es-BO",
-    "es-CL",
-    "es-CO",
-    "es-EC",
-    "es-PY",
-    "es-PE",
-    "es-UY",
-    "es-VE",
-    # Caribbean + US Spanish (also parented to 419 by CLDR)
-    "es-CU",
-    "es-DO",
-    "es-PR",
-    "es-US",
-)
-PARENT_LOCALES: dict = {loc: "es-419" for loc in _LATIN_AMERICAN_ES}
-PARENT_LOCALES["es-419"] = "es"
+# Currently empty: the only override we shipped was the Latin American Spanish
+# ``es-419`` umbrella, which has been deprecated and folded into the base
+# ``es`` catalog. Every Central/South American dialect (``es-MX``, ``es-AR``,
+# ...) now truncates straight to ``es`` (``es-MX -> es -> en-US``), keeping its
+# own regional override file on top. To reintroduce a CLDR umbrella, add e.g.
+# ``PARENT_LOCALES["es-AR"] = "es-419"``.
+PARENT_LOCALES: dict = {}
 
 
 def normalize_locale(raw: Optional[str]) -> Optional[str]:
@@ -111,10 +88,12 @@ def language_of(locale: str) -> str:
 def fallback_chain(locale: str, default: str = DEFAULT_LOCALE) -> list[str]:
     """Build the lookup chain for a locale, most-specific first.
 
-    Honors CLDR parent-locale overrides (see :data:`PARENT_LOCALES`), so
-    Latin American Spanish resolves through the ``es-419`` umbrella::
+    Walks each locale to its parent, most-specific first. A tag's parent is
+    its truncated form (``es-MX -> es -> en-US``, ``zh-Hans-CN -> zh-Hans ->
+    zh -> en-US``) unless a CLDR override is registered in
+    :data:`PARENT_LOCALES`::
 
-        es-AR  -> ["es-AR", "es-419", "es", "en-US"]
+        es-MX  -> ["es-MX", "es", "en-US"]
         zh-Hans-CN -> ["zh-Hans-CN", "zh-Hans", "zh", "en-US"]
 
     The default locale is always appended last (deduplicated) so a missing

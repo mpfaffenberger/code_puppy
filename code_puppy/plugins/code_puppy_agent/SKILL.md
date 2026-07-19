@@ -530,11 +530,12 @@ emit_info(lazy("startup.ready"))                 # resolved at render time
 
 - JSON per locale: `i18n/locales/<locale>.json` (dotted-key → string, or a
   plural dict `{"one": ..., "other": ...}`).
-- Shipped: `en-US` (source), `es`, `es-419` (Latin American umbrella), `fr-CA`
+- Shipped: `en-US` (source), `es` (Latin American `es-419` folded in), `fr-CA`
   + `es-MX/AR/CO/CL` stubs.
-- **CLDR parent chain**: `es-AR → es-419 → es → en-US` (see
-  `i18n.locale.PARENT_LOCALES`). Plugins / the private fork can register extra
-  catalog dirs via `i18n.catalog.add_catalog_dir()`.
+- **Fallback chain**: plain BCP-47 truncation, `es-AR → es → en-US` (see
+  `i18n.locale.fallback_chain`). `i18n.locale.PARENT_LOCALES` is a currently-
+  empty CLDR override seam for non-truncation parents. Plugins / the private
+  fork can register extra catalog dirs via `i18n.catalog.add_catalog_dir()`.
 
 ### 12.3 How it wires in
 
