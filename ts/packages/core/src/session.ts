@@ -21,6 +21,7 @@ export class EngineSession {
   private buffer: EventEnvelope[] = [];
   private store: SessionStore;
   private persistedCount = 0;
+  private persistedLensSeq = 0;
   private created: boolean;
 
   constructor(cwd: string = process.cwd(), resume?: StoredSession) {
@@ -32,6 +33,10 @@ export class EngineSession {
       this.engine.loadHistory(resume.messages);
       this.engine.plan = resume.plan;
       this.persistedCount = resume.messages.length;
+      if (resume.lensTurns?.length) {
+        this.engine.restoreLens(resume.lensTurns);
+        this.persistedLensSeq = this.engine.lensSeq();
+      }
       this.emit("session.created", { agent_name: "mist" });
       this.emit("session.resumed", {
         title: resume.meta.title,
@@ -121,6 +126,14 @@ export class EngineSession {
         this.persistedCount = history.length;
       }
       await this.store.snapshotPlan(this.id, this.engine.plan);
+      // Persist the newest lens turn (at most one per submit — seq-guarded
+      // so an errored turn that recorded nothing doesn't duplicate).
+      const seq = this.engine.lensSeq();
+      if (seq > this.persistedLensSeq) {
+        const latest = this.engine.getLens().at(-1);
+        if (latest) await this.store.appendLensTurn(this.id, latest);
+        this.persistedLensSeq = seq;
+      }
     } catch {
       /* persistence must never break the session */
     }

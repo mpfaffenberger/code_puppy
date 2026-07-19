@@ -11,12 +11,14 @@
  *   {"kind":"meta","id":…,"cwd":…,"created_at":…,"title":…}
  *   {"kind":"message","message":{role, content}}
  *   {"kind":"plan","items":[…]}          // latest snapshot wins on resume
+ *   {"kind":"lens","turn":{…}}           // one per completed turn (/lens survives resume)
  */
 
 import { mkdir, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ChatMessage } from "./anthropic";
+import type { TurnLens } from "./lens";
 import type { PlanItem } from "./plan";
 
 export interface SessionMeta {
@@ -31,6 +33,8 @@ export interface StoredSession {
   meta: SessionMeta;
   messages: ChatMessage[];
   plan: PlanItem[];
+  /** Lens ledger turns, oldest → newest (capped to the engine's 50). */
+  lensTurns: TurnLens[];
 }
 
 export function projectSlug(cwd: string): string {
@@ -104,6 +108,10 @@ export class SessionStore {
     if (items.length) await this.append(id, { kind: "plan", items });
   }
 
+  async appendLensTurn(id: string, turn: TurnLens): Promise<void> {
+    await this.append(id, { kind: "lens", turn });
+  }
+
   async load(id: string): Promise<StoredSession | null> {
     const text = await Bun.file(fileFor(this.cwd, id))
       .text()
@@ -112,6 +120,7 @@ export class SessionStore {
     let meta: SessionMeta | null = null;
     const messages: ChatMessage[] = [];
     let plan: PlanItem[] = [];
+    const lensTurns: TurnLens[] = [];
     for (const line of text.split("\n")) {
       if (!line.trim()) continue;
       try {
@@ -120,11 +129,12 @@ export class SessionStore {
         else if (obj["kind"] === "message") messages.push(obj["message"] as ChatMessage);
         else if (obj["kind"] === "plan" && Array.isArray(obj["items"]))
           plan = obj["items"] as PlanItem[];
+        else if (obj["kind"] === "lens" && obj["turn"]) lensTurns.push(obj["turn"] as TurnLens);
       } catch {
         /* skip corrupt line — resume what we can */
       }
     }
-    return meta ? { meta, messages, plan } : null;
+    return meta ? { meta, messages, plan, lensTurns: lensTurns.slice(-50) } : null;
   }
 
   /** Sessions for this project, newest first (by file mtime). */

@@ -25,6 +25,35 @@ test("store: create → append → load → list → latest roundtrip", async ()
   delete process.env.MIST_SESSIONS_DIR;
 });
 
+test("store: lens turns roundtrip — /lens survives resume", async () => {
+  const cwd = `/tmp/mist-store-lens-${Date.now()}`;
+  process.env.MIST_SESSIONS_DIR = `${cwd}/.sessions`;
+  const store = new SessionStore(cwd);
+  await store.create("lll111", "lens task");
+  const turn = {
+    prompt: "do the thing",
+    startedAt: new Date().toISOString(),
+    ms: 1234,
+    requests: [
+      {
+        index: 0, ms: 900, inputTokens: 149, cacheReadTokens: 40, cacheWriteTokens: 10,
+        outputTokens: 55, estThinkingTokens: 0, thinkingMs: 0, stopReason: "end_turn",
+        textChars: 20, toolCalls: [],
+      },
+    ],
+    subagents: [],
+    autoContinues: 0,
+    capHit: false,
+    compactions: [],
+  };
+  await store.appendLensTurn("lll111", turn);
+  const loaded = await store.load("lll111");
+  expect(loaded?.lensTurns.length).toBe(1);
+  expect(loaded?.lensTurns[0]?.prompt).toBe("do the thing");
+  expect(loaded?.lensTurns[0]?.requests[0]?.inputTokens).toBe(149);
+  delete process.env.MIST_SESSIONS_DIR;
+});
+
 test("store: rename rewrites the meta title, keeps messages + plan", async () => {
   const cwd = `/tmp/mist-store-rn-${Date.now()}`;
   process.env.MIST_SESSIONS_DIR = `${cwd}/.sessions`;

@@ -765,6 +765,7 @@ export class MistEngine {
     lens.ms = Date.now() - turnStart;
     this.currentLens = null;
     this.lensTurns.push(lens);
+    this.lensSeqNum += 1;
     if (this.lensTurns.length > 50) this.lensTurns.shift();
     return { finalText, steps };
   }
@@ -773,6 +774,19 @@ export class MistEngine {
   getLens(): TurnLens[] {
     return [...this.lensTurns];
   }
+
+  /** Monotonic count of turns ever recorded (survives the 50-turn cap). */
+  lensSeq(): number {
+    return this.lensSeqNum;
+  }
+
+  /** Rehydrate the ledger on session resume — /lens works across restarts. */
+  restoreLens(turns: TurnLens[]): void {
+    this.lensTurns = turns.slice(-50);
+    this.lensSeqNum = this.lensTurns.length;
+  }
+
+  private lensSeqNum = 0;
 
   private currentLens: TurnLens | null = null;
   private subagentSeq = 0;
