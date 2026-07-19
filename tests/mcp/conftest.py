@@ -8,6 +8,7 @@ across MCP command test files.
 import json
 import os
 import tempfile
+from contextlib import ExitStack
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 from unittest.mock import Mock, patch
@@ -233,11 +234,33 @@ def mock_emit_prompt():
 
 @pytest.fixture
 def mock_get_current_agent():
-    """Mock get_current_agent function."""
+    """Mock get_current_agent everywhere the MCP commands look for it.
+
+    The lifecycle commands bind ``get_current_agent`` into their own module
+    namespace at import time (``from ...agents import get_current_agent``),
+    so patching only ``code_puppy.agents.get_current_agent`` would leave the
+    real function in place — and with no bundled default model that real
+    path raises "No valid model could be loaded".
+    """
     mock_agent = Mock()
     mock_agent.reload_code_generation_agent = Mock()
 
-    with patch("code_puppy.agents.get_current_agent", return_value=mock_agent) as mock:
+    patch_targets = [
+        # Covers late imports (e.g. restart_command imports inside execute()).
+        "code_puppy.agents.get_current_agent",
+        # Module-level bindings created via ``from ...agents import ...``.
+        "code_puppy.command_line.mcp.start_command.get_current_agent",
+        "code_puppy.command_line.mcp.stop_command.get_current_agent",
+        "code_puppy.command_line.mcp.start_all_command.get_current_agent",
+        "code_puppy.command_line.mcp.stop_all_command.get_current_agent",
+    ]
+
+    with ExitStack() as stack:
+        mocks = [
+            stack.enter_context(patch(target, return_value=mock_agent))
+            for target in patch_targets
+        ]
+        mock = mocks[0]
         mock.agent = mock_agent
         yield mock
 
