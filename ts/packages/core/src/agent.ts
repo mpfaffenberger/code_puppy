@@ -27,6 +27,7 @@ import { normalizePlan } from "./plan";
 import type { PlanItem } from "./plan";
 import {
   clearStaleToolResults,
+  dedupeSupersededReads,
   estimateTokens,
   renderLogForSummary,
   splitForCompaction,
@@ -221,7 +222,9 @@ export class MistEngine {
     // Real reading when we have one (it's what the API actually charged for
     // the last request); estimate otherwise.
     const before = this.estimateContextTokens();
-    const clearedRes = clearStaleToolResults(this.history);
+    const deduped = dedupeSupersededReads(this.history);
+    const clearedRes = clearStaleToolResults(deduped.messages);
+    clearedRes.cleared += deduped.cleared;
     this.history = clearedRes.messages;
     const split = splitForCompaction(this.history);
     if (!split) {
@@ -453,7 +456,10 @@ export class MistEngine {
     };
     this.currentLens = lens;
     const turnStart = Date.now();
-    // Proactive hygiene: stale tool results never accumulate.
+    // Proactive hygiene: semantic supersession first (a newer read of the
+    // same file invalidates older reads regardless of age), then age-based
+    // stale-result clearing. Both deterministic + monotonic (cache-safe).
+    this.history = dedupeSupersededReads(this.history).messages;
     this.history = clearStaleToolResults(this.history).messages;
     // Auto-compact when the estimate crosses the threshold.
     if (this.estimateContextTokens() > this.compactThreshold()) {

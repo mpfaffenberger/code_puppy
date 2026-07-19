@@ -27,6 +27,84 @@ export function estimateTokens(messages: ChatMessage[]): number {
 
 const CLEARED_PREFIX = "[tool result cleared";
 
+/**
+ * Supersession dedup: a newer read of the same file makes older reads stale
+ * SEMANTICALLY, regardless of age — the newest read is the truth (the older
+ * bytes may literally be wrong after edits). Evicts the older result bodies.
+ *
+ * Rules (conservative — supersession must be certain):
+ * - a whole-file read (no start_line/num_lines) supersedes EVERY earlier
+ *   read of that path (any range is contained in it)
+ * - an identical-input read supersedes earlier identical reads
+ * - different ranges of the same path do NOT supersede each other
+ *
+ * Cache discipline matches clearStaleToolResults: deterministic stub (bytes
+ * depend only on the path), monotonic (once cleared, never touched again),
+ * and small payloads are left alone (churn would cost more than it saves).
+ */
+export function dedupeSupersededReads(
+  messages: ChatMessage[],
+  { minChars = 2000 }: { minChars?: number } = {},
+): { messages: ChatMessage[]; cleared: number } {
+  // Collect read_file tool_use blocks in history order.
+  const reads: { id: string; path: string; whole: boolean; inputKey: string }[] = [];
+  for (const m of messages) {
+    if (m.role !== "assistant" || !Array.isArray(m.content)) continue;
+    for (const b of m.content) {
+      if (b.type !== "tool_use" || b.name !== "read_file") continue;
+      const input = (b.input ?? {}) as Record<string, unknown>;
+      const path = typeof input["path"] === "string" ? input["path"] : "";
+      if (!path) continue;
+      reads.push({
+        id: b.id,
+        path,
+        whole: input["start_line"] === undefined && input["num_lines"] === undefined,
+        inputKey: JSON.stringify([path, input["start_line"], input["num_lines"]]),
+      });
+    }
+  }
+  // A read is superseded if any LATER read is a whole-file read of the same
+  // path, or has identical input.
+  const superseded = new Map<string, string>(); // tool_use id → path
+  for (let i = 0; i < reads.length; i++) {
+    const r = reads[i]!;
+    for (let j = i + 1; j < reads.length; j++) {
+      const later = reads[j]!;
+      if (later.path !== r.path) continue;
+      if (later.whole || later.inputKey === r.inputKey) {
+        superseded.set(r.id, r.path);
+        break;
+      }
+    }
+  }
+  if (superseded.size === 0) return { messages, cleared: 0 };
+
+  let cleared = 0;
+  const out = messages.map((m) => {
+    if (!Array.isArray(m.content)) return m;
+    let changed = false;
+    const content = m.content.map((b) => {
+      if (
+        b.type !== "tool_result" ||
+        !superseded.has(b.tool_use_id) ||
+        typeof b.content !== "string" ||
+        b.content.length < minChars ||
+        b.content.startsWith(CLEARED_PREFIX)
+      ) {
+        return b;
+      }
+      changed = true;
+      cleared += 1;
+      return {
+        ...b,
+        content: `${CLEARED_PREFIX} — superseded by a newer read of ${superseded.get(b.tool_use_id)}. Re-run the tool if needed.]`,
+      };
+    });
+    return changed ? { ...m, content } : m;
+  });
+  return { messages: out, cleared };
+}
+
 export interface ClearOptions {
   keepRecent?: number; // most recent tool_results kept verbatim
   minChars?: number; // only clear payloads bigger than this
