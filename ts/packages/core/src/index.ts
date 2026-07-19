@@ -18,6 +18,7 @@ export { AnthropicClient } from "./anthropic";
 export { OpenAIClient } from "./openai";
 export { GeminiClient } from "./gemini";
 export { RoundRobinClient } from "./round_robin";
+export { RetryingClient, isRetryableError } from "./retry";
 export { createModelClient, configFromDef, envKeyForType, defaultBaseForType } from "./models";
 export { startHeadlessServer } from "./headless";
 export type { ServeOptions } from "./headless";
@@ -50,3 +51,7 @@ export type {
   ToolSpec,
   TurnResult,
 } from "./models";
+export { lensTotals, renderLensHtml } from "./lens";
+export type { TurnLens, RequestLens, SubagentLens, ToolCallLens, LensTotals } from "./lens";
+export { exportTraining, redactSecrets } from "./training_export";
+export type { TrainingExportOptions, TrainingExportResult } from "./training_export";

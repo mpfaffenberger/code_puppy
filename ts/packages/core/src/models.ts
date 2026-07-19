@@ -38,11 +38,21 @@ export interface StreamCallbacks {
   onTextDelta?: (text: string) => void;
   /** Fired the instant a tool call begins (before its arguments finish). */
   onToolUse?: (name: string) => void;
+  /** A transient API failure is being retried after a backoff wait. */
+  onRetry?: (attempt: number, maxAttempts: number, delayMs: number, reason: string) => void;
 }
 
 export interface TurnResult {
   text: string;
   thinkingMs: number;
+  /** Chars of streamed thinking deltas (reasoning-share estimate for /lens). */
+  thinkingChars?: number;
+  /** REAL reasoning tokens when the provider reports them (OpenAI o-series). */
+  reasoningTokens?: number;
+  /** Prompt-cache accounting: tokens served from cache (~0.1x price). */
+  cacheReadTokens?: number;
+  /** Prompt-cache accounting: tokens written to cache (~1.25x price). */
+  cacheWriteTokens?: number;
   toolUses: { id: string; name: string; input: unknown }[];
   /** Provider-native stop reason; agent loop checks against "tool_use". */
   stopReason: string;
@@ -113,10 +123,15 @@ export async function createModelClient(
     return new RoundRobinClient(kids, { rotateEvery: cfg.rotate_every ?? 1 });
   }
 
+  // Leaf clients get transient-failure retries (round_robin candidates are
+  // wrapped here too via the recursive resolve — never wrap the outer node,
+  // that would multiply attempts).
+  const { RetryingClient } = await import("./retry");
+
   // Anthropic-compatible: anthropic, custom_anthropic, claude_code, aws_bedrock.
   if (t === "anthropic" || t === "custom_anthropic" || t === "claude_code" || t === "aws_bedrock") {
     const { AnthropicClient } = await import("./anthropic");
-    return new AnthropicClient(cfg.baseUrl, cfg.apiKey, cfg.model);
+    return new RetryingClient(new AnthropicClient(cfg.baseUrl, cfg.apiKey, cfg.model));
   }
   // OpenAI-compatible chat-completions family.
   if (
@@ -134,12 +149,12 @@ export async function createModelClient(
     t === "minimax"
   ) {
     const { OpenAIClient } = await import("./openai");
-    return new OpenAIClient(cfg.baseUrl, cfg.apiKey, cfg.model, cfg.type);
+    return new RetryingClient(new OpenAIClient(cfg.baseUrl, cfg.apiKey, cfg.model, cfg.type));
   }
   // Gemini family — generateContent stream with Google function-calling schema.
   if (t === "gemini" || t === "custom_gemini" || t === "gemini_oauth") {
     const { GeminiClient } = await import("./gemini");
-    return new GeminiClient(cfg.baseUrl, cfg.apiKey, cfg.model, cfg.type);
+    return new RetryingClient(new GeminiClient(cfg.baseUrl, cfg.apiKey, cfg.model, cfg.type));
   }
   throw new Error(`unknown model type '${t}' for model '${cfg.model}'`);
 }

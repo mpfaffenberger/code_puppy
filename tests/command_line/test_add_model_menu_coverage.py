@@ -835,6 +835,7 @@ class TestRun:
     def test_run_pending_credentials_success(
         self, mock_sleep, mock_stdout, mock_input, mock_app_cls, mock_set_await
     ):
+        mock_input.return_value = "test-key"
         m = _make_model()
         p = _make_provider(env=[])
         menu = _make_menu_with_providers([p])

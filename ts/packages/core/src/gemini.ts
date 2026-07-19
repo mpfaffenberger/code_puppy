@@ -48,6 +48,8 @@ interface GChunk {
   usageMetadata?: {
     promptTokenCount?: number;
     candidatesTokenCount?: number;
+    cachedContentTokenCount?: number;
+    thoughtsTokenCount?: number;
   };
 }
 
@@ -162,6 +164,17 @@ export class GeminiClient implements ModelClient {
             result.inputTokens = chunk.usageMetadata.promptTokenCount;
           if (typeof chunk.usageMetadata.candidatesTokenCount === "number")
             result.outputTokens = chunk.usageMetadata.candidatesTokenCount;
+          // Gemini 2.5+ implicit caching: cachedContentTokenCount is the
+          // cached SUBSET of promptTokenCount — split per TurnResult's
+          // contract (inputTokens = uncached remainder).
+          const cached = chunk.usageMetadata.cachedContentTokenCount;
+          if (typeof cached === "number" && cached > 0) {
+            result.cacheReadTokens = cached;
+            result.inputTokens = Math.max(0, result.inputTokens - cached);
+          }
+          // Real reasoning-token usage (billed separately from candidates).
+          if (typeof chunk.usageMetadata.thoughtsTokenCount === "number")
+            result.reasoningTokens = chunk.usageMetadata.thoughtsTokenCount;
         }
         const parts = chunk.candidates?.[0]?.content?.parts ?? [];
         for (const part of parts) {

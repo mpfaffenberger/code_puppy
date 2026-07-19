@@ -125,9 +125,10 @@ test("context size prefers the API's real input_tokens over the estimate", async
   // Cold start: no API reading yet → falls back to the chars/2.5 estimate.
   expect(engine.estimateContextTokens()).toBeLessThan(10);
   await engine.runTurn("demo", { onTextDelta: () => {}, onStep: () => {} });
-  // The mock's final request reports input_tokens: 99 — the REAL reading —
-  // while the estimate for this history would be far larger.
-  expect(engine.estimateContextTokens()).toBe(99);
+  // The mock's final request reports input_tokens: 99 + 40 cache-read +
+  // 10 cache-write — the true prompt size is the SUM (input_tokens is only
+  // the uncached remainder when prompt caching is active).
+  expect(engine.estimateContextTokens()).toBe(149);
 });
 
 test("request cap: hitting the ceiling is loud and hands back a resume path", async () => {
@@ -169,6 +170,88 @@ test("anti-stall: premature end_turn with open plan items triggers auto-continue
   } finally {
     delete process.env.MOCK_STALL;
     process.env.MIST_AUTO_CONTINUE = "0";
+  }
+});
+
+test("lens: turn ledger records requests, tools, and totals", async () => {
+  const dir = `/tmp/mist-ts-lens-${Date.now()}`;
+  await Bun.$`mkdir -p ${dir}`;
+  await Bun.write(`${dir}/demo.txt`, "say hello now");
+  const engine = new MistEngine(dir);
+  await engine.runTurn("demo", { onTextDelta: () => {}, onStep: () => {} });
+
+  const turns = engine.getLens();
+  expect(turns).toHaveLength(1);
+  const turn = turns[0]!;
+  expect(turn.prompt).toBe("demo");
+  // Scripted mock flow: plan → shell → edit → answer = 4 requests.
+  expect(turn.requests.length).toBe(4);
+  const tools = turn.requests.flatMap((r) => r.toolCalls);
+  expect(tools.map((t) => t.name)).toEqual(["update_plan", "shell", "replace_in_file"]);
+  const shell = tools.find((t) => t.name === "shell")!;
+  expect(shell.outputChars).toBeGreaterThan(0);
+  expect(shell.outputPreview).toContain("1"); // seq 1 4 output captured
+  // Totals: billed input is the SUM across requests; usage came from the mock.
+  const { lensTotals } = await import("./lens");
+  const t = lensTotals(turn);
+  expect(t.requests).toBe(4);
+  expect(t.toolCalls).toBe(3);
+  expect(t.billedInputTokens).toBeGreaterThan(0);
+  expect(t.outputTokens).toBeGreaterThan(0);
+  // Cache accounting from the final request's usage (40 read / 10 written).
+  expect(t.cacheReadTokens).toBe(40);
+  expect(t.cacheWriteTokens).toBe(10);
+  const final = turn.requests[turn.requests.length - 1]!;
+  expect(final.inputTokens).toBe(149); // 99 uncached + 40 read + 10 written
+});
+
+test("prompt-cache breakpoints are sent on the wire (and MIST_CACHE=0 disables)", async () => {
+  let captured: Record<string, unknown> | null = null;
+  const intercept = Bun.serve({
+    port: 9941,
+    async fetch(req) {
+      captured = (await req.json()) as Record<string, unknown>;
+      return new Response(
+        `data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } })}\n\n`,
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    },
+  });
+  try {
+    const { AnthropicClient } = await import("./anthropic");
+    const client = new AnthropicClient(`http://127.0.0.1:9941`, "k", "m");
+    await client.stream("sys", [{ role: "user", content: "hi" }], [], {});
+    const sys = captured!["system"] as { cache_control?: unknown }[];
+    expect(sys[0]!.cache_control).toEqual({ type: "ephemeral" });
+    const msgs = captured!["messages"] as { content: { cache_control?: unknown }[] }[];
+    expect(msgs[0]!.content[msgs[0]!.content.length - 1]!.cache_control).toEqual({ type: "ephemeral" });
+
+    process.env.MIST_CACHE = "0";
+    await client.stream("sys", [{ role: "user", content: "hi" }], [], {});
+    expect(typeof captured!["system"]).toBe("string"); // plain, no breakpoints
+  } finally {
+    delete process.env.MIST_CACHE;
+    intercept.stop(true);
+  }
+});
+
+test("lens: subagent traffic is attributed to the subagent entry", async () => {
+  process.env.MOCK_SUB = "1";
+  try {
+    const dir = `/tmp/mist-ts-lens-sub-${Date.now()}`;
+    await Bun.$`mkdir -p ${dir}`;
+    await Bun.write(`${dir}/demo.txt`, "say hello now");
+    const engine = new MistEngine(dir);
+    await engine.runTurn("demo", { onTextDelta: () => {}, onStep: () => {} });
+    const turn = engine.getLens()[0]!;
+    expect(turn.subagents.length).toBe(2);
+    for (const s of turn.subagents) {
+      expect(s.inputTokens).toBeGreaterThan(0); // child usage attributed here
+      expect(s.reportChars).toBeGreaterThan(0);
+      expect(s.error).toBeUndefined();
+    }
+  } finally {
+    delete process.env.MOCK_SUB;
   }
 });
 

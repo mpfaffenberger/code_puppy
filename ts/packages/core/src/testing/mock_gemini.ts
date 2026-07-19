@@ -61,7 +61,14 @@ export function startMockGemini(port = 9894) {
             ],
           },
           {
-            usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 60, totalTokenCount: 110 },
+            // cachedContentTokenCount is a SUBSET of promptTokenCount
+            // (implicit caching) — the client must split it out.
+            usageMetadata: {
+              promptTokenCount: 50,
+              candidatesTokenCount: 60,
+              totalTokenCount: 110,
+              cachedContentTokenCount: 35,
+            },
           },
         ]);
       }

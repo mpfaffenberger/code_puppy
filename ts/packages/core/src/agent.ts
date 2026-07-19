@@ -33,6 +33,7 @@ import {
   SUMMARIZATION_PROMPT,
 } from "./compaction";
 import { runTool, toolSpecs } from "./tools";
+import type { RequestLens, SubagentLens, TurnLens } from "./lens";
 import { McpManager } from "./mcp";
 
 export const SYSTEM_PROMPT = `You are Mist, an AI coding agent helping the developer complete software-engineering work.
@@ -61,7 +62,7 @@ Communicating results:
 - Don't narrate routine steps ("Let me check…") — the UI shows tool activity live. Work quietly, then summarize once.
 - Don't end with a plan or "Want me to…?" — do the work, then report.`;
 
-const ENGINE_TOOLS: ToolSpec[] = [
+export const ENGINE_TOOLS: ToolSpec[] = [
   {
     name: "update_plan",
     description:
@@ -130,6 +131,8 @@ export interface AgentCallbacks {
   onToolDone?: (label: string, preview: string[], hiddenLines: number) => void;
   onThought?: (ms: number) => void;
   onSubagent?: (ev: SubagentEvent) => void;
+  /** A transient API failure is being retried after a backoff wait. */
+  onRetry?: (attempt: number, maxAttempts: number, delayMs: number, reason: string) => void;
 }
 
 export type SubagentEvent =
@@ -172,6 +175,8 @@ export class MistEngine {
   /** MCP server manager; null until attachMcp() is called. */
   mcp: McpManager | null = null;
   plan: PlanItem[] = [];
+  /** Lens explainability ledger — one entry per completed turn (cap 50). */
+  private lensTurns: TurnLens[] = [];
   /** Real context size: input_tokens reported by the last API request. */
   private lastInputTokens = 0;
   /** context_length from the model registry, when declared. */
@@ -435,12 +440,28 @@ export class MistEngine {
   async runTurn(prompt: string, cb: AgentCallbacks): Promise<AgentTurn> {
     const client = await this.ensureClient();
     const system = await this.systemPrompt();
+    // Lens ledger: everything this turn does gets accounted here.
+    const lens: TurnLens = {
+      prompt: prompt.slice(0, 200),
+      startedAt: new Date().toISOString(),
+      ms: 0,
+      requests: [],
+      subagents: [],
+      autoContinues: 0,
+      capHit: false,
+      compactions: [],
+    };
+    this.currentLens = lens;
+    const turnStart = Date.now();
     // Proactive hygiene: stale tool results never accumulate.
     this.history = clearStaleToolResults(this.history).messages;
     // Auto-compact when the estimate crosses the threshold.
     if (this.estimateContextTokens() > this.compactThreshold()) {
       const r = await this.compact().catch(() => null);
-      if (r) cb.onCompacted?.(r);
+      if (r) {
+        cb.onCompacted?.(r);
+        lens.compactions.push({ beforeTokens: r.beforeTokens, afterTokens: r.afterTokens, summarized: r.summarized });
+      }
     }
     this.history.push({ role: "user", content: prompt });
     // Children never get invoke_subagent — one level of delegation only.
@@ -463,13 +484,34 @@ export class MistEngine {
 
     for (let request = 0; request < maxRequests; request++) {
       this.drainSteers();
+      const reqStart = Date.now();
       const result = await client.stream(system, this.history, specs, {
         onTextDelta: cb.onTextDelta,
+        onRetry: cb.onRetry,
       });
-      cb.onUsage?.(result.inputTokens, result.outputTokens);
+      // With prompt caching, input_tokens is only the UNCACHED remainder —
+      // the true prompt size is input + cache_read + cache_write.
+      const promptTokens =
+        result.inputTokens + (result.cacheReadTokens ?? 0) + (result.cacheWriteTokens ?? 0);
+      const reqLens: RequestLens = {
+        index: request,
+        ms: Date.now() - reqStart,
+        inputTokens: promptTokens,
+        cacheReadTokens: result.cacheReadTokens ?? 0,
+        cacheWriteTokens: result.cacheWriteTokens ?? 0,
+        outputTokens: result.outputTokens,
+        // Prefer REAL reasoning tokens (OpenAI o-series); else chars/3.5.
+        estThinkingTokens: result.reasoningTokens ?? Math.round((result.thinkingChars ?? 0) / 3.5),
+        thinkingMs: result.thinkingMs,
+        stopReason: result.stopReason,
+        textChars: result.text.length,
+        toolCalls: [],
+      };
+      lens.requests.push(reqLens);
+      cb.onUsage?.(promptTokens, result.outputTokens);
       // Track the real context size (some third-party endpoints report 0 —
       // keep the last good reading).
-      if (result.inputTokens > 0) this.lastInputTokens = result.inputTokens;
+      if (promptTokens > 0) this.lastInputTokens = promptTokens;
       if (result.thinkingMs > 500) cb.onThought?.(result.thinkingMs);
 
       const assistantBlocks: ContentBlock[] = [];
@@ -518,6 +560,10 @@ export class MistEngine {
         if (tu.name === "update_plan") {
           this.plan = normalizePlan(input["items"]);
           cb.onPlan?.(this.plan);
+          reqLens.toolCalls.push({
+            name: "update_plan", label: `plan updated (${this.plan.length} items)`,
+            ms: 0, outputChars: 0, outputPreview: "", isError: false, blockedByHook: false,
+          });
           toolResults.push({
             type: "tool_result",
             tool_use_id: tu.id,
@@ -531,19 +577,31 @@ export class MistEngine {
             .map((o) => String(o).trim())
             .filter(Boolean)
             .slice(0, 6);
+          const askStart = Date.now();
           const answer = cb.onQuestion
             ? await cb.onQuestion(question, options)
             : "(no user available — proceed with your best judgment)";
+          reqLens.toolCalls.push({
+            name: "ask_user", label: question.slice(0, 100),
+            ms: Date.now() - askStart, // includes human response time
+            outputChars: answer.length, outputPreview: answer.slice(0, 300),
+            isError: false, blockedByHook: false,
+          });
           toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: answer });
           continue;
         }
 
         // ---- MCP-routed tools (namespaced server_tool) --------------------
         if (this.mcp && this.mcp.allTools().some((t) => t.name === tu.name)) {
+          const mcpStart = Date.now();
           try {
             const verdict = this.hooks ? applyPreToolHooks(this.hooks, tu.name, input) : null;
             if (verdict?.action === "block") {
               cb.onStep(`⊘ ${tu.name} blocked by hook`);
+              reqLens.toolCalls.push({
+                name: tu.name, label: `blocked: ${verdict.message.slice(0, 80)}`,
+                ms: 0, outputChars: 0, outputPreview: "", isError: true, blockedByHook: true,
+              });
               toolResults.push({
                 type: "tool_result",
                 tool_use_id: tu.id,
@@ -558,8 +616,18 @@ export class MistEngine {
               : (result as { content?: { type: string; text?: string }[] })?.content
                 ?.map((c) => c.text ?? "")
                 .join("\n") ?? JSON.stringify(result);
+            reqLens.toolCalls.push({
+              name: tu.name, label: `mcp ${tu.name}`,
+              ms: Date.now() - mcpStart, outputChars: text.length,
+              outputPreview: text.slice(0, 1500), isError: false, blockedByHook: false,
+            });
             toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: text });
           } catch (e) {
+            reqLens.toolCalls.push({
+              name: tu.name, label: `mcp ${tu.name} failed`,
+              ms: Date.now() - mcpStart, outputChars: 0,
+              outputPreview: (e as Error).message.slice(0, 300), isError: true, blockedByHook: false,
+            });
             toolResults.push({
               type: "tool_result",
               tool_use_id: tu.id,
@@ -574,6 +642,10 @@ export class MistEngine {
         const verdict = this.hooks ? applyPreToolHooks(this.hooks, tu.name, input) : null;
         if (verdict?.action === "block") {
           cb.onStep(`⊘ ${tu.name} blocked by hook`);
+          reqLens.toolCalls.push({
+            name: tu.name, label: `blocked: ${verdict.message.slice(0, 80)}`,
+            ms: 0, outputChars: 0, outputPreview: "", isError: true, blockedByHook: true,
+          });
           toolResults.push({
             type: "tool_result",
             tool_use_id: tu.id,
@@ -585,6 +657,7 @@ export class MistEngine {
 
         steps += 1;
         let stepLabel = "";
+        const toolStart = Date.now();
         const res = await runTool(tu.name, input, {
           cwd: this.cwd,
           onStep: (label) => {
@@ -592,6 +665,12 @@ export class MistEngine {
             cb.onStep(label);
           },
           onDiff: cb.onDiff,
+        });
+        reqLens.toolCalls.push({
+          name: tu.name, label: stepLabel || tu.name,
+          ms: Date.now() - toolStart, outputChars: res.content.length,
+          outputPreview: res.content.slice(0, 1500),
+          isError: Boolean(res.isError), blockedByHook: false,
         });
         {
           const outLines = res.content.split("\n").filter((l) => l.trim());
@@ -617,8 +696,10 @@ export class MistEngine {
       // real reading; one failed attempt stops retries for the rest of the turn.
       if (!midTurnCompactFailed && this.lastInputTokens > this.compactThreshold()) {
         const r = await this.compact().catch(() => null);
-        if (r) cb.onCompacted?.(r);
-        else midTurnCompactFailed = true;
+        if (r) {
+          cb.onCompacted?.(r);
+          lens.compactions.push({ beforeTokens: r.beforeTokens, afterTokens: r.afterTokens, summarized: r.summarized });
+        } else midTurnCompactFailed = true;
       }
     }
     if (!endedNaturally) {
@@ -631,9 +712,21 @@ export class MistEngine {
         `All progress is saved in this session — send "continue" and I'll pick up exactly where I left off. ` +
         `(Raise MIST_MAX_REQUESTS to allow longer turns.)`;
     }
+    lens.autoContinues = autoContinues;
+    lens.capHit = !endedNaturally;
+    lens.ms = Date.now() - turnStart;
+    this.currentLens = null;
+    this.lensTurns.push(lens);
+    if (this.lensTurns.length > 50) this.lensTurns.shift();
     return { finalText, steps };
   }
 
+  /** The lens ledger — one structured trace per completed turn (newest last). */
+  getLens(): TurnLens[] {
+    return [...this.lensTurns];
+  }
+
+  private currentLens: TurnLens | null = null;
   private subagentSeq = 0;
 
   /** Run one delegated task in a fresh child engine; only the report returns. */
@@ -656,19 +749,36 @@ export class MistEngine {
     cb.onSubagent?.({ phase: "started", id, label, task });
     const child = new MistEngine(this.cwd, true);
     if (this.modelOverride) child.setModel(this.modelOverride);
+    // Lens: attribute the child's traffic to THIS subagent (its usage still
+    // forwards to the parent's totals via cb.onUsage).
+    const subLens: SubagentLens = {
+      id, label, task: task.slice(0, 300),
+      steps: 0, inputTokens: 0, outputTokens: 0, ms: 0, reportChars: 0,
+    };
+    this.currentLens?.subagents.push(subLens);
+    const subStart = Date.now();
     try {
       const turn = await child.runTurn(task, {
         onTextDelta: () => {},
         onStep: (step) => cb.onSubagent?.({ phase: "step", id, label, step }),
-        onUsage: cb.onUsage,
+        onUsage: (i, o) => {
+          subLens.inputTokens += i;
+          subLens.outputTokens += o;
+          cb.onUsage?.(i, o);
+        },
         onDiff: cb.onDiff, // file edits surface in the transcript regardless of who made them
         onSavings: cb.onSavings,
       });
       const report = turn.finalText.trim() || "(subagent finished without a report)";
+      subLens.steps = turn.steps;
+      subLens.ms = Date.now() - subStart;
+      subLens.reportChars = report.length;
       cb.onSubagent?.({ phase: "done", id, label, steps: turn.steps, report });
       return { type: "tool_result", tool_use_id: toolUseId, content: `[subagent "${label}" report]\n${report}` };
     } catch (err) {
       const error = (err as Error).message;
+      subLens.ms = Date.now() - subStart;
+      subLens.error = error;
       cb.onSubagent?.({ phase: "error", id, label, error });
       return {
         type: "tool_result",

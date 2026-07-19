@@ -127,6 +127,7 @@ const DESCRIPTIONS: Record<string, string> = {
   prune: "trim history to N turns",
   truncate: "truncate history to token budget",
   mcp: "manage MCP servers",
+  lens: "explainability: tokens, tools, subagents (html/json)",
 };
 
 function commandDescription(cmd: string): string {

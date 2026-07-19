@@ -47,9 +47,15 @@ export function startMockModel(port = 9876) {
     port,
     async fetch(req) {
       if (!req.url.endsWith("/v1/messages")) return new Response("nf", { status: 404 });
-      const payload = (await req.json()) as { system?: string; messages: { role: string; content: unknown }[]; tools?: unknown[] };
+      const payload = (await req.json()) as { system?: string | { text?: string }[]; messages: { role: string; content: unknown }[]; tools?: unknown[] };
+      // With prompt caching the client sends system as an array of text
+      // blocks — normalize to a string for branch sniffing.
+      const systemText =
+        typeof payload.system === "string"
+          ? payload.system
+          : (payload.system ?? []).map((b) => b.text ?? "").join("\n");
       // Title-generation calls (no tools, title system prompt) — canned name.
-      if (typeof payload.system === "string" && payload.system.includes("session title")) {
+      if (systemText.includes("session title")) {
         return sse([
           { type: "message_start", message: { usage: { input_tokens: 8 } } },
           { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
@@ -119,7 +125,7 @@ export function startMockModel(port = 9876) {
       }
       // Subagent child conversations carry the subagent marker in the system
       // prompt — answer them with a canned one-shot report.
-      if (process.env.MOCK_SUB === "1" && typeof payload.system === "string" && payload.system.includes("SUBAGENT")) {
+      if (process.env.MOCK_SUB === "1" && systemText.includes("SUBAGENT")) {
         return sse([
           { type: "message_start", message: { usage: { input_tokens: 15 } } },
           { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
@@ -256,7 +262,8 @@ export function startMockModel(port = 9876) {
         ]);
       }
       return sse([
-        { type: "message_start", message: { usage: { input_tokens: 99 } } },
+        // Cache fields present: input_tokens is the UNCACHED remainder only.
+        { type: "message_start", message: { usage: { input_tokens: 99, cache_read_input_tokens: 40, cache_creation_input_tokens: 10 } } },
         { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
         ...ANSWER.map((chunk) => ({
           type: "content_block_delta",

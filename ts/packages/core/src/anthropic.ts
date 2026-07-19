@@ -36,6 +36,26 @@ export class AnthropicClient implements ModelClient {
     maxTokens = 8192,
   ): Promise<TurnResult> {
     const url = `${this.baseUrl.replace(/\/$/, "")}/v1/messages`;
+    // Prompt caching (MIST_CACHE=0 disables): breakpoint on the system block
+    // (caches tools+system) and on the last message block (caches the whole
+    // conversation prefix — the agent loop resends it every request, so
+    // subsequent requests read it at ~0.1x instead of paying full price).
+    const useCache = process.env.MIST_CACHE !== "0";
+    const ephemeral = { type: "ephemeral" as const };
+    const systemPayload = useCache
+      ? [{ type: "text", text: system, cache_control: ephemeral }]
+      : system;
+    let wireMessages: unknown[] = messages;
+    if (useCache && messages.length) {
+      const last = messages[messages.length - 1]!;
+      const lastContent =
+        typeof last.content === "string"
+          ? [{ type: "text", text: last.content, cache_control: ephemeral }]
+          : last.content.map((b, i) =>
+              i === last.content.length - 1 ? { ...b, cache_control: ephemeral } : b,
+            );
+      wireMessages = [...messages.slice(0, -1), { ...last, content: lastContent }];
+    }
     const res = await fetch(url, {
       method: "POST",
       headers: {
@@ -46,8 +66,8 @@ export class AnthropicClient implements ModelClient {
       },
       body: JSON.stringify({
         model: this.model,
-        system,
-        messages,
+        system: systemPayload,
+        messages: wireMessages,
         tools: tools.length ? tools : undefined,
         max_tokens: maxTokens,
         stream: true,
@@ -116,6 +136,7 @@ export class AnthropicClient implements ModelClient {
             if (delta0?.["type"] === "thinking_delta") {
               if (thinkingStart === 0) thinkingStart = Date.now();
               thinkingLast = Date.now();
+              result.thinkingChars = (result.thinkingChars ?? 0) + String(delta0["thinking"] ?? "").length;
             }
           }
           const idx = ev["index"] as number;
@@ -139,6 +160,12 @@ export class AnthropicClient implements ModelClient {
           const usage = msg?.["usage"] as Record<string, unknown> | undefined;
           if (typeof usage?.["input_tokens"] === "number")
             result.inputTokens = usage["input_tokens"] as number;
+          // Cache accounting: input_tokens is only the UNCACHED remainder —
+          // total prompt = input + cache_read + cache_creation.
+          if (typeof usage?.["cache_read_input_tokens"] === "number")
+            result.cacheReadTokens = usage["cache_read_input_tokens"] as number;
+          if (typeof usage?.["cache_creation_input_tokens"] === "number")
+            result.cacheWriteTokens = usage["cache_creation_input_tokens"] as number;
         } else if (type === "error") {
           const err = ev["error"] as Record<string, unknown> | undefined;
           throw new Error(`stream error: ${String(err?.["message"] ?? data).slice(0, 300)}`);

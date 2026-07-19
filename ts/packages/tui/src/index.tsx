@@ -17,7 +17,7 @@ import { Box, Static, Text, render, useApp, useInput } from "ink";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { classifyEvent } from "@mist/protocol";
 import type { EventEnvelope } from "@mist/protocol";
-import { EngineSession, SessionStore, getConfiguredModelName, listModelNames, persistModelChoice } from "@mist/core";
+import { EngineSession, SessionStore, getConfiguredModelName, lensTotals, listModelNames, persistModelChoice, renderLensHtml } from "@mist/core";
 import { readConfig, getConfig, setConfig, SETTING_DEFS } from "@mist/core";
 import type { ChatMessage, SessionMeta, StoredSession } from "@mist/core";
 import { MistClient } from "./client";
@@ -37,7 +37,7 @@ const COMMAND_NAMES = [
   "help", "theme", "model", "resume", "sessions", "rename", "new", "clear",
   "compact", "steps", "tools", "status", "record", "export", "dump_context",
   "quit", "exit", "q", "set", "show", "cd", "reasoning", "verbosity",
-  "pop", "prune", "truncate", "mcp",
+  "pop", "prune", "truncate", "mcp", "lens",
 ];
 
 type Item =
@@ -282,8 +282,10 @@ function TranscriptItem({ it }: { it: Item }) {
     case "user":
       return (
         <Box marginTop={1}>
-          <Text bold color={theme.user}>
-            ❯ {it.text}
+          <Text bold color={theme.user} backgroundColor={theme.userBg}>
+            {" ❯ "}
+            {it.text}
+            {" "}
           </Text>
         </Box>
       );
@@ -592,6 +594,14 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
         case "thought":
           push(item("info", `Thought for ${Math.max(1, Math.round(ev.ms / 1000))}s`));
           break;
+        case "model_retry":
+          push(
+            item(
+              "info",
+              `⚠ API error (${ev.reason}) — retrying in ${Math.max(1, Math.round(ev.delayMs / 1000))}s (attempt ${ev.attempt}/${ev.maxAttempts})`,
+            ),
+          );
+          break;
         case "narration": {
           flushStepGroup();
           if (ev.text.trim()) push(item("narration", ev.text.trim()));
@@ -746,6 +756,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
               { label: "/sessions", desc: "list saved sessions for this directory", action: "/sessions" },
               { label: "/rename", desc: "name this session (auto-named from your first question otherwise)", action: "/rename" },
               { label: "/new", desc: "start a fresh conversation (alias /clear)", action: "/new" },
+              { label: "/lens", desc: "explainability: tokens, tools, subagents — /lens html for the diagram", action: "/lens" },
               { label: "/compact", desc: "summarize older context to free tokens", action: "/compact" },
               { label: "/pop", desc: "remove the last turn from history", action: "/pop" },
               { label: "/prune", desc: "keep only the last N turns", action: "/prune" },
@@ -840,6 +851,53 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
             break;
           }
           await sessionRef.current?.rename(arg);
+          break;
+        }
+        case "lens": {
+          const turns = sessionRef.current?.lens() ?? [];
+          if (!turns.length) {
+            say("(no turns recorded yet — run a prompt first)");
+            break;
+          }
+          const sub = rest[0]?.toLowerCase();
+          if (sub === "html") {
+            const file = rest[1] || `mist-lens-${sessionId.slice(0, 8)}.html`;
+            await Bun.write(file, renderLensHtml(turns, sessionId));
+            say(`🔍 interactive lens report (${turns.length} turns) → ${file} — open in a browser`);
+            break;
+          }
+          if (sub === "json") {
+            const file = rest[1] || `mist-lens-${sessionId.slice(0, 8)}.json`;
+            await Bun.write(file, JSON.stringify(turns, null, 2));
+            say(`🔍 full lens ledger → ${file}`);
+            break;
+          }
+          // Default: text summary of the LAST turn.
+          const turn = turns[turns.length - 1]!;
+          const t = lensTotals(turn);
+          say(`🔍 lens — last turn: “${turn.prompt.slice(0, 60)}” (${Math.round(turn.ms / 1000)}s)`);
+          say(`tokens: ${t.billedInputTokens.toLocaleString()} input (history×${t.requests} requests) · ${t.outputTokens.toLocaleString()} output (≈${t.estThinkingTokens.toLocaleString()} thinking) · context now ${t.finalContextTokens.toLocaleString()}`);
+          if (t.cacheReadTokens || t.cacheWriteTokens) {
+            const pct = t.billedInputTokens ? Math.round((t.cacheReadTokens / t.billedInputTokens) * 100) : 0;
+            say(`cache: ${t.cacheReadTokens.toLocaleString()} read (~0.1x price) · ${t.cacheWriteTokens.toLocaleString()} written · ${pct}% of input served from cache`);
+          } else {
+            say(`cache: no activity — endpoint may not support prompt caching (MIST_CACHE=0 disables sending breakpoints)`);
+          }
+          say(`work: ${t.requests} model requests (${Math.round(t.modelMs / 1000)}s) · ${t.toolCalls} tool calls (${Math.round(t.toolMs / 1000)}s) · ${t.subagents} subagents${t.toolErrors ? ` · ${t.toolErrors} tool errors` : ""}${t.hookBlocks ? ` · ${t.hookBlocks} hook blocks` : ""}`);
+          if (turn.autoContinues || turn.capHit || turn.compactions.length) {
+            say(`events: ${[turn.autoContinues ? `⟳ ${turn.autoContinues} auto-continue` : "", turn.capHit ? "⏸ cap hit" : "", ...turn.compactions.map((c) => `⇣ compacted ${c.beforeTokens.toLocaleString()}→${c.afterTokens.toLocaleString()}`)].filter(Boolean).join(" · ")}`);
+          }
+          // Top token-consuming requests + biggest tool outputs.
+          const topReq = [...turn.requests].sort((a, b) => b.outputTokens - a.outputTokens)[0];
+          if (topReq) say(`hottest request: #${topReq.index + 1} — out ${topReq.outputTokens.toLocaleString()} tok, ${topReq.toolCalls.length} tools, ${topReq.stopReason}`);
+          const allTools = turn.requests.flatMap((r) => r.toolCalls);
+          for (const c of [...allTools].sort((a, b) => b.outputChars - a.outputChars).slice(0, 3)) {
+            say(`  ${c.isError ? "✗" : "·"} ${c.name}: ${c.label.slice(0, 60)} — ${c.outputChars.toLocaleString()} chars, ${c.ms}ms`);
+          }
+          for (const s of turn.subagents) {
+            say(`  ◇ ${s.label}: ${s.steps} steps · in ${s.inputTokens.toLocaleString()} / out ${s.outputTokens.toLocaleString()} tok · ${Math.round(s.ms / 1000)}s${s.error ? ` · FAILED: ${s.error.slice(0, 60)}` : ""}`);
+          }
+          say("/lens html → interactive diagram · /lens json → full ledger (all turns, tool outputs)");
           break;
         }
         case "compact": {
@@ -1556,6 +1614,8 @@ Usage:
   mist -c | --continue        resume the latest session for this directory
   mist -r <id> | --resume     resume a specific session (id prefix ok)
   mist --sessions             list saved sessions for this directory
+  mist --export-training [f]  sessions → SFT JSONL (--format=openai,
+                              --min-turns=N, --no-redact)
   mist --help | --version
 
 While the agent works: type + Enter to steer it; Esc interrupts; Ctrl+C quits.
@@ -1581,6 +1641,24 @@ async function main(): Promise<void> {
     for (const s of sessions) {
       console.log(`${s.id.slice(0, 8)}  ${s.created_at.slice(0, 16).replace("T", " ")}  ${s.title}`);
     }
+    return;
+  }
+
+  // --export-training: dump stored sessions as SFT-ready JSONL trajectories.
+  if (args.includes("--export-training")) {
+    const { exportTraining } = await import("@mist/core");
+    const idx = args.indexOf("--export-training");
+    const next = args[idx + 1];
+    const outPath = next && !next.startsWith("--") ? next : `mist-training-${Date.now()}.jsonl`;
+    const format = args.includes("--format=openai") ? "openai" as const : "anthropic" as const;
+    const mt = args.find((a) => a.startsWith("--min-turns="));
+    const minTurns = mt ? Math.max(1, Number(mt.split("=")[1])) : 1;
+    const redact = !args.includes("--no-redact");
+    const res = await exportTraining(process.cwd(), outPath, { format, minTurns, redact });
+    console.log(
+      `exported ${res.written} trajectories (${format}${redact ? ", secrets redacted" : ", RAW — review before sharing"}) → ${res.outPath}` +
+        (res.skipped ? ` · ${res.skipped} skipped (< ${minTurns} turns)` : ""),
+    );
     return;
   }
 
