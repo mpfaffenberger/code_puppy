@@ -95,6 +95,24 @@ class KennelStatsOutput(BaseModel):
     error: str | None = None
 
 
+class KennelForgetOutput(BaseModel):
+    """Output for ``kennel_forget``."""
+
+    drawer_id: int
+    found: bool
+    deleted_content_preview: str | None = None
+    error: str | None = None
+
+
+class KennelUpdateOutput(BaseModel):
+    """Output for ``kennel_update``."""
+
+    drawer_id: int
+    found: bool
+    bytes_stored: int = 0
+    error: str | None = None
+
+
 def _drawer_to_model(d: Any) -> KennelDrawer:
     meta = d.metadata or {}
     return KennelDrawer(
@@ -419,6 +437,101 @@ def register_kennel_stats(agent: Any) -> None:
             )
 
 
+def register_kennel_forget(agent: Any) -> None:
+    """Register the ``kennel_forget`` tool — permanent drawer deletion by ID."""
+
+    @agent.tool
+    async def kennel_forget(
+        context: RunContext,
+        drawer_id: int,
+    ) -> KennelForgetOutput:
+        """Permanently delete a drawer from the Puppy Kennel by its ID.
+
+        **Workflow:** call ``kennel_recall`` or ``kennel_recent`` first to
+        find the drawer ID and confirm you are targeting the correct memory.
+        Deletion is irreversible.
+
+        The response includes a preview of the deleted content so you can
+        verify the right drawer was removed.
+
+        Args:
+            drawer_id: Numeric ID of the drawer to delete (from kennel_recall/kennel_recent).
+        """
+        if not is_enabled():
+            return KennelForgetOutput(
+                drawer_id=drawer_id, found=False, error=DISABLED_TOOL_ERROR
+            )
+        try:
+            found, preview = kennel.delete_drawer(drawer_id)
+            if not found:
+                return KennelForgetOutput(
+                    drawer_id=drawer_id,
+                    found=False,
+                    error=f"No drawer with id={drawer_id} found.",
+                )
+            return KennelForgetOutput(
+                drawer_id=drawer_id,
+                found=True,
+                deleted_content_preview=preview,
+            )
+        except Exception as exc:  # noqa: BLE001 — tool must never raise.
+            return KennelForgetOutput(
+                drawer_id=drawer_id,
+                found=False,
+                error=f"kennel_forget failed: {exc!r}",
+            )
+
+
+def register_kennel_update(agent: Any) -> None:
+    """Register the ``kennel_update`` tool — replace a drawer's content by ID."""
+
+    @agent.tool
+    async def kennel_update(
+        context: RunContext,
+        drawer_id: int,
+        new_content: str,
+    ) -> KennelUpdateOutput:
+        """Replace the content of an existing drawer in the Puppy Kennel.
+
+        **Workflow:** call ``kennel_recall`` or ``kennel_recent`` first to
+        find the drawer ID and confirm you are correcting the right memory.
+        The FTS index is updated automatically — no separate reindex needed.
+
+        Args:
+            drawer_id:   Numeric ID of the drawer to update (from kennel_recall/kennel_recent).
+            new_content: Replacement text. Must be non-empty.
+        """
+        if not is_enabled():
+            return KennelUpdateOutput(
+                drawer_id=drawer_id, found=False, error=DISABLED_TOOL_ERROR
+            )
+        if not new_content or not new_content.strip():
+            return KennelUpdateOutput(
+                drawer_id=drawer_id,
+                found=False,
+                error="Empty new_content — nothing to update.",
+            )
+        try:
+            found = kennel.update_drawer(drawer_id, new_content)
+            if not found:
+                return KennelUpdateOutput(
+                    drawer_id=drawer_id,
+                    found=False,
+                    error=f"No drawer with id={drawer_id} found.",
+                )
+            return KennelUpdateOutput(
+                drawer_id=drawer_id,
+                found=True,
+                bytes_stored=len(new_content.encode("utf-8")),
+            )
+        except Exception as exc:  # noqa: BLE001 — tool must never raise.
+            return KennelUpdateOutput(
+                drawer_id=drawer_id,
+                found=False,
+                error=f"kennel_update failed: {exc!r}",
+            )
+
+
 def _agent_name_from_context(context: RunContext) -> str:
     """Best-effort extraction of the calling agent's name from the run context.
 
@@ -446,4 +559,6 @@ def register_tools_callback() -> list[dict[str, Any]]:
         {"name": "kennel_recent", "register_func": register_kennel_recent},
         {"name": "kennel_list_wings", "register_func": register_kennel_list_wings},
         {"name": "kennel_stats", "register_func": register_kennel_stats},
+        {"name": "kennel_forget", "register_func": register_kennel_forget},
+        {"name": "kennel_update", "register_func": register_kennel_update},
     ]
