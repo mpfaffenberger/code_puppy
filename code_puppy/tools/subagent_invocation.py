@@ -154,6 +154,27 @@ async def _invoke_agent_impl(
             if not effective_model_name:
                 raise ValueError("No model configured for sub-agent invocation")
 
+            # GPT-5.6 family models get a max sub-agent recursion depth of 1.
+            # Block the delegation here (before any heavy work like MCP server
+            # loading) so we don't waste cycles spinning up a sub-agent we're
+            # going to refuse anyway.
+            from code_puppy.agents._builder import _gpt_5_6_subagent_depth_should_block
+
+            if _gpt_5_6_subagent_depth_should_block(effective_model_name):
+                depth_msg = (
+                    f"GPT-5.6 family models have a max sub-agent recursion "
+                    f"depth of 1; refusing to invoke '{agent_name}' from "
+                    f"inside a GPT-5.6 sub-agent."
+                )
+                group_id = generate_group_id("invoke_agent", agent_name)
+                emit_error(depth_msg, message_group=group_id)
+                return AgentInvokeOutput(
+                    response=None,
+                    agent_name=agent_name,
+                    model_name=model_name,
+                    error=depth_msg,
+                )
+
             # Only proceed if we have a valid model configuration
             if effective_model_name not in models_config:
                 raise ValueError(

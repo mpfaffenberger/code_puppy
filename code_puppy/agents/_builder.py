@@ -520,6 +520,23 @@ def _agent_exposes_tool(agent: Any, tool_name: str) -> bool:
     return tool_name in (tools or [])
 
 
+def _gpt_5_6_subagent_depth_should_block(model_name: Optional[str]) -> bool:
+    """Return ``True`` when a GPT-5.6 model is being asked to delegate past depth 1.
+
+    GPT-5.6 family models get a max sub-agent recursion depth of 1: a
+    first-level sub-agent is allowed (depth 0 → 1), but any further
+    delegation (depth 1 → 2) is blocked. The check is non-blocking for
+    non-GPT-5.6 models so the rule only bites where we want it to.
+    """
+    if not _is_gpt_5_6_family(model_name):
+        return False
+    # Lazy import keeps this module free of an unconditional dependency on
+    # the sub-agent context machinery at import time.
+    from code_puppy.tools.subagent_context import get_subagent_depth
+
+    return get_subagent_depth() >= 1
+
+
 def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
     """Compose full system prompt + puppy rules + extended-thinking note."""
     from code_puppy.model_utils import prepare_prompt_for_model
