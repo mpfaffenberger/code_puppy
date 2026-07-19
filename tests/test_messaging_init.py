@@ -186,6 +186,7 @@ class TestMessagingPackageExports:
             "patch_markdown",
             # Session management
             "set_session_context",
+            "reset_session_context",
             "get_session_context",
             # Shell output rendering
             "ShellLineMessage",

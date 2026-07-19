@@ -2,11 +2,13 @@
 
 import asyncio
 import inspect
+import json
 import traceback
 from contextlib import AsyncExitStack
 from functools import partial
-from typing import Set
+from typing import Annotated, Set
 
+from pydantic import BaseModel, BeforeValidator, Field
 from pydantic_ai import Agent, RunContext, UsageLimits
 
 from code_puppy.callbacks import (
@@ -22,7 +24,7 @@ from code_puppy.messaging import (
     emit_info,
     emit_success,
     get_message_bus,
-    get_session_context,
+    reset_session_context,
     set_session_context,
 )
 from code_puppy.tools.agent_tools import (
@@ -114,9 +116,11 @@ async def _invoke_agent_impl(
         )
     )
 
-    # Save current session context and set the new one for this sub-agent
-    previous_session_id = get_session_context()
-    set_session_context(session_id)
+    # Set the session context for this sub-agent. ``set_session_context``
+    # returns a ContextVar token; we restore via ``reset_session_context`` in
+    # the ``finally`` below. This is reentrant + parallel-safe — no clobbering
+    # between concurrently-running sibling sub-agents.
+    session_token = set_session_context(session_id)
 
     # Set browser session for browser tools (qa-kitten, etc.)
     # This allows parallel agent invocations to each have their own browser
@@ -436,8 +440,8 @@ async def _invoke_agent_impl(
         )
 
     finally:
-        # Restore the previous session context
-        set_session_context(previous_session_id)
+        # Restore the previous session context via the token
+        reset_session_context(session_token)
         # Reset browser session context
         from code_puppy.tools.browser.browser_manager import (
             _browser_session_var,
@@ -536,3 +540,134 @@ def register_invoke_agent_with_model(agent):
         )
 
     return invoke_agent_with_model
+
+
+class SubAgentTask(BaseModel):
+    """A single sub-agent invocation within a parallel batch."""
+
+    agent_name: str = Field(description="Name of the sub-agent to invoke.")
+    prompt: str = Field(description="Task prompt for this sub-agent.")
+    session_id: str | None = Field(
+        default=None,
+        description="Optional kebab-case session id for continuing memory.",
+    )
+    model_name: str | None = Field(
+        default=None,
+        description=(
+            "Optional per-task model alias override for this invocation only. "
+            "Omit to use the sub-agent's configured model (the common case)."
+        ),
+    )
+
+    def resolved_model_name(self) -> str | None:
+        """Return the override model, treating blank strings as 'no override'.
+
+        Mirrors the normalization in ``invoke_agent_with_model`` so a whitespace
+        alias never leaks through as a bogus override.
+        """
+        if self.model_name is None:
+            return None
+        normalized = self.model_name.strip()
+        return normalized or None
+
+
+def _coerce_tasks(value):
+    """Tolerate a JSON-string ``tasks`` arg from providers that double-encode it.
+
+    pydantic v2 validates tool args with ``validate_python``, which will NOT
+    parse a JSON *string* into a *list* (only ``validate_json`` does). Some
+    LLM providers serialise nested array/object tool arguments as a JSON
+    string, so ``tasks`` arrives as ``'[{...}]'`` rather than ``[{...}]`` and
+    pydantic raises ``list_type`` before any sub-agent runs. Parse the string
+    back into structured data here; pass real lists straight through.
+    """
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            # Let pydantic raise its normal, informative validation error.
+            return value
+    return value
+
+
+# Tool-arg type for the batch fan-out. The BeforeValidator makes us robust to
+# providers that hand ``tasks`` over as a double-encoded JSON string.
+TasksArg = Annotated[list[SubAgentTask], BeforeValidator(_coerce_tasks)]
+
+
+def register_invoke_agents(agent):
+    """Register the parallel fan-out ``invoke_agents`` tool.
+
+    Unlike emitting several ``invoke_agent`` calls in one turn (which depends on
+    the model/provider honouring ``parallel_tool_calls``), this is a SINGLE
+    reviewable tool call that fans the tasks out internally with
+    ``asyncio.gather``. Each task runs in its own asyncio Task, so the
+    ContextVar-based session/browser isolation keeps them from clobbering each
+    other. This is the DRY, deterministic way to spawn a pack of puppies.
+    """
+
+    async def invoke_agents(
+        context: RunContext,
+        tasks: TasksArg,
+    ) -> list[AgentInvokeOutput]:
+        """Invoke multiple sub-agents concurrently and collect every result.
+
+        Use this when you have independent tasks that can run in parallel
+        (e.g. "review these three files"). Each sub-agent runs with its own
+        isolated session, and results come back in the same order as ``tasks``.
+
+        Args:
+            tasks: List of sub-agent tasks, each with agent_name, prompt, an
+                optional session_id, and an optional per-task model_name
+                override (omit model_name to use the sub-agent's configured
+                model). This closes the "parallel + custom models" gap so the
+                batch path is no longer limited to each agent's default model.
+
+        Returns:
+            list[AgentInvokeOutput]: One result per task, order-preserved.
+            A failure in one task is captured in that task's ``error`` field
+            and never cancels its siblings.
+        """
+        if not tasks:
+            return []
+
+        emit_info(
+            f"Spawning {len(tasks)} sub-agent(s) in parallel: "
+            + ", ".join(t.agent_name for t in tasks),
+            message_group=generate_group_id("invoke_agent", "batch"),
+        )
+
+        coros = [
+            _invoke_agent_impl(
+                context=context,
+                agent_name=task.agent_name,
+                prompt=task.prompt,
+                session_id=task.session_id,
+                model_name=task.resolved_model_name(),
+            )
+            for task in tasks
+        ]
+
+        raw_results = await asyncio.gather(*coros, return_exceptions=True)
+
+        # Normalise: an exception escaping _invoke_agent_impl (it mostly
+        # swallows its own, but belt-and-braces) becomes a structured error
+        # so one bad puppy doesn't poison the whole batch's return type.
+        results: list[AgentInvokeOutput] = []
+        for task, outcome in zip(tasks, raw_results):
+            if isinstance(outcome, BaseException):
+                results.append(
+                    AgentInvokeOutput(
+                        response=None,
+                        agent_name=task.agent_name,
+                        session_id=task.session_id,
+                        model_name=task.resolved_model_name(),
+                        error=f"Error invoking agent '{task.agent_name}': {outcome}",
+                    )
+                )
+            else:
+                results.append(outcome)
+
+        return results
+
+    return agent.tool(invoke_agents)

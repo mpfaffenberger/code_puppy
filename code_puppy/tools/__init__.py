@@ -6,6 +6,7 @@ from code_puppy.tools.agent_tools import register_list_agents
 from code_puppy.tools.subagent_invocation import (
     register_invoke_agent,
     register_invoke_agent_with_model,
+    register_invoke_agents,
 )
 from code_puppy.tools.ask_user_question import register_ask_user_question
 
@@ -104,6 +105,7 @@ TOOL_REGISTRY = {
     "list_agents": register_list_agents,
     "invoke_agent": register_invoke_agent,
     "invoke_agent_with_model": register_invoke_agent_with_model,
+    "invoke_agents": register_invoke_agents,
     "list_available_models": register_list_available_models,
     # File Operations
     "list_files": register_list_files,
