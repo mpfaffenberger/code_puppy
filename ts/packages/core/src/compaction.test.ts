@@ -1,7 +1,7 @@
 process.env.MOCK_FAST = "1";
 import { afterAll, expect, test } from "bun:test";
 import type { ChatMessage } from "./anthropic";
-import { clearStaleToolResults, dedupeSupersededReads, estimateTokens, splitForCompaction } from "./compaction";
+import { clearStaleToolResults, dedupeSupersededReads, staleClearWorthIt, estimateTokens, splitForCompaction } from "./compaction";
 import { MistEngine } from "./agent";
 import { startMockModel } from "./testing/mock_model";
 
@@ -77,6 +77,47 @@ test("dedupeSupersededReads: different ranges don't supersede; identical inputs 
   expect(body("r2").content).toBe(BIG);
   expect(body("r3").content).toBe(BIG);
   expect(body("r4").content).toBe("tiny");
+});
+
+test("clearStaleToolResults dry-run reports the plan without mutating", () => {
+  let messages: ChatMessage[] = [{ role: "user", content: "task" }];
+  for (let i = 0; i < 6; i++) messages = [...messages, ...toolTurn(`t${i}`, BIG)];
+  const plan = clearStaleToolResults(messages, { keepRecent: 2, minChars: 2000, dryRun: true });
+  expect(plan.cleared).toBe(4);
+  expect(plan.savedChars).toBe(4 * BIG.length);
+  expect(plan.tailChars).toBeGreaterThan(plan.savedChars); // tail spans cleared blocks + everything after
+  expect(plan.messages).toBe(messages); // untouched
+  // Applying for real matches the plan.
+  const applied = clearStaleToolResults(messages, { keepRecent: 2, minChars: 2000 });
+  expect(applied.cleared).toBe(4);
+  expect(applied.savedChars).toBe(plan.savedChars);
+});
+
+test("staleClearWorthIt: adapts to observed cache behavior", () => {
+  const plan = { savedChars: 25_000, tailChars: 250_000 }; // 10k tok savings, 100k tok tail
+  // No cache on this endpoint → nothing to protect → always clear.
+  expect(
+    staleClearWorthIt(plan, { cacheLive: false, avgRequestsPerTurn: 30, cacheLikelyCold: false })
+      .clear,
+  ).toBe(true);
+  // Cache live but cold (idle past TTL) → bust is free → clear.
+  expect(
+    staleClearWorthIt(plan, { cacheLive: true, avgRequestsPerTurn: 30, cacheLikelyCold: true })
+      .clear,
+  ).toBe(true);
+  // Cache live + warm, short turns: 0.1×10k×2 = 2k savings < 1.25×100k bust → defer.
+  const defer = staleClearWorthIt(plan, {
+    cacheLive: true,
+    avgRequestsPerTurn: 2,
+    cacheLikelyCold: false,
+  });
+  expect(defer.clear).toBe(false);
+  expect(defer.reason).toContain("deferred");
+  // Same history but long turns: 0.1×10k×200 = 200k savings > 125k bust → clear.
+  expect(
+    staleClearWorthIt(plan, { cacheLive: true, avgRequestsPerTurn: 200, cacheLikelyCold: false })
+      .clear,
+  ).toBe(true);
 });
 
 test("splitForCompaction only splits at real user-turn boundaries", () => {

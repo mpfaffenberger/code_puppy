@@ -11,7 +11,8 @@ export {
 export { EngineSession } from "./session";
 export { SessionStore, projectSlug } from "./store";
 export type { SessionMeta, StoredSession } from "./store";
-export { clearStaleToolResults, dedupeSupersededReads, estimateTokens, splitForCompaction } from "./compaction";
+export { clearStaleToolResults, dedupeSupersededReads, staleClearWorthIt, estimateTokens, splitForCompaction } from "./compaction";
+export type { HygieneSignals, ClearResult } from "./compaction";
 export { computeEditDiff } from "./tools";
 export type { DiffPayload, DiffLine } from "./tools";
 export { AnthropicClient } from "./anthropic";

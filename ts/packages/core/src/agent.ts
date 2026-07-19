@@ -28,6 +28,8 @@ import type { PlanItem } from "./plan";
 import {
   clearStaleToolResults,
   dedupeSupersededReads,
+  staleClearWorthIt,
+  type HygieneSignals,
   estimateTokens,
   renderLogForSummary,
   splitForCompaction,
@@ -430,6 +432,26 @@ export class MistEngine {
     return content;
   }
 
+  /**
+   * Live signals for adaptive hygiene, read from the engine's own lens
+   * ledger — the harness observing itself and steering on the observation.
+   */
+  private hygieneSignals(): HygieneSignals {
+    const recent = this.lensTurns.slice(-3);
+    const reqs = recent.flatMap((t) => t.requests);
+    const cacheLive = reqs.some((r) => (r.cacheReadTokens ?? 0) > 0);
+    const withReqs = recent.filter((t) => t.requests.length > 0);
+    const avgRequestsPerTurn = withReqs.length
+      ? withReqs.reduce((a, t) => a + t.requests.length, 0) / withReqs.length
+      : 8; // no observations yet — assume a modest working turn
+    // Anthropic-protocol cache TTL is ~5 min; idle past it (or a fresh
+    // session) means the prefix is cold and clearing busts nothing.
+    const last = this.lensTurns[this.lensTurns.length - 1];
+    const lastEnd = last ? Date.parse(last.startedAt) + last.ms : 0;
+    const cacheLikelyCold = !last || Date.now() - lastEnd > 5 * 60_000;
+    return { cacheLive, avgRequestsPerTurn, cacheLikelyCold };
+  }
+
   private drainSteers(): void {
     while (this.steerQueue.length) {
       const steer = this.steerQueue.shift()!;
@@ -456,11 +478,31 @@ export class MistEngine {
     };
     this.currentLens = lens;
     const turnStart = Date.now();
-    // Proactive hygiene: semantic supersession first (a newer read of the
-    // same file invalidates older reads regardless of age), then age-based
-    // stale-result clearing. Both deterministic + monotonic (cache-safe).
-    this.history = dedupeSupersededReads(this.history).messages;
-    this.history = clearStaleToolResults(this.history).messages;
+    // Proactive hygiene: semantic supersession always runs (a newer read of
+    // the same file invalidates older reads — correctness, not economics).
+    const deduped = dedupeSupersededReads(this.history);
+    this.history = deduped.messages;
+    // Age-based stale clearing is ADAPTIVE: the engine reads its own lens
+    // feedback (observed cache hits, requests/turn, idle vs cache TTL) and
+    // only sweeps when the break-even math says it pays.
+    const plan = clearStaleToolResults(this.history, { dryRun: true });
+    let hygiene: TurnLens["hygiene"];
+    if (plan.cleared > 0) {
+      const decision =
+        process.env.MIST_ADAPTIVE_HYGIENE === "0"
+          ? { clear: true, reason: "adaptive hygiene disabled" }
+          : staleClearWorthIt(plan, this.hygieneSignals());
+      if (decision.clear) this.history = clearStaleToolResults(this.history).messages;
+      hygiene = {
+        dedupedReads: deduped.cleared,
+        staleCleared: decision.clear ? plan.cleared : 0,
+        staleDeferred: !decision.clear,
+        note: decision.reason,
+      };
+    } else if (deduped.cleared > 0) {
+      hygiene = { dedupedReads: deduped.cleared, staleCleared: 0, staleDeferred: false, note: "" };
+    }
+    if (hygiene) lens.hygiene = hygiene;
     // Auto-compact when the estimate crosses the threshold.
     if (this.estimateContextTokens() > this.compactThreshold()) {
       const r = await this.compact().catch(() => null);

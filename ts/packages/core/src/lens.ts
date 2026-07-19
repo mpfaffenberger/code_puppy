@@ -73,6 +73,14 @@ export interface TurnLens {
   autoContinues: number;
   capHit: boolean;
   compactions: CompactionLens[];
+  /** Turn-start context hygiene — what was evicted and WHY (or why not):
+   *  the adaptive stale-clear decision driven by the lens's own signals. */
+  hygiene?: {
+    dedupedReads: number;
+    staleCleared: number;
+    staleDeferred: boolean;
+    note: string;
+  };
 }
 
 export interface LensTotals {
@@ -195,6 +203,13 @@ export function renderLensHtml(turns: TurnLens[], sessionId: string): string {
         turn.autoContinues ? `⟳ ${turn.autoContinues} auto-continue(s)` : "",
         turn.capHit ? "⏸ request cap hit" : "",
         ...turn.compactions.map((c) => `⇣ compacted ${fmt(c.beforeTokens)} → ${fmt(c.afterTokens)}`),
+        turn.hygiene
+          ? `⌫ hygiene: ${turn.hygiene.dedupedReads} superseded read(s) · ${
+              turn.hygiene.staleDeferred
+                ? `stale-clear ${esc(turn.hygiene.note)}`
+                : `${turn.hygiene.staleCleared} stale cleared${turn.hygiene.note ? ` (${esc(turn.hygiene.note)})` : ""}`
+            }`
+          : "",
       ]
         .filter(Boolean)
         .join(" · ");

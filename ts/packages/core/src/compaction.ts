@@ -108,13 +108,25 @@ export function dedupeSupersededReads(
 export interface ClearOptions {
   keepRecent?: number; // most recent tool_results kept verbatim
   minChars?: number; // only clear payloads bigger than this
+  /** Plan only: report what WOULD be cleared without touching messages. */
+  dryRun?: boolean;
+}
+
+export interface ClearResult {
+  messages: ChatMessage[];
+  cleared: number;
+  /** Chars of payload that clearing removes (savings estimate). */
+  savedChars: number;
+  /** Chars from the FIRST cleared block's message to the end of history —
+   *  the region a prompt-cache prefix bust would force to re-cache. */
+  tailChars: number;
 }
 
 /** Replace old bulky tool_result contents with stubs. Idempotent. */
 export function clearStaleToolResults(
   messages: ChatMessage[],
-  { keepRecent = 4, minChars = 2000 }: ClearOptions = {},
-): { messages: ChatMessage[]; cleared: number } {
+  { keepRecent = 4, minChars = 2000, dryRun = false }: ClearOptions = {},
+): ClearResult {
   // Locate every tool_result block: [messageIndex, blockIndex]
   const locations: [number, number][] = [];
   messages.forEach((m, mi) => {
@@ -123,14 +135,16 @@ export function clearStaleToolResults(
       if (b.type === "tool_result") locations.push([mi, bi]);
     });
   });
-  if (locations.length <= keepRecent) return { messages, cleared: 0 };
+  if (locations.length <= keepRecent) return { messages, cleared: 0, savedChars: 0, tailChars: 0 };
 
   const protectedSet = new Set(locations.slice(-keepRecent).map(([a, b]) => `${a}:${b}`));
-  let cleared = 0;
-  const out = messages.map((m, mi) => {
-    if (!Array.isArray(m.content)) return m;
-    let changed = false;
-    const content = m.content.map((b, bi) => {
+  // Plan pass: which blocks qualify, and what the clearing costs/saves.
+  const clearSet = new Set<string>();
+  let savedChars = 0;
+  let firstMi = -1;
+  messages.forEach((m, mi) => {
+    if (!Array.isArray(m.content)) return;
+    m.content.forEach((b, bi) => {
       if (
         b.type !== "tool_result" ||
         protectedSet.has(`${mi}:${bi}`) ||
@@ -138,10 +152,28 @@ export function clearStaleToolResults(
         b.content.length < minChars ||
         b.content.startsWith(CLEARED_PREFIX)
       ) {
-        return b;
+        return;
       }
+      clearSet.add(`${mi}:${bi}`);
+      savedChars += b.content.length;
+      if (firstMi < 0) firstMi = mi;
+    });
+  });
+  if (clearSet.size === 0) return { messages, cleared: 0, savedChars: 0, tailChars: 0 };
+  let tailChars = 0;
+  for (let mi = firstMi; mi < messages.length; mi++) {
+    const c = messages[mi]!.content;
+    tailChars += typeof c === "string" ? c.length : JSON.stringify(c).length;
+  }
+  if (dryRun) return { messages, cleared: clearSet.size, savedChars, tailChars };
+
+  const out = messages.map((m, mi) => {
+    if (!Array.isArray(m.content)) return m;
+    let changed = false;
+    const content = m.content.map((b, bi) => {
+      if (!clearSet.has(`${mi}:${bi}`) || b.type !== "tool_result" || typeof b.content !== "string")
+        return b;
       changed = true;
-      cleared += 1;
       return {
         ...b,
         content: `${CLEARED_PREFIX} to save context — ~${Math.floor(b.content.length / 2.5)} tokens removed. Re-run the tool if needed.]`,
@@ -149,7 +181,50 @@ export function clearStaleToolResults(
     });
     return changed ? { ...m, content } : m;
   });
-  return { messages: out, cleared };
+  return { messages: out, cleared: clearSet.size, savedChars, tailChars };
+}
+
+/**
+ * Adaptive hygiene: should the stale-result sweep run NOW, or is deferring
+ * cheaper? Uses the harness's own /lens observations — this is the runtime
+ * break-even from the caching analysis, computed with live signals instead
+ * of assumptions.
+ *
+ * Economics (cache read ≈ 0.1x, cache write ≈ 1.25x input price):
+ * - clearing saves ~0.1 × savedTokens on EVERY future request
+ * - but busts the prefix at the first cleared block: ~1.25 × tailTokens once
+ * Clear when expected next-turn savings beat the bust cost. Always clear
+ * when the endpoint shows no cache activity (nothing to protect) or the
+ * cache is likely cold (idle past TTL — the bust is free).
+ */
+export interface HygieneSignals {
+  /** Endpoint demonstrated real cache hits in recent turns. */
+  cacheLive: boolean;
+  /** Observed average model requests per turn (savings multiplier). */
+  avgRequestsPerTurn: number;
+  /** Idle past the provider cache TTL (or first turn) — bust costs nothing. */
+  cacheLikelyCold: boolean;
+}
+
+export function staleClearWorthIt(
+  plan: { savedChars: number; tailChars: number },
+  sig: HygieneSignals,
+): { clear: boolean; reason: string } {
+  if (!sig.cacheLive) return { clear: true, reason: "no cache activity on this endpoint" };
+  if (sig.cacheLikelyCold) return { clear: true, reason: "cache likely cold — clearing is free" };
+  const savedTok = Math.round(plan.savedChars / 2.5);
+  const tailTok = Math.round(plan.tailChars / 2.5);
+  const perTurnSavings = Math.round(0.1 * savedTok * Math.max(1, sig.avgRequestsPerTurn));
+  const bustCost = Math.round(1.25 * tailTok);
+  return perTurnSavings > bustCost
+    ? {
+        clear: true,
+        reason: `saves ~${perTurnSavings} tok-eq/turn vs ~${bustCost} one-time bust`,
+      }
+    : {
+        clear: false,
+        reason: `deferred — bust ~${bustCost} tok-eq > ~${perTurnSavings}/turn savings (cache live)`,
+      };
 }
 
 export const SUMMARIZATION_PROMPT = `Summarize this conversation log so the agent can keep working without re-deriving context. Preserve everything needed to continue. Cover, where present:
