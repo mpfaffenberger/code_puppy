@@ -66,15 +66,15 @@ class TestEffectiveSettingValue:
         )
         assert get_effective_setting_value(s) == "true"
 
-    def test_compaction_strategy_default_truncation(self):
+    def test_compaction_strategy_default_summarization(self):
         s = Setting(
             key="compaction_strategy",
             display_name="",
             description="",
             type_hint="choice",
-            effective_getter=lambda: "truncation",
+            effective_getter=lambda: "summarization",
         )
-        assert get_effective_setting_value(s) == "truncation"
+        assert get_effective_setting_value(s) == "summarization"
 
     def test_protected_token_count_returns_int_as_string(self):
         s = Setting(

@@ -1509,8 +1509,9 @@ def get_compaction_strategy() -> str:
     val = get_value("compaction_strategy")
     if val and val.lower() in ["summarization", "truncation"]:
         return val.lower()
-    # Default to summarization
-    return "truncation"
+    # Summarization preserves useful long-running context by default. Users can
+    # explicitly select truncation as a zero-cost rollback strategy.
+    return "summarization"
 
 
 def get_http2() -> bool:
