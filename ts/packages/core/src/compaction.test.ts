@@ -79,6 +79,69 @@ test("dedupeSupersededReads: different ranges don't supersede; identical inputs 
   expect(body("r4").content).toBe("tiny");
 });
 
+test("repairToolPairing: synthesizes results for dangling tool_use, drops orphans, no-ops when intact", async () => {
+  const { repairToolPairing } = await import("./compaction");
+  const use = (id: string) => ({ type: "tool_use" as const, id, name: "shell", input: {} });
+  const result = (id: string, content = "ok") => ({ type: "tool_result" as const, tool_use_id: id, content });
+
+  // Dangling at the very end (turn died before results were recorded).
+  const dangling: ChatMessage[] = [
+    { role: "user", content: "task" },
+    { role: "assistant", content: [use("t1"), use("t2")] },
+  ];
+  const r1 = repairToolPairing(dangling);
+  expect(r1.repaired).toBe(2);
+  const inserted = r1.messages[2]!;
+  expect(inserted.role).toBe("user");
+  const blocks = inserted.content as { type: string; tool_use_id?: string; is_error?: boolean }[];
+  expect(blocks.map((b) => b.tool_use_id).sort()).toEqual(["t1", "t2"]);
+  expect(blocks.every((b) => b.is_error)).toBe(true);
+
+  // Dangling followed by a plain user prompt (user nudged after the crash) —
+  // synthetic results must be INSERTED BETWEEN, not appended after.
+  const nudged: ChatMessage[] = [
+    { role: "user", content: "task" },
+    { role: "assistant", content: [use("t1")] },
+    { role: "user", content: "continue please" },
+  ];
+  const r2 = repairToolPairing(nudged);
+  expect(r2.repaired).toBe(1);
+  expect(Array.isArray(r2.messages[2]!.content)).toBe(true); // synthetic results
+  expect(r2.messages[3]!.content).toBe("continue please");
+
+  // Partial batch: one of two answered — synthetic merged into the results msg.
+  const partial: ChatMessage[] = [
+    { role: "user", content: "task" },
+    { role: "assistant", content: [use("t1"), use("t2")] },
+    { role: "user", content: [result("t1")] },
+  ];
+  const r3 = repairToolPairing(partial);
+  expect(r3.repaired).toBe(1);
+  const merged = r3.messages[2]!.content as { tool_use_id?: string }[];
+  expect(merged.map((b) => b.tool_use_id).sort()).toEqual(["t1", "t2"]);
+
+  // Orphan tool_result (no matching tool_use) — dropped.
+  const orphan: ChatMessage[] = [
+    { role: "user", content: "task" },
+    { role: "assistant", content: [{ type: "text", text: "done" }] },
+    { role: "user", content: [result("ghost")] },
+  ];
+  const r4 = repairToolPairing(orphan);
+  expect(r4.repaired).toBe(1);
+  expect(r4.messages.length).toBe(2); // fully-orphaned message dropped
+
+  // Intact history: SAME reference back — cached prefix untouched.
+  const intact: ChatMessage[] = [
+    { role: "user", content: "task" },
+    { role: "assistant", content: [use("t1")] },
+    { role: "user", content: [result("t1")] },
+    { role: "assistant", content: [{ type: "text", text: "done" }] },
+  ];
+  const r5 = repairToolPairing(intact);
+  expect(r5.repaired).toBe(0);
+  expect(r5.messages).toBe(intact);
+});
+
 test("supersession skips observation files — old log samples are evidence, not stale state", async () => {
   const { findSupersededReads, isObservationFile } = await import("./compaction");
   // State file: superseded. Log file re-read: BOTH samples kept.

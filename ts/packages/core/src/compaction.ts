@@ -226,6 +226,81 @@ export function chooseSupersededToClear(
   };
 }
 
+/**
+ * Repair tool_use/tool_result pairing — the API 400s the ENTIRE request if
+ * an assistant tool_use isn't answered in the immediately-next message
+ * ("tool_use ids were found without tool_result blocks immediately after").
+ * A turn that dies between recording tool calls and recording their results
+ * (crash, kill, interrupt) leaves exactly that damage — and persistence
+ * then poisons the session across resumes. Codex normalizes on send for the
+ * same reason. Deterministic + idempotent: intact histories are returned
+ * UNCHANGED (same reference), so the cached prefix is never disturbed.
+ */
+export function repairToolPairing(messages: ChatMessage[]): {
+  messages: ChatMessage[];
+  repaired: number;
+} {
+  const syntheticResult = (id: string) =>
+    ({
+      type: "tool_result",
+      tool_use_id: id,
+      content:
+        "[no result was recorded for this tool call — the turn was interrupted before it finished. Re-run the tool if its outcome matters.]",
+      is_error: true,
+    }) as ContentBlock;
+
+  let repaired = 0;
+  const out: ChatMessage[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]!;
+    // Collect tool_use ids on assistant messages.
+    const useIds =
+      m.role === "assistant" && Array.isArray(m.content)
+        ? m.content.filter((b) => b.type === "tool_use").map((b) => (b as { id: string }).id)
+        : [];
+    if (m.role === "user" && Array.isArray(m.content)) {
+      // Drop orphan tool_results (ids the preceding assistant never issued).
+      const prev = out[out.length - 1];
+      const valid = new Set(
+        prev?.role === "assistant" && Array.isArray(prev.content)
+          ? prev.content.filter((b) => b.type === "tool_use").map((b) => (b as { id: string }).id)
+          : [],
+      );
+      const kept = m.content.filter((b) => b.type !== "tool_result" || valid.has(b.tool_use_id));
+      if (kept.length !== m.content.length) {
+        repaired += m.content.length - kept.length;
+        if (kept.length === 0) continue; // fully-orphaned message — drop it
+        out.push({ ...m, content: kept });
+        continue;
+      }
+      out.push(m);
+      continue;
+    }
+    out.push(m);
+    if (useIds.length === 0) continue;
+
+    // The NEXT message must answer every id.
+    const next = messages[i + 1];
+    const answered = new Set(
+      next?.role === "user" && Array.isArray(next.content)
+        ? next.content.filter((b) => b.type === "tool_result").map((b) => b.tool_use_id)
+        : [],
+    );
+    const missing = useIds.filter((id) => !answered.has(id));
+    if (missing.length === 0) continue;
+    repaired += missing.length;
+    if (next?.role === "user" && Array.isArray(next.content)) {
+      // Merge synthetic results into the existing results message.
+      out.push({ ...next, content: [...missing.map(syntheticResult), ...next.content] });
+      i += 1; // consumed
+    } else {
+      // Dangling at the end, or followed by a non-result message — insert.
+      out.push({ role: "user", content: missing.map(syntheticResult) });
+    }
+  }
+  return repaired ? { messages: out, repaired } : { messages, repaired: 0 };
+}
+
 export interface ClearOptions {
   keepRecent?: number; // most recent tool_results kept verbatim
   minChars?: number; // only clear payloads bigger than this
