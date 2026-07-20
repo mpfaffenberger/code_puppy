@@ -38,7 +38,7 @@ def _session_keys():
 
 
 def test_session_namespace_is_populated():
-    assert len(_session_keys()) >= 28
+    assert len(_session_keys()) >= 35
 
 
 def test_every_session_key_resolves():
@@ -82,6 +82,10 @@ def test_compact_keys_interpolate():
         reduction_pct="75.0",
     )
     assert "boom" in translate.t("cmd.compact.error", error="boom")
+    assert "truncation" in translate.t(
+        "cmd.compact.strategy.truncation", strategy="truncation"
+    )
+    assert "summarization" in translate.t("cmd.compact.strategy.summarization")
 
 
 def test_truncate_keys_interpolate():
@@ -100,6 +104,15 @@ def test_dump_context_keys_interpolate():
     translate.set_locale("en-US")
     assert "'bad'" in translate.t("cmd.dump_context.invalid_name", name="'bad'")
     assert "boom" in translate.t("cmd.dump_context.failed", error="boom")
+    success = translate.t(
+        "cmd.dump_context.success",
+        message_count=10,
+        total_tokens=2000,
+        pickle_path="/tmp/ctx.pkl",
+        metadata_path="/tmp/ctx.json",
+    )
+    assert "10" in success
+    assert "/tmp/ctx.pkl" in success
 
 
 def test_load_context_keys_interpolate():

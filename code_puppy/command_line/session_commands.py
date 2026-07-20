@@ -202,9 +202,9 @@ def handle_compact_command(command: str) -> bool:
         )
 
         strategy_info = (
-            f"using {compaction_strategy} strategy"
+            t("cmd.compact.strategy.truncation", strategy=compaction_strategy)
             if compaction_strategy == "truncation"
-            else "via summarization"
+            else t("cmd.compact.strategy.summarization")
         )
         emit_success(
             t(
@@ -390,19 +390,11 @@ def handle_dump_context_command(command: str) -> bool:
         return True
 
     try:
-        # The user-facing success line is preserved verbatim via
-        # ``success_message_template`` so /dump_context UX doesn't
-        # regress. The silent save-back paths (``-r``, periodic
-        # autosave) omit the template and stay quiet.
         persist_named_session(
             agent,
             session_name,
             base_dir=Path(AUTOSAVE_DIR),
-            success_message_template=(
-                "\u2705 Context saved: {message_count} messages "
-                "({total_tokens} tokens)\n"
-                "\U0001f4c1 Files: {pickle_path}, {metadata_path}"
-            ),
+            success_message_template=t("cmd.dump_context.success"),
         )
         return True
 
