@@ -568,9 +568,9 @@ def handle_model_settings_command(command: str) -> bool:
     # Check for --show flag to just display current settings
     if "--show" in tokens:
         model_name = None
-        for t in tokens[1:]:
-            if not t.startswith("--"):
-                model_name = t
+        for token in tokens[1:]:
+            if not token.startswith("--"):
+                model_name = token
                 break
         show_model_settings_summary(model_name)
         return True
