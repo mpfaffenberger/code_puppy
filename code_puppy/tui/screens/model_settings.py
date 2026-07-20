@@ -28,11 +28,13 @@ from textual.widgets import Button, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
 from code_puppy.command_line.model_settings_menu import (
+    _RETRY_MENU_KEYS,
     SETTING_DEFINITIONS,
     _get_model_display_settings,
     _get_setting_choices,
     _get_setting_default,
     _load_all_model_names,
+    _write_per_model_retry,
 )
 from code_puppy.config import (
     get_global_model_name,
@@ -84,6 +86,12 @@ def _save_setting(model_name: str, setting: str, value) -> None:
     setter = _GLOBAL_SETTERS.get(setting)
     if setter is not None:
         setter(value)
+    elif setting in _RETRY_MENU_KEYS:
+        # Per-model retry overrides live in a dedicated ``retry_model_``
+        # namespace, not the generic per-model setting store (mirrors
+        # ModelSettingsMenu._save_edit). Writing them via set_model_setting
+        # would silently no-op the edit.
+        _write_per_model_retry(model_name, setting, value)
     else:
         set_model_setting(model_name, setting, value)
 
@@ -91,6 +99,9 @@ def _save_setting(model_name: str, setting: str, value) -> None:
 def _reset_setting(model_name: str, setting: str) -> None:
     if setting in _GLOBAL_RESET_DEFAULTS:
         _GLOBAL_SETTERS[setting](_GLOBAL_RESET_DEFAULTS[setting])
+    elif setting in _RETRY_MENU_KEYS:
+        # Clear the per-model retry override -> falls back to global default.
+        _write_per_model_retry(model_name, setting, None)
     else:
         set_model_setting(model_name, setting, None)
 
