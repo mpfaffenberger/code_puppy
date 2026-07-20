@@ -136,11 +136,23 @@ def _is_translation_call(node: ast.expr) -> bool:
 
 
 def _has_string_literal(node: ast.expr) -> bool:
-    """True if the expression *contains* a hard-coded string literal."""
+    """True if the expression *contains* a hard-coded string literal.
+
+    For f-strings we only return True when at least one constant segment
+    contains non-whitespace text.  Pure-variable f-strings like ``f"{x}"``
+    or ``f"  {x}"`` carry no translatable literal and are classified as
+    dynamic instead.
+    """
     if isinstance(node, ast.Constant):
         return isinstance(node.value, str)
     if isinstance(node, ast.JoinedStr):  # f-string
-        return True
+        # An f-string is only "raw" when it has at least one constant part
+        # with meaningful (non-whitespace) text, e.g. f"Error: {e}".
+        # Pure-variable forms like f"{var}" or f"  {var}" are dynamic.
+        return any(
+            isinstance(v, ast.Constant) and isinstance(v.value, str) and v.value.strip()
+            for v in node.values
+        )
     if isinstance(node, ast.BinOp):  # "a" + x, "a" % x
         return _has_string_literal(node.left) or _has_string_literal(node.right)
     if isinstance(node, ast.Call):
@@ -198,6 +210,16 @@ def audit_source(source: str, path: str) -> List[Site]:
 
 
 def _iter_py_files(root: str) -> Iterable[str]:
+    """Yield every .py file under ``root``.
+
+    If ``root`` is itself a ``.py`` file it is yielded directly so that
+    ``python -m code_puppy.i18n.audit path/to/module.py`` works as
+    expected instead of silently producing an empty report.
+    """
+    if os.path.isfile(root):
+        if root.endswith(".py"):
+            yield root
+        return
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
         for name in filenames:

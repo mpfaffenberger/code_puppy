@@ -16,6 +16,26 @@ def test_fstring_is_raw():
     assert _kinds('emit_warning(f"hi {name}")') == ["raw"]
 
 
+def test_fstring_pure_variable_is_dynamic():
+    """f"{var}" has no literal content — must not be reported as raw."""
+    assert _kinds('emit_info(f"{result}")') == ["dynamic"]
+
+
+def test_fstring_whitespace_only_literal_is_dynamic():
+    """f"  {var}" has only whitespace in the constant part — not translatable."""
+    assert _kinds('emit_info(f"   {msg}")') == ["dynamic"]
+
+
+def test_fstring_with_content_and_variable_is_raw():
+    """f"Error: {e}" has a meaningful literal prefix — must stay raw."""
+    assert _kinds('emit_error(f"Error: {e}")') == ["raw"]
+
+
+def test_fstring_with_only_arrow_is_raw():
+    """Non-whitespace punctuation like an arrow counts as a literal."""
+    assert _kinds('emit_info(f"-> {item}")') == ["raw"]
+
+
 def test_string_concat_is_raw():
     assert _kinds('emit_error("bad: " + detail)') == ["raw"]
 
@@ -106,6 +126,33 @@ def test_json_output_is_valid(tmp_path, capsys):
     assert payload["extracted"] == 1
     assert payload["raw"] == 1
     assert payload["coverage"] == 50.0
+
+
+def test_single_file_path_is_accepted(tmp_path, capsys):
+    """Passing a .py file directly must produce a non-empty report.
+
+    Previously ``_iter_py_files`` called ``os.walk(file)`` which yields
+    nothing, so every per-file audit silently returned 0 sites.
+    """
+    import json
+
+    mod = tmp_path / "solo.py"
+    mod.write_text('emit_info("raw string")\n', encoding="utf-8")
+    assert audit.main([str(mod), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["raw"] == 1, "single-file audit must find the raw site"
+
+
+def test_single_file_pure_variable_fstring_not_raw(tmp_path, capsys):
+    """Single-file audit: f"{var}" must NOT be counted as raw."""
+    import json
+
+    mod = tmp_path / "mod.py"
+    mod.write_text('emit_info(f"{result}")\n', encoding="utf-8")
+    assert audit.main([str(mod), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["raw"] == 0
+    assert payload["dynamic"] == 1
 
 
 # --- integration smoke ----------------------------------------------------
