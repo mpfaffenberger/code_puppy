@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from code_puppy.callbacks import register_callback
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.model_switching import set_model_and_reload_agent
 from code_puppy.provider_identity import (
@@ -146,17 +147,15 @@ def _parse_pasted_callback(context: OAuthContext, raw_input: str) -> Optional[st
         return None
 
     if not parsed.code:
-        emit_error("Pasted OAuth input did not contain an authorization code.")
+        emit_error(t("oauth.pasteback.no_code"))
         return None
 
     if parsed.state:
         if parsed.state != context.state:
-            emit_error("State mismatch detected; aborting authentication.")
+            emit_error(t("oauth.state_mismatch"))
             return None
     else:
-        emit_warning(
-            "Pasted OAuth input did not include state; continuing with this login attempt."
-        )
+        emit_warning(t("oauth.pasteback.no_state"))
 
     return parsed.code
 
@@ -174,11 +173,11 @@ def _wait_for_callback_or_paste(
     while elapsed < timeout:
         if event and event.is_set() and result:
             if result.error:
-                emit_error(f"OAuth callback error: {result.error}")
+                emit_error(t("oauth.callback.error", error=result.error))
                 return None
 
             if result.state != context.state:
-                emit_error("State mismatch detected; aborting authentication.")
+                emit_error(t("oauth.state_mismatch"))
                 return None
 
             return result.code
@@ -192,7 +191,7 @@ def _wait_for_callback_or_paste(
         time.sleep(interval)
         elapsed += interval
 
-    emit_error("OAuth callback timed out. Please try again.")
+    emit_error(t("oauth.callback.timeout"))
     return None
 
 
@@ -206,13 +205,13 @@ def _await_callback(context: OAuthContext) -> Optional[str]:
     if started:
         server, result, event = started
     else:
-        emit_warning("Continuing Claude Code OAuth in paste-back mode.")
+        emit_warning(t("oauth.server.pasteback_mode"))
         if not _assign_manual_redirect_uri(context):
             return None
 
     redirect_uri = context.redirect_uri
     if not redirect_uri:
-        emit_error("Failed to assign redirect URI for OAuth flow")
+        emit_error(t("oauth.server.no_redirect_uri"))
         if server:
             server.shutdown()
         return None
@@ -227,27 +226,22 @@ def _await_callback(context: OAuthContext) -> Optional[str]:
 
         suppress_browser = should_suppress_browser()
         if suppress_browser:
-            emit_info(
-                "[HEADLESS MODE] Would normally open browser for Claude Code OAuth…"
-            )
-            emit_info(f"In normal mode, would visit: {auth_url}")
+            emit_info(t("oauth.browser.headless"))
+            emit_info(t("oauth.browser.headless_url", url=auth_url))
         else:
-            emit_info("Opening browser for Claude Code OAuth…")
+            emit_info(t("oauth.browser.opening"))
             webbrowser.open(auth_url)
-            emit_info(f"If it doesn't open automatically, visit: {auth_url}")
+            emit_info(t("oauth.browser.fallback_url", url=auth_url))
     except Exception as exc:  # pragma: no cover
         if not suppress_browser:
-            emit_warning(f"Failed to open browser automatically: {exc}")
-            emit_info(f"Please open the URL manually: {auth_url}")
+            emit_warning(t("oauth.browser.open_failed", error=exc))
+            emit_info(t("oauth.browser.manual_url", url=auth_url))
 
     if server:
-        emit_info(f"Listening for callback on {redirect_uri}")
+        emit_info(t("oauth.server.listening", uri=redirect_uri))
     else:
-        emit_info(f"Using redirect URI for paste-back: {redirect_uri}")
-    emit_info(
-        "If localhost cannot be reached, paste the full callback URL or "
-        "authorization code here and press Enter."
-    )
+        emit_info(t("oauth.server.pasteback_uri", uri=redirect_uri))
+    emit_info(t("oauth.server.paste_hint"))
 
     code = _wait_for_callback_or_paste(
         context=context,
@@ -286,38 +280,34 @@ def _perform_authentication() -> None:
     if not code:
         return
 
-    emit_info("Exchanging authorization code for tokens…")
+    emit_info(t("oauth.auth.exchanging"))
     tokens = exchange_code_for_tokens(code, context)
     if not tokens:
-        emit_error("Token exchange failed. Please retry the authentication flow.")
+        emit_error(t("oauth.auth.exchange_failed"))
         return
 
     if not save_tokens(tokens):
-        emit_error(
-            "Tokens retrieved but failed to save locally. Check file permissions."
-        )
+        emit_error(t("oauth.auth.save_failed"))
         return
 
-    emit_success("Claude Code OAuth authentication successful!")
+    emit_success(t("oauth.auth.success"))
 
     access_token = tokens.get("access_token")
     if not access_token:
-        emit_warning("No access token returned; skipping model discovery.")
+        emit_warning(t("oauth.auth.no_access_token"))
         return
 
-    emit_info("Fetching available Claude Code models…")
+    emit_info(t("oauth.auth.fetching_models"))
     models = fetch_claude_code_models(access_token)
     if not models:
-        emit_warning(
-            "Claude Code authentication succeeded but no models were returned."
-        )
+        emit_warning(t("oauth.auth.no_models"))
         return
 
-    emit_info(f"Discovered {len(models)} models: {', '.join(models)}")
+    emit_info(
+        t("oauth.auth.discovered_models", count=len(models), models=", ".join(models))
+    )
     if add_models_to_extra_config(models):
-        emit_success(
-            "Claude Code models added to your configuration. Use the `claude-code-` prefix!"
-        )
+        emit_success(t("oauth.auth.models_added"))
 
 
 def _reauthenticate_after_expired_oauth(model_name: str) -> Optional[str]:
@@ -329,17 +319,15 @@ def _reauthenticate_after_expired_oauth(model_name: str) -> Optional[str]:
         )
         return None
 
-    emit_warning(
-        "Claude Code OAuth refresh failed; launching the browser sign-in flow again."
-    )
+    emit_warning(t("oauth.reauth.refresh_failed"))
     _perform_authentication()
 
     access_token = get_valid_access_token()
     if access_token:
-        emit_success("Claude Code OAuth restored. Retrying the failed request…")
+        emit_success(t("oauth.reauth.restored"))
         return access_token
 
-    emit_error("Claude Code OAuth reauthentication did not produce a usable token.")
+    emit_error(t("oauth.reauth.no_token"))
     return None
 
 
@@ -348,12 +336,10 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
         return None
 
     if name == "claude-code-auth":
-        emit_info("Starting Claude Code OAuth authentication…")
+        emit_info(t("oauth.cmd.auth.starting"))
         tokens = load_stored_tokens()
         if tokens and tokens.get("access_token"):
-            emit_warning(
-                "Existing Claude Code tokens found. Continuing will overwrite them."
-            )
+            emit_warning(t("oauth.cmd.auth.overwrite_warning"))
         _perform_authentication()
         set_model_and_reload_agent("claude-code-claude-opus-4-8-long")
         return True
@@ -361,12 +347,12 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     if name == "claude-code-status":
         tokens = load_stored_tokens()
         if tokens and tokens.get("access_token"):
-            emit_success("Claude Code OAuth: Authenticated")
+            emit_success(t("oauth.cmd.status.authenticated"))
             expires_at = tokens.get("expires_at")
             if expires_at:
                 remaining = max(0, int(expires_at - time.time()))
                 hours, minutes = divmod(remaining // 60, 60)
-                emit_info(f"Token expires in ~{hours}h {minutes}m")
+                emit_info(t("oauth.cmd.status.expires", hours=hours, minutes=minutes))
 
             claude_models = [
                 name
@@ -374,12 +360,12 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
                 if cfg.get("oauth_source") == "claude-code-plugin"
             ]
             if claude_models:
-                emit_info(f"Configured Claude Code models: {', '.join(claude_models)}")
+                emit_info(t("oauth.cmd.status.models", models=", ".join(claude_models)))
             else:
-                emit_warning("No Claude Code models configured yet.")
+                emit_warning(t("oauth.cmd.status.no_models"))
         else:
-            emit_warning("Claude Code OAuth: Not authenticated")
-            emit_info("Run /claude-code-auth to begin the browser sign-in flow.")
+            emit_warning(t("oauth.cmd.status.not_authenticated"))
+            emit_info(t("oauth.cmd.status.hint"))
         return True
 
     if name == "claude-code-fast":
@@ -390,10 +376,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
 
         active_model = get_global_model_name() or ""
         if not active_model.startswith(CLAUDE_CODE_OAUTH_CONFIG["prefix"]):
-            emit_warning(
-                "Fast mode only applies to Claude Code models. "
-                "Switch to a claude-code-* model first."
-            )
+            emit_warning(t("oauth.cmd.fast.wrong_model"))
             return True
 
         currently_on = is_fast_mode_enabled(active_model)
@@ -402,12 +385,10 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
         set_model_setting(active_model, FAST_SETTING_KEY, str(new_value).lower())
 
         if new_value:
-            emit_success(f"Fast mode ENABLED for {active_model}")
-            emit_info(
-                "Injecting speed=fast into payloads and fast-mode-2026-02-01 beta header."
-            )
+            emit_success(t("oauth.cmd.fast.enabled", model=active_model))
+            emit_info(t("oauth.cmd.fast.enabled_detail"))
         else:
-            emit_info(f"Fast mode DISABLED for {active_model}")
+            emit_info(t("oauth.cmd.fast.disabled", model=active_model))
 
         # Reload agent so the anthropic-beta header update (set at client
         # construction time) takes effect. Payload side is live either way.
@@ -418,13 +399,13 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
         token_path = get_token_storage_path()
         if token_path.exists():
             token_path.unlink()
-            emit_info("Removed Claude Code OAuth tokens")
+            emit_info(t("oauth.cmd.logout.tokens_removed"))
 
         removed = remove_claude_code_models()
         if removed:
-            emit_info(f"Removed {removed} Claude Code models from configuration")
+            emit_info(t("oauth.cmd.logout.models_removed", count=removed))
 
-        emit_success("Claude Code logout complete")
+        emit_success(t("oauth.cmd.logout.success"))
         return True
 
     return None
@@ -469,9 +450,7 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
                 custom_endpoint["api_key"] = refreshed_token
 
     if not api_key:
-        emit_warning(
-            f"API key is not set for Claude Code endpoint; skipping model '{model_config.get('name')}'."
-        )
+        emit_warning(t("oauth.model.no_api_key", model=model_config.get("name")))
         return None
 
     # Check if interleaved thinking is enabled (defaults to True for OAuth models).
