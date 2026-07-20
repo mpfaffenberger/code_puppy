@@ -17,7 +17,7 @@ import { Box, Static, Text, render, useApp, useInput } from "ink";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { classifyEvent } from "@mist/protocol";
 import type { EventEnvelope } from "@mist/protocol";
-import { EngineSession, SessionStore, getConfiguredModelName, lensTotals, listModelNames, persistModelChoice, renderLensHtml } from "@mist/core";
+import { EngineSession, INIT_PROMPT, SessionStore, getConfiguredModelName, lensTotals, listModelNames, persistModelChoice, renderLensHtml } from "@mist/core";
 import { readConfig, getConfig, setConfig, SETTING_DEFS } from "@mist/core";
 import type { ChatMessage, SessionMeta, StoredSession } from "@mist/core";
 import { MistClient } from "./client";
@@ -755,6 +755,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
               { label: "/resume", desc: "pick a previous session to resume", action: "/resume" },
               { label: "/sessions", desc: "list saved sessions for this directory", action: "/sessions" },
               { label: "/rename", desc: "name this session (auto-named from your first question otherwise)", action: "/rename" },
+              { label: "/init", desc: "explore the repo and draft AGENTS.md (repository guidelines)", action: "/init" },
               { label: "/new", desc: "start a fresh conversation (alias /clear)", action: "/new" },
               { label: "/lens", desc: "explainability: tokens, tools, subagents — /lens html for the diagram", action: "/lens" },
               { label: "/compact", desc: "summarize older context to free tokens", action: "/compact" },
@@ -851,6 +852,23 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
             break;
           }
           await sessionRef.current?.rename(arg);
+          break;
+        }
+        case "init": {
+          // Prompt-sugar, codex-style: submit a canned prompt and let the
+          // model explore the repo and write AGENTS.md with ordinary tools
+          // (hooks apply like any other write).
+          if (!clientRef.current || !sessionId) break;
+          say("✎ exploring the repo to draft AGENTS.md (200–400 words, injected into every future session)…");
+          setBusy(true);
+          setStartedAt(Date.now());
+          startedAtRef.current = Date.now();
+          try {
+            await clientRef.current.submit(sessionId, INIT_PROMPT);
+          } catch (err) {
+            push(item("error", (err as Error).message));
+            setBusy(false);
+          }
           break;
         }
         case "lens": {

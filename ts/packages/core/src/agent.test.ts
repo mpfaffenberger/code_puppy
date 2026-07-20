@@ -205,6 +205,59 @@ test("lens: turn ledger records requests, tools, and totals", async () => {
   expect(final.inputTokens).toBe(149); // 99 uncached + 40 read + 10 written
 });
 
+test("AGENTS.md: frozen in the system prefix; mid-session edits append a tail supersede", async () => {
+  const { mkdir } = await import("node:fs/promises");
+  const dir = `/tmp/mist-agents-engine-${Date.now()}`;
+  await mkdir(`${dir}/.git`, { recursive: true });
+  await Bun.write(`${dir}/AGENTS.md`, "RULE ALPHA: always test");
+
+  const captured: Record<string, unknown>[] = [];
+  const intercept = Bun.serve({
+    port: 9943,
+    async fetch(req) {
+      captured.push((await req.json()) as Record<string, unknown>);
+      return new Response(
+        `data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } })}\n\n`,
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    },
+  });
+  const savedModelsJson = process.env.MIST_MODELS_JSON;
+  const savedModel = process.env.MIST_MODEL;
+  try {
+    const mpath = `${dir}/models.json`;
+    await Bun.write(
+      mpath,
+      JSON.stringify({
+        agentsmock: { type: "custom_anthropic", name: "m", custom_endpoint: { url: "http://127.0.0.1:9943", api_key: "k" } },
+      }),
+    );
+    process.env.MIST_MODELS_JSON = mpath;
+    process.env.MIST_MODEL = "agentsmock";
+    const engine = new MistEngine(dir);
+    await engine.runTurn("turn one", { onTextDelta: () => {}, onStep: () => {} });
+    const sys1 = JSON.stringify(captured[0]!["system"]);
+    expect(sys1).toContain("RULE ALPHA");
+
+    // Edit AGENTS.md mid-session: the system prefix must stay BYTE-IDENTICAL
+    // and the new text must arrive as a tail user message with the notice.
+    await Bun.write(`${dir}/AGENTS.md`, "RULE BETA: never deploy");
+    await engine.runTurn("turn two", { onTextDelta: () => {}, onStep: () => {} });
+    const second = captured[captured.length - 1]!;
+    expect(JSON.stringify(second["system"])).toBe(sys1); // frozen prefix
+    const msgs = JSON.stringify(second["messages"]);
+    expect(msgs).toContain("replace ALL previously provided AGENTS.md instructions");
+    expect(msgs).toContain("RULE BETA");
+  } finally {
+    // Restore, don't delete — the file preamble's registry must survive.
+    if (savedModelsJson === undefined) delete process.env.MIST_MODELS_JSON;
+    else process.env.MIST_MODELS_JSON = savedModelsJson;
+    if (savedModel === undefined) delete process.env.MIST_MODEL;
+    else process.env.MIST_MODEL = savedModel;
+    intercept.stop(true);
+  }
+});
+
 test("GLM-style usage (zeroed message_start, real numbers in message_delta) parses", async () => {
   // Captured from the live z.ai endpoint: message_start carries zeros; the
   // true usage arrives in message_delta. Regression for /lens showing

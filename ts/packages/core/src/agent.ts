@@ -19,6 +19,7 @@
 
 import type { ChatMessage, ContentBlock, ToolSpec } from "./models";
 import { createModelClient, configFromDef } from "./models";
+import { discoverProjectDocs } from "./agents_md";
 import type { ModelClient, ModelResolver } from "./models";
 import { getConfiguredModelName, getModelDef } from "./config";
 import { applyPreToolHooks, loadHooks } from "./hooks";
@@ -401,14 +402,45 @@ export class MistEngine {
 
   private async systemPrompt(): Promise<string> {
     if (this.hooks === null) this.hooks = await loadHooks(this.cwd);
+    // AGENTS.md loads ONCE and freezes into the stable prefix (cache
+    // contract). Mid-session edits arrive as tail messages, never here.
+    if (this.docsInSystem === null) {
+      this.docsInSystem = (await discoverProjectDocs(this.cwd)).text;
+      this.docsCurrent = this.docsInSystem;
+    }
     let base = SYSTEM_PROMPT;
     if (this.isSubagent) {
       base += `\n\nYou are running as a SUBAGENT on one delegated task. No user is available — never ask questions; resolve ambiguity with your best judgment. END with a final report: your last message is returned verbatim to the parent agent, so make it complete and self-contained.`;
+    }
+    if (this.docsInSystem) {
+      base += `\n\nREPOSITORY GUIDELINES (AGENTS.md — broad rules first, deeper files override):\n${this.docsInSystem}`;
     }
     return this.hooks.intent
       ? `${base}\n\nPROJECT INTENT (durable — never regress on this):\n${this.hooks.intent}`
       : base;
   }
+
+  /**
+   * Detect mid-session AGENTS.md edits at turn start. The frozen copy in the
+   * system prompt is NEVER rewritten (that would bust every cached byte
+   * after it) — instead the new text is appended at the tail with an
+   * explicit supersede notice, codex-style: the stale copy lingers in the
+   * cached prefix as dead tokens, recency + the notice neutralize it, and
+   * compaction eventually garbage-collects.
+   */
+  private async checkProjectDocsUpdate(): Promise<void> {
+    if (this.docsCurrent === null) return; // system prompt not built yet
+    const fresh = (await discoverProjectDocs(this.cwd)).text;
+    if (fresh === this.docsCurrent || !fresh) return;
+    this.docsCurrent = fresh;
+    this.history.push({
+      role: "user",
+      content: `[project-docs update] These AGENTS.md instructions replace ALL previously provided AGENTS.md instructions:\n\n${fresh}`,
+    });
+  }
+
+  private docsInSystem: string | null = null;
+  private docsCurrent: string | null = null;
 
   /** Compress a bulky tool result via headroom when enabled; graceful no-op. */
   private async maybeCompress(content: string, cb: AgentCallbacks): Promise<string> {
@@ -465,6 +497,7 @@ export class MistEngine {
   async runTurn(prompt: string, cb: AgentCallbacks): Promise<AgentTurn> {
     const client = await this.ensureClient();
     const system = await this.systemPrompt();
+    await this.checkProjectDocsUpdate();
     // Lens ledger: everything this turn does gets accounted here.
     const lens: TurnLens = {
       prompt: prompt.slice(0, 200),

@@ -1,4 +1,6 @@
 export { MistEngine, SYSTEM_PROMPT } from "./agent";
+export { discoverProjectDocs, INIT_PROMPT } from "./agents_md";
+export type { ProjectDocs } from "./agents_md";
 export type { AgentCallbacks, AgentTurn } from "./agent";
 export { getConfiguredModelName, getModelDef, persistModelChoice, listModelNames } from "./config";
 export {
