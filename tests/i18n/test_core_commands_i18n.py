@@ -29,7 +29,7 @@ def _cmd_keys():
 
 
 def test_cmd_namespace_is_populated():
-    assert len(_cmd_keys()) >= 25
+    assert len(_cmd_keys()) >= 32
 
 
 def test_every_cmd_key_resolves_to_real_text():
@@ -68,6 +68,18 @@ def test_model_keys_interpolate():
     translate.set_locale("en-US")
     assert "gpt-5" in translate.t("cmd.model.success", model="gpt-5")
     assert "gpt-5" in translate.t("cmd.model.available", models="gpt-5, claude-3")
+    assert "boom" in translate.t("cmd.model.picker_failed", error="boom")
+
+
+def test_add_model_failed_interpolates_error_param():
+    # Guards against a param-name typo in the catalog entry for
+    # cmd.add_model.failed (e.g. ``{err}`` vs ``{error}``). The generic
+    # sweep test would still pass if the placeholder name drifted, so
+    # assert the concrete substitution here.
+    translate.set_locale("en-US")
+    rendered = translate.t("cmd.add_model.failed", error="XYZ")
+    assert "XYZ" in rendered
+    assert "{error}" not in rendered
 
 
 def test_model_settings_keys_interpolate():

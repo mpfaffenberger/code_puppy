@@ -485,7 +485,7 @@ def handle_model_command(command: str) -> bool:
             # Fallback to old behavior if picker fails
             import traceback
 
-            emit_warning(t("cmd.agent.picker_failed", error=e))
+            emit_warning(t("cmd.model.picker_failed", error=e))
             emit_warning(f"Traceback: {traceback.format_exc()}")
             model_names = load_model_names()
             emit_warning(t("cmd.model.usage"))
