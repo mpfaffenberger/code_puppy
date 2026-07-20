@@ -134,7 +134,7 @@ def test_register_callbacks_imports_cleanly():
 
 
 def test_no_raw_emit_in_register_callbacks():
-    """Fail if any emit_ call bypasses t() in the OAuth plugin."""
+    """Fail fast if any emit_* call bypasses t() in the OAuth plugin."""
     import ast
     import pathlib
 
@@ -146,8 +146,26 @@ def test_no_raw_emit_in_register_callbacks():
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             fn = node.func
-            if isinstance(fn, ast.Name) and fn.id.startswith("emit_"):
+            fn_name = (
+                fn.id
+                if isinstance(fn, ast.Name)
+                else (fn.attr if isinstance(fn, ast.Attribute) else "")
+            )
+            if fn_name.startswith("emit_"):
                 for arg in node.args:
-                    if isinstance(arg, (ast.Constant, ast.JoinedStr)):
-                        offenders.append((node.lineno, fn.id))
-    assert not offenders, f"Raw emit_ calls found: {offenders}"
+                    if (
+                        isinstance(arg, ast.Constant)
+                        and isinstance(arg.value, str)
+                        and arg.value.strip()
+                    ):
+                        offenders.append((node.lineno, fn_name, arg.value[:50]))
+                    elif isinstance(arg, ast.JoinedStr):
+                        for v in arg.values:
+                            if (
+                                isinstance(v, ast.Constant)
+                                and isinstance(v.value, str)
+                                and v.value.strip()
+                            ):
+                                offenders.append((node.lineno, fn_name, "f-string"))
+                                break
+    assert not offenders, f"Raw emit_* calls found: {offenders}"

@@ -130,7 +130,7 @@ def _assign_manual_redirect_uri(context: OAuthContext) -> bool:
     try:
         assign_redirect_uri(context, port_range[0])
     except Exception as exc:  # noqa: BLE001
-        emit_error(t("oauth.server.redirect_uri_error", error=exc))
+        emit_error(t("oauth.server.redirect_uri_error", error=str(exc)))
         return False
     return True
 
@@ -139,7 +139,7 @@ def _parse_pasted_callback(context: OAuthContext, raw_input: str) -> Optional[st
     try:
         parsed = parse_oauth_callback_input(raw_input)
     except ValueError as exc:
-        emit_error(t("oauth.pasteback.parse_error", error=exc))
+        emit_error(t("oauth.pasteback.parse_error", error=str(exc)))
         return None
 
     if parsed.error:
@@ -450,7 +450,9 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
                 custom_endpoint["api_key"] = refreshed_token
 
     if not api_key:
-        emit_warning(t("oauth.model.no_api_key", model=model_config.get("name") or "(unknown)"))
+        emit_warning(
+            t("oauth.model.no_api_key", model=model_config.get("name") or "(unknown)")
+        )
         return None
 
     # Check if interleaved thinking is enabled (defaults to True for OAuth models).
