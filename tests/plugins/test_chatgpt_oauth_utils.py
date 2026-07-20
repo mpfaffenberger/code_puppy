@@ -1097,20 +1097,30 @@ class TestAddModelsToConfig:
 
         assert result is True
         saved_config = mock_save.call_args[0][0]
-        for model_name in (
+        for model_key in (
             "codex-gpt-5.6-sol",
             "codex-gpt-5.6-terra",
             "codex-gpt-5.6-luna",
             "codex-gpt-5.5",
             "codex-gpt-5.4",
         ):
-            model_config = saved_config[model_name]
-            expected_settings = ["reasoning_effort", "summary", "verbosity"]
-            if model_name.startswith("codex-gpt-5.6-"):
-                expected_settings.extend(["reasoning_context", "reasoning_mode"])
-            assert model_config["supported_settings"] == expected_settings
+            model_config = saved_config[model_key]
+            if model_key.startswith("codex-gpt-5.6-"):
+                assert model_config["supported_settings"] == [
+                    "reasoning_effort",
+                    "summary",
+                    "verbosity",
+                    "reasoning_context",
+                    "reasoning_mode",
+                ]
+            else:
+                assert model_config["supported_settings"] == [
+                    "reasoning_effort",
+                    "summary",
+                    "verbosity",
+                ]
             assert model_config["supports_xhigh_reasoning"] is True
-            assert model_config["supports_max_reasoning"] is model_name.startswith(
+            assert model_config["supports_max_reasoning"] is model_key.startswith(
                 "codex-gpt-5.6-"
             )
 
