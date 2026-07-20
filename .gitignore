@@ -47,3 +47,6 @@ code_puppy/bundled_skills/
 .json
 
 .state/
+
+# Local git worktrees for parallel PR development
+.worktrees/
