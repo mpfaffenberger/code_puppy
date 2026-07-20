@@ -17,7 +17,7 @@ import { Box, Static, Text, render, useApp, useInput } from "ink";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { classifyEvent } from "@mist/protocol";
 import type { EventEnvelope } from "@mist/protocol";
-import { EngineSession, SessionStore, getConfiguredModelName, lensTotals, listModelNames, persistModelChoice, renderLensHtml } from "@mist/core";
+import { EngineSession, INIT_PROMPT, SessionStore, getConfiguredModelName, lensTotals, listModelNames, persistModelChoice, renderLensHtml } from "@mist/core";
 import { readConfig, getConfig, setConfig, SETTING_DEFS } from "@mist/core";
 import type { ChatMessage, SessionMeta, StoredSession } from "@mist/core";
 import { MistClient } from "./client";
@@ -755,6 +755,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
               { label: "/resume", desc: "pick a previous session to resume", action: "/resume" },
               { label: "/sessions", desc: "list saved sessions for this directory", action: "/sessions" },
               { label: "/rename", desc: "name this session (auto-named from your first question otherwise)", action: "/rename" },
+              { label: "/init", desc: "explore the repo and draft AGENTS.md (repository guidelines)", action: "/init" },
               { label: "/new", desc: "start a fresh conversation (alias /clear)", action: "/new" },
               { label: "/lens", desc: "explainability: tokens, tools, subagents — /lens html for the diagram", action: "/lens" },
               { label: "/compact", desc: "summarize older context to free tokens", action: "/compact" },
@@ -853,6 +854,23 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
           await sessionRef.current?.rename(arg);
           break;
         }
+        case "init": {
+          // Prompt-sugar, codex-style: submit a canned prompt and let the
+          // model explore the repo and write AGENTS.md with ordinary tools
+          // (hooks apply like any other write).
+          if (!clientRef.current || !sessionId) break;
+          say("✎ exploring the repo to draft AGENTS.md (200–400 words, injected into every future session)…");
+          setBusy(true);
+          setStartedAt(Date.now());
+          startedAtRef.current = Date.now();
+          try {
+            await clientRef.current.submit(sessionId, INIT_PROMPT);
+          } catch (err) {
+            push(item("error", (err as Error).message));
+            setBusy(false);
+          }
+          break;
+        }
         case "lens": {
           const turns = sessionRef.current?.lens() ?? [];
           if (!turns.length) {
@@ -884,6 +902,11 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
             say(`cache: no activity — endpoint may not support prompt caching (MIST_CACHE=0 disables sending breakpoints)`);
           }
           say(`work: ${t.requests} model requests (${Math.round(t.modelMs / 1000)}s) · ${t.toolCalls} tool calls (${Math.round(t.toolMs / 1000)}s) · ${t.subagents} subagents${t.toolErrors ? ` · ${t.toolErrors} tool errors` : ""}${t.hookBlocks ? ` · ${t.hookBlocks} hook blocks` : ""}`);
+          if (turn.hygiene) {
+            const h = turn.hygiene;
+            const dedupe = `${h.dedupedReads} superseded read${h.dedupedReads === 1 ? "" : "s"} evicted${h.dedupedDeferred ? ` (${h.dedupedDeferred} deferred — deep in warm cache)` : ""}`;
+            say(`hygiene: ${dedupe} · ${h.staleDeferred ? `stale-clear deferred` : `${h.staleCleared} stale result${h.staleCleared === 1 ? "" : "s"} cleared`}${h.note ? ` — ${h.note}` : ""}`);
+          }
           if (turn.autoContinues || turn.capHit || turn.compactions.length) {
             say(`events: ${[turn.autoContinues ? `⟳ ${turn.autoContinues} auto-continue` : "", turn.capHit ? "⏸ cap hit" : "", ...turn.compactions.map((c) => `⇣ compacted ${c.beforeTokens.toLocaleString()}→${c.afterTokens.toLocaleString()}`)].filter(Boolean).join(" · ")}`);
           }

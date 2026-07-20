@@ -1,7 +1,7 @@
 process.env.MOCK_FAST = "1";
 import { afterAll, expect, test } from "bun:test";
 import type { ChatMessage } from "./anthropic";
-import { clearStaleToolResults, estimateTokens, splitForCompaction } from "./compaction";
+import { clearStaleToolResults, dedupeSupersededReads, staleClearWorthIt, estimateTokens, splitForCompaction } from "./compaction";
 import { MistEngine } from "./agent";
 import { startMockModel } from "./testing/mock_model";
 
@@ -28,6 +28,166 @@ test("clearStaleToolResults keeps recent, clears old, idempotent", () => {
   const count = (msgs: ChatMessage[], type: string) =>
     msgs.flatMap((m) => (Array.isArray(m.content) ? m.content : [])).filter((b) => b.type === type).length;
   expect(count(first.messages, "tool_use")).toBe(count(first.messages, "tool_result"));
+});
+
+function readTurn(id: string, input: Record<string, unknown>, content: string): ChatMessage[] {
+  return [
+    { role: "assistant", content: [{ type: "tool_use", id, name: "read_file", input }] },
+    { role: "user", content: [{ type: "tool_result", tool_use_id: id, content }] },
+  ];
+}
+
+test("dedupeSupersededReads: whole-file re-read evicts older reads of the same path", () => {
+  const messages: ChatMessage[] = [
+    { role: "user", content: "task" },
+    ...readTurn("r1", { path: "a.ts" }, BIG),
+    ...readTurn("r2", { path: "b.ts" }, BIG), // different path — untouched
+    ...readTurn("r3", { path: "a.ts", start_line: 10, num_lines: 5 }, BIG), // contained in r4
+    ...readTurn("r4", { path: "a.ts" }, BIG), // newest whole read — the truth
+  ];
+  const res = dedupeSupersededReads(messages);
+  expect(res.cleared).toBe(2); // r1 + r3
+  const body = (id: string) =>
+    res.messages
+      .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+      .find((b) => b.type === "tool_result" && b.tool_use_id === id) as { content: string };
+  expect(body("r1").content).toContain("superseded by a newer read of a.ts");
+  expect(body("r2").content).toBe(BIG); // other path intact
+  expect(body("r4").content).toBe(BIG); // newest read intact
+  // Monotonic: second pass changes nothing (byte-stable for the cache).
+  expect(dedupeSupersededReads(res.messages).cleared).toBe(0);
+});
+
+test("dedupeSupersededReads: different ranges don't supersede; identical inputs do; small results spared", () => {
+  const messages: ChatMessage[] = [
+    { role: "user", content: "task" },
+    ...readTurn("r1", { path: "a.ts", start_line: 1, num_lines: 50 }, BIG),
+    ...readTurn("r2", { path: "a.ts", start_line: 100, num_lines: 50 }, BIG), // different range — kept
+    ...readTurn("r3", { path: "a.ts", start_line: 1, num_lines: 50 }, BIG), // identical to r1 — supersedes it
+    ...readTurn("r4", { path: "c.ts" }, "tiny"),
+    ...readTurn("r5", { path: "c.ts" }, BIG), // supersedes r4, but r4 is under minChars — spared
+  ];
+  const res = dedupeSupersededReads(messages);
+  expect(res.cleared).toBe(1); // only r1
+  const body = (id: string) =>
+    res.messages
+      .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+      .find((b) => b.type === "tool_result" && b.tool_use_id === id) as { content: string };
+  expect(body("r1").content).toContain("superseded");
+  expect(body("r2").content).toBe(BIG);
+  expect(body("r3").content).toBe(BIG);
+  expect(body("r4").content).toBe("tiny");
+});
+
+test("supersession skips observation files — old log samples are evidence, not stale state", async () => {
+  const { findSupersededReads, isObservationFile } = await import("./compaction");
+  // State file: superseded. Log file re-read: BOTH samples kept.
+  const messages: ChatMessage[] = [
+    { role: "user", content: "task" },
+    ...readTurn("s1", { path: "src/app.ts" }, BIG),
+    ...readTurn("l1", { path: "build/output.log" }, BIG), // error trace before fix
+    ...readTurn("s2", { path: "src/app.ts" }, BIG), // supersedes s1
+    ...readTurn("l2", { path: "build/output.log" }, BIG), // clean run after fix
+  ];
+  const cands = findSupersededReads(messages);
+  expect(cands.map((c) => c.id)).toEqual(["s1"]); // l1 exempt — unique evidence
+
+  expect(isObservationFile("server.log")).toBe(true);
+  expect(isObservationFile("logs/run-42.txt")).toBe(true);
+  expect(isObservationFile("trace.jsonl")).toBe(true);
+  expect(isObservationFile("build.out")).toBe(true);
+  expect(isObservationFile("src/logger.ts")).toBe(false); // 'log' in a name ≠ a log file
+  expect(isObservationFile("package-lock.json")).toBe(false); // lock = state
+
+  // User-extendable exemptions.
+  process.env.MIST_SUPERSEDE_SKIP = "\\.snapshot$";
+  try {
+    expect(isObservationFile("data/db.snapshot")).toBe(true);
+  } finally {
+    delete process.env.MIST_SUPERSEDE_SKIP;
+  }
+});
+
+test("chooseSupersededToClear: depth cut — tail candidates clear, deep ones defer", async () => {
+  const { chooseSupersededToClear, findSupersededReads } = await import("./compaction");
+  // Deep early read (r1), lots of history after it, then a recent superseded
+  // read (r3) near the tail. Both superseded by later reads of same paths.
+  let messages: ChatMessage[] = [{ role: "user", content: "task" }];
+  messages = [...messages, ...readTurn("r1", { path: "deep.ts" }, BIG)];
+  for (let i = 0; i < 40; i++) messages = [...messages, ...toolTurn(`pad${i}`, BIG)]; // fat tail after r1
+  messages = [...messages, ...readTurn("r2", { path: "deep.ts" }, BIG)]; // supersedes r1
+  messages = [...messages, ...readTurn("r3", { path: "tail.ts" }, BIG)];
+  messages = [...messages, ...readTurn("r4", { path: "tail.ts" }, BIG)]; // supersedes r3
+  const cands = findSupersededReads(messages);
+  expect(cands.map((c) => c.id)).toEqual(["r1", "r3"]);
+
+  // Warm live cache, working-size turns: clearing r1 busts ~42 BIG messages
+  // of tail for one BIG of savings → defer; r3's bust is 2 messages → clear.
+  const pick = chooseSupersededToClear(cands, messages, {
+    cacheLive: true,
+    avgRequestsPerTurn: 30,
+    cacheLikelyCold: false,
+  });
+  expect(pick.clear.map((c) => c.id)).toEqual(["r3"]);
+  expect(pick.deferred).toBe(1);
+
+  // Cold cache → everything clears for free.
+  const cold = chooseSupersededToClear(cands, messages, {
+    cacheLive: true,
+    avgRequestsPerTurn: 10,
+    cacheLikelyCold: true,
+  });
+  expect(cold.clear.length).toBe(2);
+  expect(cold.deferred).toBe(0);
+
+  // Very long turns → savings multiplier wins even for the deep read.
+  const longTurns = chooseSupersededToClear(cands, messages, {
+    cacheLive: true,
+    avgRequestsPerTurn: 5000,
+    cacheLikelyCold: false,
+  });
+  expect(longTurns.clear.length).toBe(2);
+});
+
+test("clearStaleToolResults dry-run reports the plan without mutating", () => {
+  let messages: ChatMessage[] = [{ role: "user", content: "task" }];
+  for (let i = 0; i < 6; i++) messages = [...messages, ...toolTurn(`t${i}`, BIG)];
+  const plan = clearStaleToolResults(messages, { keepRecent: 2, minChars: 2000, dryRun: true });
+  expect(plan.cleared).toBe(4);
+  expect(plan.savedChars).toBe(4 * BIG.length);
+  expect(plan.tailChars).toBeGreaterThan(plan.savedChars); // tail spans cleared blocks + everything after
+  expect(plan.messages).toBe(messages); // untouched
+  // Applying for real matches the plan.
+  const applied = clearStaleToolResults(messages, { keepRecent: 2, minChars: 2000 });
+  expect(applied.cleared).toBe(4);
+  expect(applied.savedChars).toBe(plan.savedChars);
+});
+
+test("staleClearWorthIt: adapts to observed cache behavior", () => {
+  const plan = { savedChars: 25_000, tailChars: 250_000 }; // 10k tok savings, 100k tok tail
+  // No cache on this endpoint → nothing to protect → always clear.
+  expect(
+    staleClearWorthIt(plan, { cacheLive: false, avgRequestsPerTurn: 30, cacheLikelyCold: false })
+      .clear,
+  ).toBe(true);
+  // Cache live but cold (idle past TTL) → bust is free → clear.
+  expect(
+    staleClearWorthIt(plan, { cacheLive: true, avgRequestsPerTurn: 30, cacheLikelyCold: true })
+      .clear,
+  ).toBe(true);
+  // Cache live + warm, short turns: 0.1×10k×2 = 2k savings < 1.25×100k bust → defer.
+  const defer = staleClearWorthIt(plan, {
+    cacheLive: true,
+    avgRequestsPerTurn: 2,
+    cacheLikelyCold: false,
+  });
+  expect(defer.clear).toBe(false);
+  expect(defer.reason).toContain("deferred");
+  // Same history but long turns: 0.1×10k×200 = 200k savings > 125k bust → clear.
+  expect(
+    staleClearWorthIt(plan, { cacheLive: true, avgRequestsPerTurn: 200, cacheLikelyCold: false })
+      .clear,
+  ).toBe(true);
 });
 
 test("splitForCompaction only splits at real user-turn boundaries", () => {

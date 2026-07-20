@@ -205,6 +205,90 @@ test("lens: turn ledger records requests, tools, and totals", async () => {
   expect(final.inputTokens).toBe(149); // 99 uncached + 40 read + 10 written
 });
 
+test("AGENTS.md: frozen in the system prefix; mid-session edits append a tail supersede", async () => {
+  const { mkdir } = await import("node:fs/promises");
+  const dir = `/tmp/mist-agents-engine-${Date.now()}`;
+  await mkdir(`${dir}/.git`, { recursive: true });
+  await Bun.write(`${dir}/AGENTS.md`, "RULE ALPHA: always test");
+
+  const captured: Record<string, unknown>[] = [];
+  const intercept = Bun.serve({
+    port: 9943,
+    async fetch(req) {
+      captured.push((await req.json()) as Record<string, unknown>);
+      return new Response(
+        `data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } })}\n\n`,
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    },
+  });
+  const savedModelsJson = process.env.MIST_MODELS_JSON;
+  const savedModel = process.env.MIST_MODEL;
+  try {
+    const mpath = `${dir}/models.json`;
+    await Bun.write(
+      mpath,
+      JSON.stringify({
+        agentsmock: { type: "custom_anthropic", name: "m", custom_endpoint: { url: "http://127.0.0.1:9943", api_key: "k" } },
+      }),
+    );
+    process.env.MIST_MODELS_JSON = mpath;
+    process.env.MIST_MODEL = "agentsmock";
+    const engine = new MistEngine(dir);
+    await engine.runTurn("turn one", { onTextDelta: () => {}, onStep: () => {} });
+    const sys1 = JSON.stringify(captured[0]!["system"]);
+    expect(sys1).toContain("RULE ALPHA");
+
+    // Edit AGENTS.md mid-session: the system prefix must stay BYTE-IDENTICAL
+    // and the new text must arrive as a tail user message with the notice.
+    await Bun.write(`${dir}/AGENTS.md`, "RULE BETA: never deploy");
+    await engine.runTurn("turn two", { onTextDelta: () => {}, onStep: () => {} });
+    const second = captured[captured.length - 1]!;
+    expect(JSON.stringify(second["system"])).toBe(sys1); // frozen prefix
+    const msgs = JSON.stringify(second["messages"]);
+    expect(msgs).toContain("replace ALL previously provided AGENTS.md instructions");
+    expect(msgs).toContain("RULE BETA");
+  } finally {
+    // Restore, don't delete — the file preamble's registry must survive.
+    if (savedModelsJson === undefined) delete process.env.MIST_MODELS_JSON;
+    else process.env.MIST_MODELS_JSON = savedModelsJson;
+    if (savedModel === undefined) delete process.env.MIST_MODEL;
+    else process.env.MIST_MODEL = savedModel;
+    intercept.stop(true);
+  }
+});
+
+test("GLM-style usage (zeroed message_start, real numbers in message_delta) parses", async () => {
+  // Captured from the live z.ai endpoint: message_start carries zeros; the
+  // true usage arrives in message_delta. Regression for /lens showing
+  // "0 input · context now 0" on GLM sessions.
+  const glm = Bun.serve({
+    port: 9942,
+    fetch() {
+      return new Response(
+        [
+          `data: ${JSON.stringify({ type: "message_start", message: { usage: { input_tokens: 0, output_tokens: 0 } } })}`,
+          `data: ${JSON.stringify({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } })}`,
+          `data: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } })}`,
+          `data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { input_tokens: 1337, output_tokens: 2, cache_read_input_tokens: 40, service_tier: "standard" } })}`,
+          "",
+        ].join("\n\n"),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    },
+  });
+  try {
+    const { AnthropicClient } = await import("./anthropic");
+    const client = new AnthropicClient("http://127.0.0.1:9942", "k", "m");
+    const result = await client.stream("sys", [{ role: "user", content: "hi" }], [], {});
+    expect(result.inputTokens).toBe(1337);
+    expect(result.outputTokens).toBe(2);
+    expect(result.cacheReadTokens).toBe(40);
+  } finally {
+    glm.stop(true);
+  }
+});
+
 test("prompt-cache breakpoints are sent on the wire (and MIST_CACHE=0 disables)", async () => {
   let captured: Record<string, unknown> | null = null;
   const intercept = Bun.serve({
@@ -220,17 +304,44 @@ test("prompt-cache breakpoints are sent on the wire (and MIST_CACHE=0 disables)"
   try {
     const { AnthropicClient } = await import("./anthropic");
     const client = new AnthropicClient(`http://127.0.0.1:9941`, "k", "m");
-    await client.stream("sys", [{ role: "user", content: "hi" }], [], {});
+    // 5-message history: sliding window marks the last THREE messages only
+    // (+ system = the 4-breakpoint API max); older messages stay unmarked.
+    const history: import("./models").ChatMessage[] = [
+      { role: "user", content: "one" },
+      { role: "assistant", content: [{ type: "text", text: "a1" }] },
+      { role: "user", content: "two" },
+      { role: "assistant", content: [{ type: "text", text: "a2" }] },
+      { role: "user", content: "three" },
+    ];
+    await client.stream("sys", history, [], {});
     const sys = captured!["system"] as { cache_control?: unknown }[];
     expect(sys[0]!.cache_control).toEqual({ type: "ephemeral" });
-    const msgs = captured!["messages"] as { content: { cache_control?: unknown }[] }[];
-    expect(msgs[0]!.content[msgs[0]!.content.length - 1]!.cache_control).toEqual({ type: "ephemeral" });
+    const msgs = captured!["messages"] as { content: string | { cache_control?: unknown }[] }[];
+    const blocks = (m: (typeof msgs)[number]) => (Array.isArray(m.content) ? m.content : []);
+    const marked = msgs.map((m) => blocks(m).some((b) => b.cache_control !== undefined));
+    expect(marked).toEqual([false, false, true, true, true]);
+    const totalBreakpoints =
+      1 + msgs.flatMap(blocks).filter((b) => b.cache_control !== undefined).length;
+    expect(totalBreakpoints).toBe(4); // never exceed the API limit
+
+    // MIST_CACHE_TTL=1h: system holds for an hour, message marks stay 5m
+    // (the API requires 1h entries before 5m ones — system comes first).
+    process.env.MIST_CACHE_TTL = "1h";
+    await client.stream("sys", history, [], {});
+    const sysTtl = captured!["system"] as { cache_control?: { ttl?: string } }[];
+    expect(sysTtl[0]!.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    const msgsTtl = captured!["messages"] as { content: { cache_control?: { ttl?: string } }[] }[];
+    for (const b of msgsTtl.flatMap((m) => m.content)) {
+      if (b.cache_control) expect(b.cache_control).toEqual({ type: "ephemeral" });
+    }
+    delete process.env.MIST_CACHE_TTL;
 
     process.env.MIST_CACHE = "0";
     await client.stream("sys", [{ role: "user", content: "hi" }], [], {});
     expect(typeof captured!["system"]).toBe("string"); // plain, no breakpoints
   } finally {
     delete process.env.MIST_CACHE;
+    delete process.env.MIST_CACHE_TTL;
     intercept.stop(true);
   }
 });

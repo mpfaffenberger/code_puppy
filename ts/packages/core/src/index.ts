@@ -1,4 +1,6 @@
 export { MistEngine, SYSTEM_PROMPT } from "./agent";
+export { discoverProjectDocs, INIT_PROMPT } from "./agents_md";
+export type { ProjectDocs } from "./agents_md";
 export type { AgentCallbacks, AgentTurn } from "./agent";
 export { getConfiguredModelName, getModelDef, persistModelChoice, listModelNames } from "./config";
 export {
@@ -11,7 +13,8 @@ export {
 export { EngineSession } from "./session";
 export { SessionStore, projectSlug } from "./store";
 export type { SessionMeta, StoredSession } from "./store";
-export { clearStaleToolResults, estimateTokens, splitForCompaction } from "./compaction";
+export { chooseSupersededToClear, clearStaleToolResults, clearSupersededReads, dedupeSupersededReads, findSupersededReads, isObservationFile, staleClearWorthIt, estimateTokens, splitForCompaction } from "./compaction";
+export type { HygieneSignals, ClearResult, SupersededRead } from "./compaction";
 export { computeEditDiff } from "./tools";
 export type { DiffPayload, DiffLine } from "./tools";
 export { AnthropicClient } from "./anthropic";

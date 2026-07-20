@@ -19,6 +19,7 @@
 
 import type { ChatMessage, ContentBlock, ToolSpec } from "./models";
 import { createModelClient, configFromDef } from "./models";
+import { discoverProjectDocs } from "./agents_md";
 import type { ModelClient, ModelResolver } from "./models";
 import { getConfiguredModelName, getModelDef } from "./config";
 import { applyPreToolHooks, loadHooks } from "./hooks";
@@ -26,7 +27,13 @@ import type { Hooks } from "./hooks";
 import { normalizePlan } from "./plan";
 import type { PlanItem } from "./plan";
 import {
+  chooseSupersededToClear,
   clearStaleToolResults,
+  clearSupersededReads,
+  dedupeSupersededReads,
+  findSupersededReads,
+  staleClearWorthIt,
+  type HygieneSignals,
   estimateTokens,
   renderLogForSummary,
   splitForCompaction,
@@ -221,7 +228,9 @@ export class MistEngine {
     // Real reading when we have one (it's what the API actually charged for
     // the last request); estimate otherwise.
     const before = this.estimateContextTokens();
-    const clearedRes = clearStaleToolResults(this.history);
+    const deduped = dedupeSupersededReads(this.history);
+    const clearedRes = clearStaleToolResults(deduped.messages);
+    clearedRes.cleared += deduped.cleared;
     this.history = clearedRes.messages;
     const split = splitForCompaction(this.history);
     if (!split) {
@@ -396,14 +405,45 @@ export class MistEngine {
 
   private async systemPrompt(): Promise<string> {
     if (this.hooks === null) this.hooks = await loadHooks(this.cwd);
+    // AGENTS.md loads ONCE and freezes into the stable prefix (cache
+    // contract). Mid-session edits arrive as tail messages, never here.
+    if (this.docsInSystem === null) {
+      this.docsInSystem = (await discoverProjectDocs(this.cwd)).text;
+      this.docsCurrent = this.docsInSystem;
+    }
     let base = SYSTEM_PROMPT;
     if (this.isSubagent) {
       base += `\n\nYou are running as a SUBAGENT on one delegated task. No user is available — never ask questions; resolve ambiguity with your best judgment. END with a final report: your last message is returned verbatim to the parent agent, so make it complete and self-contained.`;
+    }
+    if (this.docsInSystem) {
+      base += `\n\nREPOSITORY GUIDELINES (AGENTS.md — broad rules first, deeper files override):\n${this.docsInSystem}`;
     }
     return this.hooks.intent
       ? `${base}\n\nPROJECT INTENT (durable — never regress on this):\n${this.hooks.intent}`
       : base;
   }
+
+  /**
+   * Detect mid-session AGENTS.md edits at turn start. The frozen copy in the
+   * system prompt is NEVER rewritten (that would bust every cached byte
+   * after it) — instead the new text is appended at the tail with an
+   * explicit supersede notice, codex-style: the stale copy lingers in the
+   * cached prefix as dead tokens, recency + the notice neutralize it, and
+   * compaction eventually garbage-collects.
+   */
+  private async checkProjectDocsUpdate(): Promise<void> {
+    if (this.docsCurrent === null) return; // system prompt not built yet
+    const fresh = (await discoverProjectDocs(this.cwd)).text;
+    if (fresh === this.docsCurrent || !fresh) return;
+    this.docsCurrent = fresh;
+    this.history.push({
+      role: "user",
+      content: `[project-docs update] These AGENTS.md instructions replace ALL previously provided AGENTS.md instructions:\n\n${fresh}`,
+    });
+  }
+
+  private docsInSystem: string | null = null;
+  private docsCurrent: string | null = null;
 
   /** Compress a bulky tool result via headroom when enabled; graceful no-op. */
   private async maybeCompress(content: string, cb: AgentCallbacks): Promise<string> {
@@ -427,6 +467,26 @@ export class MistEngine {
     return content;
   }
 
+  /**
+   * Live signals for adaptive hygiene, read from the engine's own lens
+   * ledger — the harness observing itself and steering on the observation.
+   */
+  private hygieneSignals(): HygieneSignals {
+    const recent = this.lensTurns.slice(-3);
+    const reqs = recent.flatMap((t) => t.requests);
+    const cacheLive = reqs.some((r) => (r.cacheReadTokens ?? 0) > 0);
+    const withReqs = recent.filter((t) => t.requests.length > 0);
+    const avgRequestsPerTurn = withReqs.length
+      ? withReqs.reduce((a, t) => a + t.requests.length, 0) / withReqs.length
+      : 8; // no observations yet — assume a modest working turn
+    // Anthropic-protocol cache TTL is ~5 min; idle past it (or a fresh
+    // session) means the prefix is cold and clearing busts nothing.
+    const last = this.lensTurns[this.lensTurns.length - 1];
+    const lastEnd = last ? Date.parse(last.startedAt) + last.ms : 0;
+    const cacheLikelyCold = !last || Date.now() - lastEnd > 5 * 60_000;
+    return { cacheLive, avgRequestsPerTurn, cacheLikelyCold };
+  }
+
   private drainSteers(): void {
     while (this.steerQueue.length) {
       const steer = this.steerQueue.shift()!;
@@ -440,6 +500,7 @@ export class MistEngine {
   async runTurn(prompt: string, cb: AgentCallbacks): Promise<AgentTurn> {
     const client = await this.ensureClient();
     const system = await this.systemPrompt();
+    await this.checkProjectDocsUpdate();
     // Lens ledger: everything this turn does gets accounted here.
     const lens: TurnLens = {
       prompt: prompt.slice(0, 200),
@@ -453,8 +514,55 @@ export class MistEngine {
     };
     this.currentLens = lens;
     const turnStart = Date.now();
-    // Proactive hygiene: stale tool results never accumulate.
-    this.history = clearStaleToolResults(this.history).messages;
+    // Proactive hygiene: supersession dedup (a newer read of the same file
+    // invalidates older reads) — DEPTH-CONSTRAINED when the cache is warm:
+    // clearing an early read busts the whole tail, so deep candidates defer
+    // to the next free window (cold cache / compaction). Safe to defer —
+    // the newer read is in context and recency outranks the stale copy.
+    const supersededCands = findSupersededReads(this.history);
+    let dedupedNote = "";
+    let dedupedDeferred = 0;
+    let dedupedCleared = 0;
+    if (supersededCands.length) {
+      const pick =
+        process.env.MIST_ADAPTIVE_HYGIENE === "0"
+          ? { clear: supersededCands, deferred: 0, reason: "adaptive hygiene disabled" }
+          : chooseSupersededToClear(supersededCands, this.history, this.hygieneSignals());
+      if (pick.clear.length)
+        this.history = clearSupersededReads(this.history, pick.clear).messages;
+      dedupedCleared = pick.clear.length;
+      dedupedDeferred = pick.deferred;
+      dedupedNote = pick.reason;
+    }
+    const deduped = { cleared: dedupedCleared };
+    // Age-based stale clearing is ADAPTIVE: the engine reads its own lens
+    // feedback (observed cache hits, requests/turn, idle vs cache TTL) and
+    // only sweeps when the break-even math says it pays.
+    const plan = clearStaleToolResults(this.history, { dryRun: true });
+    let hygiene: TurnLens["hygiene"];
+    if (plan.cleared > 0) {
+      const decision =
+        process.env.MIST_ADAPTIVE_HYGIENE === "0"
+          ? { clear: true, reason: "adaptive hygiene disabled" }
+          : staleClearWorthIt(plan, this.hygieneSignals());
+      if (decision.clear) this.history = clearStaleToolResults(this.history).messages;
+      hygiene = {
+        dedupedReads: deduped.cleared,
+        dedupedDeferred,
+        staleCleared: decision.clear ? plan.cleared : 0,
+        staleDeferred: !decision.clear,
+        note: [dedupedNote, decision.reason].filter(Boolean).join(" · "),
+      };
+    } else if (deduped.cleared > 0 || dedupedDeferred > 0) {
+      hygiene = {
+        dedupedReads: deduped.cleared,
+        dedupedDeferred,
+        staleCleared: 0,
+        staleDeferred: false,
+        note: dedupedNote,
+      };
+    }
+    if (hygiene) lens.hygiene = hygiene;
     // Auto-compact when the estimate crosses the threshold.
     if (this.estimateContextTokens() > this.compactThreshold()) {
       const r = await this.compact().catch(() => null);
@@ -717,6 +825,7 @@ export class MistEngine {
     lens.ms = Date.now() - turnStart;
     this.currentLens = null;
     this.lensTurns.push(lens);
+    this.lensSeqNum += 1;
     if (this.lensTurns.length > 50) this.lensTurns.shift();
     return { finalText, steps };
   }
@@ -725,6 +834,19 @@ export class MistEngine {
   getLens(): TurnLens[] {
     return [...this.lensTurns];
   }
+
+  /** Monotonic count of turns ever recorded (survives the 50-turn cap). */
+  lensSeq(): number {
+    return this.lensSeqNum;
+  }
+
+  /** Rehydrate the ledger on session resume — /lens works across restarts. */
+  restoreLens(turns: TurnLens[]): void {
+    this.lensTurns = turns.slice(-50);
+    this.lensSeqNum = this.lensTurns.length;
+  }
+
+  private lensSeqNum = 0;
 
   private currentLens: TurnLens | null = null;
   private subagentSeq = 0;
