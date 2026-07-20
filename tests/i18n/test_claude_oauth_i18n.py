@@ -41,7 +41,7 @@ def _oauth_keys():
 
 
 def test_oauth_namespace_is_populated():
-    assert len(_oauth_keys()) >= 40
+    assert len(_oauth_keys()) >= 48
 
 
 def test_every_oauth_key_resolves():
@@ -131,3 +131,23 @@ def test_no_leftover_placeholders():
 
 def test_register_callbacks_imports_cleanly():
     import code_puppy.plugins.claude_code_oauth.register_callbacks  # noqa: F401
+
+
+def test_no_raw_emit_in_register_callbacks():
+    """Fail if any emit_ call bypasses t() in the OAuth plugin."""
+    import ast
+    import pathlib
+
+    src = pathlib.Path(
+        "code_puppy/plugins/claude_code_oauth/register_callbacks.py"
+    ).read_text()
+    tree = ast.parse(src)
+    offenders = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            fn = node.func
+            if isinstance(fn, ast.Name) and fn.id.startswith("emit_"):
+                for arg in node.args:
+                    if isinstance(arg, (ast.Constant, ast.JoinedStr)):
+                        offenders.append((node.lineno, fn.id))
+    assert not offenders, f"Raw emit_ calls found: {offenders}"

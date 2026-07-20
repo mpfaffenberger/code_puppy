@@ -121,7 +121,7 @@ def _start_callback_server(
         except OSError:
             continue
 
-    emit_error("Could not start OAuth callback server; all candidate ports are in use")
+    emit_error(t("oauth.server.no_ports"))
     return None
 
 
@@ -130,7 +130,7 @@ def _assign_manual_redirect_uri(context: OAuthContext) -> bool:
     try:
         assign_redirect_uri(context, port_range[0])
     except Exception as exc:  # noqa: BLE001
-        emit_error(f"Failed to assign redirect URI for OAuth flow: {exc}")
+        emit_error(t("oauth.server.redirect_uri_error", error=exc))
         return False
     return True
 
@@ -139,11 +139,11 @@ def _parse_pasted_callback(context: OAuthContext, raw_input: str) -> Optional[st
     try:
         parsed = parse_oauth_callback_input(raw_input)
     except ValueError as exc:
-        emit_error(f"Could not parse pasted OAuth input: {exc}")
+        emit_error(t("oauth.pasteback.parse_error", error=exc))
         return None
 
     if parsed.error:
-        emit_error(f"OAuth provider returned an error: {parsed.error_message}")
+        emit_error(t("oauth.pasteback.provider_error", message=parsed.error_message))
         return None
 
     if not parsed.code:
@@ -234,7 +234,7 @@ def _await_callback(context: OAuthContext) -> Optional[str]:
             emit_info(t("oauth.browser.fallback_url", url=auth_url))
     except Exception as exc:  # pragma: no cover
         if not suppress_browser:
-            emit_warning(t("oauth.browser.open_failed", error=exc))
+            emit_warning(t("oauth.browser.open_failed", error=str(exc)))
             emit_info(t("oauth.browser.manual_url", url=auth_url))
 
     if server:
@@ -450,7 +450,7 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
                 custom_endpoint["api_key"] = refreshed_token
 
     if not api_key:
-        emit_warning(t("oauth.model.no_api_key", model=model_config.get("name")))
+        emit_warning(t("oauth.model.no_api_key", model=model_config.get("name") or "(unknown)"))
         return None
 
     # Check if interleaved thinking is enabled (defaults to True for OAuth models).
