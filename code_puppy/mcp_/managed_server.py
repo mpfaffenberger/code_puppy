@@ -159,14 +159,16 @@ async def process_tool_call(
     real JSON Schema, so models that emit stringified arrays/bools/numbers cause
     downstream validation failures. We coerce here before forwarding.
     """
-    from rich.console import Console
-
     from code_puppy.config import get_banner_color
+    from code_puppy.messaging import get_queue_console
 
-    console = Console()
+    # Route via the shared queue console (like every other tool banner) so it
+    # renders in both the classic UI and the Textual TUI -- a raw Console()
+    # here printed straight to stdout and corrupted the Textual screen.
+    console = get_queue_console()
     color = get_banner_color("mcp_tool_call")
     banner = f"[bold white on {color}] MCP TOOL CALL [/bold white on {color}]"
-    console.print(f"\n{banner} 🔧 [bold cyan]{name}[/bold cyan]")
+    console.print(f"\n{banner}  [bold cyan]{name}[/bold cyan]")
 
     input_schema = await _input_schema_for_tool(call_tool, name)
     tool_args = coerce_tool_args(tool_args, input_schema)

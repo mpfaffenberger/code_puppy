@@ -103,6 +103,7 @@ def test_start_keyboard_listener_spawns_when_headless():
 
     with (
         patch.object(_key_listeners, "get_active_handle", return_value=None),
+        patch("code_puppy.config._TUI_MODE", False),
         patch.object(
             command_runner, "_spawn_ctrl_x_key_listener", return_value=None
         ) as mock_spawn,
@@ -111,6 +112,31 @@ def test_start_keyboard_listener_spawns_when_headless():
         command_runner._start_keyboard_listener()
         try:
             mock_spawn.assert_called_once()
+        finally:
+            command_runner._stop_keyboard_listener()
+
+
+def test_start_keyboard_listener_never_spawns_in_textual():
+    """In the Textual TUI a rival cbreak reader would race Textual for stdin,
+    so _start_keyboard_listener must NEVER spawn one -- even headless. The
+    app binds Ctrl+X to kill_all_running_shell_processes() directly.
+    """
+    from code_puppy.tools import command_runner
+
+    with (
+        patch.object(_key_listeners, "get_active_handle", return_value=None),
+        patch("code_puppy.config._TUI_MODE", True),
+        patch.object(command_runner, "_spawn_ctrl_x_key_listener") as mock_spawn,
+        patch("signal.signal", return_value=None),
+    ):
+        command_runner._start_keyboard_listener()
+        try:
+            mock_spawn.assert_not_called()
+            # The Ctrl+X shell chord is still registered (harmless no-op
+            # without a listener, but ready if one ever attaches).
+            from code_puppy.messaging import chords
+
+            assert chords.get_chord("\x18") is command_runner._handle_ctrl_x_press
         finally:
             command_runner._stop_keyboard_listener()
 

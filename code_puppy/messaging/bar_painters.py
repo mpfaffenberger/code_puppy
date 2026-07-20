@@ -111,6 +111,26 @@ def _panel_overflow_row(hidden: int) -> str:
     return f"\u2026 +{hidden} more"
 
 
+def clamp_panel_lines(lines: list, budget: int) -> list:
+    """Clamp a sub-agent panel row list to at most ``budget`` visual rows.
+
+    When ``lines`` is taller than ``budget``, the last visible row collapses
+    the remainder into a single ``… +N more`` summary (see
+    :func:`_panel_overflow_row`) instead of silently dropping rows. Shared by
+    the classic bottom bar (:meth:`BarPainterMixin._visible_panel_lines`) and
+    the Textual TUI panel widget (``tui/app.py::_apply_subagent_panel``) so
+    both surfaces clamp identically -- one source of truth for the overflow
+    behavior (DRY). Rows may be plain ``str`` or ``rich.text.Text``; this only
+    slices/appends and never inspects their type.
+    """
+    if len(lines) <= budget:
+        return lines
+    if budget <= 0:
+        return []
+    hidden = len(lines) - (budget - 1)
+    return lines[: budget - 1] + [_panel_overflow_row(hidden)]
+
+
 class BarPainterMixin:
     """Layout math + reserved-row painters for :class:`BottomBar`."""
 
@@ -186,14 +206,7 @@ class BarPainterMixin:
         """
         if self._visible_popup_lines():
             return []
-        panel = self._panel_lines
-        budget = self._panel_row_budget()
-        if len(panel) <= budget:
-            return panel
-        if budget <= 0:
-            return []
-        hidden = len(panel) - (budget - 1)
-        return panel[: budget - 1] + [_panel_overflow_row(hidden)]
+        return clamp_panel_lines(self._panel_lines, self._panel_row_budget())
 
     def _status_visible(self) -> bool:
         """The status row exists only while ANY slot has content."""
@@ -330,11 +343,6 @@ class BarPainterMixin:
         prompt_sgr = _prompt_color_sgr()
         prompt_reset = "\x1b[39m" if prompt_sgr else ""
         for i, rendered in enumerate(rendered_rows):
-            if prompt_sgr:
-                # Prefix styling uses full SGR resets between color runs. Restore
-                # the theme foreground after each reset so user text doesn't
-                # fall back to terminal-default white on light themes.
-                rendered = rendered.replace("\x1b[0m", f"\x1b[0m{prompt_sgr}")
             parts.append(
                 f"\x1b[{prompt_top + i};1H{_CLEAR_LINE}"
                 f"{prompt_sgr}{rendered}{prompt_reset}"

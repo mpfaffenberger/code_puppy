@@ -201,8 +201,25 @@ def _display_banner_message(
     from rich.console import Console
     from rich.text import Text
 
-    from code_puppy.config import get_banner_color
+    from code_puppy.config import get_banner_color, is_tui_mode
     from code_puppy.tools.display import erase_progress_line
+
+    # In the Textual TUI a raw Console() prints straight to stdout and corrupts
+    # the screen. Route through the shared queue console (bridged into the TUI)
+    # as a single composed line. Classic path below is untouched.
+    if is_tui_mode():
+        from code_puppy.messaging import get_queue_console
+
+        color = get_banner_color(banner_name)
+        line = Text.from_markup(
+            f"[bold white on {color}] {label} [/bold white on {color}] "
+        )
+        line.append(message)
+        qc = get_queue_console()
+        qc.print(line, highlight=False)
+        if details:
+            qc.print(Text(details), highlight=False)
+        return
 
     console = Console()
 

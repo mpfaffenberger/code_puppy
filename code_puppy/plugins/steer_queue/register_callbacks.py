@@ -134,9 +134,22 @@ def _custom_help() -> List[Tuple[str, str]]:
     ]
 
 
+# ── Textual TUI integration ─────────────────────────────────────────
+# The prompt_toolkit queue menu (arrow_select_async / PromptSession) assumes
+# suspended_run_ui handed it the terminal; there's no run-UI to suspend in the
+# Textual app, so it no-ops / corrupts the screen. The TUI opens a native
+# ModalScreen over the same PauseController steer-queue instead. register_screen
+# is consumed only by the Textual UI; classic mode is unaffected.
+def _register_queue_screen():
+    from .queue_tui import open_queue
+
+    return [{"command": "queue", "open": open_queue}]
+
+
 register_callback("startup", _on_startup)
 register_callback("custom_command", _handle_custom_command)
 register_callback("custom_command_help", _custom_help)
+register_callback("register_screen", _register_queue_screen)
 
 
 __all__ = [
@@ -144,5 +157,6 @@ __all__ = [
     "_handle_queue",
     "_handle_steer",
     "_on_startup",
+    "_register_queue_screen",
     "_update_status_suffix",
 ]

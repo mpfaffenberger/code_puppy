@@ -77,9 +77,9 @@ class TestProcessToolCall:
 
         mock_call_tool = AsyncMock(return_value="tool_result")
 
-        with patch("rich.console.Console") as mock_console_cls:
+        with patch("code_puppy.messaging.get_queue_console") as mock_qc_fn:
             mock_console = Mock()
-            mock_console_cls.return_value = mock_console
+            mock_qc_fn.return_value = mock_console
             result = await process_tool_call(
                 ctx=mock_ctx,
                 call_tool=mock_call_tool,
@@ -87,7 +87,7 @@ class TestProcessToolCall:
                 tool_args={"arg1": "value1"},
             )
 
-        # Verify banner was printed with tool name
+        # Verify banner was routed through the shared queue console
         mock_console.print.assert_called_once()
         printed = mock_console.print.call_args[0][0]
         assert "test_tool" in printed

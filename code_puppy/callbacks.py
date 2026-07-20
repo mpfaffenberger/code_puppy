@@ -29,8 +29,8 @@ PhaseType = Literal[
     "stream_event",
     "thinking_display_filter",
     "termflow_style",
-    "prompt_toolkit_style",
     "termflow_highlighter",
+    "prompt_toolkit_style",
     "prompt_text_color",
     "register_tools",
     "register_agent_tools",
@@ -39,6 +39,7 @@ PhaseType = Literal[
     "register_skills",
     "register_cli_args",
     "handle_cli_args",
+    "register_screen",
     "get_model_system_prompt",
     "prepare_model_prompt",
     "agent_run_start",
@@ -62,6 +63,7 @@ PhaseType = Literal[
     "session_end",
     "post_autosave",
     "notification",
+    "subagent_panel_lines_changed",
     "awaiting_user_input",
 ]
 CallbackFunc = Callable[..., Any]
@@ -92,8 +94,8 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "stream_event": [],
     "thinking_display_filter": [],
     "termflow_style": [],
-    "prompt_toolkit_style": [],
     "termflow_highlighter": [],
+    "prompt_toolkit_style": [],
     "prompt_text_color": [],
     "register_tools": [],
     "register_agent_tools": [],
@@ -102,6 +104,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_skills": [],
     "register_cli_args": [],
     "handle_cli_args": [],
+    "register_screen": [],
     "get_model_system_prompt": [],
     "prepare_model_prompt": [],
     "agent_run_start": [],
@@ -125,6 +128,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "session_end": [],
     "post_autosave": [],
     "notification": [],
+    "subagent_panel_lines_changed": [],
     "awaiting_user_input": [],
 }
 
@@ -666,14 +670,19 @@ def on_termflow_style(default_style: Any) -> Any:
     return _chain_value_callbacks("termflow_style", default_style)
 
 
-def on_prompt_toolkit_style(default_style: Any = None) -> Any:
-    """Let plugins replace a prompt_toolkit Application style."""
-    return _chain_value_callbacks("prompt_toolkit_style", default_style)
-
-
 def on_termflow_highlighter(default_highlighter: Any) -> Any:
     """Let plugins replace Termflow's syntax highlighter."""
     return _chain_value_callbacks("termflow_highlighter", default_highlighter)
+
+
+def on_prompt_toolkit_style(default_style: Any = None) -> Any:
+    """Let plugins replace a prompt_toolkit Application style.
+
+    TUI menus pass their local style through this hook so the active theme can
+    be layered underneath while local rules keep precedence. Returning ``None``
+    leaves the style unchanged, and failures degrade safely to the prior value.
+    """
+    return _chain_value_callbacks("prompt_toolkit_style", default_style)
 
 
 def on_prompt_text_color(default_color: str | None = None) -> str | None:
@@ -846,6 +855,27 @@ def on_register_skills() -> List[Dict[str, Any]]:
     - "scripts_dir": str | Path
     """
     return _trigger_callbacks_sync("register_skills")
+
+
+def on_register_screens() -> List[Dict[str, Any]]:
+    """Collect Textual screen/menu registrations from plugins.
+
+    Lets plugins contribute their own modal menus to the Textual UI. Each
+    callback returns a list of dicts with:
+    - "command": str  - the slash command (with or without leading '/') that
+      opens the screen, e.g. "mytool" -> typing /mytool opens it
+    - "open": callable - ``open(app) -> None``; typically pushes a ModalScreen
+      via ``app.push_screen(MyScreen(), callback)``
+
+    Optional keys:
+    - "aliases": list[str] - extra command names that open the same screen
+
+    The opener runs only for the BARE command in the Textual UI; a command
+    with args still falls through to the classic handler. No-op in classic UI.
+
+    Example return: [{"command": "mytool", "open": open_my_tool}]
+    """
+    return _trigger_callbacks_sync("register_screen")
 
 
 def on_get_model_system_prompt(

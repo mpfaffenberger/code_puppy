@@ -7,7 +7,7 @@ Renderers decide how to display these structured messages.
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -389,6 +389,26 @@ class SelectionRequest(BaseMessage):
     )
 
 
+class QuestionRequest(BaseMessage):
+    """Request for the user to answer one or more multiple-choice questions.
+
+    Backs the ``ask_user_question`` tool's split-panel UI. Questions are carried
+    as plain serialized dicts (``Question.model_dump()``) so this messaging
+    module stays decoupled from the tool's pydantic models -- the renderer
+    rebuilds whatever view it needs from these dicts.
+    """
+
+    category: MessageCategory = MessageCategory.USER_INTERACTION
+    prompt_id: str = Field(description="Unique ID for matching responses to requests")
+    questions: List[Dict[str, Any]] = Field(
+        description="Serialized Question objects (header/question/multi_select/options)"
+    )
+    timeout: int = Field(
+        default=300,
+        description="Inactivity timeout in seconds before the request auto-cancels",
+    )
+
+
 # =============================================================================
 # Control Messages
 # =============================================================================
@@ -441,6 +461,19 @@ class VersionCheckMessage(BaseMessage):
     current_version: str = Field(description="Currently installed version")
     latest_version: str = Field(description="Latest available version")
     update_available: bool = Field(description="Whether an update is available")
+
+
+class PromptEchoMessage(BaseMessage):
+    """Signal the TUI to display a PROMPT banner for an auto-submitted prompt.
+
+    Emitted by the runtime when a queued-mode steer is injected between turns
+    so the TUI can show the same timestamped PROMPT header a manually-typed
+    prompt would produce. Classic-mode renderers skip this message (the
+    existing ``emit_info`` context line is sufficient there).
+    """
+
+    category: MessageCategory = MessageCategory.SYSTEM
+    text: str = Field(description="The prompt text to echo as a PROMPT banner.")
 
 
 # =============================================================================
@@ -511,12 +544,14 @@ AnyMessage = Union[
     UserInputRequest,
     ConfirmationRequest,
     SelectionRequest,
+    QuestionRequest,
     SpinnerControl,
     DividerMessage,
     StatusPanelMessage,
     VersionCheckMessage,
     SkillListMessage,
     SkillActivateMessage,
+    PromptEchoMessage,
 ]
 """Union of all message types for type checking."""
 
@@ -558,6 +593,7 @@ __all__ = [
     "UserInputRequest",
     "ConfirmationRequest",
     "SelectionRequest",
+    "QuestionRequest",
     # Control
     "SpinnerControl",
     "DividerMessage",
@@ -568,6 +604,8 @@ __all__ = [
     "SkillEntry",
     "SkillListMessage",
     "SkillActivateMessage",
+    # Prompt echo (TUI banner for auto-submitted queued prompts)
+    "PromptEchoMessage",
     # Union type
     "AnyMessage",
 ]

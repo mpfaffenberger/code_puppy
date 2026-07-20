@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2048
+# shellcheck disable=SC2086
+# shellcheck disable=SC2002
+
+set -e
+
+#==========================================================================
+# code-puppy-dev
+#==========================================================================
+# DESCRIPTION:
+#   This script provides a convenient way to test code-puppy changes during development.
+#   It reinstalls the package in development mode and runs it with the provided arguments.
+#
+# USAGE:
+#   ./code-puppy-dev [arguments]
+#
+# EXAMPLES:
+#   ./code-puppy-dev --interactive   # Run with interactive console interface
+#
+# HOW IT WORKS:
+#   1. Reinstalls code-puppy in development mode (--no-deps --reinstall -e .)
+#   2. Runs code-puppy with any arguments you provided
+#   3. Suppresses installation output to keep the console clean
+#==========================================================================
+
+args=$*
+
+# In case you missed adding this to ~/.zshrc
+#export UV_INDEX_URL=https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple
+
+# Build and reinstall in development mode
+uv pip install --no-deps --force-reinstall -e . 
+
+# Run code-puppy with all provided arguments
+# NO_VERSION_UPDATE=1 prevents version autoupdate during development
+# Unset VIRTUAL_ENV so uv doesn't warn about hyphen/underscore name
+# normalisation mismatch (code-puppy vs code_puppy). uv finds the .venv
+# itself from pyproject.toml just fine.
+NO_VERSION_UPDATE=1 VIRTUAL_ENV= uv run code-puppy $args

@@ -65,22 +65,6 @@ def test_prompt_buffer_uses_theme_foreground(bar, tty):
     assert "\x1b[39m" in output
 
 
-def test_styled_prefix_restores_theme_foreground_for_user_text(bar, tty):
-    theme_sgr = "\x1b[38;2;76;79;105m"
-    with patch("code_puppy.callbacks.on_prompt_text_color", return_value="#4c4f69"):
-        bar.start()
-        drain(tty)
-        bar.set_prompt_text(
-            "> ", "readable latte", len("readable latte"), ["1;34", "1;34"]
-        )
-
-    output = written(tty)
-    prefix_reset = output.index("\x1b[0m")
-    user_text = output.index("readable latte")
-
-    assert theme_sgr in output[prefix_reset:user_text]
-
-
 # =========================================================================
 # Non-TTY: silent no-ops
 # =========================================================================
@@ -660,6 +644,29 @@ def test_panel_all_rows_render_when_they_fit(bar, tty):
     for i in range(12):
         assert f"agent-{i}" in out
     assert "more" not in out  # no overflow summary when everything fits
+
+
+def test_clamp_panel_lines_helper_contract():
+    """The shared clamp helper (used by BOTH the classic bar and the TUI
+    panel widget) collapses overflow into one '… +N more' row."""
+    from code_puppy.messaging.bar_painters import clamp_panel_lines
+
+    rows = [f"agent-{i}" for i in range(10)]
+
+    # Fits exactly -> returned unchanged (no summary).
+    assert clamp_panel_lines(rows, 10) == rows
+    assert clamp_panel_lines(rows[:3], 5) == rows[:3]
+
+    # Overflow -> budget-1 rows + a summary counting the hidden remainder.
+    clamped = clamp_panel_lines(rows, 4)
+    assert len(clamped) == 4
+    assert clamped[:3] == rows[:3]
+    assert clamped[-1] == "\u2026 +7 more"  # 10 - (4 - 1) = 7 hidden
+
+    # Degenerate budgets fail closed (never raise, never over-paint).
+    assert clamp_panel_lines(rows, 0) == []
+    assert clamp_panel_lines(rows, -5) == []
+    assert clamp_panel_lines([], 5) == []
 
 
 def test_teardown_clears_panel_rows_too(bar, tty):

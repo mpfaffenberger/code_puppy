@@ -22,7 +22,8 @@ from code_puppy.callbacks import on_prompt_toolkit_style
 
 # Banner display names; decorative icons are intentionally omitted.
 BANNER_DISPLAY_INFO = {
-    "thinking": ("THINKING", ""),
+    "prompt": ("PROMPT", "💬"),  # TUI-only: the user's submitted turn
+    "thinking": ("THINKING", "⚡"),
     "agent_response": ("AGENT RESPONSE", ""),
     "shell_command": ("SHELL COMMAND", ""),
     "read_file": ("READ FILE", ""),
@@ -43,6 +44,7 @@ BANNER_DISPLAY_INFO = {
 
 # Sample content to show after each banner
 BANNER_SAMPLE_CONTENT = {
+    "prompt": "Refactor the auth module to use the new token API...",
     "thinking": "Let me analyze this code structure and figure out the best approach...",
     "agent_response": "I've implemented the feature you requested. The changes include...",
     "shell_command": "$ npm run test -- --silent\nTimeout: 60s",

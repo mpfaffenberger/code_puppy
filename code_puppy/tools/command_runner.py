@@ -568,15 +568,25 @@ def _start_keyboard_listener() -> None:
     """
     global _SHELL_CTRL_X_STOP_EVENT, _SHELL_CTRL_X_THREAD, _ORIGINAL_SIGINT_HANDLER
 
+    # Register the Ctrl+X / Ctrl+B shell chords for as long as commands run.
+    # (Replaces the old modal ``_key_listeners.set_escape_handler`` design,
+    # removed in the chord refactor.)
     _register_shell_chords()
-    # Reuse-or-spawn is atomic inside the shim: an agent-run/persistent
-    # listener is reused (the chords above own Ctrl+X dispatch); only
-    # headless / tool-only invocations actually spawn.
-    _SHELL_CTRL_X_STOP_EVENT = threading.Event()
-    _SHELL_CTRL_X_THREAD = _spawn_ctrl_x_key_listener(
-        _SHELL_CTRL_X_STOP_EVENT,
-        _handle_ctrl_x_press,
-    )
+
+    # In the Textual TUI, never spawn a raw cbreak reader -- it races Textual
+    # for stdin. The app binds Ctrl+X to kill_all_running_shell_processes()
+    # directly, so the chord bindings above are enough (and unused).
+    from code_puppy.config import is_tui_mode
+
+    if not is_tui_mode():
+        # Reuse-or-spawn is atomic inside the shim: an agent-run/persistent
+        # listener is reused (our handler above owns Ctrl+X dispatch); only
+        # headless / tool-only invocations actually spawn.
+        _SHELL_CTRL_X_STOP_EVENT = threading.Event()
+        _SHELL_CTRL_X_THREAD = _spawn_ctrl_x_key_listener(
+            _SHELL_CTRL_X_STOP_EVENT,
+            _handle_ctrl_x_press,
+        )
 
     # Replace SIGINT handler temporarily
     try:

@@ -179,29 +179,7 @@ def _termflow_highlighter(default_highlighter):
     from termflow.syntax import Highlighter
 
     if active_theme in {"green-screen", "green", "crt"}:
-        # Preserve monochrome phosphor while giving token classes enough
-        # separation to remain useful on both addition and deletion lines.
-        token_styles = {
-            Token: "#72a85b",
-            Comment: "#456b4f",
-            Error: "#7dff68",
-            Keyword: "#39e75f",
-            Name.Function: "#75ff87",
-            Number: "#8acb72",
-            Operator: "#63b96a",
-            String: "#9bdc79",
-        }
-    elif active_theme in {"solarized-light", "solarized"}:
-        token_styles = {
-            Token: "#657b83",
-            Comment: "#586e75",
-            Error: "#dc322f",
-            Keyword: "#859900",
-            Name.Function: "#268bd2",
-            Number: "#2aa198",
-            Operator: "#657b83",
-            String: "#2aa198",
-        }
+        token_styles = {Token: palette["fg"]}
     else:
         token_styles = {
             Token: ansi[7],
@@ -221,13 +199,6 @@ def _termflow_highlighter(default_highlighter):
     )
     highlighter = Highlighter()
     highlighter._formatter = TerminalTrueColorFormatter(style=theme_style)
-    if active_theme in {"green-screen", "green", "crt"}:
-        # Added lines lean brighter/yellower; removed lines become cooler and
-        # more muted. Small shifts retain the token palette's internal contrast.
-        highlighter.diff_line_tints = {
-            "added": (10, 14, -8),
-            "removed": (-18, -4, 10),
-        }
     return highlighter
 
 
@@ -235,6 +206,11 @@ def _prompt_text_color(default_color):
     """Use the active terminal foreground for the persistent prompt buffer."""
     active = _active_terminal_palette()
     return active[1].get("fg", default_color) if active else default_color
+
+
+def _prompt_toolkit_style(default_style):
+    """Layer the active theme underneath a prompt_toolkit menu's local style."""
+    return merge_with_active_style(default_style)
 
 
 def _apply_default_theme_on_first_run() -> None:
@@ -296,10 +272,29 @@ def _handle_theme(command: str, name: str):
     return True
 
 
+# --- Textual TUI integration ------------------------------------------------
+# The curated /theme picker is a prompt_toolkit split-panel that fights the
+# Textual screen, so in the TUI we point users at Textual's own theme system
+# (the command palette). Registered via the register_screen hook, which only
+# the Textual UI consumes -- classic and `/theme <name>` are unaffected.
+def _open_theme_in_tui(app) -> None:
+    del app  # opener signature only; we just emit guidance
+    emit_info(
+        "\U0001f3a8 In the TUI, themes live in the command palette \u2014 "
+        "press Ctrl+P (^p) and search for 'theme'. "
+        "You can still apply a curated palette by name, e.g. /theme ocean."
+    )
+
+
+def _register_theme_screen():
+    return [{"command": "theme", "open": _open_theme_in_tui}]
+
+
 register_callback("startup", _apply_default_theme_on_first_run)
 register_callback("termflow_style", _termflow_style)
 register_callback("termflow_highlighter", _termflow_highlighter)
 register_callback("prompt_text_color", _prompt_text_color)
-register_callback("prompt_toolkit_style", merge_with_active_style)
+register_callback("prompt_toolkit_style", _prompt_toolkit_style)
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_theme)
+register_callback("register_screen", _register_theme_screen)
