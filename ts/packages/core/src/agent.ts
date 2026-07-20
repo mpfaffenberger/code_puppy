@@ -29,6 +29,7 @@ import type { PlanItem } from "./plan";
 import {
   chooseSupersededToClear,
   clearStaleToolResults,
+  repairToolPairing,
   clearSupersededReads,
   dedupeSupersededReads,
   findSupersededReads,
@@ -288,7 +289,9 @@ export class MistEngine {
 
   /** Load a persisted conversation history (resume). */
   loadHistory(messages: ChatMessage[]): void {
-    this.history = [...messages];
+    // Resumed sessions may carry a dangling tool_use from a turn that died
+    // mid-flight — repair or every future request 400s.
+    this.history = repairToolPairing([...messages]).messages;
   }
 
   /**
@@ -500,6 +503,14 @@ export class MistEngine {
   async runTurn(prompt: string, cb: AgentCallbacks): Promise<AgentTurn> {
     const client = await this.ensureClient();
     const system = await this.systemPrompt();
+    // Normalize pairing before anything touches history — a prior turn that
+    // threw between recording tool_use and tool_result leaves damage the
+    // API rejects wholesale ("tool_use ids without tool_result blocks").
+    const paired = repairToolPairing(this.history);
+    if (paired.repaired) {
+      this.history = paired.messages;
+      cb.onStep(`⚠ repaired ${paired.repaired} interrupted tool call${paired.repaired === 1 ? "" : "s"} from a prior turn`);
+    }
     await this.checkProjectDocsUpdate();
     // Lens ledger: everything this turn does gets accounted here.
     const lens: TurnLens = {
@@ -766,6 +777,9 @@ export class MistEngine {
         steps += 1;
         let stepLabel = "";
         const toolStart = Date.now();
+        // A crashing executor must yield an error RESULT, never abort the
+        // turn — an abort here strands the tool_use without its tool_result
+        // and every later request 400s (the dangling-pair bug).
         const res = await runTool(tu.name, input, {
           cwd: this.cwd,
           onStep: (label) => {
@@ -773,7 +787,10 @@ export class MistEngine {
             cb.onStep(label);
           },
           onDiff: cb.onDiff,
-        });
+        }).catch((err: Error) => ({
+          content: `tool crashed: ${err.message}`,
+          isError: true,
+        }));
         reqLens.toolCalls.push({
           name: tu.name, label: stepLabel || tu.name,
           ms: Date.now() - toolStart, outputChars: res.content.length,
@@ -789,7 +806,9 @@ export class MistEngine {
         if (verdict?.action === "warn") {
           content = `[project hook warning: ${verdict.message}]\n${content}`;
         }
-        content = await this.maybeCompress(content, cb);
+        // Headroom compression is a MODEL call — endpoint failure here must
+        // not strand the batch's tool_use blocks; fall back to raw content.
+        content = await this.maybeCompress(content, cb).catch(() => content);
         toolResults.push({
           type: "tool_result",
           tool_use_id: tu.id,

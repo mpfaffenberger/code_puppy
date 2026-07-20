@@ -13,7 +13,7 @@ export {
 export { EngineSession } from "./session";
 export { SessionStore, projectSlug } from "./store";
 export type { SessionMeta, StoredSession } from "./store";
-export { chooseSupersededToClear, clearStaleToolResults, clearSupersededReads, dedupeSupersededReads, findSupersededReads, isObservationFile, staleClearWorthIt, estimateTokens, splitForCompaction } from "./compaction";
+export { chooseSupersededToClear, clearStaleToolResults, clearSupersededReads, dedupeSupersededReads, findSupersededReads, isObservationFile, repairToolPairing, staleClearWorthIt, estimateTokens, splitForCompaction } from "./compaction";
 export type { HygieneSignals, ClearResult, SupersededRead } from "./compaction";
 export { computeEditDiff } from "./tools";
 export type { DiffPayload, DiffLine } from "./tools";
