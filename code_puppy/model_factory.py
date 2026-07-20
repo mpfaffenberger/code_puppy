@@ -311,6 +311,26 @@ def make_model_settings(
             )
             if "codex" not in model_name:
                 model_settings_dict["openai_text_verbosity"] = get_openai_verbosity()
+
+            underlying_name = str(model_config.get("name", "")).lower()
+            is_gpt_5_6 = "gpt-5.6" in model_name.lower() or "gpt-5.6" in underlying_name
+            if is_gpt_5_6:
+                # pydantic-ai 1.56 does not expose context/mode settings yet,
+                # although the OpenAI SDK does. Supply the complete reasoning
+                # object through extra_body; a partial object would overwrite
+                # pydantic-ai's generated effort/summary payload.
+                reasoning = {
+                    "effort": model_settings_dict.pop("openai_reasoning_effort"),
+                    "summary": model_settings_dict.pop("openai_reasoning_summary"),
+                    "context": effective_settings.get("reasoning_context", "all_turns"),
+                    "mode": effective_settings.get("reasoning_mode", "standard"),
+                }
+                extra_body = dict(model_settings_dict.get("extra_body") or {})
+                extra_body["reasoning"] = reasoning
+                model_settings_dict["extra_body"] = extra_body
+                model_settings_dict.pop("reasoning_context", None)
+                model_settings_dict.pop("reasoning_mode", None)
+
             model_settings = OpenAIResponsesModelSettings(**model_settings_dict)
         else:
             # Chat Completions models don't support configurable reasoning summaries.

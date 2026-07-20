@@ -6,6 +6,7 @@ from code_puppy.command_line.model_settings_menu import (
     MODELS_PER_PAGE,
     SETTING_DEFINITIONS,
     ModelSettingsMenu,
+    _get_model_display_settings,
     _get_setting_choices,
     _load_all_model_names,
     interactive_model_settings,
@@ -144,6 +145,16 @@ class TestMenuProperties:
 
 
 class TestModelSettings:
+    @patch(
+        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
+        return_value={},
+    )
+    def test_gpt_5_6_reasoning_defaults_are_displayed(self, mock_get_all):
+        settings = _get_model_display_settings("gpt-5.6-sol")
+
+        assert settings["reasoning_context"] == "all_turns"
+        assert settings["reasoning_mode"] == "standard"
+
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
     def test_get_supported_settings(self, mock_supports):
         mock_supports.side_effect = lambda m, s: s in ("temperature", "seed")

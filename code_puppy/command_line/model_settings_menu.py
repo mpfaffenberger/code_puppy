@@ -83,6 +83,20 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "choices": ["minimal", "low", "medium", "high", "xhigh", "ultra"],
         "default": "medium",
     },
+    "reasoning_context": {
+        "name": "Reasoning Context",
+        "description": "Controls which prior reasoning is retained for GPT-5.6 Responses models. All turns preserves reasoning across the conversation.",
+        "type": "choice",
+        "choices": ["all_turns", "current_turn", "auto"],
+        "default": "all_turns",
+    },
+    "reasoning_mode": {
+        "name": "Reasoning Mode",
+        "description": "Controls the GPT-5.6 reasoning mode. Standard is the default; Pro spends more compute and is only available on supported variants.",
+        "type": "choice",
+        "choices": ["standard", "pro"],
+        "default": "standard",
+    },
     "summary": {
         "name": "Reasoning Summary",
         "description": "Controls whether OpenAI Responses models return auto, concise, or detailed reasoning summaries.",
@@ -267,6 +281,10 @@ def _get_model_display_settings(model_name: str) -> Dict:
 
     if model_supports_setting(model_name, "reasoning_effort"):
         settings["reasoning_effort"] = get_openai_reasoning_effort()
+    if model_supports_setting(model_name, "reasoning_context"):
+        settings.setdefault("reasoning_context", "all_turns")
+    if model_supports_setting(model_name, "reasoning_mode"):
+        settings.setdefault("reasoning_mode", "standard")
     if model_supports_setting(model_name, "summary"):
         settings["summary"] = get_openai_reasoning_summary()
     if model_supports_setting(model_name, "verbosity"):

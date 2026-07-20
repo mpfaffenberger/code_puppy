@@ -485,6 +485,8 @@ def add_models_to_extra_config(models: List[str]) -> bool:
             # ChatGPT OAuth models use the Responses API, so they support
             # reasoning effort, reasoning summaries, and text verbosity.
             supported_settings = ["reasoning_effort", "summary", "verbosity"]
+            if model_name.lower().startswith("gpt-5.6"):
+                supported_settings.extend(["reasoning_context", "reasoning_mode"])
 
             # xhigh is supported by codex and GPT-5.4+ variants; ultra is
             # narrower and starts with GPT-5.6. Keep separate capabilities so

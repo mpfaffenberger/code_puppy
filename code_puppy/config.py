@@ -689,12 +689,22 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
 
         if supports_glm_reasoning_effort(model_name):
             return True
+    if setting in ("reasoning_context", "reasoning_mode"):
+        # OpenAI added these Responses API controls with GPT-5.6. Capability
+        # detection belongs here so injected/custom 5.6 model definitions do
+        # not all need to duplicate the same supported_settings metadata.
+        if "gpt-5.6" in model_name.lower():
+            return True
 
     try:
         from code_puppy.model_factory import ModelFactory
 
         models_config = ModelFactory.load_config()
         model_config = models_config.get(model_name, {})
+        if setting in ("reasoning_context", "reasoning_mode"):
+            underlying_name = str(model_config.get("name", "")).lower()
+            if "gpt-5.6" in underlying_name:
+                return True
 
         # Get supported_settings list, default to supporting common settings
         supported_settings = model_config.get("supported_settings")

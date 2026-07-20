@@ -260,6 +260,56 @@ class TestMakeModelSettings:
         assert settings["openai_text_verbosity"] == "medium"
         assert settings.get("extra_body") is None
 
+    def test_make_model_settings_gpt_5_6_reasoning_defaults(self):
+        """GPT-5.6 Responses requests preserve all reasoning controls."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.model_factory.ModelFactory.load_config",
+            return_value={
+                "codex-gpt-5.6-sol": {
+                    "type": "chatgpt_oauth",
+                    "name": "gpt-5.6-sol",
+                }
+            },
+        ):
+            settings = make_model_settings("codex-gpt-5.6-sol", max_tokens=4096)
+
+        reasoning = settings["extra_body"]["reasoning"]
+        assert reasoning["context"] == "all_turns"
+        assert reasoning["mode"] == "standard"
+        assert reasoning["effort"] == "medium"
+        assert reasoning["summary"] == "detailed"
+        assert "openai_reasoning_effort" not in settings
+        assert "openai_reasoning_summary" not in settings
+
+    def test_make_model_settings_gpt_5_6_reasoning_overrides(self):
+        """Per-model context and mode choices flow into the API payload."""
+        from code_puppy.model_factory import make_model_settings
+
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value={
+                    "codex-gpt-5.6-sol": {
+                        "type": "chatgpt_oauth",
+                        "name": "gpt-5.6-sol",
+                    }
+                },
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={
+                    "reasoning_context": "current_turn",
+                    "reasoning_mode": "pro",
+                },
+            ),
+        ):
+            settings = make_model_settings("codex-gpt-5.6-sol", max_tokens=4096)
+
+        assert settings["extra_body"]["reasoning"]["context"] == "current_turn"
+        assert settings["extra_body"]["reasoning"]["mode"] == "pro"
+
     def test_make_model_settings_claude_has_temperature(self):
         """Test Claude model returns settings with temperature."""
         from code_puppy.model_factory import make_model_settings
