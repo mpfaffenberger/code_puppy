@@ -14,6 +14,7 @@ from code_puppy.command_line.model_picker_completion import (
 )
 from code_puppy.command_line.utils import make_directory_table
 from code_puppy.config import finalize_autosave_session
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_error, emit_info
 from code_puppy.tools.tools_content import tools_content
 
@@ -77,7 +78,7 @@ def handle_cd_command(command: str) -> bool:
             table = make_directory_table()
             emit_info(table)
         except Exception as e:
-            emit_error(f"Error listing directory: {e}")
+            emit_error(t("cmd.cd.list_error", error=e))
         return True
 
     if len(tokens) >= 2:
@@ -89,7 +90,7 @@ def handle_cd_command(command: str) -> bool:
             target = os.path.join(os.getcwd(), target)
         if os.path.isdir(target):
             os.chdir(target)
-            emit_success(f"Changed directory to: {target}")
+            emit_success(t("cmd.cd.success", path=target))
             # Refresh the @file fuzzy index for the new cwd. Async/non-blocking;
             # the prompt stays snappy and the next @completion sees fresh data.
             try:
@@ -110,12 +111,12 @@ def handle_cd_command(command: str) -> bool:
                 # reload_code_generation_agent() invalidates cached rules
                 # and rebuilds prompt/context from the new cwd
                 get_current_agent().reload_code_generation_agent()
-                emit_info("Agent context updated for new directory")
+                emit_info(t("cmd.cd.agent_updated"))
             except Exception as e:
                 # Non-fatal: directory change succeeded even if reload failed
-                emit_error(f"Could not reload agent context: {e}")
+                emit_error(t("cmd.cd.reload_error", error=e))
         else:
-            emit_error(f"Not a directory: {dirname}")
+            emit_error(t("cmd.cd.not_a_dir", path=dirname))
         return True
 
     return True
@@ -155,8 +156,8 @@ def handle_paste_command(command: str) -> bool:
     from code_puppy.messaging import emit_info, emit_success, emit_warning
 
     if not has_image_in_clipboard():
-        emit_warning("No image found in clipboard")
-        emit_info("Copy an image (screenshot, from browser, etc.) and try again")
+        emit_warning(t("cmd.paste.no_image"))
+        emit_info(t("cmd.paste.hint"))
         return True
 
     placeholder = capture_clipboard_image_to_pending()
@@ -164,10 +165,10 @@ def handle_paste_command(command: str) -> bool:
         manager = get_clipboard_manager()
         count = manager.get_pending_count()
         emit_success(placeholder)
-        emit_info(f"Total pending clipboard images: {count}")
-        emit_info("Type your prompt and press Enter to send with the image(s)")
+        emit_info(t("cmd.paste.count", count=count))
+        emit_info(t("cmd.paste.send_hint"))
     else:
-        emit_warning("Failed to capture clipboard image")
+        emit_warning(t("cmd.paste.failed"))
 
     return True
 
@@ -203,13 +204,13 @@ def handle_tutorial_command(command: str) -> bool:
         result = future.result(timeout=300)  # 5 min timeout
 
     if result == "chatgpt":
-        emit_info("🔐 Starting ChatGPT OAuth flow...")
+        emit_info(t("cmd.tutorial.chatgpt_oauth"))
         from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
 
         run_oauth_flow()
         set_model_and_reload_agent("codex-gpt-5.6-sol")
     elif result == "claude":
-        emit_info("🔐 Starting Claude Code OAuth flow...")
+        emit_info(t("cmd.tutorial.claude_oauth"))
         from code_puppy.plugins.claude_code_oauth.register_callbacks import (
             _perform_authentication,
         )
@@ -217,9 +218,9 @@ def handle_tutorial_command(command: str) -> bool:
         _perform_authentication()
         set_model_and_reload_agent("claude-code-claude-opus-4-7")
     elif result == "completed":
-        emit_info("🎉 Tutorial complete! Happy coding!")
+        emit_info(t("cmd.tutorial.complete"))
     elif result == "skipped":
-        emit_info("⏭️ Tutorial skipped. Run /tutorial anytime!")
+        emit_info(t("cmd.tutorial.skipped"))
 
     # If the user didn't go the OAuth route they have no model yet -> require
     # an explicit /add_model.
@@ -240,7 +241,7 @@ def handle_exit_command(command: str) -> bool:
     from code_puppy.messaging import emit_success
 
     try:
-        emit_success("Goodbye!")
+        emit_success(t("cli.goodbye"))
     except Exception:
         # Handle emit errors gracefully
         pass
@@ -304,7 +305,7 @@ def handle_agent_command(command: str) -> bool:
                 if current_agent.name == selected_agent:
                     group_id = str(uuid.uuid4())
                     emit_info(
-                        f"Already using agent: {current_agent.display_name}",
+                        t("cmd.agent.already_using", agent=current_agent.display_name),
                         message_group=group_id,
                     )
                     return True
@@ -314,7 +315,7 @@ def handle_agent_command(command: str) -> bool:
                 new_session_id = finalize_autosave_session()
                 if not set_current_agent(selected_agent):
                     emit_warning(
-                        "Agent switch failed after autosave rotation. Your context was preserved.",
+                        t("cmd.agent.switch_failed"),
                         message_group=group_id,
                     )
                     return True
@@ -322,7 +323,7 @@ def handle_agent_command(command: str) -> bool:
                 new_agent = get_current_agent()
                 new_agent.reload_code_generation_agent()
                 emit_success(
-                    f"Switched to agent: {new_agent.display_name}",
+                    t("cmd.agent.switched", agent=new_agent.display_name),
                     message_group=group_id,
                 )
                 emit_info(f"{new_agent.description}", message_group=group_id)
@@ -333,14 +334,14 @@ def handle_agent_command(command: str) -> bool:
                     message_group=group_id,
                 )
             else:
-                emit_warning("Agent selection cancelled")
+                emit_warning(t("cmd.agent.cancelled"))
             return True
         except Exception as e:
             # Fallback to old behavior if picker fails
             import traceback
             import uuid
 
-            emit_warning(f"Interactive picker failed: {e}")
+            emit_warning(t("cmd.agent.picker_failed", error=e))
             emit_warning(f"Traceback: {traceback.format_exc()}")
 
             # Show current agent and available agents
@@ -395,9 +396,11 @@ def handle_agent_command(command: str) -> bool:
         available_agents = get_available_agents()
 
         if agent_name not in available_agents:
-            emit_error(f"Agent '{agent_name}' not found", message_group=group_id)
+            emit_error(
+                t("cfg.agent.not_found", agent=agent_name), message_group=group_id
+            )
             emit_warning(
-                f"Available agents: {', '.join(available_agents.keys())}",
+                t("cli.agent.available", agents=", ".join(available_agents.keys())),
                 message_group=group_id,
             )
             return True
@@ -405,7 +408,7 @@ def handle_agent_command(command: str) -> bool:
         current_agent = get_current_agent()
         if current_agent.name == agent_name:
             emit_info(
-                f"Already using agent: {current_agent.display_name}",
+                t("cmd.agent.already_using", agent=current_agent.display_name),
                 message_group=group_id,
             )
             return True
@@ -413,7 +416,7 @@ def handle_agent_command(command: str) -> bool:
         new_session_id = finalize_autosave_session()
         if not set_current_agent(agent_name):
             emit_warning(
-                "Agent switch failed after autosave rotation. Your context was preserved.",
+                t("cmd.agent.switch_failed"),
                 message_group=group_id,
             )
             return True
@@ -421,7 +424,7 @@ def handle_agent_command(command: str) -> bool:
         new_agent = get_current_agent()
         new_agent.reload_code_generation_agent()
         emit_success(
-            f"Switched to agent: {new_agent.display_name}",
+            t("cmd.agent.switched", agent=new_agent.display_name),
             message_group=group_id,
         )
         emit_info(f"{new_agent.description}", message_group=group_id)
@@ -433,7 +436,7 @@ def handle_agent_command(command: str) -> bool:
         )
         return True
     else:
-        emit_warning("Usage: /agent [agent-name]")
+        emit_warning(t("cmd.agent.usage"))
         return True
 
 
@@ -474,19 +477,19 @@ def handle_model_command(command: str) -> bool:
 
             if selected_model:
                 set_active_model(selected_model)
-                emit_success(f"Active model set and loaded: {selected_model}")
+                emit_success(t("cmd.model.success", model=selected_model))
             else:
-                emit_warning("Model selection cancelled")
+                emit_warning(t("cmd.model.cancelled"))
             return True
         except Exception as e:
             # Fallback to old behavior if picker fails
             import traceback
 
-            emit_warning(f"Interactive picker failed: {e}")
+            emit_warning(t("cmd.agent.picker_failed", error=e))
             emit_warning(f"Traceback: {traceback.format_exc()}")
             model_names = load_model_names()
-            emit_warning("Usage: /model <model-name> or /m <model-name>")
-            emit_warning(f"Available models: {', '.join(model_names)}")
+            emit_warning(t("cmd.model.usage"))
+            emit_warning(t("cmd.model.available", models=", ".join(model_names)))
             return True
 
     # Handle both /model and /m for backward compatibility
@@ -499,13 +502,13 @@ def handle_model_command(command: str) -> bool:
     new_input = update_model_in_input(model_command)
     if new_input is not None:
         model = get_active_model()
-        emit_success(f"Active model set and loaded: {model}")
+        emit_success(t("cmd.model.success", model=model))
         return True
 
     # If no model matched, show error
     model_names = load_model_names()
-    emit_warning("Usage: /model <model-name> or /m <model-name>")
-    emit_warning(f"Available models: {', '.join(model_names)}")
+    emit_warning(t("cmd.model.usage"))
+    emit_warning(t("cmd.model.available", models=", ".join(model_names)))
     return True
 
 
@@ -526,13 +529,13 @@ def handle_add_model_command(command: str) -> bool:
         result = interactive_model_picker()
 
         if result:
-            emit_info("Successfully added model configuration")
+            emit_info(t("cmd.add_model.success"))
         return True
     except KeyboardInterrupt:
         # User cancelled - this is expected behavior
         return True
     except Exception as e:
-        emit_error(f"Failed to launch model browser: {e}")
+        emit_error(t("cmd.add_model.failed", error=e))
         return False
     finally:
         set_awaiting_user_input(False)
@@ -577,7 +580,7 @@ def handle_model_settings_command(command: str) -> bool:
         result = interactive_model_settings()
 
         if result:
-            emit_success("Model settings updated successfully")
+            emit_success(t("cmd.model_settings.success"))
 
         # Always reload the active agent so settings take effect
         from code_puppy.agents import get_current_agent
@@ -585,15 +588,15 @@ def handle_model_settings_command(command: str) -> bool:
         try:
             current_agent = get_current_agent()
             current_agent.reload_code_generation_agent()
-            emit_info("Active agent reloaded")
+            emit_info(t("cmd.model_settings.agent_reloaded"))
         except Exception as reload_error:
-            emit_warning(f"Agent reload failed: {reload_error}")
+            emit_warning(t("cmd.model_settings.reload_failed", error=reload_error))
 
         return True
     except KeyboardInterrupt:
         return True
     except Exception as e:
-        emit_error(f"Failed to launch model settings: {e}")
+        emit_error(t("cmd.model_settings.failed", error=e))
         return False
     finally:
         set_awaiting_user_input(False)
@@ -625,7 +628,7 @@ def handle_plan_command(command: str) -> bool | str:
     goal = parts[1].strip() if len(parts) > 1 else ""
 
     if not goal:
-        emit_error("Usage: /plan <goal>")
+        emit_error(t("cmd.plan.usage"))
         return True
 
     planning_prompt = f"""You are in plan-only mode.
@@ -656,9 +659,9 @@ def handle_generate_pr_description_command(command: str) -> str:
     # Parse directory argument (e.g., /generate-pr-description @some/dir)
     tokens = command.split()
     directory_context = ""
-    for t in tokens:
-        if t.startswith("@"):
-            directory_context = f" Please work in the directory: {t[1:]}"
+    for token in tokens:
+        if token.startswith("@"):
+            directory_context = f" Please work in the directory: {token[1:]}"
             break
 
     # Hard-coded prompt from user requirements
