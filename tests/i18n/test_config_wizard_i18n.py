@@ -29,7 +29,7 @@ def _mcp_keys():
 
 
 def test_mcp_namespace_is_populated():
-    assert len(_mcp_keys()) >= 30
+    assert len(_mcp_keys()) >= 38
 
 
 def test_every_mcp_key_resolves():
@@ -69,7 +69,7 @@ def test_test_config_error_interpolates():
 def test_summary_keys_interpolate():
     translate.set_locale("en-US")
     assert "myserver" in translate.t("mcp.wizard.summary.name", name="myserver")
-    assert "stdio" in translate.t("mcp.wizard.summary.type", type="stdio")
+    assert "stdio" in translate.t("mcp.wizard.summary.type", server_type="stdio")
     assert "http://x" in translate.t("mcp.wizard.summary.url", url="http://x")
     assert "node s.js" in translate.t("mcp.wizard.summary.command", command="node s.js")
     assert "--port 3000" in translate.t("mcp.wizard.summary.args", args="--port 3000")

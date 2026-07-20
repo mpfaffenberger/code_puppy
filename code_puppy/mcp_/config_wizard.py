@@ -174,10 +174,11 @@ class MCPConfigWizard:
                 "Select server type", choices=["sse", "http", "stdio"], default="stdio"
             )
 
+            if server_type is None:
+                return None
+
             if server_type in ["sse", "http", "stdio"]:
                 return server_type
-
-            emit_error(t("mcp.wizard.type.invalid"), message_group=group_id)
 
     def prompt_sse_config(self, group_id: str = None) -> Optional[Dict]:
         """Prompt for SSE server configuration."""
@@ -407,7 +408,7 @@ class MCPConfigWizard:
             t("mcp.wizard.summary.name", name=config.name), message_group=group_id
         )
         emit_info(
-            t("mcp.wizard.summary.type", type=config.type), message_group=group_id
+            t("mcp.wizard.summary.type", server_type=config.type), message_group=group_id
         )
 
         if config.type in ["sse", "http"]:

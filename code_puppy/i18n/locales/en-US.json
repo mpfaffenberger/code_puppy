@@ -152,7 +152,7 @@
   "mcp.wizard.test.config_error": "✗ Configuration error: {error}",
   "mcp.wizard.summary.header": "Configuration Summary:",
   "mcp.wizard.summary.name": "  Name: {name}",
-  "mcp.wizard.summary.type": "  Type: {type}",
+  "mcp.wizard.summary.type": "  Type: {server_type}",
   "mcp.wizard.summary.url": "  URL: {url}",
   "mcp.wizard.summary.command": "  Command: {command}",
   "mcp.wizard.summary.args": "  Arguments: {args}",
