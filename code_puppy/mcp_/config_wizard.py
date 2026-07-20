@@ -408,7 +408,8 @@ class MCPConfigWizard:
             t("mcp.wizard.summary.name", name=config.name), message_group=group_id
         )
         emit_info(
-            t("mcp.wizard.summary.type", server_type=config.type), message_group=group_id
+            t("mcp.wizard.summary.type", server_type=config.type),
+            message_group=group_id,
         )
 
         if config.type in ["sse", "http"]:
@@ -503,7 +504,7 @@ def run_add_wizard(group_id: str = None) -> bool:
 
             emit_info(
                 Text.from_markup(
-                    f"[dim]Configuration saved to {MCP_SERVERS_FILE}[/dim]"
+                    f"[dim]{t('mcp.wizard.saved', path=MCP_SERVERS_FILE)}[/dim]"
                 ),
                 message_group=group_id,
             )

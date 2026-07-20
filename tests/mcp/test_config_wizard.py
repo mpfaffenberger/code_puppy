@@ -344,16 +344,17 @@ class TestPromptServerType:
         assert result == "stdio"
 
     @patch("code_puppy.mcp_.config_wizard.emit_info")
-    @patch("code_puppy.mcp_.config_wizard.emit_error")
     @patch("code_puppy.mcp_.config_wizard.prompt_ask")
-    def test_prompt_server_type_invalid(
-        self, mock_prompt, mock_error, mock_info, wizard
-    ):
-        """Test invalid type selection."""
+    def test_prompt_server_type_invalid(self, mock_prompt, mock_info, wizard):
+        """Test that the wizard loops past invalid input until it gets a valid type.
+
+        ``prompt_ask`` with ``choices=`` already emits ``mcp.wizard.invalid_choice``
+        on bad input; the wizard just needs to keep asking until a valid choice comes
+        back (or ``None`` for cancel).
+        """
         mock_prompt.side_effect = ["invalid", "stdio"]
         result = wizard.prompt_server_type()
         assert result == "stdio"
-        mock_error.assert_called()
 
 
 class TestPromptSSEConfig:

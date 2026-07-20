@@ -29,7 +29,7 @@ def _mcp_keys():
 
 
 def test_mcp_namespace_is_populated():
-    assert len(_mcp_keys()) >= 38
+    assert len(_mcp_keys()) >= 39
 
 
 def test_every_mcp_key_resolves():
@@ -86,6 +86,11 @@ def test_wizard_added_interpolates():
 def test_add_failed_interpolates():
     translate.set_locale("en-US")
     assert "boom" in translate.t("mcp.wizard.add_failed", error="boom")
+
+
+def test_saved_interpolates():
+    translate.set_locale("en-US")
+    assert "/tmp/mcp.json" in translate.t("mcp.wizard.saved", path="/tmp/mcp.json")
 
 
 def test_invalid_choice_and_input_error_interpolate():

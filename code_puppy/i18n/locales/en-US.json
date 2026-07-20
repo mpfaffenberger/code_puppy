@@ -133,7 +133,6 @@
   "mcp.wizard.type.sse": "  sse   - Server-Sent Events (HTTP streaming)",
   "mcp.wizard.type.http": "  http  - HTTP/REST API",
   "mcp.wizard.type.stdio": "  stdio - Local command (subprocess)",
-  "mcp.wizard.type.invalid": "Invalid type. Choose: sse, http, or stdio",
   "mcp.wizard.sse.header": "Configuring SSE server",
   "mcp.wizard.http.header": "Configuring HTTP server",
   "mcp.wizard.stdio.header": "Configuring Stdio server",
@@ -162,5 +161,6 @@
   "mcp.wizard.hint_list": "Use '/mcp list' to see all servers",
   "mcp.wizard.hint_start": "Use '/mcp start {name}' to start the server",
   "mcp.wizard.add_failed": "Failed to add server: {error}",
-  "mcp.wizard.cancelled": "Configuration cancelled"
+  "mcp.wizard.cancelled": "Configuration cancelled",
+  "mcp.wizard.saved": "Configuration saved to {path}"
 }
