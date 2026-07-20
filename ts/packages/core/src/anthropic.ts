@@ -42,19 +42,35 @@ export class AnthropicClient implements ModelClient {
     // subsequent requests read it at ~0.1x instead of paying full price).
     const useCache = process.env.MIST_CACHE !== "0";
     const ephemeral = { type: "ephemeral" as const };
+    // MIST_CACHE_TTL=1h: hold the tools+system prefix for an hour (2x write
+    // once, same 0.1x reads) — human think-time between turns routinely
+    // exceeds the 5-minute default and cold-starts every turn. The API
+    // requires 1h entries BEFORE 5m ones; system is the first breakpoint,
+    // so this ordering is satisfied by construction.
+    const systemCtl =
+      process.env.MIST_CACHE_TTL === "1h" ? { ...ephemeral, ttl: "1h" as const } : ephemeral;
     const systemPayload = useCache
-      ? [{ type: "text", text: system, cache_control: ephemeral }]
+      ? [{ type: "text", text: system, cache_control: systemCtl }]
       : system;
     let wireMessages: unknown[] = messages;
     if (useCache && messages.length) {
-      const last = messages[messages.length - 1]!;
-      const lastContent =
-        typeof last.content === "string"
-          ? [{ type: "text", text: last.content, cache_control: ephemeral }]
-          : last.content.map((b, i) =>
-              i === last.content.length - 1 ? { ...b, cache_control: ephemeral } : b,
-            );
-      wireMessages = [...messages.slice(0, -1), { ...last, content: lastContent }];
+      // Sliding breakpoint window: mark the last block of each of the last
+      // THREE messages (+ system = the 4-breakpoint max). One request cycle
+      // appends 2 messages (assistant + tool_results), so the previous
+      // request's breakpoint stays explicitly marked — an exact cache entry
+      // exists and hits never depend on the server's 20-block lookback,
+      // which a single large tool batch (>20 appended blocks) can outrun.
+      const markFrom = Math.max(0, messages.length - 3);
+      wireMessages = messages.map((m, mi) => {
+        if (mi < markFrom) return m;
+        const content =
+          typeof m.content === "string"
+            ? [{ type: "text", text: m.content, cache_control: ephemeral }]
+            : m.content.map((b, i) =>
+                i === m.content.length - 1 ? { ...b, cache_control: ephemeral } : b,
+              );
+        return { ...m, content };
+      });
     }
     const res = await fetch(url, {
       method: "POST",

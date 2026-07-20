@@ -304,17 +304,44 @@ test("prompt-cache breakpoints are sent on the wire (and MIST_CACHE=0 disables)"
   try {
     const { AnthropicClient } = await import("./anthropic");
     const client = new AnthropicClient(`http://127.0.0.1:9941`, "k", "m");
-    await client.stream("sys", [{ role: "user", content: "hi" }], [], {});
+    // 5-message history: sliding window marks the last THREE messages only
+    // (+ system = the 4-breakpoint API max); older messages stay unmarked.
+    const history: import("./models").ChatMessage[] = [
+      { role: "user", content: "one" },
+      { role: "assistant", content: [{ type: "text", text: "a1" }] },
+      { role: "user", content: "two" },
+      { role: "assistant", content: [{ type: "text", text: "a2" }] },
+      { role: "user", content: "three" },
+    ];
+    await client.stream("sys", history, [], {});
     const sys = captured!["system"] as { cache_control?: unknown }[];
     expect(sys[0]!.cache_control).toEqual({ type: "ephemeral" });
-    const msgs = captured!["messages"] as { content: { cache_control?: unknown }[] }[];
-    expect(msgs[0]!.content[msgs[0]!.content.length - 1]!.cache_control).toEqual({ type: "ephemeral" });
+    const msgs = captured!["messages"] as { content: string | { cache_control?: unknown }[] }[];
+    const blocks = (m: (typeof msgs)[number]) => (Array.isArray(m.content) ? m.content : []);
+    const marked = msgs.map((m) => blocks(m).some((b) => b.cache_control !== undefined));
+    expect(marked).toEqual([false, false, true, true, true]);
+    const totalBreakpoints =
+      1 + msgs.flatMap(blocks).filter((b) => b.cache_control !== undefined).length;
+    expect(totalBreakpoints).toBe(4); // never exceed the API limit
+
+    // MIST_CACHE_TTL=1h: system holds for an hour, message marks stay 5m
+    // (the API requires 1h entries before 5m ones — system comes first).
+    process.env.MIST_CACHE_TTL = "1h";
+    await client.stream("sys", history, [], {});
+    const sysTtl = captured!["system"] as { cache_control?: { ttl?: string } }[];
+    expect(sysTtl[0]!.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    const msgsTtl = captured!["messages"] as { content: { cache_control?: { ttl?: string } }[] }[];
+    for (const b of msgsTtl.flatMap((m) => m.content)) {
+      if (b.cache_control) expect(b.cache_control).toEqual({ type: "ephemeral" });
+    }
+    delete process.env.MIST_CACHE_TTL;
 
     process.env.MIST_CACHE = "0";
     await client.stream("sys", [{ role: "user", content: "hi" }], [], {});
     expect(typeof captured!["system"]).toBe("string"); // plain, no breakpoints
   } finally {
     delete process.env.MIST_CACHE;
+    delete process.env.MIST_CACHE_TTL;
     intercept.stop(true);
   }
 });
