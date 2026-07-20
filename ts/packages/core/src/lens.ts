@@ -77,6 +77,8 @@ export interface TurnLens {
    *  the adaptive stale-clear decision driven by the lens's own signals. */
   hygiene?: {
     dedupedReads: number;
+    /** Superseded reads left in place — too deep in the warm cached prefix. */
+    dedupedDeferred?: number;
     staleCleared: number;
     staleDeferred: boolean;
     note: string;

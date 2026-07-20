@@ -27,8 +27,11 @@ import type { Hooks } from "./hooks";
 import { normalizePlan } from "./plan";
 import type { PlanItem } from "./plan";
 import {
+  chooseSupersededToClear,
   clearStaleToolResults,
+  clearSupersededReads,
   dedupeSupersededReads,
+  findSupersededReads,
   staleClearWorthIt,
   type HygieneSignals,
   estimateTokens,
@@ -511,10 +514,27 @@ export class MistEngine {
     };
     this.currentLens = lens;
     const turnStart = Date.now();
-    // Proactive hygiene: semantic supersession always runs (a newer read of
-    // the same file invalidates older reads — correctness, not economics).
-    const deduped = dedupeSupersededReads(this.history);
-    this.history = deduped.messages;
+    // Proactive hygiene: supersession dedup (a newer read of the same file
+    // invalidates older reads) — DEPTH-CONSTRAINED when the cache is warm:
+    // clearing an early read busts the whole tail, so deep candidates defer
+    // to the next free window (cold cache / compaction). Safe to defer —
+    // the newer read is in context and recency outranks the stale copy.
+    const supersededCands = findSupersededReads(this.history);
+    let dedupedNote = "";
+    let dedupedDeferred = 0;
+    let dedupedCleared = 0;
+    if (supersededCands.length) {
+      const pick =
+        process.env.MIST_ADAPTIVE_HYGIENE === "0"
+          ? { clear: supersededCands, deferred: 0, reason: "adaptive hygiene disabled" }
+          : chooseSupersededToClear(supersededCands, this.history, this.hygieneSignals());
+      if (pick.clear.length)
+        this.history = clearSupersededReads(this.history, pick.clear).messages;
+      dedupedCleared = pick.clear.length;
+      dedupedDeferred = pick.deferred;
+      dedupedNote = pick.reason;
+    }
+    const deduped = { cleared: dedupedCleared };
     // Age-based stale clearing is ADAPTIVE: the engine reads its own lens
     // feedback (observed cache hits, requests/turn, idle vs cache TTL) and
     // only sweeps when the break-even math says it pays.
@@ -528,12 +548,19 @@ export class MistEngine {
       if (decision.clear) this.history = clearStaleToolResults(this.history).messages;
       hygiene = {
         dedupedReads: deduped.cleared,
+        dedupedDeferred,
         staleCleared: decision.clear ? plan.cleared : 0,
         staleDeferred: !decision.clear,
-        note: decision.reason,
+        note: [dedupedNote, decision.reason].filter(Boolean).join(" · "),
       };
-    } else if (deduped.cleared > 0) {
-      hygiene = { dedupedReads: deduped.cleared, staleCleared: 0, staleDeferred: false, note: "" };
+    } else if (deduped.cleared > 0 || dedupedDeferred > 0) {
+      hygiene = {
+        dedupedReads: deduped.cleared,
+        dedupedDeferred,
+        staleCleared: 0,
+        staleDeferred: false,
+        note: dedupedNote,
+      };
     }
     if (hygiene) lens.hygiene = hygiene;
     // Auto-compact when the estimate crosses the threshold.

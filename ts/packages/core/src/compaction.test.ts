@@ -79,6 +79,47 @@ test("dedupeSupersededReads: different ranges don't supersede; identical inputs 
   expect(body("r4").content).toBe("tiny");
 });
 
+test("chooseSupersededToClear: depth cut — tail candidates clear, deep ones defer", async () => {
+  const { chooseSupersededToClear, findSupersededReads } = await import("./compaction");
+  // Deep early read (r1), lots of history after it, then a recent superseded
+  // read (r3) near the tail. Both superseded by later reads of same paths.
+  let messages: ChatMessage[] = [{ role: "user", content: "task" }];
+  messages = [...messages, ...readTurn("r1", { path: "deep.ts" }, BIG)];
+  for (let i = 0; i < 40; i++) messages = [...messages, ...toolTurn(`pad${i}`, BIG)]; // fat tail after r1
+  messages = [...messages, ...readTurn("r2", { path: "deep.ts" }, BIG)]; // supersedes r1
+  messages = [...messages, ...readTurn("r3", { path: "tail.ts" }, BIG)];
+  messages = [...messages, ...readTurn("r4", { path: "tail.ts" }, BIG)]; // supersedes r3
+  const cands = findSupersededReads(messages);
+  expect(cands.map((c) => c.id)).toEqual(["r1", "r3"]);
+
+  // Warm live cache, working-size turns: clearing r1 busts ~42 BIG messages
+  // of tail for one BIG of savings → defer; r3's bust is 2 messages → clear.
+  const pick = chooseSupersededToClear(cands, messages, {
+    cacheLive: true,
+    avgRequestsPerTurn: 30,
+    cacheLikelyCold: false,
+  });
+  expect(pick.clear.map((c) => c.id)).toEqual(["r3"]);
+  expect(pick.deferred).toBe(1);
+
+  // Cold cache → everything clears for free.
+  const cold = chooseSupersededToClear(cands, messages, {
+    cacheLive: true,
+    avgRequestsPerTurn: 10,
+    cacheLikelyCold: true,
+  });
+  expect(cold.clear.length).toBe(2);
+  expect(cold.deferred).toBe(0);
+
+  // Very long turns → savings multiplier wins even for the deep read.
+  const longTurns = chooseSupersededToClear(cands, messages, {
+    cacheLive: true,
+    avgRequestsPerTurn: 5000,
+    cacheLikelyCold: false,
+  });
+  expect(longTurns.clear.length).toBe(2);
+});
+
 test("clearStaleToolResults dry-run reports the plan without mutating", () => {
   let messages: ChatMessage[] = [{ role: "user", content: "task" }];
   for (let i = 0; i < 6; i++) messages = [...messages, ...toolTurn(`t${i}`, BIG)];

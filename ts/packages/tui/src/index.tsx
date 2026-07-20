@@ -904,7 +904,8 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
           say(`work: ${t.requests} model requests (${Math.round(t.modelMs / 1000)}s) · ${t.toolCalls} tool calls (${Math.round(t.toolMs / 1000)}s) · ${t.subagents} subagents${t.toolErrors ? ` · ${t.toolErrors} tool errors` : ""}${t.hookBlocks ? ` · ${t.hookBlocks} hook blocks` : ""}`);
           if (turn.hygiene) {
             const h = turn.hygiene;
-            say(`hygiene: ${h.dedupedReads} superseded read${h.dedupedReads === 1 ? "" : "s"} evicted · ${h.staleDeferred ? `stale-clear ${h.note}` : `${h.staleCleared} stale result${h.staleCleared === 1 ? "" : "s"} cleared${h.note ? ` — ${h.note}` : ""}`}`);
+            const dedupe = `${h.dedupedReads} superseded read${h.dedupedReads === 1 ? "" : "s"} evicted${h.dedupedDeferred ? ` (${h.dedupedDeferred} deferred — deep in warm cache)` : ""}`;
+            say(`hygiene: ${dedupe} · ${h.staleDeferred ? `stale-clear deferred` : `${h.staleCleared} stale result${h.staleCleared === 1 ? "" : "s"} cleared`}${h.note ? ` — ${h.note}` : ""}`);
           }
           if (turn.autoContinues || turn.capHit || turn.compactions.length) {
             say(`events: ${[turn.autoContinues ? `⟳ ${turn.autoContinues} auto-continue` : "", turn.capHit ? "⏸ cap hit" : "", ...turn.compactions.map((c) => `⇣ compacted ${c.beforeTokens.toLocaleString()}→${c.afterTokens.toLocaleString()}`)].filter(Boolean).join(" · ")}`);

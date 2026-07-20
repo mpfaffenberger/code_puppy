@@ -42,10 +42,21 @@ const CLEARED_PREFIX = "[tool result cleared";
  * depend only on the path), monotonic (once cleared, never touched again),
  * and small payloads are left alone (churn would cost more than it saves).
  */
-export function dedupeSupersededReads(
+export interface SupersededRead {
+  /** tool_use id whose result body is now stale. */
+  id: string;
+  path: string;
+  /** Index of the message holding the stale tool_result. */
+  messageIndex: number;
+  /** Size of the stale body (what clearing saves). */
+  chars: number;
+}
+
+/** Find clearable superseded reads (no mutation). Ordered oldest-first. */
+export function findSupersededReads(
   messages: ChatMessage[],
   { minChars = 2000 }: { minChars?: number } = {},
-): { messages: ChatMessage[]; cleared: number } {
+): SupersededRead[] {
   // Collect read_file tool_use blocks in history order.
   const reads: { id: string; path: string; whole: boolean; inputKey: string }[] = [];
   for (const m of messages) {
@@ -77,13 +88,12 @@ export function dedupeSupersededReads(
       }
     }
   }
-  if (superseded.size === 0) return { messages, cleared: 0 };
+  if (superseded.size === 0) return [];
 
-  let cleared = 0;
-  const out = messages.map((m) => {
-    if (!Array.isArray(m.content)) return m;
-    let changed = false;
-    const content = m.content.map((b) => {
+  const out: SupersededRead[] = [];
+  messages.forEach((m, mi) => {
+    if (!Array.isArray(m.content)) return;
+    for (const b of m.content) {
       if (
         b.type !== "tool_result" ||
         !superseded.has(b.tool_use_id) ||
@@ -91,18 +101,102 @@ export function dedupeSupersededReads(
         b.content.length < minChars ||
         b.content.startsWith(CLEARED_PREFIX)
       ) {
-        return b;
+        continue;
       }
+      out.push({ id: b.tool_use_id, path: superseded.get(b.tool_use_id)!, messageIndex: mi, chars: b.content.length });
+    }
+  });
+  return out;
+}
+
+/** Replace the given superseded read bodies with stable stubs. */
+export function clearSupersededReads(
+  messages: ChatMessage[],
+  toClear: SupersededRead[],
+): { messages: ChatMessage[]; cleared: number } {
+  if (toClear.length === 0) return { messages, cleared: 0 };
+  const byId = new Map(toClear.map((c) => [c.id, c.path]));
+  let cleared = 0;
+  const out = messages.map((m) => {
+    if (!Array.isArray(m.content)) return m;
+    let changed = false;
+    const content = m.content.map((b) => {
+      if (b.type !== "tool_result" || !byId.has(b.tool_use_id) || typeof b.content !== "string")
+        return b;
       changed = true;
       cleared += 1;
       return {
         ...b,
-        content: `${CLEARED_PREFIX} — superseded by a newer read of ${superseded.get(b.tool_use_id)}. Re-run the tool if needed.]`,
+        content: `${CLEARED_PREFIX} — superseded by a newer read of ${byId.get(b.tool_use_id)}. Re-run the tool if needed.]`,
       };
     });
     return changed ? { ...m, content } : m;
   });
   return { messages: out, cleared };
+}
+
+/** Convenience: clear everything findable (compaction path, tests). */
+export function dedupeSupersededReads(
+  messages: ChatMessage[],
+  opts: { minChars?: number } = {},
+): { messages: ChatMessage[]; cleared: number } {
+  return clearSupersededReads(messages, findSupersededReads(messages, opts));
+}
+
+/**
+ * Depth-aware supersession: clearing a block busts the cache from that
+ * block to the end, and the bust cost is set by the EARLIEST cleared block —
+ * so the correct constraint is a depth cut, not all-or-nothing. Evaluate
+ * every suffix of the candidate list (deepest cut first) and clear the
+ * suffix with the best positive net; deeper candidates are DEFERRED, not
+ * abandoned — the next cold cache (idle past TTL), inert endpoint, or
+ * compaction clears them for free. Correctness is safe to defer because the
+ * NEWER read is also in context; recency already outranks the stale copy.
+ */
+export function chooseSupersededToClear(
+  candidates: SupersededRead[],
+  messages: ChatMessage[],
+  sig: HygieneSignals,
+): { clear: SupersededRead[]; deferred: number; reason: string } {
+  if (candidates.length === 0) return { clear: [], deferred: 0, reason: "" };
+  if (!sig.cacheLive)
+    return { clear: candidates, deferred: 0, reason: "no cache activity on this endpoint" };
+  if (sig.cacheLikelyCold)
+    return { clear: candidates, deferred: 0, reason: "cache likely cold — clearing is free" };
+
+  // Suffix char sums: tail cost of busting from message index mi.
+  const msgChars = messages.map((m) =>
+    typeof m.content === "string" ? m.content.length : JSON.stringify(m.content).length,
+  );
+  const suffix = new Array<number>(msgChars.length + 1).fill(0);
+  for (let i = msgChars.length - 1; i >= 0; i--) suffix[i] = suffix[i + 1]! + msgChars[i]!;
+
+  const avgR = Math.max(1, sig.avgRequestsPerTurn);
+  let best: { cut: number; net: number } | null = null;
+  let savedFromCut = 0;
+  // Walk cuts deepest-candidate-last → accumulate savings from the right.
+  for (let cut = candidates.length - 1; cut >= 0; cut--) {
+    savedFromCut += candidates[cut]!.chars;
+    const savings = 0.1 * (savedFromCut / 2.5) * avgR;
+    const bust = 1.25 * (suffix[candidates[cut]!.messageIndex]! / 2.5);
+    const net = savings - bust;
+    if (net > 0 && (best === null || net > best.net)) best = { cut, net };
+  }
+  if (best === null)
+    return {
+      clear: [],
+      deferred: candidates.length,
+      reason: `all ${candidates.length} deferred — too deep in the warm cached prefix`,
+    };
+  const clear = candidates.slice(best.cut);
+  const deferred = best.cut;
+  return {
+    clear,
+    deferred,
+    reason: deferred
+      ? `${deferred} deferred (deep in warm cache), ${clear.length} cleared past break-even depth`
+      : `all ${clear.length} past break-even depth`,
+  };
 }
 
 export interface ClearOptions {
