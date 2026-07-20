@@ -52,6 +52,33 @@ export interface SupersededRead {
   chars: number;
 }
 
+/**
+ * Supersession is only valid for STATE files (source, config, docs) — the
+ * file IS its latest content, so older reads are provably worthless. It is
+ * WRONG for OBSERVATION files (logs, run output): each read is a time
+ * sample of a changing stream, and an older sample can hold unique evidence
+ * (the error trace from BEFORE the fix). Those never supersede.
+ * MIST_SUPERSEDE_SKIP adds a user regex to the exempt list.
+ */
+const OBSERVATION_PATTERNS = [
+  /\.(log|logs|out|err|trace)$/i,
+  /(^|\/)logs?(\/|$)/i,
+  /\.(jsonl|ndjson)$/i, // event streams / traces — append-y, sample-valued
+];
+
+export function isObservationFile(path: string): boolean {
+  if (OBSERVATION_PATTERNS.some((re) => re.test(path))) return true;
+  const extra = process.env.MIST_SUPERSEDE_SKIP;
+  if (extra) {
+    try {
+      if (new RegExp(extra, "i").test(path)) return true;
+    } catch {
+      /* invalid user regex — never break the run */
+    }
+  }
+  return false;
+}
+
 /** Find clearable superseded reads (no mutation). Ordered oldest-first. */
 export function findSupersededReads(
   messages: ChatMessage[],
@@ -65,7 +92,7 @@ export function findSupersededReads(
       if (b.type !== "tool_use" || b.name !== "read_file") continue;
       const input = (b.input ?? {}) as Record<string, unknown>;
       const path = typeof input["path"] === "string" ? input["path"] : "";
-      if (!path) continue;
+      if (!path || isObservationFile(path)) continue;
       reads.push({
         id: b.id,
         path,

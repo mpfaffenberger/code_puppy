@@ -79,6 +79,35 @@ test("dedupeSupersededReads: different ranges don't supersede; identical inputs 
   expect(body("r4").content).toBe("tiny");
 });
 
+test("supersession skips observation files — old log samples are evidence, not stale state", async () => {
+  const { findSupersededReads, isObservationFile } = await import("./compaction");
+  // State file: superseded. Log file re-read: BOTH samples kept.
+  const messages: ChatMessage[] = [
+    { role: "user", content: "task" },
+    ...readTurn("s1", { path: "src/app.ts" }, BIG),
+    ...readTurn("l1", { path: "build/output.log" }, BIG), // error trace before fix
+    ...readTurn("s2", { path: "src/app.ts" }, BIG), // supersedes s1
+    ...readTurn("l2", { path: "build/output.log" }, BIG), // clean run after fix
+  ];
+  const cands = findSupersededReads(messages);
+  expect(cands.map((c) => c.id)).toEqual(["s1"]); // l1 exempt — unique evidence
+
+  expect(isObservationFile("server.log")).toBe(true);
+  expect(isObservationFile("logs/run-42.txt")).toBe(true);
+  expect(isObservationFile("trace.jsonl")).toBe(true);
+  expect(isObservationFile("build.out")).toBe(true);
+  expect(isObservationFile("src/logger.ts")).toBe(false); // 'log' in a name ≠ a log file
+  expect(isObservationFile("package-lock.json")).toBe(false); // lock = state
+
+  // User-extendable exemptions.
+  process.env.MIST_SUPERSEDE_SKIP = "\\.snapshot$";
+  try {
+    expect(isObservationFile("data/db.snapshot")).toBe(true);
+  } finally {
+    delete process.env.MIST_SUPERSEDE_SKIP;
+  }
+});
+
 test("chooseSupersededToClear: depth cut — tail candidates clear, deep ones defer", async () => {
   const { chooseSupersededToClear, findSupersededReads } = await import("./compaction");
   // Deep early read (r1), lots of history after it, then a recent superseded
