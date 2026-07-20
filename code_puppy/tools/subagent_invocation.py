@@ -34,10 +34,19 @@ from code_puppy.tools.agent_tools import (
     _validate_session_id,
 )
 from code_puppy.tools.common import generate_group_id
-from code_puppy.tools.subagent_context import subagent_context
+from code_puppy.tools.subagent_context import (
+    get_subagent_model_name,
+    subagent_context,
+)
 
 # Set to track active subagent invocation tasks
 _active_subagent_tasks: Set[asyncio.Task] = set()
+
+
+def _gpt_5_6_recursion_blocked() -> bool:
+    from code_puppy.agents._builder import _is_gpt_5_6_family
+
+    return _is_gpt_5_6_family(get_subagent_model_name())
 
 
 async def _invoke_agent_impl(
@@ -154,25 +163,14 @@ async def _invoke_agent_impl(
             if not effective_model_name:
                 raise ValueError("No model configured for sub-agent invocation")
 
-            # GPT-5.6 family models get a max sub-agent recursion depth of 1.
-            # Block the delegation here (before any heavy work like MCP server
-            # loading) so we don't waste cycles spinning up a sub-agent we're
-            # going to refuse anyway.
-            from code_puppy.agents._builder import _gpt_5_6_subagent_depth_should_block
-
-            if _gpt_5_6_subagent_depth_should_block(effective_model_name):
-                depth_msg = (
-                    f"GPT-5.6 family models have a max sub-agent recursion "
-                    f"depth of 1; refusing to invoke '{agent_name}' from "
-                    f"inside a GPT-5.6 sub-agent."
-                )
-                group_id = generate_group_id("invoke_agent", agent_name)
-                emit_error(depth_msg, message_group=group_id)
+            if _gpt_5_6_recursion_blocked():
+                error = f"GPT-5.6 sub-agents cannot invoke '{agent_name}'."
+                emit_error(error, message_group=group_id)
                 return AgentInvokeOutput(
                     response=None,
                     agent_name=agent_name,
                     model_name=model_name,
-                    error=depth_msg,
+                    error=error,
                 )
 
             # Only proceed if we have a valid model configuration
@@ -308,8 +306,7 @@ async def _invoke_agent_impl(
             else:
                 stream_handler = partial(subagent_stream_handler, session_id=session_id)
 
-            # Wrap the agent run in subagent context for tracking
-            with subagent_context(agent_name):
+            with subagent_context(agent_name, effective_model_name):
                 run_ctxs = on_agent_run_context(
                     agent_config, temp_agent, group_id, mcp_servers
                 )

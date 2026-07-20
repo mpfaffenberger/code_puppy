@@ -57,6 +57,7 @@ __all__ = [
     "get_subagent_name",
     "get_subagent_chain",
     "get_subagent_depth",
+    "get_subagent_model_name",
 ]
 
 # Track sub-agent depth (0 = main agent, 1+ = sub-agent)
@@ -64,6 +65,9 @@ _subagent_depth: ContextVar[int] = ContextVar("subagent_depth", default=0)
 
 # Track current sub-agent name (None = main agent)
 _subagent_name: ContextVar[str | None] = ContextVar("subagent_name", default=None)
+_subagent_model_name: ContextVar[str | None] = ContextVar(
+    "subagent_model_name", default=None
+)
 
 # Track the full call chain of sub-agent names. Stored as an
 # immutable tuple so each context-manager push is a cheap snapshot. The
@@ -73,7 +77,9 @@ _subagent_chain: ContextVar[tuple[str, ...]] = ContextVar("subagent_chain", defa
 
 
 @contextmanager
-def subagent_context(agent_name: str) -> Generator[None, None, None]:
+def subagent_context(
+    agent_name: str, model_name: str | None = None
+) -> Generator[None, None, None]:
     """Context manager for tracking sub-agent execution.
 
     Increments the sub-agent depth and sets the current agent name on entry,
@@ -104,6 +110,7 @@ def subagent_context(agent_name: str) -> Generator[None, None, None]:
     # Set new values and save tokens for restoration
     depth_token = _subagent_depth.set(current_depth + 1)
     name_token = _subagent_name.set(agent_name)
+    model_token = _subagent_model_name.set(model_name)
     chain_token = _subagent_chain.set(current_chain + (agent_name,))
 
     try:
@@ -113,6 +120,7 @@ def subagent_context(agent_name: str) -> Generator[None, None, None]:
         # This ensures the context is restored even if an exception occurs
         _subagent_depth.reset(depth_token)
         _subagent_name.reset(name_token)
+        _subagent_model_name.reset(model_token)
         _subagent_chain.reset(chain_token)
 
 
@@ -146,6 +154,11 @@ def get_subagent_name() -> str | None:
         'code-puppy'
     """
     return _subagent_name.get()
+
+
+def get_subagent_model_name() -> str | None:
+    """Return the model running the current sub-agent."""
+    return _subagent_model_name.get()
 
 
 def get_subagent_depth() -> int:
