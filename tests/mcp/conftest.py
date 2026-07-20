@@ -8,7 +8,7 @@ across MCP command test files.
 import json
 import os
 import tempfile
-from contextlib import ExitStack
+
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 from unittest.mock import Mock, patch
