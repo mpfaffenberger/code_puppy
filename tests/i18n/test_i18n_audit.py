@@ -1,5 +1,7 @@
 """Tests for the static i18n extraction audit (code_puppy.i18n.audit)."""
 
+import ast
+
 from code_puppy.i18n import audit
 
 
@@ -29,6 +31,27 @@ def test_fstring_whitespace_only_literal_is_dynamic():
 def test_fstring_with_content_and_variable_is_raw():
     """f"Error: {e}" has a meaningful literal prefix — must stay raw."""
     assert _kinds('emit_error(f"Error: {e}")') == ["raw"]
+
+
+def test_fstring_wrapped_literal_is_raw():
+    """f"{'literal'}" wraps a Constant inside a FormattedValue.
+
+    The classifier used to only inspect direct Constant children of
+    JoinedStr, so this parsed as ``JoinedStr([FormattedValue(Constant)])``
+    and was silently classified as dynamic — a false negative. Recurse
+    into FormattedValue.value so it now shows up as raw.
+    """
+    src = "emit_info(f\"{'Error: connection refused'}\")"
+    # Direct AST check so we're not relying on the higher-level pipeline.
+    tree = ast.parse(src, mode="eval")
+    call = tree.body
+    assert isinstance(call, ast.Call)
+    joined = call.args[0]
+    assert isinstance(joined, ast.JoinedStr)
+    assert isinstance(joined.values[0], ast.FormattedValue)
+    # And end-to-end through the classifier.
+    assert audit._classify(joined) == "raw"
+    assert _kinds(src) == ["raw"]
 
 
 def test_fstring_with_only_arrow_is_raw():
@@ -153,6 +176,23 @@ def test_single_file_pure_variable_fstring_not_raw(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["raw"] == 0
     assert payload["dynamic"] == 1
+
+
+def test_nonexistent_path_warns_and_returns_empty(tmp_path, capsys):
+    """A typo'd path must not silently report 100% coverage.
+
+    Previously ``_iter_py_files('/does/not/exist')`` returned ``[]`` and
+    ``audit_tree`` happily reported ``coverage: 100%, raw: 0`` — the
+    exact silent-zero bug this PR was created to fix. Now the tool
+    emits a warning to stderr and returns an empty report cleanly.
+    """
+    missing = tmp_path / "totally-not-real"
+    assert not missing.exists()
+    report = audit.audit_tree(str(missing))
+    captured = capsys.readouterr()
+    assert report.sites == []
+    assert "does not exist" in captured.err
+    assert str(missing) in captured.err
 
 
 # --- integration smoke ----------------------------------------------------

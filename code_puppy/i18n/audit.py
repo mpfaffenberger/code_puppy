@@ -149,8 +149,23 @@ def _has_string_literal(node: ast.expr) -> bool:
         # An f-string is only "raw" when it has at least one constant part
         # with meaningful (non-whitespace) text, e.g. f"Error: {e}".
         # Pure-variable forms like f"{var}" or f"  {var}" are dynamic.
+        #
+        # Also recurse into ``FormattedValue.value`` so a wrapped literal
+        # like ``f"{'Error: connection refused'}"`` (which parses as
+        # ``JoinedStr([FormattedValue(Constant('...'))])``) is still
+        # classified as raw instead of being dropped as dynamic.
         return any(
-            isinstance(v, ast.Constant) and isinstance(v.value, str) and v.value.strip()
+            (
+                isinstance(v, ast.Constant)
+                and isinstance(v.value, str)
+                and v.value.strip()
+            )
+            or (
+                isinstance(v, ast.FormattedValue)
+                and isinstance(v.value, ast.Constant)
+                and isinstance(v.value.value, str)
+                and v.value.value.strip()
+            )
             for v in node.values
         )
     if isinstance(node, ast.BinOp):  # "a" + x, "a" % x
@@ -228,8 +243,13 @@ def _iter_py_files(root: str) -> Iterable[str]:
 
 
 def audit_tree(root: str) -> Report:
-    """Audit every Python module under ``root``."""
+    """Audit every Python module under ``root``, or ``root`` itself when it is a ``.py`` file."""
     report = Report()
+    if not os.path.isdir(root) and not os.path.isfile(root):
+        # Silent-zero is worse than useless — it tells CI that a typo'd
+        # path has "100% coverage". Fail loud instead.
+        print(f"warning: {root!r} does not exist", file=sys.stderr)
+        return report
     for path in sorted(_iter_py_files(root)):
         try:
             with open(path, "r", encoding="utf-8") as fh:
