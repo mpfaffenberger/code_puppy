@@ -194,7 +194,7 @@ class TestNumericGetters:
         assert cp_config.get_compaction_threshold() == 0.85
 
     def test_get_compaction_strategy_default(self):
-        assert cp_config.get_compaction_strategy() in ["summarization", "truncation"]
+        assert cp_config.get_compaction_strategy() == "summarization"
 
     def test_get_compaction_strategy_values(self):
         cp_config.set_config_value("compaction_strategy", "summarization")
@@ -204,7 +204,7 @@ class TestNumericGetters:
 
     def test_get_compaction_strategy_invalid(self):
         cp_config.set_config_value("compaction_strategy", "invalid")
-        assert cp_config.get_compaction_strategy() == "truncation"
+        assert cp_config.get_compaction_strategy() == "summarization"
 
     def test_get_message_limit_default(self):
         cp_config.reset_value("message_limit")
