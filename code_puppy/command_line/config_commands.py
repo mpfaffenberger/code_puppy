@@ -9,6 +9,7 @@ from typing import Optional
 
 from code_puppy.command_line.command_registry import register_command
 from code_puppy.command_line.config_apply import apply_setting
+from code_puppy.i18n import t
 
 
 # Import get_commands_help from command_handler to avoid circular imports
@@ -120,7 +121,7 @@ def handle_set_command(command: str) -> bool:
         return True
 
     if not key:
-        emit_error("You must supply a key.")
+        emit_error(t("cfg.set.key_required"))
         return True
 
     result = apply_setting(key, value or "", reload_agent=True)
@@ -136,9 +137,9 @@ def handle_set_command(command: str) -> bool:
         else result.value_after
     )
     if key == "yolo_mode" and (value or "").strip().lower() == "config":
-        emit_success("Using YOLO mode from puppy.cfg; configuration unchanged.")
+        emit_success(t("cfg.set.yolo_config_unchanged"))
     else:
-        emit_success(f'Set {key} = "{display}" in puppy.cfg!')
+        emit_success(t("cfg.set.success", key=key, value=display))
     # Restart notices (warning) and the reload-success/failure signal
     # are independent: a restart-required key like ``enable_dbos``
     # should still report whether the live agent reload happened. The
@@ -149,7 +150,7 @@ def handle_set_command(command: str) -> bool:
     if result.reload_error:
         emit_warning(result.reload_error)
     else:
-        emit_info("Agent reloaded with updated config")
+        emit_info(t("cfg.set.agent_reloaded"))
     return True
 
 
@@ -192,9 +193,9 @@ def _launch_interactive_set_menu() -> None:
 
         try:
             get_current_agent().reload_code_generation_agent()
-            emit_info("Agent reloaded with updated config")
+            emit_info(t("cfg.set.agent_reloaded"))
         except Exception as reload_error:
-            emit_warning(f"Config saved but agent reload failed: {reload_error}")
+            emit_warning(t("cfg.set.reload_failed", error=reload_error))
 
 
 def _get_json_agents_pinned_to_model(model_name: str) -> list:
@@ -229,7 +230,7 @@ def handle_pin_model_command(command: str) -> bool:
     tokens = command.split()
 
     if len(tokens) != 3:
-        emit_warning("Usage: /pin_model <agent-name> <model-name>")
+        emit_warning(t("cfg.pin_model.usage"))
 
         # Show available models and agents
         available_models = load_model_names()
@@ -240,17 +241,17 @@ def handle_pin_model_command(command: str) -> bool:
 
         builtin_agents = get_agent_descriptions()
 
-        emit_info("Available models:")
+        emit_info(t("cfg.listing.available_models"))
         for model in available_models:
             emit_info(f"  {model}")
 
         if builtin_agents:
-            emit_info("\nAvailable built-in agents:")
+            emit_info("\n" + t("cfg.listing.builtin_agents"))
             for agent_name, description in builtin_agents.items():
                 emit_info(f"  {agent_name} - {description}")
 
         if json_agents:
-            emit_info("\nAvailable JSON agents:")
+            emit_info("\n" + t("cfg.listing.json_agents"))
             for agent_name, agent_path in json_agents.items():
                 emit_info(f"  {agent_name} ({agent_path})")
         return True
@@ -266,8 +267,8 @@ def handle_pin_model_command(command: str) -> bool:
     # Check if model exists
     available_models = load_model_names()
     if model_name not in available_models:
-        emit_error(f"Model '{model_name}' not found")
-        emit_warning(f"Available models: {', '.join(available_models)}")
+        emit_error(t("cfg.model.not_found", model=model_name))
+        emit_warning(t("cfg.model.available_list", models=", ".join(available_models)))
         return True
 
     # Check if this is a JSON agent or a built-in Python agent
@@ -282,16 +283,16 @@ def handle_pin_model_command(command: str) -> bool:
     is_builtin_agent = agent_name in builtin_agents
 
     if not is_json_agent and not is_builtin_agent:
-        emit_error(f"Agent '{agent_name}' not found")
+        emit_error(t("cfg.agent.not_found", agent=agent_name))
 
         # Show available agents
         if builtin_agents:
-            emit_info("Available built-in agents:")
+            emit_info("\n" + t("cfg.listing.builtin_agents"))
             for name, desc in builtin_agents.items():
                 emit_info(f"  {name} - {desc}")
 
         if json_agents:
-            emit_info("\nAvailable JSON agents:")
+            emit_info("\n" + t("cfg.listing.json_agents"))
             for name, path in json_agents.items():
                 emit_info(f"  {name} ({path})")
         return True
@@ -318,7 +319,7 @@ def handle_pin_model_command(command: str) -> bool:
 
             set_agent_pinned_model(agent_name, model_name)
 
-        emit_success(f"Model '{model_name}' pinned to agent '{agent_name}'")
+        emit_success(t("cfg.pin_model.success", model=model_name, agent=agent_name))
 
         # If this is the current agent, refresh it so the prompt updates immediately
         from code_puppy.agents import get_current_agent
@@ -329,14 +330,14 @@ def handle_pin_model_command(command: str) -> bool:
                 if is_json_agent and hasattr(current_agent, "refresh_config"):
                     current_agent.refresh_config()
                 current_agent.reload_code_generation_agent()
-                emit_info(f"Active agent reloaded with pinned model '{model_name}'")
+                emit_info(t("cfg.pin_model.agent_reloaded", model=model_name))
             except Exception as reload_error:
-                emit_warning(f"Pinned model applied but reload failed: {reload_error}")
+                emit_warning(t("cfg.pin_model.reload_failed", error=reload_error))
 
         return True
 
     except Exception as e:
-        emit_error(f"Failed to pin model to agent '{agent_name}': {e}")
+        emit_error(t("cfg.pin_model.failed", agent=agent_name, error=e))
         return True
 
 
@@ -355,7 +356,7 @@ def handle_unpin_command(command: str) -> bool:
     tokens = command.split()
 
     if len(tokens) != 2:
-        emit_warning("Usage: /unpin <agent-name>")
+        emit_warning(t("cfg.unpin.usage"))
 
         # Show available agents
         json_agents = discover_json_agents()
@@ -366,7 +367,7 @@ def handle_unpin_command(command: str) -> bool:
         builtin_agents = get_agent_descriptions()
 
         if builtin_agents:
-            emit_info("Available built-in agents:")
+            emit_info("\n" + t("cfg.listing.builtin_agents"))
             for agent_name, description in builtin_agents.items():
                 pinned_model = get_agent_pinned_model(agent_name)
                 if pinned_model:
@@ -375,7 +376,7 @@ def handle_unpin_command(command: str) -> bool:
                     emit_info(f"  {agent_name} - {description}")
 
         if json_agents:
-            emit_info("\nAvailable JSON agents:")
+            emit_info("\n" + t("cfg.listing.json_agents"))
             for agent_name, agent_path in json_agents.items():
                 # Read the JSON file to check for pinned model
                 try:
@@ -421,16 +422,16 @@ def handle_unpin_command(command: str) -> bool:
                 break
 
     if not is_json_agent and not is_builtin_agent:
-        emit_error(f"Agent '{agent_name_input}' not found")
+        emit_error(t("cfg.agent.not_found", agent=agent_name_input))
 
         # Show available agents
         if builtin_agents:
-            emit_info("Available built-in agents:")
+            emit_info("\n" + t("cfg.listing.builtin_agents"))
             for name, desc in builtin_agents.items():
                 emit_info(f"  {name} - {desc}")
 
         if json_agents:
-            emit_info("\nAvailable JSON agents:")
+            emit_info("\n" + t("cfg.listing.json_agents"))
             for name, path in json_agents.items():
                 emit_info(f"  {name} ({path})")
         return True
@@ -457,7 +458,7 @@ def handle_unpin_command(command: str) -> bool:
 
             clear_agent_pinned_model(agent_name)
 
-        emit_success(f"Model unpinned from agent '{agent_name}' (reset to default)")
+        emit_success(t("cfg.unpin.success", agent=agent_name))
 
         # If this is the current agent, refresh it so the prompt updates immediately
         from code_puppy.agents import get_current_agent
@@ -468,14 +469,14 @@ def handle_unpin_command(command: str) -> bool:
                 if is_json_agent and hasattr(current_agent, "refresh_config"):
                     current_agent.refresh_config()
                 current_agent.reload_code_generation_agent()
-                emit_info("Active agent reloaded with default model")
+                emit_info(t("cfg.unpin.agent_reloaded"))
             except Exception as reload_error:
-                emit_warning(f"Model unpinned but reload failed: {reload_error}")
+                emit_warning(t("cfg.unpin.reload_failed", error=reload_error))
 
         return True
 
     except Exception as e:
-        emit_error(f"Failed to unpin model from agent '{agent_name}': {e}")
+        emit_error(t("cfg.unpin.failed", agent=agent_name, error=e))
         return True
 
 
@@ -508,7 +509,7 @@ def handle_diff_command(command: str) -> bool:
             set_diff_addition_color(result["add_color"])
             set_diff_deletion_color(result["del_color"])
         except Exception as e:
-            emit_error(f"Failed to apply diff settings: {e}")
+            emit_error(t("cfg.diff.apply_failed", error=e))
     return True
 
 
@@ -537,9 +538,9 @@ def handle_colors_command(command: str) -> bool:
         try:
             for banner_name, color in result.items():
                 set_banner_color(banner_name, color)
-            emit_success("Banner colors saved! 🎨")
+            emit_success(t("cfg.colors.saved"))
         except Exception as e:
-            emit_error(f"Failed to apply banner color settings: {e}")
+            emit_error(t("cfg.colors.apply_failed", error=e))
     return True
 
 
@@ -643,7 +644,7 @@ def _show_color_options(color_type: str):
                 )
             )
 
-    emit_info("\n🎨 All Available Rich Colors:")
+    emit_info("\n" + t("cfg.colors.all_available"))
     for category, colors in color_categories.items():
         emit_info(f"\n{category}:")
         # Display in columns for better readability
@@ -652,6 +653,6 @@ def _show_color_options(color_type: str):
             row_text = "  ".join([f"[{color}]■[/{color}] {color}" for color, _ in row])
             emit_info(Text.from_markup(f"  {row_text}"))
 
-    emit_info("\nUsage: /diff {color_type} <color_name>")
-    emit_info("All diffs use white text on your chosen background colors")
-    emit_info("You can also use hex colors like #ff0000 or rgb(255,0,0)")
+    emit_info("\n" + t("cfg.colors.usage"))
+    emit_info(t("cfg.colors.white_text_note"))
+    emit_info(t("cfg.colors.hex_note"))
