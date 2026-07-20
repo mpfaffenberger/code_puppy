@@ -14,13 +14,23 @@ class WiggumState:
     loop_count: int = 0
     mode: str = "wiggum"
     remediation_notes: str | None = None
+    run_id: str | None = None
 
-    def start(self, prompt: str, *, mode: str = "wiggum") -> None:
+    def start(
+        self,
+        prompt: str,
+        *,
+        mode: str = "wiggum",
+        run_id: str | None = None,
+        loop_count: int = 0,
+        remediation_notes: str | None = None,
+    ) -> None:
         self.active = True
         self.prompt = prompt
-        self.loop_count = 0
+        self.loop_count = loop_count
         self.mode = mode
-        self.remediation_notes = None
+        self.remediation_notes = remediation_notes
+        self.run_id = run_id
 
     def stop(self) -> None:
         self.active = False
@@ -28,6 +38,7 @@ class WiggumState:
         self.loop_count = 0
         self.mode = "wiggum"
         self.remediation_notes = None
+        self.run_id = None
 
     def increment(self) -> int:
         self.loop_count += 1
@@ -53,8 +64,21 @@ def get_prompt() -> str | None:
     return _STATE.prompt if _STATE.active else None
 
 
-def start(prompt: str, *, mode: str = "wiggum") -> None:
-    _STATE.start(prompt, mode=mode)
+def start(
+    prompt: str,
+    *,
+    mode: str = "wiggum",
+    run_id: str | None = None,
+    loop_count: int = 0,
+    remediation_notes: str | None = None,
+) -> None:
+    _STATE.start(
+        prompt,
+        mode=mode,
+        run_id=run_id,
+        loop_count=loop_count,
+        remediation_notes=remediation_notes,
+    )
 
 
 def stop() -> None:
