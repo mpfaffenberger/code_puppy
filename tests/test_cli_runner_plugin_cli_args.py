@@ -86,27 +86,31 @@ def test_plugin_flag_appears_in_help(clean_cli_hooks, capsys):
 
 
 def test_prompt_mode_help_uses_catalog_strings(clean_cli_hooks, capsys):
-    """The prompt-mode options expose their localized argparse help text."""
-    from code_puppy.i18n import set_locale
+    """The prompt-mode options expose localized argparse help text."""
+    from code_puppy.i18n import PSEUDO_LOCALE, set_locale, t
 
-    set_locale("en-US")
-
-    with ExitStack() as stack:
-        stack.enter_context(patch("sys.argv", ["code-puppy", "--help"]))
-        with pytest.raises(SystemExit) as excinfo:
-            asyncio.run(main())
+    set_locale(PSEUDO_LOCALE)
+    expected_interactive = t("cli.args.interactive_help")
+    expected_prompt = t("cli.args.prompt_help")
+    try:
+        with ExitStack() as stack:
+            stack.enter_context(patch("sys.argv", ["code-puppy", "--help"]))
+            with pytest.raises(SystemExit) as excinfo:
+                asyncio.run(main())
+    finally:
+        set_locale("en-US")
 
     assert excinfo.value.code == 0
-    out = capsys.readouterr().out
-    assert "Run interactively; with --prompt" in out
-    assert "Execute a prompt and exit" in out
+    out = " ".join(capsys.readouterr().out.split())
+    assert expected_interactive.split("\u2003", 1)[0] in out
+    assert expected_prompt.split("\u2003", 1)[0] in out
 
 
 def test_help_survives_locale_bootstrap_failure(clean_cli_hooks, capsys):
     """Malformed optional config cannot block argparse's own help path."""
     with ExitStack() as stack:
         stack.enter_context(patch("sys.argv", ["code-puppy", "--help"]))
-        stack.enter_context(
+        mock_locale = stack.enter_context(
             patch(
                 "code_puppy.cli_runner.get_locale",
                 side_effect=RuntimeError("bad config"),
@@ -116,6 +120,7 @@ def test_help_survives_locale_bootstrap_failure(clean_cli_hooks, capsys):
             asyncio.run(main())
 
     assert excinfo.value.code == 0
+    mock_locale.assert_called_once_with()
     assert "--interactive" in capsys.readouterr().out
 
 
