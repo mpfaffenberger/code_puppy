@@ -11,6 +11,8 @@ from code_puppy.session_storage import save_session
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SUBAGENT_RECURSION_LIMIT = 4
+
 
 def _get_xdg_dir(env_var: str, fallback: str) -> str:
     """
@@ -77,6 +79,20 @@ def get_subagent_verbose() -> bool:
     if cfg_val is None:
         return False
     return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def get_subagent_recursion_limit() -> int:
+    """Return the maximum nested sub-agent depth (default 4)."""
+    cfg_val = get_value("subagent_recursion_limit")
+    if cfg_val is None:
+        return DEFAULT_SUBAGENT_RECURSION_LIMIT
+
+    try:
+        limit = int(str(cfg_val).strip())
+    except (TypeError, ValueError):
+        return DEFAULT_SUBAGENT_RECURSION_LIMIT
+
+    return limit if limit >= 0 else DEFAULT_SUBAGENT_RECURSION_LIMIT
 
 
 # Pack agents - the specialized sub-agents coordinated by Pack Leader
@@ -393,6 +409,7 @@ def get_config_keys():
         "summarization_model",
         "message_limit",
         "allow_recursion",
+        "subagent_recursion_limit",
         "auto_save_session",
         "max_saved_sessions",
         "http2",

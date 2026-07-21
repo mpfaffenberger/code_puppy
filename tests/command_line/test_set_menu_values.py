@@ -139,6 +139,12 @@ class TestEffectiveSettingValue:
         keys = {s.key for _, s in iter_curated_settings()}
         assert "allow_recursion" in keys
 
+    def test_subagent_recursion_limit_is_curated(self):
+        settings = {s.key: s for _, s in iter_curated_settings()}
+        setting = settings["subagent_recursion_limit"]
+        assert setting.type_hint == "int"
+        assert setting.effective_getter is not None
+
     def test_is_sensitive_key_for_puppy_token(self):
         assert is_sensitive_key("puppy_token") is True
         assert is_sensitive_key("yolo_mode") is False

@@ -57,6 +57,7 @@ from code_puppy.config import (
     get_safety_permission_level,
     get_smooth_response_stream,
     get_smooth_thinking_stream,
+    get_subagent_recursion_limit,
     get_subagent_verbose,
     get_summarization_model_name,
     get_suppress_informational_messages,
@@ -157,6 +158,17 @@ _BEHAVIOR = SettingsCategory(
             description="Stream model responses token-by-token.",
             type_hint="bool",
             effective_getter=get_enable_streaming,
+        ),
+        Setting(
+            key="subagent_recursion_limit",
+            display_name="Sub-agent Recursion Limit",
+            description=(
+                "Maximum nested sub-agent depth. The main agent is depth 0; "
+                "directly invoked sub-agents are depth 1. Set to 0 to disable "
+                "sub-agent invocation."
+            ),
+            type_hint="int",
+            effective_getter=get_subagent_recursion_limit,
         ),
         Setting(
             key="subagent_verbose",
