@@ -85,6 +85,40 @@ def test_plugin_flag_appears_in_help(clean_cli_hooks, capsys):
     assert "the all-important xyz flag" in out
 
 
+def test_prompt_mode_help_uses_catalog_strings(clean_cli_hooks, capsys):
+    """The prompt-mode options expose their localized argparse help text."""
+    from code_puppy.i18n import set_locale
+
+    set_locale("en-US")
+
+    with ExitStack() as stack:
+        stack.enter_context(patch("sys.argv", ["code-puppy", "--help"]))
+        with pytest.raises(SystemExit) as excinfo:
+            asyncio.run(main())
+
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert "Run interactively; with --prompt" in out
+    assert "Execute a prompt and exit" in out
+
+
+def test_help_survives_locale_bootstrap_failure(clean_cli_hooks, capsys):
+    """Malformed optional config cannot block argparse's own help path."""
+    with ExitStack() as stack:
+        stack.enter_context(patch("sys.argv", ["code-puppy", "--help"]))
+        stack.enter_context(
+            patch(
+                "code_puppy.cli_runner.get_locale",
+                side_effect=RuntimeError("bad config"),
+            )
+        )
+        with pytest.raises(SystemExit) as excinfo:
+            asyncio.run(main())
+
+    assert excinfo.value.code == 0
+    assert "--interactive" in capsys.readouterr().out
+
+
 def test_duplicate_option_strings_raise_argparse_error(clean_cli_hooks):
     """Two callbacks declaring the same option string fail fast.
 

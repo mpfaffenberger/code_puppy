@@ -147,7 +147,11 @@ def apply_quick_resume(args) -> bool:
 async def main():
     """Main async entry point for Code Puppy CLI."""
     # Seed locale selection before argparse materializes translated help text.
-    get_locale()
+    # A malformed optional config must not block --help or --version.
+    try:
+        get_locale()
+    except Exception:
+        pass
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
     parser.add_argument(
         "--version",
