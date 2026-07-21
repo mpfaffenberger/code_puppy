@@ -1,10 +1,13 @@
 """JediTerm-safe inline prompt surface tests."""
 
 import io
+import sys
 
 from code_puppy.messaging import bottom_bar as bottom_bar_mod
 from code_puppy.messaging.bottom_bar import BottomBar
+from code_puppy.messaging.bar_rendering import CURSOR_HIDE, CURSOR_SHOW
 from code_puppy.messaging.inline_bar import InlineBottomBar
+from code_puppy.messaging.transcript_guard import StreamGuard
 
 
 class FakeTTY(io.StringIO):
@@ -163,3 +166,137 @@ def test_output_transaction_erases_then_redraws_prompt():
     output = tty.getvalue()
     assert output.index("\x1b[2K") < output.index("new output")
     assert output.rindex("draft") > output.index("new output")
+
+
+def test_complete_foreign_line_erases_then_repaints_bar():
+    """A newline-complete streaming write can safely repaint immediately,
+    keeping the prompt visible without overwriting transcript content."""
+    tty = FakeTTY()
+    bar = InlineBottomBar(stream=tty, get_size=lambda: (80, 24))
+    bar.start()
+    bar.set_prompt_text("> ", "draft", 5)
+    tty.seek(0)
+    tty.truncate(0)
+
+    bar.guarded_write("reporting for duty!\n")
+    with bar._lock:  # determinism: the 0.2s timer must not race the asserts
+        bar._cancel_repaint_timer()
+
+    output = tty.getvalue()
+    assert output.index("\x1b[2K") < output.index("reporting for duty!")
+    assert output.rindex("draft") > output.index("reporting for duty!")
+    assert CURSOR_HIDE in output
+    assert bar._displayed_rows > 0
+    bar.stop()
+
+
+def test_status_tick_while_hidden_is_cache_only():
+    """The 5fps spinner / token-context ticks fire throughout a streaming
+    run. While the bar is hidden they must not paint anything -- the old
+    behavior repainted at the transcript cursor and shredded output."""
+    tty = FakeTTY()
+    bar = InlineBottomBar(stream=tty, get_size=lambda: (80, 24))
+    bar.start()
+    bar.set_prompt_text("> ", "draft", 5)
+    bar.guarded_write("AGENT RESPONSE\npartial output")
+    with bar._lock:  # determinism: the 0.2s timer must not race the asserts
+        bar._cancel_repaint_timer()
+    tty.seek(0)
+    tty.truncate(0)
+
+    bar.set_status("3.6k/1M tokens (0%)")  # mid-stream tick
+    bar.set_status_prefix("\U0001f436  ")
+    bar.set_panel_lines(["sub-agent working"])
+
+    assert tty.getvalue() == ""  # cache only; nothing hit the terminal
+
+    # Once output quiesces, the timer repaints with the latest cache.
+    with bar._lock:
+        bar._cancel_repaint_timer()
+    bar._last_foreign_write = 0.0
+    bar._repaint_after_quiet()
+    output = tty.getvalue()
+    assert "3.6k/1M tokens (0%)" in output
+    assert "draft" in output
+    assert bar._displayed_rows > 0
+    bar.stop()
+
+
+def test_quiescent_repaint_commits_partial_line_first():
+    """If the last foreign write left the cursor mid-line, the repaint
+    must move below it -- painting starts with CLEAR_LINE and would
+    otherwise destroy the half-written transcript line."""
+    tty = FakeTTY()
+    bar = InlineBottomBar(stream=tty, get_size=lambda: (80, 24))
+    bar.start()
+    bar.set_prompt_text("> ", "draft", 5)
+    bar.guarded_write("partial line without newline")
+    with bar._lock:  # determinism: the 0.2s timer must not race the asserts
+        bar._cancel_repaint_timer()
+    tty.seek(0)
+    tty.truncate(0)
+
+    bar._last_foreign_write = 0.0
+    bar._repaint_after_quiet()
+
+    output = tty.getvalue()
+    assert output.startswith("\r\n")  # committed below the partial line
+    assert "draft" in output
+    bar.stop()
+
+
+def test_suspended_surface_shows_then_rehides_hardware_cursor():
+    tty = FakeTTY()
+    bar = InlineBottomBar(stream=tty, get_size=lambda: (80, 24))
+    bar.start()
+    tty.seek(0)
+    tty.truncate(0)
+
+    with bar.suspended():
+        assert CURSOR_SHOW in tty.getvalue()
+    assert tty.getvalue().rindex(CURSOR_HIDE) > tty.getvalue().index(CURSOR_SHOW)
+    bar.stop()
+
+
+def test_trailing_sgr_does_not_count_as_line_content():
+    """Rich/termflow often end writes with a reset AFTER the newline; the
+    zero-width escape must not fool the column-1 tracker."""
+    bar = InlineBottomBar(stream=FakeTTY(), get_size=lambda: (80, 24))
+    bar._track_line_state("styled text\n\x1b[0m")
+    assert bar._at_line_start is True
+    bar._track_line_state("  Calling tool... 5 token(s)   \r")
+    assert bar._at_line_start is True
+    bar._track_line_state("mid-line")
+    assert bar._at_line_start is False
+
+
+def test_foreign_guard_installs_and_restores_std_streams(monkeypatch):
+    """The inline surface must intercept sys.stdout/sys.stderr while up
+    (streaming bypasses output_transaction) and restore them on stop."""
+    fake_out, fake_err = FakeTTY(), FakeTTY()
+    monkeypatch.setattr(sys, "stdout", fake_out)
+    monkeypatch.setattr(sys, "stderr", fake_err)
+    bar = InlineBottomBar(get_size=lambda: (80, 24))
+
+    bar._install_foreign_write_guard()
+    assert isinstance(sys.stdout, StreamGuard)
+    assert isinstance(sys.stderr, StreamGuard)
+    sys.stdout.write("hello")
+    assert fake_out.getvalue() == "hello"
+
+    bar._uninstall_foreign_write_guard()
+    assert sys.stdout is fake_out
+    assert sys.stderr is fake_err
+
+
+def test_injected_stream_never_installs_guard():
+    """Constructor-injected streams (tests, embeds) must leave the real
+    std streams alone -- mirrors the Windows transcript guard rules."""
+    bar = InlineBottomBar(stream=FakeTTY(), get_size=lambda: (80, 24))
+    before_out, before_err = sys.stdout, sys.stderr
+    bar.start()
+    try:
+        assert sys.stdout is before_out
+        assert sys.stderr is before_err
+    finally:
+        bar.stop()
