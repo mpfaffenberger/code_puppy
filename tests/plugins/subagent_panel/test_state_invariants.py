@@ -65,3 +65,62 @@ def test_snapshot_does_not_idle_prune_done_entries(monkeypatch):
     rows = state.snapshot()
     sids = [r["session_id"] for r in rows]
     assert "agent-bar-xyz" in sids
+
+
+def test_snapshot_does_not_idle_prune_stale_root():
+    """A live ROOT row (parent=None) must NEVER be idle-pruned.
+
+    A root is the visible anchor of a user-initiated ``invoke_agent`` call.
+    If its sub-agent enters a slow tool call that emits no stream events for
+    > IDLE_PRUNE_S (600s by default), ``last_seen`` goes stale -- but the
+    invocation is still genuinely in flight. Silently deleting the row would:
+      * make an active call disappear from the panel while it is still
+        actually running (user sees nothing, tool still runs);
+      * strand any completed sibling in state with no flush trigger (the
+        completed sibling's ``_maybe_flush_group`` was blocked by the still-
+        not-done root, and once the root vanishes there is no code path that
+        will re-drive ``_maybe_flush_group`` for the sibling).
+
+    Roots exit only via completion / cancel / end-of-turn ``state.clear()``.
+    Regression guard for the exact live-repro'd hang investigated during
+    the panel idle-prune bug postmortem.
+    """
+    state.register("root-slow-tool", "qa-kitten", model="claude-4-7-opus")
+    # parent defaults to None -> genuine root row.
+    assert state._AGENTS["root-slow-tool"].get("parent") is None
+
+    # Age it well past IDLE_PRUNE_S, still not done (mid tool call).
+    state._AGENTS["root-slow-tool"]["last_seen"] = 0.0
+
+    rows = state.snapshot()
+    sids = [r["session_id"] for r in rows]
+    assert "root-slow-tool" in sids, (
+        "Live root row was idle-pruned -- reintroduces the phantom-completion hang."
+    )
+
+
+def test_snapshot_still_prunes_stale_orphan_child():
+    """A stale ORPHAN child (parent gone from tree) must still be pruned.
+
+    Regression guard for the pre-fix intent of the idle-prune sweep: reap
+    genuinely-disconnected non-root leaves whose parent has vanished so their
+    subtree cannot be reached from any live root. The root-protection fix must
+    NOT over-correct into 'never prune anything ever'.
+    """
+    # A child whose parent is not (and never was) in ``_AGENTS`` -- classic
+    # orphan: the parent registration was lost, the child is unreachable.
+    state.register(
+        "orphan-child",
+        "lost-agent",
+        model="gpt-5.4",
+        parent="ghost-parent-sid",
+    )
+    assert "ghost-parent-sid" not in state._AGENTS
+
+    state._AGENTS["orphan-child"]["last_seen"] = 0.0
+
+    rows = state.snapshot()
+    sids = [r["session_id"] for r in rows]
+    assert "orphan-child" not in sids, (
+        "Stale orphan child was retained -- lost the idle-prune safety net."
+    )
