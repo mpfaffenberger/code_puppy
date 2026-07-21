@@ -9,7 +9,9 @@ is better than complex, nested side effects are worse than deliberate helpers.
 from __future__ import annotations
 
 import json
+import os
 import pickle
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, List
@@ -18,6 +20,30 @@ from typing import Any, Callable, List
 def _safe_loads(data: bytes) -> Any:
     """Deserialize pickle data."""
     return pickle.loads(data)  # noqa: S301
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` atomically and durably.
+
+    Writes to a uniquely-named temp file in the same directory, flushes and
+    fsyncs it, then atomically ``replace()``s the target. The unique temp name
+    (vs. a fixed ``.tmp``) avoids races and lost updates between concurrent
+    writers, and the fsync gives us crash safety.
+    """
+    ensure_directory(path.parent)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f"{path.name}.", suffix=".tmp", dir=str(path.parent)
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp_path.replace(path)
+    finally:
+        # If replace() succeeded the temp file is gone; otherwise clean it up.
+        tmp_path.unlink(missing_ok=True)
 
 
 _LEGACY_SIGNED_HEADER = b"CPSESSION\x01"
@@ -138,6 +164,72 @@ def list_sessions(base_dir: Path) -> List[str]:
     return sorted(path.stem for path in base_dir.glob("*.pkl"))
 
 
+# ---------------------------------------------------------------------------
+# Pinned sessions
+# ---------------------------------------------------------------------------
+# Pin state is kept in a dedicated registry file rather than each session's
+# *_meta.json. The meta files get rewritten on every autosave, which would
+# silently clobber the pin flag on the active session. A single small registry
+# keeps the pin state stable and decoupled (one source of truth).
+
+PINS_FILENAME = "pinned_sessions.json"
+
+
+def get_pins_path(base_dir: Path) -> Path:
+    """Return the path to the pinned-sessions registry file."""
+    return base_dir / PINS_FILENAME
+
+
+def load_pins(base_dir: Path) -> set[str]:
+    """Load the set of pinned session names. Returns empty set on any issue."""
+    pins_path = get_pins_path(base_dir)
+    try:
+        with pins_path.open("r", encoding="utf-8") as pins_file:
+            data = json.load(pins_file)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return set()
+    if isinstance(data, list):
+        return {str(name) for name in data}
+    return set()
+
+
+def save_pins(base_dir: Path, pins: set[str]) -> None:
+    """Persist the set of pinned session names atomically and durably."""
+    ensure_directory(base_dir)
+    _atomic_write_text(get_pins_path(base_dir), json.dumps(sorted(pins), indent=2))
+
+
+def is_pinned(base_dir: Path, session_name: str) -> bool:
+    """Return True if the given session is currently pinned."""
+    return session_name in load_pins(base_dir)
+
+
+def toggle_pin(base_dir: Path, session_name: str) -> bool:
+    """Toggle the pin state for a session. Returns the new state (True=pinned).
+
+    Also prunes any pins whose sessions no longer exist on disk, and refuses to
+    pin a session that doesn't exist, so the registry never accumulates ghosts.
+    """
+    pins = load_pins(base_dir)
+    existing = set(list_sessions(base_dir))
+
+    # Drop stale pins for sessions that have since been deleted.
+    pins &= existing
+
+    if session_name in pins:
+        pins.discard(session_name)
+        new_state = False
+    elif session_name in existing:
+        pins.add(session_name)
+        new_state = True
+    else:
+        # Session doesn't exist - nothing to pin. Still persist any pruning.
+        new_state = False
+
+    save_pins(base_dir, pins)
+    return new_state
+
+
 def cleanup_sessions(base_dir: Path, max_sessions: int) -> List[str]:
     if max_sessions <= 0:
         return []
@@ -146,6 +238,12 @@ def cleanup_sessions(base_dir: Path, max_sessions: int) -> List[str]:
         return []
 
     candidate_paths = list(base_dir.glob("*.pkl"))
+    if len(candidate_paths) <= max_sessions:
+        return []
+
+    # Never auto-delete pinned sessions - that's the whole point of pinning.
+    pinned = load_pins(base_dir)
+    candidate_paths = [p for p in candidate_paths if p.stem not in pinned]
     if len(candidate_paths) <= max_sessions:
         return []
 
