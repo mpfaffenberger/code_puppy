@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import pathlib
-from typing import Optional
+from typing import Any, Optional
 
 from code_puppy.session_storage import save_session
 
@@ -393,9 +393,6 @@ def get_config_keys():
         "summarization_model",
         "message_limit",
         "allow_recursion",
-        "openai_reasoning_effort",
-        "openai_reasoning_summary",
-        "openai_verbosity",
         "auto_save_session",
         "max_saved_sessions",
         "http2",
@@ -855,78 +852,6 @@ def set_puppy_token(token: str):
     set_config_value("puppy_token", token)
 
 
-def get_openai_reasoning_effort() -> str:
-    """Return the configured OpenAI reasoning effort."""
-    allowed_values = {"minimal", "low", "medium", "high", "xhigh", "ultra"}
-    configured = (get_value("openai_reasoning_effort") or "medium").strip().lower()
-    if configured not in allowed_values:
-        return "medium"
-    return configured
-
-
-def set_openai_reasoning_effort(value: str) -> None:
-    """Persist the OpenAI reasoning effort ensuring it remains within allowed values."""
-    allowed_values = {"minimal", "low", "medium", "high", "xhigh", "ultra"}
-    normalized = (value or "").strip().lower()
-    if normalized not in allowed_values:
-        raise ValueError(
-            f"Invalid reasoning effort '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
-        )
-    set_config_value("openai_reasoning_effort", normalized)
-
-
-def get_openai_reasoning_summary() -> str:
-    """Return the configured OpenAI reasoning summary mode.
-
-    Supported values:
-    - auto: let the provider decide the best summary style
-    - concise: shorter reasoning summaries
-    - detailed: fuller reasoning summaries
-    """
-    allowed_values = {"auto", "concise", "detailed"}
-    configured = (get_value("openai_reasoning_summary") or "detailed").strip().lower()
-    if configured not in allowed_values:
-        return "auto"
-    return configured
-
-
-def set_openai_reasoning_summary(value: str) -> None:
-    """Persist the OpenAI reasoning summary mode ensuring it remains valid."""
-    allowed_values = {"auto", "concise", "detailed"}
-    normalized = (value or "").strip().lower()
-    if normalized not in allowed_values:
-        raise ValueError(
-            f"Invalid reasoning summary '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
-        )
-    set_config_value("openai_reasoning_summary", normalized)
-
-
-def get_openai_verbosity() -> str:
-    """Return the configured OpenAI verbosity (low, medium, high).
-
-    Controls how concise vs. verbose the model's responses are:
-    - low: more concise responses
-    - medium: balanced (default)
-    - high: more verbose responses
-    """
-    allowed_values = {"low", "medium", "high"}
-    configured = (get_value("openai_verbosity") or "medium").strip().lower()
-    if configured not in allowed_values:
-        return "medium"
-    return configured
-
-
-def set_openai_verbosity(value: str) -> None:
-    """Persist the OpenAI verbosity ensuring it remains within allowed values."""
-    allowed_values = {"low", "medium", "high"}
-    normalized = (value or "").strip().lower()
-    if normalized not in allowed_values:
-        raise ValueError(
-            f"Invalid verbosity '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
-        )
-    set_config_value("openai_verbosity", normalized)
-
-
 def get_temperature() -> Optional[float]:
     """Return the configured model temperature (0.0 to 2.0).
 
@@ -1001,13 +926,13 @@ def get_model_setting(
         return default
 
 
-def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> None:
+def set_model_setting(model_name: str, setting: str, value: Any | None) -> None:
     """Set a specific setting for a model.
 
     Args:
         model_name: The model name (e.g., 'gpt-5', 'zai-glm-5.1-api')
-        setting: The setting name (e.g., 'temperature', 'seed')
-        value: The value to set, or None to clear
+        setting: The setting name (e.g., 'temperature', 'reasoning_effort')
+        value: The numeric, string, or boolean value to set, or None to clear
     """
     sanitized_name = _sanitize_model_name_for_key(model_name)
     key = f"model_settings_{sanitized_name}_{setting}"

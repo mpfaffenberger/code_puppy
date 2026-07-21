@@ -43,9 +43,10 @@ class TestHandleShowCommand:
             patch("code_puppy.config.get_default_agent", return_value="code-puppy"),
             patch("code_puppy.config.get_resume_message_count", return_value=50),
             patch(
-                "code_puppy.config.get_openai_reasoning_effort", return_value="medium"
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "medium", "verbosity": "medium"},
             ),
-            patch("code_puppy.config.get_openai_verbosity", return_value="medium"),
+            patch("code_puppy.config.get_value"),
             patch(
                 "code_puppy.keymap.get_cancel_agent_display_name", return_value="ctrl+c"
             ),

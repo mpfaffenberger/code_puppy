@@ -38,9 +38,8 @@ def handle_show_command(command: str) -> bool:
         get_compaction_strategy,
         get_compaction_threshold,
         get_default_agent,
+        get_effective_model_settings,
         get_effective_temperature,
-        get_openai_reasoning_effort,
-        get_openai_verbosity,
         get_owner_name,
         get_protected_token_count,
         get_puppy_name,
@@ -63,6 +62,7 @@ def handle_show_command(command: str) -> bool:
     compaction_strategy = get_compaction_strategy()
     global_temperature = get_temperature()
     effective_temperature = get_effective_temperature(model)
+    model_settings = get_effective_model_settings(model)
 
     # Get current agent info
     current_agent = get_current_agent()
@@ -81,8 +81,8 @@ def handle_show_command(command: str) -> bool:
 [bold]compaction_threshold:[/bold]     [cyan]{compaction_threshold:.1%}[/cyan] context usage triggers compaction
 [bold]compaction_strategy:[/bold]   [cyan]{compaction_strategy}[/cyan] (summarization or truncation)
 [bold]resume_message_count:[/bold] [cyan]{get_resume_message_count()}[/cyan] messages shown on /resume
-[bold]reasoning_effort:[/bold]      [cyan]{get_openai_reasoning_effort()}[/cyan]
-[bold]verbosity:[/bold]             [cyan]{get_openai_verbosity()}[/cyan]
+[bold]reasoning_effort:[/bold]      [cyan]{model_settings.get("reasoning_effort", "(model default)")}[/cyan]
+[bold]verbosity:[/bold]             [cyan]{model_settings.get("verbosity", "(model default)")}[/cyan]
 [bold]temperature:[/bold]           [cyan]{effective_temperature if effective_temperature is not None else "(model default)"}[/cyan]{" (per-model)" if effective_temperature != global_temperature and effective_temperature is not None else ""}
 [bold]cancel_agent_key:[/bold]      [cyan]{get_cancel_agent_display_name()}[/cyan] (options: ctrl+c, ctrl+k, ctrl+q)
 

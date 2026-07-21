@@ -334,22 +334,22 @@ class TestSettingsPersistence:
         mock_set_setting("gpt-5", "temperature", 0.8)
         mock_set_setting.assert_called_once_with("gpt-5", "temperature", 0.8)
 
-    @patch("code_puppy.command_line.model_settings_menu.set_openai_verbosity")
+    @patch("code_puppy.command_line.model_settings_menu.set_model_setting")
     @patch("code_puppy.command_line.model_settings_menu.get_global_model_name")
     @patch("code_puppy.command_line.model_settings_menu._load_all_model_names")
     def test_save_verbosity_setting(
         self,
         mock_load_models,
         mock_get_global,
-        mock_set_verbosity,
+        mock_set_setting,
     ):
         """Test saving verbosity setting."""
         mock_get_global.return_value = "gpt-5"
         mock_load_models.return_value = ["gpt-5"]
 
         ModelSettingsMenu()
-        mock_set_verbosity("high")
-        mock_set_verbosity.assert_called_once_with("high")
+        mock_set_setting("gpt-5", "verbosity", "high")
+        mock_set_setting.assert_called_once_with("gpt-5", "verbosity", "high")
 
 
 class TestModelSupportCheck:

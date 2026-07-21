@@ -171,9 +171,6 @@ def make_model_settings(
     """
     from code_puppy.config import (
         get_effective_model_settings,
-        get_openai_reasoning_effort,
-        get_openai_reasoning_summary,
-        get_openai_verbosity,
         model_supports_setting,
     )
 
@@ -293,7 +290,9 @@ def make_model_settings(
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
     elif "gpt-5" in model_name:
-        model_settings_dict["openai_reasoning_effort"] = get_openai_reasoning_effort()
+        model_settings_dict["openai_reasoning_effort"] = effective_settings.get(
+            "reasoning_effort", "medium"
+        )
 
         uses_responses_api = (
             model_type == "chatgpt_oauth"
@@ -306,11 +305,13 @@ def make_model_settings(
         )
 
         if uses_responses_api:
-            model_settings_dict["openai_reasoning_summary"] = (
-                get_openai_reasoning_summary()
+            model_settings_dict["openai_reasoning_summary"] = effective_settings.get(
+                "summary", "auto"
             )
             if "codex" not in model_name:
-                model_settings_dict["openai_text_verbosity"] = get_openai_verbosity()
+                model_settings_dict["openai_text_verbosity"] = effective_settings.get(
+                    "verbosity", "medium"
+                )
 
             underlying_name = str(model_config.get("name", "")).lower()
             is_gpt_5_6 = "gpt-5.6" in model_name.lower() or "gpt-5.6" in underlying_name
@@ -336,8 +337,9 @@ def make_model_settings(
             # Chat Completions models don't support configurable reasoning summaries.
             # Keep the old verbosity injection path for non-Responses GPT-5 models.
             if "codex" not in model_name:
-                verbosity = get_openai_verbosity()
-                model_settings_dict["extra_body"] = {"verbosity": verbosity}
+                model_settings_dict["extra_body"] = {
+                    "verbosity": effective_settings.get("verbosity", "medium")
+                }
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif _is_anthropic_model(model_name, model_config):
         # Handle Anthropic extended thinking settings

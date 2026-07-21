@@ -23,16 +23,10 @@ from code_puppy.command_line.pagination import (
 from code_puppy.config import (
     get_all_model_settings,
     get_global_model_name,
-    get_openai_reasoning_effort,
-    get_openai_reasoning_summary,
-    get_openai_verbosity,
     get_value,
     model_supports_setting,
     reset_value,
     set_model_setting,
-    set_openai_reasoning_effort,
-    set_openai_reasoning_summary,
-    set_openai_verbosity,
     set_value,
 )
 from code_puppy.messaging import emit_info
@@ -276,20 +270,13 @@ def _write_per_model_retry(model_name: str, menu_key: str, value) -> None:
 
 
 def _get_model_display_settings(model_name: str) -> Dict:
-    """Get model settings merged with global OpenAI controls for display."""
+    """Get configured model settings plus model-specific display defaults."""
     settings = get_all_model_settings(model_name)
 
-    if model_supports_setting(model_name, "reasoning_effort"):
-        settings["reasoning_effort"] = get_openai_reasoning_effort()
     if model_supports_setting(model_name, "reasoning_context"):
         settings.setdefault("reasoning_context", "all_turns")
     if model_supports_setting(model_name, "reasoning_mode"):
         settings.setdefault("reasoning_mode", "standard")
-    if model_supports_setting(model_name, "summary"):
-        settings["summary"] = get_openai_reasoning_summary()
-    if model_supports_setting(model_name, "verbosity"):
-        settings["verbosity"] = get_openai_verbosity()
-
     # Per-model retry overrides live in their own namespace, so inject their
     # current values here (only when actually set -- unset shows the default).
     for menu_key in _RETRY_MENU_KEYS:
@@ -692,14 +679,6 @@ class ModelSettingsMenu:
             lines.append(("class:tui.label", f"  {setting_def['name']}"))
             lines.append(("", "\n"))
 
-            # Show if this is a global setting
-            if setting_key in ("reasoning_effort", "verbosity"):
-                lines.append(
-                    (
-                        "class:tui.warning",
-                        "  ⚠ Global setting (applies to all GPT-5 models)",
-                    )
-                )
             lines.append(("", "\n\n"))
 
             # Description
@@ -864,17 +843,7 @@ class ModelSettingsMenu:
 
         setting_key = self.supported_settings[self.setting_index]
 
-        # Handle global OpenAI settings specially
-        if setting_key == "reasoning_effort":
-            if self.edit_value is not None:
-                set_openai_reasoning_effort(self.edit_value)
-        elif setting_key == "summary":
-            if self.edit_value is not None:
-                set_openai_reasoning_summary(self.edit_value)
-        elif setting_key == "verbosity":
-            if self.edit_value is not None:
-                set_openai_verbosity(self.edit_value)
-        elif setting_key in _RETRY_MENU_KEYS:
+        if setting_key in _RETRY_MENU_KEYS:
             # Per-model retry override -> dedicated retry_model_ namespace.
             _write_per_model_retry(self.selected_model, setting_key, self.edit_value)
         else:
@@ -907,17 +876,7 @@ class ModelSettingsMenu:
             # Reset edit value to default
             self.edit_value = _get_setting_default(setting_key, self.selected_model)
         else:
-            # Handle global OpenAI settings - reset to their defaults
-            if setting_key == "reasoning_effort":
-                set_openai_reasoning_effort("medium")  # Default
-                self.current_settings[setting_key] = "medium"
-            elif setting_key == "summary":
-                set_openai_reasoning_summary("auto")  # Default
-                self.current_settings[setting_key] = "auto"
-            elif setting_key == "verbosity":
-                set_openai_verbosity("medium")  # Default
-                self.current_settings[setting_key] = "medium"
-            elif setting_key in _RETRY_MENU_KEYS:
+            if setting_key in _RETRY_MENU_KEYS:
                 # Clear the per-model retry override -> falls back to global.
                 _write_per_model_retry(self.selected_model, setting_key, None)
                 if setting_key in self.current_settings:

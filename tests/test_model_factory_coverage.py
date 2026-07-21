@@ -228,37 +228,64 @@ class TestMakeModelSettings:
         """Test Azure Foundry GPT-5 gets Responses API reasoning summary fields."""
         from code_puppy.model_factory import make_model_settings
 
-        with patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
-            return_value={
-                "foundry-gpt-5-4": {
-                    "type": "azure_foundry_openai",
-                    "name": "gpt-5-4",
-                    "context_length": 1_000_000,
-                }
-            },
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value={
+                    "foundry-gpt-5-4": {
+                        "type": "azure_foundry_openai",
+                        "name": "gpt-5-4",
+                        "context_length": 1_000_000,
+                    }
+                },
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={
+                    "reasoning_effort": "medium",
+                    "summary": "auto",
+                    "verbosity": "medium",
+                },
+            ),
         ):
-            with patch(
-                "code_puppy.config.get_openai_reasoning_effort",
-                return_value="medium",
-            ):
-                with patch(
-                    "code_puppy.config.get_openai_reasoning_summary",
-                    return_value="auto",
-                ):
-                    with patch(
-                        "code_puppy.config.get_openai_verbosity",
-                        return_value="medium",
-                    ):
-                        settings = make_model_settings(
-                            "foundry-gpt-5-4", max_tokens=4096
-                        )
+            settings = make_model_settings("foundry-gpt-5-4", max_tokens=4096)
 
         assert isinstance(settings, dict)
         assert settings["openai_reasoning_effort"] == "medium"
         assert settings["openai_reasoning_summary"] == "auto"
         assert settings["openai_text_verbosity"] == "medium"
         assert settings.get("extra_body") is None
+
+    def test_gpt5_settings_are_resolved_per_model(self):
+        """Reasoning controls must not leak between GPT-5 model configs."""
+        from code_puppy.model_factory import make_model_settings
+
+        model_config = {
+            "gpt-5-fast": {"type": "openai", "name": "gpt-5-fast"},
+            "gpt-5-deep": {"type": "openai", "name": "gpt-5-deep"},
+        }
+        per_model = {
+            "gpt-5-fast": {"reasoning_effort": "low", "verbosity": "low"},
+            "gpt-5-deep": {"reasoning_effort": "high", "verbosity": "high"},
+        }
+
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=model_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                side_effect=lambda model_name: per_model[model_name],
+            ),
+        ):
+            fast = make_model_settings("gpt-5-fast", max_tokens=4096)
+            deep = make_model_settings("gpt-5-deep", max_tokens=4096)
+
+        assert fast["openai_reasoning_effort"] == "low"
+        assert fast["extra_body"]["verbosity"] == "low"
+        assert deep["openai_reasoning_effort"] == "high"
+        assert deep["extra_body"]["verbosity"] == "high"
 
     def test_make_model_settings_gpt_5_6_reasoning_defaults(self):
         """GPT-5.6 Responses requests preserve all reasoning controls."""
@@ -279,7 +306,7 @@ class TestMakeModelSettings:
         assert reasoning["context"] == "all_turns"
         assert reasoning["mode"] == "standard"
         assert reasoning["effort"] == "medium"
-        assert reasoning["summary"] == "detailed"
+        assert reasoning["summary"] == "auto"
         assert "openai_reasoning_effort" not in settings
         assert "openai_reasoning_summary" not in settings
 

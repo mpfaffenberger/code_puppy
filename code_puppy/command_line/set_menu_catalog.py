@@ -43,7 +43,6 @@ from code_puppy.config import (
     get_mcp_disabled,
     get_mcp_unbound_warning_silenced,
     get_message_limit,
-    get_openai_reasoning_summary,
     get_output_level,
     get_owner_name,
     get_pack_agents_enabled,
@@ -260,21 +259,6 @@ _COMPACTION = SettingsCategory(
             description="Number of recent tokens always preserved during compaction.",
             type_hint="int",
             effective_getter=get_protected_token_count,
-        ),
-    ),
-)
-
-
-_OPENAI = SettingsCategory(
-    name="OpenAI",
-    settings=(
-        Setting(
-            key="openai_reasoning_summary",
-            display_name="Reasoning Summary",
-            description="Style of reasoning summary shown to the user.",
-            type_hint="choice",
-            valid_values=("auto", "concise", "detailed"),
-            effective_getter=get_openai_reasoning_summary,
         ),
     ),
 )
@@ -629,7 +613,6 @@ SETTINGS_CATEGORIES: Tuple[SettingsCategory, ...] = (
     _SESSION,
     _COMPACTION,
     _OUTPUT,
-    _OPENAI,
     _FEATURES,
     _MCP,
     _GOAL,

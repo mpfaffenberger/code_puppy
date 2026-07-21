@@ -9,7 +9,6 @@ import os
 import pathlib
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from code_puppy import config as cp_config
 
@@ -303,47 +302,6 @@ class TestTemperature:
     def test_set_temperature_value(self):
         cp_config.set_temperature(1.5)
         assert cp_config.get_temperature() == 1.5
-
-
-# ---------------------------------------------------------------------------
-# OpenAI reasoning / verbosity
-# ---------------------------------------------------------------------------
-class TestOpenAISettings:
-    def test_get_openai_reasoning_effort_default(self):
-        cp_config.reset_value("openai_reasoning_effort")
-        assert cp_config.get_openai_reasoning_effort() == "medium"
-
-    def test_get_openai_reasoning_effort_invalid(self):
-        cp_config.set_config_value("openai_reasoning_effort", "bogus")
-        assert cp_config.get_openai_reasoning_effort() == "medium"
-
-    def test_set_openai_reasoning_effort_valid(self):
-        cp_config.set_openai_reasoning_effort("high")
-        assert cp_config.get_openai_reasoning_effort() == "high"
-
-    def test_set_openai_reasoning_effort_ultra(self):
-        cp_config.set_openai_reasoning_effort("ULTRA")
-        assert cp_config.get_openai_reasoning_effort() == "ultra"
-
-    def test_set_openai_reasoning_effort_invalid(self):
-        with pytest.raises(ValueError):
-            cp_config.set_openai_reasoning_effort("bogus")
-
-    def test_get_openai_verbosity_default(self):
-        cp_config.reset_value("openai_verbosity")
-        assert cp_config.get_openai_verbosity() == "medium"
-
-    def test_get_openai_verbosity_invalid(self):
-        cp_config.set_config_value("openai_verbosity", "bogus")
-        assert cp_config.get_openai_verbosity() == "medium"
-
-    def test_set_openai_verbosity_valid(self):
-        cp_config.set_openai_verbosity("low")
-        assert cp_config.get_openai_verbosity() == "low"
-
-    def test_set_openai_verbosity_invalid(self):
-        with pytest.raises(ValueError):
-            cp_config.set_openai_verbosity("bogus")
 
 
 # ---------------------------------------------------------------------------
