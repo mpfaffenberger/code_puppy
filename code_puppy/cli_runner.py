@@ -157,13 +157,13 @@ async def main():
         "--interactive",
         "-i",
         action="store_true",
-        help="Run in interactive mode",
+        help=t("cli.args.interactive_help"),
     )
     parser.add_argument(
         "--prompt",
         "-p",
         type=str,
-        help="Execute a single prompt and exit (no interactive mode)",
+        help=t("cli.args.prompt_help"),
     )
     parser.add_argument(
         "--agent",
@@ -214,6 +214,11 @@ async def main():
         if isinstance(result, dict) and result.get("handled"):
             return result.get("exit_code", 0)
 
+    # A prompt is headless by default. Explicit interactive mode promotes it
+    # to the REPL's first turn instead, preserving the historical behavior of
+    # both flags when they are used separately.
+    prompt_only_mode = bool(args.prompt and not args.interactive)
+
     from code_puppy.messaging import (
         RichConsoleRenderer,
         SynchronousInteractiveRenderer,
@@ -237,10 +242,9 @@ async def main():
     initialize_command_history_file()
     from code_puppy.messaging import emit_error, emit_system_message
 
-    # Show the awesome Code Puppy logo when entering interactive mode
-    # This happens when: no -p flag (prompt-only mode) is used
-    # The logo should appear for both `code-puppy` and `code-puppy -i`
-    if not args.prompt:
+    # Show the awesome Code Puppy logo when entering interactive mode,
+    # including when -p supplies the first prompt for an explicit -i session.
+    if not prompt_only_mode:
         try:
             import pyfiglet
 
@@ -493,14 +497,11 @@ async def main():
     shutdown_flag = False
     try:
         initial_command = None
-        prompt_only_mode = False
 
         if args.prompt:
             initial_command = args.prompt
-            prompt_only_mode = True
         elif args.command:
             initial_command = " ".join(args.command)
-            prompt_only_mode = False
 
         if prompt_only_mode:
             await execute_single_prompt(

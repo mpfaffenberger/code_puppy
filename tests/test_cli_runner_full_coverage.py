@@ -180,11 +180,17 @@ class TestMain:
     @pytest.mark.anyio
     async def test_prompt_mode(self):
         mock_exec = AsyncMock()
+        mock_inter = AsyncMock()
         await self._run_main(
             ["code-puppy", "-p", "hello world"],
-            extra_patches={"code_puppy.cli_runner.execute_single_prompt": mock_exec},
+            extra_patches={
+                "code_puppy.cli_runner.execute_single_prompt": mock_exec,
+                "code_puppy.cli_runner.interactive_mode": mock_inter,
+            },
         )
-        mock_exec.assert_called_once()
+        mock_exec.assert_awaited_once()
+        assert mock_exec.call_args.args[0] == "hello world"
+        mock_inter.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_interactive_mode_default(self):
@@ -197,6 +203,33 @@ class TestMain:
             },
         )
         mock_inter.assert_called_once()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["code-puppy", "-p", "first prompt", "-i"],
+            ["code-puppy", "--interactive", "--prompt", "first prompt"],
+        ],
+    )
+    async def test_prompt_starts_interactive_session_when_requested(self, argv):
+        mock_exec = AsyncMock()
+        mock_inter = AsyncMock()
+        mock_logo = MagicMock(return_value="LOGO\n\n")
+
+        await self._run_main(
+            argv,
+            extra_patches={
+                "code_puppy.cli_runner.execute_single_prompt": mock_exec,
+                "code_puppy.cli_runner.interactive_mode": mock_inter,
+                "pyfiglet.figlet_format": mock_logo,
+            },
+        )
+
+        mock_exec.assert_not_awaited()
+        mock_inter.assert_awaited_once()
+        assert mock_inter.call_args.kwargs["initial_command"] == "first prompt"
+        mock_logo.assert_called_once()
 
     @pytest.mark.anyio
     async def test_with_command_args(self):
