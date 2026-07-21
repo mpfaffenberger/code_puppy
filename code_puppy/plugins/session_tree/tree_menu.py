@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any
 
 from prompt_toolkit import Application
 from prompt_toolkit.key_binding import KeyBindings
@@ -26,6 +24,7 @@ from .tree_model import (
     build_nodes,
     visible_nodes,
 )
+from .tree_store import SessionTree
 
 TREE_PAGE_SIZE = 14
 
@@ -40,25 +39,25 @@ class TreeMenuResult:
 
 @dataclass(slots=True)
 class TreeSelectionMenu:
-    history: list[Any]
-    labels: dict[str, str] = field(default_factory=dict)
+    tree: SessionTree
     mode: FilterMode = FilterMode.DEFAULT
     selected_index: int = 0
     page: int = 0
     page_size: int = TREE_PAGE_SIZE
     result: TreeMenuResult = field(default_factory=TreeMenuResult)
-    show_label_timestamps: bool = True
+    show_label_timestamps: bool = False
+    search_query: str = ""
 
     def __post_init__(self) -> None:
         self._clamp_selection()
 
     @property
     def nodes(self) -> list[HistoryNode]:
-        return build_nodes(self.history, self.labels)
+        return build_nodes(self.tree)
 
     @property
     def visible(self) -> list[HistoryNode]:
-        return visible_nodes(self.nodes, self.mode)
+        return visible_nodes(self.nodes, self.mode, self.search_query)
 
     @property
     def total_pages(self) -> int:
@@ -121,24 +120,25 @@ class TreeSelectionMenu:
         selected = self.selected_node()
         if selected is None:
             return
-        if selected.node_id in self.labels:
-            del self.labels[selected.node_id]
-            return
-        suffix = (
-            f" @ {datetime.now().strftime('%H:%M')}"
-            if self.show_label_timestamps
-            else ""
-        )
-        self.labels[selected.node_id] = f"label{suffix}"
+        self.tree.set_label(selected.node_id, None if selected.label else "label")
 
     def _branch_prefix(self, node: HistoryNode) -> str:
-        if node.index == len(self.history) - 1:
-            return "└─"
-        return "├─"
+        ancestors = "".join(
+            "│  " if has_next else "   " for has_next in node.ancestor_has_next
+        )
+        if node.depth == 0:
+            return ""
+        return f"{ancestors}{'└─ ' if node.is_last else '├─ '}"
 
     def _render(self):
         lines = [("bold cyan", "  Session Tree")]
         lines.append(("fg:ansibrightblack", f"\n  Filter: {self.mode.value}"))
+        lines.append(
+            (
+                "fg:ansibrightblack",
+                f"  Search: {self.search_query or '(type to search)'}",
+            )
+        )
         if self.total_pages > 1:
             lines.append(
                 ("fg:ansibrightblack", f"  Page {self.page + 1}/{self.total_pages}")
@@ -150,15 +150,19 @@ class TreeSelectionMenu:
         for offset, node in enumerate(self.page_nodes):
             absolute_index = self.page_start + offset
             is_selected = absolute_index == self.selected_index
-            is_active = node.index == len(self.history) - 1
+            is_active = node.is_active
             cursor = " › " if is_selected else "   "
             style = "fg:ansiwhite bold" if is_selected else "fg:ansibrightblack"
-            label = f" [{node.label}]" if node.label else ""
+            timestamp = ""
+            if self.show_label_timestamps and node.label_timestamp:
+                timestamp = f" @{node.label_timestamp[11:16]}"
+            label = f" [{node.label}{timestamp}]" if node.label else ""
             active = " ← active" if is_active else ""
+            path_marker = "• " if node.is_on_active_path else "  "
             lines.append(
                 (
                     style,
-                    f'{cursor}{self._branch_prefix(node)} {node.role}: "{node.preview}"',
+                    f'{cursor}{self._branch_prefix(node)}{path_marker}{node.role}: "{node.preview}"',
                 )
             )
             lines.append(("fg:ansiblue", f" #{node.node_id}{label}{active}\n"))
@@ -243,9 +247,32 @@ class TreeSelectionMenu:
             self.result.summarize = True
             event.app.exit()
 
+        @kb.add("backspace")
+        def _(event):
+            if self.search_query:
+                self.search_query = self.search_query[:-1]
+                self.selected_index = 0
+                self._clamp_selection()
+                refresh(event)
+
+        @kb.add("<any>")
+        def _(event):
+            text = event.data
+            if text and text.isprintable():
+                self.search_query += text
+                self.selected_index = 0
+                self._clamp_selection()
+                refresh(event)
+
         @kb.add("escape")
         @kb.add("c-c")
         def _(event):
+            if self.search_query:
+                self.search_query = ""
+                self.selected_index = 0
+                self._clamp_selection()
+                refresh(event)
+                return
             self.result.cancelled = True
             event.app.exit()
 

@@ -1,11 +1,21 @@
-"""Tests for the /tree, /fork, and /clone session navigation plugin."""
+"""Tests for persistent /tree, /fork, and /clone navigation."""
 
 from __future__ import annotations
 
 import importlib
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+from code_puppy.plugins.session_tree.tree_model import (
+    FilterMode,
+    build_nodes,
+    resolve_node,
+    selectable_nodes,
+    visible_nodes,
+)
+from code_puppy.plugins.session_tree.tree_store import SessionTree, TreeStore
 
 
 class Message(SimpleNamespace):
@@ -15,14 +25,6 @@ class Message(SimpleNamespace):
 def _plugin_module():
     sys.modules.setdefault("dbos", MagicMock())
     return importlib.import_module("code_puppy.plugins.session_tree.register_callbacks")
-
-
-def _tree_model():
-    return importlib.import_module("code_puppy.plugins.session_tree.tree_model")
-
-
-def _agent_manager_module(agent: MagicMock) -> SimpleNamespace:
-    return SimpleNamespace(get_current_agent=lambda: agent)
 
 
 def _history() -> list[Message]:
@@ -36,282 +38,220 @@ def _history() -> list[Message]:
     ]
 
 
-def test_build_nodes_creates_stable_tree_entries():
-    nodes = _tree_model().build_nodes(_history())
-
-    assert len(nodes) == 6
-    assert nodes[0].is_system is True
-    assert nodes[1].role == "user"
-    assert nodes[1].preview == "first task"
-    assert len(nodes[1].node_id) == 8
+def _tree(history=None) -> SessionTree:
+    tree = SessionTree()
+    tree.sync_history(history or _history())
+    return tree
 
 
-def test_visible_nodes_supports_filter_modes_and_labels():
-    model = _tree_model()
-    history = _history()
-    base_nodes = model.build_nodes(history)
-    labels = {base_nodes[2].node_id: "keeper"}
-    nodes = model.build_nodes(history, labels)
-
-    assert all(
-        not node.is_toolish
-        for node in model.visible_nodes(nodes, model.FilterMode.NO_TOOLS)
-    )
-    assert {
-        node.role for node in model.visible_nodes(nodes, model.FilterMode.USER_ONLY)
-    } == {"user"}
-    assert model.visible_nodes(nodes, model.FilterMode.LABELED_ONLY) == [nodes[2]]
-    assert len(model.visible_nodes(nodes, model.FilterMode.ALL)) == len(nodes)
-
-
-def test_resolve_node_accepts_ordinal_index_and_id_prefix():
-    model = _tree_model()
-    nodes = model.selectable_nodes(_history())
-
-    assert model.resolve_node("1", nodes).preview == "first task"
-    assert model.resolve_node("4", nodes).preview == "second task"
-    assert model.resolve_node(nodes[1].node_id[:4], nodes) == nodes[1]
-    assert model.resolve_node("nope", nodes) is None
-
-
-def test_history_helpers_preserve_system_prompt_for_forks():
-    model = _tree_model()
-    history = _history()
-
-    assert model.history_through(history, 2) == history[:3]
-    assert model.history_before(history, 1) == history[:1]
-
-
-def test_help_entries_include_tree_fork_clone_and_summary_language():
-    entries = dict(_plugin_module()._help_entries())
-
-    assert "summarize" in entries["tree"]
-    assert entries["fork"]
-    assert entries["clone"]
-
-
-def test_handle_custom_command_ignores_unknown_command():
-    assert _plugin_module()._handle_custom_command("/nope", "nope") is None
-
-
-def test_tree_restores_non_user_history_point_from_argument():
-    history = _history()
+def _command_context(tmp_path: Path, history: list[Message]):
     agent = MagicMock()
     agent.get_message_history.return_value = history
+    manager = SimpleNamespace(get_current_agent=lambda: agent)
+    config = SimpleNamespace(
+        AUTOSAVE_DIR=str(tmp_path), get_current_autosave_id=lambda: "current"
+    )
+    return agent, patch.dict(
+        sys.modules,
+        {
+            "code_puppy.agents.agent_manager": manager,
+            "code_puppy.config": config,
+        },
+    )
 
-    with (
-        patch.dict(
-            sys.modules,
-            {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
-        ),
-        patch("code_puppy.plugins.session_tree.register_callbacks._emit_success"),
-    ):
-        result = _plugin_module()._handle_custom_command("/tree 2", "tree")
+
+def test_sync_history_is_stable_and_builds_real_branches():
+    history = _history()
+    tree = _tree(history)
+    original_ids = tree.path_ids(tree.active_leaf_id)
+
+    tree.sync_history(history)
+    assert tree.path_ids(tree.active_leaf_id) == original_ids
+
+    tree.sync_history([*history[:4], Message(role="user", content="alternate")])
+    branch_parent = original_ids[3]
+    assert len(tree.children(branch_parent)) == 2
+    assert len(tree.nodes) == len(history) + 1
+
+
+def test_duplicate_messages_on_one_path_remain_distinct():
+    repeated = Message(role="user", content="same")
+    tree = _tree([repeated, repeated])
+    path = tree.path_ids(tree.active_leaf_id)
+
+    assert len(path) == 2
+    assert path[0] != path[1]
+
+
+def test_store_persists_branches_labels_and_active_leaf(tmp_path):
+    store = TreeStore(tmp_path / "tree.pkl")
+    tree = _tree()
+    selected = selectable_nodes(tree)[0]
+    tree.set_label(selected.node_id, "keeper")
+    store.save(tree)
+
+    restored = store.load()
+    assert restored.nodes[selected.node_id].label == "keeper"
+    assert restored.active_leaf_id == tree.active_leaf_id
+
+
+def test_model_marks_active_path_and_renders_branch_depth():
+    history = _history()
+    tree = _tree(history)
+    first_path = tree.path_ids(tree.active_leaf_id)
+    tree.sync_history([*history[:3], Message(role="user", content="alternate")])
+    nodes = build_nodes(tree)
+
+    assert sum(node.is_active for node in nodes) == 1
+    assert all(
+        node.is_on_active_path
+        for node in nodes
+        if node.node_id in tree.path_ids(tree.active_leaf_id)
+    )
+    assert any(node.depth > 0 and not node.is_on_active_path for node in nodes)
+    assert first_path[-1] in tree.nodes
+
+
+def test_filters_search_and_unique_resolution():
+    tree = _tree()
+    nodes = build_nodes(tree)
+    assistant = next(node for node in nodes if node.role == "assistant")
+    tree.set_label(assistant.node_id, "keeper")
+    nodes = build_nodes(tree)
+
+    assert {node.role for node in visible_nodes(nodes, FilterMode.USER_ONLY)} == {
+        "user"
+    }
+    assert all(
+        not node.is_toolish for node in visible_nodes(nodes, FilterMode.NO_TOOLS)
+    )
+    assert [node.node_id for node in visible_nodes(nodes, FilterMode.LABELED_ONLY)] == [
+        assistant.node_id
+    ]
+    assert (
+        visible_nodes(nodes, FilterMode.ALL, "first answer")[0].node_id
+        == assistant.node_id
+    )
+    selectable = selectable_nodes(tree)
+    assert resolve_node("1", selectable) == selectable[0]
+    assert resolve_node(assistant.node_id[:6], selectable).node_id == assistant.node_id
+
+
+def test_abandoned_history_starts_after_common_ancestor():
+    history = _history()
+    tree = _tree(history)
+    old_leaf = tree.active_leaf_id
+    target = tree.path_ids(old_leaf)[2]
+
+    abandoned = tree.abandoned_history(target)
+    assert abandoned == history[3:]
+
+
+def test_tree_user_selection_restores_parent_and_preserves_old_branch(tmp_path):
+    plugin = _plugin_module()
+    history = _history()
+    agent, context = _command_context(tmp_path, history)
+    with context, patch.object(plugin, "_emit"):
+        result = plugin._handle_custom_command("/tree 4", "tree")
+
+    assert str(result) == "second task"
+    agent.set_message_history.assert_called_once_with(history[:4])
+    stored = TreeStore(tmp_path / "session_trees/current.pkl").load()
+    assert len(stored.nodes) == len(history)
+    assert stored.history_through(stored.active_leaf_id) == history[:4]
+
+
+def test_new_turn_after_navigation_creates_sibling_branch(tmp_path):
+    plugin = _plugin_module()
+    history = _history()
+    agent, context = _command_context(tmp_path, history)
+    with context, patch.object(plugin, "_emit"):
+        plugin._handle_custom_command("/tree 4", "tree")
+
+    alternate = [*history[:4], Message(role="user", content="replacement")]
+    agent, context = _command_context(tmp_path, alternate)
+    with context, patch.object(plugin, "_emit"):
+        plugin._handle_custom_command("/tree nope", "tree")
+
+    stored = TreeStore(tmp_path / "session_trees/current.pkl").load()
+    parent = stored.path_ids(stored.active_leaf_id)[3]
+    assert len(stored.children(parent)) == 2
+
+
+def test_tree_non_user_selection_restores_through_selected_node(tmp_path):
+    plugin = _plugin_module()
+    history = _history()
+    agent, context = _command_context(tmp_path, history)
+    with context, patch.object(plugin, "_emit"):
+        result = plugin._handle_custom_command("/tree 2", "tree")
 
     assert result is True
     agent.set_message_history.assert_called_once_with(history[:3])
 
 
-def test_tree_summary_selection_replaces_history_with_summarized_conversation():
-    history = _history()
-    summarized = [history[0], Message(role="user", content="Summary: compacted")]
-    agent = MagicMock()
-    agent.get_message_history.return_value = history
-
-    with (
-        patch.dict(
-            sys.modules,
-            {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
-        ),
-        patch(
-            "code_puppy.plugins.session_tree.register_callbacks._summarize_through",
-            return_value=summarized,
-        ) as summarize,
-        patch("code_puppy.plugins.session_tree.register_callbacks._emit_success"),
-    ):
-        result = _plugin_module()._handle_custom_command("/tree summary 2", "tree")
-
-    assert result is True
-    summarize.assert_called_once()
-    agent.set_message_history.assert_called_once_with(summarized)
-
-
-def test_tree_summary_from_tui_result_replaces_history():
+def test_summary_receives_only_abandoned_tail_and_attaches_at_target(tmp_path):
     plugin = _plugin_module()
     history = _history()
-    summarized = [history[0], Message(role="user", content="Summary: compacted")]
-    agent = MagicMock()
-    agent.get_message_history.return_value = history
-    node = _tree_model().selectable_nodes(history)[1]
-    result_obj = SimpleNamespace(node=node, cancelled=False, summarize=True)
-
+    summary = Message(role="user", content="branch summary")
+    agent, context = _command_context(tmp_path, history)
     with (
-        patch.dict(
-            sys.modules,
-            {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
-        ),
-        patch(
-            "code_puppy.plugins.session_tree.register_callbacks._run_tree_menu",
-            return_value=result_obj,
-        ),
-        patch(
-            "code_puppy.plugins.session_tree.register_callbacks._summarize_through",
-            return_value=summarized,
-        ),
-        patch("code_puppy.plugins.session_tree.register_callbacks._emit_success"),
+        context,
+        patch.object(plugin, "_emit"),
+        patch.object(plugin, "_summary_messages", return_value=[summary]) as summarize,
     ):
-        result = plugin._handle_custom_command("/tree", "tree")
+        plugin._handle_custom_command("/tree summary 2", "tree")
 
-    assert result is True
-    agent.set_message_history.assert_called_once_with(summarized)
+    assert summarize.call_args.args[1] == history[3:]
+    agent.set_message_history.assert_called_once_with([*history[:3], summary])
 
 
-def test_tree_summary_failure_does_not_mutate_history():
+def test_summary_failure_does_not_mutate_history(tmp_path):
+    plugin = _plugin_module()
     history = _history()
-    agent = MagicMock()
-    agent.get_message_history.return_value = history
-
+    agent, context = _command_context(tmp_path, history)
     with (
-        patch.dict(
-            sys.modules,
-            {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
+        context,
+        patch.object(plugin, "_emit"),
+        patch.object(
+            plugin, "_summary_messages", side_effect=RuntimeError("no biscuits")
         ),
-        patch(
-            "code_puppy.plugins.session_tree.register_callbacks._summarize_through",
-            side_effect=RuntimeError("no biscuits"),
-        ),
-        patch(
-            "code_puppy.plugins.session_tree.register_callbacks._emit_error"
-        ) as error,
     ):
-        result = _plugin_module()._handle_custom_command("/tree summarize 2", "tree")
+        result = plugin._handle_custom_command("/tree summary 2", "tree")
 
     assert result is True
     agent.set_message_history.assert_not_called()
-    assert "failed to summarize" in str(error.call_args)
 
 
-def test_tree_user_selection_returns_prompt_and_restores_parent():
+def test_fork_without_argument_uses_tree_selector(tmp_path):
+    plugin = _plugin_module()
     history = _history()
-    agent = MagicMock()
-    agent.get_message_history.return_value = history
+    agent, context = _command_context(tmp_path, history)
+
+    def select_last_user(tree, **_kwargs):
+        selected = [node for node in selectable_nodes(tree) if node.is_userish][-1]
+        return SimpleNamespace(node=selected, cancelled=False)
 
     with (
-        patch.dict(
-            sys.modules,
-            {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
-        ),
-        patch("code_puppy.plugins.session_tree.register_callbacks._emit_success"),
+        context,
+        patch.object(plugin, "_emit"),
+        patch.object(plugin, "_run_tree_menu", side_effect=select_last_user),
     ):
-        result = _plugin_module()._handle_custom_command("/tree 4", "tree")
+        result = plugin._handle_custom_command("/fork", "fork")
 
     assert str(result) == "second task"
     agent.set_message_history.assert_called_once_with(history[:4])
 
 
-def test_tree_warns_for_empty_or_system_only_history():
-    agent = MagicMock()
-    agent.get_message_history.return_value = [Message(role="system", content="system")]
-
-    with (
-        patch.dict(
-            sys.modules,
-            {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
-        ),
-        patch(
-            "code_puppy.plugins.session_tree.register_callbacks._emit_warning"
-        ) as warning,
-    ):
-        result = _plugin_module()._handle_custom_command("/tree", "tree")
-
-    assert result is True
-    agent.set_message_history.assert_not_called()
-    assert "nothing to restore" in str(warning.call_args)
-
-
-def test_tree_warns_for_invalid_selection():
+def test_clone_does_not_rotate_current_session_id(tmp_path):
+    plugin = _plugin_module()
     history = _history()
-    agent = MagicMock()
-    agent.get_message_history.return_value = history
-
-    with (
-        patch.dict(
-            sys.modules,
-            {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
-        ),
-        patch(
-            "code_puppy.plugins.session_tree.register_callbacks._emit_warning"
-        ) as warning,
-    ):
-        result = _plugin_module()._handle_custom_command("/tree nope", "tree")
-
-    assert result is True
-    agent.set_message_history.assert_not_called()
-    assert "no history point matches" in str(warning.call_args)
-
-
-def test_fork_returns_selected_prompt_and_trims_history_before_it():
-    history = _history()
-    agent = MagicMock()
-    agent.get_message_history.return_value = history
-
-    with (
-        patch.dict(
-            sys.modules,
-            {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
-        ),
-        patch("code_puppy.plugins.session_tree.register_callbacks._emit_success"),
-    ):
-        result = _plugin_module()._handle_custom_command("/fork 2", "fork")
-
-    assert str(result) == "second task"
-    agent.set_message_history.assert_called_once_with(history[:4])
-
-
-def test_fork_warns_when_no_user_messages_exist():
-    agent = MagicMock()
-    agent.get_message_history.return_value = [
-        Message(role="system", content="system"),
-        Message(role="assistant", content="hello"),
-    ]
-
-    with (
-        patch.dict(
-            sys.modules,
-            {"code_puppy.agents.agent_manager": _agent_manager_module(agent)},
-        ),
-        patch(
-            "code_puppy.plugins.session_tree.register_callbacks._emit_warning"
-        ) as warning,
-    ):
-        result = _plugin_module()._handle_custom_command("/fork", "fork")
-
-    assert result is True
-    agent.set_message_history.assert_not_called()
-    assert "no previous user messages" in str(warning.call_args)
-
-
-def test_clone_saves_active_branch_to_new_autosave_session(tmp_path):
-    history = _history()
-    agent = MagicMock()
-    agent.get_message_history.return_value = history
+    agent, context = _command_context(tmp_path, history)
     agent.estimate_tokens_for_message.return_value = 1
+    with context, patch.object(plugin, "_emit"):
+        assert plugin._handle_custom_command("/clone", "clone") is True
 
-    config = SimpleNamespace(
-        AUTOSAVE_DIR=str(tmp_path), rotate_autosave_id=lambda: "abc123"
-    )
-    with (
-        patch.dict(
-            sys.modules,
-            {
-                "code_puppy.agents.agent_manager": _agent_manager_module(agent),
-                "code_puppy.config": config,
-            },
-        ),
-        patch("code_puppy.plugins.session_tree.register_callbacks._emit_success"),
-    ):
-        result = _plugin_module()._handle_custom_command("/clone", "clone")
+    assert len(list(tmp_path.glob("auto_session_*.pkl"))) == 1
 
-    assert result is True
-    assert (tmp_path / "autosave_abc123.pkl").exists()
-    assert (tmp_path / "autosave_abc123_meta.json").exists()
+
+def test_unknown_command_is_ignored():
+    assert _plugin_module()._handle_custom_command("/nope", "nope") is None
