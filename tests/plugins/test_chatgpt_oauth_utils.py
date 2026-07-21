@@ -1105,11 +1105,10 @@ class TestAddModelsToConfig:
             "codex-gpt-5.4",
         ):
             model_config = saved_config[model_name]
-            assert model_config["supported_settings"] == [
-                "reasoning_effort",
-                "summary",
-                "verbosity",
-            ]
+            expected_settings = ["reasoning_effort", "summary", "verbosity"]
+            if model_name.startswith("codex-gpt-5.6-"):
+                expected_settings.extend(["reasoning_context", "reasoning_mode"])
+            assert model_config["supported_settings"] == expected_settings
             assert model_config["supports_xhigh_reasoning"] is True
             assert model_config["supports_ultra_reasoning"] is model_name.startswith(
                 "codex-gpt-5.6-"

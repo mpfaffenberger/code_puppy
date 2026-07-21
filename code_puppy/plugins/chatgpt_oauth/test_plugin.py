@@ -2,12 +2,195 @@
 Basic tests for ChatGPT OAuth plugin.
 """
 
+import asyncio
 import json
+from contextlib import nullcontext
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_puppy.plugins.chatgpt_oauth import config, utils
+from code_puppy.plugins.chatgpt_oauth import config, image_generation, image_tool, utils
+
+
+def test_codex_image_generation_posts_codex_payload(tmp_path):
+    encoded = "aGVsbG8="
+    response = MagicMock()
+    response.json.return_value = {"data": [{"b64_json": encoded}]}
+    response.raise_for_status.return_value = None
+
+    with (
+        patch.object(image_generation, "get_valid_access_token", return_value="token"),
+        patch.object(
+            image_generation,
+            "load_stored_tokens",
+            return_value={"account_id": "account"},
+        ),
+        patch.object(image_generation.config, "DATA_DIR", str(tmp_path)),
+        patch.object(image_generation.requests, "post", return_value=response) as post,
+    ):
+        output_path = image_generation.generate_image("a red fox")
+
+    assert output_path.read_bytes() == b"hello"
+    assert output_path.parent == tmp_path / "generated_images"
+    post.assert_called_once()
+    call = post.call_args
+    assert call.args[0].endswith("/images/generations")
+    assert call.kwargs["json"] == {
+        "prompt": "a red fox",
+        "background": "auto",
+        "model": "gpt-image-2",
+        "quality": "auto",
+        "size": "auto",
+    }
+    assert call.kwargs["headers"]["ChatGPT-Account-Id"] == "account"
+
+
+def test_codex_image_generation_requires_auth():
+    with (
+        patch.object(image_generation, "get_valid_access_token", return_value=None),
+        patch.object(image_generation, "load_stored_tokens", return_value={}),
+        pytest.raises(image_generation.CodexImageGenerationError, match="codex-auth"),
+    ):
+        image_generation.generate_image("a red fox")
+
+
+def test_emit_iterm_image(tmp_path):
+    output_path = tmp_path / "puppy.png"
+    output_path.write_bytes(b"image-bytes")
+    stdout = MagicMock()
+    stdout.isatty.return_value = True
+
+    with (
+        patch.dict(
+            image_generation.os.environ,
+            {"TERM_PROGRAM": "iTerm.app"},
+            clear=True,
+        ),
+        patch.object(image_generation.sys, "stdout", stdout),
+        patch(
+            "code_puppy.messaging.run_ui.suspended_run_ui",
+            return_value=nullcontext(),
+        ),
+    ):
+        assert image_generation.emit_iterm_image(output_path) is True
+
+    sequence = stdout.write.call_args.args[0]
+    assert sequence.startswith("\033]1337;File=name=")
+    assert ";inline=1;preserveAspectRatio=1:" in sequence
+    assert image_generation.base64.b64encode(b"image-bytes").decode() in sequence
+    stdout.flush.assert_called_once()
+
+
+def test_emit_iterm_image_ignores_other_terminals(tmp_path):
+    stdout = MagicMock()
+    stdout.isatty.return_value = True
+    with (
+        patch.dict(image_generation.os.environ, {}, clear=True),
+        patch.object(image_generation.sys, "stdout", stdout),
+    ):
+        assert image_generation.emit_iterm_image(tmp_path / "missing.png") is False
+    stdout.write.assert_not_called()
+
+
+def test_codex_imagegen_command():
+    from code_puppy.plugins.chatgpt_oauth import register_callbacks
+
+    with (
+        patch.object(
+            image_generation,
+            "generate_image",
+            return_value=Path("/tmp/generated.png"),
+        ) as generate,
+        patch.object(register_callbacks, "emit_info"),
+        patch.object(register_callbacks, "emit_success") as success,
+        patch.object(image_generation, "emit_iterm_image") as emit_image,
+    ):
+        assert (
+            register_callbacks._handle_custom_command(
+                "/codex-imagegen a red fox", "codex-imagegen"
+            )
+            is True
+        )
+
+    generate.assert_called_once_with("a red fox")
+    success.assert_called_once()
+    emit_image.assert_called_once_with(Path("/tmp/generated.png"))
+
+
+def test_imagegen_skill_and_tool_registration():
+    from code_puppy.plugins.chatgpt_oauth import register_callbacks
+
+    skills = register_callbacks._register_imagegen_skill()
+    assert skills[0]["name"] == "codex-imagegen"
+    assert Path(skills[0]["skill_md_path"]).is_file()
+    with patch.object(
+        register_callbacks,
+        "load_stored_tokens",
+        return_value={"access_token": "token", "account_id": "account"},
+    ):
+        assert register_callbacks._advertise_imagegen_tool("code-puppy") == [
+            "codex_imagegen"
+        ]
+    tools = register_callbacks._register_imagegen_tools()
+    assert tools == [
+        {"name": "codex_imagegen", "register_func": image_tool.register_codex_imagegen}
+    ]
+
+
+def test_imagegen_tool_is_not_advertised_when_logged_out():
+    from code_puppy.plugins.chatgpt_oauth import register_callbacks
+
+    with patch.object(register_callbacks, "load_stored_tokens", return_value=None):
+        assert register_callbacks._advertise_imagegen_tool("code-puppy") == []
+
+
+def test_logout_reloads_agent_to_unbind_imagegen(tmp_path):
+    from code_puppy.plugins.chatgpt_oauth import register_callbacks
+
+    token_path = tmp_path / "tokens.json"
+    token_path.write_text("{}")
+    with (
+        patch.object(
+            register_callbacks,
+            "load_stored_tokens",
+            return_value={"access_token": "token", "account_id": "account"},
+        ),
+        patch.object(
+            register_callbacks, "get_token_storage_path", return_value=token_path
+        ),
+        patch.object(register_callbacks, "remove_chatgpt_models", return_value=0),
+        patch.object(register_callbacks, "emit_info"),
+        patch.object(register_callbacks, "emit_success"),
+        patch.object(register_callbacks, "_reload_active_agent") as reload_agent,
+    ):
+        register_callbacks._handle_chatgpt_logout()
+
+    assert not token_path.exists()
+    reload_agent.assert_called_once_with()
+
+
+def test_codex_imagegen_agent_tool(tmp_path):
+    registered = {}
+
+    class FakeAgent:
+        def tool(self, function):
+            registered[function.__name__] = function
+            return function
+
+    image_tool.register_codex_imagegen(FakeAgent())
+    output_path = tmp_path / "generated.png"
+    with (
+        patch.object(image_tool, "generate_image", return_value=output_path),
+        patch.object(image_tool, "emit_iterm_image", return_value=True),
+    ):
+        result = asyncio.run(registered["codex_imagegen"](MagicMock(), "a fox"))
+
+    assert result == {
+        "success": True,
+        "path": str(output_path),
+        "displayed_inline": True,
+    }
 
 
 def test_config_paths():

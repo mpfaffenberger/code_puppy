@@ -109,5 +109,17 @@
   "cfg.colors.all_available": "\ud83c\udfa8 All Available Rich Colors:",
   "cfg.colors.usage": "Usage: /diff {{color_type}} <color_name>",
   "cfg.colors.white_text_note": "All diffs use white text on your chosen background colors",
-  "cfg.colors.hex_note": "You can also use hex colors like #ff0000 or rgb(255,0,0)"
+  "cfg.colors.hex_note": "You can also use hex colors like #ff0000 or rgb(255,0,0)",
+  "codex.imagegen.prompt_required": "A prompt is required.",
+  "codex.imagegen.auth_required": "Codex OAuth authentication is required. Run /codex-auth first.",
+  "codex.imagegen.request_failed": "Codex image generation request failed{detail}",
+  "codex.imagegen.invalid_json": "Codex image generation returned invalid JSON.",
+  "codex.imagegen.invalid_response": "Codex image generation returned an invalid response.",
+  "codex.imagegen.no_data": "Codex image generation returned no image data.",
+  "codex.imagegen.malformed_data": "Codex image generation returned malformed image data.",
+  "codex.imagegen.save_failed": "Could not save the generated image.",
+  "codex.imagegen.usage": "Usage: /codex-imagegen <prompt>",
+  "codex.imagegen.generating": "Generating image with Codex OAuth...",
+  "codex.imagegen.saved": "Generated image saved to {path}",
+  "codex.logout.reload_failed": "ChatGPT logout: agent reload failed: {error}"
 }

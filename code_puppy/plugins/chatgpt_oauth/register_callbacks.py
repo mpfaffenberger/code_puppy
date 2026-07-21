@@ -7,10 +7,12 @@ the 'chatgpt_oauth' model type handler.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from code_puppy.callbacks import register_callback
-from code_puppy.messaging import emit_info, emit_success, emit_warning
+from code_puppy.i18n import t
+from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.model_switching import set_model_and_reload_agent
 
 from .config import CHATGPT_OAUTH_CONFIG, get_token_storage_path
@@ -38,6 +40,7 @@ def _custom_help() -> List[Tuple[str, str]]:
         ("codex-status", "Alias for /chatgpt-status"),
         ("chatgpt-logout", "Remove ChatGPT OAuth tokens and imported models"),
         ("codex-logout", "Alias for /chatgpt-logout"),
+        ("codex-imagegen <prompt>", "Generate an image with Codex OAuth"),
     ]
 
 
@@ -68,6 +71,8 @@ def _handle_chatgpt_status() -> None:
 
 
 def _handle_chatgpt_logout() -> None:
+    was_authenticated = _is_codex_oauth_authenticated()
+
     token_path = get_token_storage_path()
     if token_path.exists():
         token_path.unlink()
@@ -81,6 +86,36 @@ def _handle_chatgpt_logout() -> None:
         emit_info(f"Removed {removed} ChatGPT models from configuration")
 
     emit_success("ChatGPT logout complete")
+
+    if was_authenticated:
+        _reload_active_agent()
+
+
+def _is_codex_oauth_authenticated() -> bool:
+    """Whether Codex OAuth tokens are present on disk."""
+    tokens = load_stored_tokens()
+    return bool(tokens and tokens.get("access_token") and tokens.get("account_id"))
+
+
+def _reload_active_agent() -> None:
+    """Reload the active agent so tool advertisement changes take effect."""
+    from code_puppy.agents import get_current_agent
+
+    try:
+        current_agent = get_current_agent()
+    except Exception:
+        return
+    if current_agent is None:
+        return
+    try:
+        if hasattr(current_agent, "refresh_config"):
+            try:
+                current_agent.refresh_config()
+            except Exception:
+                pass
+        current_agent.reload_code_generation_agent()
+    except Exception as exc:
+        emit_warning(t("codex.logout.reload_failed", error=str(exc)))
 
 
 def _handle_custom_command(command: str, name: str) -> Optional[bool]:
@@ -98,6 +133,27 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
 
     if name in {"chatgpt-logout", "codex-logout"}:
         _handle_chatgpt_logout()
+        return True
+
+    if name == "codex-imagegen":
+        from .image_generation import (
+            CodexImageGenerationError,
+            emit_iterm_image,
+            generate_image,
+        )
+
+        _, _, prompt = command.partition(" ")
+        if not prompt.strip():
+            emit_warning(t("codex.imagegen.usage"))
+            return True
+        emit_info(t("codex.imagegen.generating"))
+        try:
+            output_path = generate_image(prompt)
+        except CodexImageGenerationError as exc:
+            emit_error(str(exc))
+        else:
+            emit_success(t("codex.imagegen.saved", path=str(output_path)))
+            emit_iterm_image(output_path)
         return True
 
     return None
@@ -171,6 +227,28 @@ def _create_chatgpt_oauth_model(
     return OpenAIResponsesModel(model_name=model_config["name"], provider=provider)
 
 
+def _register_imagegen_skill() -> list[dict[str, str]]:
+    return [
+        {
+            "name": "codex-imagegen",
+            "skill_md_path": str(Path(__file__).with_name("IMAGEGEN_SKILL.md")),
+        }
+    ]
+
+
+def _register_imagegen_tools() -> list[dict[str, Any]]:
+    from .image_tool import register_tools_callback
+
+    return register_tools_callback()
+
+
+def _advertise_imagegen_tool(agent_name: str | None = None) -> list[str]:
+    del agent_name
+    if not _is_codex_oauth_authenticated():
+        return []
+    return ["codex_imagegen"]
+
+
 def _register_model_types() -> List[Dict[str, Any]]:
     """Register the chatgpt_oauth model type handler."""
     return [{"type": "chatgpt_oauth", "handler": _create_chatgpt_oauth_model}]
@@ -192,4 +270,7 @@ def _refresh_usage_on_agent_run(
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
 register_callback("register_model_type", _register_model_types)
+register_callback("register_skills", _register_imagegen_skill)
+register_callback("register_tools", _register_imagegen_tools)
+register_callback("register_agent_tools", _advertise_imagegen_tool)
 register_callback("agent_run_start", _refresh_usage_on_agent_run)
