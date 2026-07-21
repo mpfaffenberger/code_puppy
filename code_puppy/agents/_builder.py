@@ -423,6 +423,34 @@ def filter_conflicting_mcp_tools(
     return filtered
 
 
+_GPT_5_6_INVOKE_AGENT_GUARD_TEXT = """
+
+## Sub-Agent Delegation (GPT-5.6)
+Use `invoke_agent` only for focused work that benefits from separate context or
+specialized tools. Handle work directly when you can. Never invoke
+`planning-agent`.
+"""
+
+_GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT = """
+
+## Shell Safety (GPT-5.6)
+Before using `agent_run_shell_command`, prefer inspection and dry runs. Confirm
+with the user before irreversible deletion, overwrites, history rewrites,
+database or production mutations, or other actions without a clear rollback.
+"""
+
+
+def _is_gpt_5_6_family(model_name: Optional[str]) -> bool:
+    return bool(model_name and "gpt-5.6" in model_name.lower())
+
+
+def _agent_exposes_tool(agent: Any, tool_name: str) -> bool:
+    try:
+        return tool_name in (agent.get_available_tools() or ())
+    except Exception:
+        return False
+
+
 def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
     """Compose full system prompt + puppy rules + extended-thinking note."""
     from code_puppy.model_utils import prepare_prompt_for_model
@@ -438,6 +466,12 @@ def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
 
     if has_extended_thinking_active(resolved_model_name):
         instructions += EXTENDED_THINKING_PROMPT_NOTE
+
+    if _is_gpt_5_6_family(resolved_model_name):
+        if _agent_exposes_tool(agent, "invoke_agent"):
+            instructions += _GPT_5_6_INVOKE_AGENT_GUARD_TEXT
+        if _agent_exposes_tool(agent, "agent_run_shell_command"):
+            instructions += _GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT
 
     prepared = prepare_prompt_for_model(
         agent.get_model_name(), instructions, "", prepend_system_to_user=False

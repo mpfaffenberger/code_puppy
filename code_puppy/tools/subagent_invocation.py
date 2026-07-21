@@ -34,10 +34,19 @@ from code_puppy.tools.agent_tools import (
     _validate_session_id,
 )
 from code_puppy.tools.common import generate_group_id
-from code_puppy.tools.subagent_context import subagent_context
+from code_puppy.tools.subagent_context import (
+    get_subagent_model_name,
+    subagent_context,
+)
 
 # Set to track active subagent invocation tasks
 _active_subagent_tasks: Set[asyncio.Task] = set()
+
+
+def _gpt_5_6_recursion_blocked() -> bool:
+    from code_puppy.agents._builder import _is_gpt_5_6_family
+
+    return _is_gpt_5_6_family(get_subagent_model_name())
 
 
 async def _invoke_agent_impl(
@@ -153,6 +162,16 @@ async def _invoke_agent_impl(
 
             if not effective_model_name:
                 raise ValueError("No model configured for sub-agent invocation")
+
+            if _gpt_5_6_recursion_blocked():
+                error = f"GPT-5.6 sub-agents cannot invoke '{agent_name}'."
+                emit_error(error, message_group=group_id)
+                return AgentInvokeOutput(
+                    response=None,
+                    agent_name=agent_name,
+                    model_name=model_name,
+                    error=error,
+                )
 
             # Only proceed if we have a valid model configuration
             if effective_model_name not in models_config:
@@ -287,8 +306,7 @@ async def _invoke_agent_impl(
             else:
                 stream_handler = partial(subagent_stream_handler, session_id=session_id)
 
-            # Wrap the agent run in subagent context for tracking
-            with subagent_context(agent_name):
+            with subagent_context(agent_name, effective_model_name):
                 run_ctxs = on_agent_run_context(
                     agent_config, temp_agent, group_id, mcp_servers
                 )
