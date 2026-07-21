@@ -12,6 +12,8 @@
     "other": "Wrote {count} files."
   },
   "error.generic": "Something went wrong: {detail}",
+  "subagent.recursion_limit_reached": "Sub-agent recursion limit ({limit}) reached; cannot invoke '{agent}'.",
+  "subagent.gpt_5_6_recursion_blocked": "GPT-5.6 sub-agents cannot invoke '{agent}'.",
   "version.current": "Current version: {version}",
   "version.latest": "Latest version: {version}",
   "version.update_available": "A new version of code puppy is available: {version}",

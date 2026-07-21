@@ -14,7 +14,8 @@ from code_puppy.callbacks import (
     on_agent_run_context,
     on_wrap_pydantic_agent,
 )
-from code_puppy.config import get_message_limit
+from code_puppy.config import get_message_limit, get_subagent_recursion_limit
+from code_puppy.i18n import t
 from code_puppy.messaging import (
     SubAgentInvocationMessage,
     SubAgentResponseMessage,
@@ -35,6 +36,7 @@ from code_puppy.tools.agent_tools import (
 )
 from code_puppy.tools.common import generate_group_id
 from code_puppy.tools.subagent_context import (
+    get_subagent_depth,
     get_subagent_model_name,
     subagent_context,
 )
@@ -43,7 +45,13 @@ from code_puppy.tools.subagent_context import (
 _active_subagent_tasks: Set[asyncio.Task] = set()
 
 
+def _subagent_recursion_blocked() -> bool:
+    """Return whether another invocation would exceed the configured depth."""
+    return get_subagent_depth() >= get_subagent_recursion_limit()
+
+
 def _gpt_5_6_recursion_blocked() -> bool:
+    """Preserve the stricter single-level policy for GPT-5.6 callers."""
     from code_puppy.agents._builder import _is_gpt_5_6_family
 
     return _is_gpt_5_6_family(get_subagent_model_name())
@@ -60,13 +68,33 @@ async def _invoke_agent_impl(
     """Invoke a sub-agent, optionally suppressing its standard response message."""
     from code_puppy.agents.agent_manager import load_agent
 
+    group_id = generate_group_id("invoke_agent", agent_name)
+    if _subagent_recursion_blocked():
+        error = t(
+            "subagent.recursion_limit_reached",
+            limit=get_subagent_recursion_limit(),
+            agent=agent_name,
+        )
+    elif _gpt_5_6_recursion_blocked():
+        error = t("subagent.gpt_5_6_recursion_blocked", agent=agent_name)
+    else:
+        error = None
+
+    if error:
+        emit_error(error, message_group=group_id)
+        return AgentInvokeOutput(
+            response=None,
+            agent_name=agent_name,
+            model_name=model_name,
+            error=error,
+        )
+
     # Validate user-provided session_id if given
     if session_id is not None:
         try:
             _validate_session_id(session_id)
         except ValueError as e:
             # Return error immediately if session_id is invalid
-            group_id = generate_group_id("invoke_agent", agent_name)
             emit_error(str(e), message_group=group_id)
             return AgentInvokeOutput(
                 response=None,
@@ -74,9 +102,6 @@ async def _invoke_agent_impl(
                 model_name=model_name,
                 error=str(e),
             )
-
-    # Generate a group ID for this tool execution
-    group_id = generate_group_id("invoke_agent", agent_name)
 
     # Check if this is an existing session or a new one
     # For user-provided session_id, check if it exists
@@ -162,16 +187,6 @@ async def _invoke_agent_impl(
 
             if not effective_model_name:
                 raise ValueError("No model configured for sub-agent invocation")
-
-            if _gpt_5_6_recursion_blocked():
-                error = f"GPT-5.6 sub-agents cannot invoke '{agent_name}'."
-                emit_error(error, message_group=group_id)
-                return AgentInvokeOutput(
-                    response=None,
-                    agent_name=agent_name,
-                    model_name=model_name,
-                    error=error,
-                )
 
             # Only proceed if we have a valid model configuration
             if effective_model_name not in models_config:
