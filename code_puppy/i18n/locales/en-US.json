@@ -20,8 +20,6 @@
   "version.undetected": "Could not detect current version, using fallback",
   "confirm.yes": "Yes",
   "confirm.no": "No",
-  "cli.args.interactive_help": "Run interactively; with --prompt, continue after the first response",
-  "cli.args.prompt_help": "Execute a prompt and exit, or use with --interactive to continue",
   "cli.loading": "\ud83d\udc36 Code Puppy is Loading...",
   "cli.error.no_ports": "No available ports in range 8090-9010!",
   "cli.error.model_transient": "\ud83d\udd0c The model connection hit a transient error ({error_type}) and didn't recover after auto-retries. This is almost always a VPN/WiFi/provider blip \u2014 just re-run your last prompt. Your session history is intact.",

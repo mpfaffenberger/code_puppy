@@ -157,13 +157,13 @@ async def main():
         "--interactive",
         "-i",
         action="store_true",
-        help=t("cli.args.interactive_help"),
+        help="Run interactively; with --prompt, continue after the first response",
     )
     parser.add_argument(
         "--prompt",
         "-p",
         type=str,
-        help=t("cli.args.prompt_help"),
+        help="Execute a prompt and exit, or use with --interactive to continue",
     )
     parser.add_argument(
         "--agent",
@@ -721,7 +721,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         ).strip()
         if command_prompt.lower() == "clear":
             command_prompt = "/clear"
-        if command_prompt.lower() in {"/exit", "/quit"}:
+        if command_prompt.lower() in {"exit", "quit", "/exit", "/quit"}:
             from code_puppy.messaging import emit_success
 
             emit_success(t("cli.goodbye"))

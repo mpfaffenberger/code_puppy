@@ -858,7 +858,8 @@ class TestInteractiveMode:
         mock_run.assert_not_awaited()
 
     @pytest.mark.anyio
-    async def test_initial_exit_command_stops_before_prompt(self):
+    @pytest.mark.parametrize("initial_command", ["exit", "quit", "/exit", "/quit"])
+    async def test_initial_exit_command_stops_before_prompt(self, initial_command):
         agent = MagicMock()
         agent.get_user_prompt.return_value = "task:"
         mock_input = AsyncMock(side_effect=AssertionError("prompt should not run"))
@@ -868,7 +869,7 @@ class TestInteractiveMode:
             _interactive_patches(),
             mock_input,
             agent=agent,
-            initial_command="/exit",
+            initial_command=initial_command,
         )
 
         mock_input.assert_not_awaited()
