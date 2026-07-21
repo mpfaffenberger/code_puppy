@@ -6,6 +6,7 @@ Supports multiple simultaneous instances with unique profile directories.
 import asyncio
 import atexit
 import contextvars
+import math
 import os
 from pathlib import Path
 from typing import Callable, Dict, Optional
@@ -46,6 +47,42 @@ def _load_plugin_browser_types() -> None:
 
 # Store active manager instances by session ID
 _active_managers: dict[str, "BrowserManager"] = {}
+
+
+# --------------------------------------------------------------------------- #
+# Cleanup timeouts
+#
+# Playwright teardown awaits (``context.close``, ``browser.close``,
+# ``playwright.stop``, ``storage_state``) have no internal timeout and can wedge
+# indefinitely when: a page holds an unhandled ``beforeunload`` dialog, a service
+# worker never releases its WebLock, the browser subprocess crashed but did not
+# exit, or the CDP WebSocket went stale (e.g. laptop slept mid-run). Each step
+# below is wrapped in ``asyncio.wait_for`` with a per-step budget so
+# ``_cleanup()`` always returns in bounded time regardless of Playwright state.
+#
+# Overrides are env-var driven so users can bump the budgets on slow machines
+# without a code change. Values are seconds (float, must be finite and > 0 --
+# ``inf``/``nan`` are rejected and fall back to the default).
+# --------------------------------------------------------------------------- #
+def _env_float(name: str, default: float) -> float:
+    """Parse a finite positive float from ``os.environ``; fall back on any parse error."""
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    if not math.isfinite(value) or value <= 0:
+        return default
+    return value
+
+
+_STATE_TIMEOUT_S = _env_float("BROWSER_CLEANUP_STATE_TIMEOUT_S", 10.0)
+_CONTEXT_TIMEOUT_S = _env_float("BROWSER_CLEANUP_CONTEXT_TIMEOUT_S", 10.0)
+_BROWSER_TIMEOUT_S = _env_float("BROWSER_CLEANUP_BROWSER_TIMEOUT_S", 5.0)
+_PW_TIMEOUT_S = _env_float("BROWSER_CLEANUP_PW_TIMEOUT_S", 5.0)
+
 
 # Context variable for browser session - properly inherits through async tasks
 # This allows parallel agent invocations to each have their own browser instance
@@ -184,6 +221,10 @@ class BrowserManager:
         emit_info(f"Using persistent profile: {self.profile_dir}")
 
         pw = await async_playwright().start()
+        # Track the driver instance so ``_cleanup`` can ``.stop()`` it (and,
+        # if it hangs, SIGKILL the driver subprocess). Without this reference
+        # the node driver leaks until Python GC eventually reaps it.
+        self._playwright = pw
         # Use persistent context directory for Chromium to preserve browser state
         context = await pw.chromium.launch_persistent_context(
             user_data_dir=str(self.profile_dir), headless=self.headless
@@ -230,33 +271,95 @@ class BrowserManager:
     async def _cleanup(self, silent: bool = False) -> None:
         """Clean up browser resources and save persistent state.
 
+        Every underlying await is bounded by ``asyncio.wait_for`` -- Playwright
+        teardown can otherwise wedge indefinitely on unresponsive service
+        workers, unhandled ``beforeunload`` prompts, or stale CDP WebSockets.
+        If ``playwright.stop()`` times out we escalate to SIGKILL on the node
+        driver subprocess, which transitively reaps the browser process (its
+        child) so we never leak processes even when CDP is completely wedged.
+
         Args:
-            silent: If True, suppress all errors (used during shutdown).
+            silent: If True, suppress ALL user-facing warnings/info emits (used
+                during shutdown/atexit). Timeouts and errors still occur, they
+                just don't spam the console.
         """
+        _emit_warning = (lambda _msg: None) if silent else emit_warning
+        _emit_success = (lambda _msg: None) if silent else emit_success
+
         try:
-            # Save browser state before closing (cookies, localStorage, etc.)
+            # Save browser state before closing (cookies, localStorage, etc.).
+            if self._context:
+                storage_state_path = self.profile_dir / "storage_state.json"
+                try:
+                    await asyncio.wait_for(
+                        self._context.storage_state(path=str(storage_state_path)),
+                        timeout=_STATE_TIMEOUT_S,
+                    )
+                    _emit_success(f"Browser state saved to {storage_state_path}")
+                except asyncio.TimeoutError:
+                    _emit_warning(
+                        f"Timed out ({_STATE_TIMEOUT_S:g}s) saving browser state; "
+                        "proceeding with teardown"
+                    )
+                except Exception as e:
+                    _emit_warning(f"Could not save storage state: {e}")
+
+            # Auto-dismiss any beforeunload dialog Playwright might raise during
+            # context.close(). Without this, a page that registered a
+            # ``beforeunload`` handler causes context.close() to await a
+            # dialog handler that was never installed -> hang.
+            if self._context:
+                self._install_dialog_dismisser(silent=silent)
+
+            # Close the browser context.
             if self._context:
                 try:
-                    storage_state_path = self.profile_dir / "storage_state.json"
-                    await self._context.storage_state(path=str(storage_state_path))
-                    if not silent:
-                        emit_success(f"Browser state saved to {storage_state_path}")
-                except Exception as e:
-                    if not silent:
-                        emit_warning(f"Could not save storage state: {e}")
-
-                try:
-                    await self._context.close()
+                    await asyncio.wait_for(
+                        self._context.close(), timeout=_CONTEXT_TIMEOUT_S
+                    )
+                except asyncio.TimeoutError:
+                    _emit_warning(
+                        f"Timed out ({_CONTEXT_TIMEOUT_S:g}s) closing browser context; "
+                        "deferring to later driver cleanup"
+                    )
                 except Exception:
-                    pass  # Ignore errors during context close
+                    pass  # Ignore other errors during context close
                 self._context = None
 
+            # Close the browser. If it wedges (unresponsive CDP), we can only
+            # emit a warning here -- current Python Playwright does NOT expose
+            # a subprocess handle on ``Browser``. The browser process is a
+            # child of the node driver, so ``_force_kill_playwright_process``
+            # below transitively reaps it via SIGKILL to the parent driver.
             if self._browser:
                 try:
-                    await self._browser.close()
+                    await asyncio.wait_for(
+                        self._browser.close(), timeout=_BROWSER_TIMEOUT_S
+                    )
+                except asyncio.TimeoutError:
+                    _emit_warning(
+                        f"Timed out ({_BROWSER_TIMEOUT_S:g}s) closing browser; "
+                        "deferring to driver-process kill below"
+                    )
                 except Exception:
-                    pass  # Ignore errors during browser close
+                    pass  # Ignore other errors during browser close
                 self._browser = None
+
+            # Stop the playwright driver subprocess.
+            if getattr(self, "_playwright", None):
+                try:
+                    await asyncio.wait_for(
+                        self._playwright.stop(), timeout=_PW_TIMEOUT_S
+                    )
+                except asyncio.TimeoutError:
+                    _emit_warning(
+                        f"Timed out ({_PW_TIMEOUT_S:g}s) stopping playwright driver; "
+                        "killing subprocess"
+                    )
+                    self._force_kill_playwright_process(silent=silent)
+                except Exception:
+                    pass
+                self._playwright = None
 
             self._initialized = False
 
@@ -265,8 +368,51 @@ class BrowserManager:
                 del _active_managers[self.session_id]
 
         except Exception as e:
+            _emit_warning(f"Warning during cleanup: {e}")
+
+    def _install_dialog_dismisser(self, silent: bool = False) -> None:
+        """Attach an auto-dismiss dialog handler to every open page.
+
+        Playwright blocks on unhandled ``beforeunload`` dialogs during
+        ``context.close()``. Best-effort: iterate pages, ignore per-page
+        failures (a closed page raises when you touch it).
+        """
+        if not self._context:
+            return
+        try:
+            pages = self._context.pages
+        except Exception:
+            return
+        for page in pages:
+            try:
+                page.on("dialog", lambda d: asyncio.ensure_future(d.dismiss()))
+            except Exception as e:
+                if not silent:
+                    emit_warning(f"Could not install dialog handler: {e}")
+
+    def _force_kill_playwright_process(self, silent: bool = False) -> None:
+        """Force-kill the Playwright node driver subprocess.
+
+        The browser process is a child of this driver, so a SIGKILL here
+        transitively reaps the whole browser tree -- our only reliable escape
+        hatch when CDP has gone unresponsive.
+
+        Attribute path: ``_playwright._impl_obj._connection._transport._proc``.
+        This is a private API but has been stable across Playwright releases
+        (verified against 1.61.0). If any hop in the chain moves, we no-op
+        rather than raise (best-effort).
+        """
+        impl = getattr(self._playwright, "_impl_obj", None)
+        connection = getattr(impl, "_connection", None)
+        transport = getattr(connection, "_transport", None)
+        proc = getattr(transport, "_proc", None)
+        if proc is None:
+            return
+        try:
+            proc.kill()
+        except Exception as e:
             if not silent:
-                emit_warning(f"Warning during cleanup: {e}")
+                emit_warning(f"Could not kill playwright driver process: {e}")
 
     async def close(self) -> None:
         """Close the browser and clean up resources."""

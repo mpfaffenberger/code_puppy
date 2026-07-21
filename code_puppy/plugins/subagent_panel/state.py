@@ -147,25 +147,44 @@ def snapshot() -> List[Dict[str, Any]]:
     PARENTS are never idle-pruned either: a parent that has invoked children and
     is merely AWAITING them emits no stream events of its own, so its last_seen
     goes stale -- but it is busy, not idle. Pruning it would orphan its whole
-    subtree, making the children re-render as depth-0 roots. So only childless,
-    not-done, genuinely-stale leaves are eligible. End-of-turn state.clear() is
-    the real cleanup for anything that errors/cancels without flushing.
+    subtree, making the children re-render as depth-0 roots.
+
+    ROOT rows (parent=None) are never idle-pruned either. A root is the visible
+    anchor of a live user-initiated ``invoke_agent`` call; silently deleting it
+    while its work is still in flight (e.g. a slow tool call that emits no
+    stream events for many minutes) would strand any completed sibling in state
+    with no flush trigger, and hide from the user that a real invocation is
+    still running. Roots exit via one of three legitimate paths only:
+    completion (``_handle_frozen`` -> ``mark_done`` -> ``_maybe_flush_group``),
+    cancel (``state.clear()`` from ``_on_agent_run_cancel``), or end-of-turn
+    (``state.clear()`` from ``_on_agent_run_end``).
+
+    So only childless, not-done, genuinely-stale ORPHAN LEAVES are eligible --
+    a non-root row whose parent is no longer in the tree AND has been silent
+    longer than IDLE_PRUNE_S. End-of-turn ``state.clear()`` remains the real
+    cleanup for anything that errors/cancels without flushing.
     """
     now = time.time()
     with _LOCK:
         ids = set(_AGENTS)
         # session_ids still referenced as someone's parent == busy (awaiting kids).
         busy_parents = {e.get("parent") for e in _AGENTS.values() if e.get("parent")}
-        # Only prune entries DISCONNECTED from the live tree: not a parent of
-        # anything AND whose own parent is gone (or is 'main', i.e. a root).
-        # Anything still wired into a tree (busy parents + their descendants)
-        # is kept until flush/turn-end, so a quiet-but-running node (e.g. a leaf
-        # mid `sleep`) never vanishes and never orphans its siblings.
+        # Prune entries that are ALL of:
+        #   - not done
+        #   - not a parent of anything (else pruning orphans their subtree)
+        #   - NOT a root (parent is not None) -- roots have explicit lifecycle
+        #     handling; silent idle-eviction of a live root is never correct
+        #     (see docstring). Without this guard, a childless root awaiting a
+        #     slow tool would be misclassified as a disconnected orphan because
+        #     ``None not in ids`` trivially holds.
+        #   - whose own parent is gone from the tree (a true orphan)
+        #   - has been silent longer than IDLE_PRUNE_S
         stale = [
             s
             for s, e in _AGENTS.items()
             if not e.get("done")
             and s not in busy_parents
+            and e.get("parent") is not None
             and e.get("parent") not in ids
             and now - e["last_seen"] > IDLE_PRUNE_S
         ]
