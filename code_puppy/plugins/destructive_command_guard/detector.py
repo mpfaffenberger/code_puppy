@@ -5,7 +5,7 @@ calls, no caching, no yolo-mode checks. Covers:
 - Unix/Linux: rm -rf root/home, SQL DROP via clients, docker prune, accidental package publishes
 - Windows PowerShell: Remove-Item, rmdir, del, Format-Volume, Clear-Disk, registry operations
 - Windows CMD: rd, rmdir, del, erase with /s /q flags, format, diskpart
-The patterns are defined in patterns directory as JSON files and loaded at first call
+The patterns are defined in patterns directory as JSON files and loaded at load time
 """
 
 import re
@@ -20,9 +20,10 @@ class DestructiveCommandMatch:
 
     pattern_name: str
     description: str
+    block_immediately: bool
 
 class SearchGroup:
-    def __init__(self, name: str, substrings: tuple[str], patterns: tuple[tuple[re.Pattern, str, str], ...]):
+    def __init__(self, name: str, substrings: tuple[str], patterns: tuple[tuple[re.Pattern, str, str, bool], ...]):
         self.name = name
         self.cheap_substrings = substrings
         self.expensive_patterns = patterns
@@ -41,6 +42,7 @@ def load_guardrails_data() -> list[SearchGroup]:
             raise ValueError(f"Failed to parse guardrails data JSON: {e}") from e
 
         if "groups" not in data:
+            print("groups not in data")
             raise KeyError(f"Guardrails file '{data_path.name}' is missing required top-level 'groups' key")
 
         for group_data in data["groups"]:
@@ -49,7 +51,7 @@ def load_guardrails_data() -> list[SearchGroup]:
                     name=group_data["name"],
                     substrings=tuple(group_data["cheap_substrings"]),
                     patterns=tuple(
-                        (re.compile(pattern_info["regex"], re.IGNORECASE), pattern_info["name"], pattern_info["description"])
+                        (re.compile(pattern_info["regex"], re.IGNORECASE), pattern_info["name"], pattern_info["description"], pattern_info["block_immediately"])
                         for pattern_info in group_data["expensive_patterns"]
                     ),
                 )
@@ -61,8 +63,8 @@ def load_guardrails_data() -> list[SearchGroup]:
     
     if not all_groups:
         raise ValueError("No guardrails groups found in any JSON files")
-    else:      
-        return all_groups
+    
+    return all_groups
 
 #regex pattern to split on
 _CMD_SPLIT_RE = re.compile(r"\s*(?:&&|\|\||;|&)\s*")
@@ -89,7 +91,7 @@ def normalize_command(command: str) -> str:
     return command
 
 
-GLOBAL_PATTERNS: list[SearchGroup] = None
+GLOBAL_PATTERNS: list[SearchGroup] | None = None
 
 
 def detect_destructive_command(command: str) ->  DestructiveCommandMatch | None:
@@ -101,30 +103,39 @@ def detect_destructive_command(command: str) ->  DestructiveCommandMatch | None:
     """
 
     global GLOBAL_PATTERNS
-
     if GLOBAL_PATTERNS is None:
-        GLOBAL_PATTERNS = load_guardrails_data()
-    
+        try:
+            GLOBAL_PATTERNS = load_guardrails_data()
+        except Exception as e:
+            return DestructiveCommandMatch(
+                pattern_name = "Failed to load JSON data",
+                description = "The data inside of /plugins/destructive_command_guardrail/patterns is corrupted or wrong. Please fix this issue to run commands",
+                block_immediately = True
+            )
+
+    #Normalize command to remove obfuscations and standardize separators
+    command = normalize_command(command)
+
     #Split commands on operators Ex: &&, ||, ;, &, \n
     subcommands = split_command(command)
 
     #Check each subcommand for malicious keywords and patterns, return first match found
     for subcommand in subcommands:
         found_groups = set()
-        subcommand = normalize_command(subcommand)
         lower_subcommand = subcommand.lower()
         for group in GLOBAL_PATTERNS:
             for substring in group.cheap_substrings:
                 if substring in lower_subcommand:
                     found_groups.update(group.expensive_patterns)
+                    break
 
         #If no keywords are found, skip expensive regex checks for this subcommand
         if not found_groups:
             continue
         # Use expensive regex patterns to check for destructive commands, return first match found
-        for pattern, name, description in found_groups:
+        for pattern, name, description, block_immediately in found_groups:
             if pattern.search(subcommand):
-                return DestructiveCommandMatch(pattern_name=name, description=description)
+                return DestructiveCommandMatch(pattern_name=name, description=description, block_immediately=block_immediately)
 
     #If all checks pass and no malicious patterns are found return None
     return None

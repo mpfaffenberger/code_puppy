@@ -454,6 +454,63 @@ class TestCompoundCommands:
 
 
 # ===========================================================================
+# block_immediately flag
+# ===========================================================================
+
+
+class TestBlockImmediately:
+    """Commands that must hard-block without prompting the user.
+
+    block_immediately=True means the callback skips the approval prompt
+    entirely — no TTY check, no user input. These are the 'no questions
+    asked' patterns: nuking root or home.
+    """
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "rm -rf /",
+            "rm -r -f /",
+            "rm -fr /",     
+            "rm -rf /*",
+            "rm -fr /*",
+            "rm -rf ~",
+            "rm -fr ~",
+            "rm -rf ~/*",
+            "rm -fr ~/*",
+        ],
+    )
+    def test_root_and_home_nukes_block_immediately(self, cmd: str) -> None:
+        result = _hits(cmd)
+        assert result is not None, f"Expected a match for: {cmd!r}"
+        assert result.block_immediately is True, (
+            f"{cmd!r} matched '{result.pattern_name}' "
+            f"but block_immediately={result.block_immediately}"
+        )
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "git push --force",
+            "git push -f origin main",
+            "git push --mirror",
+            "git reset --hard HEAD~1",
+            "git clean -fd",
+            "rm --no-preserve-root",
+            "docker system prune -af",
+            "npm publish",
+        ],
+    )
+    def test_warn_only_commands_do_not_block_immediately(self, cmd: str) -> None:
+        result = _hits(cmd)
+        assert result is not None, f"Expected a match for: {cmd!r}"
+        assert result.block_immediately is False, (
+            f"{cmd!r} matched '{result.pattern_name}' "
+            f"but block_immediately={result.block_immediately}"
+        )
+
+
+# ===========================================================================
 # False-positive guard
 # ===========================================================================
 
