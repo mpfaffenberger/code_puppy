@@ -858,6 +858,48 @@ class TestInteractiveMode:
         mock_run.assert_not_awaited()
 
     @pytest.mark.anyio
+    async def test_initial_exit_command_stops_before_prompt(self):
+        agent = MagicMock()
+        agent.get_user_prompt.return_value = "task:"
+        mock_input = AsyncMock(side_effect=AssertionError("prompt should not run"))
+
+        await _run_interactive(
+            _mock_renderer(),
+            _interactive_patches(),
+            mock_input,
+            agent=agent,
+            initial_command="/exit",
+        )
+
+        mock_input.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_initial_autosave_command_is_deferred_to_repl_dispatch(self):
+        agent = MagicMock()
+        agent.get_user_prompt.return_value = "task:"
+        mock_handle = MagicMock(side_effect=["__AUTOSAVE_LOAD__", "__AUTOSAVE_LOAD__"])
+        mock_restore = AsyncMock()
+        mock_stdin = MagicMock(isatty=MagicMock(return_value=False))
+        mock_stdout = MagicMock(isatty=MagicMock(return_value=False))
+
+        await _run_interactive(
+            _mock_renderer(),
+            _interactive_patches(),
+            AsyncMock(return_value="/exit"),
+            agent=agent,
+            initial_command="/autosave_load",
+            extra_patches={
+                "code_puppy.command_line.command_handler.handle_command": mock_handle,
+                "code_puppy.session_storage.restore_autosave_interactively": mock_restore,
+                "sys.stdin": mock_stdin,
+                "sys.stdout": mock_stdout,
+            },
+        )
+
+        assert mock_handle.call_count == 2
+        mock_restore.assert_awaited_once()
+
+    @pytest.mark.anyio
     async def test_initial_command_error(self):
         agent = MagicMock()
         agent.get_user_prompt.return_value = "task:"

@@ -712,12 +712,20 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             initial_command = None
 
     # Initialize the runtime agent manager. Initial prompts follow the same
-    # slash-command dispatch as later interactive turns; handled commands must
-    # not be accidentally sent to the model as plain text.
+    # pre-dispatch rules as later interactive turns; handled commands must not
+    # be accidentally sent to the model as plain text.
+    pending_initial_command = None
     if initial_command:
         command_prompt = (
             parse_prompt_attachments(initial_command).prompt or ""
         ).strip()
+        if command_prompt.lower() == "clear":
+            command_prompt = "/clear"
+        if command_prompt.lower() in {"/exit", "/quit"}:
+            from code_puppy.messaging import emit_success
+
+            emit_success(t("cli.goodbye"))
+            return
         if command_prompt.startswith("/"):
             try:
                 command_result = handle_command(command_prompt)
@@ -727,7 +735,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 emit_error(t("cli.command.error", error=e))
                 initial_command = None
             else:
-                if command_result is True or command_result == "__AUTOSAVE_LOAD__":
+                if command_result is True:
+                    initial_command = None
+                elif command_result == "__AUTOSAVE_LOAD__":
+                    pending_initial_command = command_prompt
                     initial_command = None
                 elif isinstance(command_result, str):
                     initial_command = command_result
@@ -864,7 +875,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             emit_info(f"{user_prompt}\n")
 
         try:
-            if persistent_prompt:
+            if pending_initial_command is not None:
+                task = pending_initial_command
+                pending_initial_command = None
+                if persistent_prompt:
+                    emit_info(_prompt_echo_text(task))
+            elif persistent_prompt:
                 from code_puppy.messaging.run_ui import (
                     set_idle_prompt_prefix,
                     wait_for_idle_submission,
@@ -1027,6 +1043,10 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                         if os.getenv("CODE_PUPPY_NO_TUI") == "1":
                             use_interactive_picker = False
 
+                        from code_puppy.session_storage import (
+                            restore_autosave_interactively,
+                        )
+
                         if use_interactive_picker:
                             # Use interactive picker for terminal sessions
                             from code_puppy.agents.agent_manager import (
@@ -1043,10 +1063,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 emit_success,
                                 emit_warning,
                             )
-                            from code_puppy.session_storage import (
-                                load_session,
-                                restore_autosave_interactively,
-                            )
+                            from code_puppy.session_storage import load_session
 
                             from code_puppy.messaging.run_ui import (
                                 suspended_run_ui,
