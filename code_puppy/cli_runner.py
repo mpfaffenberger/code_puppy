@@ -31,6 +31,7 @@ from code_puppy.config import (
     ensure_config_exists,
     finalize_autosave_session,
     get_current_session_name,
+    get_locale,
     initialize_command_history_file,
     record_terminal_session,
     save_command_to_history,
@@ -145,6 +146,8 @@ def apply_quick_resume(args) -> bool:
 
 async def main():
     """Main async entry point for Code Puppy CLI."""
+    # Seed locale selection before argparse materializes translated help text.
+    get_locale()
     parser = argparse.ArgumentParser(description="Code Puppy - A code generation agent")
     parser.add_argument(
         "--version",
@@ -157,13 +160,13 @@ async def main():
         "--interactive",
         "-i",
         action="store_true",
-        help="Run interactively; with --prompt, continue after the first response",
+        help=t("cli.args.interactive_help"),
     )
     parser.add_argument(
         "--prompt",
         "-p",
         type=str,
-        help="Execute a prompt and exit, or use with --interactive to continue",
+        help=t("cli.args.prompt_help"),
     )
     parser.add_argument(
         "--agent",
