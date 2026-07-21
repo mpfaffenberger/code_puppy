@@ -17,7 +17,7 @@ import { Box, Static, Text, render, useApp, useInput } from "ink";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { classifyEvent } from "@mist/protocol";
 import type { EventEnvelope } from "@mist/protocol";
-import { EngineSession, INIT_PROMPT, SessionStore, getConfiguredModelName, lensTotals, listModelNames, persistModelChoice, renderLensHtml } from "@mist/core";
+import { EngineSession, INIT_PROMPT, SessionStore, getConfiguredModelName, getModelDef, lensTotals, listModelNames, persistModelChoice, renderLensHtml } from "@mist/core";
 import { readConfig, getConfig, setConfig, SETTING_DEFS } from "@mist/core";
 import type { ChatMessage, SessionMeta, StoredSession } from "@mist/core";
 import { MistClient } from "./client";
@@ -400,6 +400,11 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
   const [engine] = useState(process.env.MIST_ENGINE === "python" ? "engine: python" : "engine: bun");
   const [stream, setStream] = useState("");
   const [tokens, setTokens] = useState(0);
+  // Live context size = the LAST request's real prompt tokens (what the
+  // model actually holds), vs cumulative `tokens` which re-bills the whole
+  // history every request and balloons misleadingly while working.
+  const [ctxTokens, setCtxTokens] = useState(0);
+  const [ctxLimit, setCtxLimit] = useState(0);
   const [plan, setPlan] = useState<{ id: string; title: string; status: string }[]>([]);
   // Clarifying question (ask_user): optional arrow-key options + free text.
   const [question, setQuestion] = useState<{ text: string; options: string[] } | null>(null);
@@ -510,6 +515,19 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
     return () => clearInterval(id);
   }, [busy]);
 
+  // Context-window ceiling for the gauge under the input box. Re-resolved
+  // when a turn starts so mid-session /model switches are picked up.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const def = await getModelDef(await getConfiguredModelName());
+        setCtxLimit(def?.context_length ?? 0);
+      } catch {
+        setCtxLimit(0);
+      }
+    })();
+  }, [busy]);
+
   // Animation clock at the active spinner's native pace — pacing is part of
   // the character (footer only re-renders the dynamic region — cheap).
   useEffect(() => {
@@ -614,6 +632,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
           break;
         case "usage":
           setTokens((t) => t + ev.inputTokens + ev.outputTokens);
+          setCtxTokens(ev.inputTokens); // latest prompt size = live context
           break;
         case "plan_updated":
           setPlan(ev.items);
@@ -627,6 +646,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
         case "session_resumed":
           setSessionTitle(ev.title);
           push(item("info", `↺ resumed “${ev.title}” · ${ev.messages} messages · started ${ev.createdAt.slice(0, 10)}`));
+          setCtxTokens(sessionRef.current?.contextTokens() ?? 0);
           break;
         case "session_renamed":
           setSessionTitle(ev.title);
@@ -644,6 +664,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
               ? `⇣ compacted: ${ev.beforeTokens.toLocaleString()} → ${ev.afterTokens.toLocaleString()} tok (${ev.summarized} messages summarized)`
               : "⇣ nothing to compact yet",
           ));
+          if (ev.afterTokens > 0) setCtxTokens(ev.afterTokens);
           break;
         case "headroom_saved":
           setSaved((t) => t + ev.tokensSaved);
@@ -1548,7 +1569,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
           </Text>
           <Text color={theme.verb}>{verb}…</Text>
           <Text color={theme.dim}>
-            {" "}· {elapsed}s · {stepCount} step{stepCount === 1 ? "" : "s"}{tokens ? ` · ${tokens.toLocaleString()} tok` : ""}{saved ? ` · ↓${saved.toLocaleString()} saved` : ""}
+            {" "}· {elapsed}s · {stepCount} step{stepCount === 1 ? "" : "s"}{ctxTokens ? ` · ctx ${shortTok(ctxTokens)}` : ""}{saved ? ` · ↓${saved.toLocaleString()} saved` : ""}
             {"  "}
           </Text>
           <Text color={theme.dim} dimColor>
@@ -1565,9 +1586,14 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
               {rl.handle.state.value.slice(rl.handle.state.cursor)}
             </Text>
           </InputFrame>
-          <Text color={theme.dim} dimColor>
-            {"  "}type + enter to steer the agent mid-task
-          </Text>
+          <Box width={Math.max(24, (process.stdout.columns ?? 80) - 2)} justifyContent="space-between">
+            <Text color={theme.dim} dimColor>
+              {"  "}type + enter to steer the agent mid-task
+            </Text>
+            <Text color={theme.dim} dimColor>
+              {ctxGauge(ctxTokens, ctxLimit)}
+            </Text>
+          </Box>
         </Box>
       ) : (
         <Box flexDirection="column" marginTop={1}>
@@ -1609,19 +1635,39 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
         </Box>
       )}
       {!fatal && !busy && (
-        <Text color={theme.dim} dimColor>
-          {"  "}
-          {rl.handle.state.value.startsWith("/")
-            ? "tab completes commands · enter to run"
-            : isShellPassthrough(rl.handle.state.value)
-              ? "enter to run as shell"
-              : rl.search.active
-                ? "ctrl+r cycle · enter accept · esc cancel"
-                : "enter to send · / commands · ! shell · @ files · ctrl+r search · ctrl+t tasks"}
-        </Text>
+        <Box width={Math.max(24, (process.stdout.columns ?? 80) - 2)} justifyContent="space-between">
+          <Text color={theme.dim} dimColor>
+            {"  "}
+            {rl.handle.state.value.startsWith("/")
+              ? "tab completes commands · enter to run"
+              : isShellPassthrough(rl.handle.state.value)
+                ? "enter to run as shell"
+                : rl.search.active
+                  ? "ctrl+r cycle · enter accept · esc cancel"
+                  : "enter to send · / commands · ! shell · @ files · ctrl+r search · ctrl+t tasks"}
+          </Text>
+          <Text color={theme.dim} dimColor>
+            {ctxGauge(ctxTokens, ctxLimit)}
+          </Text>
+        </Box>
       )}
     </Box>
   );
+}
+
+/** 84213 → "84.2k", 1000000 → "1.00m" — compact token figures. */
+function shortTok(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(2)}m`;
+}
+
+/** Bottom-right context gauge: real prompt size vs the model's window. */
+function ctxGauge(ctx: number, limit: number): string {
+  if (!ctx) return "";
+  if (!limit) return `context ${shortTok(ctx)}`;
+  const pct = Math.min(100, Math.round((ctx / limit) * 100));
+  return `context ${shortTok(ctx)} / ${shortTok(limit)} (${pct}%)`;
 }
 
 const VERSION = "0.1.0";
