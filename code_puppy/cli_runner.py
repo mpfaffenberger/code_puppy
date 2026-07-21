@@ -711,7 +711,27 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             execute_shell_passthrough(initial_command)
             initial_command = None
 
-    # Initialize the runtime agent manager
+    # Initialize the runtime agent manager. Initial prompts follow the same
+    # slash-command dispatch as later interactive turns; handled commands must
+    # not be accidentally sent to the model as plain text.
+    if initial_command:
+        command_prompt = (
+            parse_prompt_attachments(initial_command).prompt or ""
+        ).strip()
+        if command_prompt.startswith("/"):
+            try:
+                command_result = handle_command(command_prompt)
+            except Exception as e:
+                from code_puppy.messaging import emit_error
+
+                emit_error(t("cli.command.error", error=e))
+                initial_command = None
+            else:
+                if command_result is True or command_result == "__AUTOSAVE_LOAD__":
+                    initial_command = None
+                elif isinstance(command_result, str):
+                    initial_command = command_result
+
     if initial_command:
         from code_puppy.agents import get_current_agent
         from code_puppy.messaging import emit_info, emit_success, emit_system_message

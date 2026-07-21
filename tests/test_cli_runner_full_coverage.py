@@ -833,6 +833,31 @@ class TestInteractiveMode:
         )
 
     @pytest.mark.anyio
+    async def test_initial_slash_command_is_handled_before_agent(self):
+        agent = MagicMock()
+        agent.get_user_prompt.return_value = "task:"
+        mock_handle = MagicMock(return_value=True)
+        mock_run = AsyncMock()
+
+        await _run_interactive(
+            _mock_renderer(),
+            _interactive_patches(),
+            AsyncMock(return_value="/exit"),
+            agent=agent,
+            initial_command="/help",
+            extra_patches={
+                "code_puppy.cli_runner.get_current_agent": MagicMock(
+                    return_value=agent
+                ),
+                "code_puppy.command_line.command_handler.handle_command": mock_handle,
+                "code_puppy.cli_runner.run_prompt_with_attachments": mock_run,
+            },
+        )
+
+        mock_handle.assert_called_once_with("/help")
+        mock_run.assert_not_awaited()
+
+    @pytest.mark.anyio
     async def test_initial_command_error(self):
         agent = MagicMock()
         agent.get_user_prompt.return_value = "task:"
