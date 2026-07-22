@@ -859,13 +859,37 @@ def set_summarization_model_name(model: str) -> None:
     set_config_value("summarization_model", model or "")
 
 
+# ---------------------------------------------------------------------------
+# Puppy-token provider hook — lets plugins inject a custom credential
+# backend (e.g. OS keyring) without baking that logic into core.
+# ---------------------------------------------------------------------------
+_puppy_token_getter = None
+_puppy_token_setter = None
+
+
+def register_puppy_token_provider(*, getter, setter) -> None:
+    """Register custom get/set functions for the puppy_token credential.
+
+    Called by distribution-specific plugins at startup to route token
+    storage through the OS keyring or another secure backend.  When no
+    provider is registered the default plaintext config-file path is used.
+    """
+    global _puppy_token_getter, _puppy_token_setter
+    _puppy_token_getter = getter
+    _puppy_token_setter = setter
+
+
 def get_puppy_token():
-    """Returns the puppy_token from config, or None if not set."""
+    """Returns the puppy_token, delegating to a registered provider if set."""
+    if _puppy_token_getter is not None:
+        return _puppy_token_getter()
     return get_value("puppy_token")
 
 
 def set_puppy_token(token: str):
-    """Sets the puppy_token in the persistent config file."""
+    """Sets the puppy_token, delegating to a registered provider if set."""
+    if _puppy_token_setter is not None:
+        return _puppy_token_setter(token)
     set_config_value("puppy_token", token)
 
 
