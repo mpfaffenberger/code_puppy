@@ -123,5 +123,21 @@
   "codex.imagegen.usage": "Usage: /codex-imagegen <prompt>",
   "codex.imagegen.generating": "Generating image with Codex OAuth...",
   "codex.imagegen.saved": "Generated image saved to {path}",
-  "codex.logout.reload_failed": "ChatGPT logout: agent reload failed: {error}"
+  "codex.logout.reload_failed": "ChatGPT logout: agent reload failed: {error}",
+  "tree.title": "Session Tree",
+  "tree.frame_title": "tree",
+  "tree.controls": "↑↓ navigate  Enter select  Esc cancel/clear search  Ctrl/Alt+←→ fold  Ctrl+X copy",
+  "tree.filter_search": "filter: {filter} (Ctrl+O cycle)  search: {query}",
+  "tree.no_results": "No entries found",
+  "tree.visible_count": "{current}/{total} visible",
+  "tree.inspect_failed": "/tree: could not inspect conversation history — {error}",
+  "tree.selector_failed": "/tree: selector failed — {error}",
+  "tree.selection_missing": "/tree: selected entry disappeared — {error}",
+  "tree.empty": "No entries in session",
+  "tree.already_here": "Already at this point",
+  "tree.prompt_restored_fallback": "Moved before the selected prompt. Re-submit or edit it:\n{prompt}",
+  "tree.switched": "Switched conversation branch",
+  "tree.usage": "Usage: /tree",
+  "tree.help": "Navigate the current session tree and switch branches",
+  "tree.persistence_failed": "/tree: could not save inactive branches; they remain available until exit"
 }
