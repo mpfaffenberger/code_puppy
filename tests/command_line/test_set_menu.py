@@ -59,6 +59,19 @@ class TestApplySetting:
         assert "/model_settings" in (result.error or "")
         mock_set.assert_not_called()
 
+    @pytest.mark.parametrize("value", ["many", "-1"])
+    def test_subagent_panel_max_rows_rejects_invalid_values(self, value):
+        with patch("code_puppy.config.set_config_value") as mock_set:
+            result = apply_setting("subagent_panel_max_rows", value, reload_agent=False)
+        assert result.ok is False
+        assert "0 or a positive integer" in (result.error or "")
+        mock_set.assert_not_called()
+
+    def test_subagent_panel_max_rows_normalizes_valid_value(self):
+        result = apply_setting("subagent_panel_max_rows", " 08 ", reload_agent=False)
+        assert result.ok is True
+        assert result.value_after == "8"
+
     def test_cancel_agent_key_invalid_returns_error(self):
         with patch("code_puppy.config.set_config_value") as mock_set:
             result = apply_setting("cancel_agent_key", "ctrl+x")

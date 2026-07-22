@@ -57,6 +57,7 @@ from code_puppy.config import (
     get_safety_permission_level,
     get_smooth_response_stream,
     get_smooth_thinking_stream,
+    get_subagent_panel_max_rows,
     get_subagent_recursion_limit,
     get_subagent_verbose,
     get_summarization_model_name,
@@ -169,6 +170,16 @@ _BEHAVIOR = SettingsCategory(
             ),
             type_hint="int",
             effective_getter=get_subagent_recursion_limit,
+        ),
+        Setting(
+            key="subagent_panel_max_rows",
+            display_name="Sub-agent Panel Max Rows",
+            description=(
+                "Maximum live sub-agent panel rows. Set to 0 (default) to show "
+                "every row that fits; terminal height always takes precedence."
+            ),
+            type_hint="int",
+            effective_getter=get_subagent_panel_max_rows,
         ),
         Setting(
             key="subagent_verbose",

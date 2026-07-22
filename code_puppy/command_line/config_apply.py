@@ -71,6 +71,11 @@ def invalidate_post_write_caches(key: str) -> None:
 
         reset_session_model()
         clear_model_cache()
+    elif key == "subagent_panel_max_rows":
+        from code_puppy.config import get_subagent_panel_max_rows
+        from code_puppy.messaging.bottom_bar import get_bottom_bar
+
+        get_bottom_bar().set_panel_max_rows(get_subagent_panel_max_rows())
 
 
 def apply_setting(
@@ -108,7 +113,21 @@ def apply_setting(
     requires_restart = False
     normalized_value = value
 
-    if key == "cancel_agent_key":
+    if key == "subagent_panel_max_rows":
+        try:
+            panel_max_rows = int(value.strip())
+        except (AttributeError, ValueError):
+            return ApplyResult(
+                ok=False,
+                error="subagent_panel_max_rows must be 0 or a positive integer.",
+            )
+        if panel_max_rows < 0:
+            return ApplyResult(
+                ok=False,
+                error="subagent_panel_max_rows must be 0 or a positive integer.",
+            )
+        normalized_value = str(panel_max_rows)
+    elif key == "cancel_agent_key":
         from code_puppy.keymap import VALID_CANCEL_KEYS
 
         normalized_value = value.strip().lower()

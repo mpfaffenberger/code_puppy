@@ -106,6 +106,16 @@ POPUP_MAX_ROWS = 6
 SizeProvider = Callable[[], Tuple[int, int]]
 
 
+def _configured_panel_max_rows() -> int:
+    """Load the panel ceiling without making config import this UI module."""
+    try:
+        from code_puppy.config import get_subagent_panel_max_rows
+
+        return get_subagent_panel_max_rows()
+    except Exception:
+        return 0
+
+
 # =============================================================================
 # BottomBar
 # =============================================================================
@@ -135,6 +145,10 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         self._status_prefix = ""  # animated spinner slot (puppy_spinner)
         self._status_suffix = ""  # trailing slot (steer_queue's '(N queued)')
         self._panel_lines: list[str] = []
+        # 0 = automatic (terminal-height budget only). Keep the resolved value
+        # in memory: panel animation repaints several times per second, so the
+        # painter must not re-read puppy.cfg on every frame.
+        self._panel_max_rows = _configured_panel_max_rows()
         self._popup_lines: list[str] = []  # completion popup (over panel)
         self._popup_selected = -1
         # Blank rows held below the prompt after the popup shrinks/closes
@@ -239,6 +253,19 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         with self._lock:
             self._status_suffix = text or ""
             self._sync_reserved(self._status_seq)
+
+    def set_panel_max_rows(self, max_rows: int) -> None:
+        """Set the live panel ceiling; ``0`` keeps automatic sizing.
+
+        The terminal-height budget still wins when it is smaller. Updating the
+        value repaints immediately without dropping any raw panel state.
+        """
+        normalized = max(0, int(max_rows))
+        with self._lock:
+            if normalized == self._panel_max_rows:
+                return
+            self._panel_max_rows = normalized
+            self._sync_reserved(self._panel_seq)
 
     def set_panel_lines(self, lines: Optional[list]) -> None:
         """Set the sub-agent panel rows (above the status row).

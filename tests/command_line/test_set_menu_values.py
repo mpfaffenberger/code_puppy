@@ -145,6 +145,13 @@ class TestEffectiveSettingValue:
         assert setting.type_hint == "int"
         assert setting.effective_getter is not None
 
+    def test_subagent_panel_max_rows_is_curated(self):
+        settings = {s.key: s for _, s in iter_curated_settings()}
+        setting = settings["subagent_panel_max_rows"]
+        assert setting.type_hint == "int"
+        assert setting.effective_getter is not None
+        assert setting.effective_getter() == 0
+
     def test_is_sensitive_key_for_puppy_token(self):
         assert is_sensitive_key("puppy_token") is True
         assert is_sensitive_key("yolo_mode") is False

@@ -16,11 +16,11 @@ Milo is thinking... (  o  )
 - Line 2 is a single-char animated spinner + `mm:ss` elapsed + the current
   activity, color-coded: **yellow** = calling a tool, **magenta** = thinking,
   **green** = writing the response.
-- Parallel sub-agents stack, each with its own live row. There is no arbitrary
-  cap: every tracked agent renders as long as it fits. The row count is only
-  clamped to the terminal height (the prompt + status always keep their rows) --
-  if a swarm is taller than the viewport, the rows that don't fit collapse into a
-  single `… +N more` summary rather than blanking the whole bar.
+- Parallel sub-agents stack, each with its own live row. By default every
+  tracked agent renders as long as it fits. Users may set an optional row ceiling;
+  terminal height still takes precedence so the prompt + status always keep their
+  rows. If a swarm exceeds either limit, hidden rows collapse into a single
+  `… +N more` summary rather than blanking the whole bar.
 - **Nested sub-agents render as a true tree.** A sub-agent that itself calls
   `invoke_agent` is shown indented under its parent. Only top-level (depth-0)
   agents get the full two-line `INVOKE AGENT` banner; deeper agents collapse to
@@ -79,12 +79,17 @@ not starve the steer overlay's event-loop continuations.
 
 ## Config
 
-Runtime toggle:
+Runtime controls:
 
 ```text
 /set subagent_panel off
 /set subagent_panel on
+/set subagent_panel_max_rows 8
+/set subagent_panel_max_rows 0  # automatic; show every row that fits
 ```
+
+The row ceiling takes effect immediately. It never overrides the terminal-height
+safety clamp.
 
 Environment startup hard-disable:
 

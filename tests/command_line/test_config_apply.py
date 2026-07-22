@@ -29,6 +29,14 @@ class TestInvalidatePostWriteCaches:
         mock_reset.assert_called_once()
         mock_clear.assert_called_once()
 
+    def test_panel_row_ceiling_refreshes_live_bottom_bar(self):
+        with (
+            patch("code_puppy.config.get_subagent_panel_max_rows", return_value=8),
+            patch("code_puppy.messaging.bottom_bar.get_bottom_bar") as mock_bar,
+        ):
+            invalidate_post_write_caches("subagent_panel_max_rows")
+        mock_bar.return_value.set_panel_max_rows.assert_called_once_with(8)
+
     def test_non_model_key_is_noop(self):
         with (
             patch("code_puppy.config.reset_session_model") as mock_reset,

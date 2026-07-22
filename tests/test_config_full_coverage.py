@@ -39,6 +39,18 @@ class TestBooleanGetters:
         cp_config.set_config_value("subagent_verbose", "true")
         assert cp_config.get_subagent_verbose() is True
 
+    def test_get_subagent_panel_max_rows_defaults_to_automatic(self):
+        assert cp_config.get_subagent_panel_max_rows() == 0
+
+    def test_get_subagent_panel_max_rows_accepts_non_negative_integer(self):
+        cp_config.set_config_value("subagent_panel_max_rows", " 8 ")
+        assert cp_config.get_subagent_panel_max_rows() == 8
+
+    def test_get_subagent_panel_max_rows_rejects_bad_persisted_values(self):
+        for value in ("many", "-1"):
+            cp_config.set_config_value("subagent_panel_max_rows", value)
+            assert cp_config.get_subagent_panel_max_rows() == 0
+
     def test_get_pack_agents_enabled_false(self):
         cp_config.set_config_value("enable_pack_agents", "false")
         assert cp_config.get_pack_agents_enabled() is False

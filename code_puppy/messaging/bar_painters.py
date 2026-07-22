@@ -161,11 +161,11 @@ class BarPainterMixin:
         Mirrors :meth:`_visible_popup_lines`' "prompt viewport WINS" rule:
         the top margin, prompt, popup, and status always keep their rows,
         plus one scroll row for the transcript region. Whatever height is
-        left is the panel's budget — so a big sub-agent swarm is shown as
-        tall as the terminal allows instead of overflowing past
-        ``rows - 1`` and tripping the ``rows < reserved + 1`` dormancy
-        guard in :meth:`_establish` (which would blank the panel, prompt,
-        AND status all at once).
+        left is the panel's viewport budget. An optional user ceiling can
+        reduce it further, but can never override terminal safety. This keeps
+        a big sub-agent swarm from overflowing past ``rows - 1`` and tripping
+        the ``rows < reserved + 1`` dormancy guard in :meth:`_establish`
+        (which would blank the panel, prompt, AND status all at once).
         """
         rows = self._rows if self._rows > 0 else 24
         non_panel = (
@@ -175,7 +175,11 @@ class BarPainterMixin:
             + self._visible_popup_slack()
             + (1 if self._status_visible() else 0)
         )
-        return max(0, rows - 1 - non_panel)
+        viewport_budget = max(0, rows - 1 - non_panel)
+        configured_max = self._panel_max_rows
+        if configured_max > 0:
+            return min(viewport_budget, configured_max)
+        return viewport_budget
 
     def _visible_panel_lines(self) -> list:
         """Panel rows to paint — popup takes precedence while open, and the

@@ -128,6 +128,19 @@ def test_inline_panel_clamps_to_viewport_with_overflow():
     assert bar.get_panel_lines() == lines
 
 
+def test_inline_panel_honors_user_ceiling():
+    bar = InlineBottomBar(stream=FakeTTY(), get_size=lambda: (80, 24))
+    lines = [f"agent-{index}" for index in range(6)]
+
+    bar.set_panel_max_rows(3)
+    bar.start()
+    bar.set_panel_lines(lines)
+    rendered = bar._inline_lines()
+
+    assert rendered[:3] == ["agent-0", "agent-1", "… +4 more"]
+    assert bar.get_panel_lines() == lines
+
+
 def test_spinner_tick_repaints_in_place_without_growing_block():
     """A status-prefix tick (the 5fps puppy) must erase and repaint the
     same number of rows -- never leaving extra lines behind."""

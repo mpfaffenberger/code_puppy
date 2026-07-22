@@ -95,6 +95,24 @@ def get_subagent_recursion_limit() -> int:
     return limit if limit >= 0 else DEFAULT_SUBAGENT_RECURSION_LIMIT
 
 
+def get_subagent_panel_max_rows() -> int:
+    """Return the optional sub-agent panel row ceiling.
+
+    ``0`` means automatic: show every panel row that fits in the terminal.
+    Invalid or negative values safely fall back to that automatic behavior.
+    """
+    cfg_val = get_value("subagent_panel_max_rows")
+    if cfg_val is None:
+        return 0
+
+    try:
+        max_rows = int(str(cfg_val).strip())
+    except (TypeError, ValueError):
+        return 0
+
+    return max_rows if max_rows >= 0 else 0
+
+
 # Pack agents - the specialized sub-agents coordinated by Pack Leader
 PACK_AGENT_NAMES = frozenset(
     [
@@ -410,6 +428,7 @@ def get_config_keys():
         "message_limit",
         "allow_recursion",
         "subagent_recursion_limit",
+        "subagent_panel_max_rows",
         "auto_save_session",
         "max_saved_sessions",
         "http2",

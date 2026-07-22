@@ -662,6 +662,48 @@ def test_panel_all_rows_render_when_they_fit(bar, tty):
     assert "more" not in out  # no overflow summary when everything fits
 
 
+def test_panel_user_ceiling_clamps_rows_without_losing_raw_state(bar, tty):
+    lines = [f"agent-{i}" for i in range(6)]
+    bar.start()
+    bar.set_panel_max_rows(4)
+    drain(tty)
+    bar.set_panel_lines(lines)
+    out = written(tty)
+
+    assert "agent-0" in out and "agent-1" in out and "agent-2" in out
+    assert "agent-3" not in out
+    assert "+3 more" in out
+    assert bar.get_panel_lines() == lines
+
+
+def test_panel_zero_ceiling_restores_automatic_sizing(bar, tty):
+    lines = [f"agent-{i}" for i in range(6)]
+    bar.start()
+    bar.set_panel_max_rows(2)
+    bar.set_panel_lines(lines)
+    drain(tty)
+
+    bar.set_panel_max_rows(0)
+    out = written(tty)
+
+    for line in lines:
+        assert line in out
+    assert "more" not in out
+
+
+def test_terminal_height_wins_over_larger_user_ceiling(tty):
+    bar = BottomBar(stream=tty, get_size=lambda: (80, 6))
+    bar.set_panel_max_rows(12)
+    bar.start()
+    drain(tty)
+    bar.set_panel_lines(["a", "b", "c", "d"])
+
+    out = written(tty)
+    assert "+2 more" in out
+    assert bar._panel_row_budget() == 3
+    bar.stop()
+
+
 def test_teardown_clears_panel_rows_too(bar, tty):
     bar.start()
     bar.set_panel_lines(["a", "b"])
