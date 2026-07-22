@@ -15,7 +15,7 @@ from code_puppy.messaging import (
     emit_warning,
 )
 
-from . import state
+from . import goal_runs, state
 from .judge import GoalJudgement, judge_goal
 from .judge_config import JudgeConfig, get_enabled_judges_or_default, load_judges
 
@@ -68,7 +68,7 @@ def handle_wiggum_command(command: str) -> str | bool:
 @register_command(
     name="goal",
     description="Retry a task until all LLM judges say it is complete 🎯",
-    usage="/goal <prompt>",
+    usage="/goal <prompt> | /goal resume <UUID>",
     # /kibble and /chow are puppy-themed aliases for /goal — same behavior,
     # just more on-brand for a code puppy.
     aliases=["kibble", "chow"],
@@ -78,14 +78,23 @@ def handle_goal_command(command: str) -> str | bool:
     """Start goal mode and execute the prompt immediately."""
     prompt = _extract_prompt(command)
     if not prompt:
-        emit_warning("Usage: /goal <prompt>  (aliases: /kibble, /chow)")
+        emit_warning(
+            "Usage: /goal <prompt> | /goal resume <UUID>  (aliases: /kibble, /chow)"
+        )
         emit_info("Example: /goal make tests pass for the auth flow")
         emit_info("Press Ctrl+C or run /goal_stop to stop the loop.")
         return True
 
-    state.start(prompt, mode="goal")
-    _display_banner_message("GOAL MODE", "🎯 ACTIVATED!", banner_name="llm_judge")
+    if prompt.lower().startswith("resume"):
+        return _resume_goal(prompt)
+
+    run = goal_runs.create(prompt)
+    state.start(prompt, mode="goal", run_id=run.run_id)
+    _display_banner_message(
+        "GOAL MODE", "\U0001f3af ACTIVATED!", banner_name="llm_judge"
+    )
     emit_info(f"Goal: {prompt}")
+    emit_info(f"Goal UUID: {run.run_id}")
     emit_info(
         "After each iteration, every enabled LLM judge will verify completion in parallel."
     )
@@ -108,8 +117,12 @@ def handle_wiggum_stop_command(command: str) -> bool:
     """Stop Wiggum/goal loop mode."""
     del command
     if state.is_active():
+        run_id = state.get_state().run_id
+        _persist_goal_progress(status="interrupted")
         state.stop()
-        emit_success("🍩 Wiggum/goal mode stopped!")
+        emit_success("\U0001f369 Wiggum/goal mode stopped!")
+        if run_id:
+            emit_info(f"Resume it with: /goal resume {run_id}")
     else:
         emit_info("Wiggum/goal mode is not active.")
     return True
@@ -172,6 +185,41 @@ def _emit_configured_judges_summary() -> None:
             "using the implementor's model."
         )
     emit_info("Run /judges to add, edit, enable, or disable judges.")
+
+
+def _resume_goal(arguments: str) -> str | bool:
+    """Restore a durable goal run and dispatch its next iteration."""
+    parts = arguments.split()
+    if len(parts) != 2 or parts[0].lower() != "resume":
+        emit_warning("Usage: /goal resume <UUID>")
+        return True
+
+    run = goal_runs.load(parts[1])
+    if run is None:
+        emit_warning(f"Goal run not found: {parts[1]}")
+        return True
+    if run.status in {"completed", "stopped"}:
+        emit_warning(f"Goal run {run.run_id} is already {run.status}.")
+        return True
+
+    state.start(
+        run.prompt,
+        mode="goal",
+        run_id=run.run_id,
+        loop_count=run.loop_count,
+        remediation_notes=run.remediation_notes,
+    )
+    goal_runs.update(
+        run.run_id,
+        loop_count=run.loop_count,
+        remediation_notes=run.remediation_notes,
+    )
+    _display_banner_message("GOAL MODE", "\U0001f3af RESUMED!", banner_name="llm_judge")
+    emit_info(f"Goal UUID: {run.run_id}")
+    emit_info(f"Resuming after {run.loop_count} completed iteration(s).")
+    if run.remediation_notes:
+        return f"{run.prompt}\n\nJudge remediation notes:\n{run.remediation_notes}"
+    return run.prompt
 
 
 def _extract_prompt(command: str) -> str:
@@ -443,13 +491,16 @@ async def _on_interactive_turn_end(
                 error=error,
             )
         except (asyncio.CancelledError, KeyboardInterrupt):
-            # Belt-and-suspenders: _run_goal_judges already swallows these
-            # but we never want a stray Ctrl+C to escape the plugin and
-            # take down the whole REPL.
-            _display_llm_judge("⛔ Goal loop cancelled (Ctrl+C).")
+            # Keep enough durable state for an explicit UUID resume.
+            run_id = state.get_state().run_id
+            _persist_goal_progress(status="interrupted")
+            _display_llm_judge("\u26d4 Goal loop cancelled (Ctrl+C).")
             state.stop()
+            if run_id:
+                emit_info(f"Resume it with: /goal resume {run_id}")
             return None
         if complete:
+            _persist_goal_progress(status="completed")
             # Per-judge verdicts were already shown by _run_goal_judges —
             # no need to re-dump the notes block here.
             _display_llm_judge("✅ GOAL COMPLETE!", final=True)
@@ -458,6 +509,7 @@ async def _on_interactive_turn_end(
 
         max_iters = _get_goal_max_iterations()
         if loop_num >= max_iters:
+            _persist_goal_progress(status="stopped")
             _display_llm_judge(
                 f"🛑 GOAL STOPPED — Hit max iterations ({max_iters}). "
                 f"Raise the cap with /set goal_max_iterations=<int>.",
@@ -467,6 +519,7 @@ async def _on_interactive_turn_end(
             return None
 
         state.get_state().remediation_notes = notes
+        _persist_goal_progress()
         _display_llm_judge(
             f"❌ GOAL INCOMPLETE — Retrying! (Loop #{loop_num}/{max_iters})",
             final=True,
@@ -493,11 +546,28 @@ async def _on_interactive_turn_end(
     }
 
 
+def _persist_goal_progress(*, status: str = "active") -> None:
+    current = state.get_state()
+    if current.mode != "goal" or current.run_id is None:
+        return
+    goal_runs.update(
+        current.run_id,
+        loop_count=current.loop_count,
+        remediation_notes=current.remediation_notes,
+        status=status,
+    )
+
+
 def _on_interactive_turn_cancel(prompt: str, *, reason: str = "cancelled") -> None:
     del prompt
     if state.is_active():
+        current = state.get_state()
+        run_id = current.run_id
+        _persist_goal_progress(status="interrupted")
         state.stop()
-        emit_warning(f"🍩 Wiggum/goal loop stopped due to {reason}")
+        emit_warning(f"\U0001f369 Wiggum/goal loop stopped due to {reason}")
+        if run_id:
+            emit_info(f"Resume it with: /goal resume {run_id}")
 
 
 register_callback("interactive_turn_end", _on_interactive_turn_end)
