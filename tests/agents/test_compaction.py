@@ -295,8 +295,6 @@ class TestCompact:
         The user-visible symptom was "Summarization deferred: pending tool
         call(s) detected" firing on every turn, with history growing unbounded.
         """
-        summary_msg = ModelRequest(parts=[UserPromptPart(content="SUMMARY")])
-
         # Build a huge history with a permanent orphan tool_call at the start —
         # the kind of thing that lives in a long-running session after a
         # cancelled command.
@@ -310,7 +308,7 @@ class TestCompact:
             get_compaction_threshold=lambda: 0.01,
             get_compaction_strategy=lambda: "summarization",
             get_protected_token_count=lambda: 500,
-            run_summarization_sync=lambda instructions, message_history: [summary_msg],
+            run_summarization_sync=lambda instructions, message_history: "SUMMARY",
         ):
             new_msgs, dropped = compact(
                 agent=None, messages=msgs, model_max=10_000, context_overhead=0
@@ -321,7 +319,9 @@ class TestCompact:
             "Summarization was deferred due to stale orphan tool_call — "
             "the bug is back. Check has_pending_tool_calls() ordering."
         )
-        assert summary_msg in new_msgs, "summarizer output missing from result"
+        assert any(
+            getattr(p, "content", None) == "SUMMARY" for m in new_msgs for p in m.parts
+        ), "summarizer output missing from result"
         # The orphan tool_call should be gone (pruned)
         for m in new_msgs:
             for p in m.parts:
@@ -356,14 +356,13 @@ class TestCompact:
     def test_summarization_path_invokes_summarizer(self):
         """Verify compact() routes to summarize() and gets reasonable result."""
         msgs = _build_long_history(n_turns=20)
-        summary_msg = ModelRequest(parts=[UserPromptPart(content="SUMMARY")])
 
         with patch.multiple(
             _compaction,
             get_compaction_threshold=lambda: 0.01,
             get_compaction_strategy=lambda: "summarization",
             get_protected_token_count=lambda: 500,
-            run_summarization_sync=lambda instructions, message_history: [summary_msg],
+            run_summarization_sync=lambda instructions, message_history: "SUMMARY",
         ):
             new_msgs, dropped = compact(
                 agent=None, messages=msgs, model_max=10_000, context_overhead=0
@@ -372,7 +371,9 @@ class TestCompact:
         assert len(new_msgs) < len(msgs)
         assert new_msgs[0] is msgs[0], "system msg preserved"
         # The injected summary should appear in the result
-        assert summary_msg in new_msgs
+        assert any(
+            getattr(p, "content", None) == "SUMMARY" for m in new_msgs for p in m.parts
+        )
         assert len(dropped) > 0
 
     def test_summarization_failure_falls_back_to_truncation(self):

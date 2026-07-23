@@ -211,15 +211,14 @@ def _run_summarization_core(
     if not pruned:
         return prune_interrupted_tool_calls(messages), []
 
-    new_messages = run_summarization_sync(
+    summary_text = run_summarization_sync(
         _SUMMARIZATION_INSTRUCTIONS, message_history=pruned
     )
 
-    if not isinstance(new_messages, list):
-        emit_warning(
-            "Summarization agent returned non-list output; wrapping into message request"
-        )
-        new_messages = [ModelRequest([TextPart(str(new_messages))])]
+    # Splice ONLY the summary output into context — not the summarization
+    # run's request/response envelope (which would drag the prompt + full
+    # history right back into the window we just tried to shrink).
+    new_messages: List[ModelMessage] = [ModelRequest([TextPart(str(summary_text))])]
 
     compacted: List[ModelMessage] = [system_message] + list(new_messages)
     compacted.extend(msg for msg in protected_messages if msg is not system_message)

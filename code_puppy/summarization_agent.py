@@ -53,8 +53,12 @@ class SummarizationError(Exception):
         super().__init__(message)
 
 
-def run_summarization_sync(prompt: str, message_history: List) -> List:
-    """Run the summarization agent synchronously.
+def run_summarization_sync(prompt: str, message_history: List) -> str:
+    """Run the summarization agent synchronously and return the summary text.
+
+    Returns only ``result.output`` (the model's summary string) — NOT
+    ``result.new_messages()`` — so callers splice a clean summary into
+    context instead of the run's request/response message envelope.
 
     Raises:
         SummarizationError: If summarization fails for any reason.
@@ -106,7 +110,7 @@ def run_summarization_sync(prompt: str, message_history: List) -> List:
         # Always use thread pool since we're likely in an existing event loop
         pool = _ensure_thread_pool()
         result = pool.submit(_run_in_thread).result()
-        return result.new_messages()
+        return str(result.output)
     except Exception as e:
         error_type = type(e).__name__
         error_msg = str(e) if str(e) else "(no details available)"
