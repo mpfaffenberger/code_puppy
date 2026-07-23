@@ -163,22 +163,40 @@ class MCPConfigWizard:
             return name
 
     def prompt_server_type(self, group_id: str = None) -> Optional[str]:
-        """Prompt for server type."""
+        """Prompt for server type.
+
+        Validation is done in this loop (rather than delegating to
+        ``prompt_ask(choices=...)``) so we can distinguish two cases:
+
+        * ``prompt_ask`` returns ``None`` -> the input layer raised (EOF /
+          Ctrl-D / stream closed). Treat as user cancel and abort the wizard.
+        * ``prompt_ask`` returns a string that isn't a valid choice -> the
+          user typed a typo. Emit the invalid-choice error and re-prompt
+          instead of tearing the wizard down.
+        """
         emit_info(t("mcp.wizard.type.header"), message_group=group_id)
         emit_info(t("mcp.wizard.type.sse"), message_group=group_id)
         emit_info(t("mcp.wizard.type.http"), message_group=group_id)
         emit_info(t("mcp.wizard.type.stdio"), message_group=group_id)
 
+        valid_choices = ["sse", "http", "stdio"]
         while True:
             server_type = prompt_ask(
-                "Select server type", choices=["sse", "http", "stdio"], default="stdio"
+                f"Select server type ({'/'.join(valid_choices)})",
+                default="stdio",
             )
 
             if server_type is None:
+                # EOF / input exception -> cancel the wizard.
                 return None
 
-            if server_type in ["sse", "http", "stdio"]:
+            if server_type in valid_choices:
                 return server_type
+
+            emit_error(
+                t("mcp.wizard.invalid_choice", choices=", ".join(valid_choices)),
+                message_group=group_id,
+            )
 
     def prompt_sse_config(self, group_id: str = None) -> Optional[Dict]:
         """Prompt for SSE server configuration."""
