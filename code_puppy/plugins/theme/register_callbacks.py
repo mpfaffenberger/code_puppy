@@ -25,9 +25,12 @@ from code_puppy.callbacks import register_callback
 
 # NOTE: Sibling module imports (.themes, .picker, .content_styles, .osc_palette,
 # .rich_themes, .prompt_toolkit_theme) and heavier code_puppy imports
-# (colors_menu, config, messaging) live inside the functions that use them.
-# Eagerly importing them here cost ~267ms per startup — the largest single
-# plugin contribution to launch time. See docs/STARTUP_PERFORMANCE.md.
+# (colors_menu, config, messaging) live inside the functions that use them
+# rather than at module scope. This keeps plugin discovery cheap and — more
+# importantly — avoids transitively requiring prompt_toolkit just to load
+# the theme package. Callbacks like _apply_default_theme_on_first_run
+# short-circuit on already-configured installs, so the deferred modules
+# never get loaded on the common launch path.
 
 _INTERACTIVE_TIMEOUT_SECONDS = 300  # 5 min — generous; user is browsing
 _ACTIVE_THEME_CONFIG_KEY = "theme_active_theme"
