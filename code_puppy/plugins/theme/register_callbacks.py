@@ -22,29 +22,12 @@ import asyncio
 import concurrent.futures
 
 from code_puppy.callbacks import register_callback
-from code_puppy.command_line.colors_menu import BANNER_DISPLAY_INFO
-from code_puppy.config import (
-    get_all_banner_colors,
-    get_value,
-    reset_all_banner_colors,
-    set_config_value,
-)
-from code_puppy.messaging import emit_error, emit_info, emit_warning
 
-from . import content_styles as cs
-from . import osc_palette as osc
-from . import rich_themes as rt
-from .picker import interactive_theme_picker
-from .prompt_toolkit_theme import merge_with_active_style
-from .themes import (
-    MENU_BY_NAME,
-    apply,
-    color_remap_for,
-    colors_for,
-    content_styles_for,
-    resolve_theme_arg,
-    terminal_palette_for,
-)
+# NOTE: Sibling module imports (.themes, .picker, .content_styles, .osc_palette,
+# .rich_themes, .prompt_toolkit_theme) and heavier code_puppy imports
+# (colors_menu, config, messaging) live inside the functions that use them.
+# Eagerly importing them here cost ~267ms per startup — the largest single
+# plugin contribution to launch time. See docs/STARTUP_PERFORMANCE.md.
 
 _INTERACTIVE_TIMEOUT_SECONDS = 300  # 5 min — generous; user is browsing
 _ACTIVE_THEME_CONFIG_KEY = "theme_active_theme"
@@ -63,6 +46,8 @@ def _custom_help():
 # plain text only. Pretty visual previews live in the picker (which uses
 # Rich directly).
 def _format_banner_mapping(mapping: dict[str, str]) -> str:
+    from code_puppy.command_line.colors_menu import BANNER_DISPLAY_INFO
+
     lines = []
     for banner, color in mapping.items():
         display, icon = BANNER_DISPLAY_INFO.get(banner, (banner, ""))
@@ -80,6 +65,10 @@ def _format_content_mapping(mapping: dict[str, str]) -> str:
 
 def _announce_applied(theme_name: str) -> None:
     """Quietly confirm the theme is applied. Mappings available via /theme show."""
+    from code_puppy.messaging import emit_info
+
+    from .themes import MENU_BY_NAME
+
     theme = MENU_BY_NAME[theme_name]
     emit_info(
         f"{theme['icon']} {theme['label']} theme applied. "
@@ -90,6 +79,8 @@ def _announce_applied(theme_name: str) -> None:
 # --- Interactive flow -------------------------------------------------------
 def _run_interactive_picker() -> str | None:
     """Run the async TUI from a sync command handler."""
+    from .picker import interactive_theme_picker
+
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future = executor.submit(lambda: asyncio.run(interactive_theme_picker()))
         return future.result(timeout=_INTERACTIVE_TIMEOUT_SECONDS)
@@ -101,6 +92,19 @@ def _apply_theme(theme_name: str, *, announce: bool = True) -> None:
     `default` is special: resets banner config, content styles, Rich color
     remap, AND the terminal-level OSC palette.
     """
+    from code_puppy.config import reset_all_banner_colors, set_config_value
+
+    from . import content_styles as cs
+    from . import osc_palette as osc
+    from . import rich_themes as rt
+    from .themes import (
+        apply,
+        color_remap_for,
+        colors_for,
+        content_styles_for,
+        terminal_palette_for,
+    )
+
     if theme_name == "default":
         reset_all_banner_colors()
         cs.restore_defaults()
@@ -124,6 +128,10 @@ def _apply_theme(theme_name: str, *, announce: bool = True) -> None:
 
 def _active_terminal_palette() -> tuple[str, dict] | None:
     """Return the active curated theme and its complete persisted palette."""
+    from code_puppy.config import get_value
+
+    from . import osc_palette as osc
+
     active_theme = get_value(_ACTIVE_THEME_CONFIG_KEY)
     if not active_theme or active_theme in {"default", _LEGACY_THEME_NAME}:
         return None
@@ -237,8 +245,25 @@ def _prompt_text_color(default_color):
     return active[1].get("fg", default_color) if active else default_color
 
 
+def _prompt_toolkit_style(*args, **kwargs):
+    """Lazy shim for prompt_toolkit_theme.merge_with_active_style.
+
+    The real implementation lives in .prompt_toolkit_theme which pulls in
+    prompt_toolkit.styles at import time. Deferring the import until the
+    prompt_toolkit_style callback actually fires (during REPL init, well
+    after startup) keeps that cost off the launch-time critical path.
+    """
+    from .prompt_toolkit_theme import merge_with_active_style
+
+    return merge_with_active_style(*args, **kwargs)
+
+
 def _apply_default_theme_on_first_run() -> None:
     """Apply Tokyo Night once, preserving explicit and legacy theme choices."""
+    from code_puppy.config import get_value, set_config_value
+
+    from . import osc_palette as osc
+
     if get_value(_ACTIVE_THEME_CONFIG_KEY):
         return
 
@@ -256,6 +281,12 @@ def _handle_theme(command: str, name: str):
     if name != "theme":
         return None
 
+    from code_puppy.config import get_all_banner_colors
+    from code_puppy.messaging import emit_error, emit_info, emit_warning
+
+    from . import content_styles as cs
+    from .themes import MENU_BY_NAME, resolve_theme_arg
+
     parts = command.split()
     sub = parts[1].lower() if len(parts) > 1 else ""
 
@@ -266,14 +297,14 @@ def _handle_theme(command: str, name: str):
             emit_error(f"Theme picker failed: {e}")
             return True
         if chosen is None:
-            emit_info("🎨 Theme unchanged.")
+            emit_info("\U0001f3a8 Theme unchanged.")
             return True
         _apply_theme(chosen)
         return True
 
     if sub == "show":
         emit_info(
-            "🎨 Current theme:\n"
+            "\U0001f3a8 Current theme:\n"
             "Banners:\n"
             + _format_banner_mapping(get_all_banner_colors())
             + "\nContent text:\n"
@@ -300,6 +331,6 @@ register_callback("startup", _apply_default_theme_on_first_run)
 register_callback("termflow_style", _termflow_style)
 register_callback("termflow_highlighter", _termflow_highlighter)
 register_callback("prompt_text_color", _prompt_text_color)
-register_callback("prompt_toolkit_style", merge_with_active_style)
+register_callback("prompt_toolkit_style", _prompt_toolkit_style)
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_theme)

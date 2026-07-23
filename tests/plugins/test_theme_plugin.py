@@ -590,12 +590,14 @@ class TestRegisterCallbacks:
         default = RenderStyle.default()
         with (
             patch(
-                "code_puppy.plugins.theme.register_callbacks.get_value",
+                "code_puppy.config.get_value",
                 return_value="green-screen",
             ),
-            patch("code_puppy.plugins.theme.register_callbacks.osc") as mock_osc,
+            patch(
+                "code_puppy.plugins.theme.osc_palette.get_saved_palette",
+                return_value=GREEN_SCREEN,
+            ),
         ):
-            mock_osc.get_saved_palette.return_value = GREEN_SCREEN
             style = _termflow_style(default)
 
         assert style is not default
@@ -613,7 +615,7 @@ class TestRegisterCallbacks:
 
         default = RenderStyle.default()
         with patch(
-            "code_puppy.plugins.theme.register_callbacks.get_value",
+            "code_puppy.config.get_value",
             return_value="default",
         ):
             assert _termflow_style(default) is default
@@ -625,28 +627,31 @@ class TestRegisterCallbacks:
 
         with (
             patch(
-                "code_puppy.plugins.theme.register_callbacks.get_value",
+                "code_puppy.config.get_value",
                 return_value=None,
             ),
-            patch("code_puppy.plugins.theme.register_callbacks.apply") as mock_apply,
-            patch("code_puppy.plugins.theme.register_callbacks.cs") as mock_cs,
-            patch("code_puppy.plugins.theme.register_callbacks.rt") as mock_rt,
-            patch("code_puppy.plugins.theme.register_callbacks.osc") as mock_osc,
+            patch("code_puppy.plugins.theme.themes.apply") as mock_apply,
             patch(
-                "code_puppy.plugins.theme.register_callbacks.set_config_value"
-            ) as mock_set,
+                "code_puppy.plugins.theme.content_styles.apply_content_styles"
+            ) as mock_cs_apply,
+            patch(
+                "code_puppy.plugins.theme.rich_themes.apply_remap"
+            ) as mock_rt_apply,
+            patch(
+                "code_puppy.plugins.theme.osc_palette.get_saved_palette",
+                return_value=None,
+            ),
+            patch(
+                "code_puppy.plugins.theme.osc_palette.apply_palette"
+            ) as mock_osc_apply,
+            patch("code_puppy.config.set_config_value") as mock_set,
         ):
-            mock_osc.get_saved_palette.return_value = None
             _apply_default_theme_on_first_run()
 
         mock_apply.assert_called_once_with(colors_for("tokyo-night"))
-        mock_cs.apply_content_styles.assert_called_once_with(
-            content_styles_for("tokyo-night")
-        )
-        mock_rt.apply_remap.assert_called_once_with(color_remap_for("tokyo-night"))
-        mock_osc.apply_palette.assert_called_once_with(
-            terminal_palette_for("tokyo-night")
-        )
+        mock_cs_apply.assert_called_once_with(content_styles_for("tokyo-night"))
+        mock_rt_apply.assert_called_once_with(color_remap_for("tokyo-night"))
+        mock_osc_apply.assert_called_once_with(terminal_palette_for("tokyo-night"))
         mock_set.assert_called_once_with("theme_active_theme", "tokyo-night")
 
     def test_default_theme_preserves_saved_choice(self):
@@ -656,10 +661,10 @@ class TestRegisterCallbacks:
 
         with (
             patch(
-                "code_puppy.plugins.theme.register_callbacks.get_value",
+                "code_puppy.config.get_value",
                 return_value="purple-puppy",
             ),
-            patch("code_puppy.plugins.theme.register_callbacks.apply") as mock_apply,
+            patch("code_puppy.plugins.theme.themes.apply") as mock_apply,
         ):
             _apply_default_theme_on_first_run()
 
@@ -672,16 +677,16 @@ class TestRegisterCallbacks:
 
         with (
             patch(
-                "code_puppy.plugins.theme.register_callbacks.get_value",
+                "code_puppy.config.get_value",
                 return_value=None,
             ),
-            patch("code_puppy.plugins.theme.register_callbacks.osc") as mock_osc,
-            patch("code_puppy.plugins.theme.register_callbacks.apply") as mock_apply,
             patch(
-                "code_puppy.plugins.theme.register_callbacks.set_config_value"
-            ) as mock_set,
+                "code_puppy.plugins.theme.osc_palette.get_saved_palette",
+                return_value={"bg": "#123456"},
+            ),
+            patch("code_puppy.plugins.theme.themes.apply") as mock_apply,
+            patch("code_puppy.config.set_config_value") as mock_set,
         ):
-            mock_osc.get_saved_palette.return_value = {"bg": "#123456"}
             _apply_default_theme_on_first_run()
 
         mock_apply.assert_not_called()
@@ -701,9 +706,7 @@ class TestRegisterCallbacks:
     def test_handle_theme_show(self):
         from code_puppy.plugins.theme.register_callbacks import _handle_theme
 
-        with patch(
-            "code_puppy.plugins.theme.register_callbacks.emit_info"
-        ) as mock_info:
+        with patch("code_puppy.messaging.emit_info") as mock_info:
             result = _handle_theme("/theme show", "theme")
         assert result is True
         assert mock_info.called
@@ -711,9 +714,7 @@ class TestRegisterCallbacks:
     def test_handle_theme_unknown_warns(self):
         from code_puppy.plugins.theme.register_callbacks import _handle_theme
 
-        with patch(
-            "code_puppy.plugins.theme.register_callbacks.emit_warning"
-        ) as mock_warn:
+        with patch("code_puppy.messaging.emit_warning") as mock_warn:
             result = _handle_theme("/theme bogus_theme", "theme")
         assert result is True
         assert mock_warn.called
@@ -722,12 +723,12 @@ class TestRegisterCallbacks:
         from code_puppy.plugins.theme.register_callbacks import _handle_theme
 
         with (
-            patch("code_puppy.plugins.theme.register_callbacks.apply") as mock_apply,
-            patch("code_puppy.plugins.theme.register_callbacks.cs"),
-            patch("code_puppy.plugins.theme.register_callbacks.rt"),
-            patch("code_puppy.plugins.theme.register_callbacks.osc"),
-            patch("code_puppy.plugins.theme.register_callbacks.set_config_value"),
-            patch("code_puppy.plugins.theme.register_callbacks.emit_info"),
+            patch("code_puppy.plugins.theme.themes.apply") as mock_apply,
+            patch("code_puppy.plugins.theme.content_styles.apply_content_styles"),
+            patch("code_puppy.plugins.theme.rich_themes.apply_remap"),
+            patch("code_puppy.plugins.theme.osc_palette.apply_palette"),
+            patch("code_puppy.config.set_config_value"),
+            patch("code_puppy.messaging.emit_info"),
         ):
             result = _handle_theme("/theme ocean", "theme")
         assert result is True
@@ -741,7 +742,7 @@ class TestRegisterCallbacks:
                 "code_puppy.plugins.theme.register_callbacks._run_interactive_picker",
                 return_value=None,
             ),
-            patch("code_puppy.plugins.theme.register_callbacks.emit_info") as mock_info,
+            patch("code_puppy.messaging.emit_info") as mock_info,
         ):
             result = _handle_theme("/theme", "theme")
         assert result is True
