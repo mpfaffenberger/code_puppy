@@ -454,10 +454,16 @@ class TestResolverSelfValidation:
         assert lazy is False
 
 
-class TestPersistNamedSessionTemplate:
-    """``success_message_template`` is the /dump_context-vs-silent split."""
+class TestPersistNamedSessionSuccessKey:
+    """``success_message_key`` is the /dump_context-vs-silent split.
 
-    def test_template_omitted_emits_no_success_line(self, tmp_path):
+    The old API took a raw ``success_message_template`` string that the helper
+    ran through ``str.format`` -- unsafe for catalog text (see docs/I18N.md).
+    The new API takes an i18n catalog key that the helper resolves through
+    the hardened ``t()`` interpolator.
+    """
+
+    def test_key_omitted_emits_no_success_line(self, tmp_path):
         """Periodic autosave / -r save-back path: no user-facing success."""
         from unittest.mock import MagicMock, patch
 
@@ -472,11 +478,15 @@ class TestPersistNamedSessionTemplate:
 
         mock_success.assert_not_called()
 
-    def test_template_present_formats_and_emits(self, tmp_path):
-        """/dump_context path: explicit success line via template."""
+    def test_key_present_resolves_and_emits(self, tmp_path):
+        """/dump_context path: explicit success line via catalog key."""
         from unittest.mock import MagicMock, patch
 
+        from code_puppy.i18n import catalog, translate
         from code_puppy.session_lifecycle import persist_named_session
+
+        catalog.reset()
+        translate.set_locale("en-US")
 
         agent = MagicMock()
         agent.get_message_history.return_value = []
@@ -487,18 +497,22 @@ class TestPersistNamedSessionTemplate:
                 agent,
                 "loud_session",
                 base_dir=tmp_path,
-                success_message_template=(
-                    "saved {message_count} msgs for {session_name}"
-                ),
+                success_message_key="cmd.dump_context.success",
             )
 
         mock_success.assert_called_once()
         rendered = mock_success.call_args[0][0]
-        assert "loud_session" in rendered
-        assert "0 msgs" in rendered
+        # Params interpolate into the resolved catalog text via the safe
+        # {identifier}-only grammar in i18n.translate._interpolate.
+        assert "0 messages" in rendered
 
-    def test_template_format_failure_does_not_crash(self, tmp_path):
-        """A bad template must not poison the save path."""
+    def test_unknown_key_does_not_crash(self, tmp_path):
+        """A missing catalog key must not poison the save path.
+
+        ``t()`` falls back to returning the key itself for a missing entry,
+        so the emit is harmless but the save must still succeed. This
+        replaces the old ``str.format``-failure defensive path.
+        """
         from unittest.mock import MagicMock, patch
 
         from code_puppy.session_lifecycle import persist_named_session
@@ -508,12 +522,10 @@ class TestPersistNamedSessionTemplate:
         agent.estimate_tokens_for_message.return_value = 0
 
         with patch("code_puppy.messaging.emit_success"):
-            # Template references a nonexistent substitution key; format()
-            # will raise KeyError, but the helper must swallow it.
             persist_named_session(
                 agent,
                 "session_x",
                 base_dir=tmp_path,
-                success_message_template="bad {does_not_exist} field",
+                success_message_key="cmd.definitely.does.not.exist",
             )
         # If we got here without raising, the contract holds.

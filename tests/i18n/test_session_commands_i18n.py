@@ -72,20 +72,28 @@ def test_compact_keys_interpolate():
     assert "20" in translate.t(
         "cmd.compact.compacting", count=20, strategy="summary", tokens="4,000"
     )
-    assert "summary" in translate.t(
-        "cmd.compact.success",
+    truncation_success = translate.t(
+        "cmd.compact.success.truncation",
         before_count=20,
         after_count=5,
-        strategy_info="via summary",
+        strategy="truncation",
         before_tokens="4,000",
         after_tokens="1,000",
         reduction_pct="75.0",
     )
-    assert "boom" in translate.t("cmd.compact.error", error="boom")
-    assert "truncation" in translate.t(
-        "cmd.compact.strategy.truncation", strategy="truncation"
+    assert "truncation" in truncation_success
+    assert "20" in truncation_success
+    summarization_success = translate.t(
+        "cmd.compact.success.summarization",
+        before_count=20,
+        after_count=5,
+        before_tokens="4,000",
+        after_tokens="1,000",
+        reduction_pct="75.0",
     )
-    assert "summarization" in translate.t("cmd.compact.strategy.summarization")
+    assert "summarization" in summarization_success
+    assert "75.0" in summarization_success
+    assert "boom" in translate.t("cmd.compact.error", error="boom")
 
 
 def test_truncate_keys_interpolate():
@@ -113,6 +121,11 @@ def test_dump_context_keys_interpolate():
     )
     assert "10" in success
     assert "/tmp/ctx.pkl" in success
+    # Load-bearing emoji: the checkmark + folder are part of the /dump_context
+    # UX. Regressing them silently is what triggered the review feedback the
+    # first time -- keep them asserted so future extractions can't drop them.
+    assert "\u2705" in success
+    assert "\U0001f4c1" in success
 
 
 def test_load_context_keys_interpolate():

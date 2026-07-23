@@ -201,17 +201,21 @@ def handle_compact_command(command: str) -> bool:
             else 0
         )
 
-        strategy_info = (
-            t("cmd.compact.strategy.truncation", strategy=compaction_strategy)
+        # Whole-sentence keys per strategy so translators can reorder or
+        # inflect the verb naturally. Do NOT reintroduce a shared success
+        # template with a ``{strategy_info}`` fragment -- fragment gluing
+        # doesn't agree grammatically outside English.
+        success_key = (
+            "cmd.compact.success.truncation"
             if compaction_strategy == "truncation"
-            else t("cmd.compact.strategy.summarization")
+            else "cmd.compact.success.summarization"
         )
         emit_success(
             t(
-                "cmd.compact.success",
+                success_key,
                 before_count=len(history),
                 after_count=len(compacted),
-                strategy_info=strategy_info,
+                strategy=compaction_strategy,
                 before_tokens=f"{before_tokens:,}",
                 after_tokens=f"{after_tokens:,}",
                 reduction_pct=f"{reduction_pct:.1f}",
@@ -390,11 +394,18 @@ def handle_dump_context_command(command: str) -> bool:
         return True
 
     try:
+        # The user-facing success line is preserved verbatim via
+        # ``success_message_key`` so /dump_context UX doesn't regress.
+        # The silent save-back paths (``-r``, periodic autosave) omit the
+        # key and stay quiet. NOTE: we pass a *catalog key*, not raw text --
+        # ``t()`` is the only safe interpolator for catalog strings
+        # (see docs/I18N.md); routing catalog text through ``str.format``
+        # is forbidden.
         persist_named_session(
             agent,
             session_name,
             base_dir=Path(AUTOSAVE_DIR),
-            success_message_template=t("cmd.dump_context.success"),
+            success_message_key="cmd.dump_context.success",
         )
         return True
 
