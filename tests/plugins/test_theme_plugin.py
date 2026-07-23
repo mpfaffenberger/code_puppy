@@ -620,6 +620,37 @@ class TestRegisterCallbacks:
         ):
             assert _termflow_style(default) is default
 
+    def test_prompt_toolkit_style_shim_delegates_to_merge(self):
+        """The lazy shim must forward its argument to merge_with_active_style.
+
+        Regression guard: an earlier version used ``*args, **kwargs`` which
+        silently accepted signatures that would have TypeError'd against the
+        real callable. Keeping this test in place ensures the shim stays a
+        1:1 stand-in.
+        """
+        from code_puppy.plugins.theme.register_callbacks import (
+            _prompt_toolkit_style,
+        )
+
+        sentinel = object()
+        with patch(
+            "code_puppy.plugins.theme.prompt_toolkit_theme.merge_with_active_style",
+            return_value=sentinel,
+        ) as mock_merge:
+            result = _prompt_toolkit_style("input-style")
+
+        assert result is sentinel
+        mock_merge.assert_called_once_with("input-style")
+
+    def test_prompt_toolkit_style_shim_reports_real_callback_name(self):
+        """code_puppy.callbacks logs callback.__name__ on failure; the shim
+        preserves the real symbol name so error output stays useful."""
+        from code_puppy.plugins.theme.register_callbacks import (
+            _prompt_toolkit_style,
+        )
+
+        assert _prompt_toolkit_style.__name__ == "merge_with_active_style"
+
     def test_first_run_applies_tokyo_night(self):
         from code_puppy.plugins.theme.register_callbacks import (
             _apply_default_theme_on_first_run,

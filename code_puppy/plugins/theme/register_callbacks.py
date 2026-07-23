@@ -20,17 +20,26 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+from typing import TYPE_CHECKING
 
 from code_puppy.callbacks import register_callback
 
 # NOTE: Sibling module imports (.themes, .picker, .content_styles, .osc_palette,
 # .rich_themes, .prompt_toolkit_theme) and heavier code_puppy imports
 # (colors_menu, config, messaging) live inside the functions that use them
-# rather than at module scope. This keeps plugin discovery cheap and — more
-# importantly — avoids transitively requiring prompt_toolkit just to load
-# the theme package. Callbacks like _apply_default_theme_on_first_run
-# short-circuit on already-configured installs, so the deferred modules
-# never get loaded on the common launch path.
+# rather than at module scope. This keeps `.picker` (TUI widgets), `.themes`
+# (large color-menu tables), and `.prompt_toolkit_theme` off the plugin-
+# discovery critical path. Combined with the deferred _prompt_toolkit_style
+# shim below, importing this module adds ~10 ms warm / ~30 ms cold on top
+# of the theme package itself.
+#
+# Caveat: this file is NOT the complete picture. code_puppy/plugins/theme/
+# __init__.py still eagerly imports .content_styles / .osc_palette /
+# .rich_themes and calls reapply_from_config() on each, which transitively
+# pulls in ~115 prompt_toolkit modules via code_puppy.messaging.rich_renderer.
+# A follow-up would need to defer the __init__.py sweep too (probably by
+# registering a startup callback that runs the reapply). See the PR discussion
+# for scope rationale.
 
 _INTERACTIVE_TIMEOUT_SECONDS = 300  # 5 min — generous; user is browsing
 _ACTIVE_THEME_CONFIG_KEY = "theme_active_theme"
@@ -248,27 +257,43 @@ def _prompt_text_color(default_color):
     return active[1].get("fg", default_color) if active else default_color
 
 
-def _prompt_toolkit_style(*args, **kwargs):
+if TYPE_CHECKING:
+    from prompt_toolkit.styles import BaseStyle
+
+
+def _prompt_toolkit_style(style: "BaseStyle | None" = None) -> "BaseStyle":
     """Lazy shim for prompt_toolkit_theme.merge_with_active_style.
 
     The real implementation lives in .prompt_toolkit_theme which pulls in
     prompt_toolkit.styles at import time. Deferring the import until the
     prompt_toolkit_style callback actually fires (during REPL init, well
     after startup) keeps that cost off the launch-time critical path.
+
+    Matches the real callable's `(style) -> BaseStyle` shape so a caller
+    passing an unexpected kwarg still gets a TypeError instead of being
+    silently swallowed.
     """
     from .prompt_toolkit_theme import merge_with_active_style
 
-    return merge_with_active_style(*args, **kwargs)
+    return merge_with_active_style(style)
+
+
+# Preserve the real callback's name for observability. code_puppy.callbacks
+# logs callback.__name__ on failure; without this the log would read
+# "_prompt_toolkit_style failed" which is less useful than the real symbol.
+_prompt_toolkit_style.__name__ = "merge_with_active_style"
 
 
 def _apply_default_theme_on_first_run() -> None:
     """Apply Tokyo Night once, preserving explicit and legacy theme choices."""
-    from code_puppy.config import get_value, set_config_value
-
-    from . import osc_palette as osc
+    from code_puppy.config import get_value
 
     if get_value(_ACTIVE_THEME_CONFIG_KEY):
         return
+
+    from code_puppy.config import set_config_value
+
+    from . import osc_palette as osc
 
     if osc.get_saved_palette():
         # Theme persistence predates the active-theme marker. Treat an existing
