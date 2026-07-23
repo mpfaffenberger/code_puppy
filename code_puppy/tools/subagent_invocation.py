@@ -36,6 +36,7 @@ from code_puppy.tools.agent_tools import (
 )
 from code_puppy.tools.common import generate_group_id
 from code_puppy.tools.subagent_context import (
+    get_subagent_chain,
     get_subagent_depth,
     get_subagent_model_name,
     subagent_context,
@@ -55,6 +56,26 @@ def _gpt_5_6_recursion_blocked() -> bool:
     from code_puppy.agents._builder import _is_gpt_5_6_family
 
     return _is_gpt_5_6_family(get_subagent_model_name())
+
+
+def _subagent_identity_prompt(agent_name: str) -> str:
+    """Build explicit nesting context for the child agent's system prompt."""
+    depth = get_subagent_depth() + 1
+    limit = get_subagent_recursion_limit()
+    chain = " -> ".join(("main agent", *get_subagent_chain(), agent_name))
+    remaining = max(limit - depth, 0)
+    return f"""## Sub-agent execution context (mandatory)
+
+You are the sub-agent `{agent_name}`, not the main agent. Your nesting depth is
+{depth} (main agent = 0). Invocation chain: {chain}. The configured maximum
+sub-agent depth is {limit}; {remaining} deeper level(s) remain.
+
+Complete your assigned task directly. NEVER invoke yourself, an agent already in
+the invocation chain, or another agent merely to repeat/continue your own role.
+Default to no further delegation. If delegation is truly essential, invoke at
+most one child level for a narrowly scoped task, tell that child to complete the
+work directly without further delegation, then finish the task yourself. Do not
+create recursive, cyclic, or open-ended agent chains."""
 
 
 async def _invoke_agent_impl(
@@ -204,6 +225,7 @@ async def _invoke_agent_impl(
 
             # Create a temporary agent instance to avoid interfering with current agent state
             instructions = agent_config.get_full_system_prompt()
+            instructions += f"\n\n{_subagent_identity_prompt(agent_name)}"
 
             # Add AGENTS.md content to subagents.
             # ``load_puppy_rules`` lives on the builder module since the
@@ -491,6 +513,12 @@ def register_invoke_agent(agent):
     ) -> AgentInvokeOutput:
         """Invoke a specific sub-agent using its configured model.
 
+        Delegation safety: never invoke yourself or an agent already in the
+        invocation chain. Default to doing the work directly. If delegation is
+        essential, go at most one level deeper for one narrowly scoped task and
+        explicitly tell that child not to delegate further. Never create cyclic,
+        recursive, or open-ended delegation chains.
+
         Args:
             agent_name: Name of the sub-agent to invoke.
             prompt: Task prompt for the sub-agent.
@@ -536,7 +564,10 @@ def register_invoke_agent_with_model(agent):
 
         Use this only when a model override is intentionally required. For
         normal delegation, use invoke_agent so the sub-agent's configured model
-        is respected.
+        is respected. Never invoke yourself or an agent already in the invocation
+        chain. Default to doing the work directly; if delegation is essential,
+        go at most one level deeper for one narrowly scoped task, tell that child
+        not to delegate further, and never create recursive or cyclic chains.
 
         Args:
             agent_name: Name of the sub-agent to invoke.

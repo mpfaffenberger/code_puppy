@@ -12,6 +12,7 @@ from code_puppy.config import (
 from code_puppy.tools.agent_tools import AgentInvokeOutput
 from code_puppy.tools.subagent_context import subagent_context
 from code_puppy.tools.subagent_invocation import (
+    _subagent_identity_prompt,
     _subagent_recursion_blocked,
     register_invoke_agent,
     register_invoke_agent_with_model,
@@ -44,6 +45,33 @@ def test_recursion_guard_allows_calls_below_limit_and_blocks_at_limit():
             assert not _subagent_recursion_blocked()
             with subagent_context("second"):
                 assert _subagent_recursion_blocked()
+
+
+def test_identity_prompt_exposes_child_depth_chain_and_delegation_rules():
+    with (
+        patch(
+            "code_puppy.tools.subagent_invocation.get_subagent_recursion_limit",
+            return_value=4,
+        ),
+        subagent_context("parent"),
+    ):
+        prompt = _subagent_identity_prompt("child")
+
+    normalized_prompt = " ".join(prompt.split())
+    assert "You are the sub-agent `child`, not the main agent" in normalized_prompt
+    assert "nesting depth is 2" in normalized_prompt
+    assert "main agent -> parent -> child" in normalized_prompt
+    assert "2 deeper level(s) remain" in normalized_prompt
+    assert "NEVER invoke yourself" in normalized_prompt
+    assert "at most one child level" in normalized_prompt
+
+
+def test_invocation_tool_docs_warn_against_recursive_delegation():
+    for register_tool in (register_invoke_agent, register_invoke_agent_with_model):
+        doc = _capture_tool(register_tool).__doc__
+        assert "never invoke yourself" in doc.lower()
+        assert "at most one level deeper" in doc.lower()
+        assert "recursive" in doc.lower()
 
 
 def _capture_tool(register_tool):
