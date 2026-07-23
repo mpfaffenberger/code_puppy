@@ -300,14 +300,14 @@ def _handle_theme(command: str, name: str):
             emit_error(f"Theme picker failed: {e}")
             return True
         if chosen is None:
-            emit_info("\U0001f3a8 Theme unchanged.")
+            emit_info("🎨 Theme unchanged.")
             return True
         _apply_theme(chosen)
         return True
 
     if sub == "show":
         emit_info(
-            "\U0001f3a8 Current theme:\n"
+            "🎨 Current theme:\n"
             "Banners:\n"
             + _format_banner_mapping(get_all_banner_colors())
             + "\nContent text:\n"
