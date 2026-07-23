@@ -178,21 +178,28 @@ def test_single_file_pure_variable_fstring_not_raw(tmp_path, capsys):
     assert payload["dynamic"] == 1
 
 
-def test_nonexistent_path_warns_and_returns_empty(tmp_path, capsys):
+def test_nonexistent_path_raises(tmp_path, capsys):
     """A typo'd path must not silently report 100% coverage.
 
-    Previously ``_iter_py_files('/does/not/exist')`` returned ``[]`` and
-    ``audit_tree`` happily reported ``coverage: 100%, raw: 0`` — the
-    exact silent-zero bug this PR was created to fix. Now the tool
-    emits a warning to stderr and returns an empty report cleanly.
+    Previously ``audit_tree('/does/not/exist')`` returned an empty
+    ``Report`` whose ``coverage`` property is ``100.0``, so
+    ``--fail-under`` would happily pass on a typo'd path and tell CI
+    everything was fine. Fail loud instead: this is a
+    programming/config error, so ``FileNotFoundError`` propagates all
+    the way out of ``main()`` and produces a nonzero exit.
     """
+    import pytest
+
     missing = tmp_path / "totally-not-real"
     assert not missing.exists()
-    report = audit.audit_tree(str(missing))
-    captured = capsys.readouterr()
-    assert report.sites == []
-    assert "does not exist" in captured.err
-    assert str(missing) in captured.err
+
+    # audit_tree raises directly.
+    with pytest.raises(FileNotFoundError):
+        audit.audit_tree(str(missing))
+
+    # And main() lets it propagate — no accidental swallow, no exit 0.
+    with pytest.raises(FileNotFoundError):
+        audit.main([str(missing)])
 
 
 # --- integration smoke ----------------------------------------------------

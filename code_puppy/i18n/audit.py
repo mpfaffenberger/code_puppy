@@ -244,12 +244,13 @@ def _iter_py_files(root: str) -> Iterable[str]:
 
 def audit_tree(root: str) -> Report:
     """Audit every Python module under ``root``, or ``root`` itself when it is a ``.py`` file."""
-    report = Report()
     if not os.path.isdir(root) and not os.path.isfile(root):
-        # Silent-zero is worse than useless — it tells CI that a typo'd
-        # path has "100% coverage". Fail loud instead.
-        print(f"warning: {root!r} does not exist", file=sys.stderr)
-        return report
+        # Silent-zero is worse than useless — an empty Report has
+        # coverage == 100.0, so a typo'd path would sail past
+        # ``--fail-under`` and tell CI everything is fine. Fail loud:
+        # this is a config/programming error, not a data condition.
+        raise FileNotFoundError(f"audit root does not exist: {root!r}")
+    report = Report()
     for path in sorted(_iter_py_files(root)):
         try:
             with open(path, "r", encoding="utf-8") as fh:
