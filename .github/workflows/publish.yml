@@ -11,6 +11,13 @@ on:
     branches:
       - main
 
+# Serialize publishes: two back-to-back pushes once raced, both bumped to the
+# same patch version, and the loser stranded git a version behind PyPI.
+# Queue (never cancel) so every push still gets released, one at a time.
+concurrency:
+  group: pypi-publish
+  cancel-in-progress: false
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -143,7 +150,10 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: uv run twine upload --verbose dist/*
+        # --skip-existing: if a version already reached PyPI from a run that
+        # died before pushing its bump commit, warn instead of failing so the
+        # bump+tag still land and the next run moves past the collision.
+        run: uv run twine upload --verbose --skip-existing dist/*
 
       - name: Push version bump and tag to GitHub
         if: ${{ success() }}
