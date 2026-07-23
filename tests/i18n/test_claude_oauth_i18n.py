@@ -23,6 +23,7 @@ OAUTH_PREFIXES = (
     "oauth.reauth.",
     "oauth.cmd.",
     "oauth.model.",
+    "oauth.claude.",
 )
 
 
@@ -95,13 +96,13 @@ def test_status_keys_interpolate():
     translate.set_locale("en-US")
     assert "2" in translate.t("oauth.cmd.status.expires", hours=2, minutes=30)
     assert "30" in translate.t("oauth.cmd.status.expires", hours=2, minutes=30)
-    assert "claude-3" in translate.t("oauth.cmd.status.models", models="claude-3")
+    assert "claude-3" in translate.t("oauth.claude.cmd.status.models", models="claude-3")
 
 
 def test_fast_keys_interpolate():
     translate.set_locale("en-US")
-    assert "opus" in translate.t("oauth.cmd.fast.enabled", model="opus")
-    assert "opus" in translate.t("oauth.cmd.fast.disabled", model="opus")
+    assert "opus" in translate.t("oauth.claude.cmd.fast.enabled", model="opus")
+    assert "opus" in translate.t("oauth.claude.cmd.fast.disabled", model="opus")
 
 
 def test_logout_keys_interpolate():
@@ -111,7 +112,7 @@ def test_logout_keys_interpolate():
 
 def test_model_no_api_key_interpolates():
     translate.set_locale("en-US")
-    assert "my-model" in translate.t("oauth.model.no_api_key", model="my-model")
+    assert "my-model" in translate.t("oauth.claude.model.no_api_key", model="my-model")
 
 
 def test_no_leftover_placeholders():

@@ -205,7 +205,7 @@ def _await_callback(context: OAuthContext) -> Optional[str]:
     if started:
         server, result, event = started
     else:
-        emit_warning(t("oauth.server.pasteback_mode"))
+        emit_warning(t("oauth.claude.server.pasteback_mode"))
         if not _assign_manual_redirect_uri(context):
             return None
 
@@ -226,10 +226,10 @@ def _await_callback(context: OAuthContext) -> Optional[str]:
 
         suppress_browser = should_suppress_browser()
         if suppress_browser:
-            emit_info(t("oauth.browser.headless"))
+            emit_info(t("oauth.claude.browser.headless"))
             emit_info(t("oauth.browser.headless_url", url=auth_url))
         else:
-            emit_info(t("oauth.browser.opening"))
+            emit_info(t("oauth.claude.browser.opening"))
             webbrowser.open(auth_url)
             emit_info(t("oauth.browser.fallback_url", url=auth_url))
     except Exception as exc:  # pragma: no cover
@@ -290,24 +290,24 @@ def _perform_authentication() -> None:
         emit_error(t("oauth.auth.save_failed"))
         return
 
-    emit_success(t("oauth.auth.success"))
+    emit_success(t("oauth.claude.auth.success"))
 
     access_token = tokens.get("access_token")
     if not access_token:
         emit_warning(t("oauth.auth.no_access_token"))
         return
 
-    emit_info(t("oauth.auth.fetching_models"))
+    emit_info(t("oauth.claude.auth.fetching_models"))
     models = fetch_claude_code_models(access_token)
     if not models:
-        emit_warning(t("oauth.auth.no_models"))
+        emit_warning(t("oauth.claude.auth.no_models"))
         return
 
     emit_info(
         t("oauth.auth.discovered_models", count=len(models), models=", ".join(models))
     )
     if add_models_to_extra_config(models):
-        emit_success(t("oauth.auth.models_added"))
+        emit_success(t("oauth.claude.auth.models_added"))
 
 
 def _reauthenticate_after_expired_oauth(model_name: str) -> Optional[str]:
@@ -319,15 +319,15 @@ def _reauthenticate_after_expired_oauth(model_name: str) -> Optional[str]:
         )
         return None
 
-    emit_warning(t("oauth.reauth.refresh_failed"))
+    emit_warning(t("oauth.claude.reauth.refresh_failed"))
     _perform_authentication()
 
     access_token = get_valid_access_token()
     if access_token:
-        emit_success(t("oauth.reauth.restored"))
+        emit_success(t("oauth.claude.reauth.restored"))
         return access_token
 
-    emit_error(t("oauth.reauth.no_token"))
+    emit_error(t("oauth.claude.reauth.no_token"))
     return None
 
 
@@ -336,10 +336,10 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
         return None
 
     if name == "claude-code-auth":
-        emit_info(t("oauth.cmd.auth.starting"))
+        emit_info(t("oauth.claude.cmd.auth.starting"))
         tokens = load_stored_tokens()
         if tokens and tokens.get("access_token"):
-            emit_warning(t("oauth.cmd.auth.overwrite_warning"))
+            emit_warning(t("oauth.claude.cmd.auth.overwrite_warning"))
         _perform_authentication()
         set_model_and_reload_agent("claude-code-claude-opus-4-8-long")
         return True
@@ -347,7 +347,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     if name == "claude-code-status":
         tokens = load_stored_tokens()
         if tokens and tokens.get("access_token"):
-            emit_success(t("oauth.cmd.status.authenticated"))
+            emit_success(t("oauth.claude.cmd.status.authenticated"))
             expires_at = tokens.get("expires_at")
             if expires_at:
                 remaining = max(0, int(expires_at - time.time()))
@@ -360,12 +360,12 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
                 if cfg.get("oauth_source") == "claude-code-plugin"
             ]
             if claude_models:
-                emit_info(t("oauth.cmd.status.models", models=", ".join(claude_models)))
+                emit_info(t("oauth.claude.cmd.status.models", models=", ".join(claude_models)))
             else:
-                emit_warning(t("oauth.cmd.status.no_models"))
+                emit_warning(t("oauth.claude.cmd.status.no_models"))
         else:
-            emit_warning(t("oauth.cmd.status.not_authenticated"))
-            emit_info(t("oauth.cmd.status.hint"))
+            emit_warning(t("oauth.claude.cmd.status.not_authenticated"))
+            emit_info(t("oauth.claude.cmd.status.hint"))
         return True
 
     if name == "claude-code-fast":
@@ -376,7 +376,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
 
         active_model = get_global_model_name() or ""
         if not active_model.startswith(CLAUDE_CODE_OAUTH_CONFIG["prefix"]):
-            emit_warning(t("oauth.cmd.fast.wrong_model"))
+            emit_warning(t("oauth.claude.cmd.fast.wrong_model"))
             return True
 
         currently_on = is_fast_mode_enabled(active_model)
@@ -385,10 +385,10 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
         set_model_setting(active_model, FAST_SETTING_KEY, str(new_value).lower())
 
         if new_value:
-            emit_success(t("oauth.cmd.fast.enabled", model=active_model))
-            emit_info(t("oauth.cmd.fast.enabled_detail"))
+            emit_success(t("oauth.claude.cmd.fast.enabled", model=active_model))
+            emit_info(t("oauth.claude.cmd.fast.enabled_detail"))
         else:
-            emit_info(t("oauth.cmd.fast.disabled", model=active_model))
+            emit_info(t("oauth.claude.cmd.fast.disabled", model=active_model))
 
         # Reload agent so the anthropic-beta header update (set at client
         # construction time) takes effect. Payload side is live either way.
@@ -399,13 +399,13 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
         token_path = get_token_storage_path()
         if token_path.exists():
             token_path.unlink()
-            emit_info(t("oauth.cmd.logout.tokens_removed"))
+            emit_info(t("oauth.claude.cmd.logout.tokens_removed"))
 
         removed = remove_claude_code_models()
         if removed:
             emit_info(t("oauth.cmd.logout.models_removed", count=removed))
 
-        emit_success(t("oauth.cmd.logout.success"))
+        emit_success(t("oauth.claude.cmd.logout.success"))
         return True
 
     return None
@@ -451,7 +451,7 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
 
     if not api_key:
         emit_warning(
-            t("oauth.model.no_api_key", model=model_config.get("name") or "(unknown)")
+            t("oauth.claude.model.no_api_key", model=model_config.get("name") or "(unknown)")
         )
         return None
 
