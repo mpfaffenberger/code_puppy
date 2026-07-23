@@ -634,9 +634,7 @@ class TestRegisterCallbacks:
             patch(
                 "code_puppy.plugins.theme.content_styles.apply_content_styles"
             ) as mock_cs_apply,
-            patch(
-                "code_puppy.plugins.theme.rich_themes.apply_remap"
-            ) as mock_rt_apply,
+            patch("code_puppy.plugins.theme.rich_themes.apply_remap") as mock_rt_apply,
             patch(
                 "code_puppy.plugins.theme.osc_palette.get_saved_palette",
                 return_value=None,
