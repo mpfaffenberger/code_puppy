@@ -148,7 +148,7 @@
   "cmd.model.cancelled": "Model selection cancelled",
   "cmd.model.usage": "Usage: /model <model-name> or /m <model-name>",
   "cmd.model.available": "Available models: {models}",
-  "cmd.model.picker_failed": "Model picker failed to open: {error}",
+  "cmd.model.picker_failed": "Interactive picker failed: {error}",
   "cmd.add_model.success": "Successfully added model configuration",
   "cmd.add_model.failed": "Failed to launch model browser: {error}",
   "cmd.model_settings.success": "Model settings updated successfully",
