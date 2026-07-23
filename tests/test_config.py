@@ -339,6 +339,7 @@ class TestGetConfigKeys:
                 "summarization_model",
                 "suppress_directory_listing",
                 "temperature",
+                "timestamp_heartbeat_interval",
                 "yolo_mode",
             ]
         )
@@ -407,6 +408,7 @@ class TestGetConfigKeys:
                 "summarization_model",
                 "suppress_directory_listing",
                 "temperature",
+                "timestamp_heartbeat_interval",
                 "yolo_mode",
             ]
         )
