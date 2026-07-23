@@ -9,25 +9,82 @@
 | Scenario | Wall time |
 |---|---:|
 | `code-puppy --version` (warm) | **1.63 s** |
-| `code-puppy` → interactive prompt (warm) | **2.29 – 2.69 s** |
+| `code-puppy` → interactive prompt, healthy network | **2.4 s** (median) |
+| `code-puppy` → interactive prompt, degraded network | **13–18 s** (observed live) |
 | `code-puppy --version` (cold cache) | ~11.9 s |
 
-Two things dominate steady-state launch:
+**Two things dominate steady-state launch:**
 
-1. **Eager plugin discovery** at import time loads all ~50 built-in plugins,
-   even for `--version` / `--help` / no-op invocations.
-2. **The `theme` plugin alone accounts for ~267 ms** — bigger than every other
-   plugin combined.
+1. **`pypi.org` version check** — costs ~0.8 s on a healthy network,
+   blows out to 10–18 s when pypi.org is unreachable through the Walmart
+   `sysproxy.wal-mart.com` (observed live). This is the single biggest
+   source of “why is Code Puppy so slow?” complaints.
+2. **Eager plugin discovery** loads all ~50 built-in plugins for both
+   paths. The individual plugin cost is 300–900 modules per plugin (see
+   §2), but this is a shared cost that both `--version` and interactive
+   pay.
 
-Everything else is either a small constant cost (agents/tools/pydantic-ai/openai
-import graphs, ~600 ms combined) or a runtime concern that never fires at
-startup on a healthy path (network version check, MCP autostart, etc.).
+**Two important non-issues that earlier drafts of this report got wrong:**
+
+- Skipping plugin discovery on `--version`/`--help` **does not help
+  interactive launch** — humans always pay the plugin cost. It's a
+  script/CI optimisation, not a UX fix.
+- The `theme` plugin's own `register_callbacks` import is **~10 ms, not
+  ~267 ms**. The 267 ms figure came from single-shot cold-import
+  measurement where `prompt_toolkit` was loading for the first time.
+  Corrected below.
+## Revised priorities (2026-07-22, based on interactive-launch profiling)
+
+The original priority ordering below (P1-P5) was scored against
+`--version` timing. After profiling actual interactive launch and
+per-plugin isolated imports, the ordering has shifted substantially.
+Use this table, not the section headers below:
+
+| bd | New priority | Fix | Measured impact |
+|---|:---:|---|---|
+| `code_puppy-oss-0wh` | **P1** | Async pypi version check | **0.8 s median, up to 13-18 s tail** (was P5) |
+| `code_puppy-oss-2dn` | **P2** | Fix claude_code_oauth pulling in full OpenAI SDK (557 mods) | ~200 ms |
+| `code_puppy-oss-h6q` | **P2** | Lazy-load pydantic_ai (biggest fish; per-plugin +52 mods) | ~50-100 ms |
+| `code_puppy-oss-d99` | **P3** | Lazy playwright (aws_bedrock + claude_code_oauth pull it in) | ~50 ms |
+| `code_puppy-oss-mdu` | shipped | Theme plugin lazy imports (P1 in old ordering) | ~10 ms warm (marginal) |
+| `code_puppy-oss-q2q` | **P4** | Skip plugins on `--version`/`--help` (was P2) | ~350 ms on `--version` only; **zero for interactive users** |
+
+### Per-plugin isolated-import profile
+
+Run with a fresh `sys.modules` snapshot before/after each plugin's
+`register_callbacks` import (see §Measurement Methodology):
+
+| Plugin | Total modules added | Notable heavies |
+|---|---:|---|
+| `claude_code_oauth` | +2173 | openai(557) anthropic(445) pydantic_ai(56) playwright(53) httpx(23) |
+| `theme` (main branch) | +940 | pydantic_ai(52) prompt_toolkit(115) rich(60) |
+| `aws_bedrock` | +932 | pydantic_ai(52) playwright(53) |
+| `theme` (after `code_puppy-oss-mdu`) | verified: **no** picker/themes/prompt_toolkit_theme/bundled_palettes | |
+| `obsidian_agent` | +? | pydantic_ai(19) mcp(82) |
+
+Takeaways:
+
+- **`pydantic_ai` (~52 modules) loads per-plugin**, so a single root
+  import point is the leverage lever — likely via the type imports in
+  the plugin/agent registration API.
+- **Two plugins unexpectedly pull in playwright** (aws_bedrock,
+  claude_code_oauth). Neither has anything to do with browser
+  automation. This is a `code_puppy.tools`-level bug: registering
+  browser tools should not require importing playwright.
+- **claude_code_oauth pulls in the entire OpenAI SDK.** A plugin for
+  Claude authentication should not need OpenAI's Python client. Filed
+  as `code_puppy-oss-2dn`.
+
+### Everything below this line reflects the older `--version`-focused analysis. Keep it for reference, but score against the table above.
+
+---
 
 ## Measurement Methodology
 
-All measurements executed against the local repo checkout with a stale but
-functional venv (`0.0.652` wheels + `0.0.658` source — the dep graph is
-compatible).
+All measurements executed against the local repo checkout with a stable
+venv (compatible with the source's dependency graph).
+
+### `--version` timing
 
 ```bash
 # Warm cache: 2 throwaway runs to prime .pyc caches and filesystem
@@ -39,8 +96,45 @@ for i in 1 2 3; do
 done
 ```
 
-Import profiles collected via `python -X importtime` and a monkey-patched
-`importlib.import_module` that filters to `code_puppy.plugins.*.register_callbacks`.
+### Interactive launch timing (added 2026-07-22)
+
+Pipe `/exit` to stdin so the REPL terminates deterministically after it
+renders the first prompt. `prompt_toolkit` prints a
+"Input is not a terminal" warning to stderr; that's expected and
+harmless for perf measurement:
+
+```bash
+for i in 1 2 3 4 5; do
+    { /usr/bin/time -p sh -c \
+        'echo /exit | .venv/bin/python -m code_puppy.main >/dev/null'; \
+    } 2>&1 | awk '/real/ {print $2}'
+done
+```
+
+### Per-plugin isolated import (added 2026-07-22)
+
+For each plugin, snapshot `sys.modules` before and after importing its
+`register_callbacks`, then bucket the delta by heavy library:
+
+```python
+import sys, os
+from importlib import import_module
+
+import code_puppy  # baseline
+before = set(sys.modules)
+sys.stdout = open(os.devnull, 'w')  # silence theme reapply OSC escapes
+import_module(f'code_puppy.plugins.{plugin_name}.register_callbacks')
+added = set(sys.modules) - before
+
+for lib in ('openai', 'anthropic', 'pydantic_ai', 'mcp', 'playwright'):
+    n = sum(1 for m in added if m == lib or m.startswith(lib + '.'))
+    if n:
+        print(f'  {lib}: +{n}')
+```
+
+Import profiles also collected via `python -X importtime` and a
+monkey-patched `importlib.import_module` that filters to
+`code_puppy.plugins.*.register_callbacks`.
 
 ## Where the Time Goes
 
