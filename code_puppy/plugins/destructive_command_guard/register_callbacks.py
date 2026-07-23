@@ -57,12 +57,10 @@ async def destructive_command_guard_callback(
 
 
     match = detect_destructive_command(command)
-    emit_info(match)
     if match is None:
         return None
 
     if match.block_immediately:
-        emit_info("made it here")
         return _block_command(match.pattern_name, match)
 
     # --- Interactive TTY: ask the user ---
