@@ -96,7 +96,9 @@ def test_status_keys_interpolate():
     translate.set_locale("en-US")
     assert "2" in translate.t("oauth.cmd.status.expires", hours=2, minutes=30)
     assert "30" in translate.t("oauth.cmd.status.expires", hours=2, minutes=30)
-    assert "claude-3" in translate.t("oauth.claude.cmd.status.models", models="claude-3")
+    assert "claude-3" in translate.t(
+        "oauth.claude.cmd.status.models", models="claude-3"
+    )
 
 
 def test_fast_keys_interpolate():

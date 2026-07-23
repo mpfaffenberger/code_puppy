@@ -360,7 +360,9 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
                 if cfg.get("oauth_source") == "claude-code-plugin"
             ]
             if claude_models:
-                emit_info(t("oauth.claude.cmd.status.models", models=", ".join(claude_models)))
+                emit_info(
+                    t("oauth.claude.cmd.status.models", models=", ".join(claude_models))
+                )
             else:
                 emit_warning(t("oauth.claude.cmd.status.no_models"))
         else:
@@ -451,7 +453,10 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
 
     if not api_key:
         emit_warning(
-            t("oauth.claude.model.no_api_key", model=model_config.get("name") or "(unknown)")
+            t(
+                "oauth.claude.model.no_api_key",
+                model=model_config.get("name") or "(unknown)",
+            )
         )
         return None
 
