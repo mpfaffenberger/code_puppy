@@ -108,7 +108,9 @@ jobs:
           python-version: '3.13'
 
       - name: Install dev dependencies (ruff)
-        run: pip install ruff
+        # Keep in sync with the ruff pin in pyproject.toml. Unpinned ruff let
+        # 0.16.0 sneak in and change the default rule set (5,901 "new" errors).
+        run: pip install 'ruff>=0.15,<0.16'
 
       - name: Install code_puppy
         run: pip install .
