@@ -68,7 +68,9 @@ def _coerce_token_count(value: Any) -> int | None:
     return None
 
 
-def _pick_reported_tokens(usage: Any, detail_keys: tuple[str, ...], attr: str) -> int | None:
+def _pick_reported_tokens(
+    usage: Any, detail_keys: tuple[str, ...], attr: str
+) -> int | None:
     """Return a reported token count, preferring the provider ``details`` dict.
 
     The ``details`` dict only contains keys a provider actually sent, so when a
@@ -125,7 +127,8 @@ def _extract_usage_metrics(usage: Any) -> dict[str, int | None]:
         return metrics
 
     cache_read = _pick_reported_tokens(
-        usage, ("cache_read_input_tokens", "cached_content_tokens"),
+        usage,
+        ("cache_read_input_tokens", "cached_content_tokens"),
         "cache_read_tokens",
     )
     cache_creation = _pick_reported_tokens(
@@ -149,7 +152,11 @@ def _extract_usage_metrics(usage: Any) -> dict[str, int | None]:
 
     total_tokens = _coerce_token_count(getattr(usage, "total_tokens", None))
     if total_tokens is None:
-        parts = [p for p in (input_tokens, cache_read, cache_creation, output_tokens) if p is not None]
+        parts = [
+            p
+            for p in (input_tokens, cache_read, cache_creation, output_tokens)
+            if p is not None
+        ]
         if parts:
             total_tokens = sum(parts)
 

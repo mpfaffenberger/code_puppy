@@ -93,36 +93,48 @@ async def _run_invoke(*, usage=None, usage_raises=False, run_raises=False, perf=
 
     with ExitStack() as stack:
         p = stack.enter_context
-        p(patch(
-            "code_puppy.tools.subagent_invocation.generate_group_id",
-            return_value="test-group",
-        ))
+        p(
+            patch(
+                "code_puppy.tools.subagent_invocation.generate_group_id",
+                return_value="test-group",
+            )
+        )
         p(patch("code_puppy.tools.subagent_invocation.get_message_bus"))
-        p(patch(
-            "code_puppy.tools.subagent_invocation.get_session_context",
-            return_value="parent",
-        ))
+        p(
+            patch(
+                "code_puppy.tools.subagent_invocation.get_session_context",
+                return_value="parent",
+            )
+        )
         p(patch("code_puppy.tools.subagent_invocation.set_session_context"))
         p(patch("code_puppy.tools.subagent_invocation.emit_info"))
         p(patch("code_puppy.tools.subagent_invocation.emit_error"))
         p(patch("code_puppy.tools.subagent_invocation.emit_success"))
         p(patch("code_puppy.tools.subagent_invocation._save_session_history"))
-        p(patch(
-            "code_puppy.tools.subagent_invocation._load_session_history",
-            return_value=[],
-        ))
-        p(patch(
-            "code_puppy.tools.subagent_invocation._generate_session_hash_suffix",
-            return_value="abc123",
-        ))
-        p(patch(
-            "code_puppy.agents.agent_manager.load_agent",
-            return_value=agent_config,
-        ))
-        p(patch(
-            "code_puppy.model_factory.ModelFactory.load_config",
-            return_value={"default-model": {}, "override-model": {}},
-        ))
+        p(
+            patch(
+                "code_puppy.tools.subagent_invocation._load_session_history",
+                return_value=[],
+            )
+        )
+        p(
+            patch(
+                "code_puppy.tools.subagent_invocation._generate_session_hash_suffix",
+                return_value="abc123",
+            )
+        )
+        p(
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=agent_config,
+            )
+        )
+        p(
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value={"default-model": {}, "override-model": {}},
+            )
+        )
         p(patch("code_puppy.model_factory.ModelFactory.get_model"))
         p(patch("code_puppy.model_factory.make_model_settings"))
         p(patch("code_puppy.agents._builder.load_puppy_rules", return_value=None))
@@ -131,40 +143,54 @@ async def _run_invoke(*, usage=None, usage_raises=False, run_raises=False, perf=
         mock_prepare.return_value = MagicMock(
             instructions="prepared instructions", user_prompt="prepared prompt"
         )
-        p(patch(
-            "code_puppy.agents._builder.autostart_bound_servers_async",
-            new=AsyncMock(),
-        ))
+        p(
+            patch(
+                "code_puppy.agents._builder.autostart_bound_servers_async",
+                new=AsyncMock(),
+            )
+        )
         # Disable MCP so no manager/servers are touched.
         p(patch("code_puppy.config.get_value", return_value="true"))
         p(patch("code_puppy.config.get_output_level", return_value="medium"))
-        p(patch(
-            "code_puppy.agents._compaction.make_history_processor",
-            return_value=lambda messages: messages,
-        ))
-        p(patch(
-            "code_puppy.tools.subagent_invocation.Agent",
-            return_value=mock_temp_agent,
-        ))
+        p(
+            patch(
+                "code_puppy.agents._compaction.make_history_processor",
+                return_value=lambda messages: messages,
+            )
+        )
+        p(
+            patch(
+                "code_puppy.tools.subagent_invocation.Agent",
+                return_value=mock_temp_agent,
+            )
+        )
         p(patch("code_puppy.tools.register_tools_for_agent"))
-        p(patch(
-            "code_puppy.tools.subagent_invocation.on_wrap_pydantic_agent",
-            side_effect=lambda _cfg, agent, **_kwargs: agent,
-        ))
-        p(patch(
-            "code_puppy.tools.subagent_invocation.on_agent_run_context",
-            return_value=[],
-        ))
+        p(
+            patch(
+                "code_puppy.tools.subagent_invocation.on_wrap_pydantic_agent",
+                side_effect=lambda _cfg, agent, **_kwargs: agent,
+            )
+        )
+        p(
+            patch(
+                "code_puppy.tools.subagent_invocation.on_agent_run_context",
+                return_value=[],
+            )
+        )
         # Pass-through retry: run once, no backoff, so failures propagate fast.
-        p(patch(
-            "code_puppy.agents.retry_profiles.make_streaming_retry",
-            new=_passthrough_retry,
-        ))
+        p(
+            patch(
+                "code_puppy.agents.retry_profiles.make_streaming_retry",
+                new=_passthrough_retry,
+            )
+        )
         if perf is not None:
-            p(patch(
-                "code_puppy.tools.subagent_invocation.time.perf_counter",
-                side_effect=perf,
-            ))
+            p(
+                patch(
+                    "code_puppy.tools.subagent_invocation.time.perf_counter",
+                    side_effect=perf,
+                )
+            )
 
         return await invoke(
             mock_context,
