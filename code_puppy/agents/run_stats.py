@@ -323,7 +323,9 @@ _HIGH_MODE_RESULT_FOOTER_THRESHOLD = 50
 
 # Tool names whose response has already been rendered inline (streamed or
 # via display_non_streamed_result) and should NOT be dumped again.
-_ALREADY_RENDERED_TOOLS = frozenset({"invoke_agent", "invoke_agent_with_model"})
+_ALREADY_RENDERED_TOOLS = frozenset(
+    {"invoke_agent", "invoke_agent_with_model", "invoke_agents"}
+)
 
 # Tools whose output is already rendered by the rich_renderer via MessageBus
 # messages (FileContentMessage, DiffMessage, GrepResultMessage, etc.).
@@ -462,8 +464,30 @@ def _render_high_mode_agent_result(
     result: Any,
     dur_str: str,
 ) -> None:
-    """Compact one-liner for invoke_agent / invoke_agent_with_model results."""
+    """Compact one-liner for invoke_agent(s) results.
+
+    ``invoke_agent`` / ``invoke_agent_with_model`` return a single
+    ``AgentInvokeOutput``; ``invoke_agents`` returns a *list* of them. Handle
+    both so the batch fan-out gets a useful OK/FAIL summary instead of "?".
+    """
     from rich.markup import escape as _esc
+
+    # Batch result (invoke_agents): summarise per-agent success/failure.
+    if isinstance(result, (list, tuple)):
+        total = len(result)
+        ok = sum(1 for r in result if getattr(r, "error", None) is None)
+        failed = total - ok
+        status = (
+            f"[green]{ok} OK[/green]"
+            if failed == 0
+            else f"[green]{ok} OK[/green] / [red]{failed} FAIL[/red]"
+        )
+        names = ", ".join(getattr(r, "agent_name", None) or "?" for r in result)
+        console.print(
+            f"[dim]  \u21a9 {_esc(tool_name)} returned ({dur_str} ms): "
+            f"{total} sub-agent(s) {status} \u2014 {_esc(names)}[/dim]"
+        )
+        return
 
     agent_name = getattr(result, "agent_name", None) or "?"
     error = getattr(result, "error", None)

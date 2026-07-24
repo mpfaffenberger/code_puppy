@@ -35,6 +35,7 @@ It also handles request/response correlation for user interactions:
 import asyncio
 import queue
 import threading
+from contextvars import ContextVar, Token
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
@@ -55,6 +56,16 @@ from .messages import (
     SelectionRequest,
     TextMessage,
     UserInputRequest,
+)
+
+# Session context lives in a ContextVar (NOT a plain shared attribute) so that
+# concurrently-running sub-agents each get an isolated copy. ``asyncio`` copies
+# the current context when a Task is created, so every fanned-out sub-agent
+# invocation sees its own session id and can't clobber a sibling's. This mirrors
+# the per-session browser isolation in ``browser_manager`` — same pattern, one
+# source of truth for "who am I right now".
+_session_context_var: ContextVar[Optional[str]] = ContextVar(
+    "code_puppy_session_id", default=None
 )
 
 
@@ -89,8 +100,8 @@ class MessageBus:
         # Request/Response correlation: prompt_id → Future (for async usage)
         self._pending_requests: Dict[str, asyncio.Future[Any]] = {}
 
-        # Session context for multi-agent tracking
-        self._current_session_id: Optional[str] = None
+        # Session context for multi-agent tracking lives in a module-level
+        # ContextVar (see top of file) so parallel sub-agents stay isolated.
 
     # =========================================================================
     # Outgoing Messages (Agent → UI)
@@ -106,10 +117,13 @@ class MessageBus:
         Args:
             message: The message to emit.
         """
-        # Auto-tag message with current session if not already set
+        # Auto-tag message with current session if not already set. The session
+        # id comes from the ContextVar so it's correct per-task even when many
+        # sub-agents run concurrently.
+        current_session_id = _session_context_var.get()
         with self._lock:
-            if message.session_id is None and self._current_session_id is not None:
-                message.session_id = self._current_session_id
+            if message.session_id is None and current_session_id is not None:
+                message.session_id = current_session_id
 
             if not self._has_active_renderer:
                 self._startup_buffer.append(message)
@@ -181,17 +195,32 @@ class MessageBus:
     # Session Context (Multi-Agent Tracking)
     # =========================================================================
 
-    def set_session_context(self, session_id: Optional[str]) -> None:
+    def set_session_context(self, session_id: Optional[str]) -> Token:
         """Set the current session context for auto-tagging messages.
 
         When set, all messages emitted via emit() will be automatically tagged
         with this session_id unless they already have one set.
 
+        Returns a ``Token`` that callers MUST hand back to
+        ``reset_session_context`` (typically in a ``finally``) so the previous
+        value is restored without the racey "save the old value, restore it
+        later" dance that breaks under concurrency.
+
         Args:
             session_id: The session ID to tag messages with, or None to clear.
+
+        Returns:
+            A contextvars ``Token`` for restoring the prior context.
         """
-        with self._lock:
-            self._current_session_id = session_id
+        return _session_context_var.set(session_id)
+
+    def reset_session_context(self, token: Token) -> None:
+        """Restore the session context to the value captured by ``token``.
+
+        Args:
+            token: The ``Token`` returned by a prior ``set_session_context``.
+        """
+        _session_context_var.reset(token)
 
     def get_session_context(self) -> Optional[str]:
         """Get the current session context.
@@ -199,8 +228,7 @@ class MessageBus:
         Returns:
             The current session_id, or None if not set.
         """
-        with self._lock:
-            return self._current_session_id
+        return _session_context_var.get()
 
     # =========================================================================
     # User Input Requests (Agent waits for UI response)
@@ -594,9 +622,17 @@ def emit_shell_line(line: str, stream: str = "stdout") -> None:
     get_message_bus().emit_shell_line(line, stream)
 
 
-def set_session_context(session_id: Optional[str]) -> None:
-    """Set the session context on the global bus."""
-    get_message_bus().set_session_context(session_id)
+def set_session_context(session_id: Optional[str]) -> Token:
+    """Set the session context on the global bus.
+
+    Returns a ``Token`` to pass to ``reset_session_context`` when done.
+    """
+    return get_message_bus().set_session_context(session_id)
+
+
+def reset_session_context(token: Token) -> None:
+    """Restore the session context using a token from ``set_session_context``."""
+    get_message_bus().reset_session_context(token)
 
 
 def get_session_context() -> Optional[str]:
@@ -624,5 +660,6 @@ __all__ = [
     "emit_shell_line",
     # Session context
     "set_session_context",
+    "reset_session_context",
     "get_session_context",
 ]

@@ -273,6 +273,7 @@ from code_puppy.tools.subagent_invocation import (  # noqa: E402
     _active_subagent_tasks,
     register_invoke_agent,
     register_invoke_agent_with_model,
+    register_invoke_agents,
 )
 
 __all__ = [
@@ -290,6 +291,7 @@ __all__ = [
     "_validate_session_id",
     "register_invoke_agent",
     "register_invoke_agent_with_model",
+    "register_invoke_agents",
     "register_list_agents",
     "set_session_context",
 ]

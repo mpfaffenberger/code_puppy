@@ -410,11 +410,8 @@ class TestRegisterInvokeAgentExecution:
                 return_value="test-group",
             ),
             patch("code_puppy.tools.subagent_invocation.get_message_bus") as mock_bus,
-            patch(
-                "code_puppy.tools.subagent_invocation.get_session_context",
-                return_value="parent",
-            ),
             patch("code_puppy.tools.subagent_invocation.set_session_context"),
+            patch("code_puppy.tools.subagent_invocation.reset_session_context"),
             patch("code_puppy.tools.subagent_invocation.emit_error") as mock_emit_error,
             patch(
                 "code_puppy.agents.agent_manager.load_agent",
@@ -482,13 +479,10 @@ class TestRegisterInvokeAgentExecution:
                 patch("code_puppy.tools.subagent_invocation.get_message_bus")
             )
             stack.enter_context(
-                patch(
-                    "code_puppy.tools.subagent_invocation.get_session_context",
-                    return_value="parent",
-                )
+                patch("code_puppy.tools.subagent_invocation.set_session_context")
             )
             stack.enter_context(
-                patch("code_puppy.tools.subagent_invocation.set_session_context")
+                patch("code_puppy.tools.subagent_invocation.reset_session_context")
             )
             stack.enter_context(patch("code_puppy.tools.subagent_invocation.emit_info"))
             stack.enter_context(
@@ -619,11 +613,8 @@ class TestRegisterInvokeAgentExecution:
                 return_value="test-group",
             ),
             patch("code_puppy.tools.subagent_invocation.get_message_bus") as mock_bus,
-            patch(
-                "code_puppy.tools.subagent_invocation.get_session_context",
-                return_value="parent",
-            ),
             patch("code_puppy.tools.subagent_invocation.set_session_context"),
+            patch("code_puppy.tools.subagent_invocation.reset_session_context"),
             patch("code_puppy.tools.subagent_invocation.emit_error"),
             patch(
                 "code_puppy.agents.agent_manager.load_agent",
@@ -669,7 +660,9 @@ class TestRegisterInvokeAgentExecution:
         mock_agent_config.get_model_name.return_value = "test-model"
         mock_agent_config.get_system_prompt.return_value = "Test"
 
-        set_context_calls = []
+        # Token-based contextvar API: set returns a token, reset restores it.
+        sentinel_token = object()
+        reset_calls = []
 
         with (
             patch(
@@ -678,12 +671,12 @@ class TestRegisterInvokeAgentExecution:
             ),
             patch("code_puppy.tools.subagent_invocation.get_message_bus") as mock_bus,
             patch(
-                "code_puppy.tools.subagent_invocation.get_session_context",
-                return_value="original-parent",
+                "code_puppy.tools.subagent_invocation.set_session_context",
+                return_value=sentinel_token,
             ),
             patch(
-                "code_puppy.tools.subagent_invocation.set_session_context",
-                side_effect=lambda x: set_context_calls.append(x),
+                "code_puppy.tools.subagent_invocation.reset_session_context",
+                side_effect=lambda tok: reset_calls.append(tok),
             ),
             patch("code_puppy.tools.subagent_invocation.emit_error"),
             patch(
@@ -715,8 +708,9 @@ class TestRegisterInvokeAgentExecution:
             # Should have error
             assert result.error is not None
 
-            # Session context should still be restored
-            assert "original-parent" in set_context_calls
+            # Session context must still be torn down via the returned token,
+            # even when the run errors out before completing.
+            assert reset_calls == [sentinel_token]
 
 
 class TestInvokeAgentPartialSessionSaveOnCrash:
@@ -761,11 +755,8 @@ class TestInvokeAgentPartialSessionSaveOnCrash:
                 return_value="test-group",
             ),
             patch("code_puppy.tools.subagent_invocation.get_message_bus") as mock_bus,
-            patch(
-                "code_puppy.tools.subagent_invocation.get_session_context",
-                return_value="parent",
-            ),
             patch("code_puppy.tools.subagent_invocation.set_session_context"),
+            patch("code_puppy.tools.subagent_invocation.reset_session_context"),
             patch("code_puppy.tools.subagent_invocation.emit_error"),
             patch("code_puppy.tools.subagent_invocation.emit_info"),
             patch(
@@ -821,11 +812,8 @@ class TestInvokeAgentPartialSessionSaveOnCrash:
                 return_value="test-group",
             ),
             patch("code_puppy.tools.subagent_invocation.get_message_bus") as mock_bus,
-            patch(
-                "code_puppy.tools.subagent_invocation.get_session_context",
-                return_value="parent",
-            ),
             patch("code_puppy.tools.subagent_invocation.set_session_context"),
+            patch("code_puppy.tools.subagent_invocation.reset_session_context"),
             patch("code_puppy.tools.subagent_invocation.emit_error"),
             patch("code_puppy.tools.subagent_invocation.emit_info"),
             patch(
@@ -872,11 +860,8 @@ class TestInvokeAgentPartialSessionSaveOnCrash:
                 return_value="test-group",
             ),
             patch("code_puppy.tools.subagent_invocation.get_message_bus") as mock_bus,
-            patch(
-                "code_puppy.tools.subagent_invocation.get_session_context",
-                return_value="parent",
-            ),
             patch("code_puppy.tools.subagent_invocation.set_session_context"),
+            patch("code_puppy.tools.subagent_invocation.reset_session_context"),
             patch("code_puppy.tools.subagent_invocation.emit_error"),
             patch("code_puppy.tools.subagent_invocation.emit_info"),
             patch(
@@ -924,11 +909,8 @@ class TestInvokeAgentPartialSessionSaveOnCrash:
                 return_value="test-group",
             ),
             patch("code_puppy.tools.subagent_invocation.get_message_bus") as mock_bus,
-            patch(
-                "code_puppy.tools.subagent_invocation.get_session_context",
-                return_value="parent",
-            ),
             patch("code_puppy.tools.subagent_invocation.set_session_context"),
+            patch("code_puppy.tools.subagent_invocation.reset_session_context"),
             patch("code_puppy.tools.subagent_invocation.emit_error"),
             patch(
                 "code_puppy.agents.agent_manager.load_agent",
@@ -1133,3 +1115,251 @@ class TestListAgentsEmitsBannerAndInfo:
 
             # Verify emit_info was called (at least for banner)
             assert mock_emit_info.called
+
+
+class TestRegisterInvokeAgentsBatch:
+    """Tests for the parallel fan-out ``invoke_agents`` batch tool."""
+
+    def _get_registered_invoke_agents(self):
+        from code_puppy.tools.subagent_invocation import register_invoke_agents
+
+        captured = {}
+
+        class FakeAgent:
+            def tool(self, fn):
+                captured["fn"] = fn
+                return fn
+
+        register_invoke_agents(FakeAgent())
+        return captured["fn"]
+
+    @pytest.mark.asyncio
+    async def test_empty_task_list_returns_empty(self):
+        invoke_agents = self._get_registered_invoke_agents()
+        result = await invoke_agents(MagicMock(), [])
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_fans_out_concurrently_and_preserves_order(self):
+        from code_puppy.tools.subagent_invocation import SubAgentTask
+
+        invoke_agents = self._get_registered_invoke_agents()
+        completion_order = []
+
+        async def fake_impl(
+            context, agent_name, prompt, session_id=None, model_name=None
+        ):
+            # "slow" sleeps so a later-listed "fast" can overtake it,
+            # proving the calls actually run concurrently.
+            import asyncio
+
+            await asyncio.sleep(0.05 if agent_name == "slow" else 0.0)
+            completion_order.append(agent_name)
+            return AgentInvokeOutput(
+                response=f"{agent_name}-done",
+                agent_name=agent_name,
+                session_id=session_id,
+                model_name="m",
+            )
+
+        tasks = [
+            SubAgentTask(agent_name="slow", prompt="p1"),
+            SubAgentTask(agent_name="fast", prompt="p2"),
+        ]
+
+        with (
+            patch(
+                "code_puppy.tools.subagent_invocation._invoke_agent_impl",
+                side_effect=fake_impl,
+            ),
+            patch("code_puppy.tools.subagent_invocation.emit_info"),
+        ):
+            results = await invoke_agents(MagicMock(), tasks)
+
+        # Concurrency: fast finished before slow despite being listed second.
+        assert completion_order[0] == "fast"
+        # Order preservation: results match the input order, not completion.
+        assert [r.agent_name for r in results] == ["slow", "fast"]
+        assert results[0].response == "slow-done"
+
+    @pytest.mark.asyncio
+    async def test_one_failure_does_not_poison_siblings(self):
+        from code_puppy.tools.subagent_invocation import SubAgentTask
+
+        invoke_agents = self._get_registered_invoke_agents()
+
+        async def fake_impl(
+            context, agent_name, prompt, session_id=None, model_name=None
+        ):
+            if agent_name == "boom":
+                raise RuntimeError("kaboom")
+            return AgentInvokeOutput(
+                response=f"{agent_name}-done",
+                agent_name=agent_name,
+                session_id=session_id,
+                model_name="m",
+            )
+
+        tasks = [
+            SubAgentTask(agent_name="ok", prompt="p1"),
+            SubAgentTask(agent_name="boom", prompt="p2"),
+        ]
+
+        with (
+            patch(
+                "code_puppy.tools.subagent_invocation._invoke_agent_impl",
+                side_effect=fake_impl,
+            ),
+            patch("code_puppy.tools.subagent_invocation.emit_info"),
+        ):
+            results = await invoke_agents(MagicMock(), tasks)
+
+        assert results[0].response == "ok-done"
+        assert results[1].response is None
+        assert results[1].error is not None
+        assert "kaboom" in results[1].error
+
+    @pytest.mark.asyncio
+    async def test_per_task_model_name_is_passed_through(self):
+        """Each task's model_name override must reach ``_invoke_agent_impl``.
+
+        This closes the "parallel + custom models" gap: the batch path used to
+        hardcode ``model_name=None``, so per-task model selection was
+        impossible without falling back to individual ``invoke_agent_with_model``
+        calls.
+        """
+        from code_puppy.tools.subagent_invocation import SubAgentTask
+
+        invoke_agents = self._get_registered_invoke_agents()
+        seen = {}
+
+        async def fake_impl(
+            context, agent_name, prompt, session_id=None, model_name=None
+        ):
+            seen[agent_name] = model_name
+            return AgentInvokeOutput(
+                response=f"{agent_name}-done",
+                agent_name=agent_name,
+                session_id=session_id,
+                model_name=model_name,
+            )
+
+        tasks = [
+            SubAgentTask(agent_name="custom", prompt="p1", model_name="gpt-fancy"),
+            # Blank override normalizes to None (no bogus override leaks).
+            SubAgentTask(agent_name="blank", prompt="p2", model_name="   "),
+            # Omitted entirely -> default behaviour preserved (None).
+            SubAgentTask(agent_name="default", prompt="p3"),
+        ]
+
+        with (
+            patch(
+                "code_puppy.tools.subagent_invocation._invoke_agent_impl",
+                side_effect=fake_impl,
+            ),
+            patch("code_puppy.tools.subagent_invocation.emit_info"),
+        ):
+            results = await invoke_agents(MagicMock(), tasks)
+
+        assert seen == {
+            "custom": "gpt-fancy",
+            "blank": None,
+            "default": None,
+        }
+        assert results[0].model_name == "gpt-fancy"
+
+    def test_resolved_model_name_normalizes_blanks(self):
+        """Whitespace-only overrides collapse to None, mirroring with_model."""
+        from code_puppy.tools.subagent_invocation import SubAgentTask
+
+        assert SubAgentTask(agent_name="a", prompt="p").resolved_model_name() is None
+        assert (
+            SubAgentTask(
+                agent_name="a", prompt="p", model_name="   "
+            ).resolved_model_name()
+            is None
+        )
+        assert (
+            SubAgentTask(
+                agent_name="a", prompt="p", model_name=" gpt-x "
+            ).resolved_model_name()
+            == "gpt-x"
+        )
+
+    def test_tasks_arg_coerces_json_string(self):
+        """Regression: providers that double-encode ``tasks`` as a JSON string.
+
+        pydantic's ``validate_python`` refuses to parse a JSON string into a
+        list (``list_type`` error). The ``BeforeValidator`` on ``TasksArg``
+        must coerce it so the live batch tool stops faceplanting. This is the
+        serialization boundary the object-based tests above never exercised.
+        """
+        import json
+
+        from pydantic import TypeAdapter
+
+        from code_puppy.tools.subagent_invocation import SubAgentTask, TasksArg
+
+        ta = TypeAdapter(TasksArg)
+        payload = [{"agent_name": "a", "prompt": "p"}]
+
+        # Real list still passes straight through.
+        from_list = ta.validate_python(payload)
+        # Double-encoded JSON string now coerces instead of raising list_type.
+        from_string = ta.validate_python(json.dumps(payload))
+
+        assert from_list == from_string
+        assert from_string == [SubAgentTask(agent_name="a", prompt="p")]
+
+    def test_tasks_arg_rejects_non_json_string(self):
+        """Genuine garbage strings must still raise, not silently swallow."""
+        from pydantic import TypeAdapter, ValidationError
+
+        from code_puppy.tools.subagent_invocation import TasksArg
+
+        ta = TypeAdapter(TasksArg)
+        with pytest.raises(ValidationError):
+            ta.validate_python("definitely not json {")
+
+    @pytest.mark.asyncio
+    async def test_invoke_agents_accepts_json_string_end_to_end(self):
+        """The tool itself works when handed a validated JSON-string payload."""
+        import json
+
+        from pydantic import TypeAdapter
+
+        from code_puppy.tools.subagent_invocation import TasksArg
+
+        invoke_agents = self._get_registered_invoke_agents()
+
+        async def fake_impl(
+            context, agent_name, prompt, session_id=None, model_name=None
+        ):
+            return AgentInvokeOutput(
+                response=f"{agent_name}-done",
+                agent_name=agent_name,
+                session_id=session_id,
+                model_name="m",
+            )
+
+        # Simulate the provider boundary: tasks arrive as a JSON string, then
+        # get validated into SubAgentTask objects before the tool body runs.
+        raw = json.dumps(
+            [
+                {"agent_name": "one", "prompt": "p1"},
+                {"agent_name": "two", "prompt": "p2"},
+            ]
+        )
+        tasks = TypeAdapter(TasksArg).validate_python(raw)
+
+        with (
+            patch(
+                "code_puppy.tools.subagent_invocation._invoke_agent_impl",
+                side_effect=fake_impl,
+            ),
+            patch("code_puppy.tools.subagent_invocation.emit_info"),
+        ):
+            results = await invoke_agents(MagicMock(), tasks)
+
+        assert [r.agent_name for r in results] == ["one", "two"]
+        assert results[0].response == "one-done"
