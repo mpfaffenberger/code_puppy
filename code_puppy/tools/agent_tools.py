@@ -203,11 +203,17 @@ class ListAgentsOutput(BaseModel):
 class AgentInvokeOutput(BaseModel):
     """Output for the invoke_agent tool.
 
-    The token-usage and latency fields are populated on the success path so
+    The token-usage and timing fields are populated on the success path so
     benchmarking/model-comparison callers can measure per-run cost without
     reconstructing it from downstream telemetry. They are purely additive and
     remain ``None`` on every error path, so existing callers that ignore them
     are unaffected.
+
+    Token accounting is normalized so the input buckets never overlap:
+    ``input_tokens`` counts only regular (non-cached) input, while cached input
+    is reported separately as ``cache_read_input_tokens`` (cache hits) and
+    ``cache_creation_input_tokens`` (cache writes). A provider that does not
+    report a given bucket leaves that field ``None`` rather than a fabricated 0.
     """
 
     response: str | None
@@ -216,9 +222,13 @@ class AgentInvokeOutput(BaseModel):
     model_name: str | None = None
     error: str | None = None
     input_tokens: int | None = None
+    cache_read_input_tokens: int | None = None
+    cache_creation_input_tokens: int | None = None
     output_tokens: int | None = None
     total_tokens: int | None = None
     num_requests: int | None = None
+    start_time: str | None = None
+    end_time: str | None = None
     duration_ms: float | None = None
 
 
