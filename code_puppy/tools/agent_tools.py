@@ -201,13 +201,25 @@ class ListAgentsOutput(BaseModel):
 
 
 class AgentInvokeOutput(BaseModel):
-    """Output for the invoke_agent tool."""
+    """Output for the invoke_agent tool.
+
+    The token-usage and latency fields are populated on the success path so
+    benchmarking/model-comparison callers can measure per-run cost without
+    reconstructing it from downstream telemetry. They are purely additive and
+    remain ``None`` on every error path, so existing callers that ignore them
+    are unaffected.
+    """
 
     response: str | None
     agent_name: str
     session_id: str | None = None
     model_name: str | None = None
     error: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    num_requests: int | None = None
+    duration_ms: float | None = None
 
 
 def register_list_agents(agent):
