@@ -53,11 +53,54 @@ def _muted_foreground(ansi: list[str], foreground: str, background: str) -> str:
     )
 
 
+def _default_rules() -> dict[str, str]:
+    """Return sensible default semantic rules when no theme is active.
+
+    These assume a dark terminal and use Tokyo Night–inspired colors
+    (Tokyo Night is the default theme, so these feel familiar even when
+    the user hasn't explicitly chosen one yet).
+    """
+    fg = "#c0caf5"
+    bg = "#1a1b26"
+    muted = "#565f89"
+    accent = "#7aa2f7"  # blue-ish
+    success = "#9ece6a"  # green
+    warning = "#e0af68"  # yellow
+    error = "#f7768e"  # red
+    yellow = "#e0af68"
+    return {
+        "": f"fg:{fg} bg:{bg}",
+        "tui": f"fg:{fg} bg:{bg}",
+        "tui.header": f"fg:{accent} bold",
+        "tui.title": f"fg:{yellow} bold",
+        "tui.body": f"fg:{fg}",
+        "tui.label": f"fg:{fg} bold",
+        "tui.muted": f"fg:{muted}",
+        "tui.border": f"fg:{accent}",
+        "tui.selected": f"fg:{bg} bg:{accent} bold noreverse",
+        "tui.help": f"fg:{muted}",
+        "tui.help-key": f"fg:{success} bold",
+        "tui.success": f"fg:{success} bold",
+        "tui.warning": f"fg:{warning} bold",
+        "tui.error": f"fg:{error} bold",
+        "tui.input": f"fg:{fg}",
+        "tui.input.focused": f"fg:{bg} bg:{accent} bold noreverse",
+        "completion-menu": f"fg:{muted} bg:{bg} noreverse",
+        "completion-menu.completion": f"fg:{muted} bg:{bg} noreverse",
+        "completion-menu.completion.current": f"fg:{accent} bg:{bg} bold noreverse",
+        "completion-menu.meta.completion": f"fg:{muted} bg:{bg} italic noreverse",
+        "completion-menu.meta.completion.current": f"fg:{yellow} bg:{bg} italic noreverse",
+        "completion-menu.multi-column-meta": f"bg:{bg}",
+        "scrollbar.background": f"fg:{muted} bg:{bg}",
+        "scrollbar.button": f"fg:{muted} bg:{bg}",
+    }
+
+
 def get_style_rules() -> dict[str, str]:
     """Return semantic prompt-toolkit rules for the active theme."""
     palette = _active_palette()
     if palette is None:
-        return {}
+        return _default_rules()
 
     ansi = palette["ansi"]
     foreground = palette.get("fg", ansi[7])
@@ -101,7 +144,7 @@ def get_style_rules() -> dict[str, str]:
 
 
 def get_style() -> Style:
-    """Build the active semantic style, or an empty style without a theme."""
+    """Build the active semantic style, or a defaults-based style without a theme."""
     return Style.from_dict(get_style_rules())
 
 

@@ -78,6 +78,31 @@ def test_dark_theme_muted_text_meets_wcag_contrast(monkeypatch):
     assert muted != CATPPUCCIN_MOCHA["ansi"][8]
 
 
+def test_no_theme_returns_colorful_defaults(monkeypatch):
+    monkeypatch.setattr(
+        "code_puppy.plugins.theme.prompt_toolkit_theme._active_palette",
+        lambda: None,
+    )
+
+    rules = get_style_rules()
+
+    # All semantic roles present
+    assert _SEMANTIC_ROLES <= rules.keys()
+    assert _COMPLETION_ADAPTER_ROLES <= rules.keys()
+
+    # Colors are actual hex values, not empty strings
+    for role in _SEMANTIC_ROLES:
+        rule = rules[role]
+        assert "#" in rule, f"{role} rule has no color: {rule!r}"
+
+    # Accent color is used for headers (not grayscale)
+    header_rule = rules["tui.header"]
+    assert "#7aa2f7" in header_rule
+
+    # Success color is green-ish
+    assert "#9ece6a" in rules["tui.success"]
+
+
 def test_menu_style_merges_over_semantic_base(monkeypatch):
     monkeypatch.setattr(
         "code_puppy.plugins.theme.prompt_toolkit_theme._active_palette",

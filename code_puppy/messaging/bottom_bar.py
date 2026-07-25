@@ -702,16 +702,33 @@ _bottom_bar_lock = threading.Lock()
 
 
 def _use_inline_surface() -> bool:
-    """Use the DECSTBM-free surface for known-incompatible terminals."""
+    """Use the DECSTBM-free surface for known-incompatible terminals.
+
+    Precedence: ``CODE_PUPPY_PROMPT_MODE`` env var > persisted
+    ``prompt_mode`` config key > terminal-emulator auto-detection.
+    """
     import os
 
-    mode = os.environ.get("CODE_PUPPY_PROMPT_MODE", "auto").strip().lower()
+    mode = os.environ.get("CODE_PUPPY_PROMPT_MODE", "").strip().lower()
+    if not mode or mode == "auto":
+        mode = _configured_prompt_mode()
     if mode in {"inline", "flow"}:
         return True
     if mode in {"pinned", "scroll-region"}:
         return False
     emulator = os.environ.get("TERMINAL_EMULATOR", "").strip().lower()
     return emulator == "jetbrains-jediterm"
+
+
+def _configured_prompt_mode() -> str:
+    """The persisted ``prompt_mode`` config value (lazy import — the
+    config module must never depend on messaging internals)."""
+    try:
+        from code_puppy.config import get_value
+
+        return (get_value("prompt_mode") or "auto").strip().lower()
+    except Exception:
+        return "auto"
 
 
 def get_bottom_bar() -> BottomBar:

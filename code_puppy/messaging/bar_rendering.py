@@ -37,6 +37,13 @@ PASTE_OFF = "\x1b[?2004l"
 # and would fight the editor's ESC state machine.
 MODKEYS_ON = "\x1b[>4;1m"
 MODKEYS_OFF = "\x1b[>4;0m"
+# DEC 2026 synchronized output: the terminal buffers everything between
+# BSU/ESU and applies it as ONE frame — the inline surface's erase→
+# repaint cycles stop flickering. Unsupporting terminals ignore the
+# escapes; conforming ones auto-timeout, so a lost ESU can't wedge the
+# display.
+SYNC_ON = "\x1b[?2026h"
+SYNC_OFF = "\x1b[?2026l"
 
 
 def default_get_size() -> Tuple[int, int]:
@@ -311,6 +318,8 @@ __all__ = [
     "REVERSE_OFF",
     "REVERSE_ON",
     "SAVE_CURSOR",
+    "SYNC_OFF",
+    "SYNC_ON",
     "WRAP_OFF",
     "WRAP_ON",
     "clip_cells",

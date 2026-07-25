@@ -421,6 +421,9 @@ def get_config_keys():
         "frontend_emitter_queue_size",
         "locale",
         "timestamp_heartbeat_interval",
+        # Prompt surface: "auto" (detect), "inline"/"flow" (prompt is
+        # pushed down by output), "pinned"/"scroll-region" (DECSTBM bar).
+        "prompt_mode",
     ]
     # 'enable_dbos' is reserved for the dbos_durable_exec plugin and is read
     # via the generic get_value API; intentionally not in default_keys.
