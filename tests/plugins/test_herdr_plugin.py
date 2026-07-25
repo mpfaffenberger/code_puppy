@@ -85,12 +85,12 @@ def test_reporter_subagent_refcount_stays_working():
     assert _states(fake) == [WORKING, IDLE]
 
 
-def test_reporter_blocked_from_awaiting_then_recovers():
+def test_reporter_agent_prompt_reports_blocked_then_recovers():
     fake = FakeClient()
     r = HerdrReporter(fake)
-    r.on_run_start()  # working
-    r.on_awaiting_user_input(True)  # blocked (shell approval / ask / menu)
-    r.on_awaiting_user_input(False)  # run still in flight -> working
+    r.on_run_start()
+    r.on_awaiting_user_input(True)  # agent asks for attention
+    r.on_awaiting_user_input(False)
     assert _states(fake) == [WORKING, BLOCKED, WORKING]
 
 
@@ -100,16 +100,39 @@ def test_reporter_awaiting_takes_priority_over_working():
     r.on_run_start()
     r.on_awaiting_user_input(True)
     r.on_run_start()  # nested run while blocked must stay blocked
-    assert _states(fake)[-1] == BLOCKED
+    assert _states(fake) == [WORKING, BLOCKED]
 
 
-def test_reporter_awaiting_at_idle_shows_blocked():
-    # A menu/picker opened at the prompt (no run in flight) is still blocked.
+def test_reporter_menu_cycle_at_idle_sends_no_reports():
     fake = FakeClient()
     r = HerdrReporter(fake)
-    r.on_awaiting_user_input(True)
-    r.on_awaiting_user_input(False)
-    assert _states(fake) == [BLOCKED, IDLE]
+    r.on_startup()  # establish idle as the last reported state
+    r.on_awaiting_user_input(True, notify=False)
+    r.on_awaiting_user_input(False, notify=False)
+    assert _states(fake) == [IDLE]
+
+
+def test_reporter_user_menu_never_reports_blocked_or_repeats_state():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()
+    r.on_awaiting_user_input(True, notify=False)
+    r.on_awaiting_user_input(False, notify=False)
+    r.on_awaiting_user_input(True, notify=False)
+    r.on_awaiting_user_input(False, notify=False)
+    r.on_run_end()
+    assert _states(fake) == [WORKING, IDLE]
+    assert BLOCKED not in _states(fake)
+
+
+def test_reporter_reports_underlying_change_after_unblock():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()  # working, reported
+    r.on_awaiting_user_input(True, notify=False)
+    r.on_run_end()  # underlying run ends while the user menu is open
+    r.on_awaiting_user_input(False, notify=False)
+    assert _states(fake) == [WORKING, IDLE]
 
 
 def test_reporter_dedupes_repeated_state():
@@ -183,6 +206,18 @@ def test_set_awaiting_user_input_fires_callback():
     finally:
         callbacks._callbacks["awaiting_user_input"].clear()
     assert seen == [True, False]
+
+
+def test_set_awaiting_user_input_exposes_notification_intent():
+    from code_puppy.tools.command_runner import (
+        set_awaiting_user_input,
+        should_notify_awaiting_user_input,
+    )
+
+    set_awaiting_user_input(True, notify=False)
+    assert should_notify_awaiting_user_input() is False
+    set_awaiting_user_input(False)
+    assert should_notify_awaiting_user_input() is True
 
 
 # --- client activation guard ----------------------------------------------

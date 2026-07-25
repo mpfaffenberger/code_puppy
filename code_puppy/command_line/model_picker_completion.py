@@ -588,7 +588,7 @@ async def interactive_model_picker() -> Optional[str]:
     """Run the paginated interactive model picker used by /model."""
     from code_puppy.tools.command_runner import set_awaiting_user_input
 
-    set_awaiting_user_input(True)
+    set_awaiting_user_input(True, notify=False)
     try:
         try:
             return await ModelSelectionMenu().run_async()
@@ -607,7 +607,7 @@ async def interactive_model_picker() -> Optional[str]:
                 return None
             return _normalize_legacy_picker_choice(selected)
     finally:
-        set_awaiting_user_input(False)
+        set_awaiting_user_input(False, notify=False)
 
 
 async def get_input_with_model_completion(

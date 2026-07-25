@@ -51,7 +51,8 @@ class HerdrReporter:
         self._lock = threading.Lock()
         self._run_depth = 0
         self._awaiting = False
-        self._last_state: Optional[str] = None
+        self._awaiting_notify = True
+        self._last_reported_state: Optional[str] = None
         self._session_id: Optional[str] = None
 
     @property
@@ -69,12 +70,18 @@ class HerdrReporter:
         return IDLE
 
     def _sync(self) -> None:
-        """Recompute the effective state and emit it if it changed (edge)."""
+        """Report a changed state, optionally suppressing ``blocked``.
+
+        User-initiated menus retain ``notify=False`` for their whole lifetime.
+        Their internal ``blocked`` state must not update the reported-state
+        edge tracker, so closing the menu does not re-send an unchanged state.
+        """
         with self._lock:
             state = self._recompute_locked()
-            if state == self._last_state:
+            suppress_blocked = state == BLOCKED and not self._awaiting_notify
+            if suppress_blocked or state == self._last_reported_state:
                 return
-            self._last_state = state
+            self._last_reported_state = state
             session_id = self._session_id
         self._client.report_state(state, session_id)
 
@@ -124,10 +131,11 @@ class HerdrReporter:
             self._awaiting = False
         self._sync()
 
-    def on_awaiting_user_input(self, awaiting: bool) -> None:
-        """The authoritative block signal: parked on the human iff ``awaiting``."""
+    def on_awaiting_user_input(self, awaiting: bool, *, notify: bool = True) -> None:
+        """Track an interactive wait, notifying only when requested."""
         with self._lock:
             self._awaiting = bool(awaiting)
+            self._awaiting_notify = bool(notify)
         self._sync()
 
     def on_shutdown(self) -> None:

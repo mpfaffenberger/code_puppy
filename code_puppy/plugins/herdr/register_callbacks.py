@@ -83,8 +83,14 @@ def _on_turn_end(*_args, **_kw) -> None:
 
 
 def _on_awaiting_user_input(*args, **_kw) -> None:
-    # (awaiting: bool)
-    _reporter.on_awaiting_user_input(bool(_arg(args, 0)))
+    # Keep the public callback's historical one-argument signature. Notification
+    # intent is read synchronously from command_runner's current wait state.
+    from code_puppy.tools.command_runner import should_notify_awaiting_user_input
+
+    _reporter.on_awaiting_user_input(
+        bool(_arg(args, 0)),
+        notify=should_notify_awaiting_user_input(),
+    )
 
 
 def _on_shutdown(*_args, **_kw) -> None:
