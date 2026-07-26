@@ -105,7 +105,11 @@ jobs:
           python-version: '3.13'
 
       - name: Install dev dependencies (ruff)
-        run: pip install ruff
+        # PINNED. ruff 0.16.0 expanded its default rule set (UP/SIM/BLE/S/DTZ/
+        # RUF now lint by default), which fails this repo with ~5000 errors on
+        # untouched legacy code — green PRs started failing with no source
+        # change. Bumping this pin means fixing those first.
+        run: pip install 'ruff==0.15.4'
 
       - name: Install code_puppy
         run: pip install .
