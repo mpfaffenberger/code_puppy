@@ -9,7 +9,7 @@ command_runner.py in isolation, focusing on:
 
 import importlib.util
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -96,76 +96,21 @@ class TestSetAwaitingUserInput:
         # Reset after test
         command_runner_module._AWAITING_USER_INPUT.clear()
 
-    def test_set_awaiting_true_calls_pause_spinners(self, monkeypatch):
-        """Test that setting awaiting=True calls pause_all_spinners."""
-        # Setup mock spinner functions
-        mock_pause = MagicMock()
-        mock_resume = MagicMock()
+    def test_set_awaiting_true_sets_flag(self):
+        """Setting awaiting=True sets the flag (no spinner coupling)."""
+        set_awaiting_user_input(True)
+        assert command_runner_module._AWAITING_USER_INPUT.is_set()
 
-        # Mock the spinner module import to return our mock functions
-        mock_spinner_module = MagicMock()
-        mock_spinner_module.pause_all_spinners = mock_pause
-        mock_spinner_module.resume_all_spinners = mock_resume
+    def test_set_awaiting_false_clears_flag(self):
+        """Setting awaiting=False clears the flag (no spinner coupling)."""
+        set_awaiting_user_input(True)
+        set_awaiting_user_input(False)
+        assert not command_runner_module._AWAITING_USER_INPUT.is_set()
 
-        with patch.dict(
-            "sys.modules", {"code_puppy.messaging.spinner": mock_spinner_module}
-        ):
-            set_awaiting_user_input(True)
-
-            assert command_runner_module._AWAITING_USER_INPUT.is_set()
-            mock_pause.assert_called_once()
-            mock_resume.assert_not_called()
-
-    def test_set_awaiting_false_calls_resume_spinners(self, monkeypatch):
-        """Test that setting awaiting=False calls resume_all_spinners."""
-        # Setup mock spinner functions
-        mock_pause = MagicMock()
-        mock_resume = MagicMock()
-
-        # Mock the spinner module import to return our mock functions
-        mock_spinner_module = MagicMock()
-        mock_spinner_module.pause_all_spinners = mock_pause
-        mock_spinner_module.resume_all_spinners = mock_resume
-
-        with patch.dict(
-            "sys.modules", {"code_puppy.messaging.spinner": mock_spinner_module}
-        ):
-            set_awaiting_user_input(False)
-
-            assert not command_runner_module._AWAITING_USER_INPUT.is_set()
-            mock_pause.assert_not_called()
-            mock_resume.assert_called_once()
-
-    def test_set_awaiting_handles_import_error(self, monkeypatch):
-        """Test that function handles ImportError gracefully when spinner module not available."""
-
-        # Create a mock that raises ImportError when the import is attempted
-        def mock_import(name, *args, **kwargs):
-            if name == "code_puppy.messaging.spinner":
-                raise ImportError("No module named 'code_puppy.messaging.spinner'")
-            # Use original import for everything else
-            return __builtins__["__import__"](name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=mock_import):
-            set_awaiting_user_input(True)
-            assert command_runner_module._AWAITING_USER_INPUT.is_set()
-
-            set_awaiting_user_input(False)
-            assert not command_runner_module._AWAITING_USER_INPUT.is_set()
-
-    def test_set_awaiting_default_true(self, monkeypatch):
-        """Test that default parameter is True."""
-
-        # Create a mock that raises ImportError when the import is attempted
-        def mock_import(name, *args, **kwargs):
-            if name == "code_puppy.messaging.spinner":
-                raise ImportError("No module named 'code_puppy.messaging.spinner'")
-            # Use original import for everything else
-            return __builtins__["__import__"](name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=mock_import):
-            set_awaiting_user_input()
-            assert command_runner_module._AWAITING_USER_INPUT.is_set()
+    def test_set_awaiting_default_true(self):
+        """Default parameter is True."""
+        set_awaiting_user_input()
+        assert command_runner_module._AWAITING_USER_INPUT.is_set()
 
 
 class TestKillAllRunningShellProcesses:

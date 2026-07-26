@@ -1,9 +1,14 @@
-"""Tests for Opus 4.7 wire-level thinking.display='summary' enforcement.
+"""Tests for Opus 4.7 wire-level thinking.display='summarized' enforcement.
 
-The Opus 4.7 family requires ``display: "summarized"`` alongside
-``type: "adaptive"`` in the thinking dict, otherwise the API rejects the
-request. We enforce this at the wire level in the claude cache client so
+The Opus 4.7 family accepts ``display: "summarized"`` alongside
+``type: "adaptive"`` in the thinking dict to surface a condensed reasoning
+trace. We enforce this at the wire level in the claude cache client so
 it's guaranteed regardless of how upstream model settings are built.
+
+The enforcer itself keys off ``model`` (via
+``_model_requires_thinking_summary``), not off ``type``, so it works no
+matter which thinking shape the caller sent. Fixtures use ``"adaptive"``
+to reflect what Code Puppy actually puts on the wire for Opus 4.7 today.
 """
 
 from __future__ import annotations
@@ -86,7 +91,7 @@ class TestEnforceThinkingDisplaySummary:
 
     def test_no_op_when_thinking_not_a_dict(self):
         # thinking might be e.g. a string or list in weird serialization paths
-        payload = {"model": "claude-opus-4-7", "thinking": "adaptive"}
+        payload = {"model": "claude-opus-4-7", "thinking": "enabled"}
         changed = _enforce_thinking_display_summary(payload)
         assert changed is False
 
@@ -109,7 +114,7 @@ class TestInjectCacheControlInPayloadEnforcesSummary:
     def test_payload_path_skips_non_opus_4_7(self):
         payload = {
             "model": "claude-sonnet-4-5",
-            "thinking": {"type": "adaptive"},
+            "thinking": {"type": "enabled"},
             "messages": [{"role": "user", "content": "hi"}],
         }
         _inject_cache_control_in_payload(payload)

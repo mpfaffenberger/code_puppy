@@ -110,6 +110,12 @@ class HelpCommand(MCPCommandBase):
                 + Text(" Restore the 'registered but not bound' warning")
             )
             help_lines.append(
+                Text("/mcp trust", style="cyan")
+                + Text(
+                    " [accept|revoke]  Trust this repo's .code_puppy/mcp_servers.json"
+                )
+            )
+            help_lines.append(
                 Text("/mcp help", style="cyan")
                 + Text("               Show this help message")
             )

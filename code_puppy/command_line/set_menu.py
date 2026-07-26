@@ -23,7 +23,10 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
-from code_puppy.command_line.config_apply import apply_setting
+from code_puppy.command_line.config_apply import (
+    MODEL_SETTINGS_ONLY_KEYS,
+    apply_setting,
+)
 from code_puppy.command_line.pagination import (
     ensure_visible_page,
     get_page_bounds,
@@ -46,6 +49,7 @@ from code_puppy.config import (
     reset_value,
 )
 from code_puppy.tools.command_runner import set_awaiting_user_input
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 PAGE_SIZE = 12
 
@@ -118,7 +122,7 @@ def _build_entries() -> List[_Entry]:
         curated_keys.add(setting.key)
 
     for key in get_config_keys():
-        if key in curated_keys:
+        if key in curated_keys or key in MODEL_SETTINGS_ONLY_KEYS:
             continue
         entries.append(
             _Entry(
@@ -195,7 +199,11 @@ async def _prompt_for_value(
         prompt = (
             f"New value for '{setting.key}' (current: {current_val or '(not set)'}): "
         )
-        session = PromptSession(prompt, is_password=setting.sensitive)
+        session = PromptSession(
+            prompt,
+            is_password=setting.sensitive,
+            style=on_prompt_toolkit_style(),
+        )
         try:
             new_val = await session.prompt_async()
         except KeyboardInterrupt:
@@ -340,6 +348,7 @@ async def interactive_set_picker() -> Optional[PickerResult]:
         key_bindings=kb,
         full_screen=False,
         mouse_support=False,
+        style=on_prompt_toolkit_style(),
     )
 
     set_awaiting_user_input(True)

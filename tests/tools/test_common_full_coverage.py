@@ -550,6 +550,33 @@ class TestGenerateGroupId:
 
 
 class TestArrowSelectAsync:
+    def test_selector_uses_semantic_literal_fragments(self):
+        from code_puppy.tools.common import _format_selector
+
+        fragments = list(
+            _format_selector(
+                "Pick <b>literally</b>",
+                ["one & only", "two"],
+                0,
+                preview_callback=lambda _: "preview <dim>literally</dim>",
+            )
+        )
+        styles = {style for style, _ in fragments}
+        text = "".join(text for _, text in fragments)
+
+        assert {
+            "class:tui.header",
+            "class:tui.selected",
+            "class:tui.body",
+            "class:tui.border",
+            "class:tui.muted",
+            "class:tui.help",
+            "class:tui.help-key",
+        } <= styles
+        assert "<b>literally</b>" in text
+        assert "one & only" in text
+        assert "<dim>literally</dim>" in text
+
     @pytest.mark.asyncio
     async def test_basic_selection(self):
         # Mock the Application to immediately return first choice

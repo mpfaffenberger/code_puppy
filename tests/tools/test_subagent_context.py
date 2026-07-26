@@ -25,6 +25,34 @@ subagent_context = subagent_context_module.subagent_context
 is_subagent = subagent_context_module.is_subagent
 get_subagent_name = subagent_context_module.get_subagent_name
 get_subagent_depth = subagent_context_module.get_subagent_depth
+get_subagent_chain = subagent_context_module.get_subagent_chain
+
+
+class TestSubagentChain:
+    """Full sub-agent invocation chain tracking."""
+
+    def test_empty_chain_in_main_agent(self) -> None:
+        assert get_subagent_chain() == ()
+
+    def test_single_level_chain(self) -> None:
+        with subagent_context("retriever"):
+            assert get_subagent_chain() == ("retriever",)
+        assert get_subagent_chain() == ()
+
+    def test_nested_chain_records_full_stack(self) -> None:
+        with subagent_context("retriever"):
+            with subagent_context("terrier"):
+                assert get_subagent_chain() == ("retriever", "terrier")
+            assert get_subagent_chain() == ("retriever",)
+
+    def test_chain_restored_on_exception(self) -> None:
+        with subagent_context("retriever"):
+            try:
+                with subagent_context("terrier"):
+                    raise RuntimeError("boom")
+            except RuntimeError:
+                pass
+            assert get_subagent_chain() == ("retriever",)
 
 
 class TestSubagentContextBasics:

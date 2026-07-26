@@ -181,6 +181,46 @@ class TestPuppyTokens:
         assert saved_config["puppy"]["puppy_token"] == "new-token-456"
 
 
+class TestPuppyTokenProviderHook:
+    """Test that plugins can override puppy token storage via the provider hook."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_provider(self):
+        """Ensure provider hooks are clean before and after each test."""
+        cp_config._puppy_token_getter = None
+        cp_config._puppy_token_setter = None
+        yield
+        cp_config._puppy_token_getter = None
+        cp_config._puppy_token_setter = None
+
+    def test_get_delegates_to_registered_provider(self):
+        cp_config.register_puppy_token_provider(
+            getter=lambda: "from-provider",
+            setter=lambda t: None,
+        )
+        assert cp_config.get_puppy_token() == "from-provider"
+
+    def test_set_delegates_to_registered_provider(self):
+        captured = {}
+        cp_config.register_puppy_token_provider(
+            getter=lambda: None,
+            setter=lambda t: captured.__setitem__("token", t),
+        )
+        cp_config.set_puppy_token("custom-token")
+        assert captured["token"] == "custom-token"
+
+    def test_falls_back_to_plaintext_when_no_provider(self, mock_config_paths):
+        mock_cfg_dir, mock_cfg_file, _ = mock_config_paths
+        config = configparser.ConfigParser()
+        config["puppy"] = {"puppy_token": "plaintext-tok"}
+        os.makedirs(mock_cfg_dir, exist_ok=True)
+        with open(mock_cfg_file, "w") as f:
+            config.write(f)
+
+        # No provider registered — should read from puppy.cfg
+        assert cp_config.get_puppy_token() == "plaintext-tok"
+
+
 class TestXDGDirectoryHandling:
     """Test XDG Base Directory support."""
 

@@ -24,6 +24,7 @@ from typing import Any, Callable, List
 
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 
+from code_puppy.command_line.attachments import resolve_steer_content
 from code_puppy.messaging import emit_info
 from code_puppy.messaging.pause_controller import get_pause_controller
 
@@ -63,14 +64,19 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
 
         # Build one user message per steer (so each shows up as a discrete
         # turn in the model's view of the conversation — clearer than
-        # concatenating them).
+        # concatenating them). Attachments (clipboard images, @file paths,
+        # URLs) are resolved just like the main prompt path — steering with
+        # a pasted screenshot Just Works.
         injected: List[ModelMessage] = []
         for steer_text in pending:
-            preview = steer_text[:80] + ("..." if len(steer_text) > 80 else "")
-            emit_info(f"Injecting steer mid-turn — model will see: {preview!r}")
+            content, preview_text = resolve_steer_content(steer_text)
+            n_extras = len(content) - 1 if isinstance(content, list) else 0
+            suffix = f" (+{n_extras} attachment(s))" if n_extras else ""
+            preview = preview_text[:80] + ("..." if len(preview_text) > 80 else "")
+            emit_info(f"Injecting steer mid-turn — model will see: {preview!r}{suffix}")
             injected.append(
                 ModelRequest(
-                    parts=[UserPromptPart(content=steer_text)],
+                    parts=[UserPromptPart(content=content)],
                     instructions=last_instructions,
                 )
             )

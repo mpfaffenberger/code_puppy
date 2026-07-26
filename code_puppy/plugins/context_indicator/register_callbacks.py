@@ -2,12 +2,13 @@
 
 Hooks:
 
-* ``startup`` — wraps ``get_prompt_with_active_model`` to inject a colored
-  circle (🟢/🟡/🔴) reflecting current context-window usage.
+* ``startup`` — wraps the bottom bar's token-summary writer so the status
+  row shows a colored circle reflecting current context-window usage,
+  e.g. ``80.7k/500k tokens (16%)`` gains a green/yellow/red badge.
 * ``custom_command`` / ``custom_command_help`` — exposes ``/context`` for a
   detailed token-usage breakdown.
 
-Idempotent: re-installing the prompt patch is a no-op.
+Idempotent: re-installing the status patch is a no-op.
 """
 
 from __future__ import annotations
@@ -46,51 +47,43 @@ def _emit_error(message: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Prompt patching
+# Status-line patching
 # ---------------------------------------------------------------------------
-def _build_indicator_tuple(usage: ContextUsage) -> Tuple[str, str]:
-    """Build the (style, text) tuple that gets inserted into the prompt."""
-    return ("class:context-indicator", f"{usage.indicator} ")
+def _decorate_status(info: str) -> str:
+    """Prepend the usage light to a non-empty token summary.
 
-
-def _inject_indicator(formatted_text):
-    """Return a new ``FormattedText`` with the usage indicator prepended.
-
-    Placed AFTER the dog emoji but BEFORE the puppy name so the colored
-    circle reads as a status badge for the prompt as a whole.
+    Empty strings pass through untouched: those are "clear the row" calls
+    and must stay empty so the idle prompt isn't haunted by a lone circle.
     """
-    from prompt_toolkit.formatted_text import FormattedText
-
+    if not info:
+        return info
     usage = get_current_usage()
     if usage is None:
-        return formatted_text
-
-    try:
-        parts = list(formatted_text)
-        # Insert after the leading "🐶 " tuple (index 0) so the badge sits
-        # right next to the puppy. Fall back to prepend if shape changed.
-        insert_at = 1 if parts else 0
-        parts.insert(insert_at, _build_indicator_tuple(usage))
-        return FormattedText(parts)
-    except Exception:
-        return formatted_text
+        return info
+    return f"{usage.indicator} {info}"
 
 
-def _install_prompt_patch() -> None:
-    """Monkey-patch ``get_prompt_with_active_model`` once."""
-    from code_puppy.command_line import prompt_toolkit_completion as ptc
+def _install_status_patch() -> None:
+    """Monkey-patch ``_compaction.update_spinner_context`` once.
 
-    if getattr(ptc, _PATCH_ATTR, None) is not None:
+    The token summary on the bottom bar's status row is written by
+    ``agents._compaction`` through its import-time binding of
+    ``update_spinner_context`` — so that binding (not the ``spinner``
+    module attribute) is the seam we wrap. The badge rides the status
+    row, next to the numbers it describes, instead of the prompt line.
+    """
+    from code_puppy.agents import _compaction
+
+    if getattr(_compaction, _PATCH_ATTR, None) is not None:
         return  # Already patched
 
-    original = ptc.get_prompt_with_active_model
-    setattr(ptc, _PATCH_ATTR, original)
+    original = _compaction.update_spinner_context
+    setattr(_compaction, _PATCH_ATTR, original)
 
-    def patched(base: str = ">>> "):
-        result = original(base)
-        return _inject_indicator(result)
+    def patched(info: str) -> None:
+        original(_decorate_status(info))
 
-    ptc.get_prompt_with_active_model = patched
+    _compaction.update_spinner_context = patched
 
 
 _LEGEND_TEXT = (
@@ -109,9 +102,9 @@ def _announce_legend() -> None:
 
 def _on_startup() -> None:
     try:
-        _install_prompt_patch()
+        _install_status_patch()
     except Exception as exc:
-        _emit_error(f"context_indicator: failed to install prompt patch — {exc}")
+        _emit_error(f"context_indicator: failed to install status patch — {exc}")
     _announce_legend()
 
 
@@ -245,13 +238,12 @@ register_callback("custom_command_help", _custom_help)
 
 __all__ = [
     "_announce_legend",
-    "_build_indicator_tuple",
     "_custom_help",
+    "_decorate_status",
     "_format_overhead_breakdown",
     "_format_usage_report",
     "_handle_context_command",
     "_handle_custom_command",
-    "_inject_indicator",
-    "_install_prompt_patch",
+    "_install_status_patch",
     "_on_startup",
 ]

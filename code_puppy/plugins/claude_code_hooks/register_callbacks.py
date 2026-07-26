@@ -366,6 +366,8 @@ async def on_agent_run_end_hook(
             "session_id": session_id,
             "success": success,
             "error": str(error) if error else None,
+            "response_text": response_text,
+            "metadata": metadata,
         },
     )
 

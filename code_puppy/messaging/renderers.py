@@ -275,10 +275,40 @@ def _classify_style(message: UIMessage) -> Optional[str]:
 
 
 def _print_message(console: Console, message: UIMessage) -> None:
+    """Print one message while coordinating with the live prompt surface."""
+    from contextlib import nullcontext
+
+    try:
+        from .bottom_bar import get_bottom_bar
+
+        transaction = get_bottom_bar().output_transaction()
+    except Exception:
+        transaction = nullcontext()
+    with transaction:
+        _print_message_uncoordinated(console, message)
+
+
+def _print_message_uncoordinated(console: Console, message: UIMessage) -> None:
     """Print ``message`` to ``console`` using the standard styling rules."""
+    # New transcript output is about to scroll: the bottom bar walks
+    # its popup slack back one row per message so the prompt steps down
+    # with the flow (see BottomBar.notify_transcript_output). Guarded:
+    # bar geometry plumbing must NEVER break (or kill) a render thread.
     style = _classify_style(message)
     content = message.content
-    if isinstance(content, str):
+    if message.type == MessageType.QUEUED:
+        from code_puppy.config import get_banner_color
+
+        queued = Text()
+        queued.append(
+            " QUEUED ",
+            style=f"bold white on {get_banner_color('thinking')}",
+        )
+        queued.append(" ")
+        queued.append(str(content), style="dim")
+        console.print()
+        console.print(queued)
+    elif isinstance(content, str):
         if message.type == MessageType.AGENT_RESPONSE:
             try:
                 console.print(Markdown(content))
@@ -421,11 +451,22 @@ class SynchronousInteractiveRenderer:
         self._flush_paused_buffer()
 
     def _consume_messages(self):
-        """Consume messages synchronously."""
+        """Consume messages synchronously.
+
+        Each render is exception-guarded: an unhandled error here would
+        otherwise kill this daemon thread SILENTLY and message rendering
+        would degrade with no symptom other than "output stopped".
+        """
         while self._running:
             message = self.queue.get_nowait()
             if message:
-                self._render_message(message)
+                try:
+                    self._render_message(message)
+                except Exception as e:
+                    # Can't use messaging in the renderer — stderr only.
+                    import sys
+
+                    sys.stderr.write(f"Error rendering message: {e}\n")
             else:
                 # No messages, sleep briefly
                 import time

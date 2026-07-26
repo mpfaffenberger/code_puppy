@@ -34,6 +34,26 @@ def test_qa_kitten():
     prompt = agent.get_system_prompt()
     assert isinstance(prompt, str)
 
+    # DOM-first progression tools are exposed to qa-kitten (PUP-436).
+    for tool in (
+        "browser_page_snapshot",
+        "browser_click_by_role",
+        "browser_click_by_text",
+        "browser_set_text_by_label",
+    ):
+        assert tool in tools
+
+    # Screenshot capability is preserved for visual validation.
+    assert "browser_screenshot_analyze" in tools
+
+    # Prompt policy distinguishes non-visual progression from visual validation.
+    lowered = prompt.lower()
+    assert "dom-first" in lowered
+    assert "visual validation" in lowered
+    assert "browser_page_snapshot" in prompt
+    # Screenshots explicitly scoped to visual assertions, not progression.
+    assert "visual assertions" in lowered or "visual assertion" in lowered
+
 
 def test_helios_agent():
     from code_puppy.agents.agent_helios import HeliosAgent

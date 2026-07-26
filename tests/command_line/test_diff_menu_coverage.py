@@ -39,6 +39,7 @@ class TestKeyBindingHandlers:
             full_screen=False,
             mouse_support=False,
             color_depth=None,
+            style=None,
         ):
             captured_kb[0] = key_bindings
             mock_app = MagicMock()

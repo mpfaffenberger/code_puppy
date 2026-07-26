@@ -16,6 +16,7 @@ from prompt_toolkit.layout import Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 from rich.console import Console
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 # Sample code snippets for each language
 LANGUAGE_SAMPLES = {
@@ -489,17 +490,17 @@ async def _split_panel_selector(
         """Generate the selector menu text."""
         try:
             lines = []
-            lines.append(("bold cyan", title))
+            lines.append(("class:tui.header", title))
             lines.append(("", "\n\n"))
 
             if not choices:
-                lines.append(("fg:ansiyellow", "No choices available"))
+                lines.append(("class:tui.warning", "No choices available"))
                 lines.append(("", "\n"))
             else:
                 for i, choice in enumerate(choices):
                     if i == selected_index[0]:
-                        lines.append(("fg:ansigreen", "▶ "))
-                        lines.append(("fg:ansigreen bold", choice))
+                        lines.append(("class:tui.selected", "▶ "))
+                        lines.append(("class:tui.selected", choice))
                     else:
                         lines.append(("", "  "))
                         lines.append(("", choice))
@@ -511,15 +512,18 @@ async def _split_panel_selector(
             if config is not None:
                 current_lang = config.get_current_language()
                 lang_hint = f"Language: {current_lang.upper()}  (←→ to change)"
-                lines.append(("fg:ansiyellow", lang_hint))
+                lines.append(("class:tui.warning", lang_hint))
                 lines.append(("", "\n"))
 
             lines.append(
-                ("fg:ansicyan", "↑↓ Navigate  │  Enter Confirm  │  Ctrl-C Cancel")
+                (
+                    "class:tui.help-key",
+                    "↑↓ Navigate  │  Enter Confirm  │  Ctrl-C Cancel",
+                )
             )
             return FormattedText(lines)
         except Exception as e:
-            return FormattedText([("fg:ansired", f"Error: {e}")])
+            return FormattedText([("class:tui.error", f"Error: {e}")])
 
     def get_right_panel_text():
         """Generate the preview panel text."""
@@ -528,7 +532,7 @@ async def _split_panel_selector(
             # get_preview() now returns ANSI, which is already FormattedText-compatible
             return preview
         except Exception as e:
-            return FormattedText([("fg:ansired", f"Preview error: {e}")])
+            return FormattedText([("class:tui.error", f"Preview error: {e}")])
 
     kb = KeyBindings()
 
@@ -598,6 +602,7 @@ async def _split_panel_selector(
         full_screen=False,  # Don't use full_screen to avoid buffer issues
         mouse_support=False,
         color_depth="DEPTH_24_BIT",  # Enable truecolor support
+        style=on_prompt_toolkit_style(),
     )
 
     sys.stdout.flush()
@@ -759,53 +764,35 @@ def _get_preview_text_for_prompt_toolkit(config: DiffConfiguration) -> ANSI:
 
     header_text = "\n".join(header_parts)
 
-    # Temporarily override config to use current preview settings
-    from code_puppy.config import (
-        get_diff_addition_color,
-        get_diff_deletion_color,
-        set_diff_addition_color,
-        set_diff_deletion_color,
+    # Pass preview colors directly. A preview should not scribble in puppy.cfg.
+    formatted_diff = format_diff_with_colors(
+        sample_diff,
+        addition_color=config.current_add_color,
+        deletion_color=config.current_del_color,
     )
 
-    # Save original values
-    original_add_color = get_diff_addition_color()
-    original_del_color = get_diff_deletion_color()
+    # Render everything with Rich Console to get ANSI output with proper color support
+    buffer = io.StringIO()
+    console = Console(
+        file=buffer,
+        force_terminal=True,
+        width=90,
+        legacy_windows=False,
+        color_system="truecolor",
+        no_color=False,
+        force_interactive=True,  # Force interactive mode for better color support
+    )
 
-    try:
-        # Temporarily set config to preview values
-        set_diff_addition_color(config.current_add_color)
-        set_diff_deletion_color(config.current_del_color)
+    # Print header
+    console.print(header_text, end="\n")
 
-        # Get the formatted diff (either Rich Text or Rich markup string)
-        formatted_diff = format_diff_with_colors(sample_diff)
+    # Print diff (handles both Text objects and markup strings)
+    console.print(formatted_diff, end="\n\n")
 
-        # Render everything with Rich Console to get ANSI output with proper color support
-        buffer = io.StringIO()
-        console = Console(
-            file=buffer,
-            force_terminal=True,
-            width=90,
-            legacy_windows=False,
-            color_system="truecolor",
-            no_color=False,
-            force_interactive=True,  # Force interactive mode for better color support
-        )
+    # Print footer
+    console.print("[bold]═" * 50 + "[/bold]", end="")
 
-        # Print header
-        console.print(header_text, end="\n")
-
-        # Print diff (handles both Text objects and markup strings)
-        console.print(formatted_diff, end="\n\n")
-
-        # Print footer
-        console.print("[bold]═" * 50 + "[/bold]", end="")
-
-        ansi_output = buffer.getvalue()
-
-    finally:
-        # Restore original config values
-        set_diff_addition_color(original_add_color)
-        set_diff_deletion_color(original_del_color)
+    ansi_output = buffer.getvalue()
 
     # Wrap in ANSI() so prompt_toolkit can render it
     return ANSI(ansi_output)

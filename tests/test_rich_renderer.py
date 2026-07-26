@@ -281,8 +281,8 @@ def test_format_size(size_bytes: int, expected: str) -> None:
 
 def test_get_file_icon_defaults() -> None:
     renderer, _ = _make_renderer()
-    assert renderer._get_file_icon("notes.md") == "📝"
-    assert renderer._get_file_icon("unknown.bin") == "📄"
+    assert renderer._get_file_icon("notes.md") == "-"
+    assert renderer._get_file_icon("unknown.bin") == "-"
 
 
 def test_markdown_rendering_to_real_console() -> None:

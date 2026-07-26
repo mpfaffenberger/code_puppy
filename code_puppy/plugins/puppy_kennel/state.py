@@ -15,13 +15,25 @@ ambiguity, refuse to guess.
 Reads and writes go through ``code_puppy.config.get_value`` /
 ``set_config_value``, the same helpers every other plugin (statusline,
 prompt_newline, ...) uses for puppy.cfg interop.
+
+An environment override, ``PUPPY_KENNEL_ENABLED``, takes precedence over
+the persisted cfg value. This mirrors ``PUPPY_KENNEL_ROOT`` in
+``config.py`` and -- crucially -- is the only knob that survives a
+``multiprocessing`` *spawn*. Spawned children start a fresh interpreter
+and re-read the developer's REAL ``puppy.cfg`` (the test harness's config
+isolation lives in the parent process only), so without an env override a
+child silently inherits whatever the developer happens to have toggled.
+Env vars, by contrast, are inherited across the spawn boundary.
 """
 
 from __future__ import annotations
 
+import os
+
 from code_puppy.config import get_value, set_config_value
 
 _CFG_KEY = "kennel_enabled"
+_ENV_KEY = "PUPPY_KENNEL_ENABLED"
 _FALSY = frozenset({"false", "0", "no", "off"})
 
 DISABLED_TOOL_ERROR = (
@@ -38,7 +50,9 @@ def is_enabled() -> bool:
     so flipping the toggle takes effect immediately -- no relaunch
     required.
     """
-    raw = get_value(_CFG_KEY)
+    raw = os.environ.get(_ENV_KEY)
+    if raw is None:
+        raw = get_value(_CFG_KEY)
     if raw is None:
         return True
     return str(raw).strip().lower() not in _FALSY

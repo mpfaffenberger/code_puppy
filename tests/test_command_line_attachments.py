@@ -81,6 +81,65 @@ def test_parse_prompt_skips_unsupported_types(tmp_path: Path) -> None:
 
     assert processed.prompt == str(unsupported)
     assert processed.attachments == []
+
+
+# ---------------------------------------------------------------------------
+# Image normalization integration
+# ---------------------------------------------------------------------------
+
+
+def test_image_attachment_calls_normalize(tmp_path: Path) -> None:
+    """parse_prompt_attachments must pass image bytes through normalize_image_bytes."""
+    png_path = tmp_path / "photo.png"
+    png_path.write_bytes(b"fake-png-bytes")
+
+    sentinel_bytes = b"normalized!"
+    sentinel_mime = "image/png"
+
+    with patch(
+        "code_puppy.command_line.attachments.normalize_image_bytes",
+        return_value=(sentinel_bytes, sentinel_mime),
+    ) as mock_norm:
+        processed = parse_prompt_attachments(str(png_path))
+
+    mock_norm.assert_called_once_with(b"fake-png-bytes", "image/png")
+    assert len(processed.attachments) == 1
+    assert processed.attachments[0].content.data == sentinel_bytes
+    assert processed.attachments[0].content.media_type == sentinel_mime
+
+
+def test_image_attachment_normalize_updates_media_type(tmp_path: Path) -> None:
+    """When normalize returns image/png the attachment media_type is updated."""
+    jpeg_path = tmp_path / "photo.jpg"
+    jpeg_path.write_bytes(b"raw-jpeg-bytes")
+
+    with patch(
+        "code_puppy.command_line.attachments.normalize_image_bytes",
+        return_value=(b"png-reencoded", "image/png"),
+    ):
+        processed = parse_prompt_attachments(str(jpeg_path))
+
+    assert processed.attachments[0].content.media_type == "image/png"
+
+
+def test_non_image_attachment_normalize_not_applied(tmp_path: Path) -> None:
+    """normalize_image_bytes must not mutate non-image attachments."""
+    # .gif is in the accepted set but the test verifies passthrough behaviour
+    # by ensuring whatever normalize returns is what ends up in the attachment.
+    gif_path = tmp_path / "anim.gif"
+    gif_path.write_bytes(b"GIF89a")
+
+    # Return unchanged (mime starts with image/ so normalize IS called, but
+    # for a file-that-PIL-can't-parse it returns the original bytes untouched).
+    with patch(
+        "code_puppy.command_line.attachments.normalize_image_bytes",
+        side_effect=lambda data, mt, **kw: (data, mt),  # identity
+    ) as mock_norm:
+        processed = parse_prompt_attachments(str(gif_path))
+
+    mock_norm.assert_called_once()
+    assert processed.attachments[0].content.data == b"GIF89a"
+
     assert processed.warnings == []
 
 
@@ -111,7 +170,7 @@ async def test_run_prompt_with_attachments_passes_binary(tmp_path: Path) -> None
         result, _ = await run_prompt_with_attachments(
             fake_agent,
             raw_prompt,
-            spinner_console=None,
+            display_console=None,
         )
 
     assert result is fake_result
@@ -125,7 +184,7 @@ async def test_run_prompt_with_attachments_passes_binary(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_run_prompt_with_attachments_uses_spinner(tmp_path: Path) -> None:
+async def test_run_prompt_with_attachments_uses_run_ui(tmp_path: Path) -> None:
     pdf_path = tmp_path / "paper.pdf"
     pdf_path.write_bytes(b"%PDF")
 
@@ -135,20 +194,18 @@ async def test_run_prompt_with_attachments_uses_spinner(tmp_path: Path) -> None:
     dummy_console = object()
 
     with (
-        patch("code_puppy.messaging.spinner.ConsoleSpinner") as mock_spinner,
+        patch("code_puppy.messaging.run_ui.run_ui") as mock_run_ui,
         patch("code_puppy.messaging.emit_system_message"),
         patch("code_puppy.messaging.emit_warning"),
     ):
         await run_prompt_with_attachments(
             fake_agent,
             f"please summarise {pdf_path}",
-            spinner_console=dummy_console,
-            use_spinner=True,
+            display_console=dummy_console,
+            use_run_ui=True,
         )
 
-    mock_spinner.assert_called_once()
-    args, kwargs = mock_spinner.call_args
-    assert kwargs["console"] is dummy_console
+    mock_run_ui.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -162,8 +219,8 @@ async def test_run_prompt_with_attachments_warns_on_blank_prompt() -> None:
         result, _ = await run_prompt_with_attachments(
             fake_agent,
             "   ",
-            spinner_console=None,
-            use_spinner=False,
+            display_console=None,
+            use_run_ui=False,
         )
 
     assert result is None

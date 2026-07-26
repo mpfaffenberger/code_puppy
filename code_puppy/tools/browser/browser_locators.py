@@ -71,7 +71,7 @@ async def find_by_text(
     """Find elements containing specific text."""
     group_id = generate_group_id("browser_find_by_text", text[:50])
     emit_info(
-        f"BROWSER FIND BY TEXT 🔍 text='{text}' exact={exact}",
+        f"BROWSER FIND BY TEXT text='{text}' exact={exact}",
         message_group=group_id,
     )
     try:
@@ -186,7 +186,7 @@ async def find_by_placeholder(
     """Find elements by placeholder text."""
     group_id = generate_group_id("browser_find_by_placeholder", text[:50])
     emit_info(
-        f"BROWSER FIND BY PLACEHOLDER 📝 placeholder='{text}' exact={exact}",
+        f"BROWSER FIND BY PLACEHOLDER placeholder='{text}' exact={exact}",
         message_group=group_id,
     )
     try:
@@ -244,7 +244,7 @@ async def find_by_test_id(
     """Find elements by test ID attribute."""
     group_id = generate_group_id("browser_find_by_test_id", test_id)
     emit_info(
-        f"BROWSER FIND BY TEST ID 🧪 test_id='{test_id}'",
+        f"BROWSER FIND BY TEST ID test_id='{test_id}'",
         message_group=group_id,
     )
     try:
@@ -300,7 +300,7 @@ async def run_xpath_query(
     """Find elements using XPath selector."""
     group_id = generate_group_id("browser_xpath_query", xpath[:100])
     emit_info(
-        f"BROWSER XPATH QUERY 🔍 xpath='{xpath}'",
+        f"BROWSER XPATH QUERY xpath='{xpath}'",
         message_group=group_id,
     )
     try:

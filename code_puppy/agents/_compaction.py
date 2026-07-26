@@ -41,8 +41,8 @@ from code_puppy.config import (
     get_compaction_threshold,
     get_protected_token_count,
 )
-from code_puppy.messaging import emit_error, emit_info, emit_warning
-from code_puppy.messaging.spinner import SpinnerBase, update_spinner_context
+from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+from code_puppy.messaging.spinner import format_context_info, update_spinner_context
 from code_puppy.summarization_agent import SummarizationError, run_summarization_sync
 
 _SUMMARIZATION_INSTRUCTIONS = (
@@ -211,15 +211,14 @@ def _run_summarization_core(
     if not pruned:
         return prune_interrupted_tool_calls(messages), []
 
-    new_messages = run_summarization_sync(
+    summary_text = run_summarization_sync(
         _SUMMARIZATION_INSTRUCTIONS, message_history=pruned
     )
 
-    if not isinstance(new_messages, list):
-        emit_warning(
-            "Summarization agent returned non-list output; wrapping into message request"
-        )
-        new_messages = [ModelRequest([TextPart(str(new_messages))])]
+    # Splice ONLY the summary output into context — not the summarization
+    # run's request/response envelope (which would drag the prompt + full
+    # history right back into the window we just tried to shrink).
+    new_messages: List[ModelMessage] = [ModelRequest([TextPart(str(summary_text))])]
 
     compacted: List[ModelMessage] = [system_message] + list(new_messages)
     compacted.extend(msg for msg in protected_messages if msg is not system_message)
@@ -282,6 +281,8 @@ def compact(
     messages: List[ModelMessage],
     model_max: int,
     context_overhead: int,
+    *,
+    force: bool = False,
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
     """Unified compaction entrypoint. Replaces ``message_history_processor``.
 
@@ -291,6 +292,8 @@ def compact(
         messages: Current message history (already accumulated by the caller).
         model_max: Effective model context window in tokens.
         context_overhead: Estimated overhead for system prompt + tool schemas.
+        force: Compact regardless of the configured context threshold. Used by
+            mid-run ``/compact`` at the next safe model-call boundary.
 
     Returns:
         ``(new_messages, dropped_messages_for_hash_tracking)``.
@@ -308,13 +311,11 @@ def compact(
     total_tokens = message_tokens + context_overhead
     proportion_used = total_tokens / model_max if model_max else 0.0
 
-    context_summary = SpinnerBase.format_context_info(
-        total_tokens, model_max, proportion_used
-    )
+    context_summary = format_context_info(total_tokens, model_max, proportion_used)
     update_spinner_context(context_summary)
 
     threshold = get_compaction_threshold()
-    if proportion_used <= threshold:
+    if not force and proportion_used <= threshold:
         return messages, []
 
     strategy = get_compaction_strategy()
@@ -385,7 +386,7 @@ def compact(
     final_token_count = sum(
         estimate_tokens_for_message(m, model_name) for m in result_messages
     )
-    final_summary = SpinnerBase.format_context_info(
+    final_summary = format_context_info(
         final_token_count,
         model_max,
         final_token_count / model_max if model_max else 0.0,
@@ -475,12 +476,20 @@ def make_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
                 history.append(msg)
                 messages_added += 1
 
+        from code_puppy.messaging.pause_controller import get_pause_controller
+
+        pause_controller = get_pause_controller()
+        force_compaction = pause_controller.take_compaction_request()
         new_history, dropped = compact(
             agent,
             history,
             agent._get_model_context_length(),
             agent._estimate_context_overhead(),
+            force=force_compaction,
         )
+        if force_compaction:
+            detail = "" if dropped else " History was already minimal."
+            emit_success(f"Mid-run compaction complete.{detail}")
         agent._message_history = new_history
         for m in dropped:
             compacted_hashes.add(hash_message(m))

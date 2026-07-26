@@ -11,14 +11,6 @@ from __future__ import annotations
 from typing import Any, List, Tuple
 
 from code_puppy.plugins.prune.prune_model import (
-    C_CHECKED,
-    C_CURSOR,
-    C_DIM,
-    C_FOOTER_OK,
-    C_FOOTER_WARN,
-    C_HEADER,
-    C_SHELL,
-    C_TOOL,
     ContextBudget,
     MessageEntry,
     Row,
@@ -32,10 +24,10 @@ from code_puppy.plugins.prune.prune_model import (
 def ctx_indicator(entry: MessageEntry) -> Tuple[str, str]:
     """Return (glyph, style) for the in-context indicator."""
     if entry.in_context is True:
-        return ("●", C_FOOTER_OK)
+        return ("●", "class:tui.success")
     if entry.in_context is False:
-        return ("○", C_DIM)
-    return ("·", C_DIM)
+        return ("○", "class:tui.muted")
+    return ("·", "class:tui.muted")
 
 
 def tokens_str(entry: MessageEntry) -> str:
@@ -138,23 +130,23 @@ def _format_value_lines(value: Any) -> List[str]:
 
 def render_budget_line(budget: ContextBudget) -> List[tuple]:
     if not budget.available or budget.context_length is None:
-        return [(C_DIM, "context: unavailable\n")]
+        return [("class:tui.muted", "context: unavailable\n")]
 
     total = budget.total_used or 0
     pct = budget.percent_used or 0.0
     if pct < 70:
-        style = C_FOOTER_OK
+        style = "class:tui.success"
     elif pct < 90:
-        style = C_FOOTER_WARN
+        style = "class:tui.warning"
     else:
-        style = C_SHELL
+        style = "class:tui.error"
 
     parts: List[tuple] = [
         (
             style,
             f"context: {total:,}/{budget.context_length:,} tokens ({pct:.0f}%)",
         ),
-        (C_DIM, f"   overhead: {budget.overhead_tokens or 0:,}t\n"),
+        ("class:tui.muted", f"   overhead: {budget.overhead_tokens or 0:,}t\n"),
     ]
     if budget.out_of_context_messages > 0:
         # On its own line — these tokens won't fit in this turn's window,
@@ -163,7 +155,7 @@ def render_budget_line(budget: ContextBudget) -> List[tuple]:
         # history; pop or prune newer ones to slide them back in.)
         parts.append(
             (
-                C_SHELL,
+                "class:tui.error",
                 f" ↯ {budget.out_of_context_tokens:,}t in "
                 f"{budget.out_of_context_messages} older msg(s) out of context\n",
             )
@@ -185,12 +177,12 @@ def render_legend() -> List[tuple]:
     budget are noisy ``●`` messages.
     """
     return [
-        (C_DIM, " legend:  "),
-        (C_FOOTER_OK, "● in context"),
-        (C_DIM, "   "),
-        (C_DIM, "○ out of context"),
-        (C_DIM, "   "),
-        (C_DIM, "· unknown\n"),
+        ("class:tui.muted", " legend:  "),
+        ("class:tui.success", "● in context"),
+        ("class:tui.muted", "   "),
+        ("class:tui.muted", "○ out of context"),
+        ("class:tui.muted", "   "),
+        ("class:tui.muted", "· unknown\n"),
     ]
 
 
@@ -206,7 +198,7 @@ def render_list(menu: Any) -> List[tuple]:
     out: List[tuple] = []
     out.append(
         (
-            C_HEADER,
+            "class:tui.title dim",
             " prune   ↓/↑ move  space toggle  a all  c clear  enter confirm  q quit\n",
         )
     )
@@ -222,7 +214,7 @@ def render_list(menu: Any) -> List[tuple]:
     hidden_below = max(0, total - bottom)
 
     if hidden_above:
-        out.append((C_DIM, f"   ↑ {hidden_above} more above\n"))
+        out.append(("class:tui.muted", f"   ↑ {hidden_above} more above\n"))
     else:
         out.append(("", "\n"))
 
@@ -230,7 +222,7 @@ def render_list(menu: Any) -> List[tuple]:
         render_row(menu, idx, menu.rows[idx], out)
 
     if hidden_below:
-        out.append((C_DIM, f"   ↓ {hidden_below} more below\n"))
+        out.append(("class:tui.muted", f"   ↓ {hidden_below} more below\n"))
     else:
         out.append(("", "\n"))
 
@@ -238,19 +230,19 @@ def render_list(menu: Any) -> List[tuple]:
     out.append(("", "\n"))
     out.append(
         (
-            C_FOOTER_OK,
+            "class:tui.success",
             f" enter = remove {msg_count} message(s)\n",
         )
     )
     out.extend(render_legend())
-    out.append((C_DIM, f" cursor {menu.cursor + 1}/{total}\n"))
+    out.append(("class:tui.muted", f" cursor {menu.cursor + 1}/{total}\n"))
     return out
 
 
 def render_row(menu: Any, idx: int, row: Row, out: List[tuple]) -> None:
     is_cursor = idx == menu.cursor
     cursor_marker = "▶ " if is_cursor else "  "
-    cursor_style = C_CURSOR if is_cursor else ""
+    cursor_style = "class:tui.selected" if is_cursor else ""
     checked = menu._row_is_checked(row)
 
     entry = menu.entries[row.message_idx]
@@ -258,11 +250,11 @@ def render_row(menu: Any, idx: int, row: Row, out: List[tuple]) -> None:
     # Locked rows (sys bundle or history[0]) get a distinct "locked" box
     # so the user can see at a glance that this isn't toggleable.
     if entry.is_locked:
-        box, box_style = "[-] ", C_DIM
+        box, box_style = "[-] ", "class:tui.muted"
     elif checked:
-        box, box_style = "[x] ", C_CHECKED
+        box, box_style = "[x] ", "class:tui.error"
     else:
-        box, box_style = "[ ] ", C_DIM
+        box, box_style = "[ ] ", "class:tui.muted"
 
     role_short = {
         "system": "sys  ",
@@ -271,7 +263,7 @@ def render_row(menu: Any, idx: int, row: Row, out: List[tuple]) -> None:
         "tool-return": "tool ",
         "unknown": "?    ",
     }.get(entry.role, "?    ")
-    row_style = C_CHECKED if checked else entry.role_color
+    row_style = "class:tui.error" if checked else entry.role_color
     out.append((cursor_style, cursor_marker))
     out.append((box_style, box))
     ctx_glyph, ctx_style = ctx_indicator(entry)
@@ -285,7 +277,7 @@ def render_row(menu: Any, idx: int, row: Row, out: List[tuple]) -> None:
     )
     tok = tokens_str(entry)
     if tok:
-        out.append((C_DIM, f"  {tok}"))
+        out.append(("class:tui.muted", f"  {tok}"))
     out.append(("", "\n"))
 
 
@@ -306,7 +298,7 @@ def render_detail(menu: Any) -> List[tuple]:
     if menu._selection_has_side_effects():
         out.append(
             (
-                C_SHELL,
+                "class:tui.error",
                 " ⚠  selection includes side-effecting tool calls; "
                 "pruning does NOT roll them back\n",
             )
@@ -315,7 +307,7 @@ def render_detail(menu: Any) -> List[tuple]:
 
 
 def _render_message_detail(entry: MessageEntry, out: List[tuple]) -> None:
-    out.append((C_HEADER, f" {entry.role}  (message)\n"))
+    out.append(("class:tui.title dim", f" {entry.role}  (message)\n"))
     tok = f" · ~{entry.tokens}t" if entry.tokens is not None else ""
     location = f"history index {entry.history_index}"
     # Surface thinking presence in the metadata line so it's clear at a
@@ -327,7 +319,7 @@ def _render_message_detail(entry: MessageEntry, out: List[tuple]) -> None:
     )
     out.append(
         (
-            C_DIM,
+            "class:tui.muted",
             f" {location}  ·  "
             f"{len(entry.tool_calls)} tool call(s){tok}{ctx_detail_text(entry)}"
             f"{thinking_note}\n\n",
@@ -338,17 +330,17 @@ def _render_message_detail(entry: MessageEntry, out: List[tuple]) -> None:
 
     if entry.tool_calls:
         out.append(("", "\n"))
-        out.append((C_HEADER, " tool calls (will go with message):\n"))
+        out.append(("class:tui.title dim", " tool calls (will go with message):\n"))
         for tc in entry.tool_calls:
             _render_tool_call_block(tc, out)
 
 
 def _render_tool_call_block(tc: ToolCallInfo, out: List[tuple]) -> None:
     """Inline tool-call block inside a message detail view, full args."""
-    out.append((C_TOOL, f"   {tc.icon} {tc.name}"))
+    out.append(("class:tui.warning", f"   {tc.icon} {tc.name}"))
     out.append(("", "\n"))
     for line in format_args_full(tc.full_args, tc.args_preview):
-        out.append((C_DIM, f"       {line}\n"))
+        out.append(("class:tui.muted", f"       {line}\n"))
 
 
 __all__ = [

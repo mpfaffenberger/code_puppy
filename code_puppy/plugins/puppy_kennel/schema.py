@@ -70,9 +70,16 @@ END;
 
 # PRAGMAs applied on every connection. WAL is the headline: one writer +
 # unlimited readers, multi-process safe, the whole reason we picked SQLite.
+#
+# ORDER MATTERS: ``busy_timeout`` must come FIRST. Switching ``journal_mode``
+# to WAL takes a brief exclusive lock, and the very first concurrent
+# ``initialize()`` from N processes can collide on it. If the busy handler
+# isn't armed yet, that collision surfaces as an immediate
+# ``OperationalError: database is locked`` instead of politely waiting.
+# Arm the 5s grace BEFORE we attempt the WAL switch (or any write).
 PRAGMAS = (
+    "PRAGMA busy_timeout=5000",  # 5s grace for writers waiting on the lock.
     "PRAGMA journal_mode=WAL",
     "PRAGMA synchronous=NORMAL",  # WAL durability is fine at NORMAL; faster.
     "PRAGMA foreign_keys=ON",
-    "PRAGMA busy_timeout=5000",  # 5s grace for writers waiting on the lock.
 )

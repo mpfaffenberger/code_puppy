@@ -180,7 +180,7 @@ class TestRemovedReasoningToolBehavior:
         register_tools_for_agent(
             mock_agent,
             ["list_files", "agent_share_your_reasoning"],
-            model_name="chatgpt-gpt-5.4",
+            model_name="codex-gpt-5.4",
         )
 
         mock_warning.assert_not_called()

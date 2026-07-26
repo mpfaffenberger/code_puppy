@@ -15,6 +15,31 @@ def _get_effective_agent_model(agent) -> Optional[str]:
         return None
 
 
+def _refresh_context_status(agent) -> None:
+    """Replace any stale token summary after an effective-model change.
+
+    The history processor normally writes this status during a model run. A
+    model switch can happen between those writes, leaving the old model's
+    capacity visible until the next turn. Recompute from the reloaded agent so
+    the bottom bar immediately reflects the effective model.
+    """
+    from code_puppy.messaging.spinner import (
+        format_context_info,
+        update_spinner_context,
+    )
+
+    try:
+        capacity = agent._get_model_context_length()
+        history = agent.get_message_history() or []
+        message_tokens = sum(agent.estimate_tokens_for_message(msg) for msg in history)
+        total_tokens = message_tokens + agent._estimate_context_overhead()
+        proportion = total_tokens / capacity if capacity else 0.0
+        update_spinner_context(format_context_info(total_tokens, capacity, proportion))
+    except Exception:
+        # A blank status is more honest than retaining another model's capacity.
+        update_spinner_context("")
+
+
 def set_model_and_reload_agent(
     model_name: str,
     *,
@@ -58,6 +83,7 @@ def set_model_and_reload_agent(
                 )
 
         current_agent.reload_code_generation_agent()
+        _refresh_context_status(current_agent)
         emit_info("Active agent reloaded")
     except Exception as exc:
         emit_warning(f"Model changed but agent reload failed: {exc}")

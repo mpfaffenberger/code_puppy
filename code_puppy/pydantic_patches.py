@@ -529,6 +529,33 @@ def patch_termflow_clipboard() -> None:
         pass  # never crash on patch failure
 
 
+def _no_pad_render_code_line(_line, highlighted, width, margin, style, pretty_pad=True):
+    """Drop-in for ``render_code_line`` minus the ``' ' * padding`` suffix."""
+    return f"{margin}{highlighted}"
+
+
+def patch_termflow_code_padding() -> None:
+    """Strip trailing-space padding from termflow code lines (#505).
+
+    termflow's ``render_code_line`` right-pads to render width, but
+    termflow doesn't color code backgrounds -- so the padding is pure
+    invisible filler that corrupts copy/paste. Must patch both
+    ``termflow.render.code`` (the definition) AND
+    ``termflow.render.renderer`` (did ``from … import render_code_line``,
+    so it holds a stale reference).
+    """
+    try:
+        import termflow.render.code as _termflow_code
+        import termflow.render.renderer as _termflow_renderer
+
+        _termflow_code.render_code_line = _no_pad_render_code_line
+        _termflow_renderer.render_code_line = _no_pad_render_code_line
+    except ImportError:
+        pass  # termflow not available
+    except Exception:
+        pass  # never crash on patch failure
+
+
 def apply_all_patches() -> None:
     """Apply all monkey patches.
 
@@ -541,3 +568,4 @@ def apply_all_patches() -> None:
     patch_tool_call_callbacks()
     patch_prompt_toolkit_emoji_width()
     patch_termflow_clipboard()
+    patch_termflow_code_padding()

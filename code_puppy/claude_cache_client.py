@@ -40,6 +40,27 @@ TOOL_PREFIX = "cp_"
 # User-Agent to send with Claude Code OAuth requests
 CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
 
+# Extended (1 hour) prompt-cache TTL. Claude Code OAuth sessions get this for
+# free, so claude-code-* models always request it. API-key / third-party
+# Anthropic models keep the default 5-minute TTL (no ``ttl`` field at all).
+CACHE_TTL_1H = "1h"
+
+# Beta flag Anthropic requires before honoring a 1-hour cache TTL.
+EXTENDED_CACHE_TTL_BETA = "extended-cache-ttl-2025-04-11"
+
+
+def _cache_marker(ttl: str | None) -> dict[str, str]:
+    """Build a cache_control marker, optionally with an explicit TTL.
+
+    ``ttl=None`` yields the plain ``{"type": "ephemeral"}`` marker (Anthropic
+    defaults it to 5 minutes). Single source of truth for BOTH injection
+    paths (wire body and SDK payload) so they can never drift.
+    """
+    marker: dict[str, str] = {"type": "ephemeral"}
+    if ttl:
+        marker["ttl"] = ttl
+    return marker
+
 
 def _model_requires_thinking_summary(model_name):
     # Anthropic's Opus 4.7+ / Fable 5 families reject adaptive-thinking
@@ -94,11 +115,15 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         oauth_reauthentication_callback: Callable[[], str | None] | None = None,
         token_update_callback: Callable[[str], None] | None = None,
         apply_claude_code_prefix: bool = False,
+        cache_ttl: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._oauth_reauthentication_callback = oauth_reauthentication_callback
         self._token_update_callback = token_update_callback
+        # Explicit prompt-cache TTL (e.g. "1h") for injected cache markers.
+        # None means "let Anthropic default" (currently 5 minutes).
+        self._cache_ttl = cache_ttl
         # The ``cp_`` tool-name prefix is a Claude Code OAuth quirk. Only the
         # claude_code_oauth plugin should enable it; custom_anthropic and
         # Anthropic-vanilla models keep tool names verbatim.
@@ -266,12 +291,14 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
     @staticmethod
     def _transform_headers_for_claude_code(
         headers: MutableMapping[str, str],
+        cache_ttl: str | None = None,
     ) -> None:
         """Transform headers for Claude Code OAuth compatibility.
 
         - Sets user-agent to claude-cli
         - Merges anthropic-beta headers appropriately
         - Removes x-api-key (using Bearer auth instead)
+        - Adds the extended-cache-ttl beta when a 1h cache TTL is requested
         """
         # Set user-agent
         headers["user-agent"] = CLAUDE_CLI_USER_AGENT
@@ -288,6 +315,8 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         ]
         if "claude-code-20250219" in incoming_betas:
             required_betas.append("claude-code-20250219")
+        if cache_ttl == CACHE_TTL_1H:
+            required_betas.append(EXTENDED_CACHE_TTL_BETA)
 
         # Merge: start with required, then append any extras from the
         # incoming headers that aren't already in the required set.
@@ -360,7 +389,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 headers_modified = False
 
                 # 1. Transform headers for Claude Code OAuth
-                self._transform_headers_for_claude_code(headers)
+                self._transform_headers_for_claude_code(headers, self._cache_ttl)
                 headers_modified = True
 
                 # 2. Add ?beta=true query param
@@ -377,7 +406,9 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         body_modified = True
 
                     # 4. Inject cache_control
-                    cached_body = self._inject_cache_control(body_bytes)
+                    cached_body = self._inject_cache_control(
+                        body_bytes, self._cache_ttl
+                    )
                     if cached_body is not None:
                         body_bytes = cached_body
                         body_modified = True
@@ -685,7 +716,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             return None
 
     @staticmethod
-    def _inject_cache_control(body: bytes) -> bytes | None:
+    def _inject_cache_control(body: bytes, ttl: str | None = None) -> bytes | None:
         try:
             data = json.loads(body.decode("utf-8"))
         except Exception:
@@ -708,13 +739,13 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         if isinstance(system, list) and system:
             last_sys = system[-1]
             if isinstance(last_sys, dict) and "cache_control" not in last_sys:
-                last_sys["cache_control"] = {"type": "ephemeral"}
+                last_sys["cache_control"] = _cache_marker(ttl)
                 modified = True
         elif isinstance(system, str) and system:
             # Convert bare string to content-block list so we can attach
             # cache_control (the Anthropic API accepts both formats).
             data["system"] = [
-                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+                {"type": "text", "text": system, "cache_control": _cache_marker(ttl)}
             ]
             modified = True
 
@@ -723,7 +754,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         if isinstance(tools, list) and tools:
             last_tool = tools[-1]
             if isinstance(last_tool, dict) and "cache_control" not in last_tool:
-                last_tool["cache_control"] = {"type": "ephemeral"}
+                last_tool["cache_control"] = _cache_marker(ttl)
                 modified = True
 
         # 3. Last message content block
@@ -738,7 +769,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         isinstance(last_block, dict)
                         and "cache_control" not in last_block
                     ):
-                        last_block["cache_control"] = {"type": "ephemeral"}
+                        last_block["cache_control"] = _cache_marker(ttl)
                         modified = True
 
         # 4. Opus 4.7 adaptive-thinking requires display=summarized on the
@@ -753,7 +784,9 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         return json.dumps(data).encode("utf-8")
 
 
-def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
+def _inject_cache_control_in_payload(
+    payload: dict[str, Any], ttl: str | None = None
+) -> None:
     """In-place cache_control injection on Anthropic messages.create payload.
 
     Places up to three cache breakpoints (Anthropic allows 4) on the most
@@ -768,10 +801,10 @@ def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
     if isinstance(system, list) and system:
         last_sys = system[-1]
         if isinstance(last_sys, dict) and "cache_control" not in last_sys:
-            last_sys["cache_control"] = {"type": "ephemeral"}
+            last_sys["cache_control"] = _cache_marker(ttl)
     elif isinstance(system, str) and system:
         payload["system"] = [
-            {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+            {"type": "text", "text": system, "cache_control": _cache_marker(ttl)}
         ]
 
     # 2. Tool definitions
@@ -779,7 +812,7 @@ def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
     if isinstance(tools, list) and tools:
         last_tool = tools[-1]
         if isinstance(last_tool, dict) and "cache_control" not in last_tool:
-            last_tool["cache_control"] = {"type": "ephemeral"}
+            last_tool["cache_control"] = _cache_marker(ttl)
 
     # 3. Last message content block
     messages = payload.get("messages")
@@ -790,7 +823,7 @@ def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
             if isinstance(content, list) and content:
                 last_block = content[-1]
                 if isinstance(last_block, dict) and "cache_control" not in last_block:
-                    last_block["cache_control"] = {"type": "ephemeral"}
+                    last_block["cache_control"] = _cache_marker(ttl)
 
     # 4. Opus 4.7 adaptive-thinking requires display=summarized on the
     # thinking dict. Enforce here as well so the AsyncAnthropic client
@@ -798,27 +831,32 @@ def _inject_cache_control_in_payload(payload: dict[str, Any]) -> None:
     _enforce_thinking_display_summary(payload)
 
 
-def _make_cache_wrapper(original_create: Callable[..., Any]) -> Callable[..., Any]:
+def _make_cache_wrapper(
+    original_create: Callable[..., Any], ttl: str | None = None
+) -> Callable[..., Any]:
     """Create a wrapped version of messages.create that injects cache_control."""
 
     async def wrapped_create(*args: Any, **kwargs: Any):
         if kwargs:
-            _inject_cache_control_in_payload(kwargs)
+            _inject_cache_control_in_payload(kwargs, ttl)
         elif args:
             maybe_payload = args[-1]
             if isinstance(maybe_payload, dict):
-                _inject_cache_control_in_payload(maybe_payload)
+                _inject_cache_control_in_payload(maybe_payload, ttl)
 
         return await original_create(*args, **kwargs)
 
     return wrapped_create
 
 
-def patch_anthropic_client_messages(client: Any) -> None:
+def patch_anthropic_client_messages(client: Any, cache_ttl: str | None = None) -> None:
     """Monkey-patch AsyncAnthropic messages.create to inject cache_control.
 
     Patches both client.messages.create AND client.beta.messages.create
     since pydantic-ai uses the beta endpoint.
+
+    ``cache_ttl`` (e.g. "1h") is stamped on every injected marker; ``None``
+    keeps Anthropic's default 5-minute TTL.
     """
 
     if AsyncAnthropic is None or not isinstance(client, AsyncAnthropic):  # type: ignore[arg-type]
@@ -828,7 +866,7 @@ def patch_anthropic_client_messages(client: Any) -> None:
     try:
         messages_obj = getattr(client, "messages", None)
         if messages_obj is not None:
-            messages_obj.create = _make_cache_wrapper(messages_obj.create)  # type: ignore[assignment]
+            messages_obj.create = _make_cache_wrapper(messages_obj.create, cache_ttl)  # type: ignore[assignment]
     except Exception:  # pragma: no cover - defensive
         pass
 
@@ -838,6 +876,8 @@ def patch_anthropic_client_messages(client: Any) -> None:
         if beta_obj is not None:
             beta_messages_obj = getattr(beta_obj, "messages", None)
             if beta_messages_obj is not None:
-                beta_messages_obj.create = _make_cache_wrapper(beta_messages_obj.create)  # type: ignore[assignment]
+                beta_messages_obj.create = _make_cache_wrapper(
+                    beta_messages_obj.create, cache_ttl
+                )  # type: ignore[assignment]
     except Exception:  # pragma: no cover - defensive
         pass

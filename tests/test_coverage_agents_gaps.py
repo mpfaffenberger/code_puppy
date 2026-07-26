@@ -151,16 +151,16 @@ class TestSummarizationGaps:
 
 class TestDisplaySubagentSkip:
     def test_skips_when_subagent_not_verbose(self):
-        """Cover line 39: early return for subagent without verbose."""
+        """Early return for subagent without verbose: nothing renders."""
         from code_puppy.tools.display import display_non_streamed_result
 
         with (
             patch("code_puppy.tools.display.is_subagent", return_value=True),
             patch("code_puppy.tools.display.get_subagent_verbose", return_value=False),
-            patch("code_puppy.messaging.spinner.pause_all_spinners") as mock_pause,
+            patch("code_puppy.tools.display.Console") as mock_console_cls,
         ):
             display_non_streamed_result("hello")
-            mock_pause.assert_not_called()  # Should have returned early
+            mock_console_cls.assert_not_called()  # Should have returned early
 
 
 # =============================================================================
@@ -204,62 +204,24 @@ class TestMainModule:
 
 
 # =============================================================================
-# spinner_base.py gaps
+# messaging.spinner compat shim gaps
 # =============================================================================
 
 
-class TestSpinnerBaseGaps:
-    def _make_spinner(self):
-        """Create a concrete spinner subclass for testing."""
-        from code_puppy.messaging.spinner.spinner_base import SpinnerBase
-
-        class DummySpinner(SpinnerBase):
-            def start(self):
-                super().start()
-
-            def stop(self):
-                super().stop()
-
-            def update_frame(self):
-                super().update_frame()
-
-        return DummySpinner()
-
-    def test_update_frame_when_not_spinning(self):
-        """Cover line 54: update_frame does nothing when not spinning."""
-        s = self._make_spinner()
-        assert not s.is_spinning
-        s.update_frame()
-        assert s._frame_index == 0  # unchanged
-
-    def test_update_frame_when_spinning(self):
-        s = self._make_spinner()
-        s.start()
-        s.update_frame()
-        assert s._frame_index == 1
-
-    def test_clear_context_info(self):
-        """Cover line 70: clear_context_info."""
-        from code_puppy.messaging.spinner.spinner_base import SpinnerBase
-
-        SpinnerBase.set_context_info("something")
-        assert SpinnerBase.get_context_info() == "something"
-        SpinnerBase.clear_context_info()
-        assert SpinnerBase.get_context_info() == ""
-
+class TestSpinnerShimGaps:
     def test_format_context_info_zero_capacity(self):
-        """Cover line 93: capacity <= 0 returns empty."""
-        from code_puppy.messaging.spinner.spinner_base import SpinnerBase
+        """capacity <= 0 returns empty."""
+        from code_puppy.messaging.spinner import format_context_info
 
-        assert SpinnerBase.format_context_info(100, 0, 0.0) == ""
-        assert SpinnerBase.format_context_info(100, -1, 0.0) == ""
+        assert format_context_info(100, 0, 0.0) == ""
+        assert format_context_info(100, -1, 0.0) == ""
 
     def test_format_context_info_normal(self):
-        from code_puppy.messaging.spinner.spinner_base import SpinnerBase
+        from code_puppy.messaging.spinner import format_context_info
 
-        result = SpinnerBase.format_context_info(5000, 10000, 0.5)
-        assert "5,000" in result
-        assert "50.0%" in result
+        result = format_context_info(5000, 10000, 0.5)
+        assert "5k" in result
+        assert "50%" in result
 
 
 # =============================================================================

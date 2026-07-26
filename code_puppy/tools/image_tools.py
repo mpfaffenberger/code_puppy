@@ -103,7 +103,7 @@ async def load_image(
 ) -> Union[ToolReturn, Dict[str, Any]]:
     """Load an image from the filesystem for visual analysis."""
     group_id = generate_group_id("load_image", image_path)
-    emit_info(f"LOAD IMAGE 🖼️ {image_path}", message_group=group_id)
+    emit_info(f"LOAD IMAGE {image_path}", message_group=group_id)
 
     try:
         image_file = Path(image_path)

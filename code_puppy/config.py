@@ -5,11 +5,13 @@ import json
 import logging
 import os
 import pathlib
-from typing import Optional
+from typing import Any, Optional
 
 from code_puppy.session_storage import save_session
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_SUBAGENT_RECURSION_LIMIT = 4
 
 
 def _get_xdg_dir(env_var: str, fallback: str) -> str:
@@ -77,6 +79,20 @@ def get_subagent_verbose() -> bool:
     if cfg_val is None:
         return False
     return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def get_subagent_recursion_limit() -> int:
+    """Return the maximum nested sub-agent depth (default 4)."""
+    cfg_val = get_value("subagent_recursion_limit")
+    if cfg_val is None:
+        return DEFAULT_SUBAGENT_RECURSION_LIMIT
+
+    try:
+        limit = int(str(cfg_val).strip())
+    except (TypeError, ValueError):
+        return DEFAULT_SUBAGENT_RECURSION_LIMIT
+
+    return limit if limit >= 0 else DEFAULT_SUBAGENT_RECURSION_LIMIT
 
 
 # Pack agents - the specialized sub-agents coordinated by Pack Leader
@@ -188,6 +204,51 @@ def get_enable_streaming() -> bool:
     return str(val).lower() in ("1", "true", "yes", "on")
 
 
+def get_retry_main_strategy() -> str:
+    """Effective backoff strategy for the main agent loop.
+
+    Delegates to :func:`code_puppy.agents.retry_profiles.resolve` so the value
+    shown in ``/set`` is exactly what the retry mechanism will use (clamped and
+    validated). Falls back gracefully if the module can't be imported.
+    """
+    try:
+        from code_puppy.agents.retry_profiles import resolve
+
+        return resolve("main").strategy
+    except Exception:
+        return "balanced"
+
+
+def get_retry_main_max_attempts() -> int:
+    """Effective max retry attempts for the main agent loop (clamped)."""
+    try:
+        from code_puppy.agents.retry_profiles import resolve
+
+        return resolve("main").max_attempts
+    except Exception:
+        return 5
+
+
+def get_retry_subagent_strategy() -> str:
+    """Effective backoff strategy for sub-agent runs."""
+    try:
+        from code_puppy.agents.retry_profiles import resolve
+
+        return resolve("subagent").strategy
+    except Exception:
+        return "balanced"
+
+
+def get_retry_subagent_max_attempts() -> int:
+    """Effective max retry attempts for sub-agent runs (clamped)."""
+    try:
+        from code_puppy.agents.retry_profiles import resolve
+
+        return resolve("subagent").max_attempts
+    except Exception:
+        return 9
+
+
 def get_suppress_directory_listing() -> bool:
     """
     Get the suppress_directory_listing configuration value.
@@ -280,6 +341,23 @@ def get_owner_name():
     return get_value("owner_name") or "Master"
 
 
+def get_locale() -> str:
+    """Return the active i18n locale (single source of truth).
+
+    Delegates to the i18n translator, seeding it once from the environment
+    and the persisted ``locale`` config key on first use. After a runtime
+    ``/set locale`` (translator.set_locale), this reflects that override
+    rather than re-deriving from the environment.
+
+    Precedence when seeding: CODE_PUPPY_LOCALE env var > persisted ``locale``
+    config key > POSIX locale env vars > default (en-US). See
+    ``code_puppy.i18n.locale.detect_locale``.
+    """
+    from code_puppy.i18n import ensure_detected
+
+    return ensure_detected(get_value("locale"))
+
+
 # Legacy function removed - message history limit is no longer used
 # Message history is now managed by token-based compaction system
 # using get_protected_token_count() and get_summarization_threshold()
@@ -331,9 +409,7 @@ def get_config_keys():
         "summarization_model",
         "message_limit",
         "allow_recursion",
-        "openai_reasoning_effort",
-        "openai_reasoning_summary",
-        "openai_verbosity",
+        "subagent_recursion_limit",
         "auto_save_session",
         "max_saved_sessions",
         "http2",
@@ -343,6 +419,8 @@ def get_config_keys():
         "frontend_emitter_enabled",
         "frontend_emitter_max_recent_events",
         "frontend_emitter_queue_size",
+        "locale",
+        "timestamp_heartbeat_interval",
     ]
     # 'enable_dbos' is reserved for the dbos_durable_exec plugin and is read
     # via the generic get_value API; intentionally not in default_keys.
@@ -358,11 +436,10 @@ def get_config_keys():
     default_keys.append("suppress_directory_listing")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
-    # Add max pause seconds configuration (used by pause/steer feature to
-    # auto-resume long pauses before SSE upstream times out).
+    # Add max pause seconds configuration (used by event_stream_handler's
+    # wait_if_paused() to auto-resume long pauses before SSE upstream
+    # times out).
     default_keys.append("max_pause_seconds")
-    # Add pause-agent key configuration (companion to cancel_agent_key).
-    default_keys.append("pause_agent_key")
     # Add banner color keys
     for banner_name in DEFAULT_BANNER_COLORS:
         default_keys.append(f"banner_color_{banner_name}")
@@ -375,6 +452,12 @@ def get_config_keys():
     default_keys.append("goal_max_iterations")
     # Add dangerous command guard disable (skips force push and destructive command guards)
     default_keys.append("disable_dangerous_command_guard")
+    # Add retry profile keys (backoff policy for streaming retries). Per-model
+    # overrides live under the model_settings_ namespace; these are the globals.
+    default_keys.append("retry_main_strategy")
+    default_keys.append("retry_main_max_attempts")
+    default_keys.append("retry_subagent_strategy")
+    default_keys.append("retry_subagent_max_attempts")
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -413,23 +496,72 @@ def reset_value(key: str) -> None:
 
 
 # --- MODEL STICKY EXTENSION STARTS HERE ---
-def load_mcp_server_configs():
+def _parse_mcp_servers_mapping(raw_text: str) -> dict:
+    """Parse ``mcp_servers.json`` text into a ``{name: config}`` mapping.
+
+    Accepts either the ``mcp_servers`` (snake_case, canonical) or
+    ``mcpServers`` (camelCase, as used by some other MCP clients) wrapper key
+    so hand-copied configs Just Work. Raises ``ValueError`` / ``KeyError`` on
+    malformed input so callers can fail loudly and fall back to ``{}``.
+
+    This is the single chokepoint for wrapper-key normalization, shared by the
+    user-level loader below and the project-level loader in
+    :mod:`code_puppy.mcp_.project_config`.
     """
-    Loads the MCP server configurations from XDG_CONFIG_HOME/code_puppy/mcp_servers.json.
-    Returns a dict mapping names to their URL or config dict.
-    If file does not exist, returns an empty dict.
+    data = json.loads(raw_text)
+    if not isinstance(data, dict):
+        raise ValueError("MCP config root must be a JSON object")
+    servers = data.get("mcp_servers")
+    if servers is None:
+        servers = data.get("mcpServers")
+    if servers is None:
+        # Preserve historical KeyError-on-missing behavior for the canonical key.
+        raise KeyError("mcp_servers")
+    if not isinstance(servers, dict):
+        raise ValueError("'mcp_servers' must be a JSON object of name -> config")
+    return servers
+
+
+def load_mcp_server_configs():
+    """Load MCP server configs, merging user-level and trusted project-level.
+
+    Sources, in ascending order of precedence:
+
+    1. **User-level** \u2014 ``$XDG_CONFIG_HOME/code_puppy/mcp_servers.json``
+       (global, always trusted).
+    2. **Project-level** \u2014 ``<CWD>/.code_puppy/mcp_servers.json``, but ONLY
+       when the user has trusted it via ``/mcp trust``. Project MCP servers can
+       run arbitrary commands, so they are disabled until explicitly accepted;
+       see :mod:`code_puppy.mcp_.project_config`.
+
+    Project entries win on name collision, matching how project agents, skills,
+    and plugins override their user-level counterparts. Returns an empty dict
+    when nothing is configured.
     """
     from code_puppy.messaging.message_queue import emit_error
 
+    configs: dict = {}
+
+    # 1. User-level config (global, implicitly trusted).
     try:
-        if not pathlib.Path(MCP_SERVERS_FILE).exists():
-            return {}
-        with open(MCP_SERVERS_FILE, "r", encoding="utf-8") as f:
-            conf = json.loads(f.read())
-            return conf["mcp_servers"]
+        if pathlib.Path(MCP_SERVERS_FILE).exists():
+            with open(MCP_SERVERS_FILE, "r", encoding="utf-8") as f:
+                configs.update(_parse_mcp_servers_mapping(f.read()))
     except Exception as e:
         emit_error(f"Failed to load MCP servers - {str(e)}")
-        return {}
+
+    # 2. Project-level config (opt-in, trust-gated). A broken or untrusted
+    #    project file must never break user-level loading.
+    try:
+        from code_puppy.mcp_.project_config import load_project_mcp_server_configs
+
+        project_configs = load_project_mcp_server_configs()
+        if project_configs:
+            configs.update(project_configs)
+    except Exception as e:
+        emit_error(f"Failed to load project MCP servers - {str(e)}")
+
+    return configs
 
 
 def _default_model_from_models_json():
@@ -560,17 +692,34 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
         True if the model supports the setting, False otherwise.
         Defaults to True for backwards compatibility if model config doesn't specify.
     """
-    # GLM-4.7 and GLM-5 models always support clear_thinking setting
-    if setting == "clear_thinking" and (
-        "glm-4.7" in model_name.lower() or "glm-5" in model_name.lower()
-    ):
-        return True
+    # GLM-4.5+ models support deep-thinking controls (thinking_type,
+    # clear_thinking); GLM-5.2+ additionally support reasoning_effort.
+    if setting in ("thinking_type", "clear_thinking"):
+        from code_puppy.model_utils import supports_glm_thinking
+
+        if supports_glm_thinking(model_name):
+            return True
+    if setting == "glm_reasoning_effort":
+        from code_puppy.model_utils import supports_glm_reasoning_effort
+
+        if supports_glm_reasoning_effort(model_name):
+            return True
+    if setting in ("reasoning_context", "reasoning_mode"):
+        # OpenAI added these Responses API controls with GPT-5.6. Capability
+        # detection belongs here so injected/custom 5.6 model definitions do
+        # not all need to duplicate the same supported_settings metadata.
+        if "gpt-5.6" in model_name.lower():
+            return True
 
     try:
         from code_puppy.model_factory import ModelFactory
 
         models_config = ModelFactory.load_config()
         model_config = models_config.get(model_name, {})
+        if setting in ("reasoning_context", "reasoning_mode"):
+            underlying_name = str(model_config.get("name", "")).lower()
+            if "gpt-5.6" in underlying_name:
+                return True
 
         # Get supported_settings list, default to supporting common settings
         supported_settings = model_config.get("supported_settings")
@@ -711,86 +860,38 @@ def set_summarization_model_name(model: str) -> None:
     set_config_value("summarization_model", model or "")
 
 
+# ---------------------------------------------------------------------------
+# Puppy-token provider hook — lets plugins inject a custom credential
+# backend (e.g. OS keyring) without baking that logic into core.
+# ---------------------------------------------------------------------------
+_puppy_token_getter = None
+_puppy_token_setter = None
+
+
+def register_puppy_token_provider(*, getter, setter) -> None:
+    """Register custom get/set functions for the puppy_token credential.
+
+    Called by distribution-specific plugins at startup to route token
+    storage through the OS keyring or another secure backend.  When no
+    provider is registered the default plaintext config-file path is used.
+    """
+    global _puppy_token_getter, _puppy_token_setter
+    _puppy_token_getter = getter
+    _puppy_token_setter = setter
+
+
 def get_puppy_token():
-    """Returns the puppy_token from config, or None if not set."""
+    """Returns the puppy_token, delegating to a registered provider if set."""
+    if _puppy_token_getter is not None:
+        return _puppy_token_getter()
     return get_value("puppy_token")
 
 
 def set_puppy_token(token: str):
-    """Sets the puppy_token in the persistent config file."""
+    """Sets the puppy_token, delegating to a registered provider if set."""
+    if _puppy_token_setter is not None:
+        return _puppy_token_setter(token)
     set_config_value("puppy_token", token)
-
-
-def get_openai_reasoning_effort() -> str:
-    """Return the configured OpenAI reasoning effort (minimal, low, medium, high, xhigh)."""
-    allowed_values = {"minimal", "low", "medium", "high", "xhigh"}
-    configured = (get_value("openai_reasoning_effort") or "medium").strip().lower()
-    if configured not in allowed_values:
-        return "medium"
-    return configured
-
-
-def set_openai_reasoning_effort(value: str) -> None:
-    """Persist the OpenAI reasoning effort ensuring it remains within allowed values."""
-    allowed_values = {"minimal", "low", "medium", "high", "xhigh"}
-    normalized = (value or "").strip().lower()
-    if normalized not in allowed_values:
-        raise ValueError(
-            f"Invalid reasoning effort '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
-        )
-    set_config_value("openai_reasoning_effort", normalized)
-
-
-def get_openai_reasoning_summary() -> str:
-    """Return the configured OpenAI reasoning summary mode.
-
-    Supported values:
-    - auto: let the provider decide the best summary style
-    - concise: shorter reasoning summaries
-    - detailed: fuller reasoning summaries
-    """
-    allowed_values = {"auto", "concise", "detailed"}
-    configured = (get_value("openai_reasoning_summary") or "detailed").strip().lower()
-    if configured not in allowed_values:
-        return "auto"
-    return configured
-
-
-def set_openai_reasoning_summary(value: str) -> None:
-    """Persist the OpenAI reasoning summary mode ensuring it remains valid."""
-    allowed_values = {"auto", "concise", "detailed"}
-    normalized = (value or "").strip().lower()
-    if normalized not in allowed_values:
-        raise ValueError(
-            f"Invalid reasoning summary '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
-        )
-    set_config_value("openai_reasoning_summary", normalized)
-
-
-def get_openai_verbosity() -> str:
-    """Return the configured OpenAI verbosity (low, medium, high).
-
-    Controls how concise vs. verbose the model's responses are:
-    - low: more concise responses
-    - medium: balanced (default)
-    - high: more verbose responses
-    """
-    allowed_values = {"low", "medium", "high"}
-    configured = (get_value("openai_verbosity") or "medium").strip().lower()
-    if configured not in allowed_values:
-        return "medium"
-    return configured
-
-
-def set_openai_verbosity(value: str) -> None:
-    """Persist the OpenAI verbosity ensuring it remains within allowed values."""
-    allowed_values = {"low", "medium", "high"}
-    normalized = (value or "").strip().lower()
-    if normalized not in allowed_values:
-        raise ValueError(
-            f"Invalid verbosity '{value}'. Allowed: {', '.join(sorted(allowed_values))}"
-        )
-    set_config_value("openai_verbosity", normalized)
 
 
 def get_temperature() -> Optional[float]:
@@ -867,13 +968,13 @@ def get_model_setting(
         return default
 
 
-def set_model_setting(model_name: str, setting: str, value: Optional[float]) -> None:
+def set_model_setting(model_name: str, setting: str, value: Any | None) -> None:
     """Set a specific setting for a model.
 
     Args:
         model_name: The model name (e.g., 'gpt-5', 'zai-glm-5.1-api')
-        setting: The setting name (e.g., 'temperature', 'seed')
-        value: The value to set, or None to clear
+        setting: The setting name (e.g., 'temperature', 'reasoning_effort')
+        value: The numeric, string, or boolean value to set, or None to clear
     """
     sanitized_name = _sanitize_model_name_for_key(model_name)
     key = f"model_settings_{sanitized_name}_{setting}"
@@ -1187,18 +1288,29 @@ def initialize_command_history_file():
             )
 
 
-def get_yolo_mode():
-    """
-    Checks puppy.cfg for 'yolo_mode' (case-insensitive in value only).
-    Defaults to True if not set.
-    Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
-    """
+_cli_yolo_override: Optional[bool] = None
+
+
+def set_cli_yolo_override(value: Optional[bool]) -> None:
+    """Set a process-local YOLO value supplied by the CLI."""
+    global _cli_yolo_override
+    _cli_yolo_override = value
+
+
+def get_cli_yolo_override() -> Optional[bool]:
+    """Return the process-local CLI override, if one was supplied."""
+    return _cli_yolo_override
+
+
+def get_yolo_mode() -> bool:
+    """Return effective YOLO mode using CLI > persisted config precedence."""
+    if _cli_yolo_override is not None:
+        return _cli_yolo_override
+
     true_vals = {"1", "true", "yes", "on"}
     cfg_val = get_value("yolo_mode")
     if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
+        return str(cfg_val).strip().lower() in true_vals
     return True
 
 
@@ -1374,8 +1486,9 @@ def get_compaction_strategy() -> str:
     val = get_value("compaction_strategy")
     if val and val.lower() in ["summarization", "truncation"]:
         return val.lower()
-    # Default to summarization
-    return "truncation"
+    # Summarization preserves useful long-running context by default. Users can
+    # explicitly select truncation as a zero-cost rollback strategy.
+    return "summarization"
 
 
 def get_http2() -> bool:
@@ -1411,6 +1524,25 @@ def get_message_limit(default: int = 1000) -> int:
         return int(val) if val else default
     except (ValueError, TypeError):
         return default
+
+
+def get_command_timeout_seconds() -> int:
+    """
+    Returns the user-configured foreground limit for shell commands in seconds.
+    Commands still running at the limit are automatically backgrounded, not killed.
+    Defaults to 270 seconds if unset or misconfigured.
+    Valid range: 60-900 seconds. Values outside this range default to 270.
+    Configurable by 'command_timeout_seconds' key.
+    """
+    val = get_value("command_timeout_seconds")
+    try:
+        timeout = int(val) if val else 270
+        # Enforce bounds: min 60, max 900, default 270 if outside bounds
+        if timeout < 60 or timeout > 900:
+            return 270
+        return timeout
+    except (ValueError, TypeError):
+        return 270
 
 
 def save_command_to_history(command: str):
@@ -1575,9 +1707,55 @@ def set_diff_highlight_style(style: str):
     pass
 
 
-# Defaults for diff highlight colors — single source of truth.
+# Diff colors use these only when no curated terminal palette is active.
 _DEFAULT_DIFF_ADDITION_HEX = "#0b1f0b"  # darker green
 _DEFAULT_DIFF_DELETION_HEX = "#390e1a"  # wine
+_THEME_PALETTE_CONFIG_KEY = "osc_palette_json"
+
+
+def _blend_hex(background: str, accent: str, accent_weight: float) -> str:
+    """Blend an accent into a background, returning a subtle highlight."""
+    background_rgb = tuple(
+        int(background[index : index + 2], 16) for index in (1, 3, 5)
+    )
+    accent_rgb = tuple(int(accent[index : index + 2], 16) for index in (1, 3, 5))
+    channels = (
+        round(base * (1 - accent_weight) + highlight * accent_weight)
+        for base, highlight in zip(background_rgb, accent_rgb)
+    )
+    return "#" + "".join(f"{channel:02x}" for channel in channels)
+
+
+def _theme_diff_defaults() -> tuple[str, str]:
+    """Derive quiet add/remove backgrounds from the active terminal theme.
+
+    ANSI slots 2 and 1 are the theme's semantic green and red. Blending them
+    into the terminal background keeps highlights legible on both dark and
+    light themes instead of dropping a dark green rectangle onto everything.
+    """
+    raw_palette = get_value(_THEME_PALETTE_CONFIG_KEY)
+    if not raw_palette:
+        return _DEFAULT_DIFF_ADDITION_HEX, _DEFAULT_DIFF_DELETION_HEX
+
+    try:
+        palette = json.loads(raw_palette)
+        background = _coerce_to_hex(palette.get("bg"), "")
+        if not background:
+            raise ValueError("theme has no valid background")
+        ansi = palette.get("ansi") or []
+        addition = _coerce_to_hex(ansi[2] if len(ansi) > 2 else "#2ea043", "#2ea043")
+        deletion = _coerce_to_hex(ansi[1] if len(ansi) > 1 else "#cf222e", "#cf222e")
+        red, green, blue = (
+            int(background[index : index + 2], 16) for index in (1, 3, 5)
+        )
+        luminance = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255
+        accent_weight = 0.14 if luminance > 0.5 else 0.20
+        return (
+            _blend_hex(background, addition, accent_weight),
+            _blend_hex(background, deletion, accent_weight),
+        )
+    except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+        return _DEFAULT_DIFF_ADDITION_HEX, _DEFAULT_DIFF_DELETION_HEX
 
 
 def _coerce_to_hex(value: Optional[str], fallback: str) -> str:
@@ -1615,12 +1793,12 @@ def _coerce_to_hex(value: Optional[str], fallback: str) -> str:
 def get_diff_addition_color() -> str:
     """Get the base color for diff additions, always as a valid '#RRGGBB' hex.
 
-    Falls back to the default darker green if the configured value is missing
-    or unparseable.
+    An explicit ``/diff`` choice wins. When unset, the color is derived from
+    the active theme's background and semantic green.
     """
-    return _coerce_to_hex(
-        get_value("highlight_addition_color"), _DEFAULT_DIFF_ADDITION_HEX
-    )
+    configured = get_value("highlight_addition_color")
+    theme_default, _ = _theme_diff_defaults()
+    return _coerce_to_hex(configured, theme_default)
 
 
 def set_diff_addition_color(color: str):
@@ -1639,12 +1817,12 @@ def set_diff_addition_color(color: str):
 def get_diff_deletion_color() -> str:
     """Get the base color for diff deletions, always as a valid '#RRGGBB' hex.
 
-    Falls back to the default wine if the configured value is missing or
-    unparseable.
+    An explicit ``/diff`` choice wins. When unset, the color is derived from
+    the active theme's background and semantic red.
     """
-    return _coerce_to_hex(
-        get_value("highlight_deletion_color"), _DEFAULT_DIFF_DELETION_HEX
-    )
+    configured = get_value("highlight_deletion_color")
+    _, theme_default = _theme_diff_defaults()
+    return _coerce_to_hex(configured, theme_default)
 
 
 def set_diff_deletion_color(color: str):
@@ -1753,10 +1931,13 @@ def reset_all_banner_colors():
 def get_current_session_name() -> str:
     """Return the full filename of the session this process is writing to.
 
-    On first call, lazily mints a fresh auto-flavored name
-    (``auto_session_<YYYYMMDD>_<HHMMSS>``). Subsequent calls return the
-    same string until ``rotate_session_name`` or ``pin_current_session_name``
-    is called.
+    On first call, lazily mints a fresh auto-flavored name of the form
+    ``auto_session_<YYYYMMDD>_<HHMMSS>_<ffffff>_<PID>`` where ``ffffff`` is
+    the microsecond field of the current timestamp and ``PID`` is the calling
+    process ID.  The combined suffix eliminates same-second cross-process
+    name collisions when multiple Code Puppy instances start concurrently.
+    Subsequent calls return the same string until ``rotate_session_name`` or
+    ``pin_current_session_name`` is called.
 
     The ``auto_session_`` prefix is RESERVED for system-generated names;
     user-input names cannot start with it (enforced by
@@ -1768,8 +1949,9 @@ def get_current_session_name() -> str:
     """
     global _CURRENT_AUTOSAVE_ID
     if not _CURRENT_AUTOSAVE_ID:
+        now = datetime.datetime.now()
         _CURRENT_AUTOSAVE_ID = (
-            f"auto_session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            f"auto_session_{now.strftime('%Y%m%d_%H%M%S_%f')}_{os.getpid()}"
         )
     return _CURRENT_AUTOSAVE_ID
 

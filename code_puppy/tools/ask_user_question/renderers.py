@@ -117,10 +117,11 @@ def _render_question_panel_unsafe(
     # Question text
     if question.multi_select:
         console.print(
-            f"{pad}[bold]? {safe_question}[/bold] [dim](select multiple)[/dim]"
+            f"{pad}[{colors.question}]? {safe_question}[/{colors.question}] "
+            f"[{colors.question_hint}](select multiple)[/{colors.question_hint}]"
         )
     else:
-        console.print(f"{pad}[bold]? {safe_question}[/bold]")
+        console.print(f"{pad}[{colors.question}]? {safe_question}[/{colors.question}]")
     console.print()
 
     # Render options

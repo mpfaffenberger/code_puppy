@@ -319,12 +319,14 @@ class TestModelFactoryErrors:
             bad_extra = tmp.name
 
         try:
-            with patch("code_puppy.config.EXTRA_MODELS_FILE", bad_extra):
-                # Should load bundled models successfully despite bad extra file
+            # Patch the name model_factory actually reads (module-level
+            # ``from .config import EXTRA_MODELS_FILE`` binding).
+            with patch("code_puppy.model_factory.EXTRA_MODELS_FILE", bad_extra):
+                # Should not raise despite the bad extra file; the bundled
+                # models.json ships empty, so the malformed overlay must
+                # contribute nothing rather than crash.
                 config = ModelFactory.load_config()
                 assert isinstance(config, dict)
-                # Bundled models.json has entries
-                assert len(config) > 0
         finally:
             os.unlink(bad_extra)
 

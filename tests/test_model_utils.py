@@ -19,8 +19,12 @@ from code_puppy.callbacks import (
 from code_puppy.model_utils import (
     PreparedPrompt,
     get_default_extended_thinking,
+    get_glm_version,
+    get_thinking_tags,
     prepare_prompt_for_model,
     should_use_anthropic_thinking_summary,
+    supports_glm_reasoning_effort,
+    supports_glm_thinking,
 )
 from code_puppy.plugins.claude_code_oauth.prompt_handler import (
     CLAUDE_CODE_INSTRUCTIONS,
@@ -300,6 +304,17 @@ class TestGetDefaultExtendedThinking:
         assert get_default_extended_thinking("anthropic-opus-4-6-preview") == "adaptive"
         assert get_default_extended_thinking("claude-4-6-opus-20250701") == "adaptive"
 
+    def test_sonnet_5_returns_adaptive(self):
+        # Sonnet 5 defaults to adaptive thinking just like Opus; classic
+        # "enabled" thinking is deprecated for it.
+        assert get_default_extended_thinking("claude-sonnet-5") == "adaptive"
+        assert (
+            get_default_extended_thinking("claude-code-claude-sonnet-5") == "adaptive"
+        )
+        assert get_default_extended_thinking("Claude-Sonnet-5") == "adaptive"
+        # Older single-digit sonnet must stay on enabled.
+        assert get_default_extended_thinking("claude-sonnet-4-20250514") == "enabled"
+
 
 class TestShouldUseAnthropicThinkingSummary:
     """Tests for should_use_anthropic_thinking_summary."""
@@ -309,7 +324,103 @@ class TestShouldUseAnthropicThinkingSummary:
         assert should_use_anthropic_thinking_summary("Claude-Opus-4-7-Latest") is True
         assert should_use_anthropic_thinking_summary("claude-4-7-opus-20250701") is True
 
+    def test_sonnet_5_models_return_true(self):
+        assert should_use_anthropic_thinking_summary("claude-sonnet-5") is True
+        assert (
+            should_use_anthropic_thinking_summary("claude-code-claude-sonnet-5") is True
+        )
+
     def test_other_models_return_false(self):
         assert should_use_anthropic_thinking_summary("claude-opus-4-6") is False
         assert should_use_anthropic_thinking_summary("claude-sonnet-4") is False
+        assert should_use_anthropic_thinking_summary("claude-sonnet-4-6") is False
         assert should_use_anthropic_thinking_summary("gpt-5") is False
+
+
+class TestGlmHelpers:
+    """Tests for the GLM/Zhipu version-detection helpers."""
+
+    def test_get_glm_version_extracts_from_messy_aliases(self):
+        assert get_glm_version("zai-glm-5.1-api") == 5.1
+        assert get_glm_version("GLM-4.5-AIR-CODING") == 4.5
+        assert get_glm_version("lilac-zai-org-glm-5.1") == 5.1
+        assert get_glm_version("glm-4.7-chat") == 4.7
+        assert get_glm_version("GLM-5.2-Turbo") == 5.2
+
+    def test_get_glm_version_none_for_non_glm(self):
+        assert get_glm_version("gpt-5") is None
+        assert get_glm_version("claude-opus-4-6") is None
+
+    def test_supports_glm_thinking_from_4_5(self):
+        assert supports_glm_thinking("glm-4.5") is True
+        assert supports_glm_thinking("glm-4.5v") is True
+        assert supports_glm_thinking("glm-4.6") is True
+        assert supports_glm_thinking("glm-4.7") is True
+        assert supports_glm_thinking("zai-glm-5.1-api") is True
+        assert supports_glm_thinking("GLM-5.2-Turbo") is True
+        assert supports_glm_thinking("GLM-5V-Turbo") is True
+
+    def test_supports_glm_thinking_false_below_4_5_and_non_glm(self):
+        assert supports_glm_thinking("glm-4.4") is False
+        assert supports_glm_thinking("gpt-5") is False
+
+    def test_supports_glm_reasoning_effort_5_2_plus_only(self):
+        assert supports_glm_reasoning_effort("glm-5.2") is True
+        assert supports_glm_reasoning_effort("GLM-5.2-Turbo") is True
+        assert supports_glm_reasoning_effort("glm-5.1") is False
+        assert supports_glm_reasoning_effort("glm-4.7") is False
+
+
+class TestGetThinkingTags:
+    """Tests for the reasoning-tag override helper.
+
+    The <mm:think> quirk is lilac's PROXY mangling MiniMax's output, not
+    something MiniMax itself does -- every other MiniMax deployment (direct,
+    other providers) must keep the standard <think>/</think> tags.
+    """
+
+    def test_minimax_via_lilac_gets_mm_think_tags(self):
+        config = {"provider": "lilac", "name": "minimaxai/minimax-m3"}
+        assert get_thinking_tags("lilac-minimaxai-minimax-m3", config) == (
+            "<mm:think>",
+            "</mm:think>",
+        )
+
+    def test_minimax_via_lilac_detected_via_alias_name_too(self):
+        # Even without a "name" override, the alias itself mentions minimax.
+        config = {"provider": "lilac"}
+        assert get_thinking_tags("lilac-minimaxai-minimax-m3", config) == (
+            "<mm:think>",
+            "</mm:think>",
+        )
+
+    def test_minimax_via_other_provider_keeps_default_tags(self):
+        # Same model, hosted directly / via a different provider -> no mangling,
+        # so we must NOT override its native <think> tags.
+        config = {"name": "sparkarena/Minimax-M3-v0-NVFP4"}
+        assert get_thinking_tags("boodleton-minimax-m3-nvfp4", config) is None
+        assert get_thinking_tags("minimaxai-minimax-m3") is None
+
+    def test_non_minimax_lilac_model_keeps_default_tags(self):
+        config = {"provider": "lilac", "name": "zai-org/glm-5.2"}
+        assert get_thinking_tags("lilac-zai-org-glm-5.2", config) is None
+        assert get_thinking_tags("gpt-5") is None
+
+    def test_explicit_config_override_wins_over_lilac_minimax_default(self):
+        config = {
+            "provider": "lilac",
+            "name": "minimaxai/minimax-m3",
+            "thinking_tags": ["<r>", "</r>"],
+        }
+        assert get_thinking_tags("lilac-minimaxai-minimax-m3", config) == (
+            "<r>",
+            "</r>",
+        )
+
+    def test_explicit_config_override_works_for_arbitrary_models(self):
+        config = {"thinking_tags": ["<reasoning>", "</reasoning>"]}
+        assert get_thinking_tags("some-quirky-model", config) == (
+            "<reasoning>",
+            "</reasoning>",
+        )
+        assert supports_glm_reasoning_effort("gpt-5") is False

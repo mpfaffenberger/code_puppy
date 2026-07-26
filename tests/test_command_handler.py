@@ -757,50 +757,6 @@ class TestCompactCommand:
             mock_truncate.assert_called_once()
 
 
-class TestReasoningCommand:
-    """Tests for /reasoning command."""
-
-    def test_reasoning_set_low(self):
-        """Test /reasoning low sets effort to low."""
-        mock_agent = MagicMock()
-
-        with (
-            patch("code_puppy.config.set_openai_reasoning_effort") as mock_set,
-            patch("code_puppy.config.get_openai_reasoning_effort", return_value="low"),
-            patch(
-                "code_puppy.agents.agent_manager.get_current_agent",
-                return_value=mock_agent,
-            ),
-            patch("code_puppy.messaging.emit_success") as mock_success,
-        ):
-            result = handle_command("/reasoning low")
-            assert result is True
-            mock_set.assert_called_once_with("low")
-            mock_agent.reload_code_generation_agent.assert_called_once()
-            mock_success.assert_called_once()
-
-    def test_reasoning_invalid_level(self):
-        """Test /reasoning with invalid level shows error."""
-        with (
-            patch(
-                "code_puppy.config.set_openai_reasoning_effort",
-                side_effect=ValueError("Invalid"),
-            ),
-            patch("code_puppy.messaging.emit_error") as mock_error,
-        ):
-            result = handle_command("/reasoning invalid")
-            assert result is True
-            mock_error.assert_called_once()
-
-    def test_reasoning_no_argument(self):
-        """Test /reasoning without argument shows usage."""
-        with patch("code_puppy.messaging.emit_warning") as mock_warn:
-            result = handle_command("/reasoning")
-            assert result is True
-            mock_warn.assert_called_once()
-            assert "Usage" in str(mock_warn.call_args)
-
-
 class TestTruncateCommand:
     """Tests for /truncate command."""
 
@@ -1052,11 +1008,10 @@ class TestCommandRegistry:
         assert cmd is not None
         assert cmd.category == "session"
 
-    def test_reasoning_command_registered(self):
-        """Test that reasoning command is registered."""
-        cmd = get_command("reasoning")
-        assert cmd is not None
-        assert cmd.category == "config"
+    def test_model_controls_are_not_top_level_commands(self):
+        """Reasoning effort and verbosity live only in /model_settings."""
+        assert get_command("reasoning") is None
+        assert get_command("verbosity") is None
 
     def test_truncate_command_registered(self):
         """Test that truncate command is registered."""

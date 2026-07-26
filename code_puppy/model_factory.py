@@ -59,6 +59,18 @@ _load_plugin_model_providers()
 
 # Anthropic beta header required for 1M context window support.
 CONTEXT_1M_BETA = "context-1m-2025-08-07"
+_CUSTOM_OPENAI_MODEL_TYPES = {"custom_openai", "custom_openai_responses"}
+_LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL = "codex-gpt-5-codex"
+
+
+def _custom_openai_uses_responses_api(
+    model_name: str, model_config: Dict[str, Any]
+) -> bool:
+    """Return whether a custom OpenAI model should use the Responses API."""
+    return (
+        model_config.get("type") == "custom_openai_responses"
+        or model_name == _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL
+    )
 
 
 def _build_anthropic_beta_header(
@@ -122,6 +134,23 @@ def _is_anthropic_model(model_name: str, model_config: dict[str, Any]) -> bool:
     return model_config.get("type") in _ANTHROPIC_MODEL_TYPES
 
 
+def _thinking_tags_profile(
+    model_name: str, model_config: dict[str, Any]
+) -> OpenAIModelProfile | None:
+    """Build an OpenAIModelProfile overriding thinking_tags, if needed.
+
+    Returns None when the model uses pydantic-ai's default ``<think>``/
+    ``</think>`` tags, so callers can pass this straight through as
+    ``profile=`` without an extra None-check.
+    """
+    from code_puppy.model_utils import get_thinking_tags
+
+    tags = get_thinking_tags(model_name, model_config)
+    if tags is None:
+        return None
+    return OpenAIModelProfile(thinking_tags=tags)
+
+
 def make_model_settings(
     model_name: str, max_tokens: int | None = None
 ) -> ModelSettings:
@@ -142,9 +171,6 @@ def make_model_settings(
     """
     from code_puppy.config import (
         get_effective_model_settings,
-        get_openai_reasoning_effort,
-        get_openai_reasoning_summary,
-        get_openai_verbosity,
         model_supports_setting,
     )
 
@@ -177,13 +203,46 @@ def make_model_settings(
     if not get_yolo_mode():
         model_settings_dict["parallel_tool_calls"] = False
 
-    # Default to clear_thinking=False for GLM-4.7 and GLM-5 models (preserved thinking)
-    if "glm-4.7" in model_name.lower() or "glm-5" in model_name.lower():
+    # GLM-4.5+ models: thinking.type / reasoning_effort are GLM-specific
+    # OpenAI-compatible request fields pydantic-ai doesn't know natively, so
+    # they have to ride along in extra_body to actually reach the API.
+    from code_puppy.model_utils import (
+        supports_glm_reasoning_effort,
+        supports_glm_thinking,
+    )
+
+    if supports_glm_thinking(model_name):
+        glm_extra_body = model_settings_dict.get("extra_body") or {}
+        thinking_type = effective_settings.get("thinking_type", "enabled")
         clear_thinking = effective_settings.get("clear_thinking", False)
-        model_settings_dict["thinking"] = {
-            "type": "enabled",
-            "clear_thinking": clear_thinking,
-        }
+
+        # Lilac's GLM proxy expects chat_template_kwargs instead of the
+        # raw thinking object that Zhipu's native API uses.
+        is_lilac = model_config.get("provider") == "lilac"
+        if is_lilac:
+            glm_extra_body["chat_template_kwargs"] = {
+                "enable_thinking": thinking_type != "disabled",
+                "clear_thinking": clear_thinking,
+            }
+        else:
+            glm_extra_body["thinking"] = {
+                "type": thinking_type,
+                "clear_thinking": clear_thinking,
+            }
+
+        # Only send reasoning_effort when thinking is enabled. When thinking
+        # is disabled, including reasoning_effort can cause some API proxies
+        # to interpret its mere presence as "enable reasoning",
+        # overriding the disabled flag.
+        if thinking_type != "disabled" and supports_glm_reasoning_effort(model_name):
+            glm_extra_body["reasoning_effort"] = effective_settings.get(
+                "glm_reasoning_effort", "max"
+            )
+        model_settings_dict["extra_body"] = glm_extra_body
+        # These aren't real ModelSettings/OpenAI fields - only extra_body is
+        # read downstream, so strip the raw keys to avoid dict clutter.
+        for key in ("thinking_type", "clear_thinking", "glm_reasoning_effort"):
+            model_settings_dict.pop(key, None)
 
     model_settings: ModelSettings = ModelSettings(**model_settings_dict)
 
@@ -231,28 +290,56 @@ def make_model_settings(
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
     elif "gpt-5" in model_name:
-        model_settings_dict["openai_reasoning_effort"] = get_openai_reasoning_effort()
+        model_settings_dict["openai_reasoning_effort"] = effective_settings.get(
+            "reasoning_effort", "medium"
+        )
 
         uses_responses_api = (
             model_type == "chatgpt_oauth"
             or model_type == "azure_foundry_openai"
             or (model_type == "openai" and "codex" in model_name)
-            or (model_type == "custom_openai" and "codex" in model_name)
+            or (
+                model_type in _CUSTOM_OPENAI_MODEL_TYPES
+                and _custom_openai_uses_responses_api(model_name, model_config)
+            )
         )
 
         if uses_responses_api:
-            model_settings_dict["openai_reasoning_summary"] = (
-                get_openai_reasoning_summary()
+            model_settings_dict["openai_reasoning_summary"] = effective_settings.get(
+                "summary", "auto"
             )
             if "codex" not in model_name:
-                model_settings_dict["openai_text_verbosity"] = get_openai_verbosity()
+                model_settings_dict["openai_text_verbosity"] = effective_settings.get(
+                    "verbosity", "medium"
+                )
+
+            underlying_name = str(model_config.get("name", "")).lower()
+            is_gpt_5_6 = "gpt-5.6" in model_name.lower() or "gpt-5.6" in underlying_name
+            if is_gpt_5_6:
+                # pydantic-ai 1.56 does not expose context/mode settings yet,
+                # although the OpenAI SDK does. Supply the complete reasoning
+                # object through extra_body; a partial object would overwrite
+                # pydantic-ai's generated effort/summary payload.
+                reasoning = {
+                    "effort": model_settings_dict.pop("openai_reasoning_effort"),
+                    "summary": model_settings_dict.pop("openai_reasoning_summary"),
+                    "context": effective_settings.get("reasoning_context", "all_turns"),
+                    "mode": effective_settings.get("reasoning_mode", "standard"),
+                }
+                extra_body = dict(model_settings_dict.get("extra_body") or {})
+                extra_body["reasoning"] = reasoning
+                model_settings_dict["extra_body"] = extra_body
+                model_settings_dict.pop("reasoning_context", None)
+                model_settings_dict.pop("reasoning_mode", None)
+
             model_settings = OpenAIResponsesModelSettings(**model_settings_dict)
         else:
             # Chat Completions models don't support configurable reasoning summaries.
             # Keep the old verbosity injection path for non-Responses GPT-5 models.
             if "codex" not in model_name:
-                verbosity = get_openai_verbosity()
-                model_settings_dict["extra_body"] = {"verbosity": verbosity}
+                model_settings_dict["extra_body"] = {
+                    "verbosity": effective_settings.get("verbosity", "medium")
+                }
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif _is_anthropic_model(model_name, model_config):
         # Handle Anthropic extended thinking settings
@@ -266,7 +353,7 @@ def make_model_settings(
 
         from code_puppy.model_utils import (
             get_default_extended_thinking,
-            should_use_anthropic_thinking_summary,
+            resolve_anthropic_thinking_payload,
         )
 
         actual_model_id = model_config.get("name", model_name)
@@ -281,38 +368,45 @@ def make_model_settings(
             extended_thinking = "off"
 
         budget_tokens = effective_settings.get("budget_tokens", 10000)
-        if extended_thinking in ("enabled", "adaptive"):
-            model_settings_dict["anthropic_thinking"] = {
-                "type": extended_thinking,
-            }
-            if (
-                extended_thinking == "adaptive"
-                and should_use_anthropic_thinking_summary(model_name, actual_model_id)
-            ):
-                model_settings_dict["anthropic_thinking"]["display"] = "summarized"
-            # Only send budget_tokens for classic "enabled" mode
-            if extended_thinking == "enabled" and budget_tokens:
-                model_settings_dict["anthropic_thinking"]["budget_tokens"] = (
-                    budget_tokens
-                )
+        # Single choke point: coerce the internal mode (enabled/adaptive/...) to
+        # whatever wire shape THIS model actually accepts. Different Claude
+        # generations disagree: classic models want type:enabled+budget_tokens,
+        # newer adaptive-supporting models (Opus 4.6+/Sonnet 5/Fable 5) want
+        # type:adaptive and reject type:enabled. The helper picks correctly.
+        thinking_payload = resolve_anthropic_thinking_payload(
+            extended_thinking,
+            budget_tokens=budget_tokens,
+            model_name=model_name,
+            actual_model_id=actual_model_id,
+        )
+        if thinking_payload is not None:
+            model_settings_dict["anthropic_thinking"] = thinking_payload
 
-        # Opus 4-6 models support the `effort` setting via output_config.
-        # pydantic-ai doesn't have a native field for output_config yet,
-        # so we inject it through extra_body which gets merged into the
-        # HTTP request body.
-        # NOTE: effort/output_config only applies to adaptive thinking.
-        # With standard "enabled" thinking, budget_tokens controls depth.
+        # Opus 4-6+ models support the `effort` setting via output_config.
+        # pydantic-ai has no native field for output_config yet, so we inject
+        # it through extra_body which gets merged into the HTTP request body.
+        # All three gate conditions are load-bearing and must stay:
+        #   1. `thinking_payload is not None` -- user turned thinking OFF
+        #      (mode was "off"/"disabled"); don't add effort where there's
+        #      no thinking to steer.
+        #   2. `type == "adaptive"` -- verified at wire level: classic
+        #      Claude models 400 on output_config.effort; only adaptive-
+        #      shape requests may carry it.
+        #   3. `model_supports_setting(..., "effort")` -- per-model opt-in
+        #      from models.json, gives operators a kill-switch without a
+        #      code change if a specific model regresses.
+        # "Simplify" this at your peril.
         if (
-            model_supports_setting(model_name, "effort")
-            and extended_thinking == "adaptive"
+            thinking_payload is not None
+            and thinking_payload.get("type") == "adaptive"
+            and model_supports_setting(model_name, "effort")
         ):
             effort = effective_settings.get(
                 "effort", model_config.get("default_effort", "high")
             )
-            if "anthropic_thinking" in model_settings_dict:
-                extra_body = model_settings_dict.get("extra_body") or {}
-                extra_body["output_config"] = {"effort": effort}
-                model_settings_dict["extra_body"] = extra_body
+            extra_body = model_settings_dict.get("extra_body") or {}
+            extra_body["output_config"] = {"effort": effort}
+            model_settings_dict["extra_body"] = extra_body
 
         model_settings = AnthropicModelSettings(**model_settings_dict)
 
@@ -574,7 +668,11 @@ class ModelFactory:
                 return None
 
             provider = make_openai_provider(provider_identity, api_key=api_key)
-            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            model = OpenAIChatModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=_thinking_tags_profile(model_name, model_config),
+            )
             if "codex" in model_name:
                 model = OpenAIResponsesModel(
                     model_name=model_config["name"], provider=provider
@@ -735,7 +833,7 @@ class ModelFactory:
             )
             return OpenAIChatModel(model_name=model_config["name"], provider=provider)
 
-        elif model_type == "custom_openai":
+        elif model_type in _CUSTOM_OPENAI_MODEL_TYPES:
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
             client = create_async_client(
                 headers=headers,
@@ -748,10 +846,15 @@ class ModelFactory:
             if api_key:
                 provider_args["api_key"] = api_key
             provider = make_openai_provider(provider_identity, **provider_args)
-            model = OpenAIChatModel(model_name=model_config["name"], provider=provider)
-            if model_name == "chatgpt-gpt-5-codex":
-                model = OpenAIResponsesModel(model_config["name"], provider=provider)
-            return model
+            if _custom_openai_uses_responses_api(model_name, model_config):
+                return OpenAIResponsesModel(
+                    model_name=model_config["name"], provider=provider
+                )
+            return OpenAIChatModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=_thinking_tags_profile(model_name, model_config),
+            )
         elif model_type == "zai_coding":
             api_key = get_api_key("ZAI_API_KEY")
             if not api_key:
@@ -881,7 +984,11 @@ class ModelFactory:
 
             provider = OpenRouterProvider(api_key=api_key)
 
-            return OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            return OpenAIChatModel(
+                model_name=model_config["name"],
+                provider=provider,
+                profile=_thinking_tags_profile(model_name, model_config),
+            )
 
         elif model_type == "gemini_oauth":
             # Gemini OAuth models use the Code Assist API (cloudcode-pa.googleapis.com)

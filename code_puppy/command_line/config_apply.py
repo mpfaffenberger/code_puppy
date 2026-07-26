@@ -14,6 +14,15 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+MODEL_SETTINGS_ONLY_KEYS = frozenset(
+    {
+        "openai_reasoning_effort",
+        "openai_reasoning_summary",
+        "openai_verbosity",
+    }
+)
+
+
 @dataclass(frozen=True)
 class ApplyResult:
     """Outcome of writing a single config key/value pair.
@@ -50,10 +59,14 @@ def invalidate_post_write_caches(key: str) -> None:
     Called from both the slash-set path (:func:`apply_setting`) and the
     menu reset path so the two stay in lock-step.
 
-    Today only the ``model`` key has a cache that needs this treatment;
-    add new keys here as they grow caches.
+    Runtime CLI overrides are also cleared when their persisted setting is
+    explicitly changed, so an in-session ``/set`` always wins.
     """
-    if key == "model":
+    if key == "yolo_mode":
+        from code_puppy.config import set_cli_yolo_override
+
+        set_cli_yolo_override(None)
+    elif key == "model":
         from code_puppy.config import clear_model_cache, reset_session_model
 
         reset_session_model()
@@ -85,6 +98,11 @@ def apply_setting(
 
     if not key:
         return ApplyResult(ok=False, error="You must supply a key.")
+    if key in MODEL_SETTINGS_ONLY_KEYS:
+        return ApplyResult(
+            ok=False,
+            error=(f"'{key}' is managed per model. Use /model_settings to change it."),
+        )
 
     warning: Optional[str] = None
     requires_restart = False
@@ -108,7 +126,12 @@ def apply_setting(
         warning = _restart_notice("DBOS configuration")
         requires_restart = True
 
-    set_config_value(key, normalized_value)
+    if key == "yolo_mode" and normalized_value.strip().lower() == "config":
+        # ``config`` only drops the process-local CLI override. The persisted
+        # value remains the source of truth once that override is gone.
+        normalized_value = ""
+    else:
+        set_config_value(key, normalized_value)
     invalidate_post_write_caches(key)
 
     reload_error: Optional[str] = None

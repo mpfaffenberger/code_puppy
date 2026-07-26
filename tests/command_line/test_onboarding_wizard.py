@@ -128,31 +128,31 @@ class TestOnboardingWizard:
         w = self._make_wizard()
         w.current_slide = 0
         content = w.get_slide_content()
-        assert isinstance(content, str)
+        assert isinstance(content, list)
 
     def test_get_slide_content_slide_1(self):
         w = self._make_wizard()
         w.current_slide = 1
         content = w.get_slide_content()
-        assert isinstance(content, str)
+        assert isinstance(content, list)
 
     def test_get_slide_content_slide_2(self):
         w = self._make_wizard()
         w.current_slide = 2
         content = w.get_slide_content()
-        assert isinstance(content, str)
+        assert isinstance(content, list)
 
     def test_get_slide_content_slide_3(self):
         w = self._make_wizard()
         w.current_slide = 3
         content = w.get_slide_content()
-        assert isinstance(content, str)
+        assert isinstance(content, list)
 
     def test_get_slide_content_slide_4(self):
         w = self._make_wizard()
         w.current_slide = 4
         content = w.get_slide_content()
-        assert isinstance(content, str)
+        assert isinstance(content, list)
 
     def test_get_options_for_slide_1(self):
         w = self._make_wizard()
@@ -268,8 +268,8 @@ class TestOnboardingWizard:
 
 
 class TestGetSlidePanelContent:
-    def test_returns_ansi(self):
-        from prompt_toolkit.formatted_text import ANSI
+    def test_returns_semantic_formatted_text(self):
+        from prompt_toolkit.formatted_text import FormattedText
 
         from code_puppy.command_line.onboarding_wizard import (
             OnboardingWizard,
@@ -278,7 +278,9 @@ class TestGetSlidePanelContent:
 
         w = OnboardingWizard()
         result = _get_slide_panel_content(w)
-        assert isinstance(result, ANSI)
+        assert isinstance(result, FormattedText)
+        styles = {style for style, _ in result}
+        assert {"class:tui.muted", "class:tui.header"} <= styles
 
 
 # ---------------------------------------------------------------------------

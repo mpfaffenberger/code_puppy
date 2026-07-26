@@ -48,6 +48,8 @@ def detect_git_branch(cwd: str) -> Optional[str]:
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",  # explicit UTF-8: prevents cp1252 crash on Windows
+            errors="replace",  # never raise UnicodeDecodeError on branch names
             timeout=0.5,
         )
         if out.returncode == 0:

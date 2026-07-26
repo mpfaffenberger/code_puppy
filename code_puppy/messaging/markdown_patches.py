@@ -1,12 +1,16 @@
 """Patches for Rich's Markdown rendering.
 
-This module provides customizations to Rich's default Markdown rendering,
-particularly for header justification which is hardcoded to center in Rich.
+- Headings: Rich hardcodes them to center-justified; we want left.
+- Code blocks: Rich pads every line to fill a rectangular highlight
+  background, and that padding survives copy/paste (#505). See
+  ``NoPadCodeBlock``.
 """
 
 from rich import box
-from rich.markdown import Heading, Markdown
+from rich.markdown import CodeBlock, Heading, Markdown
 from rich.panel import Panel
+from rich.rule import Rule
+from rich.syntax import Syntax
 from rich.text import Text
 
 
@@ -37,21 +41,49 @@ class LeftJustifiedHeading(Heading):
             yield text
 
 
+class NoPadCodeBlock(CodeBlock):
+    """Code block with per-character background but no padding (#505).
+
+    Rich's default ``CodeBlock`` pads every line to width so the theme
+    background fills a rectangle -- that padding survives copy/paste.
+    We bypass ``Syntax``'s line-filling and yield each highlighted line
+    directly: theme background stays on real characters, box is "ragged"
+    (hugs each line's own width) instead of a filled rectangle. Language
+    label + boundary drawn with ``Rule``.
+    """
+
+    def __rich_console__(self, console, options):
+        code = str(self.text).rstrip()
+        syntax = Syntax(
+            code,
+            self.lexer_name,
+            theme=self.theme,
+            word_wrap=True,
+            background_color=None,
+        )
+        yield Rule(title=self.lexer_name, align="left", style="dim")
+        for line in syntax.highlight(code).split("\n"):
+            # ``Text.highlight()`` sets ``justify="left"`` for opaque
+            # backgrounds, which re-pads to container width. Undo it;
+            # per-character bg from the base style is unaffected.
+            line.justify = None
+            yield line
+        yield Rule(style="dim")
+
+
 _patched = False
 
 
-def patch_markdown_headings():
-    """Patch Rich's Markdown to use left-justified headings.
-
-    This function is idempotent - calling it multiple times has no effect
-    after the first call.
-    """
+def patch_markdown():
+    """Install left-justified headings + unpadded code blocks. Idempotent."""
     global _patched
     if _patched:
         return
 
     Markdown.elements["heading_open"] = LeftJustifiedHeading
+    Markdown.elements["fence"] = NoPadCodeBlock
+    Markdown.elements["code_block"] = NoPadCodeBlock
     _patched = True
 
 
-__all__ = ["patch_markdown_headings", "LeftJustifiedHeading"]
+__all__ = ["patch_markdown", "LeftJustifiedHeading", "NoPadCodeBlock"]

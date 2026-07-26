@@ -441,13 +441,13 @@ def test_render_subagent_invocation_continuing(mock_sub, renderer, console):
         prompt="short",
         is_new_session=False,
         message_count=5,
-        model_name="chatgpt-gpt-5.2",
+        model_name="codex-gpt-5.2",
     )
     renderer._render_subagent_invocation(msg)
     out = output(console)
     assert "Continuing" in out
     assert "Requested model override:" in out
-    assert "chatgpt-gpt-5.2" in out
+    assert "codex-gpt-5.2" in out
 
 
 def test_render_subagent_response(renderer, console):
@@ -902,19 +902,22 @@ def test_format_size(renderer):
 
 
 def test_get_file_icon(renderer):
-    assert renderer._get_file_icon("test.py") == "🐍"
-    assert renderer._get_file_icon("test.js") == "📜"
-    assert renderer._get_file_icon("test.html") == "🌐"
-    assert renderer._get_file_icon("test.css") == "🎨"
-    assert renderer._get_file_icon("test.md") == "📝"
-    assert renderer._get_file_icon("test.json") == "⚙️"
-    assert renderer._get_file_icon("test.jpg") == "🖼️"
-    assert renderer._get_file_icon("test.mp3") == "🎵"
-    assert renderer._get_file_icon("test.mp4") == "🎬"
-    assert renderer._get_file_icon("test.pdf") == "📄"
-    assert renderer._get_file_icon("test.zip") == "📦"
-    assert renderer._get_file_icon("test.exe") == "⚡"
-    assert renderer._get_file_icon("test.unknown") == "📄"
+    for path in (
+        "test.py",
+        "test.js",
+        "test.html",
+        "test.css",
+        "test.md",
+        "test.json",
+        "test.jpg",
+        "test.mp3",
+        "test.mp4",
+        "test.pdf",
+        "test.zip",
+        "test.exe",
+        "test.unknown",
+    ):
+        assert renderer._get_file_icon(path) == "-"
 
 
 def test_get_banner_color(renderer):

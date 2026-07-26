@@ -54,6 +54,31 @@ def _cleanup_sys_path():
             sys.path.remove(entry)
 
 
+@pytest.fixture(autouse=True)
+def _trust_everything():
+    """Bypass the trust gate for legacy loader tests.
+
+    Project plugins are disabled-by-default (trust gate); these tests
+    exercise the loading machinery itself, so trust is granted wholesale.
+    Trust-gate behavior is tested separately in TestTrustGate.
+    """
+    import code_puppy.plugins as plugins_module
+
+    plugins_module._project_plugin_status.clear()
+    with (
+        patch(
+            "code_puppy.plugins.trust.get_trust_status",
+            return_value="trusted",
+        ),
+        patch(
+            "code_puppy.plugins.config.is_plugin_disabled",
+            return_value=False,
+        ),
+    ):
+        yield
+    plugins_module._project_plugin_status.clear()
+
+
 # ---------------------------------------------------------------------------
 # 1. Project dir does not exist → no plugins loaded, no errors
 # ---------------------------------------------------------------------------
@@ -489,7 +514,11 @@ class TestEdgeCases:
         result = _load_project_plugins(project_plugins_dir, set(), set())
         assert result == []
 
-    def test_adds_project_dir_to_sys_path(self, project_plugins_dir: Path):
+    def test_adds_project_dir_to_sys_path_on_trusted_load(
+        self, project_plugins_dir: Path
+    ):
+        """sys.path entry is earned only when a trusted plugin loads."""
+        _make_plugin(project_plugins_dir, "path_earner")
         project_str = str(project_plugins_dir)
         if project_str in sys.path:
             sys.path.remove(project_str)
@@ -497,7 +526,17 @@ class TestEdgeCases:
         _load_project_plugins(project_plugins_dir, set(), set())
         assert project_str in sys.path
 
+    def test_no_sys_path_when_nothing_loads(self, project_plugins_dir: Path):
+        """Empty plugins dir must not leak onto sys.path (stdlib shadowing)."""
+        project_str = str(project_plugins_dir)
+        if project_str in sys.path:
+            sys.path.remove(project_str)
+
+        _load_project_plugins(project_plugins_dir, set(), set())
+        assert project_str not in sys.path
+
     def test_no_duplicate_sys_path_entries(self, project_plugins_dir: Path):
+        _make_plugin(project_plugins_dir, "dup_check")
         project_str = str(project_plugins_dir)
         if project_str not in sys.path:
             sys.path.insert(0, project_str)
@@ -505,3 +544,178 @@ class TestEdgeCases:
         count_before = sys.path.count(project_str)
         _load_project_plugins(project_plugins_dir, set(), set())
         assert sys.path.count(project_str) == count_before
+
+
+# ---------------------------------------------------------------------------
+# Trust gate (project plugins are disabled by default)
+# ---------------------------------------------------------------------------
+
+
+class TestTrustGate:
+    """Untrusted/changed project plugins must never be imported."""
+
+    def test_untrusted_plugin_not_loaded(self, project_plugins_dir: Path, caplog):
+        import logging
+
+        _make_plugin(project_plugins_dir, "sketchy")
+
+        with (
+            caplog.at_level(logging.INFO, logger="code_puppy.plugins"),
+            patch(
+                "code_puppy.plugins.trust.get_trust_status",
+                return_value="untrusted",
+            ),
+            patch(
+                "code_puppy.plugins.importlib.util.spec_from_file_location",
+            ) as mock_sfl,
+        ):
+            result = _load_project_plugins(project_plugins_dir, set(), set())
+
+        assert result == []
+        mock_sfl.assert_not_called()  # import machinery never touched
+        assert "Skipping project plugin 'sketchy'" in caplog.text
+
+    def test_changed_plugin_not_loaded(self, project_plugins_dir: Path, caplog):
+        import logging
+
+        _make_plugin(project_plugins_dir, "drifted")
+
+        with (
+            caplog.at_level(logging.INFO, logger="code_puppy.plugins"),
+            patch(
+                "code_puppy.plugins.trust.get_trust_status",
+                return_value="changed",
+            ),
+        ):
+            result = _load_project_plugins(project_plugins_dir, set(), set())
+
+        assert result == []
+        assert "changed" in caplog.text
+
+    def test_untrusted_plugin_keeps_dir_off_sys_path(self, project_plugins_dir: Path):
+        _make_plugin(project_plugins_dir, "sketchy")
+        project_str = str(project_plugins_dir)
+        if project_str in sys.path:
+            sys.path.remove(project_str)
+
+        with patch(
+            "code_puppy.plugins.trust.get_trust_status",
+            return_value="untrusted",
+        ):
+            _load_project_plugins(project_plugins_dir, set(), set())
+
+        assert project_str not in sys.path
+
+    def test_status_recorded_for_skipped_plugins(self, project_plugins_dir: Path):
+        import code_puppy.plugins as plugins_module
+
+        _make_plugin(project_plugins_dir, "sketchy")
+
+        with patch(
+            "code_puppy.plugins.trust.get_trust_status",
+            return_value="untrusted",
+        ):
+            _load_project_plugins(project_plugins_dir, set(), set())
+
+        assert plugins_module.get_project_plugin_status()["sketchy"] == "untrusted"
+
+    def test_trusted_but_disabled_not_loaded(self, project_plugins_dir: Path):
+        import code_puppy.plugins as plugins_module
+
+        _make_plugin(project_plugins_dir, "napping")
+
+        with patch(
+            "code_puppy.plugins.config.is_plugin_disabled",
+            return_value=True,
+        ):
+            # _trust_everything fixture already returns "trusted"
+            result = _load_project_plugins(project_plugins_dir, set(), set())
+
+        assert result == []
+        assert plugins_module.get_project_plugin_status()["napping"] == "disabled"
+
+    def test_startup_notice_lists_skipped_plugins(self):
+        """The startup-hook banner names every held-back plugin, in orange."""
+        from code_puppy.plugins.trust_notice import emit_skipped_plugin_notice
+
+        with patch("code_puppy.messaging.emit_warning") as mock_warn:
+            emit_skipped_plugin_notice(
+                {
+                    "sketchy": "untrusted",
+                    "drifted": "changed",
+                    "napping": "disabled",  # user's own choice — not nagged
+                    "fine": "loaded",
+                }
+            )
+
+        mock_warn.assert_called_once()
+        banner = mock_warn.call_args[0][0]
+        text = banner.plain if hasattr(banner, "plain") else str(banner)
+        assert "sketchy" in text
+        assert "drifted" in text
+        assert "napping" not in text
+        assert "fine" not in text
+        assert "NOT loaded" in text
+        assert "/plugins" in text
+        # Standard warning yellow (matches _classify_style), bold for pop
+        assert "bold yellow" in str(banner.spans)
+
+    def test_no_notice_when_nothing_skipped(self):
+        """Fully trusted (or empty) project tier stays quiet."""
+        from code_puppy.plugins.trust_notice import emit_skipped_plugin_notice
+
+        with patch("code_puppy.messaging.emit_warning") as mock_warn:
+            emit_skipped_plugin_notice({"fine": "loaded", "napping": "disabled"})
+
+        mock_warn.assert_not_called()
+
+    def test_plugin_list_startup_hook_emits_notice(self, project_plugins_dir: Path):
+        """plugin_list's startup callback wires statuses into the banner."""
+        from code_puppy.plugins.plugin_list.register_callbacks import _on_startup
+
+        with (
+            patch(
+                "code_puppy.plugins.get_project_plugin_status",
+                return_value={"sketchy": "untrusted"},
+            ),
+            patch("code_puppy.messaging.emit_warning") as mock_warn,
+        ):
+            _on_startup()
+
+        mock_warn.assert_called_once()
+
+    def test_untrusted_names_do_not_suppress_user_plugins(self, tmp_path: Path):
+        """An untrusted repo must not knock out user plugins via name squatting."""
+        import code_puppy.plugins as plugins_module
+
+        project_dir = tmp_path / ".code_puppy" / "plugins"
+        project_dir.mkdir(parents=True)
+        _make_plugin(project_dir, "force_push_guard")
+
+        original_loaded = plugins_module._PLUGINS_LOADED
+        plugins_module._PLUGINS_LOADED = False
+
+        with (
+            patch("code_puppy.plugins._load_builtin_plugins", return_value=[]),
+            patch(
+                "code_puppy.plugins._load_user_plugins", return_value=[]
+            ) as mock_user,
+            patch(
+                "code_puppy.plugins.get_project_plugins_directory",
+                return_value=project_dir,
+            ),
+            patch(
+                "code_puppy.plugins.trust.is_plugin_trusted",
+                return_value=False,
+            ),
+            patch("code_puppy.plugins._load_project_plugins", return_value=[]),
+        ):
+            try:
+                plugins_module.load_plugin_callbacks()
+            finally:
+                plugins_module._PLUGINS_LOADED = original_loaded
+
+        # skip_names passed to the user loader must NOT contain the
+        # untrusted project plugin's name.
+        _, kwargs = mock_user.call_args
+        assert "force_push_guard" not in kwargs["skip_names"]

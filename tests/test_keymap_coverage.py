@@ -4,7 +4,7 @@ This module tests keyboard shortcut configuration including:
 - Cancel agent key retrieval and validation
 - Character code mapping
 - Display name formatting
-- Windows/uvx detection integration
+- Windows platform defaults
 """
 
 from unittest.mock import patch
@@ -16,7 +16,7 @@ from code_puppy.keymap import (
     KEY_CODES,
     VALID_CANCEL_KEYS,
     KeymapError,
-    cancel_agent_uses_signal,
+    sigint_fallback_cancels,
     get_cancel_agent_char_code,
     get_cancel_agent_display_name,
     get_cancel_agent_key,
@@ -71,52 +71,50 @@ class TestKeymapError:
 class TestGetCancelAgentKey:
     """Test get_cancel_agent_key function."""
 
-    @patch("code_puppy.uvx_detection.should_use_alternate_cancel_key")
     @patch("code_puppy.config.get_value")
-    def test_returns_ctrl_k_on_windows_uvx(self, mock_get_value, mock_should_use_alt):
-        """Should return ctrl+k when Windows+uvx detection is true."""
-        mock_should_use_alt.return_value = True
-        mock_get_value.return_value = "ctrl+c"  # Config says ctrl+c
-
-        result = get_cancel_agent_key()
-
-        assert result == "ctrl+k"
-        # get_value should NOT be called when uvx detection triggers
-        mock_get_value.assert_not_called()
-
-    @patch("code_puppy.uvx_detection.should_use_alternate_cancel_key")
-    @patch("code_puppy.config.get_value")
-    def test_returns_default_when_config_is_none(
-        self, mock_get_value, mock_should_use_alt
-    ):
-        """Should return default when config value is None."""
-        mock_should_use_alt.return_value = False
+    def test_returns_default_when_config_is_none(self, mock_get_value):
+        """Should return default (ctrl+c) when config value is None —
+        on every platform."""
         mock_get_value.return_value = None
 
         result = get_cancel_agent_key()
 
         assert result == DEFAULT_CANCEL_AGENT_KEY
 
-    @patch("code_puppy.uvx_detection.should_use_alternate_cancel_key")
     @patch("code_puppy.config.get_value")
-    def test_returns_default_when_config_is_empty(
-        self, mock_get_value, mock_should_use_alt
-    ):
+    def test_returns_default_when_config_is_empty(self, mock_get_value):
         """Should return default when config value is empty string."""
-        mock_should_use_alt.return_value = False
         mock_get_value.return_value = "   "  # Whitespace only
 
         result = get_cancel_agent_key()
 
         assert result == DEFAULT_CANCEL_AGENT_KEY
 
-    @patch("code_puppy.uvx_detection.should_use_alternate_cancel_key")
+    @patch("code_puppy.keymap._is_windows")
     @patch("code_puppy.config.get_value")
-    def test_returns_configured_key_normalized(
-        self, mock_get_value, mock_should_use_alt
-    ):
+    def test_windows_default_is_ctrl_c(self, mock_get_value, mock_is_windows):
+        """Windows: unconfigured default is ctrl+c too — raw \\x03 via
+        the key listener, with buffer-first absorption. Ctrl+K stays
+        the editor's kill-to-end."""
+        mock_is_windows.return_value = True
+        mock_get_value.return_value = None
+
+        result = get_cancel_agent_key()
+
+        assert result == "ctrl+c"
+
+    @patch("code_puppy.config.get_value")
+    def test_explicit_config_beats_default(self, mock_get_value):
+        """An explicit cancel_agent_key in puppy.cfg beats the default."""
+        mock_get_value.return_value = "ctrl+q"
+
+        result = get_cancel_agent_key()
+
+        assert result == "ctrl+q"
+
+    @patch("code_puppy.config.get_value")
+    def test_returns_configured_key_normalized(self, mock_get_value):
         """Should return configured key, stripped and lowercased."""
-        mock_should_use_alt.return_value = False
         mock_get_value.return_value = "  CTRL+K  "  # With whitespace and uppercase
 
         result = get_cancel_agent_key()
@@ -159,33 +157,54 @@ class TestValidateCancelAgentKey:
         assert "ctrl+c" in error_msg or "ctrl+k" in error_msg
 
 
-class TestCancelAgentUsesSignal:
-    """Test cancel_agent_uses_signal function."""
+class TestSigintFallbackCancels:
+    """Test sigint_fallback_cancels function.
 
+    Ctrl+C is a pure keybinding everywhere — the key listener always
+    owns cancel. This function only decides whether an OUT-OF-BAND
+    SIGINT (kill -INT, piped stdin, cooked-mode gaps) cancels the run.
+    """
+
+    @patch("code_puppy.keymap._is_windows")
     @patch("code_puppy.keymap.get_cancel_agent_key")
-    def test_returns_true_for_ctrl_c(self, mock_get_key):
-        """Should return True when cancel key is ctrl+c."""
+    def test_returns_true_for_ctrl_c_on_posix(self, mock_get_key, mock_is_windows):
+        """Fallback SIGINT cancels when ^C IS the cancel gesture (POSIX)."""
         mock_get_key.return_value = "ctrl+c"
+        mock_is_windows.return_value = False
 
-        result = cancel_agent_uses_signal()
+        result = sigint_fallback_cancels()
 
         assert result is True
 
+    @patch("code_puppy.keymap._is_windows")
+    @patch("code_puppy.keymap.get_cancel_agent_key")
+    def test_returns_false_for_ctrl_c_on_windows(self, mock_get_key, mock_is_windows):
+        """Windows never routes cancel through SIGINT — the console runs
+        with processed input stripped, so ^C arrives as a raw byte for
+        the key listener; a SIGINT means the console mode regressed and
+        earns repair (reset + re-clamp), not a cancel."""
+        mock_get_key.return_value = "ctrl+c"
+        mock_is_windows.return_value = True
+
+        result = sigint_fallback_cancels()
+
+        assert result is False
+
     @patch("code_puppy.keymap.get_cancel_agent_key")
     def test_returns_false_for_ctrl_k(self, mock_get_key):
-        """Should return False when cancel key is ctrl+k."""
+        """A SIGINT is not the cancel gesture when cancel is remapped."""
         mock_get_key.return_value = "ctrl+k"
 
-        result = cancel_agent_uses_signal()
+        result = sigint_fallback_cancels()
 
         assert result is False
 
     @patch("code_puppy.keymap.get_cancel_agent_key")
     def test_returns_false_for_ctrl_q(self, mock_get_key):
-        """Should return False when cancel key is ctrl+q."""
+        """A SIGINT is not the cancel gesture when cancel is remapped."""
         mock_get_key.return_value = "ctrl+q"
 
-        result = cancel_agent_uses_signal()
+        result = sigint_fallback_cancels()
 
         assert result is False
 

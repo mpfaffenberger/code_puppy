@@ -139,6 +139,15 @@ def handle_compact_command(command: str) -> bool:
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     try:
+        from code_puppy.messaging.run_ui import is_run_active
+
+        if is_run_active():
+            from code_puppy.messaging.pause_controller import get_pause_controller
+
+            get_pause_controller().request_compaction()
+            emit_info("Compaction requested; it will run before the next model call.")
+            return True
+
         agent = get_current_agent()
         history = agent.get_message_history()
         if not history:

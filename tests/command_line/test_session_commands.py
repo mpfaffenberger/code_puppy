@@ -85,6 +85,21 @@ class TestHandleCompactCommand:
 
         return handle_compact_command(cmd)
 
+    def test_mid_run_queues_compaction_for_next_model_call(self):
+        controller = MagicMock()
+        with (
+            patch("code_puppy.messaging.run_ui.is_run_active", return_value=True),
+            patch(
+                "code_puppy.messaging.pause_controller.get_pause_controller",
+                return_value=controller,
+            ),
+            patch("code_puppy.messaging.emit_info") as emit_info,
+        ):
+            assert self._run() is True
+
+        controller.request_compaction.assert_called_once_with()
+        assert "next model call" in emit_info.call_args[0][0]
+
     def test_no_history(self):
         agent = MagicMock()
         agent.get_message_history.return_value = []

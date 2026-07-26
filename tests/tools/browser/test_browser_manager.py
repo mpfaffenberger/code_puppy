@@ -37,6 +37,10 @@ class TestBrowserManagerBase:
         mock_browser = AsyncMock()
         mock_context = AsyncMock()
         mock_page = AsyncMock()
+        # ``page.on`` is SYNCHRONOUS in real Playwright -- override the
+        # AsyncMock default so calling it in production code doesn't leak an
+        # unawaited coroutine (RuntimeWarning noise in the test log).
+        mock_page.on = MagicMock()
 
         mock_browser.new_page.return_value = mock_page
         mock_context.new_page.return_value = mock_page
@@ -400,6 +404,243 @@ class TestCleanupFunctionality(TestBrowserManagerBase):
             await manager._cleanup()
 
             assert manager._initialized is False
+
+    # ---- Regression guards for browser_close cleanup hang ----
+
+    @pytest.mark.asyncio
+    async def test_cleanup_returns_within_timeout_when_context_close_hangs(
+        self, mock_playwright, monkeypatch
+    ):
+        """``context.close()`` hanging must NOT wedge ``_cleanup()``.
+
+        Regression guard for the qa-kitten ``browser_close`` hang: a
+        Playwright context whose ``close()`` never resolves used to block
+        cleanup indefinitely (10+ minutes observed in the wild). With the
+        fix, ``asyncio.wait_for`` bounds the wait.
+        """
+        import asyncio
+        import time
+        from tools.browser import browser_manager
+
+        # Shrink the per-step timeout so the test is fast.
+        monkeypatch.setattr(browser_manager, "_CONTEXT_TIMEOUT_S", 0.1)
+        monkeypatch.setattr(browser_manager, "_STATE_TIMEOUT_S", 1.0)
+        monkeypatch.setattr(browser_manager, "_BROWSER_TIMEOUT_S", 0.1)
+        monkeypatch.setattr(browser_manager, "_PW_TIMEOUT_S", 0.1)
+
+        mock_pw, mock_browser, mock_context, mock_page = mock_playwright
+
+        # Replace ``context.close`` with a real async function that hangs. We
+        # avoid ``AsyncMock.side_effect = lambda: hang()`` because AsyncMock
+        # wraps the returned coroutine in another coroutine, breaking clean
+        # cancellation and producing 'coroutine was never awaited' warnings.
+        async def _hang_forever(*_a, **_kw):
+            await asyncio.Event().wait()
+
+        mock_context.close = _hang_forever
+        mock_context.storage_state = AsyncMock()
+
+        manager = BrowserManager()
+        manager._context = mock_context
+        manager._browser = mock_browser
+        manager._initialized = True
+
+        with (
+            patch("tools.browser.browser_manager.emit_info"),
+            patch("tools.browser.browser_manager.emit_warning"),
+            patch("tools.browser.browser_manager.emit_success"),
+        ):
+            start = time.monotonic()
+            await manager._cleanup()
+            elapsed = time.monotonic() - start
+
+        # Worst case: sum of per-step budgets + generous slack for async churn.
+        assert elapsed < 2.0, (
+            f"_cleanup() took {elapsed:.2f}s -- unbounded await regression."
+        )
+        assert manager._context is None
+        assert manager._initialized is False
+
+    @pytest.mark.asyncio
+    async def test_cleanup_kills_playwright_driver_when_stop_times_out(
+        self, mock_playwright, monkeypatch
+    ):
+        """When ``playwright.stop()`` times out, SIGKILL the driver subprocess.
+
+        This is the only fallback that actually reaches a real process handle
+        on current Playwright (verified against 1.61.0 -- ``Browser`` has no
+        ``process`` attribute, but the node driver DOES expose a process on
+        ``_playwright._impl_obj._connection._transport._proc``). Killing the
+        driver transitively reaps the browser child process.
+
+        This test mirrors the real private-attribute chain so a Playwright
+        upgrade that moves the path fails loudly instead of silently.
+        """
+        import asyncio
+        from tools.browser import browser_manager
+
+        monkeypatch.setattr(browser_manager, "_CONTEXT_TIMEOUT_S", 0.05)
+        monkeypatch.setattr(browser_manager, "_BROWSER_TIMEOUT_S", 0.05)
+        monkeypatch.setattr(browser_manager, "_STATE_TIMEOUT_S", 0.05)
+        monkeypatch.setattr(browser_manager, "_PW_TIMEOUT_S", 0.05)
+
+        mock_pw_public, mock_browser, mock_context, mock_page = mock_playwright
+
+        async def _hang_forever(*_a, **_kw):
+            await asyncio.Event().wait()
+
+        mock_context.storage_state = AsyncMock()
+
+        # Build the REAL Playwright private-attribute chain the fix walks:
+        # playwright._impl_obj._connection._transport._proc
+        mock_proc = MagicMock()
+        mock_transport = MagicMock(_proc=mock_proc)
+        mock_connection = MagicMock(_transport=mock_transport)
+        mock_pw_instance = MagicMock()
+        mock_pw_instance._impl_obj = MagicMock(_connection=mock_connection)
+        mock_pw_instance.stop = _hang_forever
+
+        manager = BrowserManager()
+        manager._context = mock_context
+        manager._browser = mock_browser
+        manager._initialized = True
+        manager._playwright = mock_pw_instance
+
+        with (
+            patch("tools.browser.browser_manager.emit_info"),
+            patch("tools.browser.browser_manager.emit_warning"),
+            patch("tools.browser.browser_manager.emit_success"),
+        ):
+            await manager._cleanup()
+
+        mock_proc.kill.assert_called_once()
+        assert manager._playwright is None
+
+    @pytest.mark.asyncio
+    async def test_cleanup_installs_dialog_handler_on_pages(self, mock_playwright):
+        """Every open page gets an auto-dismiss dialog handler before close.
+
+        Prevents ``context.close()`` from hanging on an unhandled
+        ``beforeunload`` prompt that no test/agent ever installed a handler
+        for.
+        """
+        mock_pw, mock_browser, mock_context, mock_page = mock_playwright
+
+        manager = BrowserManager()
+        manager._context = mock_context
+        manager._browser = mock_browser
+        manager._initialized = True
+
+        with (
+            patch("tools.browser.browser_manager.emit_info"),
+            patch("tools.browser.browser_manager.emit_success"),
+        ):
+            await manager._cleanup()
+
+        # ``page.on`` should have been called at least once with 'dialog'.
+        dialog_calls = [
+            c for c in mock_page.on.call_args_list if c.args and c.args[0] == "dialog"
+        ]
+        assert dialog_calls, "Dialog auto-dismiss handler was not installed."
+
+    @pytest.mark.asyncio
+    async def test_cleanup_silent_flag_suppresses_all_emits(
+        self, mock_playwright, monkeypatch
+    ):
+        """``silent=True`` must suppress ALL user-facing emits from cleanup.
+
+        Regression guard against the pre-fix bug where the outer
+        ``except Exception`` still called ``emit_warning`` even when
+        ``silent=True``. Also covers the new timeout-warning emits.
+        """
+        import asyncio
+        from tools.browser import browser_manager
+
+        monkeypatch.setattr(browser_manager, "_CONTEXT_TIMEOUT_S", 0.05)
+        monkeypatch.setattr(browser_manager, "_BROWSER_TIMEOUT_S", 0.05)
+        monkeypatch.setattr(browser_manager, "_STATE_TIMEOUT_S", 0.05)
+        monkeypatch.setattr(browser_manager, "_PW_TIMEOUT_S", 0.05)
+
+        mock_pw, mock_browser, mock_context, mock_page = mock_playwright
+
+        # Force EVERY step to time out so all warning paths would fire.
+        async def _hang_forever(*_a, **_kw):
+            await asyncio.Event().wait()
+
+        mock_context.storage_state = _hang_forever
+        mock_context.close = _hang_forever
+        mock_browser.close = _hang_forever
+
+        # Also install a fake playwright with a hanging stop() so the
+        # driver-kill fallback fires too (its warning path must also be muted).
+        mock_proc = MagicMock()
+        mock_transport = MagicMock(_proc=mock_proc)
+        mock_connection = MagicMock(_transport=mock_transport)
+        mock_pw_instance = MagicMock()
+        mock_pw_instance._impl_obj = MagicMock(_connection=mock_connection)
+        mock_pw_instance.stop = _hang_forever
+
+        manager = BrowserManager()
+        manager._context = mock_context
+        manager._browser = mock_browser
+        manager._initialized = True
+        manager._playwright = mock_pw_instance
+
+        with (
+            patch("tools.browser.browser_manager.emit_info") as mock_info,
+            patch("tools.browser.browser_manager.emit_warning") as mock_warn,
+            patch("tools.browser.browser_manager.emit_success") as mock_success,
+        ):
+            await manager._cleanup(silent=True)
+
+        assert not mock_warn.called, (
+            f"silent=True leaked emit_warning: {mock_warn.call_args_list}"
+        )
+        assert not mock_info.called, (
+            f"silent=True leaked emit_info: {mock_info.call_args_list}"
+        )
+        assert not mock_success.called, (
+            f"silent=True leaked emit_success: {mock_success.call_args_list}"
+        )
+
+    def test_env_float_parses_valid_positive_float(self, monkeypatch):
+        """``_env_float`` returns the parsed value when env var is a valid positive float."""
+        from tools.browser.browser_manager import _env_float
+
+        monkeypatch.setenv("TEST_TIMEOUT_VAR", "12.5")
+        assert _env_float("TEST_TIMEOUT_VAR", 5.0) == 12.5
+
+    def test_env_float_falls_back_on_garbage(self, monkeypatch):
+        """``_env_float`` falls back to default on any parse failure."""
+        from tools.browser.browser_manager import _env_float
+
+        monkeypatch.setenv("TEST_TIMEOUT_VAR", "not-a-number")
+        assert _env_float("TEST_TIMEOUT_VAR", 5.0) == 5.0
+
+    def test_env_float_falls_back_on_non_positive(self, monkeypatch):
+        """Zero and negative timeouts fall back to default (bounded > 0 invariant)."""
+        from tools.browser.browser_manager import _env_float
+
+        monkeypatch.setenv("TEST_TIMEOUT_VAR", "0")
+        assert _env_float("TEST_TIMEOUT_VAR", 5.0) == 5.0
+        monkeypatch.setenv("TEST_TIMEOUT_VAR", "-1")
+        assert _env_float("TEST_TIMEOUT_VAR", 5.0) == 5.0
+
+    def test_env_float_rejects_infinite_and_nan(self, monkeypatch):
+        """``inf`` and ``nan`` fall back to default (finiteness invariant).
+
+        Without this guard, ``BROWSER_CLEANUP_CONTEXT_TIMEOUT_S=inf`` would
+        silently reintroduce the unbounded-await bug the fix exists to close.
+        """
+        from tools.browser.browser_manager import _env_float
+
+        for cursed in ("inf", "-inf", "nan", "Infinity"):
+            monkeypatch.setenv("TEST_TIMEOUT_VAR", cursed)
+            assert _env_float("TEST_TIMEOUT_VAR", 5.0) == 5.0, (
+                f"_env_float accepted {cursed!r} -- unbounded regression risk."
+            )
+
+    # ---- End browser_close cleanup regression guards ----
 
     @pytest.mark.asyncio
     async def test_close_method(self, mock_playwright):

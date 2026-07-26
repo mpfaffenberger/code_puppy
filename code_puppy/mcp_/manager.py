@@ -174,6 +174,17 @@ class MCPManager:
 
             for name, conf in configs.items():
                 try:
+                    # The config loader is the single chokepoint for wrapper-key
+                    # normalization (it accepts both mcp_servers and mcpServers
+                    # and never returns wrapper keys as server names). Sync only
+                    # guards against per-entry garbage.
+                    if not isinstance(conf, dict):
+                        logger.warning(
+                            "Skipping MCP server '%s': config must be a dictionary",
+                            name,
+                        )
+                        continue
+
                     # Create ServerConfig from the loaded configuration
                     server_config = ServerConfig(
                         id=conf.get("id", ""),  # Empty ID will be auto-generated

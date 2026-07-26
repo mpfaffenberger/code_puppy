@@ -68,7 +68,7 @@ def isolated_runtime_callbacks(monkeypatch: pytest.MonkeyPatch):
     """Keep global callback state from leaking into or out of these tests."""
     snapshot = {phase: list(callbacks) for phase, callbacks in _callbacks.items()}
     clear_callbacks()
-    monkeypatch.setattr(_runtime, "cancel_agent_uses_signal", lambda: True)
+    monkeypatch.setattr(_runtime, "sigint_fallback_cancels", lambda: True)
     monkeypatch.setattr(_runtime, "get_enable_streaming", lambda: False)
     monkeypatch.setattr(_runtime, "should_render_fallback", lambda *_, **__: False)
 

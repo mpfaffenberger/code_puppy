@@ -218,7 +218,7 @@ class TestOAuthFlowIntegration:
 
                     # Check that default Codex models were registered
                     for model in DEFAULT_CODEX_MODELS:
-                        prefixed = f"chatgpt-{model}"
+                        prefixed = f"codex-{model}"
                         assert prefixed in saved_models, (
                             f"Expected {prefixed} in saved models"
                         )
@@ -796,7 +796,7 @@ class TestOAuthDataIntegrity:
     def test_model_config_data_integrity(self, mock_models_storage):
         """Test model configuration data integrity."""
         model_config = {
-            "chatgpt-gpt-4": {
+            "codex-gpt-4": {
                 "type": "openai",
                 "name": "gpt-4",
                 "custom_endpoint": {
@@ -826,8 +826,8 @@ class TestOAuthDataIntegrity:
                 loaded_config = json.load(f)
 
             assert loaded_config == model_config
-            assert "💰" in loaded_config["chatgpt-gpt-4"]["metadata"]["description"]
-            assert loaded_config["chatgpt-gpt-4"]["metadata"]["special_features"] == [
+            assert "💰" in loaded_config["codex-gpt-4"]["metadata"]["description"]
+            assert loaded_config["codex-gpt-4"]["metadata"]["special_features"] == [
                 "analysis",
                 "reasoning",
                 "coding",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib
-
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -24,12 +24,21 @@ def test_goal_command_uses_banner_for_activation():
         patch.object(module, "_display_banner_message") as mock_banner,
         patch.object(module, "emit_info") as mock_info,
         patch.object(module, "load_judges", return_value=fake_registry),
+        patch.object(
+            module.goal_runs,
+            "create",
+            return_value=SimpleNamespace(run_id="00000000-0000-4000-8000-000000000001"),
+        ),
         patch.object(module.state, "start") as mock_start,
     ):
         result = module.handle_goal_command("/goal say hi")
 
     assert result == "say hi"
-    mock_start.assert_called_once_with("say hi", mode="goal")
+    mock_start.assert_called_once_with(
+        "say hi",
+        mode="goal",
+        run_id="00000000-0000-4000-8000-000000000001",
+    )
     mock_banner.assert_called_once_with(
         "GOAL MODE",
         "🎯 ACTIVATED!",

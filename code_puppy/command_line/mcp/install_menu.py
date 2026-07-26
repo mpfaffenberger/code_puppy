@@ -24,6 +24,7 @@ from .catalog_server_installer import (
     prompt_for_server_config,
 )
 from .custom_server_form import run_custom_server_form
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 logger = logging.getLogger(__name__)
 
@@ -99,22 +100,22 @@ class MCPInstallMenu:
     def _get_category_icon(self, category: str) -> str:
         """Get an icon for a category."""
         if category == CUSTOM_SERVER_CATEGORY:
-            return "➕"
+            return "[+]"
         icons = {
-            "Code": "💻",
-            "Storage": "💾",
-            "Database": "🗄️",
-            "Documentation": "📝",
-            "DevOps": "🔧",
-            "Monitoring": "📊",
-            "Package Management": "📦",
-            "Communication": "💬",
-            "AI": "🤖",
-            "Search": "🔍",
-            "Development": "🛠️",
-            "Cloud": "☁️",
+            "Code": "[C]",
+            "Storage": "[S]",
+            "Database": "[D]",
+            "Documentation": "[D]",
+            "DevOps": "[O]",
+            "Monitoring": "[M]",
+            "Package Management": "[P]",
+            "Communication": "[C]",
+            "AI": "[A]",
+            "Search": "[S]",
+            "Development": "[D]",
+            "Cloud": "[C]",
         }
-        return icons.get(category, "📁")
+        return icons.get(category, "[ ]")
 
     def _is_custom_server_selected(self) -> bool:
         """Check if the custom server category is selected."""
@@ -129,11 +130,11 @@ class MCPInstallMenu:
         """Render the category list panel."""
         lines = []
 
-        lines.append(("bold cyan", " 📂 CATEGORIES"))
+        lines.append(("class:tui.header", " CATEGORIES"))
         lines.append(("", "\n\n"))
 
         if not self.categories:
-            lines.append(("fg:yellow", "  No categories available."))
+            lines.append(("class:tui.warning", "  No categories available."))
             lines.append(("", "\n\n"))
             self._render_navigation_hints(lines)
             return lines
@@ -154,9 +155,9 @@ class MCPInstallMenu:
             if category == CUSTOM_SERVER_CATEGORY:
                 label = f"{prefix}{icon} Custom Server (JSON)"
                 if is_selected:
-                    lines.append(("fg:ansibrightgreen bold", label))
+                    lines.append(("class:tui.selected", label))
                 else:
-                    lines.append(("fg:ansigreen", label))
+                    lines.append(("class:tui.success", label))
             else:
                 # Count servers in category
                 server_count = (
@@ -164,16 +165,16 @@ class MCPInstallMenu:
                 )
                 label = f"{prefix}{icon} {category} ({server_count})"
                 if is_selected:
-                    lines.append(("fg:ansibrightcyan bold", label))
+                    lines.append(("class:tui.selected", label))
                 else:
-                    lines.append(("fg:ansibrightblack", label))
+                    lines.append(("class:tui.muted", label))
 
             lines.append(("", "\n"))
 
         lines.append(("", "\n"))
         if total_pages > 1:
             lines.append(
-                ("fg:ansibrightblack", f" Page {self.current_page + 1}/{total_pages}")
+                ("class:tui.muted", f" Page {self.current_page + 1}/{total_pages}")
             )
             lines.append(("", "\n"))
 
@@ -185,17 +186,17 @@ class MCPInstallMenu:
         lines = []
 
         if not self.current_category:
-            lines.append(("fg:yellow", "  No category selected."))
+            lines.append(("class:tui.warning", "  No category selected."))
             lines.append(("", "\n\n"))
             self._render_navigation_hints(lines)
             return lines
 
         icon = self._get_category_icon(self.current_category)
-        lines.append(("bold cyan", f" {icon} {self.current_category.upper()}"))
+        lines.append(("class:tui.header", f" {icon} {self.current_category.upper()}"))
         lines.append(("", "\n\n"))
 
         if not self.current_servers:
-            lines.append(("fg:yellow", "  No servers in this category."))
+            lines.append(("class:tui.warning", "  No servers in this category."))
             lines.append(("", "\n\n"))
             self._render_navigation_hints(lines)
             return lines
@@ -222,16 +223,16 @@ class MCPInstallMenu:
             label = f"{prefix}{icon_str}{server.display_name}"
 
             if is_selected:
-                lines.append(("fg:ansibrightcyan bold", label))
+                lines.append(("class:tui.selected", label))
             else:
-                lines.append(("fg:ansibrightblack", label))
+                lines.append(("class:tui.muted", label))
 
             lines.append(("", "\n"))
 
         lines.append(("", "\n"))
         if total_pages > 1:
             lines.append(
-                ("fg:ansibrightblack", f" Page {self.current_page + 1}/{total_pages}")
+                ("class:tui.muted", f" Page {self.current_page + 1}/{total_pages}")
             )
             lines.append(("", "\n"))
 
@@ -241,32 +242,32 @@ class MCPInstallMenu:
     def _render_navigation_hints(self, lines: List):
         """Render navigation hints at the bottom of the list panel."""
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "  ↑/↓ "))
+        lines.append(("class:tui.help-key", "  ↑/↓ "))
         lines.append(("", "Navigate  "))
-        lines.append(("fg:ansibrightblack", "←/→ "))
+        lines.append(("class:tui.help-key", "←/→ "))
         lines.append(("", "Page\n"))
         if self.view_mode == "categories":
-            lines.append(("fg:green", "  Enter  "))
+            lines.append(("class:tui.help-key", "  Enter  "))
             lines.append(("", "Browse Servers\n"))
         else:
-            lines.append(("fg:green", "  Enter  "))
+            lines.append(("class:tui.help-key", "  Enter  "))
             lines.append(("", "Install Server\n"))
-            lines.append(("fg:ansibrightblack", "  Esc/Back  "))
+            lines.append(("class:tui.help-key", "  Esc/Back  "))
             lines.append(("", "Back\n"))
-        lines.append(("fg:ansired", "  Ctrl+C "))
+        lines.append(("class:tui.help-key", "  Ctrl+C "))
         lines.append(("", "Cancel"))
 
     def _render_details(self) -> List:
         """Render the details panel."""
         lines = []
 
-        lines.append(("bold cyan", " 📋 DETAILS"))
+        lines.append(("class:tui.header", " DETAILS"))
         lines.append(("", "\n\n"))
 
         if self.view_mode == "categories":
             category = self._get_current_category()
             if not category:
-                lines.append(("fg:yellow", "  No category selected."))
+                lines.append(("class:tui.warning", "  No category selected."))
                 return lines
 
             # Special handling for custom server category
@@ -274,27 +275,27 @@ class MCPInstallMenu:
                 return self._render_custom_server_details()
 
             icon = self._get_category_icon(category)
-            lines.append(("bold", f"  {icon} {category}"))
+            lines.append(("class:tui.label", f"  {icon} {category}"))
             lines.append(("", "\n\n"))
 
             # Show servers in this category
             servers = self.catalog.get_by_category(category) if self.catalog else []
-            lines.append(("fg:ansibrightblack", f"  {len(servers)} servers available"))
+            lines.append(("class:tui.muted", f"  {len(servers)} servers available"))
             lines.append(("", "\n\n"))
 
             # Show popular servers in this category
             popular = [s for s in servers if s.popular]
             if popular:
-                lines.append(("bold", "  ⭐ Popular:"))
+                lines.append(("class:tui.label", "  * Popular:"))
                 lines.append(("", "\n"))
                 for server in popular[:5]:
-                    lines.append(("fg:ansibrightblack", f"    • {server.display_name}"))
+                    lines.append(("class:tui.muted", f"    • {server.display_name}"))
                     lines.append(("", "\n"))
 
         else:  # servers view
             server = self._get_current_server()
             if not server:
-                lines.append(("fg:yellow", "  No server selected."))
+                lines.append(("class:tui.warning", "  No server selected."))
                 return lines
 
             # Server name with indicators
@@ -302,19 +303,19 @@ class MCPInstallMenu:
             if server.verified:
                 indicators.append("✓ Verified")
             if server.popular:
-                indicators.append("⭐ Popular")
+                indicators.append("Popular")
 
-            lines.append(("bold", f"  {server.display_name}"))
+            lines.append(("class:tui.label", f"  {server.display_name}"))
             lines.append(("", "\n"))
 
             if indicators:
-                lines.append(("fg:green", f"  {' | '.join(indicators)}"))
+                lines.append(("class:tui.success", f"  {' | '.join(indicators)}"))
                 lines.append(("", "\n"))
 
             lines.append(("", "\n"))
 
             # Description
-            lines.append(("bold", "  Description:"))
+            lines.append(("class:tui.label", "  Description:"))
             lines.append(("", "\n"))
             # Wrap description
             desc = server.description or "No description available"
@@ -323,31 +324,31 @@ class MCPInstallMenu:
             line = "    "
             for word in words:
                 if len(line) + len(word) > 50:
-                    lines.append(("fg:ansibrightblack", line))
+                    lines.append(("class:tui.muted", line))
                     lines.append(("", "\n"))
                     line = "    " + word + " "
                 else:
                     line += word + " "
             if line.strip():
-                lines.append(("fg:ansibrightblack", line))
+                lines.append(("class:tui.muted", line))
                 lines.append(("", "\n"))
 
             lines.append(("", "\n"))
 
             # Type
-            lines.append(("bold", "  Type:"))
+            lines.append(("class:tui.label", "  Type:"))
             lines.append(("", "\n"))
-            type_icons = {"stdio": "📟", "http": "🌐", "sse": "📡"}
-            type_icon = type_icons.get(server.type, "❓")
-            lines.append(("fg:ansibrightblack", f"    {type_icon} {server.type}"))
+            type_icons = {"stdio": "[stdio]", "http": "[http]", "sse": "[sse]"}
+            type_icon = type_icons.get(server.type, "[?]")
+            lines.append(("class:tui.muted", f"    {type_icon} {server.type}"))
             lines.append(("", "\n\n"))
 
             # Tags
             if server.tags:
-                lines.append(("bold", "  Tags:"))
+                lines.append(("class:tui.label", "  Tags:"))
                 lines.append(("", "\n"))
                 tag_line = "    " + ", ".join(server.tags[:6])
-                lines.append(("fg:ansicyan", tag_line))
+                lines.append(("class:tui.body", tag_line))
                 lines.append(("", "\n\n"))
 
             # Requirements
@@ -356,22 +357,22 @@ class MCPInstallMenu:
             # Environment variables
             env_vars = server.get_environment_vars()
             if env_vars:
-                lines.append(("bold", "  🔑 Environment Variables:"))
+                lines.append(("class:tui.label", "  Environment Variables:"))
                 lines.append(("", "\n"))
                 for var in env_vars:
                     # Check if already set
                     is_set = os.environ.get(var)
                     if is_set:
-                        lines.append(("fg:green", f"    ✓ {var}"))
+                        lines.append(("class:tui.success", f"    \u2713 {var}"))
                     else:
-                        lines.append(("fg:yellow", f"    ○ {var}"))
+                        lines.append(("class:tui.warning", f"    ○ {var}"))
                     lines.append(("", "\n"))
                 lines.append(("", "\n"))
 
             # Command line args
             cmd_args = server.get_command_line_args()
             if cmd_args:
-                lines.append(("bold", "  ⚙️ Configuration:"))
+                lines.append(("class:tui.label", "  Configuration:"))
                 lines.append(("", "\n"))
                 for arg in cmd_args:
                     name = arg.get("name", "unknown")
@@ -380,7 +381,7 @@ class MCPInstallMenu:
                     marker = "*" if required else "?"
                     default_str = f" [{default}]" if default else ""
                     lines.append(
-                        ("fg:ansibrightblack", f"    {marker} {name}{default_str}")
+                        ("class:tui.muted", f"    {marker} {name}{default_str}")
                     )
                     lines.append(("", "\n"))
                 lines.append(("", "\n"))
@@ -388,16 +389,16 @@ class MCPInstallMenu:
             # Required tools
             required_tools = requirements.required_tools
             if required_tools:
-                lines.append(("bold", "  🛠️ Required Tools:"))
+                lines.append(("class:tui.label", "  Required Tools:"))
                 lines.append(("", "\n"))
-                lines.append(("fg:ansibrightblack", f"    {', '.join(required_tools)}"))
+                lines.append(("class:tui.muted", f"    {', '.join(required_tools)}"))
                 lines.append(("", "\n\n"))
 
             # Example usage
             if server.example_usage:
-                lines.append(("bold", "  💡 Example:"))
+                lines.append(("class:tui.label", "  Example:"))
                 lines.append(("", "\n"))
-                lines.append(("fg:ansibrightblack", f"    {server.example_usage}"))
+                lines.append(("class:tui.muted", f"    {server.example_usage}"))
                 lines.append(("", "\n"))
 
         return lines
@@ -406,44 +407,44 @@ class MCPInstallMenu:
         """Render details for the custom server option."""
         lines = []
 
-        lines.append(("bold cyan", " 📋 DETAILS"))
+        lines.append(("class:tui.header", " 📋 DETAILS"))
         lines.append(("", "\n\n"))
 
-        lines.append(("bold green", "  ➕ Add Custom MCP Server"))
+        lines.append(("class:tui.success", "  \u2795 Add Custom MCP Server"))
         lines.append(("", "\n\n"))
 
-        lines.append(("fg:ansibrightblack", "  Add your own MCP server by providing"))
+        lines.append(("class:tui.muted", "  Add your own MCP server by providing"))
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "  a JSON configuration."))
+        lines.append(("class:tui.muted", "  a JSON configuration."))
         lines.append(("", "\n\n"))
 
-        lines.append(("bold", "  📟 Supported Types:"))
+        lines.append(("class:tui.label", "  Supported Types:"))
         lines.append(("", "\n\n"))
 
-        lines.append(("fg:ansicyan bold", "  1. stdio"))
+        lines.append(("class:tui.title", "  1. stdio"))
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "     Runs a local command (npx, python,"))
+        lines.append(("class:tui.muted", "     Runs a local command (npx, python,"))
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "     uvx, etc.) and communicates via"))
+        lines.append(("class:tui.muted", "     uvx, etc.) and communicates via"))
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "     stdin/stdout."))
+        lines.append(("class:tui.muted", "     stdin/stdout."))
         lines.append(("", "\n\n"))
 
-        lines.append(("fg:ansicyan bold", "  2. http"))
+        lines.append(("class:tui.title", "  2. http"))
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "     Connects to an HTTP endpoint that"))
+        lines.append(("class:tui.muted", "     Connects to an HTTP endpoint that"))
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "     implements the MCP protocol."))
+        lines.append(("class:tui.muted", "     implements the MCP protocol."))
         lines.append(("", "\n\n"))
 
-        lines.append(("fg:ansicyan bold", "  3. sse"))
+        lines.append(("class:tui.title", "  3. sse"))
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "     Connects via Server-Sent Events"))
+        lines.append(("class:tui.muted", "     Connects via Server-Sent Events"))
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "     for real-time streaming."))
+        lines.append(("class:tui.muted", "     for real-time streaming."))
         lines.append(("", "\n\n"))
 
-        lines.append(("bold", "  💡 Press Enter to configure"))
+        lines.append(("class:tui.help", "  \U0001f4a1 Press Enter to configure"))
         lines.append(("", "\n"))
 
         return lines
@@ -639,6 +640,7 @@ class MCPInstallMenu:
             key_bindings=kb,
             full_screen=False,
             mouse_support=False,
+            style=on_prompt_toolkit_style(),
         )
 
         set_awaiting_user_input(True)

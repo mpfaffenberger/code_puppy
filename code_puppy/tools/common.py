@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import fnmatch
 import hashlib
 import os
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Callable, Optional, Tuple
 
 from prompt_toolkit import Application
-from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
@@ -19,6 +20,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.text import Text
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 # =============================================================================
 # Approval queueing locks
@@ -75,9 +77,103 @@ def _deny_noninteractive_approval(title: str) -> tuple[bool, None]:
     return False, None
 
 
+# =============================================================================
+# Pluggable approval backend
+# =============================================================================
+#
+# By default, user approval is collected via an interactive stdin prompt
+# (see ``get_user_approval`` / ``get_user_approval_async``). Frontends that
+# have no stdin to prompt on -- a GUI, a web UI, or an editor speaking the
+# Agent Client Protocol -- would otherwise fail closed (auto-deny) via
+# ``_deny_noninteractive_approval`` above.
+#
+# An embedder can instead register an approval *backend*: a callable that
+# renders the request in its own UI and returns the user's decision. When a
+# backend is registered it takes precedence over the stdin prompt in BOTH the
+# sync and async approval paths. The backend is a plain synchronous callable
+# (an async backend would have to bridge two event loops); the async path
+# runs it in a worker thread so it never blocks the running loop.
+
+ApprovalBackend = Callable[[str, str, Optional[str]], Tuple[bool, Optional[str]]]
+_APPROVAL_BACKEND: Optional[ApprovalBackend] = None
+
+
+def set_approval_backend(backend: Optional[ApprovalBackend]) -> None:
+    """Install (or clear, with ``None``) the approval backend.
+
+    ``backend(title, message, preview) -> (approved, feedback)``. When set, it
+    replaces the interactive stdin prompt for every approval request, so a
+    non-terminal frontend can gate file/shell operations in its own UI.
+    """
+    global _APPROVAL_BACKEND
+    _APPROVAL_BACKEND = backend
+
+
+def get_approval_backend() -> Optional[ApprovalBackend]:
+    """Return the installed approval backend, or ``None`` for stdin prompting."""
+    return _APPROVAL_BACKEND
+
+
+def _approval_message_text(content) -> str:
+    """Flatten Rich ``Text``/``str`` approval content to plain text."""
+    plain = getattr(content, "plain", None)
+    return plain if isinstance(plain, str) else str(content)
+
+
+# =============================================================================
+# Active working directory (async-safe base for relative path resolution)
+# =============================================================================
+#
+# Tools resolve relative paths against a base directory. By default that base is
+# the process CWD (``os.getcwd()``). An embedder that runs Code Puppy against a
+# workspace it did not ``cd`` into -- e.g. an editor speaking the Agent Client
+# Protocol, where each session carries its own ``cwd`` -- can override the base
+# *without mutating process-global state* (``os.chdir`` would corrupt the SDK's
+# own I/O, subprocesses, and any concurrent session).
+#
+# This uses a ``ContextVar`` so the override is isolated per asyncio task and
+# propagates into sync tools (pydantic-ai runs them via anyio ``to_thread``,
+# which copies the context to the worker thread). ``None`` means "use os.getcwd".
+
+_WORKING_DIR: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "code_puppy_working_dir", default=None
+)
+
+
+def set_working_directory(path: Optional[str]) -> contextvars.Token:
+    """Override the base dir for relative path resolution in this context.
+
+    Returns a token; pass it to :func:`reset_working_directory` to restore.
+    """
+    return _WORKING_DIR.set(path)
+
+
+def reset_working_directory(token: contextvars.Token) -> None:
+    """Restore the working directory to its value before ``set``."""
+    _WORKING_DIR.reset(token)
+
+
+def get_working_directory() -> str:
+    """The active base dir for relative paths (override, else process CWD)."""
+    return _WORKING_DIR.get() or os.getcwd()
+
+
+def resolve_path(file_path: str) -> str:
+    """Absolutize ``file_path`` against the active working directory.
+
+    Expands ``~`` and joins relative paths onto :func:`get_working_directory`
+    (absolute inputs pass through unchanged). Use this instead of
+    ``os.path.abspath(os.path.expanduser(...))`` in tools so an embedder's
+    per-session cwd is honored without a process-global ``os.chdir``.
+    """
+    expanded = os.path.expanduser(file_path)
+    if os.path.isabs(expanded):
+        return os.path.abspath(expanded)
+    return os.path.abspath(os.path.join(get_working_directory(), expanded))
+
+
 # Syntax highlighting imports for "syntax" diff mode
 try:
-    from pygments import lex
     from pygments.lexers import TextLexer, get_lexer_by_name
     from pygments.token import Token
 
@@ -645,41 +741,43 @@ def _get_token_color(token_type) -> str:
     return "#cccccc"  # Default light-grey for unmatched tokens
 
 
-def _highlight_code_line(code: str, bg_color: str | None, lexer) -> Text:
-    """Highlight a line of code with syntax highlighting and optional background color.
-
-    Args:
-        code: The code string to highlight
-        bg_color: Background color in hex format, or None for no background
-        lexer: Pygments lexer instance to use
-
-    Returns:
-        Rich Text object with styling applied
-    """
+def _highlight_code_line(
+    code: str, bg_color: str | None, lexer, line_type: str = "context"
+) -> Text:
+    """Highlight code using TermFlow's theme-aware highlighter."""
     if not PYGMENTS_AVAILABLE or lexer is None:
-        # Fallback: just return text with optional background
-        if bg_color:
-            return Text(code, style=f"on {bg_color}")
-        return Text(code)
+        return Text(code, style=f"on {bg_color}" if bg_color else None)
 
-    text = Text()
+    from code_puppy.callbacks import on_termflow_highlighter
+    from termflow.syntax import Highlighter
 
-    for token_type, value in lex(code, lexer):
-        # Strip trailing newlines that Pygments adds
-        # Pygments lexer always adds a \n at the end of the last token
-        value = value.rstrip("\n")
+    highlighter = on_termflow_highlighter(Highlighter())
+    language = (getattr(lexer, "aliases", None) or ["text"])[0]
+    text = Text.from_ansi(highlighter.highlight_line(code, language))
 
-        # Skip if the value is now empty (was only whitespace/newlines)
-        if not value:
-            continue
+    # Themes may provide subtle per-diff-line RGB shifts. Keeping this metadata
+    # on the themed highlighter avoids hard-coding theme knowledge in tools.
+    tint = getattr(highlighter, "diff_line_tints", {}).get(line_type)
+    if tint:
+        from rich.style import Style
+        from rich.text import Span
 
-        fg_color = _get_token_color(token_type)
-        # Apply foreground color and optional background
-        if bg_color:
-            text.append(value, style=f"{fg_color} on {bg_color}")
-        else:
-            text.append(value, style=fg_color)
+        for index, span in enumerate(text.spans):
+            style = span.style
+            color = getattr(style, "color", None)
+            triplet = color.get_truecolor() if color else None
+            if triplet:
+                shifted = tuple(
+                    max(0, min(255, channel + delta))
+                    for channel, delta in zip(triplet, tint, strict=True)
+                )
+                text.spans[index] = Span(
+                    span.start, span.end, style + Style(color=f"rgb{shifted}")
+                )
 
+    if bg_color:
+        # Applying only a background preserves each token's themed foreground.
+        text.stylize(f"on {bg_color}")
     return text
 
 
@@ -737,12 +835,11 @@ def _format_diff_with_syntax_highlighting(
     addition_color: str | None = None,
     deletion_color: str | None = None,
 ) -> Text:
-    """Format diff with full syntax highlighting using Pygments.
+    """Format a diff with theme-aware syntax highlighting via TermFlow.
 
     This renders diffs with:
-    - Syntax highlighting for code tokens
+    - Theme-aware syntax highlighting for code tokens
     - Colored backgrounds for context/added/removed lines
-    - Monokai color scheme
     - Optional custom colors for additions/deletions
 
     Args:
@@ -814,7 +911,9 @@ def _format_diff_with_syntax_highlighting(
                 result.append(prefix)
 
             # Add syntax-highlighted code
-            highlighted = _highlight_code_line(code, bg_colors[line_type], lexer)
+            highlighted = _highlight_code_line(
+                code, bg_colors[line_type], lexer, line_type
+            )
             result.append_text(highlighted)
 
         # Add newline after each line except the last
@@ -824,18 +923,24 @@ def _format_diff_with_syntax_highlighting(
     return result
 
 
-def format_diff_with_colors(diff_text: str) -> Text:
+def format_diff_with_colors(
+    diff_text: str,
+    addition_color: str | None = None,
+    deletion_color: str | None = None,
+) -> Text:
     """Format diff text with beautiful syntax highlighting.
 
     This is the canonical diff formatting function used across the codebase.
-    It applies user-configurable color coding with full syntax highlighting using Pygments.
+    It applies user-configurable colors and TermFlow's theme-aware syntax highlighting.
 
-    The function respects user preferences from config:
-    - get_diff_addition_color(): Color for added lines (markers and backgrounds)
-    - get_diff_deletion_color(): Color for deleted lines (markers and backgrounds)
+    Colors default to the effective theme-aware/user-configured preferences.
+    Callers rendering a preview may pass colors directly, avoiding config
+    mutations just to draw transient UI.
 
     Args:
         diff_text: Raw diff text to format
+        addition_color: Optional addition background override.
+        deletion_color: Optional deletion background override.
 
     Returns:
         Rich Text object with syntax highlighting
@@ -848,8 +953,8 @@ def format_diff_with_colors(diff_text: str) -> Text:
     if not diff_text or not diff_text.strip():
         return Text("-- no diff available --", style="dim")
 
-    addition_base_color = get_diff_addition_color()
-    deletion_base_color = get_diff_deletion_color()
+    addition_base_color = addition_color or get_diff_addition_color()
+    deletion_base_color = deletion_color or get_diff_deletion_color()
 
     # Always use beautiful syntax highlighting!
     if not PYGMENTS_AVAILABLE:
@@ -863,6 +968,60 @@ def format_diff_with_colors(diff_text: str) -> Text:
         addition_color=addition_base_color,
         deletion_color=deletion_base_color,
     )
+
+
+def _format_selector(
+    message: str,
+    choices: list[str],
+    selected_index: int,
+    preview_callback: Optional[Callable[[int], str]] = None,
+) -> FormattedText:
+    """Build shared selector content from semantic, literal-text fragments."""
+    import textwrap
+
+    fragments: list[tuple[str, str]] = [
+        ("class:tui.header", message),
+        ("", "\n\n"),
+    ]
+    for index, choice in enumerate(choices):
+        style = "class:tui.selected" if index == selected_index else "class:tui.body"
+        marker = "\u276f " if index == selected_index else "  "
+        fragments.extend([(style, marker + choice), ("", "\n")])
+    fragments.append(("", "\n"))
+
+    preview_text = preview_callback(selected_index) if preview_callback else ""
+    if preview_text:
+        box_width = 60
+        fragments.extend(
+            [
+                (
+                    "class:tui.border",
+                    "┌─ Preview " + "─" * (box_width - 10) + "┐\n",
+                )
+            ]
+        )
+        wrapped_lines = textwrap.wrap(preview_text, width=box_width - 2) or [""]
+        for wrapped_line in wrapped_lines:
+            fragments.append(
+                ("class:tui.muted", f"│ {wrapped_line.ljust(box_width - 2)} │\n")
+            )
+        fragments.extend(
+            [
+                ("class:tui.border", "└" + "─" * box_width + "┘\n"),
+                ("", "\n"),
+            ]
+        )
+
+    fragments.extend(
+        [
+            ("class:tui.help", "("),
+            ("class:tui.help-key", "↑↓ or Ctrl+P/N"),
+            ("class:tui.help", " to select, "),
+            ("class:tui.help-key", "Enter"),
+            ("class:tui.help", " to confirm)"),
+        ]
+    )
+    return FormattedText(fragments)
 
 
 async def arrow_select_async(
@@ -884,61 +1043,14 @@ async def arrow_select_async(
     Raises:
         KeyboardInterrupt: If user cancels with Ctrl-C
     """
-    import html
-
     selected_index = [0]  # Mutable container for selected index
     result = [None]  # Mutable container for result
 
-    def get_formatted_text():
-        """Generate the formatted text for display."""
-        # Escape XML special characters to prevent parsing errors
-        safe_message = html.escape(message)
-        lines = [f"<b>{safe_message}</b>", ""]
-        for i, choice in enumerate(choices):
-            safe_choice = html.escape(choice)
-            if i == selected_index[0]:
-                lines.append(f"<ansigreen>❯ {safe_choice}</ansigreen>")
-            else:
-                lines.append(f"  {safe_choice}")
-        lines.append("")
-
-        # Add preview section if callback provided
-        if preview_callback is not None:
-            preview_text = preview_callback(selected_index[0])
-            if preview_text:
-                import textwrap
-
-                # Box width (excluding borders and padding)
-                box_width = 60
-                border_top = (
-                    "<ansiyellow>┌─ Preview "
-                    + "─" * (box_width - 10)
-                    + "┐</ansiyellow>"
-                )
-                border_bottom = "<ansiyellow>└" + "─" * box_width + "┘</ansiyellow>"
-
-                lines.append(border_top)
-
-                # Wrap text to fit within box width (minus padding)
-                wrapped_lines = textwrap.wrap(preview_text, width=box_width - 2)
-
-                # If no wrapped lines (empty text), add empty line
-                if not wrapped_lines:
-                    wrapped_lines = [""]
-
-                for wrapped_line in wrapped_lines:
-                    safe_preview = html.escape(wrapped_line)
-                    # Pad line to box width for consistent appearance
-                    padded_line = safe_preview.ljust(box_width - 2)
-                    lines.append(f"<dim>│ {padded_line} │</dim>")
-
-                lines.append(border_bottom)
-                lines.append("")
-
-        lines.append(
-            "<ansicyan>(Use ↑↓ or Ctrl+P/N to select, Enter to confirm)</ansicyan>"
+    def get_formatted_text() -> FormattedText:
+        """Generate semantic formatted text for display."""
+        return _format_selector(
+            message, choices, selected_index[0], preview_callback=preview_callback
         )
-        return HTML("\n".join(lines))
 
     # Key bindings
     kb = KeyBindings()
@@ -974,6 +1086,7 @@ async def arrow_select_async(
         layout=layout,
         key_bindings=kb,
         full_screen=False,
+        style=on_prompt_toolkit_style(),
     )
 
     # Flush output before prompt_toolkit takes control
@@ -1012,19 +1125,9 @@ def arrow_select(message: str, choices: list[str]) -> str:
     selected_index = [0]  # Mutable container for selected index
     result = [None]  # Mutable container for result
 
-    def get_formatted_text():
-        """Generate the formatted text for display."""
-        lines = [f"<b>{message}</b>", ""]
-        for i, choice in enumerate(choices):
-            if i == selected_index[0]:
-                lines.append(f"<ansigreen>❯ {choice}</ansigreen>")
-            else:
-                lines.append(f"  {choice}")
-        lines.append("")
-        lines.append(
-            "<ansicyan>(Use ↑↓ or Ctrl+P/N to select, Enter to confirm)</ansicyan>"
-        )
-        return HTML("\n".join(lines))
+    def get_formatted_text() -> FormattedText:
+        """Generate semantic formatted text for display."""
+        return _format_selector(message, choices, selected_index[0])
 
     # Key bindings
     kb = KeyBindings()
@@ -1060,6 +1163,7 @@ def arrow_select(message: str, choices: list[str]) -> str:
         layout=layout,
         key_bindings=kb,
         full_screen=False,
+        style=on_prompt_toolkit_style(),
     )
 
     # Flush output before prompt_toolkit takes control
@@ -1139,6 +1243,10 @@ def _get_user_approval_impl(
 
     from code_puppy.tools.command_runner import set_awaiting_user_input
 
+    backend = get_approval_backend()
+    if backend is not None:
+        return backend(title, _approval_message_text(content), preview)
+
     if not _stdin_supports_interactive_approval():
         return _deny_noninteractive_approval(title)
 
@@ -1186,17 +1294,15 @@ def _get_user_approval_impl(
         padding=(1, 2),
     )
 
-    # Pause spinners BEFORE showing panel
+    # This approval prompt takes over the terminal: suspend the run UI
+    # (bottom-bar scroll region + key-listener stdin ownership) so the
+    # panel and arrow selector render on a normal full-height screen.
+    # Exception-safe: __exit__ runs in the finally block below.
+    from code_puppy.messaging.run_ui import suspended_run_ui
+
     set_awaiting_user_input(True)
-    # Also explicitly pause spinners to ensure they're fully stopped
-    try:
-        from code_puppy.messaging.spinner import pause_all_spinners
-
-        pause_all_spinners()
-    except (ImportError, Exception):
-        pass
-
-    time.sleep(0.3)  # Let spinners fully stop
+    _ui_suspension = suspended_run_ui()
+    _ui_suspension.__enter__()
 
     # Display panel
     local_console = Console()
@@ -1254,6 +1360,10 @@ def _get_user_approval_impl(
 
     finally:
         set_awaiting_user_input(False)
+        try:
+            _ui_suspension.__exit__(None, None, None)
+        except Exception:
+            pass
 
         # Force Rich console to reset display state to prevent artifacts
         try:
@@ -1268,7 +1378,8 @@ def _get_user_approval_impl(
         sys.stdout.flush()
         sys.stderr.flush()
 
-    # Show result BEFORE resuming spinners (no puppy litter!)
+    # Show the result (the run UI is already restored by the finally above;
+    # these lines scroll normally inside the bottom bar's region).
     emit_info("")
     if not confirmed:
         if user_feedback:
@@ -1278,14 +1389,6 @@ def _get_user_approval_impl(
             emit_error("Rejected.")
     else:
         emit_success("Approved!")
-
-    # NOW resume spinners after showing the result
-    try:
-        from code_puppy.messaging.spinner import resume_all_spinners
-
-        resume_all_spinners()
-    except (ImportError, Exception):
-        pass
 
     return confirmed, user_feedback
 
@@ -1336,6 +1439,13 @@ async def _get_user_approval_async_impl(
     """Inner implementation of get_user_approval_async (lock-free)."""
     from code_puppy.tools.command_runner import set_awaiting_user_input
 
+    backend = get_approval_backend()
+    if backend is not None:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, backend, title, _approval_message_text(content), preview
+        )
+
     if not _stdin_supports_interactive_approval():
         return _deny_noninteractive_approval(title)
 
@@ -1383,17 +1493,15 @@ async def _get_user_approval_async_impl(
         padding=(1, 2),
     )
 
-    # Pause spinners BEFORE showing panel
+    # This approval prompt takes over the terminal: suspend the run UI
+    # (bottom-bar scroll region + key-listener stdin ownership) so the
+    # panel and arrow selector render on a normal full-height screen.
+    # Exception-safe: __exit__ runs in the finally block below.
+    from code_puppy.messaging.run_ui import suspended_run_ui
+
     set_awaiting_user_input(True)
-    # Also explicitly pause spinners to ensure they're fully stopped
-    try:
-        from code_puppy.messaging.spinner import pause_all_spinners
-
-        pause_all_spinners()
-    except (ImportError, Exception):
-        pass
-
-    await asyncio.sleep(0.3)  # Let spinners fully stop
+    _ui_suspension = suspended_run_ui()
+    _ui_suspension.__enter__()
 
     # Display panel
     local_console = Console()
@@ -1432,10 +1540,17 @@ async def _get_user_approval_async_impl(
             confirmed = False
             emit_info("")
             emit_info(f"Tell {puppy_name} what to change:")
-            user_feedback = Prompt.ask(
-                "[bold green]➤[/bold green]",
-                default="",
-            ).strip()
+            # Rich's Prompt.ask reads stdin -- suspend the key listener
+            # so it doesn't fight us for keystrokes. Without this, the
+            # key-listener thread eats roughly half the user's keypresses
+            # and the feedback box appears "broken."
+            from code_puppy.agents._key_listeners import suspended_key_listener
+
+            with suspended_key_listener():
+                user_feedback = Prompt.ask(
+                    "[bold green]➤[/bold green]",
+                    default="",
+                ).strip()
 
             if not user_feedback:
                 user_feedback = None
@@ -1446,6 +1561,10 @@ async def _get_user_approval_async_impl(
 
     finally:
         set_awaiting_user_input(False)
+        try:
+            _ui_suspension.__exit__(None, None, None)
+        except Exception:
+            pass
 
         # Force Rich console to reset display state to prevent artifacts
         try:
@@ -1460,7 +1579,8 @@ async def _get_user_approval_async_impl(
         sys.stdout.flush()
         sys.stderr.flush()
 
-    # Show result BEFORE resuming spinners (no puppy litter!)
+    # Show the result (the run UI is already restored by the finally above;
+    # these lines scroll normally inside the bottom bar's region).
     emit_info("")
     if not confirmed:
         if user_feedback:
@@ -1470,14 +1590,6 @@ async def _get_user_approval_async_impl(
             emit_error("Rejected.")
     else:
         emit_success("Approved!")
-
-    # NOW resume spinners after showing the result
-    try:
-        from code_puppy.messaging.spinner import resume_all_spinners
-
-        resume_all_spinners()
-    except (ImportError, Exception):
-        pass
 
     return confirmed, user_feedback
 
@@ -1548,6 +1660,37 @@ def atomic_write_text(
             os.close(dir_fd)
     except (OSError, AttributeError):
         pass  # directory fsync unsupported -- file content is still durable
+
+
+def write_project_file(
+    file_path: str, content: str, *, encoding: str = "utf-8"
+) -> None:
+    """Write a *workspace* file the agent is editing, honoring the I/O backend.
+
+    Use this (not ``atomic_write_text``) for files the agent creates or edits on
+    the user's behalf. When a ``FileSystemBackend`` is installed (e.g. an editor
+    host), the write is delegated to it so the change lands in the host's diff
+    UI; otherwise it falls back to the local atomic write.
+
+    ``encoding`` applies only to the local path -- a backend host owns its own
+    on-disk encoding (the Agent Client Protocol, for instance, is UTF-8 only),
+    so a non-default encoding cannot be honored through a backend.
+
+    Internal writes (config, session state, agent metadata) intentionally keep
+    calling ``atomic_write_text`` directly -- they are machine-local and must
+    never be rerouted to an editor workspace.
+    """
+    from code_puppy.tools.io_backends import get_filesystem_backend
+
+    backend = get_filesystem_backend()
+    if backend is not None:
+        if encoding.lower() not in ("utf-8", "utf8"):
+            raise ValueError(
+                f"filesystem backend writes are UTF-8 only; got encoding={encoding!r}"
+            )
+        backend.write_text_file(resolve_path(file_path), content)
+        return
+    atomic_write_text(file_path, content, encoding=encoding)
 
 
 def _find_best_window(

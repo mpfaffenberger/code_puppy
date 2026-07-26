@@ -55,7 +55,9 @@ __all__ = [
     "subagent_context",
     "is_subagent",
     "get_subagent_name",
+    "get_subagent_chain",
     "get_subagent_depth",
+    "get_subagent_model_name",
 ]
 
 # Track sub-agent depth (0 = main agent, 1+ = sub-agent)
@@ -63,10 +65,21 @@ _subagent_depth: ContextVar[int] = ContextVar("subagent_depth", default=0)
 
 # Track current sub-agent name (None = main agent)
 _subagent_name: ContextVar[str | None] = ContextVar("subagent_name", default=None)
+_subagent_model_name: ContextVar[str | None] = ContextVar(
+    "subagent_model_name", default=None
+)
+
+# Track the full call chain of sub-agent names. Stored as an
+# immutable tuple so each context-manager push is a cheap snapshot. The
+# tuple is empty in the main-agent context and `(deepest_name,)` for a
+# single-level sub-agent. For ``code-puppy -> A -> B`` it is ``("A", "B")``.
+_subagent_chain: ContextVar[tuple[str, ...]] = ContextVar("subagent_chain", default=())
 
 
 @contextmanager
-def subagent_context(agent_name: str) -> Generator[None, None, None]:
+def subagent_context(
+    agent_name: str, model_name: str | None = None
+) -> Generator[None, None, None]:
     """Context manager for tracking sub-agent execution.
 
     Increments the sub-agent depth and sets the current agent name on entry,
@@ -92,10 +105,13 @@ def subagent_context(agent_name: str) -> Generator[None, None, None]:
     """
     # Get current depth for incrementing
     current_depth = _subagent_depth.get()
+    current_chain = _subagent_chain.get()
 
     # Set new values and save tokens for restoration
     depth_token = _subagent_depth.set(current_depth + 1)
     name_token = _subagent_name.set(agent_name)
+    model_token = _subagent_model_name.set(model_name)
+    chain_token = _subagent_chain.set(current_chain + (agent_name,))
 
     try:
         yield
@@ -104,6 +120,8 @@ def subagent_context(agent_name: str) -> Generator[None, None, None]:
         # This ensures the context is restored even if an exception occurs
         _subagent_depth.reset(depth_token)
         _subagent_name.reset(name_token)
+        _subagent_model_name.reset(model_token)
+        _subagent_chain.reset(chain_token)
 
 
 def is_subagent() -> bool:
@@ -138,6 +156,11 @@ def get_subagent_name() -> str | None:
     return _subagent_name.get()
 
 
+def get_subagent_model_name() -> str | None:
+    """Return the model running the current sub-agent."""
+    return _subagent_model_name.get()
+
+
 def get_subagent_depth() -> int:
     """Get the current sub-agent nesting depth.
 
@@ -156,3 +179,30 @@ def get_subagent_depth() -> int:
         2
     """
     return _subagent_depth.get()
+
+
+def get_subagent_chain() -> tuple[str, ...]:
+    """Return the full sub-agent invocation chain, outermost first.
+
+    The main agent is not part of the chain — it is implicit. Use this
+    when you need to know the *immediate* parent sub-agent rather than
+    just the current name.
+
+    This is used to attribute token spend to the agent that actually
+    initiated the call vs. the one one level up the call stack.
+
+    Returns:
+        An immutable tuple of sub-agent names, deepest last. ``()`` when
+        running in the main agent context.
+
+    Example:
+        >>> get_subagent_chain()
+        ()
+        >>> with subagent_context("retriever"):
+        ...     get_subagent_chain()
+        ('retriever',)
+        ...     with subagent_context("terrier"):
+        ...         get_subagent_chain()
+        ('retriever', 'terrier')
+    """
+    return _subagent_chain.get()

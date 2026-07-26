@@ -31,6 +31,7 @@ from code_puppy.command_line.pagination import (
     get_page_for_index,
     get_total_pages,
 )
+from code_puppy.callbacks import on_prompt_toolkit_style
 from code_puppy.config import AUTOSAVE_DIR
 from code_puppy.session_storage import list_sessions, load_session
 from code_puppy.tools.command_runner import set_awaiting_user_input
@@ -48,26 +49,8 @@ def _get_session_metadata(base_dir: Path, session_name: str) -> dict:
         return {}
 
 
-def _is_auto_flavored(session_name: str) -> bool:
-    """Return True for system-generated session names.
-
-    Matches the ``auto_session_`` prefix reserved by
-    ``code_puppy.session_lifecycle.is_valid_session_name``. Pre-unification,
-    all autosaves carried this prefix; the unified-autosave migration introduces user-named
-    entries (from ``-r NAME``, ``/dump_context``, ``/load_context``) into
-    the same store, hence the need to distinguish.
-    """
-    return session_name.startswith("auto_session_")
-
-
 def _get_session_entries(base_dir: Path) -> List[Tuple[str, dict]]:
-    """Get all sessions with their metadata.
-
-    Returns entries grouped "named first, auto-flavored second", each group
-    sorted mtime-descending. Section headers (if any) are inserted at
-    render time -- see ``_render_menu_panel`` -- to keep this function's
-    return shape stable and pagination math straightforward.
-    """
+    """Get all sessions with their metadata, most recent first."""
     try:
         sessions = list_sessions(base_dir)
     except (FileNotFoundError, PermissionError):
@@ -93,11 +76,8 @@ def _get_session_entries(base_dir: Path) -> List[Tuple[str, dict]]:
                 return datetime.min
         return datetime.min
 
-    named = [e for e in entries if not _is_auto_flavored(e[0])]
-    auto = [e for e in entries if _is_auto_flavored(e[0])]
-    named.sort(key=sort_key, reverse=True)
-    auto.sort(key=sort_key, reverse=True)
-    return named + auto
+    entries.sort(key=sort_key, reverse=True)
+    return entries
 
 
 def _extract_last_user_message(history: list) -> str:
@@ -156,11 +136,9 @@ def _extract_message_content(msg) -> Tuple[str, str]:
                 args_preview = str(args)[:100]
                 if len(str(args)) > 100:
                     args_preview += "..."
-                content_parts.append(
-                    f"🔧 Tool Call: {tool_name}\n   Args: {args_preview}"
-                )
+                content_parts.append(f"Tool Call: {tool_name}\n   Args: {args_preview}")
             else:
-                content_parts.append(f"🔧 Tool Call: {tool_name}")
+                content_parts.append(f"Tool Call: {tool_name}")
 
         elif part_kind == "tool-return":
             # Tool result being returned - show tool name and truncated result
@@ -213,48 +191,33 @@ def _render_menu_panel(
         lines.append(status_line)
     elif in_search_mode:
         lines.append(("", "\n"))
-        lines.append(("fg:ansiyellow", f"  Searching: '{search_buffer}'"))
+        lines.append(("class:tui.input.focused", f"  Searching: '{search_buffer}'"))
     elif search_text:
         lines.append(("", "\n"))
-        lines.append(("fg:ansiyellow", f"  Filter: '{search_text}'"))
+        lines.append(("class:tui.warning", f"  Filter: '{search_text}'"))
     lines.append(("", "\n\n"))
 
     if not entries:
         if search_text or in_search_mode:
-            lines.append(("fg:yellow", "  No sessions match your search."))
+            lines.append(("class:tui.warning", "  No sessions match your search."))
         else:
-            lines.append(("fg:yellow", "  No autosave sessions found."))
+            lines.append(("class:tui.warning", "  No autosave sessions found."))
         lines.append(("", "\n\n"))
         # Navigation hints (always show)
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "  ↑/↓ "))
+        lines.append(("class:tui.muted", "  ↑/↓ "))
         lines.append(("", "Navigate\n"))
-        lines.append(("fg:ansibrightblack", "  ←/→ "))
+        lines.append(("class:tui.muted", "  ←/→ "))
         lines.append(("", "Page\n"))
-        lines.append(("fg:green", "  Enter  "))
+        lines.append(("class:tui.help-key", "  Enter  "))
         lines.append(("", "Load\n"))
-        lines.append(("fg:ansibrightred", "  Ctrl+C "))
+        lines.append(("class:tui.help-key", "  Ctrl+C "))
         lines.append(("", "Cancel"))
         return lines
 
-    # Show sessions for current page. We inject visual section headers
-    # at named->auto boundaries within the visible page (and at the very
-    # top if the page starts in either section). Section headers do NOT
-    # consume entry indices -- they're cosmetic only -- so selection and
-    # pagination math stay untouched.
-    prev_section = None
     for i in range(start_idx, end_idx):
         session_name, metadata = entries[i]
         is_selected = i == selected_idx
-        section = "auto" if _is_auto_flavored(session_name) else "named"
-
-        if section != prev_section:
-            header = "Named sessions" if section == "named" else "Auto-saved sessions"
-            # Blank line between sections (skip for the very first one).
-            if prev_section is not None:
-                lines.append(("", "\n"))
-            lines.append(("fg:ansibrightcyan bold", f"  {header}\n"))
-            prev_section = section
 
         # Format timestamp
         timestamp = metadata.get("timestamp", "unknown")
@@ -264,44 +227,41 @@ def _render_menu_panel(
         except Exception:
             time_str = "unknown time"
 
-        # Format message count
+        # Format message count. auto_session_* names are opaque noise — hide them.
+        # User-named sessions keep the parenthetical so they stay distinguishable.
         msg_count = metadata.get("message_count", "?")
-
-        # For named sessions, include the name so users can tell them
-        # apart at a glance. Auto-flavored sessions keep the existing
-        # timestamp+count summary -- the auto_session_* names are noise.
-        if section == "named":
-            label = f"{time_str} \u2022 {msg_count} msgs ({session_name})"
-        else:
+        if session_name.startswith("auto_session_"):
             label = f"{time_str} \u2022 {msg_count} msgs"
+        else:
+            label = f"{time_str} \u2022 {msg_count} msgs ({session_name})"
 
         # Highlight selected item
         if is_selected:
-            lines.append(("fg:ansibrightblack", f" > {label}"))
+            lines.append(("class:tui.selected", f" > {label}"))
         else:
-            lines.append(("fg:ansibrightblack", f"   {label}"))
+            lines.append(("class:tui.muted", f"   {label}"))
 
         lines.append(("", "\n"))
 
     # Navigation hints - change based on browse mode
     lines.append(("", "\n"))
     if browse_mode:
-        lines.append(("fg:ansicyan", "  ↑/↓ "))
+        lines.append(("class:tui.help-key", "  ↑/↓ "))
         lines.append(("", "Browse msgs\n"))
-        lines.append(("fg:ansiyellow", "  Esc "))
+        lines.append(("class:tui.help-key", "  Esc "))
         lines.append(("", "Exit browser\n"))
     else:
-        lines.append(("fg:ansibrightblack", "  ↑/↓ "))
+        lines.append(("class:tui.muted", "  ↑/↓ "))
         lines.append(("", "Navigate\n"))
-        lines.append(("fg:ansibrightblack", "  ←/→ "))
+        lines.append(("class:tui.muted", "  ←/→ "))
         lines.append(("", "Page\n"))
-        lines.append(("fg:ansicyan", "  e   "))
+        lines.append(("class:tui.help-key", "  e   "))
         lines.append(("", "Browse msgs\n"))
-        lines.append(("fg:ansibrightblack", "  /   "))
+        lines.append(("class:tui.help-key", "  /   "))
         lines.append(("", "Search content\n"))
-    lines.append(("fg:green", "  Enter  "))
+    lines.append(("class:tui.help-key", "  Enter  "))
     lines.append(("", "Load\n"))
-    lines.append(("fg:ansibrightred", "  Ctrl+C "))
+    lines.append(("class:tui.help-key", "  Ctrl+C "))
     lines.append(("", "Cancel"))
 
     return lines
@@ -321,12 +281,12 @@ def _render_message_browser_panel(
     """
     lines = []
 
-    lines.append(("fg:ansicyan bold", " MESSAGE BROWSER"))
+    lines.append(("class:tui.header", " MESSAGE BROWSER"))
     lines.append(("", "\n\n"))
 
     total_messages = len(history)
     if total_messages == 0:
-        lines.append(("fg:yellow", "  No messages in this session."))
+        lines.append(("class:tui.warning", "  No messages in this session."))
         lines.append(("", "\n"))
         return lines
 
@@ -341,25 +301,25 @@ def _render_message_browser_panel(
     role, content = _extract_message_content(msg)
 
     # Session info
-    lines.append(("fg:ansibrightblack", f"  Session: {session_name}"))
+    lines.append(("class:tui.muted", f"  Session: {session_name}"))
     lines.append(("", "\n"))
 
     # Message position indicator
     display_num = message_idx + 1  # 1-based for display
-    lines.append(("bold", f"  Message {display_num} of {total_messages}"))
+    lines.append(("class:tui.label", f"  Message {display_num} of {total_messages}"))
     lines.append(("", "\n\n"))
 
     # Role indicator with icon and color
     if role == "user":
-        lines.append(("fg:ansicyan bold", "  🧑 USER"))
+        lines.append(("class:tui.title", "  \U0001f9d1 USER"))
     elif role == "tool":
-        lines.append(("fg:ansiyellow bold", "  🔧 TOOL"))
+        lines.append(("class:tui.warning", "  TOOL"))
     else:
-        lines.append(("fg:ansigreen bold", "  🤖 ASSISTANT"))
+        lines.append(("class:tui.success", "  \U0001f916 ASSISTANT"))
     lines.append(("", "\n"))
 
     # Separator line
-    lines.append(("fg:ansibrightblack", "  " + "─" * 40))
+    lines.append(("class:tui.muted", "  " + "─" * 40))
     lines.append(("", "\n"))
 
     # Render content - use markdown for user/assistant, plain text for tool
@@ -368,7 +328,7 @@ def _render_message_browser_panel(
             # Tool messages are already formatted, don't pass through markdown
             # Use yellow color for tool output
             rendered = content
-            text_color = "fg:ansiyellow"
+            text_color = "class:tui.warning"
         else:
             # User and assistant messages should be rendered as markdown
             # Rich will handle the styling via ANSI codes
@@ -393,12 +353,12 @@ def _render_message_browser_panel(
             lines.append(("", "\n"))
 
     except Exception as e:
-        lines.append(("fg:red", f"  Error rendering message: {e}"))
+        lines.append(("class:tui.error", f"  Error rendering message: {e}"))
         lines.append(("", "\n"))
 
     # Navigation hint at bottom
     lines.append(("", "\n"))
-    lines.append(("fg:ansibrightblack", "  ↑ older  ↓ newer  Esc exit"))
+    lines.append(("class:tui.help", "  ↑ older  ↓ newer  Esc exit"))
     lines.append(("", "\n"))
 
     return lines
@@ -408,18 +368,18 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
     """Render the right preview panel with message content using rich markdown."""
     lines = []
 
-    lines.append(("dim cyan", " PREVIEW"))
+    lines.append(("class:tui.title", " PREVIEW"))
     lines.append(("", "\n\n"))
 
     if not entry:
-        lines.append(("fg:yellow", "  No session selected."))
+        lines.append(("class:tui.warning", "  No session selected."))
         lines.append(("", "\n"))
         return lines
 
     session_name, metadata = entry
 
     # Show metadata
-    lines.append(("bold", "  Session: "))
+    lines.append(("class:tui.label", "  Session: "))
     lines.append(("", session_name))
     lines.append(("", "\n"))
 
@@ -429,18 +389,16 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
         time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         time_str = timestamp
-    lines.append(("fg:ansibrightblack", f"  Saved: {time_str}"))
+    lines.append(("class:tui.muted", f"  Saved: {time_str}"))
     lines.append(("", "\n"))
 
     msg_count = metadata.get("message_count", 0)
     tokens = metadata.get("total_tokens", 0)
-    lines.append(
-        ("fg:ansibrightblack", f"  Messages: {msg_count} • Tokens: {tokens:,}")
-    )
+    lines.append(("class:tui.muted", f"  Messages: {msg_count} • Tokens: {tokens:,}"))
     lines.append(("", "\n\n"))
 
-    lines.append(("bold", "  Last Message:"))
-    lines.append(("fg:ansibrightblack", "  (press 'e' to browse full history)"))
+    lines.append(("class:tui.label", "  Last Message:"))
+    lines.append(("class:tui.muted", "  (press 'e' to browse full history)"))
     lines.append(("", "\n"))
 
     # Try to load and preview the last message
@@ -465,11 +423,11 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
 
         for line in message_lines:
             # Rich already rendered the markdown, just display it dimmed
-            lines.append(("fg:ansibrightblack", f"  {line}"))
+            lines.append(("class:tui.muted", f"  {line}"))
             lines.append(("", "\n"))
 
     except Exception as e:
-        lines.append(("fg:red", f"  Error loading preview: {e}"))
+        lines.append(("class:tui.error", f"  Error loading preview: {e}"))
         lines.append(("", "\n"))
 
     return lines
@@ -496,10 +454,10 @@ def display_resumed_history(
                       Configurable via: /set resume_message_count=50
     """
     from rich.console import Console
-    from rich.markdown import Markdown
     from rich.rule import Rule
 
     from code_puppy.config import get_banner_color, get_resume_message_count
+    from code_puppy.tools.display import render_markdown
 
     if not history:
         return
@@ -562,9 +520,8 @@ def display_resumed_history(
             # Use the exact same banner format as normal AGENT RESPONSE
             banner = f"[bold white on {response_color}] AGENT RESPONSE [/bold white on {response_color}]"
             console.print(f"\n{banner}")
-            # Render content as markdown (same as normal chat)
-            md = Markdown(content)
-            console.print(md)
+            # Resume uses the same Termflow pipeline as live agent output.
+            render_markdown(content, console)
 
         console.print()  # Blank line between messages
 
@@ -660,13 +617,13 @@ async def interactive_autosave_picker() -> Optional[str]:
              other search activity to crowd out.
         """
         if is_filtering[0]:
-            return ("fg:ansicyan bold", "  Filtering...")
+            return ("class:tui.input.focused", "  Filtering...")
         if in_search_mode[0] or search_text[0]:
             return None  # Let the renderer show the search/filter line.
         cached = content_index.count()
         if 0 < cached < total_to_index:
             return (
-                "fg:ansibrightblack",
+                "class:tui.muted",
                 f"  Indexing {cached}/{total_to_index}...",
             )
         return None
@@ -892,6 +849,7 @@ async def interactive_autosave_picker() -> Optional[str]:
 
     layout = Layout(root_container)
     app = Application(
+        style=on_prompt_toolkit_style(),
         layout=layout,
         key_bindings=kb,
         full_screen=False,

@@ -23,18 +23,16 @@ from code_puppy.command_line.pagination import (
 from code_puppy.config import (
     get_all_model_settings,
     get_global_model_name,
-    get_openai_reasoning_effort,
-    get_openai_reasoning_summary,
-    get_openai_verbosity,
+    get_value,
     model_supports_setting,
+    reset_value,
     set_model_setting,
-    set_openai_reasoning_effort,
-    set_openai_reasoning_summary,
-    set_openai_verbosity,
+    set_value,
 )
 from code_puppy.messaging import emit_info
 from code_puppy.model_factory import ModelFactory
 from code_puppy.tools.command_runner import set_awaiting_user_input
+from code_puppy.callbacks import on_prompt_toolkit_style
 
 # Pagination config
 MODELS_PER_PAGE = 15
@@ -76,8 +74,22 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "name": "Reasoning Effort",
         "description": "Controls how much effort GPT-5 models spend on reasoning. Higher = more thorough but slower.",
         "type": "choice",
-        "choices": ["minimal", "low", "medium", "high", "xhigh"],
+        "choices": ["minimal", "low", "medium", "high", "xhigh", "ultra"],
         "default": "medium",
+    },
+    "reasoning_context": {
+        "name": "Reasoning Context",
+        "description": "Controls which prior reasoning is retained for GPT-5.6 Responses models. All turns preserves reasoning across the conversation.",
+        "type": "choice",
+        "choices": ["all_turns", "current_turn", "auto"],
+        "default": "all_turns",
+    },
+    "reasoning_mode": {
+        "name": "Reasoning Mode",
+        "description": "Controls the GPT-5.6 reasoning mode. Standard is the default; Pro spends more compute and is only available on supported variants.",
+        "type": "choice",
+        "choices": ["standard", "pro"],
+        "default": "standard",
     },
     "summary": {
         "name": "Reasoning Summary",
@@ -122,6 +134,20 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "type": "boolean",
         "default": False,
     },
+    "thinking_type": {
+        "name": "Thinking Type (GLM)",
+        "description": "GLM deep-thinking mode. 'enabled' (default) = model auto-decides whether to think (forced on for GLM-4.7/4.5V regardless). 'disabled' = direct answers, no thinking.",
+        "type": "choice",
+        "choices": ["enabled", "disabled"],
+        "default": "enabled",
+    },
+    "glm_reasoning_effort": {
+        "name": "Reasoning Effort (GLM-5.2+)",
+        "description": "Chain-of-thought reasoning effort, GLM-5.2+ only. 'max' is default/recommended. none/minimal skip thinking; low/medium are mapped to high server-side; xhigh is mapped to max.",
+        "type": "choice",
+        "choices": ["max", "xhigh", "high", "medium", "low", "minimal", "none"],
+        "default": "max",
+    },
     "thinking_enabled": {
         "name": "Thinking Enabled",
         "description": "Enable thinking mode for Gemini 3 Pro models. When enabled, the model will show its reasoning process.",
@@ -142,6 +168,57 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "choices": ["low", "medium", "high", "max"],
         "default": "high",
     },
+    "retry_main_strategy": {
+        "name": "Retry Strategy (main agent)",
+        "description": (
+            "Per-model streaming-retry backoff when THIS model runs as the main "
+            "agent (overrides the global /set value). Exponential-with-jitter, "
+            "capped at 30s between retries. Leave unset to use the global setting."
+        ),
+        "type": "choice",
+        "choices": ["gentle", "balanced", "aggressive"],
+        "default": None,
+    },
+    "retry_main_max_attempts": {
+        "name": "Retry Max Attempts (main agent)",
+        "description": (
+            "Per-model max streaming-retry attempts (1-100) when THIS model runs "
+            "as the main agent, including the first try. Overrides the global "
+            "/set value. Leave unset to use the global setting."
+        ),
+        "type": "numeric",
+        "min": 1,
+        "max": 100,
+        "step": 1,
+        "default": None,
+        "format": "{:.0f}",
+    },
+    "retry_subagent_strategy": {
+        "name": "Retry Strategy (sub-agent)",
+        "description": (
+            "Per-model streaming-retry backoff when THIS model runs as a "
+            "sub-agent (overrides the global /set value). Sub-agents usually want "
+            "a longer budget -- losing their work to a blip is expensive. Leave "
+            "unset to use the global setting."
+        ),
+        "type": "choice",
+        "choices": ["gentle", "balanced", "aggressive"],
+        "default": None,
+    },
+    "retry_subagent_max_attempts": {
+        "name": "Retry Max Attempts (sub-agent)",
+        "description": (
+            "Per-model max streaming-retry attempts (1-100) when THIS model runs "
+            "as a sub-agent, including the first try. Overrides the global /set "
+            "value. Leave unset to use the global setting."
+        ),
+        "type": "numeric",
+        "min": 1,
+        "max": 100,
+        "step": 1,
+        "default": None,
+        "format": "{:.0f}",
+    },
 }
 
 
@@ -151,16 +228,61 @@ def _load_all_model_names() -> List[str]:
     return list(models_config.keys())
 
 
+# Per-model retry override keys are handled specially: they live in the dedicated
+# ``retry_model_<model>_<role>_<field>`` namespace (see
+# retry_profiles.per_model_key), NOT the generic ``model_settings_`` namespace, so
+# they can never leak into the ModelSettings sent to the provider. Maps the menu
+# setting key -> (role, config field).
+_RETRY_MENU_KEYS: Dict[str, tuple] = {
+    "retry_main_strategy": ("main", "strategy"),
+    "retry_main_max_attempts": ("main", "max_attempts"),
+    "retry_subagent_strategy": ("subagent", "strategy"),
+    "retry_subagent_max_attempts": ("subagent", "max_attempts"),
+}
+
+
+def _read_per_model_retry(model_name: str, menu_key: str):
+    """Read a per-model retry override, or None if unset. Parses ints."""
+    from code_puppy.agents.retry_profiles import per_model_key
+
+    role, field = _RETRY_MENU_KEYS[menu_key]
+    raw = get_value(per_model_key(model_name, role, field))
+    if raw is None or not str(raw).strip():
+        return None
+    if field == "max_attempts":
+        try:
+            return int(float(raw))
+        except (TypeError, ValueError):
+            return None
+    return str(raw).strip()
+
+
+def _write_per_model_retry(model_name: str, menu_key: str, value) -> None:
+    """Write (or clear, when value is None) a per-model retry override."""
+    from code_puppy.agents.retry_profiles import per_model_key
+
+    role, field = _RETRY_MENU_KEYS[menu_key]
+    key = per_model_key(model_name, role, field)
+    if value is None:
+        reset_value(key)
+    else:
+        set_value(key, str(value))
+
+
 def _get_model_display_settings(model_name: str) -> Dict:
-    """Get model settings merged with global OpenAI controls for display."""
+    """Get configured model settings plus model-specific display defaults."""
     settings = get_all_model_settings(model_name)
 
-    if model_supports_setting(model_name, "reasoning_effort"):
-        settings["reasoning_effort"] = get_openai_reasoning_effort()
-    if model_supports_setting(model_name, "summary"):
-        settings["summary"] = get_openai_reasoning_summary()
-    if model_supports_setting(model_name, "verbosity"):
-        settings["verbosity"] = get_openai_verbosity()
+    if model_supports_setting(model_name, "reasoning_context"):
+        settings.setdefault("reasoning_context", "all_turns")
+    if model_supports_setting(model_name, "reasoning_mode"):
+        settings.setdefault("reasoning_mode", "standard")
+    # Per-model retry overrides live in their own namespace, so inject their
+    # current values here (only when actually set -- unset shows the default).
+    for menu_key in _RETRY_MENU_KEYS:
+        val = _read_per_model_retry(model_name, menu_key)
+        if val is not None:
+            settings[menu_key] = val
 
     return settings
 
@@ -170,8 +292,8 @@ def _get_setting_choices(
 ) -> List[str]:
     """Get the available choices for a setting, filtered by model capabilities.
 
-    For reasoning_effort, only codex models support 'xhigh' - regular GPT-5.2
-    models are capped at 'high'.
+    Reasoning effort is capability-gated: xhigh is available to codex and
+    GPT-5.4+ models, while ultra is reserved for GPT-5.6+ variants.
 
     Args:
         setting_key: The setting name (e.g., 'reasoning_effort', 'verbosity')
@@ -186,17 +308,15 @@ def _get_setting_choices(
 
     base_choices = setting_def.get("choices", [])
 
-    # For reasoning_effort, filter 'xhigh' based on model support
     if setting_key == "reasoning_effort" and model_name:
         models_config = ModelFactory.load_config()
         model_config = models_config.get(model_name, {})
-
-        # Check if model supports xhigh reasoning
-        supports_xhigh = model_config.get("supports_xhigh_reasoning", False)
-
-        if not supports_xhigh:
-            # Remove xhigh from choices for non-codex models
-            return [c for c in base_choices if c != "xhigh"]
+        unsupported_choices = set()
+        if not model_config.get("supports_xhigh_reasoning", False):
+            unsupported_choices.add("xhigh")
+        if not model_config.get("supports_ultra_reasoning", False):
+            unsupported_choices.add("ultra")
+        return [choice for choice in base_choices if choice not in unsupported_choices]
 
     return base_choices
 
@@ -299,7 +419,11 @@ class ModelSettingsMenu:
         """Get list of settings supported by a model."""
         supported = []
         for setting_key in SETTING_DEFINITIONS:
-            if model_supports_setting(model_name, setting_key):
+            # Retry overrides apply to every model (anything can be rate-limited),
+            # so they're always offered regardless of model capability flags.
+            if setting_key in _RETRY_MENU_KEYS or model_supports_setting(
+                model_name, setting_key
+            ):
                 supported.append(setting_key)
         return supported
 
@@ -323,6 +447,10 @@ class ModelSettingsMenu:
             return str(value) if value is not None else "(unknown)"
 
         if value is None:
+            # Per-model retry overrides fall back to the global /set value, not a
+            # model default -- say so explicitly to avoid confusion.
+            if setting in _RETRY_MENU_KEYS:
+                return "(uses global)"
             default = _get_setting_default(setting, self.selected_model)
             if default is not None:
                 return f"(default: {default})"
@@ -343,18 +471,18 @@ class ModelSettingsMenu:
 
         if self.view_mode == "models":
             # Header with page indicator
-            lines.append(("bold cyan", " 🐕 Select a Model to Configure"))
+            lines.append(("class:tui.header", " 🐕 Select a Model to Configure"))
             if self.total_pages > 1:
                 lines.append(
                     (
-                        "fg:ansibrightblack",
+                        "class:tui.muted",
                         f"  (Page {self.page + 1}/{self.total_pages})",
                     )
                 )
             lines.append(("", "\n\n"))
 
             if not self.all_models:
-                lines.append(("fg:ansiyellow", "  No models available."))
+                lines.append(("class:tui.warning", "  No models available."))
                 lines.append(("", "\n\n"))
                 self._add_model_nav_hints(lines)
                 return lines
@@ -370,7 +498,7 @@ class ModelSettingsMenu:
                 is_current = model_name == self.current_model_name
 
                 prefix = " › " if is_selected else "   "
-                style = "fg:ansiwhite bold" if is_selected else "fg:ansibrightblack"
+                style = "class:tui.selected" if is_selected else "class:tui.body"
 
                 # Check if model has any custom settings
                 model_settings = get_all_model_settings(model_name)
@@ -380,26 +508,26 @@ class ModelSettingsMenu:
 
                 # Show indicators
                 if is_current:
-                    lines.append(("fg:ansigreen", " (active)"))
+                    lines.append(("class:tui.success", " (active)"))
                 if has_settings:
-                    lines.append(("fg:ansicyan", " ⚙"))
+                    lines.append(("class:tui.body", " ⚙"))
 
                 lines.append(("", "\n"))
 
                 if is_selected:
                     description = get_model_description(models_config, model_name)
-                    lines.append(("fg:ansiyellow italic", f"      {description}\n"))
+                    lines.append(("class:tui.body", f"      {description}\n"))
 
             lines.append(("", "\n"))
             self._add_model_nav_hints(lines)
         else:
             # Settings view
-            lines.append(("bold cyan", f" ⚙ Settings for {self.selected_model}"))
+            lines.append(("class:tui.header", f" ⚙ Settings for {self.selected_model}"))
             lines.append(("", "\n\n"))
 
             if not self.supported_settings:
                 lines.append(
-                    ("fg:ansiyellow", "  No configurable settings for this model.")
+                    ("class:tui.warning", "  No configurable settings for this model.")
                 )
                 lines.append(("", "\n\n"))
                 self._add_settings_nav_hints(lines)
@@ -414,18 +542,18 @@ class ModelSettingsMenu:
                 if is_selected and self.editing_mode:
                     display_value = self._format_value(setting_key, self.edit_value)
                     prefix = " ✏️ "
-                    style = "fg:ansigreen bold"
+                    style = "class:tui.success"
                 else:
                     display_value = self._format_value(setting_key, current_value)
                     prefix = " › " if is_selected else "   "
-                    style = "fg:ansiwhite" if is_selected else "fg:ansibrightblack"
+                    style = "class:tui.selected" if is_selected else "class:tui.body"
 
                 # Setting name and value
                 lines.append((style, f"{prefix}{setting_def['name']}: "))
                 if current_value is not None or (is_selected and self.editing_mode):
-                    lines.append(("fg:ansicyan", display_value))
+                    lines.append(("class:tui.body", display_value))
                 else:
-                    lines.append(("fg:ansibrightblack dim", display_value))
+                    lines.append(("class:tui.muted", display_value))
                 lines.append(("", "\n"))
 
             lines.append(("", "\n"))
@@ -436,89 +564,89 @@ class ModelSettingsMenu:
     def _add_model_nav_hints(self, lines: List):
         """Add navigation hints for model list view."""
         lines.append(("", "\n"))
-        lines.append(("fg:ansibrightblack", "  ↑/↓  "))
-        lines.append(("", "Navigate models\n"))
+        lines.append(("class:tui.help-key", "  ↑/↓  "))
+        lines.append(("class:tui.help", "Navigate models\n"))
         if self.total_pages > 1:
-            lines.append(("fg:ansibrightblack", "  PgUp/PgDn  "))
-            lines.append(("", "Change page\n"))
-        lines.append(("fg:ansigreen", "  Enter  "))
-        lines.append(("", "Configure model\n"))
-        lines.append(("fg:ansiyellow", "  Esc  "))
-        lines.append(("", "Exit\n"))
+            lines.append(("class:tui.help-key", "  PgUp/PgDn  "))
+            lines.append(("class:tui.help", "Change page\n"))
+        lines.append(("class:tui.help-key", "  Enter  "))
+        lines.append(("class:tui.help", "Configure model\n"))
+        lines.append(("class:tui.help-key", "  Esc  "))
+        lines.append(("class:tui.help", "Exit\n"))
 
     def _add_settings_nav_hints(self, lines: List):
         """Add navigation hints for settings view."""
         lines.append(("", "\n"))
 
         if self.editing_mode:
-            lines.append(("fg:ansibrightblack", "  ←/→  "))
-            lines.append(("", "Adjust value\n"))
-            lines.append(("fg:ansigreen", "  Enter  "))
-            lines.append(("", "Save\n"))
-            lines.append(("fg:ansiyellow", "  Esc  "))
-            lines.append(("", "Cancel edit\n"))
-            lines.append(("fg:ansired", "  d  "))
-            lines.append(("", "Reset to default\n"))
+            lines.append(("class:tui.help-key", "  ←/→  "))
+            lines.append(("class:tui.help", "Adjust value\n"))
+            lines.append(("class:tui.help-key", "  Enter  "))
+            lines.append(("class:tui.help", "Save\n"))
+            lines.append(("class:tui.help-key", "  Esc  "))
+            lines.append(("class:tui.help", "Cancel edit\n"))
+            lines.append(("class:tui.help-key", "  d  "))
+            lines.append(("class:tui.help", "Reset to default\n"))
         else:
-            lines.append(("fg:ansibrightblack", "  ↑/↓  "))
-            lines.append(("", "Navigate settings\n"))
-            lines.append(("fg:ansigreen", "  Enter  "))
-            lines.append(("", "Edit setting\n"))
-            lines.append(("fg:ansired", "  d  "))
-            lines.append(("", "Reset to default\n"))
-            lines.append(("fg:ansiyellow", "  Esc  "))
-            lines.append(("", "Back to models\n"))
+            lines.append(("class:tui.help-key", "  ↑/↓  "))
+            lines.append(("class:tui.help", "Navigate settings\n"))
+            lines.append(("class:tui.help-key", "  Enter  "))
+            lines.append(("class:tui.help", "Edit setting\n"))
+            lines.append(("class:tui.help-key", "  d  "))
+            lines.append(("class:tui.help", "Reset to default\n"))
+            lines.append(("class:tui.help-key", "  Esc  "))
+            lines.append(("class:tui.help", "Back to models\n"))
 
     def _render_details_panel(self) -> List:
         """Render the details/help panel."""
         lines = []
 
         if self.view_mode == "models":
-            lines.append(("bold cyan", " Model Info"))
+            lines.append(("class:tui.title", " Model Info"))
             lines.append(("", "\n\n"))
 
             if not self.all_models:
-                lines.append(("fg:ansibrightblack", "  No models available."))
+                lines.append(("class:tui.muted", "  No models available."))
                 return lines
 
             model_name = self.all_models[self.model_index]
             is_current = model_name == self.current_model_name
 
-            lines.append(("bold", f"  {model_name}"))
+            lines.append(("class:tui.label", f"  {model_name}"))
             lines.append(("", "\n\n"))
 
             if is_current:
-                lines.append(("fg:ansigreen", "  ✓ Currently active model"))
+                lines.append(("class:tui.success", "  ✓ Currently active model"))
                 lines.append(("", "\n\n"))
 
             # Show current settings for this model
             model_settings = _get_model_display_settings(model_name)
             if model_settings:
-                lines.append(("bold", "  Effective Settings:"))
+                lines.append(("class:tui.label", "  Effective Settings:"))
                 lines.append(("", "\n"))
                 for setting_key, value in model_settings.items():
                     setting_def = SETTING_DEFINITIONS.get(setting_key, {})
                     name = setting_def.get("name", setting_key)
                     display = self._format_value(setting_key, value)
-                    lines.append(("fg:ansicyan", f"    {name}: {display}"))
+                    lines.append(("class:tui.body", f"    {name}: {display}"))
                     lines.append(("", "\n"))
             else:
-                lines.append(("fg:ansibrightblack", "  Using all default settings"))
+                lines.append(("class:tui.muted", "  Using all default settings"))
                 lines.append(("", "\n"))
 
             # Show supported settings
             supported = self._get_supported_settings(model_name)
             lines.append(("", "\n"))
-            lines.append(("bold", "  Configurable Settings:"))
+            lines.append(("class:tui.label", "  Configurable Settings:"))
             lines.append(("", "\n"))
             if supported:
                 for s in supported:
                     setting_def = SETTING_DEFINITIONS.get(s, {})
                     name = setting_def.get("name", s)
-                    lines.append(("fg:ansibrightblack", f"    • {name}"))
+                    lines.append(("class:tui.muted", f"    • {name}"))
                     lines.append(("", "\n"))
             else:
-                lines.append(("fg:ansibrightblack dim", "    None"))
+                lines.append(("class:tui.muted", "    None"))
                 lines.append(("", "\n"))
 
             # Show pagination info at the bottom of details
@@ -526,7 +654,7 @@ class ModelSettingsMenu:
                 lines.append(("", "\n"))
                 lines.append(
                     (
-                        "fg:ansibrightblack dim",
+                        "class:tui.muted",
                         f"  Model {self.model_index + 1} of {len(self.all_models)}",
                     )
                 )
@@ -534,12 +662,12 @@ class ModelSettingsMenu:
 
         else:
             # Settings detail view
-            lines.append(("bold cyan", " Setting Details"))
+            lines.append(("class:tui.title", " Setting Details"))
             lines.append(("", "\n\n"))
 
             if not self.supported_settings:
                 lines.append(
-                    ("fg:ansibrightblack", "  This model doesn't expose any settings.")
+                    ("class:tui.muted", "  This model doesn't expose any settings.")
                 )
                 return lines
 
@@ -548,84 +676,74 @@ class ModelSettingsMenu:
             current_value = self._get_current_value(setting_key)
 
             # Setting name
-            lines.append(("bold", f"  {setting_def['name']}"))
+            lines.append(("class:tui.label", f"  {setting_def['name']}"))
             lines.append(("", "\n"))
 
-            # Show if this is a global setting
-            if setting_key in ("reasoning_effort", "verbosity"):
-                lines.append(
-                    (
-                        "fg:ansiyellow",
-                        "  ⚠ Global setting (applies to all GPT-5 models)",
-                    )
-                )
             lines.append(("", "\n\n"))
 
             # Description
-            lines.append(("fg:ansibrightblack", f"  {setting_def['description']}"))
+            lines.append(("class:tui.muted", f"  {setting_def['description']}"))
             lines.append(("", "\n\n"))
 
             # Range/choices info
             if setting_def.get("type") == "choice":
-                lines.append(("bold", "  Options:"))
+                lines.append(("class:tui.label", "  Options:"))
                 lines.append(("", "\n"))
                 # Get filtered choices based on model capabilities
                 choices = _get_setting_choices(setting_key, self.selected_model)
                 lines.append(
                     (
-                        "fg:ansibrightblack",
+                        "class:tui.muted",
                         f"    {' | '.join(choices)}",
                     )
                 )
             elif setting_def.get("type") == "boolean":
-                lines.append(("bold", "  Options:"))
+                lines.append(("class:tui.label", "  Options:"))
                 lines.append(("", "\n"))
                 lines.append(
                     (
-                        "fg:ansibrightblack",
+                        "class:tui.muted",
                         "    Enabled | Disabled",
                     )
                 )
             else:
-                lines.append(("bold", "  Range:"))
+                lines.append(("class:tui.label", "  Range:"))
                 lines.append(("", "\n"))
                 lines.append(
                     (
-                        "fg:ansibrightblack",
+                        "class:tui.muted",
                         f"    Min: {setting_def['min']}  Max: {setting_def['max']}  Step: {setting_def['step']}",
                     )
                 )
             lines.append(("", "\n\n"))
 
             # Current value
-            lines.append(("bold", "  Current Value:"))
+            lines.append(("class:tui.label", "  Current Value:"))
             lines.append(("", "\n"))
             if current_value is not None:
                 lines.append(
                     (
-                        "fg:ansicyan",
+                        "class:tui.body",
                         f"    {self._format_value(setting_key, current_value)}",
                     )
                 )
             else:
-                lines.append(("fg:ansibrightblack dim", "    (using model default)"))
+                lines.append(("class:tui.muted", "    (using model default)"))
             lines.append(("", "\n\n"))
 
             # Editing hint
             if self.editing_mode:
-                lines.append(("fg:ansigreen bold", "  ✏️  EDITING MODE"))
+                lines.append(("class:tui.success", "  ✏️  EDITING MODE"))
                 lines.append(("", "\n"))
                 if self.edit_value is not None:
                     lines.append(
                         (
-                            "fg:ansicyan",
+                            "class:tui.body",
                             f"    New value: {self._format_value(setting_key, self.edit_value)}",
                         )
                     )
                 else:
-                    lines.append(
-                        ("fg:ansibrightblack", "    New value: (model default)")
-                    )
+                    lines.append(("class:tui.muted", "    New value: (model default)"))
                 lines.append(("", "\n"))
 
         return lines
@@ -674,6 +792,14 @@ class ModelSettingsMenu:
                 self.edit_value = 42
             elif setting_key == "budget_tokens":
                 self.edit_value = 10000
+            elif setting_key in _RETRY_MENU_KEYS:
+                # Seed from the effective (resolved) value as an INT -- never the
+                # (min+max)/2 midpoint, which produces a .5 float that {:.0f}
+                # banker's-rounds so +1 steps look like +2 and stall.
+                role, _ = _RETRY_MENU_KEYS[setting_key]
+                from code_puppy.agents.retry_profiles import resolve
+
+                self.edit_value = int(resolve(role, self.selected_model).max_attempts)
             else:
                 self.edit_value = (setting_def["min"] + setting_def["max"]) / 2
 
@@ -704,6 +830,10 @@ class ModelSettingsMenu:
             new_value = self.edit_value + (direction * step)
             # Clamp to range
             new_value = max(setting_def["min"], min(setting_def["max"], new_value))
+            # Integer-step settings stay ints -- a stray float would make the
+            # {:.0f} display banker's-round and appear to step by 2 / stall.
+            if isinstance(step, int) and isinstance(setting_def["min"], int):
+                new_value = int(round(new_value))
             self.edit_value = new_value
 
     def _save_edit(self):
@@ -713,16 +843,9 @@ class ModelSettingsMenu:
 
         setting_key = self.supported_settings[self.setting_index]
 
-        # Handle global OpenAI settings specially
-        if setting_key == "reasoning_effort":
-            if self.edit_value is not None:
-                set_openai_reasoning_effort(self.edit_value)
-        elif setting_key == "summary":
-            if self.edit_value is not None:
-                set_openai_reasoning_summary(self.edit_value)
-        elif setting_key == "verbosity":
-            if self.edit_value is not None:
-                set_openai_verbosity(self.edit_value)
+        if setting_key in _RETRY_MENU_KEYS:
+            # Per-model retry override -> dedicated retry_model_ namespace.
+            _write_per_model_retry(self.selected_model, setting_key, self.edit_value)
         else:
             # Standard per-model setting
             set_model_setting(self.selected_model, setting_key, self.edit_value)
@@ -753,16 +876,11 @@ class ModelSettingsMenu:
             # Reset edit value to default
             self.edit_value = _get_setting_default(setting_key, self.selected_model)
         else:
-            # Handle global OpenAI settings - reset to their defaults
-            if setting_key == "reasoning_effort":
-                set_openai_reasoning_effort("medium")  # Default
-                self.current_settings[setting_key] = "medium"
-            elif setting_key == "summary":
-                set_openai_reasoning_summary("auto")  # Default
-                self.current_settings[setting_key] = "auto"
-            elif setting_key == "verbosity":
-                set_openai_verbosity("medium")  # Default
-                self.current_settings[setting_key] = "medium"
+            if setting_key in _RETRY_MENU_KEYS:
+                # Clear the per-model retry override -> falls back to global.
+                _write_per_model_retry(self.selected_model, setting_key, None)
+                if setting_key in self.current_settings:
+                    del self.current_settings[setting_key]
             else:
                 # Standard per-model setting
                 set_model_setting(self.selected_model, setting_key, None)
@@ -920,6 +1038,7 @@ class ModelSettingsMenu:
             key_bindings=kb,
             full_screen=False,
             mouse_support=False,
+            style=on_prompt_toolkit_style(),
         )
 
         set_awaiting_user_input(True)

@@ -1,13 +1,33 @@
 ---
 name: code-puppy-agent
-description: Deep reference on Code Puppy's internal architecture — agents, tools, plugins, models, MCP, sessions, and how to extend it correctly.
-version: "1.0"
+description: How Code Puppy itself is built — its internal architecture, structure, codebase layout, and source modules. Explains agents, tools, the plugin/callback hook system, models, MCP, sessions and history/context windows, skills, slash commands, config, messaging/UI, system-prompt assembly, and i18n. Activate for ANY question about how Code Puppy works internally, why it behaves a certain way, where something lives in the code, how a feature is implemented, or how to navigate, debug, or extend the codebase (add a tool, agent, plugin, command, skill, model, or MCP server).
+version: "1.1"
 author: code-puppy
 tags:
   - code-puppy
   - architecture
+  - structure
   - internals
+  - codebase
+  - source
+  - how-it-works
+  - self-awareness
+  - agents
+  - tools
   - plugins
+  - hooks
+  - callbacks
+  - models
+  - mcp
+  - sessions
+  - history
+  - skills
+  - commands
+  - config
+  - messaging
+  - i18n
+  - extend
+  - debug
   - reference
 ---
 
@@ -487,9 +507,64 @@ plugins observe these events.
 
 ---
 
-## 12. Development Conventions
+## 12. Internationalization (i18n)
 
-### 12.1 Golden rules
+User-facing CLI/TUI text is localizable via the `code_puppy/i18n/` package
+(stdlib-only; no Babel). Full guide: **`docs/I18N.md`**. Epic: PUP-473.
+
+### 12.1 Call sites
+
+```python
+from code_puppy.i18n import t, ngettext, lazy
+emit_info(t("startup.welcome", name=owner))     # simple, interpolated
+emit_info(ngettext("files.deleted", count=n))   # plural-aware
+emit_info(lazy("startup.ready"))                 # resolved at render time
+```
+
+- Keys are dotted IDs; **interpolation uses `{name}` only** — no f-strings,
+  no `str.format` on catalog text (attribute/index access and format specs are
+  deliberately unsupported; catalogs are untrusted input).
+- A missing key echoes the key back — resolution **never raises**.
+
+### 12.2 Catalogs & locales
+
+- JSON per locale: `i18n/locales/<locale>.json` (dotted-key → string, or a
+  plural dict `{"one": ..., "other": ...}`).
+- Shipped: `en-US` (source), `es` (Latin American `es-419` folded in), `fr-CA`
+  + `es-MX/AR/CO/CL` stubs.
+- **Fallback chain**: plain BCP-47 truncation, `es-AR → es → en-US` (see
+  `i18n.locale.fallback_chain`). `i18n.locale.PARENT_LOCALES` is a currently-
+  empty CLDR override seam for non-truncation parents. Plugins / the private
+  fork can register extra catalog dirs via `i18n.catalog.add_catalog_dir()`.
+
+### 12.3 How it wires in
+
+- **Choke point**: `messaging/message_queue.py::emit_message` resolves a
+  `LazyTranslation` to a string; plain strings pass through unchanged.
+- **Locale**: `config.get_locale()` is the single source of truth (delegates
+  to the i18n translator), seeded `CODE_PUPPY_LOCALE` › `locale` config key ›
+  POSIX env › `en-US`. `/set locale <tag>` persists it.
+- **Formatting**: `i18n.format_number` / `i18n.format_datetime` (locale-aware).
+
+### 12.4 Rules
+
+- **Model-facing system prompts are OUT of scope** — translating them changes
+  LLM behavior. Don't run them through the seam.
+- Extraction goes behind the coverage/pseudolocale CI gate
+  (`tests/i18n/test_i18n_coverage.py`): every translated key must exist in the
+  `en-US` source, and a pseudolocale (`en-XA`) run must emit only bracketed
+  text (catches un-externalized strings).
+- **Find what's left to extract** with the static audit:
+  `python -m code_puppy.i18n.audit --top 15` lists the worst files;
+  `--list` shows every raw `emit_*`/`console.print` site, `--json` is
+  machine-readable, and `--fail-under PCT` is a CI gate. Use it to pick the
+  next module, then the pseudolocale test above to prove it's fully migrated.
+
+---
+
+## 13. Development Conventions
+
+### 13.1 Golden rules
 
 1. **Plugins over core** — if a callback hook exists, use it. Don't edit
    `command_line/` or core agent files.
@@ -499,9 +574,11 @@ plugins observe these events.
    calls in try/except.
 5. **Return `None`** from hooks/commands you don't own.
 6. **Always run linters** — `ruff check --fix`, `ruff format .`
-7. **Never allow a Claude co-author commit.**
+7. **Wrap user-facing strings** in `t()`/`ngettext` (see §12) — don't hardcode
+   English display text.
+8. **Never allow a Claude co-author commit.**
 
-### 12.2 Plugin structure
+### 13.2 Plugin structure
 
 ```
 my_plugin/
@@ -511,7 +588,7 @@ my_plugin/
 └── README.md                # optional: documentation
 ```
 
-### 12.3 Zen of Code Puppy
+### 13.3 Zen of Code Puppy
 
 - Simple is better than complex.
 - Flat is better than nested.
@@ -521,7 +598,7 @@ my_plugin/
 
 ---
 
-## 13. Quick Reference: Key File Map
+## 14. Quick Reference: Key File Map
 
 | File | Responsibility |
 |------|---------------|
@@ -539,6 +616,8 @@ my_plugin/
 | `mcp_/manager.py` | MCP server lifecycle |
 | `session_storage.py` | Session pickle save/load |
 | `plugins/agent_skills/` | Skills discovery, activation, UI |
+| `i18n/` | Internationalization: catalogs, `t()`/`ngettext`, locale detection, formatting |
+| `i18n/locales/*.json` | Message catalogs (source of truth: `en-US.json`) |
 | `pydantic_patches.py` | Startup monkey-patches (clipboard fix, etc.) |
 
 ---

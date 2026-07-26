@@ -2,10 +2,13 @@
 
 import asyncio
 import inspect
+import math
+import time
 import traceback
 from contextlib import AsyncExitStack
+from datetime import datetime, timezone
 from functools import partial
-from typing import Set
+from typing import Any, Set
 
 from pydantic_ai import Agent, RunContext, UsageLimits
 
@@ -14,7 +17,8 @@ from code_puppy.callbacks import (
     on_agent_run_context,
     on_wrap_pydantic_agent,
 )
-from code_puppy.config import get_message_limit
+from code_puppy.config import get_message_limit, get_subagent_recursion_limit
+from code_puppy.i18n import t
 from code_puppy.messaging import (
     SubAgentInvocationMessage,
     SubAgentResponseMessage,
@@ -34,10 +38,180 @@ from code_puppy.tools.agent_tools import (
     _validate_session_id,
 )
 from code_puppy.tools.common import generate_group_id
-from code_puppy.tools.subagent_context import subagent_context
+from code_puppy.tools.subagent_context import (
+    get_subagent_chain,
+    get_subagent_depth,
+    get_subagent_model_name,
+    subagent_context,
+)
 
 # Set to track active subagent invocation tasks
 _active_subagent_tasks: Set[asyncio.Task] = set()
+
+
+def _coerce_token_count(value: Any) -> int | None:
+    """Coerce a usage value to an ``int``, or ``None`` if it isn't usable.
+
+    Token/request counts are semantically integers. ``bool`` is rejected even
+    though it subclasses ``int`` (``True`` must not silently become ``1``), and
+    non-finite floats (``nan``/``inf``) are treated as missing. Anything that
+    is not a real number (e.g. a ``Mock``) is treated as missing too.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return None
+        return int(value)
+    return None
+
+
+def _pick_reported_tokens(
+    usage: Any, detail_keys: tuple[str, ...], attr: str
+) -> int | None:
+    """Return a reported token count, preferring the provider ``details`` dict.
+
+    The ``details`` dict only contains keys a provider actually sent, so when a
+    key is present it is the authoritative signal for presence: a key present
+    with value ``0`` is a genuine "provider reported zero" and is kept. The
+    normalized first-class attribute (e.g. ``cache_read_tokens``) is used as a
+    fallback, and only when it is positive, because its dataclass default of
+    ``0`` is indistinguishable from "not reported" -- so for providers that only
+    surface a bucket via the first-class attribute (OpenAI cache reads), a
+    genuine zero is reported as ``None`` rather than a fabricated ``0``.
+    """
+    details = getattr(usage, "details", None)
+    if isinstance(details, dict):
+        for key in detail_keys:
+            if key in details:
+                coerced = _coerce_token_count(details[key])
+                if coerced is not None:
+                    return coerced
+    fallback = _coerce_token_count(getattr(usage, attr, None))
+    if fallback is not None and fallback > 0:
+        return fallback
+    return None
+
+
+def _extract_usage_metrics(usage: Any) -> dict[str, int | None]:
+    """Map a pydantic-ai usage object to our schema fields, defensively.
+
+    Token buckets are normalized so they never overlap: pydantic-ai (via
+    genai-prices) folds cached tokens INTO ``input_tokens`` for every provider
+    we use (Anthropic, OpenAI/codex, Gemini), so we subtract the cache
+    components back out to keep ``input_tokens`` strictly non-cached. That way
+    ``input_tokens + cache_read_input_tokens + cache_creation_input_tokens``
+    reflects total input without double-counting.
+
+    Cache buckets are sourced per provider (verified against the installed
+    pydantic-ai + genai-prices):
+    - cache reads: Anthropic emits ``cache_read_input_tokens`` and Gemini emits
+      ``cached_content_tokens`` in the ``details`` dict; OpenAI only surfaces it
+      via the first-class ``cache_read_tokens`` attribute (its nested
+      ``prompt_tokens_details.cached_tokens`` is not copied into ``details``).
+    - cache creation: Anthropic ``cache_creation_input_tokens`` only
+      (also normalized to ``cache_write_tokens``); OpenAI and Gemini have no
+      such concept, so that field stays ``None``.
+    """
+    metrics: dict[str, int | None] = {
+        "input_tokens": None,
+        "cache_read_input_tokens": None,
+        "cache_creation_input_tokens": None,
+        "output_tokens": None,
+        "total_tokens": None,
+        "num_requests": None,
+    }
+    if usage is None:
+        return metrics
+
+    cache_read = _pick_reported_tokens(
+        usage,
+        ("cache_read_input_tokens", "cached_content_tokens"),
+        "cache_read_tokens",
+    )
+    cache_creation = _pick_reported_tokens(
+        usage, ("cache_creation_input_tokens",), "cache_write_tokens"
+    )
+
+    # pydantic-ai reports a combined input count that already includes the
+    # cached tokens; subtract them back out so the buckets don't overlap.
+    combined_input = _coerce_token_count(getattr(usage, "input_tokens", None))
+    if combined_input is None:
+        combined_input = _coerce_token_count(getattr(usage, "request_tokens", None))
+    input_tokens = combined_input
+    if combined_input is not None:
+        input_tokens = max(
+            combined_input - (cache_read or 0) - (cache_creation or 0), 0
+        )
+
+    output_tokens = _coerce_token_count(getattr(usage, "output_tokens", None))
+    if output_tokens is None:
+        output_tokens = _coerce_token_count(getattr(usage, "response_tokens", None))
+
+    total_tokens = _coerce_token_count(getattr(usage, "total_tokens", None))
+    if total_tokens is None:
+        parts = [
+            p
+            for p in (input_tokens, cache_read, cache_creation, output_tokens)
+            if p is not None
+        ]
+        if parts:
+            total_tokens = sum(parts)
+
+    metrics["input_tokens"] = input_tokens
+    metrics["cache_read_input_tokens"] = cache_read
+    metrics["cache_creation_input_tokens"] = cache_creation
+    metrics["output_tokens"] = output_tokens
+    metrics["total_tokens"] = total_tokens
+    metrics["num_requests"] = _coerce_token_count(getattr(usage, "requests", None))
+    return metrics
+
+
+def _safe_usage_metrics(result: Any) -> dict[str, int | None]:
+    """Best-effort ``result.usage()`` extraction that never breaks the run.
+
+    Usage is secondary metadata; a failure here must not prevent a successful
+    sub-agent invocation from returning its response.
+    """
+    try:
+        usage = result.usage()
+        return _extract_usage_metrics(usage)
+    except Exception:
+        return _extract_usage_metrics(None)
+
+
+def _subagent_recursion_blocked() -> bool:
+    """Return whether another invocation would exceed the configured depth."""
+    return get_subagent_depth() >= get_subagent_recursion_limit()
+
+
+def _gpt_5_6_recursion_blocked() -> bool:
+    """Preserve the stricter single-level policy for GPT-5.6 callers."""
+    from code_puppy.agents._builder import _is_gpt_5_6_family
+
+    return _is_gpt_5_6_family(get_subagent_model_name())
+
+
+def _subagent_identity_prompt(agent_name: str) -> str:
+    """Build explicit nesting context for the child agent's system prompt."""
+    depth = get_subagent_depth() + 1
+    limit = get_subagent_recursion_limit()
+    chain = " -> ".join(("main agent", *get_subagent_chain(), agent_name))
+    remaining = max(limit - depth, 0)
+    return f"""## Sub-agent execution context (mandatory)
+
+You are the sub-agent `{agent_name}`, not the main agent. Your nesting depth is
+{depth} (main agent = 0). Invocation chain: {chain}. The configured maximum
+sub-agent depth is {limit}; {remaining} deeper level(s) remain.
+
+Complete your assigned task directly. NEVER invoke yourself, an agent already in
+the invocation chain, or another agent merely to repeat/continue your own role.
+Default to no further delegation. If delegation is truly essential, invoke at
+most one child level for a narrowly scoped task, tell that child to complete the
+work directly without further delegation, then finish the task yourself. Do not
+create recursive, cyclic, or open-ended agent chains."""
 
 
 async def _invoke_agent_impl(
@@ -46,9 +220,31 @@ async def _invoke_agent_impl(
     prompt: str,
     session_id: str | None = None,
     model_name: str | None = None,
+    emit_response_message: bool = True,
 ) -> AgentInvokeOutput:
-    """Invoke a sub-agent, optionally with an explicit temporary model override."""
+    """Invoke a sub-agent, optionally suppressing its standard response message."""
     from code_puppy.agents.agent_manager import load_agent
+
+    group_id = generate_group_id("invoke_agent", agent_name)
+    if _subagent_recursion_blocked():
+        error = t(
+            "subagent.recursion_limit_reached",
+            limit=get_subagent_recursion_limit(),
+            agent=agent_name,
+        )
+    elif _gpt_5_6_recursion_blocked():
+        error = t("subagent.gpt_5_6_recursion_blocked", agent=agent_name)
+    else:
+        error = None
+
+    if error:
+        emit_error(error, message_group=group_id)
+        return AgentInvokeOutput(
+            response=None,
+            agent_name=agent_name,
+            model_name=model_name,
+            error=error,
+        )
 
     # Validate user-provided session_id if given
     if session_id is not None:
@@ -56,7 +252,6 @@ async def _invoke_agent_impl(
             _validate_session_id(session_id)
         except ValueError as e:
             # Return error immediately if session_id is invalid
-            group_id = generate_group_id("invoke_agent", agent_name)
             emit_error(str(e), message_group=group_id)
             return AgentInvokeOutput(
                 response=None,
@@ -64,9 +259,6 @@ async def _invoke_agent_impl(
                 model_name=model_name,
                 error=str(e),
             )
-
-    # Generate a group ID for this tool execution
-    group_id = generate_group_id("invoke_agent", agent_name)
 
     # Check if this is an existing session or a new one
     # For user-provided session_id, check if it exists
@@ -169,15 +361,15 @@ async def _invoke_agent_impl(
 
             # Create a temporary agent instance to avoid interfering with current agent state
             instructions = agent_config.get_full_system_prompt()
+            instructions += f"\n\n{_subagent_identity_prompt(agent_name)}"
 
-            # Add AGENTS.md content to subagents.
-            # ``load_puppy_rules`` lives on the builder module since the
-            # base_agent split in 79dfc3c8; it's not a method on the agent.
-            from code_puppy.agents._builder import load_puppy_rules
-
-            puppy_rules = load_puppy_rules()
-            if puppy_rules:
-                instructions += f"\n\n{puppy_rules}"
+            # AGENTS.md (puppy rules) is deliberately NOT injected into
+            # sub-agents. Those files are user-facing steering for the MAIN
+            # agent; feeding them to sub-agents creates anti-patterns — e.g.
+            # a rule like "always invoke the xyz agent for abc" makes the
+            # xyz sub-agent (which has ``invoke_agent``) re-invoke itself in
+            # an infinite recursion trap. Sub-agents get only their own
+            # authored prompt + the identity note above.
 
             # NOTE: ``load_prompt`` fragments (file-permission handling, kennel
             # memory, ...) are already baked into ``get_full_system_prompt``
@@ -286,22 +478,60 @@ async def _invoke_agent_impl(
             else:
                 stream_handler = partial(subagent_stream_handler, session_id=session_id)
 
-            # Wrap the agent run in subagent context for tracking
-            with subagent_context(agent_name):
+            with subagent_context(agent_name, effective_model_name):
                 run_ctxs = on_agent_run_context(
                     agent_config, temp_agent, group_id, mcp_servers
                 )
                 async with AsyncExitStack() as stack:
                     for cm in run_ctxs:
                         await stack.enter_async_context(cm)
-                    task = asyncio.create_task(
-                        temp_agent.run(
+                    # Wrap the model stream in streaming_retry so a transient
+                    # provider hiccup (gateway 5xx delivered as an in-band SSE
+                    # error, a dropped SSE socket, an overloaded upstream) gets
+                    # the same slow spaced-out retry the top-level agent loop
+                    # gets -- except sub-agents get their own selectable retry
+                    # profile (SUBAGENT role), honouring any per-model override,
+                    # because losing a sub-agent's accumulated work to a
+                    # transient blip is never acceptable --
+                    # instead of crashing the whole sub-agent invocation. This
+                    # path was previously the ONLY unprotected model-stream
+                    # call -- run_agent_task uses @streaming_retry, but a raw
+                    # temp_agent.run() here surfaced the 5xx straight to the REPL.
+                    from code_puppy.agents.retry_profiles import (
+                        make_streaming_retry,
+                    )
+
+                    @make_streaming_retry(
+                        "subagent",
+                        effective_model_name,
+                        # The history processor checkpoints completed steps into
+                        # agent_config._message_history in place, so a growing
+                        # history means real forward progress -> refresh the
+                        # no-progress retry budget.
+                        progress_fn=lambda: len(
+                            agent_config.get_message_history() or []
+                        ),
+                    )
+                    async def _run_subagent():
+                        # Resume from the live checkpoint, not the stale pre-run
+                        # snapshot, so a retried turn picks up completed steps
+                        # instead of redoing them (matches the main-agent loop).
+                        return await temp_agent.run(
                             prompt,
-                            message_history=message_history,
+                            message_history=agent_config.get_message_history(),
                             usage_limits=UsageLimits(request_limit=get_message_limit()),
                             event_stream_handler=stream_handler,
                         )
-                    )
+
+                    # Time the full run (including streaming retries) so the
+                    # returned timestamps and duration_ms reflect honest
+                    # user-observed latency, not just a single attempt.
+                    # start_time/end_time are timezone-aware UTC ISO-8601
+                    # strings; duration_ms uses a monotonic clock so it is
+                    # immune to wall-clock adjustments during the run.
+                    run_started = time.perf_counter()
+                    start_time = datetime.now(timezone.utc).isoformat()
+                    task = asyncio.create_task(_run_subagent())
                     _active_subagent_tasks.add(task)
 
                     try:
@@ -310,6 +540,12 @@ async def _invoke_agent_impl(
                         _active_subagent_tasks.discard(task)
                         if task.cancelled():
                             await on_agent_run_cancel(group_id)
+
+                    # Capture usage + latency as close to the run boundary as
+                    # possible, before any rendering/history/emit bookkeeping.
+                    end_time = datetime.now(timezone.utc).isoformat()
+                    duration_ms = (time.perf_counter() - run_started) * 1000.0
+                    usage_metrics = _safe_usage_metrics(result)
 
                 # Still inside subagent_context: if high mode and streaming
                 # didn't produce any text, fall back to the one-shot renderer
@@ -343,7 +579,7 @@ async def _invoke_agent_impl(
             # In high mode, skip the emit when streaming already rendered the
             # response to avoid a double-render if any future subscriber
             # starts rendering SubAgentResponseMessage.
-            if not (is_high_mode and streamed_text):
+            if emit_response_message and not (is_high_mode and streamed_text):
                 bus.emit(
                     SubAgentResponseMessage(
                         agent_name=agent_name,
@@ -363,6 +599,17 @@ async def _invoke_agent_impl(
                 agent_name=agent_name,
                 session_id=session_id,
                 model_name=effective_model_name,
+                input_tokens=usage_metrics["input_tokens"],
+                cache_read_input_tokens=usage_metrics["cache_read_input_tokens"],
+                cache_creation_input_tokens=usage_metrics[
+                    "cache_creation_input_tokens"
+                ],
+                output_tokens=usage_metrics["output_tokens"],
+                total_tokens=usage_metrics["total_tokens"],
+                num_requests=usage_metrics["num_requests"],
+                start_time=start_time,
+                end_time=end_time,
+                duration_ms=duration_ms,
             )
 
     except Exception as e:
@@ -426,6 +673,12 @@ def register_invoke_agent(agent):
     ) -> AgentInvokeOutput:
         """Invoke a specific sub-agent using its configured model.
 
+        Delegation safety: never invoke yourself or an agent already in the
+        invocation chain. Default to doing the work directly. If delegation is
+        essential, go at most one level deeper for one narrowly scoped task and
+        explicitly tell that child not to delegate further. Never create cyclic,
+        recursive, or open-ended delegation chains.
+
         Args:
             agent_name: Name of the sub-agent to invoke.
             prompt: Task prompt for the sub-agent.
@@ -433,7 +686,12 @@ def register_invoke_agent(agent):
 
         Returns:
             AgentInvokeOutput: Contains response, agent_name, session_id,
-            effective model_name, and error fields.
+            effective model_name, and error fields. On a successful run it also
+            reports per-run token usage (non-cached input_tokens,
+            cache_read_input_tokens, cache_creation_input_tokens, output_tokens,
+            total_tokens, num_requests) and timing (start_time/end_time as UTC
+            ISO-8601 strings plus duration_ms); those fields are None on any
+            error path.
         """
         return await _invoke_agent_impl(
             context=context,
@@ -471,7 +729,10 @@ def register_invoke_agent_with_model(agent):
 
         Use this only when a model override is intentionally required. For
         normal delegation, use invoke_agent so the sub-agent's configured model
-        is respected.
+        is respected. Never invoke yourself or an agent already in the invocation
+        chain. Default to doing the work directly; if delegation is essential,
+        go at most one level deeper for one narrowly scoped task, tell that child
+        not to delegate further, and never create recursive or cyclic chains.
 
         Args:
             agent_name: Name of the sub-agent to invoke.
@@ -481,7 +742,12 @@ def register_invoke_agent_with_model(agent):
 
         Returns:
             AgentInvokeOutput: Contains response, agent_name, session_id,
-            effective model_name, and error fields.
+            effective model_name, and error fields. On a successful run it also
+            reports per-run token usage (non-cached input_tokens,
+            cache_read_input_tokens, cache_creation_input_tokens, output_tokens,
+            total_tokens, num_requests) and timing (start_time/end_time as UTC
+            ISO-8601 strings plus duration_ms); those fields are None on any
+            error path.
         """
         normalized_model_name = model_name.strip()
         if not normalized_model_name:

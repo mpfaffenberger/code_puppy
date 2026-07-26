@@ -47,66 +47,34 @@ VALID_CANCEL_KEYS: set[str] = {
 
 DEFAULT_CANCEL_AGENT_KEY: str = "ctrl+c"
 
-# Valid keys for pause_agent_key configuration.
-#
-# Excluded and why:
-#   ctrl+c  – SIGINT / cancel-agent key
-#   ctrl+d  – EOF (ambiguous in raw mode)
-#   ctrl+h  – backspace
-#   ctrl+i  – tab
-#   ctrl+j  – line-feed (Enter)
-#   ctrl+l  – some terminals intercept as clear-screen
-#   ctrl+m  – carriage-return (Enter)
-#   ctrl+q  – XON flow-control
-#   ctrl+s  – XOFF flow-control (can lock terminal)
-#   ctrl+z  – SIGTSTP (suspend)
-#   escape  – collides with ANSI escape sequences
-#
-# Note: ctrl+a and ctrl+b are tmux/screen prefix keys by default —
-# they work in raw mode but tmux may swallow them. Users who live
-# inside tmux should pick a key their tmux doesn't capture.
-VALID_PAUSE_KEYS: set[str] = {
-    "ctrl+a",
-    "ctrl+b",
-    "ctrl+e",
-    "ctrl+f",
-    "ctrl+g",
-    "ctrl+k",
-    "ctrl+n",
-    "ctrl+o",
-    "ctrl+p",
-    "ctrl+r",
-    "ctrl+t",
-    "ctrl+u",
-    "ctrl+v",
-    "ctrl+w",
-    "ctrl+x",
-    "ctrl+y",
-}
-
-DEFAULT_PAUSE_AGENT_KEY: str = "ctrl+t"
-
 
 class KeymapError(Exception):
     """Exception raised for keymap configuration errors."""
 
 
+def _is_windows() -> bool:
+    """Check if we're running on Windows."""
+    import platform
+
+    return platform.system() == "Windows"
+
+
 def get_cancel_agent_key() -> str:
     """Get the configured cancel agent key from config.
 
-    On Windows when launched via uvx, this automatically returns "ctrl+k"
-    to work around uvx capturing Ctrl+C before it reaches Python.
+    The default is "ctrl+c" on every platform. Ctrl+C is a pure
+    keybinding everywhere: the raw-mode stdin reader receives it as a
+    plain ``\\x03`` byte handled by the key listener (buffer-first:
+    composing input absorbs the press; an empty prompt cancels). On
+    Windows, Ctrl+C-with-a-selection is additionally intercepted by the
+    terminal itself as the COPY gesture, so copying agent output can't
+    cancel the run.
 
     Returns:
         The key name (e.g., "ctrl+c", "ctrl+k") from config,
         or the default if not configured.
     """
     from code_puppy.config import get_value
-    from code_puppy.uvx_detection import should_use_alternate_cancel_key
-
-    # On Windows + uvx, force ctrl+k to bypass uvx's SIGINT capture
-    if should_use_alternate_cancel_key():
-        return "ctrl+k"
 
     key = get_value("cancel_agent_key")
     if key is None or key.strip() == "":
@@ -129,14 +97,34 @@ def validate_cancel_agent_key() -> None:
         )
 
 
-def cancel_agent_uses_signal() -> bool:
-    """Check if the cancel agent key uses SIGINT (Ctrl+C).
+def sigint_fallback_cancels() -> bool:
+    """Should an out-of-band SIGINT cancel the running agent?
+
+    Ctrl+C is a *pure keybinding* on every platform: whenever a raw-mode
+    reader owns stdin (the key listener disables the tty's INTR char on
+    POSIX; Windows strips ``ENABLE_PROCESSED_INPUT`` session-wide), ^C
+    arrives as a raw ``\\x03`` byte and never becomes a signal. The key
+    listener ALWAYS owns cancellation.
+
+    SIGINT can still arrive out-of-band: ``kill -INT``, a piped stdin
+    (no TTY, no listener), or the brief cooked-mode gaps between raw
+    readers on POSIX. When the cancel key IS ctrl+c, that fallback
+    SIGINT should cancel the run — the user pressed the cancel gesture;
+    delivery mechanism is an implementation detail. When cancel is
+    remapped (ctrl+k/ctrl+q), a SIGINT is NOT the cancel gesture and
+    only earns a hint.
+
+    Always False on Windows: with the console clamp active SIGINT only
+    fires when the console mode has REGRESSED (something re-enabled
+    processed input), and cancelling then would be wrong — the graceful
+    handler instead repairs the console via reset_windows_terminal_full()
+    and re-clamps, restoring pure-keybinding delivery.
 
     Returns:
-        True if the cancel key is ctrl+c (uses SIGINT handler),
-        False if it uses keyboard listener approach.
+        True if a fallback SIGINT should cancel the agent run,
+        False if it should only hint at the real cancel key.
     """
-    return get_cancel_agent_key() == "ctrl+c"
+    return get_cancel_agent_key() == "ctrl+c" and not _is_windows()
 
 
 def get_cancel_agent_char_code() -> str:
@@ -161,67 +149,6 @@ def get_cancel_agent_display_name() -> str:
         A formatted display name like "Ctrl+K".
     """
     key = get_cancel_agent_key()
-    if key.startswith("ctrl+"):
-        letter = key.split("+")[1].upper()
-        return f"Ctrl+{letter}"
-    return key.upper()
-
-
-# =============================================================================
-# Pause-agent key (Phase 3 of the pause/steer feature)
-# =============================================================================
-
-
-def get_pause_agent_key() -> str:
-    """Get the configured pause-agent key from config.
-
-    On Windows when launched via uvx, this swaps to ``ctrl+p`` for the same
-    reason ``get_cancel_agent_key`` swaps to ``ctrl+k`` (uvx captures some
-    keys before they reach Python).
-
-    Returns:
-        The configured key name (e.g. "ctrl+t"), or the default.
-    """
-    from code_puppy.config import get_value
-    from code_puppy.uvx_detection import should_use_alternate_cancel_key
-
-    if should_use_alternate_cancel_key():
-        return "ctrl+p"
-
-    key = get_value("pause_agent_key")
-    if key is None or key.strip() == "":
-        return DEFAULT_PAUSE_AGENT_KEY
-    return key.strip().lower()
-
-
-def validate_pause_agent_key() -> None:
-    """Validate the configured pause-agent key.
-
-    Raises:
-        KeymapError: If the configured key is not in ``VALID_PAUSE_KEYS``.
-    """
-    key = get_pause_agent_key()
-    if key not in VALID_PAUSE_KEYS:
-        valid_keys_str = ", ".join(sorted(VALID_PAUSE_KEYS))
-        raise KeymapError(
-            f"Invalid pause_agent_key '{key}' in puppy.cfg. "
-            f"Valid options are: {valid_keys_str}"
-        )
-
-
-def get_pause_agent_char_code() -> str:
-    """Get the character code for the configured pause-agent key."""
-    key = get_pause_agent_key()
-    if key not in KEY_CODES:
-        raise KeymapError(
-            f"Unknown pause key '{key}' - no character code mapping found."
-        )
-    return KEY_CODES[key]
-
-
-def get_pause_agent_display_name() -> str:
-    """Get a human-readable display name for the pause-agent key."""
-    key = get_pause_agent_key()
     if key.startswith("ctrl+"):
         letter = key.split("+")[1].upper()
         return f"Ctrl+{letter}"

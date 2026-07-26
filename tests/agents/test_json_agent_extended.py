@@ -342,10 +342,14 @@ class TestJsonAgentExtended:
         agent_file.write_text(json.dumps(config))
 
         agent = JSONAgent(str(agent_file))
-        # Should fall back to base class implementation
-        model_name = agent.get_model_name()
-        # We don't know what the default is, but it should not be None
-        assert model_name is not None
+        # Should fall back to the base class implementation, which resolves
+        # the global model. models.json ships empty, so pin the global
+        # resolver to a sentinel to prove the delegation happens.
+        with patch(
+            "code_puppy.agents.base_agent.get_global_model_name",
+            return_value="sentinel-global-model",
+        ):
+            assert agent.get_model_name() == "sentinel-global-model"
 
 
 class TestDiscoverJsonAgents:

@@ -209,7 +209,7 @@ class JSONAgent(BaseAgent):
             return override
 
         result = self._config.get("model")
-        if result is None:
+        if result is None or (isinstance(result, str) and not result.strip()):
             result = super().get_model_name()
         return result
 

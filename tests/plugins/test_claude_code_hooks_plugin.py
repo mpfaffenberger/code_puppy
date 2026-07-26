@@ -464,6 +464,57 @@ class TestOnPostToolCallHook:
 
 
 # ---------------------------------------------------------------------------
+# register_callbacks.py: on_agent_run_end_hook
+# ---------------------------------------------------------------------------
+
+
+class TestOnAgentRunEndHook:
+    @pytest.mark.asyncio
+    async def test_reports_additional_agent_run_end_fields(self):
+        from code_puppy.hook_engine.models import EventData, ProcessEventResult
+        from code_puppy.plugins.claude_code_hooks import register_callbacks
+
+        mock_engine = MagicMock()
+        mock_result = ProcessEventResult(blocked=False, executed_hooks=0, results=[])
+        mock_engine.process_event = AsyncMock(return_value=mock_result)
+
+        original = register_callbacks._hook_engine
+        register_callbacks._hook_engine = mock_engine
+        try:
+            metadata = {
+                "model": "claude-code-opus",
+                "input_tokens": 12,
+                "output_tokens": 34,
+            }
+            await register_callbacks.on_agent_run_end_hook(
+                agent_name="code-puppy",
+                model_name="claude-code-opus",
+                session_id="sess-123",
+                success=False,
+                error=RuntimeError("run failed"),
+                response_text="partial response",
+                metadata=metadata,
+            )
+
+            call_args = mock_engine.process_event.call_args
+            assert call_args[0][0] == "SubagentStop"
+            event_data = call_args[0][1]
+            assert isinstance(event_data, EventData)
+            assert event_data.tool_name == "code-puppy"
+            assert event_data.context == {
+                "agent_name": "code-puppy",
+                "model_name": "claude-code-opus",
+                "session_id": "sess-123",
+                "success": False,
+                "error": "run failed",
+                "response_text": "partial response",
+                "metadata": metadata,
+            }
+        finally:
+            register_callbacks._hook_engine = original
+
+
+# ---------------------------------------------------------------------------
 # Callback registration wiring
 # ---------------------------------------------------------------------------
 

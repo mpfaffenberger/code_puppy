@@ -100,7 +100,7 @@ def test_write_to_file_returns_error_dict_on_atomic_failure(tmp_path, monkeypatc
     def boom(*args, **kwargs):
         raise OSError("simulated atomic write failure")
 
-    monkeypatch.setattr(fmod, "atomic_write_text", boom)
+    monkeypatch.setattr(fmod, "write_project_file", boom)
 
     p = tmp_path / "out.txt"
     result = fmod._write_to_file(None, str(p), "some content", overwrite=True)

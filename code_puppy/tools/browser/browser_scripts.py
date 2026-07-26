@@ -50,7 +50,7 @@ async def scroll_page(
     target = element_selector or "page"
     group_id = generate_group_id("browser_scroll", f"{direction}_{amount}_{target}")
     emit_info(
-        f"BROWSER SCROLL 📋 direction={direction} amount={amount} target='{target}'",
+        f"BROWSER SCROLL direction={direction} amount={amount} target='{target}'",
         message_group=group_id,
     )
     try:
@@ -207,7 +207,7 @@ async def wait_for_element(
     """Wait for an element to reach a specific state."""
     group_id = generate_group_id("browser_wait_for_element", f"{selector[:50]}_{state}")
     emit_info(
-        f"BROWSER WAIT FOR ELEMENT ⏱️ selector='{selector}' state={state} timeout={timeout}ms",
+        f"BROWSER WAIT FOR ELEMENT selector='{selector}' state={state} timeout={timeout}ms",
         message_group=group_id,
     )
     try:

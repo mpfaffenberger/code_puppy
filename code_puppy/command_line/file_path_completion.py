@@ -199,6 +199,12 @@ class FilePathCompleter(Completer):
         text = document.text
         cursor_position = document.cursor_position
         text_before_cursor = text[:cursor_position]
+        # ``/fork @...`` reserves its first argument for an agent name.
+        # ``/fork @... @...`` reserves its second for a model name.
+        # Let Fork's AgentCompleter/ModelNameCompleter own those slots
+        # instead of mixing in project files.
+        if text_before_cursor.lstrip().startswith("/fork @"):
+            return
         if self.symbol not in text_before_cursor:
             return
         symbol_pos = text_before_cursor.rfind(self.symbol)

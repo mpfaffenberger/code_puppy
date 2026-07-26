@@ -6,6 +6,7 @@ import types
 from pathlib import Path
 
 from code_puppy.callbacks import clear_loading_context, set_loading_context
+from code_puppy.plugins import trust as _trust
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,11 @@ _PLUGINS_LOADED = False
 # Stores the loaded plugin names by tier after the first load_plugin_callbacks() call.
 # Populated once, then read by get_loaded_plugins().
 _loaded_plugin_names: dict[str, list[str]] = {"builtin": [], "user": [], "project": []}
+
+# Status of every discovered project plugin, keyed by name:
+# "loaded" | "untrusted" | "changed" | "disabled" | "error".
+# Read by /plugins UI via get_project_plugin_status().
+_project_plugin_status: dict[str, str] = {}
 
 
 def _load_builtin_plugins(plugins_dir: Path) -> list[str]:
@@ -261,23 +267,98 @@ def _ensure_plugin_package(plugin_dir: Path, plugin_name: str) -> bool:
         return False
 
 
+def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
+    """Import a single (already trusted) project plugin.
+
+    SECURITY: callers MUST verify trust before invoking this — executing
+    ``register_callbacks.py`` / ``__init__.py`` is arbitrary code execution.
+
+    The plugins directory is only added to ``sys.path`` here, i.e. after a
+    trust decision, so an untrusted repo can never shadow stdlib/third-party
+    modules just by existing.
+
+    Returns True if the plugin executed successfully.
+    """
+    callbacks_file = plugin_dir / "register_callbacks.py"
+    init_file = plugin_dir / "__init__.py"
+
+    if not callbacks_file.exists() and not init_file.exists():
+        return False
+
+    # sys.path entry is earned by trust — inserted just-in-time so sibling
+    # top-level imports inside the plugin resolve during exec below.
+    parent_str = str(plugin_dir.parent)
+    if parent_str not in sys.path:
+        sys.path.insert(0, parent_str)
+
+    try:
+        if callbacks_file.exists():
+            # Register parent package so relative imports resolve
+            _ensure_plugin_package(plugin_dir, plugin_name)
+
+            module_name = f"{_PROJECT_PLUGINS_NS}.{plugin_name}.register_callbacks"
+            spec = importlib.util.spec_from_file_location(module_name, callbacks_file)
+            if spec is None or spec.loader is None:
+                logger.warning(
+                    f"Could not create module spec for project plugin: {plugin_name}"
+                )
+                return False
+
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            set_loading_context(plugin_name)
+            try:
+                spec.loader.exec_module(module)
+            finally:
+                clear_loading_context()
+            return True
+
+        # Fallback to __init__.py (mirrors user plugin behavior)
+        set_loading_context(plugin_name)
+        try:
+            loaded_ok = _ensure_plugin_package(plugin_dir, plugin_name)
+        finally:
+            clear_loading_context()
+        if not loaded_ok:
+            logger.warning(
+                f"Could not load __init__.py for project plugin: {plugin_name}"
+            )
+        return loaded_ok
+
+    except ImportError as e:
+        logger.warning(
+            f"Failed to import callbacks from project plugin {plugin_name}: {e}"
+        )
+        return False
+    except Exception as e:
+        logger.error(
+            f"Unexpected error loading project plugin {plugin_name}: {e}",
+            exc_info=True,
+        )
+        return False
+
+
 def _load_project_plugins(
     project_plugins_dir: Path,
     builtin_names: set[str],
     user_names: set[str],
 ) -> list[str]:
-    """Load project plugins from <CWD>/.code_puppy/plugins/.
+    """Load TRUSTED project plugins from <CWD>/.code_puppy/plugins/.
 
-    Mirrors _load_user_plugins() but uses a ``project_plugins.`` sys.modules
-    namespace and warns on name collisions with builtin or user plugins.
+    Project plugins are disabled by default: a plugin is only imported when
+    the user previously accepted the risk via the /plugins TUI ceremony AND
+    its content hash still matches the accepted hash (see plugins.trust).
+    Everything else is recorded in ``_project_plugin_status`` and skipped
+    WITHOUT importing — import is code execution.
 
-    Before loading each plugin's ``register_callbacks.py``, a synthetic
-    parent package is registered in ``sys.modules`` so that relative
-    imports (``from . import state``, ``from .utils import …``) resolve
-    correctly.
+    NOTE: this is deliberately different from the ``disabled_plugins``
+    mechanism used by builtin/user tiers (loaded but callbacks skipped).
+    Do not "unify" them — non-enabled project plugins must never import.
 
     Returns list of successfully loaded plugin names.
     """
+    from code_puppy.plugins.config import is_plugin_disabled
+
     loaded = []
 
     if not project_plugins_dir.exists():
@@ -289,9 +370,7 @@ def _load_project_plugins(
         )
         return loaded
 
-    project_plugins_str = str(project_plugins_dir)
-    if project_plugins_str not in sys.path:
-        sys.path.insert(0, project_plugins_str)
+    project_root = project_plugins_dir.parent.parent
 
     # Create the top-level namespace package once
     _ensure_project_ns()
@@ -304,6 +383,36 @@ def _load_project_plugins(
         ):
             plugin_name = item.name
 
+            if (
+                not (item / "register_callbacks.py").exists()
+                and not (item / "__init__.py").exists()
+            ):
+                continue
+
+            # Trust gate — fail closed BEFORE any import machinery runs.
+            status = _trust.get_trust_status(project_root, plugin_name, item)
+            if status != _trust.TRUSTED:
+                # Recorded here; surfaced to the human by plugin_list's
+                # startup hook (orange banner) once renderers are live.
+                # logger.info only — a logger.warning would splat onto
+                # stderr above the logo, duplicating the banner.
+                _project_plugin_status[plugin_name] = status
+                logger.info(
+                    "Skipping project plugin '%s' (%s). "
+                    "Review and enable it in the /plugins TUI.",
+                    plugin_name,
+                    status,
+                )
+                continue
+
+            if is_plugin_disabled(plugin_name):
+                _project_plugin_status[plugin_name] = "disabled"
+                logger.info(
+                    "Project plugin '%s' is trusted but disabled — not loading",
+                    plugin_name,
+                )
+                continue
+
             # Warn if a project plugin shadows a builtin (user collisions
             # are handled earlier by skipping the user plugin entirely).
             if plugin_name in builtin_names:
@@ -311,65 +420,11 @@ def _load_project_plugins(
                     f"Project plugin '{plugin_name}' shadows builtin plugin of the same name"
                 )
 
-            callbacks_file = item / "register_callbacks.py"
-
-            if callbacks_file.exists():
-                try:
-                    # Register parent package so relative imports resolve
-                    _ensure_plugin_package(item, plugin_name)
-
-                    module_name = (
-                        f"{_PROJECT_PLUGINS_NS}.{plugin_name}.register_callbacks"
-                    )
-                    spec = importlib.util.spec_from_file_location(
-                        module_name, callbacks_file
-                    )
-                    if spec is None or spec.loader is None:
-                        logger.warning(
-                            f"Could not create module spec for project plugin: {plugin_name}"
-                        )
-                        continue
-
-                    module = importlib.util.module_from_spec(spec)
-                    sys.modules[module_name] = module
-                    set_loading_context(plugin_name)
-                    try:
-                        spec.loader.exec_module(module)
-                    finally:
-                        clear_loading_context()
-                    loaded.append(plugin_name)
-
-                except ImportError as e:
-                    logger.warning(
-                        f"Failed to import callbacks from project plugin {plugin_name}: {e}"
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Unexpected error loading project plugin {plugin_name}: {e}",
-                        exc_info=True,
-                    )
+            if _load_one_project_plugin(item, plugin_name):
+                loaded.append(plugin_name)
+                _project_plugin_status[plugin_name] = "loaded"
             else:
-                # Fallback to __init__.py (mirrors user plugin behavior)
-                init_file = item / "__init__.py"
-                if init_file.exists():
-                    try:
-                        set_loading_context(plugin_name)
-                        try:
-                            loaded_ok = _ensure_plugin_package(item, plugin_name)
-                        finally:
-                            clear_loading_context()
-                        if loaded_ok:
-                            loaded.append(plugin_name)
-                        else:
-                            logger.warning(
-                                f"Could not load __init__.py for project plugin: {plugin_name}"
-                            )
-
-                    except Exception as e:
-                        logger.error(
-                            f"Unexpected error loading project plugin {plugin_name}: {e}",
-                            exc_info=True,
-                        )
+                _project_plugin_status[plugin_name] = "error"
 
     return loaded
 
@@ -416,12 +471,18 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
 
     # Pre-scan project plugin names so we can skip user plugins that the
     # project tier will supersede (project wins, matching agents dedup).
+    # SECURITY: only TRUSTED project plugins participate in dedup — otherwise
+    # an untrusted repo could knock out user plugins (e.g. force_push_guard)
+    # just by squatting on their names.
     project_plugins_dir = get_project_plugins_directory()
-    project_plugin_names = (
-        _scan_plugin_names(project_plugins_dir)
-        if project_plugins_dir is not None
-        else set()
-    )
+    project_plugin_names: set[str] = set()
+    if project_plugins_dir is not None:
+        project_root = project_plugins_dir.parent.parent
+        project_plugin_names = {
+            name
+            for name in _scan_plugin_names(project_plugins_dir)
+            if _trust.is_plugin_trusted(project_root, name, project_plugins_dir / name)
+        }
 
     builtin_loaded = _load_builtin_plugins(plugins_dir)
     user_skip_names = set(builtin_loaded) | project_plugin_names
@@ -461,6 +522,53 @@ def get_loaded_plugins() -> dict[str, list[str]]:
     call at any time — returns empty lists before plugins are loaded.
     """
     return dict(_loaded_plugin_names)
+
+
+def get_project_plugin_status() -> dict[str, str]:
+    """Return status of every discovered project plugin.
+
+    Maps plugin name to one of ``loaded``, ``untrusted``, ``changed``,
+    ``disabled``, or ``error``.  Used by the /plugins UI to surface
+    project plugins that were skipped by the trust gate.
+    """
+    return dict(_project_plugin_status)
+
+
+def load_project_plugin_now(plugin_name: str) -> bool:
+    """Hot-load a single project plugin after the user granted trust.
+
+    Re-checks the trust store (fail closed) so callers can't accidentally
+    load an unaccepted plugin.  Registers callbacks immediately — no
+    restart required.
+    """
+    project_plugins_dir = get_project_plugins_directory()
+    if project_plugins_dir is None:
+        return False
+
+    plugin_dir = project_plugins_dir / plugin_name
+    if not plugin_dir.is_dir():
+        return False
+
+    project_root = project_plugins_dir.parent.parent
+    if not _trust.is_plugin_trusted(project_root, plugin_name, plugin_dir):
+        logger.warning(
+            "Refusing to hot-load project plugin '%s' — not trusted", plugin_name
+        )
+        return False
+
+    if plugin_name in _loaded_plugin_names["project"]:
+        # Already imported this session; callbacks are registered.
+        _project_plugin_status[plugin_name] = "loaded"
+        return True
+
+    _ensure_project_ns()
+    if _load_one_project_plugin(plugin_dir, plugin_name):
+        _loaded_plugin_names["project"].append(plugin_name)
+        _project_plugin_status[plugin_name] = "loaded"
+        return True
+
+    _project_plugin_status[plugin_name] = "error"
+    return False
 
 
 def get_user_plugins_dir() -> Path:

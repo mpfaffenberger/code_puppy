@@ -265,6 +265,23 @@ Then just use /model and tab to select your round-robin model!
 
 The `rotate_every` parameter controls how many requests are made to each model before rotating to the next one. In this example, the round-robin model will use each Qwen model for 5 consecutive requests before moving to the next model in the sequence.
 
+## Custom OpenAI API Types
+
+Use `custom_openai` for OpenAI-compatible Chat Completions endpoints. If an endpoint requires the OpenAI Responses API, use `custom_openai_responses` instead:
+
+```json
+{
+  "reasoning_proxy": {
+    "type": "custom_openai_responses",
+    "name": "gpt-5.5",
+    "custom_endpoint": {
+      "url": "https://proxy.example.com/v1",
+      "api_key": "$API_KEY"
+    }
+  }
+}
+```
+
 ## Custom Model Timeouts
 
 For custom model endpoints (`custom_openai`, `custom_anthropic`, `custom_gemini`, `cerebras`), you can configure custom timeout values to handle slow or unreliable endpoints. The default timeout for these custom endpoint models is 180 seconds.

@@ -32,6 +32,7 @@ class TestMessagingPackageExports:
         emit_functions = [
             "emit_message",
             "emit_info",
+            "emit_queued",
             "emit_success",
             "emit_warning",
             "emit_divider",
@@ -90,6 +91,7 @@ class TestMessagingPackageExports:
             "get_global_queue",
             "emit_message",
             "emit_info",
+            "emit_queued",
             "emit_success",
             "emit_warning",
             "emit_divider",
@@ -154,6 +156,16 @@ class TestMessagingPackageExports:
             "PauseController",
             "get_pause_controller",
             "reset_pause_controller",
+            # Bottom bar + running line editor (Phase 1 of bottom prompt)
+            "BottomBar",
+            "get_bottom_bar",
+            "reset_bottom_bar",
+            "RunningLineEditor",
+            # Composed run UI (Phase 3: bar + editor + key routing)
+            "start_run_ui",
+            "stop_run_ui",
+            "get_run_editor",
+            "suspended_run_ui",
             # Message bus
             "MessageBus",
             "get_message_bus",
@@ -171,7 +183,7 @@ class TestMessagingPackageExports:
             "DEFAULT_STYLES",
             "DIFF_STYLES",
             # Markdown patches
-            "patch_markdown_headings",
+            "patch_markdown",
             # Session management
             "set_session_context",
             "get_session_context",

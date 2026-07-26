@@ -180,6 +180,38 @@ def test_strip_attachment_token():
     assert _strip_attachment_token("  (file.png),  ") == "file.png"
 
 
+def test_strip_attachment_token_peels_matching_quotes():
+    # Windows terminals paste copied files as fully-quoted paths; the
+    # non-POSIX shlex keeps those quotes on the token.
+    assert _strip_attachment_token('"C:\\pics\\shot.png"') == "C:\\pics\\shot.png"
+    assert _strip_attachment_token("'/tmp/shot.png'") == "/tmp/shot.png"
+
+
+def test_strip_attachment_token_leaves_unmatched_quote():
+    assert _strip_attachment_token('"unterminated.png') == '"unterminated.png'
+
+
+def test_detect_quoted_image_path(tmp_path):
+    # A quoted existing image (Windows Explorer copy -> terminal paste)
+    # must be detected on every platform.
+    png = tmp_path / "shot.png"
+    png.write_bytes(b"\x89PNG fake")
+    detections, warnings = _detect_path_tokens(f'"{png}"')
+    assert len(detections) == 1
+    assert detections[0].has_path()
+    assert detections[0].path.name == "shot.png"
+    assert warnings == []
+
+
+def test_parse_prompt_attachments_quoted_path(tmp_path):
+    png = tmp_path / "shot.png"
+    png.write_bytes(b"\x89PNG fake")
+    processed = parse_prompt_attachments(f'"{png}" describe this')
+    assert len(processed.attachments) == 1
+    assert "describe this" in processed.prompt
+    assert str(png) not in processed.prompt
+
+
 # ---------------------------------------------------------------------------
 # _candidate_paths
 # ---------------------------------------------------------------------------

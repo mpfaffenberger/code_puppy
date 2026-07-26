@@ -462,125 +462,35 @@ class TestPrintTruecolorWarning:
         assert any("unknown" in c for c in calls)
 
 
-# ── install_windows_ctrl_c_swallower ──
+# ── disable_mouse_tracking ──
 
 
-class TestInstallWindowsCtrlCSwallower:
-    def teardown_method(self):
-        # Always blow away the pinned ref between tests so we don't leak
-        # state into other test classes.
-        terminal_utils._ctrl_c_swallower_ref = None
+class TestDisableMouseTracking:
+    def test_noop_on_windows(self, monkeypatch):
+        monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Windows")
+        stream = MagicMock()
+        terminal_utils.disable_mouse_tracking(stream)
+        stream.write.assert_not_called()
 
-    def test_returns_false_on_non_windows(self, monkeypatch):
+    def test_writes_all_disable_sequences(self, monkeypatch):
+        monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Darwin")
+        stream = MagicMock()
+        terminal_utils.disable_mouse_tracking(stream)
+        written = "".join(str(c.args[0]) for c in stream.write.call_args_list)
+        # Every xterm mouse mode + bracketed paste must be disabled
+        for mode in ("1000", "1002", "1003", "1005", "1006", "1015", "2004"):
+            assert f"[?{mode}l" in written
+        stream.flush.assert_called_once()
+
+    def test_defaults_to_stdout(self, monkeypatch):
         monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Linux")
-        assert terminal_utils.install_windows_ctrl_c_swallower() is False
-        assert terminal_utils._ctrl_c_swallower_ref is None
+        stdout = MagicMock()
+        monkeypatch.setattr(terminal_utils.sys, "stdout", stdout)
+        terminal_utils.disable_mouse_tracking()
+        stdout.write.assert_called_once()
 
-    def test_installs_on_windows(self, monkeypatch):
-        monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Windows")
-        mock_ctypes = MagicMock()
-        # WINFUNCTYPE returns a class; calling it with a Python fn returns
-        # the callable handler object. Make that round-trip work.
-        mock_handler_factory = MagicMock(side_effect=lambda fn: ("HANDLER", fn))
-        mock_ctypes.WINFUNCTYPE.return_value = mock_handler_factory
-        mock_ctypes.windll.kernel32.SetConsoleCtrlHandler.return_value = 1
-        monkeypatch.setitem(sys.modules, "ctypes", mock_ctypes)
-        # ctypes.wintypes is a submodule — stub it too.
-        monkeypatch.setitem(sys.modules, "ctypes.wintypes", MagicMock())
-
-        terminal_utils._ctrl_c_swallower_ref = None
-        assert terminal_utils.install_windows_ctrl_c_swallower() is True
-        # Handler was pinned so the GC doesn't eat it.
-        assert terminal_utils._ctrl_c_swallower_ref is not None
-        # SetConsoleCtrlHandler(handler, True) was called.
-        mock_ctypes.windll.kernel32.SetConsoleCtrlHandler.assert_called_once()
-        args, _ = mock_ctypes.windll.kernel32.SetConsoleCtrlHandler.call_args
-        assert args[1] is True
-
-    def test_swallower_returns_true_for_ctrl_c_and_break(self, monkeypatch):
-        monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Windows")
-        captured = {}
-
-        def _factory(fn):
-            captured["fn"] = fn
-            return ("HANDLER", fn)
-
-        mock_ctypes = MagicMock()
-        mock_ctypes.WINFUNCTYPE.return_value = _factory
-        mock_ctypes.windll.kernel32.SetConsoleCtrlHandler.return_value = 1
-        monkeypatch.setitem(sys.modules, "ctypes", mock_ctypes)
-        monkeypatch.setitem(sys.modules, "ctypes.wintypes", MagicMock())
-
-        terminal_utils._ctrl_c_swallower_ref = None
-        terminal_utils.install_windows_ctrl_c_swallower()
-
-        # CTRL_C_EVENT (0) and CTRL_BREAK_EVENT (1) -> swallow (True)
-        assert captured["fn"](0) is True
-        assert captured["fn"](1) is True
-        # CTRL_CLOSE_EVENT (2) etc -> let default handler run (False)
-        assert captured["fn"](2) is False
-        assert captured["fn"](5) is False
-
-    def test_idempotent(self, monkeypatch):
-        monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Windows")
-        mock_ctypes = MagicMock()
-        monkeypatch.setitem(sys.modules, "ctypes", mock_ctypes)
-        terminal_utils._ctrl_c_swallower_ref = ("already", "installed")
-        assert terminal_utils.install_windows_ctrl_c_swallower() is True
-        # Should not call into ctypes a second time.
-        mock_ctypes.windll.kernel32.SetConsoleCtrlHandler.assert_not_called()
-
-    def test_set_console_ctrl_handler_fails(self, monkeypatch):
-        monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Windows")
-        mock_ctypes = MagicMock()
-        mock_ctypes.WINFUNCTYPE.return_value = lambda fn: ("H", fn)
-        mock_ctypes.windll.kernel32.SetConsoleCtrlHandler.return_value = 0
-        monkeypatch.setitem(sys.modules, "ctypes", mock_ctypes)
-        monkeypatch.setitem(sys.modules, "ctypes.wintypes", MagicMock())
-
-        terminal_utils._ctrl_c_swallower_ref = None
-        assert terminal_utils.install_windows_ctrl_c_swallower() is False
-        assert terminal_utils._ctrl_c_swallower_ref is None
-
-    def test_exception_returns_false(self, monkeypatch):
-        monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Windows")
-        # Force the ctypes import to detonate.
-        monkeypatch.setitem(sys.modules, "ctypes", None)
-        terminal_utils._ctrl_c_swallower_ref = None
-        assert terminal_utils.install_windows_ctrl_c_swallower() is False
-
-
-# ── uninstall_windows_ctrl_c_swallower ──
-
-
-class TestUninstallWindowsCtrlCSwallower:
-    def teardown_method(self):
-        terminal_utils._ctrl_c_swallower_ref = None
-
-    def test_returns_false_on_non_windows(self, monkeypatch):
+    def test_exception_silenced(self, monkeypatch):
         monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Linux")
-        assert terminal_utils.uninstall_windows_ctrl_c_swallower() is False
-
-    def test_returns_true_when_nothing_installed(self, monkeypatch):
-        monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Windows")
-        terminal_utils._ctrl_c_swallower_ref = None
-        assert terminal_utils.uninstall_windows_ctrl_c_swallower() is True
-
-    def test_uninstalls_and_clears_ref(self, monkeypatch):
-        monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Windows")
-        mock_ctypes = MagicMock()
-        mock_ctypes.windll.kernel32.SetConsoleCtrlHandler.return_value = 1
-        monkeypatch.setitem(sys.modules, "ctypes", mock_ctypes)
-        terminal_utils._ctrl_c_swallower_ref = "PINNED_HANDLER"
-
-        assert terminal_utils.uninstall_windows_ctrl_c_swallower() is True
-        assert terminal_utils._ctrl_c_swallower_ref is None
-        # SetConsoleCtrlHandler called with (handler, False) to remove
-        args, _ = mock_ctypes.windll.kernel32.SetConsoleCtrlHandler.call_args
-        assert args[1] is False
-
-    def test_exception_returns_false(self, monkeypatch):
-        monkeypatch.setattr(terminal_utils.platform, "system", lambda: "Windows")
-        monkeypatch.setitem(sys.modules, "ctypes", None)
-        terminal_utils._ctrl_c_swallower_ref = "PINNED"
-        assert terminal_utils.uninstall_windows_ctrl_c_swallower() is False
+        stream = MagicMock()
+        stream.write.side_effect = OSError("broken pipe")
+        terminal_utils.disable_mouse_tracking(stream)  # should not raise

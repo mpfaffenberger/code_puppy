@@ -303,6 +303,25 @@ class TestRenderForm:
         texts = "".join(t[1] for t in result)
         assert "Saved!" in texts
 
+    def test_render_form_uses_semantic_state_roles(self):
+        form = self._make_form()
+        form.focused_field = 1
+        form.server_name = "bad name!"
+        form.validation_error = "Invalid config"
+        form.status_message = "Save failed"
+        form.status_is_error = True
+
+        styles = {style for style, _text in form._render_form() if style}
+
+        assert {
+            "class:tui.input.focused",
+            "class:tui.selected",
+            "class:tui.help-key",
+            "class:tui.warning",
+            "class:tui.error",
+        } <= styles
+        assert not any("fg:" in style or "ansi" in style for style in styles)
+
 
 # ---------------------------------------------------------------------------
 # _render_preview
@@ -344,6 +363,14 @@ class TestRenderPreview:
         texts = "".join(t[1] for t in result)
         assert "Tips" in texts
         assert "$ENV_VAR" in texts
+
+    def test_render_preview_uses_semantic_roles(self):
+        styles = {
+            style for style, _text in self._make_form()._render_preview() if style
+        }
+
+        assert {"class:tui.header", "class:tui.label", "class:tui.muted"} <= styles
+        assert not any("fg:" in style or "ansi" in style for style in styles)
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +568,8 @@ class TestRun:
 
         result = form.run()
         assert result is False
+        assert "class:tui.input" in form.name_area.window.style
+        assert "class:tui.input" in form.json_area.window.style
         mock_set.assert_any_call(True)
         mock_set.assert_any_call(False)
 

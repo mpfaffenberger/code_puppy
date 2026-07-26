@@ -150,7 +150,12 @@ class RichConsoleRenderer:
         import threading
 
         self._bus = bus
-        self._console = console or Console()
+        self._console = console or Console(highlight=False)
+        # ReprHighlighter is useful in a Python REPL, but this is a themed
+        # message bus: it unpredictably recolors numbers, parentheses, paths,
+        # and shell/grep output. Explicit markup and syntax renderables still
+        # carry their own styles, so disable only the console's implicit pass.
+        self._console.highlighter = None
         self._styles = styles or DEFAULT_STYLES.copy()
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -428,6 +433,19 @@ class RichConsoleRenderer:
     # =========================================================================
 
     def _do_render(self, message: AnyMessage) -> None:
+        """Render one message while coordinating with the prompt surface."""
+        from contextlib import nullcontext
+
+        try:
+            from .bottom_bar import get_bottom_bar
+
+            transaction = get_bottom_bar().output_transaction()
+        except Exception:
+            transaction = nullcontext()
+        with transaction:
+            self._do_render_uncoordinated(message)
+
+    def _do_render_uncoordinated(self, message: AnyMessage) -> None:
         """Synchronously render a message by dispatching to the appropriate handler.
 
         Note: User input requests are skipped in sync mode as they require async.
@@ -552,7 +570,9 @@ class RichConsoleRenderer:
         prefix = self._get_level_prefix(msg.level)
         # Escape Rich markup to prevent crashes from malformed tags
         safe_text = escape_rich_markup(msg.text)
-        self._console.print(f"{prefix}{safe_text}", style=style)
+        # Rich's default repr highlighter restyles numbers and parentheses,
+        # leaking terminal-profile white through otherwise themed info lines.
+        self._console.print(f"{prefix}{safe_text}", style=style, highlight=False)
 
     def _get_level_prefix(self, level: MessageLevel) -> str:
         """Get a prefix icon for the message level."""
@@ -592,8 +612,7 @@ class RichConsoleRenderer:
         rec_flag = f"(recursive={msg.recursive})"
         banner = self._format_banner("directory_listing", "DIRECTORY LISTING")
         self._console.print(
-            f"\n{banner} "
-            f"📂 [bold cyan]{msg.directory}[/bold cyan] [dim]{rec_flag}[/dim]\n"
+            f"\n{banner} [bold cyan]{msg.directory}[/bold cyan] [dim]{rec_flag}[/dim]\n"
         )
 
         # Build a tree structure: {parent_path: {files: [], dirs: set(), size: int}}
@@ -684,7 +703,7 @@ class RichConsoleRenderer:
 
                 summary = f" [dim]({', '.join(parts)})[/dim]" if parts else ""
                 self._console.print(
-                    f"{indent}📁 [bold blue]{dir_name}/[/bold blue]{summary}"
+                    f"{indent}[bold blue]{dir_name}/[/bold blue]{summary}"
                 )
 
                 # Recursively show subdirectories
@@ -697,8 +716,8 @@ class RichConsoleRenderer:
         # Summary
         self._console.print("\n[bold cyan]Summary:[/bold cyan]")
         self._console.print(
-            f"📁 [blue]{msg.dir_count} directories[/blue], "
-            f"📄 [green]{msg.file_count} files[/green] "
+            f"[blue]{msg.dir_count} directories[/blue], "
+            f"[green]{msg.file_count} files[/green] "
             f"[dim]({self._format_size(msg.total_size)} total)[/dim]"
         )
 
@@ -719,9 +738,7 @@ class RichConsoleRenderer:
 
         # Just print the header - content is for LLM only
         banner = self._format_banner("read_file", "READ FILE")
-        self._console.print(
-            f"\n{banner} 📂 [bold cyan]{msg.path}[/bold cyan]{line_info}"
-        )
+        self._console.print(f"\n{banner} [bold cyan]{msg.path}[/bold cyan]{line_info}")
 
         # High mode: show token count and total lines.
         if get_output_level() == "high":
@@ -740,7 +757,7 @@ class RichConsoleRenderer:
         # Header
         banner = self._format_banner("grep", "GREP")
         self._console.print(
-            f"\n{banner} 📂 [dim]{msg.directory} for '{msg.search_term}'[/dim]"
+            f"\n{banner} [dim]{msg.directory} for '{msg.search_term}'[/dim]"
         )
 
         # High mode: show total files searched.
@@ -771,7 +788,7 @@ class RichConsoleRenderer:
                 file_matches = by_file[file_path]
                 match_word = "match" if len(file_matches) == 1 else "matches"
                 self._console.print(
-                    f"\n[dim]📄 {file_path} ({len(file_matches)} {match_word})[/dim]"
+                    f"\n[dim]{file_path} ({len(file_matches)} {match_word})[/dim]"
                 )
 
                 # Show each match with line number and content
@@ -805,7 +822,7 @@ class RichConsoleRenderer:
                 file_matches = by_file[file_path]
                 match_word = "match" if len(file_matches) == 1 else "matches"
                 self._console.print(
-                    f"[dim]📄 {file_path} ({len(file_matches)} {match_word})[/dim]"
+                    f"[dim]{file_path} ({len(file_matches)} {match_word})[/dim]"
                 )
 
         # Summary - subtle
@@ -831,9 +848,7 @@ class RichConsoleRenderer:
             return
 
         # Operation-specific styling
-        op_icons = {"create": "✨", "modify": "✏️", "delete": "🗑️"}
         op_colors = {"create": "green", "modify": "yellow", "delete": "red"}
-        icon = op_icons.get(msg.operation, "📄")
         op_color = op_colors.get(msg.operation, "white")
 
         # Choose banner based on operation type
@@ -845,7 +860,7 @@ class RichConsoleRenderer:
             banner = self._format_banner("replace_in_file", "EDIT FILE")
         self._console.print(
             f"\n{banner} "
-            f"{icon} [{op_color}]{msg.operation.upper()}[/{op_color}] "
+            f"[{op_color}]{msg.operation.upper()}[/{op_color}] "
             f"[bold cyan]{msg.path}[/bold cyan]"
         )
 
@@ -897,21 +912,21 @@ class RichConsoleRenderer:
         # Add background indicator if running in background mode
         if msg.background:
             self._console.print(
-                f"\n{banner} 🚀 [dim]$ {safe_command}[/dim]  [bold magenta][BACKGROUND 🌙][/bold magenta]"
+                f"\n{banner} [dim]$ {safe_command}[/dim]  [bold magenta][BACKGROUND][/bold magenta]"
             )
         else:
-            self._console.print(f"\n{banner} 🚀 [dim]$ {safe_command}[/dim]")
+            self._console.print(f"\n{banner} [dim]$ {safe_command}[/dim]")
 
         # Show working directory if specified
         if msg.cwd:
             safe_cwd = escape_rich_markup(msg.cwd)
-            self._console.print(f"[dim]📂 Working directory: {safe_cwd}[/dim]")
+            self._console.print(f"[dim]Working directory: {safe_cwd}[/dim]")
 
         # Show timeout or background status
         if msg.background:
-            self._console.print("[dim]⏱ Runs detached (no timeout)[/dim]")
+            self._console.print("[dim]Runs detached (no timeout)[/dim]")
         else:
-            self._console.print(f"[dim]⏱ Timeout: {msg.timeout}s[/dim]")
+            self._console.print(f"[dim]Timeout: {msg.timeout}s[/dim]")
 
     def _render_shell_line(self, msg: ShellLineMessage) -> None:
         """Render shell output line preserving ANSI codes and carriage returns."""
@@ -989,7 +1004,12 @@ class RichConsoleRenderer:
         # Content (markdown or plain)
         if msg.is_markdown:
             md = Markdown(msg.content)
-            self._console.print(md)
+            # Give colorless Markdown styles (bold/headings) an explicit base
+            # foreground. Some terminals ignore OSC 10, making Rich resets leak
+            # the terminal profile's white into otherwise themed responses.
+            from code_puppy.callbacks import on_prompt_text_color
+
+            self._console.print(md, style=on_prompt_text_color())
         else:
             self._console.print(msg.content)
 
@@ -1061,7 +1081,7 @@ class RichConsoleRenderer:
         # Disable Rich's auto-highlighter on these prints — we already apply
         # explicit markup, and the ReprHighlighter regexes mangle things like
         # 'uuid-gen' (stops at the hyphen) and '0.00s' (no word boundary).
-        header_parts = [f"\n{banner} 🔧 [bold cyan]{msg.action.upper()}[/bold cyan]"]
+        header_parts = [f"\n{banner} [bold cyan]{msg.action.upper()}[/bold cyan]"]
         if msg.tool_name:
             safe_tool_name = escape_rich_markup(msg.tool_name)
             header_parts.append(f" [dim]tool=[/dim][bold]{safe_tool_name}[/bold]")
@@ -1251,75 +1271,8 @@ class RichConsoleRenderer:
             return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
 
     def _get_file_icon(self, file_path: str) -> str:
-        """Get an emoji icon for a file based on its extension."""
-        import os
-
-        ext = os.path.splitext(file_path)[1].lower()
-        icons = {
-            # Python
-            ".py": "🐍",
-            ".pyw": "🐍",
-            # JavaScript/TypeScript
-            ".js": "📜",
-            ".jsx": "📜",
-            ".ts": "📜",
-            ".tsx": "📜",
-            # Web
-            ".html": "🌐",
-            ".htm": "🌐",
-            ".xml": "🌐",
-            ".css": "🎨",
-            ".scss": "🎨",
-            ".sass": "🎨",
-            # Documentation
-            ".md": "📝",
-            ".markdown": "📝",
-            ".rst": "📝",
-            ".txt": "📝",
-            # Config
-            ".json": "⚙️",
-            ".yaml": "⚙️",
-            ".yml": "⚙️",
-            ".toml": "⚙️",
-            ".ini": "⚙️",
-            # Images
-            ".jpg": "🖼️",
-            ".jpeg": "🖼️",
-            ".png": "🖼️",
-            ".gif": "🖼️",
-            ".svg": "🖼️",
-            ".webp": "🖼️",
-            # Audio
-            ".mp3": "🎵",
-            ".wav": "🎵",
-            ".ogg": "🎵",
-            ".flac": "🎵",
-            # Video
-            ".mp4": "🎬",
-            ".avi": "🎬",
-            ".mov": "🎬",
-            ".webm": "🎬",
-            # Documents
-            ".pdf": "📄",
-            ".doc": "📄",
-            ".docx": "📄",
-            ".xls": "📄",
-            ".xlsx": "📄",
-            ".ppt": "📄",
-            ".pptx": "📄",
-            # Archives
-            ".zip": "📦",
-            ".tar": "📦",
-            ".gz": "📦",
-            ".rar": "📦",
-            ".7z": "📦",
-            # Executables
-            ".exe": "⚡",
-            ".dll": "⚡",
-            ".so": "⚡",
-            ".dylib": "⚡",
-        }
-        return icons.get(ext, "📄")
+        """Return the neutral marker used for files in tool output."""
+        return "-"
 
     # =========================================================================
     # Skills

@@ -33,7 +33,7 @@ class TestSummarizationAgent:
     def mock_agent_response(self):
         """Mock agent run response."""
         response = MagicMock()
-        response.new_messages = lambda: ["Summary: This is a test summary"]
+        response.output = "Summary: This is a test summary"
         return response
 
     def test_ensure_thread_pool_creates_new(self):
@@ -261,7 +261,7 @@ class TestRunSummarizationSync:
     def mock_sync_result(self):
         """Mock synchronizable result."""
         result = MagicMock()
-        result.new_messages = lambda: ["summary1", "summary2"]
+        result.output = "summary1 summary2"
         return result
 
     def test_run_summarization_sync_no_event_loop(self, mock_sync_result):
@@ -286,7 +286,7 @@ class TestRunSummarizationSync:
 
             result = run_summarization_sync(prompt, history)
 
-            assert result == ["summary1", "summary2"]
+            assert result == "summary1 summary2"
             mock_get_agent.assert_called_once()
             mock_pool.assert_called_once()
             mock_pool_instance.submit.assert_called_once()
@@ -313,7 +313,7 @@ class TestRunSummarizationSync:
 
             result = run_summarization_sync(prompt, history)
 
-            assert result == ["summary1", "summary2"]
+            assert result == "summary1 summary2"
             mock_get_agent.assert_called_once()
             mock_pool.assert_called_once()
             mock_pool_instance.submit.assert_called_once()
@@ -387,7 +387,7 @@ class TestRunSummarizationSync:
             mock_get_agent.return_value = mock_agent
 
             mock_result = MagicMock()
-            mock_result.new_messages = lambda: ["Complex summary"]
+            mock_result.output = "Complex summary"
             mock_pool_instance = MagicMock()
             mock_future = MagicMock()
             mock_future.result.return_value = mock_result
@@ -396,7 +396,7 @@ class TestRunSummarizationSync:
 
             result = run_summarization_sync("Summarize", complex_history)
 
-            assert result == ["Complex summary"]
+            assert result == "Complex summary"
 
     def test_run_summarization_sync_empty_history(self):
         """Test run_summarization_sync with empty history."""
@@ -410,7 +410,7 @@ class TestRunSummarizationSync:
             mock_get_agent.return_value = mock_agent
 
             mock_result = MagicMock()
-            mock_result.new_messages = lambda: ["Empty summary"]
+            mock_result.output = "Empty summary"
             mock_pool_instance = MagicMock()
             mock_future = MagicMock()
             mock_future.result.return_value = mock_result
@@ -419,7 +419,7 @@ class TestRunSummarizationSync:
 
             result = run_summarization_sync("Summarize empty", [])
 
-            assert result == ["Empty summary"]
+            assert result == "Empty summary"
             mock_get_agent.assert_called_once()
             mock_pool.assert_called_once()
 
@@ -437,7 +437,7 @@ class TestRunSummarizationSync:
             mock_get_agent.return_value = mock_agent
 
             mock_result = MagicMock()
-            mock_result.new_messages = lambda: ["Large summary"]
+            mock_result.output = "Large summary"
             mock_pool_instance = MagicMock()
             mock_future = MagicMock()
             mock_future.result.return_value = mock_result
@@ -446,7 +446,7 @@ class TestRunSummarizationSync:
 
             result = run_summarization_sync("Summarize large", large_history)
 
-            assert result == ["Large summary"]
+            assert result == "Large summary"
             mock_get_agent.assert_called_once()
             mock_pool.assert_called_once()
 
@@ -464,7 +464,7 @@ class TestRunSummarizationSync:
             mock_get_agent.return_value = mock_agent
 
             mock_result = MagicMock()
-            mock_result.new_messages = lambda: ["Unicode summary"]
+            mock_result.output = "Unicode summary"
             mock_pool_instance = MagicMock()
             mock_future = MagicMock()
             mock_future.result.return_value = mock_result
@@ -473,7 +473,7 @@ class TestRunSummarizationSync:
 
             result = run_summarization_sync("Summarize unicode", unicode_history)
 
-            assert result == ["Unicode summary"]
+            assert result == "Unicode summary"
 
 
 class TestSummarizationAgentEdgeCases:
@@ -810,7 +810,7 @@ class TestSummarizationAgentEdgeCases:
             mock_get_agent.return_value = mock_agent
 
             mock_result = MagicMock()
-            mock_result.new_messages = lambda: ["Result"]
+            mock_result.output = "Result"
             mock_pool_instance = MagicMock()
             mock_future = MagicMock()
             mock_future.result.return_value = mock_result
@@ -818,7 +818,7 @@ class TestSummarizationAgentEdgeCases:
             mock_pool.return_value = mock_pool_instance
 
             result = run_summarization_sync("test", [])
-            assert result == ["Result"]
+            assert result == "Result"
 
             # Should always use thread pool
             mock_pool.assert_called_once()

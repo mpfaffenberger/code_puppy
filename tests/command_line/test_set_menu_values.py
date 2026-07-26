@@ -37,8 +37,12 @@ class TestEffectiveSettingValue:
         model's own default" when unset, and ``puppy_token`` is simply
         not configured for most users. Add to ``OPTIONAL_KEYS`` only
         when you've confirmed the unset value is meaningful.
+
+        ``model`` and ``summarization_model`` joined the optional club when
+        models.json started shipping empty (no bundled default model), so
+        an unset value now means "user hasn't completed model setup yet".
         """
-        OPTIONAL_KEYS = {"temperature", "puppy_token"}
+        OPTIONAL_KEYS = {"temperature", "puppy_token", "model", "summarization_model"}
         failures = []
         for _, setting in iter_curated_settings():
             if setting.effective_getter is None:
@@ -62,15 +66,15 @@ class TestEffectiveSettingValue:
         )
         assert get_effective_setting_value(s) == "true"
 
-    def test_compaction_strategy_default_truncation(self):
+    def test_compaction_strategy_default_summarization(self):
         s = Setting(
             key="compaction_strategy",
             display_name="",
             description="",
             type_hint="choice",
-            effective_getter=lambda: "truncation",
+            effective_getter=lambda: "summarization",
         )
-        assert get_effective_setting_value(s) == "truncation"
+        assert get_effective_setting_value(s) == "summarization"
 
     def test_protected_token_count_returns_int_as_string(self):
         s = Setting(
@@ -134,6 +138,12 @@ class TestEffectiveSettingValue:
         despite still being consumed by ``file_operations``."""
         keys = {s.key for _, s in iter_curated_settings()}
         assert "allow_recursion" in keys
+
+    def test_subagent_recursion_limit_is_curated(self):
+        settings = {s.key: s for _, s in iter_curated_settings()}
+        setting = settings["subagent_recursion_limit"]
+        assert setting.type_hint == "int"
+        assert setting.effective_getter is not None
 
     def test_is_sensitive_key_for_puppy_token(self):
         assert is_sensitive_key("puppy_token") is True

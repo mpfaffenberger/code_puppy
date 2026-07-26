@@ -127,7 +127,7 @@ async def set_element_text(
     """Set text in an input element."""
     group_id = generate_group_id("browser_set_text", f"{selector[:50]}_{text[:30]}")
     emit_info(
-        f"BROWSER SET TEXT ✏️ selector='{selector}' text='{text[:50]}{'...' if len(text) > 50 else ''}'",
+        f"BROWSER SET TEXT selector='{selector}' text='{text[:50]}{'...' if len(text) > 50 else ''}'",
         message_group=group_id,
     )
     try:
@@ -166,7 +166,7 @@ async def get_element_text(
     """Get text content from an element."""
     group_id = generate_group_id("browser_get_text", selector[:100])
     emit_info(
-        f"BROWSER GET TEXT 📝 selector='{selector}'",
+        f"BROWSER GET TEXT selector='{selector}'",
         message_group=group_id,
     )
     try:
@@ -228,7 +228,7 @@ async def select_option(
         "browser_select_option", f"{selector[:50]}_{option_desc}"
     )
     emit_info(
-        f"BROWSER SELECT OPTION 📄 selector='{selector}' option='{option_desc}'",
+        f"BROWSER SELECT OPTION selector='{selector}' option='{option_desc}'",
         message_group=group_id,
     )
     try:

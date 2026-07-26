@@ -444,6 +444,34 @@ class TestInteractiveMode:
         )
 
     @pytest.mark.anyio
+    async def test_startup_instructions_describe_editor_shortcuts(self):
+        emit_system_message = MagicMock()
+
+        await _run_interactive(
+            _mock_renderer(),
+            _interactive_patches(),
+            AsyncMock(return_value="/exit"),
+            extra_patches={
+                "code_puppy.messaging.emit_system_message": emit_system_message,
+            },
+        )
+
+        messages = [call.args[0] for call in emit_system_message.call_args_list]
+        assert any("newline: Shift+Enter" in message for message in messages)
+        assert any(
+            "Ctrl+X Ctrl+E to open $EDITOR (Notepad on Windows)" in message
+            for message in messages
+        )
+        assert any(
+            "Ctrl+X Ctrl+B to background running shell commands" in message
+            for message in messages
+        )
+        assert any(
+            "Ctrl+X Ctrl+X to kill running shell commands" in message
+            for message in messages
+        )
+
+    @pytest.mark.anyio
     async def test_quit_command(self):
         agent = MagicMock()
         agent.get_user_prompt.return_value = None  # test None prompt branch
@@ -527,8 +555,14 @@ class TestInteractiveMode:
                 "code_puppy.cli_runner.get_current_agent": MagicMock(
                     return_value=agent
                 ),
-                "code_puppy.cli_runner.get_clipboard_manager": MagicMock(
+                # /clear is handled by session_commands now; it lazy-imports
+                # the clipboard manager and autosave rotation, so patch at
+                # the source modules.
+                "code_puppy.command_line.clipboard.get_clipboard_manager": MagicMock(
                     return_value=_mock_clipboard([b"img"])
+                ),
+                "code_puppy.config.finalize_autosave_session": MagicMock(
+                    return_value="session-1"
                 ),
             },
         )
@@ -1269,8 +1303,12 @@ class TestInteractiveMode:
                 "code_puppy.cli_runner.get_current_agent": MagicMock(
                     return_value=agent
                 ),
-                "code_puppy.cli_runner.get_clipboard_manager": MagicMock(
+                # Same lazy-import targets as test_clear_command above.
+                "code_puppy.command_line.clipboard.get_clipboard_manager": MagicMock(
                     return_value=_mock_clipboard()
+                ),
+                "code_puppy.config.finalize_autosave_session": MagicMock(
+                    return_value="session-1"
                 ),
             },
         )
@@ -1481,14 +1519,14 @@ class TestInteractiveModeEdgeCases:
 
 
 # ---------------------------------------------------------------------------
-# main() uvx detection and other edge cases
+# main() Windows raw-Ctrl+C clamp and other edge cases
 # ---------------------------------------------------------------------------
 
 
-class TestMainUvxAndEdgeCases:
+class TestMainWindowsClampAndEdgeCases:
     @pytest.mark.anyio
-    async def test_uvx_alternate_cancel_key(self):
-        """Lines 181-212: uvx should_use_alternate_cancel_key returns True."""
+    async def test_windows_raw_ctrl_c_clamp_armed(self):
+        """When the console clamp succeeds, the sticky flag is set."""
         patches = _base_main_patches()
         with ExitStack() as stack:
             stack.enter_context(patch.dict(os.environ, {"NO_VERSION_UPDATE": "1"}))
@@ -1518,23 +1556,21 @@ class TestMainUvxAndEdgeCases:
                 )
             )
             _apply_patches(stack, patches)
-            # Patch the uvx detection to return True
-            stack.enter_context(
+            mock_disable = stack.enter_context(
                 patch(
-                    "code_puppy.uvx_detection.should_use_alternate_cancel_key",
+                    "code_puppy.terminal_utils.disable_windows_ctrl_c",
                     return_value=True,
                 )
             )
-            stack.enter_context(
-                patch("code_puppy.terminal_utils.disable_windows_ctrl_c")
-            )
-            stack.enter_context(
+            mock_keep = stack.enter_context(
                 patch("code_puppy.terminal_utils.set_keep_ctrl_c_disabled")
             )
-            stack.enter_context(patch("signal.signal"))
             from code_puppy.cli_runner import main
 
             await main()
+
+            mock_disable.assert_called_once()
+            mock_keep.assert_called_once_with(True)
 
     @pytest.mark.anyio
     async def test_initial_command_awaiting_input(self):

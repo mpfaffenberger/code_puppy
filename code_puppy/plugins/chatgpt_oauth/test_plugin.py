@@ -2,12 +2,318 @@
 Basic tests for ChatGPT OAuth plugin.
 """
 
+import asyncio
 import json
+from contextlib import nullcontext
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_puppy.plugins.chatgpt_oauth import config, utils
+from code_puppy.plugins.chatgpt_oauth import config, image_generation, image_tool, utils
+
+
+def test_codex_image_generation_posts_codex_payload(tmp_path):
+    encoded = "aGVsbG8="
+    response = MagicMock()
+    response.json.return_value = {"data": [{"b64_json": encoded}]}
+    response.raise_for_status.return_value = None
+
+    with (
+        patch.object(image_generation, "get_valid_access_token", return_value="token"),
+        patch.object(
+            image_generation,
+            "load_stored_tokens",
+            return_value={"account_id": "account"},
+        ),
+        patch.object(image_generation.config, "DATA_DIR", str(tmp_path)),
+        patch.object(image_generation.requests, "post", return_value=response) as post,
+    ):
+        output_path = image_generation.generate_image("a red fox")
+
+    assert output_path.read_bytes() == b"hello"
+    assert output_path.parent == tmp_path / "generated_images"
+    post.assert_called_once()
+    call = post.call_args
+    assert call.args[0].endswith("/images/generations")
+    assert call.kwargs["json"] == {
+        "prompt": "a red fox",
+        "background": "auto",
+        "model": "gpt-image-2",
+        "quality": "auto",
+        "size": "auto",
+    }
+    assert call.kwargs["headers"]["ChatGPT-Account-Id"] == "account"
+
+
+def test_codex_image_generation_with_references_posts_edits_payload(tmp_path):
+    """Reference images must go to /images/edits as [{"image_url": data-url}].
+
+    The Codex backend rejects every other shape with HTTP 400 (see the
+    image_generation module docstring), so this asserts the exact wire format.
+    """
+    reference = tmp_path / "ref.png"
+    reference.write_bytes(b"pngbytes")
+    expected_b64 = image_generation.base64.b64encode(b"pngbytes").decode()
+
+    encoded = "aGVsbG8="
+    response = MagicMock()
+    response.json.return_value = {"data": [{"b64_json": encoded}]}
+    response.raise_for_status.return_value = None
+
+    with (
+        patch.object(image_generation, "get_valid_access_token", return_value="token"),
+        patch.object(
+            image_generation,
+            "load_stored_tokens",
+            return_value={"account_id": "account"},
+        ),
+        patch.object(image_generation.config, "DATA_DIR", str(tmp_path)),
+        patch.object(image_generation.requests, "post", return_value=response) as post,
+    ):
+        image_generation.generate_image("a red fox", [reference])
+
+    call = post.call_args
+    assert call.args[0].endswith("/images/edits")
+    payload = call.kwargs["json"]
+    assert payload["images"] == [{"image_url": f"data:image/png;base64,{expected_b64}"}]
+    assert payload["prompt"] == "a red fox"
+    assert payload["model"] == "gpt-image-2"
+    # `background` is not accepted by the edits endpoint.
+    assert "background" not in payload
+
+
+def test_codex_image_generation_without_references_still_uses_generations(tmp_path):
+    """An empty/omitted reference list must not change existing behavior."""
+    response = MagicMock()
+    response.json.return_value = {"data": [{"b64_json": "aGVsbG8="}]}
+    response.raise_for_status.return_value = None
+
+    with (
+        patch.object(image_generation, "get_valid_access_token", return_value="token"),
+        patch.object(
+            image_generation,
+            "load_stored_tokens",
+            return_value={"account_id": "account"},
+        ),
+        patch.object(image_generation.config, "DATA_DIR", str(tmp_path)),
+        patch.object(image_generation.requests, "post", return_value=response) as post,
+    ):
+        image_generation.generate_image("a red fox", [])
+
+    assert post.call_args.args[0].endswith("/images/generations")
+    assert "images" not in post.call_args.kwargs["json"]
+
+
+def test_codex_image_generation_rejects_missing_reference(tmp_path):
+    with (
+        patch.object(image_generation, "get_valid_access_token", return_value="token"),
+        patch.object(
+            image_generation,
+            "load_stored_tokens",
+            return_value={"account_id": "account"},
+        ),
+        patch.object(image_generation.requests, "post") as post,
+        pytest.raises(image_generation.CodexImageGenerationError),
+    ):
+        image_generation.generate_image("a red fox", [tmp_path / "nope.png"])
+
+    post.assert_not_called()
+
+
+def test_codex_image_generation_rejects_oversized_reference(tmp_path):
+    reference = tmp_path / "huge.png"
+    reference.write_bytes(b"x" * 16)
+
+    with (
+        patch.object(image_generation, "get_valid_access_token", return_value="token"),
+        patch.object(
+            image_generation,
+            "load_stored_tokens",
+            return_value={"account_id": "account"},
+        ),
+        patch.object(image_generation, "_MAX_REFERENCE_BYTES", 8),
+        patch.object(image_generation.requests, "post") as post,
+        pytest.raises(image_generation.CodexImageGenerationError),
+    ):
+        image_generation.generate_image("a red fox", [reference])
+
+    post.assert_not_called()
+
+
+def test_codex_image_generation_requires_auth():
+    with (
+        patch.object(image_generation, "get_valid_access_token", return_value=None),
+        patch.object(image_generation, "load_stored_tokens", return_value={}),
+        pytest.raises(image_generation.CodexImageGenerationError, match="codex-auth"),
+    ):
+        image_generation.generate_image("a red fox")
+
+
+def test_emit_iterm_image(tmp_path):
+    output_path = tmp_path / "puppy.png"
+    output_path.write_bytes(b"image-bytes")
+    stdout = MagicMock()
+    stdout.isatty.return_value = True
+
+    with (
+        patch.dict(
+            image_generation.os.environ,
+            {"TERM_PROGRAM": "iTerm.app"},
+            clear=True,
+        ),
+        patch.object(image_generation.sys, "stdout", stdout),
+        patch(
+            "code_puppy.messaging.run_ui.suspended_run_ui",
+            return_value=nullcontext(),
+        ),
+    ):
+        assert image_generation.emit_iterm_image(output_path) is True
+
+    sequence = stdout.write.call_args.args[0]
+    assert sequence.startswith("\033]1337;File=name=")
+    assert ";inline=1;preserveAspectRatio=1:" in sequence
+    assert image_generation.base64.b64encode(b"image-bytes").decode() in sequence
+    stdout.flush.assert_called_once()
+
+
+def test_emit_iterm_image_ignores_other_terminals(tmp_path):
+    stdout = MagicMock()
+    stdout.isatty.return_value = True
+    with (
+        patch.dict(image_generation.os.environ, {}, clear=True),
+        patch.object(image_generation.sys, "stdout", stdout),
+    ):
+        assert image_generation.emit_iterm_image(tmp_path / "missing.png") is False
+    stdout.write.assert_not_called()
+
+
+def test_codex_imagegen_command():
+    from code_puppy.plugins.chatgpt_oauth import register_callbacks
+
+    with (
+        patch.object(
+            image_generation,
+            "generate_image",
+            return_value=Path("/tmp/generated.png"),
+        ) as generate,
+        patch.object(register_callbacks, "emit_info"),
+        patch.object(register_callbacks, "emit_success") as success,
+        patch.object(image_generation, "emit_iterm_image") as emit_image,
+    ):
+        assert (
+            register_callbacks._handle_custom_command(
+                "/codex-imagegen a red fox", "codex-imagegen"
+            )
+            is True
+        )
+
+    generate.assert_called_once_with("a red fox")
+    success.assert_called_once()
+    emit_image.assert_called_once_with(Path("/tmp/generated.png"))
+
+
+def test_imagegen_skill_and_tool_registration():
+    from code_puppy.plugins.chatgpt_oauth import register_callbacks
+
+    skills = register_callbacks._register_imagegen_skill()
+    assert skills[0]["name"] == "codex-imagegen"
+    assert Path(skills[0]["skill_md_path"]).is_file()
+    with patch.object(
+        register_callbacks,
+        "load_stored_tokens",
+        return_value={"access_token": "token", "account_id": "account"},
+    ):
+        assert register_callbacks._advertise_imagegen_tool("code-puppy") == [
+            "codex_imagegen"
+        ]
+    tools = register_callbacks._register_imagegen_tools()
+    assert tools == [
+        {"name": "codex_imagegen", "register_func": image_tool.register_codex_imagegen}
+    ]
+
+
+def test_imagegen_tool_is_not_advertised_when_logged_out():
+    from code_puppy.plugins.chatgpt_oauth import register_callbacks
+
+    with patch.object(register_callbacks, "load_stored_tokens", return_value=None):
+        assert register_callbacks._advertise_imagegen_tool("code-puppy") == []
+
+
+def test_logout_reloads_agent_to_unbind_imagegen(tmp_path):
+    from code_puppy.plugins.chatgpt_oauth import register_callbacks
+
+    token_path = tmp_path / "tokens.json"
+    token_path.write_text("{}")
+    with (
+        patch.object(
+            register_callbacks,
+            "load_stored_tokens",
+            return_value={"access_token": "token", "account_id": "account"},
+        ),
+        patch.object(
+            register_callbacks, "get_token_storage_path", return_value=token_path
+        ),
+        patch.object(register_callbacks, "remove_chatgpt_models", return_value=0),
+        patch.object(register_callbacks, "emit_info"),
+        patch.object(register_callbacks, "emit_success"),
+        patch.object(register_callbacks, "_reload_active_agent") as reload_agent,
+    ):
+        register_callbacks._handle_chatgpt_logout()
+
+    assert not token_path.exists()
+    reload_agent.assert_called_once_with()
+
+
+def test_codex_imagegen_agent_tool(tmp_path):
+    registered = {}
+
+    class FakeAgent:
+        def tool(self, function):
+            registered[function.__name__] = function
+            return function
+
+    image_tool.register_codex_imagegen(FakeAgent())
+    output_path = tmp_path / "generated.png"
+    with (
+        patch.object(
+            image_tool, "generate_image", return_value=output_path
+        ) as generate,
+        patch.object(image_tool, "emit_iterm_image", return_value=True),
+    ):
+        result = asyncio.run(registered["codex_imagegen"](MagicMock(), "a fox"))
+
+    assert result == {
+        "success": True,
+        "path": str(output_path),
+        "displayed_inline": True,
+    }
+    generate.assert_called_once_with("a fox", None)
+
+
+def test_codex_imagegen_agent_tool_forwards_reference_images(tmp_path):
+    registered = {}
+
+    class FakeAgent:
+        def tool(self, function):
+            registered[function.__name__] = function
+            return function
+
+    image_tool.register_codex_imagegen(FakeAgent())
+    output_path = tmp_path / "generated.png"
+    refs = [str(tmp_path / "ref.png")]
+    with (
+        patch.object(
+            image_tool, "generate_image", return_value=output_path
+        ) as generate,
+        patch.object(image_tool, "emit_iterm_image", return_value=False),
+    ):
+        result = asyncio.run(
+            registered["codex_imagegen"](MagicMock(), "same fox, at night", refs)
+        )
+
+    assert result["success"] is True
+    generate.assert_called_once_with("same fox, at night", refs)
 
 
 def test_config_paths():
@@ -29,7 +335,7 @@ def test_oauth_config():
     """Test OAuth configuration values."""
     assert config.CHATGPT_OAUTH_CONFIG["issuer"] == "https://auth.openai.com"
     assert config.CHATGPT_OAUTH_CONFIG["client_id"] == "app_EMoamEEZ73f0CkXaXp7hrann"
-    assert config.CHATGPT_OAUTH_CONFIG["prefix"] == "chatgpt-"
+    assert config.CHATGPT_OAUTH_CONFIG["prefix"] == "codex-"
 
 
 def test_jwt_parsing_with_nested_org():
@@ -148,7 +454,7 @@ def test_parse_jwt_claims():
 def test_save_and_load_tokens(tmp_path):
     """Test token storage and retrieval."""
     with patch.object(
-        config, "get_token_storage_path", return_value=tmp_path / "tokens.json"
+        utils, "get_token_storage_path", return_value=tmp_path / "tokens.json"
     ):
         tokens = {
             "access_token": "test_access",
@@ -167,10 +473,10 @@ def test_save_and_load_tokens(tmp_path):
 def test_save_and_load_chatgpt_models(tmp_path):
     """Test ChatGPT models configuration."""
     with patch.object(
-        config, "get_chatgpt_models_path", return_value=tmp_path / "chatgpt_models.json"
+        utils, "get_chatgpt_models_path", return_value=tmp_path / "chatgpt_models.json"
     ):
         models = {
-            "chatgpt-gpt-4o": {
+            "codex-gpt-4o": {
                 "type": "openai",
                 "name": "gpt-4o",
                 "oauth_source": "chatgpt-oauth-plugin",
@@ -188,10 +494,10 @@ def test_save_and_load_chatgpt_models(tmp_path):
 def test_remove_chatgpt_models(tmp_path):
     """Test removal of ChatGPT models from config."""
     with patch.object(
-        config, "get_chatgpt_models_path", return_value=tmp_path / "chatgpt_models.json"
+        utils, "get_chatgpt_models_path", return_value=tmp_path / "chatgpt_models.json"
     ):
         models = {
-            "chatgpt-gpt-4o": {
+            "codex-gpt-4o": {
                 "type": "openai",
                 "oauth_source": "chatgpt-oauth-plugin",
             },
@@ -208,7 +514,7 @@ def test_remove_chatgpt_models(tmp_path):
 
         # Verify only ChatGPT model was removed
         remaining = utils.load_chatgpt_models()
-        assert "chatgpt-gpt-4o" not in remaining
+        assert "codex-gpt-4o" not in remaining
         assert "claude-3-opus" in remaining
 
 
@@ -251,10 +557,11 @@ def test_fetch_chatgpt_models(mock_get):
 
     models = utils.fetch_chatgpt_models("test_access_token", "test_account_id")
     assert models is not None
-    # Required models always injected
-    assert "gpt-5.4" in models
-    assert "gpt-5.3-instant" in models
-    # API-returned models present too
+    # A successful endpoint response is authoritative; fallback models are
+    # used only when discovery fails.
+    assert "gpt-5.4" not in models
+    assert "gpt-5.4-mini" not in models
+    # API-returned models are preserved.
     assert "gpt-4o" in models
     assert "gpt-3.5-turbo" in models
     assert "o1-preview" in models
@@ -271,30 +578,32 @@ def test_fetch_chatgpt_models_fallback(mock_get):
 
     models = utils.fetch_chatgpt_models("test_access_token", "test_account_id")
     assert models is not None
-    # Should return default models (including new required ones)
+    # Keep the fallback aligned with the models currently exposed by Codex.
     assert "gpt-5.4" in models
-    assert "gpt-5.3-instant" in models
+    assert "gpt-5.4-mini" in models
     assert "gpt-5.3-codex-spark" in models
-    assert "gpt-5.3-codex" in models
-    assert "gpt-5.2-codex" in models
-    assert "gpt-5.2" in models
+    assert "codex-auto-review" in models
+    assert "gpt-5.3-instant" not in models
+    assert "gpt-5.3-codex" not in models
+    assert "gpt-5.2-codex" not in models
+    assert "gpt-5.2" not in models
 
 
 def test_add_models_to_chatgpt_config(tmp_path):
     """Test adding models to chatgpt_models.json."""
     with patch.object(
-        config, "get_chatgpt_models_path", return_value=tmp_path / "chatgpt_models.json"
+        utils, "get_chatgpt_models_path", return_value=tmp_path / "chatgpt_models.json"
     ):
         models = ["gpt-4o", "gpt-3.5-turbo"]
 
         assert utils.add_models_to_extra_config(models)
 
         loaded = utils.load_chatgpt_models()
-        assert "chatgpt-gpt-4o" in loaded
-        assert "chatgpt-gpt-3.5-turbo" in loaded
-        assert loaded["chatgpt-gpt-4o"]["type"] == "chatgpt_oauth"
-        assert loaded["chatgpt-gpt-4o"]["name"] == "gpt-4o"
-        assert loaded["chatgpt-gpt-4o"]["oauth_source"] == "chatgpt-oauth-plugin"
+        assert "codex-gpt-4o" in loaded
+        assert "codex-gpt-3.5-turbo" in loaded
+        assert loaded["codex-gpt-4o"]["type"] == "chatgpt_oauth"
+        assert loaded["codex-gpt-4o"]["name"] == "gpt-4o"
+        assert loaded["codex-gpt-4o"]["oauth_source"] == "chatgpt-oauth-plugin"
 
 
 if __name__ == "__main__":

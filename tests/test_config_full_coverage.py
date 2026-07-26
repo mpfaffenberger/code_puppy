@@ -9,7 +9,6 @@ import os
 import pathlib
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from code_puppy import config as cp_config
 
@@ -194,7 +193,7 @@ class TestNumericGetters:
         assert cp_config.get_compaction_threshold() == 0.85
 
     def test_get_compaction_strategy_default(self):
-        assert cp_config.get_compaction_strategy() in ["summarization", "truncation"]
+        assert cp_config.get_compaction_strategy() == "summarization"
 
     def test_get_compaction_strategy_values(self):
         cp_config.set_config_value("compaction_strategy", "summarization")
@@ -204,7 +203,7 @@ class TestNumericGetters:
 
     def test_get_compaction_strategy_invalid(self):
         cp_config.set_config_value("compaction_strategy", "invalid")
-        assert cp_config.get_compaction_strategy() == "truncation"
+        assert cp_config.get_compaction_strategy() == "summarization"
 
     def test_get_message_limit_default(self):
         cp_config.reset_value("message_limit")
@@ -303,43 +302,6 @@ class TestTemperature:
     def test_set_temperature_value(self):
         cp_config.set_temperature(1.5)
         assert cp_config.get_temperature() == 1.5
-
-
-# ---------------------------------------------------------------------------
-# OpenAI reasoning / verbosity
-# ---------------------------------------------------------------------------
-class TestOpenAISettings:
-    def test_get_openai_reasoning_effort_default(self):
-        cp_config.reset_value("openai_reasoning_effort")
-        assert cp_config.get_openai_reasoning_effort() == "medium"
-
-    def test_get_openai_reasoning_effort_invalid(self):
-        cp_config.set_config_value("openai_reasoning_effort", "bogus")
-        assert cp_config.get_openai_reasoning_effort() == "medium"
-
-    def test_set_openai_reasoning_effort_valid(self):
-        cp_config.set_openai_reasoning_effort("high")
-        assert cp_config.get_openai_reasoning_effort() == "high"
-
-    def test_set_openai_reasoning_effort_invalid(self):
-        with pytest.raises(ValueError):
-            cp_config.set_openai_reasoning_effort("bogus")
-
-    def test_get_openai_verbosity_default(self):
-        cp_config.reset_value("openai_verbosity")
-        assert cp_config.get_openai_verbosity() == "medium"
-
-    def test_get_openai_verbosity_invalid(self):
-        cp_config.set_config_value("openai_verbosity", "bogus")
-        assert cp_config.get_openai_verbosity() == "medium"
-
-    def test_set_openai_verbosity_valid(self):
-        cp_config.set_openai_verbosity("low")
-        assert cp_config.get_openai_verbosity() == "low"
-
-    def test_set_openai_verbosity_invalid(self):
-        with pytest.raises(ValueError):
-            cp_config.set_openai_verbosity("bogus")
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +406,22 @@ class TestModelSupportsSetting:
             cp_config.model_supports_setting("glm-4.7-chat", "clear_thinking") is True
         )
         assert cp_config.model_supports_setting("GLM-5-large", "clear_thinking") is True
+
+    def test_glm_thinking_type_supported_from_4_5(self):
+        assert cp_config.model_supports_setting("GLM-4.5-AIR-CODING", "thinking_type")
+        assert cp_config.model_supports_setting("glm-4.6", "thinking_type")
+        assert cp_config.model_supports_setting("zai-glm-5.1-api", "thinking_type")
+        assert not cp_config.model_supports_setting("glm-4.4", "thinking_type")
+        assert not cp_config.model_supports_setting("gpt-5", "thinking_type")
+
+    def test_glm_reasoning_effort_only_5_2_plus(self):
+        assert not cp_config.model_supports_setting(
+            "zai-glm-5.1-api", "glm_reasoning_effort"
+        )
+        assert not cp_config.model_supports_setting("glm-4.7", "glm_reasoning_effort")
+        assert cp_config.model_supports_setting(
+            "zai-glm-5.2-api", "glm_reasoning_effort"
+        )
 
     def test_with_supported_settings_list(self):
         mock_config = {"test-model": {"supported_settings": ["temperature", "seed"]}}
@@ -805,6 +783,49 @@ class TestDiffColors:
         # Rich color names are normalized to '#RRGGBB' hex on write.
         cp_config.set_diff_deletion_color("red")
         assert cp_config.get_diff_deletion_color() == "#800000"
+
+    def test_unset_colors_are_derived_from_dark_theme_palette(self):
+        cp_config.set_config_value(
+            "osc_palette_json",
+            json.dumps(
+                {
+                    "bg": "#000000",
+                    "ansi": ["#000000", "#ff0000", "#00ff00"],
+                }
+            ),
+        )
+
+        assert cp_config.get_diff_addition_color() == "#003300"
+        assert cp_config.get_diff_deletion_color() == "#330000"
+
+    def test_unset_colors_are_subtle_on_light_themes(self):
+        cp_config.set_config_value(
+            "osc_palette_json",
+            json.dumps(
+                {
+                    "bg": "#ffffff",
+                    "ansi": ["#000000", "#ff0000", "#00ff00"],
+                }
+            ),
+        )
+
+        assert cp_config.get_diff_addition_color() == "#dbffdb"
+        assert cp_config.get_diff_deletion_color() == "#ffdbdb"
+
+    def test_explicit_diff_color_wins_over_theme(self):
+        cp_config.set_config_value(
+            "osc_palette_json",
+            json.dumps({"bg": "#000000", "ansi": ["#000000", "#ff0000"]}),
+        )
+        cp_config.set_diff_addition_color("#123456")
+
+        assert cp_config.get_diff_addition_color() == "#123456"
+
+    def test_malformed_theme_palette_uses_legacy_defaults(self):
+        cp_config.set_config_value("osc_palette_json", "not json")
+
+        assert cp_config.get_diff_addition_color() == "#0b1f0b"
+        assert cp_config.get_diff_deletion_color() == "#390e1a"
 
     def test_set_diff_highlight_style_noop(self):
         # Should not raise

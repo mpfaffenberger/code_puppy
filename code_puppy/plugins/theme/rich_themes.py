@@ -187,6 +187,7 @@ def make_remap(
     bright_blue: Optional[str] = None,
     bright_magenta: Optional[str] = None,
     white: Optional[str] = None,
+    bright_white: Optional[str] = None,
 ) -> dict[str, str]:
     """Build a clean remap dict from optional kwargs (None = skip)."""
     mapping = {
@@ -197,6 +198,7 @@ def make_remap(
         "bright_blue": bright_blue,
         "bright_magenta": bright_magenta,
         "white": white,
+        "bright_white": bright_white,
     }
     # Drop entries Rich can't parse so a typo in a theme never crashes the UI.
     return {k: v for k, v in mapping.items() if v and _safe_parse(v) is not None}

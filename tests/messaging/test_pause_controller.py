@@ -55,6 +55,29 @@ def test_pause_and_resume_are_idempotent(controller):
 
 
 # =========================================================================
+# Deferred compaction
+# =========================================================================
+
+
+def test_compaction_requests_are_consumed_one_at_a_time(controller):
+    assert controller.take_compaction_request() is False
+    controller.request_compaction()
+    controller.request_compaction()
+
+    assert controller.take_compaction_request() is True
+    assert controller.take_compaction_request() is True
+    assert controller.take_compaction_request() is False
+
+
+def test_drain_compaction_requests_clears_all(controller):
+    controller.request_compaction()
+    controller.request_compaction()
+
+    assert controller.drain_compaction_requests() == 2
+    assert controller.drain_compaction_requests() == 0
+
+
+# =========================================================================
 # wait_if_paused
 # =========================================================================
 
@@ -192,6 +215,21 @@ def test_drain_queued_does_not_touch_now(controller):
     controller.request_steer("queue-one", mode="queue")
     assert controller.drain_pending_steer_queued() == ["queue-one"]
     assert controller.drain_pending_steer_now() == ["now-one"]
+
+
+def test_defer_pending_now_moves_messages_after_existing_queued(controller):
+    controller.request_steer("now-one", mode="now")
+    controller.request_steer("queue-one", mode="queue")
+    controller.request_steer("now-two", mode="now")
+
+    assert controller.defer_pending_steer_now() == 2
+    assert controller.drain_pending_steer_now() == []
+    assert controller.drain_pending_steer_queued() == [
+        "queue-one",
+        "now-one",
+        "now-two",
+    ]
+    assert controller.defer_pending_steer_now() == 0
 
 
 def test_drain_pending_steer_combines_both_queues_queued_first(controller):
