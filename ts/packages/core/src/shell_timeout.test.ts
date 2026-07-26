@@ -22,6 +22,10 @@ test("dynamic timeouts: quick reads get 30s, builds get 600s, the rest 120s", ()
 
   expect(shellTimeoutFor("./scripts/deploy.sh")).toBe(SHELL_TIMEOUT.default);
   expect(shellTimeoutFor("curl https://example.com")).toBe(SHELL_TIMEOUT.default);
+
+  // Plausibly-slow commands must NOT land in the quick class — a false kill
+  // wastes a turn, while over-waiting only costs wall-clock.
+  expect(shellTimeoutFor("du -sh /var")).toBe(SHELL_TIMEOUT.default);
 });
 
 test("model override wins, clamped to the hard max; env sets the default", () => {

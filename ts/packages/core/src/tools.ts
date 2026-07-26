@@ -77,13 +77,16 @@ export interface ToolContext {
 // 60s is a false failure. Classify the command and pick a sensible ceiling —
 // the model can still override per call, clamped to the hard max.
 
+// Only commands that cannot plausibly run long. `du` is deliberately absent
+// (a big tree takes minutes) and the class sits at 60s, not 30s — a
+// false-kill costs a wasted turn, while a slow hang only costs wall-clock.
 const QUICK_CMD =
-  /^\s*(git\s+(status|log|diff|show|branch|rev-parse|remote|config)|ls|pwd|echo|cat|head|tail|wc|which|whoami|date|env|stat|du|df)\b/;
+  /^\s*(git\s+(status|log|diff|show|branch|rev-parse|remote|config)|ls|pwd|echo|cat|head|tail|wc|which|whoami|date|env|stat|df)\b/;
 const LONG_CMD =
   /\b((npm|yarn|pnpm|bun)\s+(install|ci|add|update)|pip\s+install|cargo\s+(build|test|run)|make|gradle|mvn|docker\s+(build|compose)|pytest|jest|vitest|(go|cargo)\s+test|tsc|webpack|(next|vite|nuxt)\s+build|bun\s+(test|run\s+build)|npm\s+(test|run\s+(build|test)))\b/;
 
 export const SHELL_TIMEOUT = {
-  quick: 30,
+  quick: 60,
   default: 120, // Claude Code's default
   long: 600, // installs/builds/test suites
   max: 600,
