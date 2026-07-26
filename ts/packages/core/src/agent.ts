@@ -165,8 +165,7 @@ export interface CompactionResult {
 // session silently died at the old cap of 25). Env-tunable via
 // MIST_MAX_REQUESTS; cap exit is loud + resumable either way.
 const requestCap = (isSubagent: boolean): number =>
-  Math.max(1, Number(process.env.MIST_MAX_REQUESTS ?? (isSubagent ? 100 : 500)));
-const MAX_REQUESTS_PER_TURN = 25;
+  Math.max(1, Number(process.env.MIST_MAX_REQUESTS ?? (isSubagent ? 500 : 2000)));
 const HEADROOM_MIN_CHARS = 2000;
 // Auto-compaction threshold in REAL tokens (the API reports input_tokens on
 // every request — that IS the context size). MIST_COMPACT_AT overrides;
