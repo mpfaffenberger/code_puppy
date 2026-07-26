@@ -7,6 +7,7 @@
 
 import type { EventEnvelope } from "@mist/protocol";
 import { MistEngine } from "./agent";
+import { setConfig } from "./config";
 import { McpManager } from "./mcp";
 import { SessionStore } from "./store";
 import type { StoredSession } from "./store";
@@ -260,6 +261,35 @@ export class EngineSession {
   steer(text: string): void {
     this.engine.queueSteer(text);
     this.emit("steer.queued", { text });
+  }
+
+  /**
+   * /set-context-length — change the auto-compaction threshold and persist
+   * it. Applies to this session immediately; the engine clamps it to 80% of
+   * the model's real window, so the effective value may be lower.
+   */
+  async setContextLength(tokens: number): Promise<number> {
+    this.engine.setCompactAt(tokens);
+    await setConfig("auto_compact_at", String(Math.floor(tokens))).catch(() => {});
+    await this.engine.resolveContextLength().catch(() => {});
+    return this.engine.compactAt();
+  }
+
+  contextLimit(): number {
+    return this.engine.compactAt();
+  }
+
+  /** Ctrl+B — detach the running tool so the turn can continue. */
+  backgroundCurrentTool(): boolean {
+    const ok = this.engine.backgroundCurrentTool();
+    this.emit("tool.backgrounded", { ok });
+    return ok;
+  }
+
+  /** Esc — stop the turn and kill whatever tool is running. */
+  interrupt(): void {
+    this.engine.interrupt();
+    this.emit("session.interrupted", {});
   }
 
   private pendingAnswer: ((answer: string) => void) | null = null;

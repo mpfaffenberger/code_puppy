@@ -7,6 +7,15 @@
 
 import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import {
+  getBgJob,
+  killBgJob,
+  killProcessTree,
+  listBgJobs,
+  markBgExited,
+  readBgOutput,
+  registerBgJob,
+} from "./background";
 
 export interface DiffLine {
   type: "add" | "del";
@@ -57,6 +66,41 @@ export interface ToolContext {
   cwd: string;
   onStep: (label: string) => void;
   onDiff?: (diff: DiffPayload) => void;
+  /** Ctrl+B — detach the running command and let the turn continue. */
+  bgSignal?: AbortSignal;
+  /** Esc — hard-stop the running command (kills the process tree). */
+  abortSignal?: AbortSignal;
+}
+
+// ---- Dynamic shell timeouts ------------------------------------------------
+// A `git status` that hangs for 10 minutes is a bug; a `bun install` killed at
+// 60s is a false failure. Classify the command and pick a sensible ceiling —
+// the model can still override per call, clamped to the hard max.
+
+// Only commands that cannot plausibly run long. `du` is deliberately absent
+// (a big tree takes minutes) and the class sits at 60s, not 30s — a
+// false-kill costs a wasted turn, while a slow hang only costs wall-clock.
+const QUICK_CMD =
+  /^\s*(git\s+(status|log|diff|show|branch|rev-parse|remote|config)|ls|pwd|echo|cat|head|tail|wc|which|whoami|date|env|stat|df)\b/;
+const LONG_CMD =
+  /\b((npm|yarn|pnpm|bun)\s+(install|ci|add|update)|pip\s+install|cargo\s+(build|test|run)|make|gradle|mvn|docker\s+(build|compose)|pytest|jest|vitest|(go|cargo)\s+test|tsc|webpack|(next|vite|nuxt)\s+build|bun\s+(test|run\s+build)|npm\s+(test|run\s+(build|test)))\b/;
+
+export const SHELL_TIMEOUT = {
+  quick: 60,
+  default: 120, // Claude Code's default
+  long: 600, // installs/builds/test suites
+  max: 600,
+} as const;
+
+/** Seconds a command gets when the model doesn't say. Exported for tests. */
+export function shellTimeoutFor(command: string, requested?: number): number {
+  const max = Number(process.env.MIST_SHELL_MAX_TIMEOUT ?? SHELL_TIMEOUT.max);
+  if (requested && requested > 0) return Math.min(requested, max);
+  const configured = Number(process.env.MIST_SHELL_TIMEOUT ?? 0);
+  if (configured > 0) return Math.min(configured, max);
+  if (QUICK_CMD.test(command)) return SHELL_TIMEOUT.quick;
+  if (LONG_CMD.test(command)) return Math.min(SHELL_TIMEOUT.long, max);
+  return Math.min(SHELL_TIMEOUT.default, max);
 }
 
 export interface ToolResult {
@@ -213,10 +257,17 @@ export const TOOLS: ToolDef[] = [
   {
     name: "shell",
     description:
-      "Run a shell command (bash -c). Streaming output captured; 60s default timeout. Use for builds, tests, git status/diff/log.",
+      "Run a shell command (bash -c). Timeout adapts to the command: ~30s for quick git/ls/cat, 120s default, up to 600s for installs/builds/test suites. Pass timeout_seconds to override (max 600). A command that outlives its timeout is killed with its whole process tree; long-running servers/watchers should be started with run_in_background: true instead.",
     input_schema: {
       type: "object",
-      properties: { command: { type: "string" }, timeout_seconds: { type: "number" } },
+      properties: {
+        command: { type: "string" },
+        timeout_seconds: { type: "number", description: "override the adaptive timeout (max 600)" },
+        run_in_background: {
+          type: "boolean",
+          description: "start it detached and return immediately — for servers, watchers, tails",
+        },
+      },
       required: ["command"],
     },
     handler: async (input, ctx) => {
@@ -225,24 +276,145 @@ export const TOOLS: ToolDef[] = [
         return { content: "blocked: destructive command (rm -rf /, force-push, hard reset, …)", isError: true };
       }
       ctx.onStep(command.length > 80 ? `$ ${command.slice(0, 79)}…` : `$ ${command}`);
-      const proc = Bun.spawn(["bash", "-lc", command], {
-        cwd: ctx.cwd,
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const timeoutMs = (n(input["timeout_seconds"]) ?? 60) * 1000;
-      const timer = setTimeout(() => proc.kill(), timeoutMs);
-      const [out, err] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-      ]);
-      const code = await proc.exited;
-      clearTimeout(timer);
-      const body = `${out}${err ? `\n[stderr]\n${err}` : ""}`.slice(0, 40_000);
-      return { content: `exit ${code}\n${body}`, isError: code !== 0 };
+      const timeoutSec = shellTimeoutFor(command, n(input["timeout_seconds"]));
+      return runShell(command, ctx, timeoutSec * 1000, Boolean(input["run_in_background"]));
+    },
+  },
+  {
+    name: "bg_output",
+    description:
+      "Read captured output from a background job (started with run_in_background or detached with Ctrl+B). Returns its status and recent output.",
+    input_schema: {
+      type: "object",
+      properties: { id: { type: "string" }, max_chars: { type: "number" } },
+      required: ["id"],
+    },
+    handler: async (input) => {
+      const id = s(input["id"]);
+      const job = getBgJob(id);
+      if (!job) {
+        const known = listBgJobs().map((j) => j.id).join(", ") || "none";
+        return { content: `no background job '${id}' (known: ${known})`, isError: true };
+      }
+      const out = await readBgOutput(id, n(input["max_chars"]) ?? 8000);
+      const status =
+        job.status === "running"
+          ? `running (pid ${job.pid}, ${Math.round((Date.now() - job.startedAt) / 1000)}s)`
+          : `${job.status}${job.exitCode !== undefined ? ` (exit ${job.exitCode})` : ""}`;
+      return { content: `[${id}] ${status}\n$ ${job.command}\n${out || "(no output yet)"}` };
+    },
+  },
+  {
+    name: "bg_kill",
+    description: "Stop a background job and its child processes.",
+    input_schema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+    },
+    handler: async (input, ctx) => {
+      const id = s(input["id"]);
+      const ok = killBgJob(id);
+      ctx.onStep(ok ? `⏹ killed ${id}` : `${id} was not running`);
+      return { content: ok ? `killed ${id}` : `no running background job '${id}'`, isError: !ok };
     },
   },
 ];
+
+/**
+ * Run a shell command without ever hanging the turn.
+ *
+ * The trap this avoids: killing bash does NOT close its stdout pipe when a
+ * grandchild inherited it, so `new Response(proc.stdout).text()` waits for an
+ * EOF that never comes — the turn stalls forever with no error. So output is
+ * drained incrementally (partial output survives), every wait is raced against
+ * a deadline, and timeouts kill the whole process tree.
+ */
+async function runShell(
+  command: string,
+  ctx: ToolContext,
+  timeoutMs: number,
+  startDetached: boolean,
+): Promise<ToolResult> {
+  const startedAt = Date.now();
+  const proc = Bun.spawn(["bash", "-lc", command], {
+    cwd: ctx.cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const buf = { out: "", err: "" };
+  const drain = async (stream: ReadableStream<Uint8Array>, key: "out" | "err") => {
+    const reader = stream.getReader();
+    const dec = new TextDecoder();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf[key] += dec.decode(value, { stream: true });
+    }
+  };
+  const draining = Promise.all([drain(proc.stdout, "out"), drain(proc.stderr, "err")]).catch(
+    () => {},
+  );
+  const body = () => `${buf.out}${buf.err ? `\n[stderr]\n${buf.err}` : ""}`.slice(0, 40_000);
+
+  /** Detach: keep it running, stream output to a log file, return now. */
+  const detach = (reason: string): ToolResult => {
+    const job = registerBgJob(command, proc.pid, startedAt);
+    void (async () => {
+      const flush = () => Bun.write(job.logPath, body()).catch(() => {});
+      const timer = setInterval(() => void flush(), 1000);
+      try {
+        await Promise.race([draining, proc.exited]);
+        markBgExited(job.id, await proc.exited);
+      } finally {
+        clearInterval(timer);
+        await flush();
+      }
+    })();
+    return {
+      content: `[${reason} as ${job.id} — pid ${proc.pid}, still running]\n${body().slice(-2000)}\n[check it with bg_output("${job.id}"), stop it with bg_kill("${job.id}")]`,
+    };
+  };
+
+  if (startDetached) return detach("started in background");
+
+  const signals: Promise<{ kind: "bg" | "abort" }>[] = [];
+  if (ctx.bgSignal) signals.push(onAbort(ctx.bgSignal, { kind: "bg" }));
+  if (ctx.abortSignal) signals.push(onAbort(ctx.abortSignal, { kind: "abort" }));
+
+  const outcome = await Promise.race([
+    proc.exited.then((code) => ({ kind: "exited" as const, code })),
+    Bun.sleep(timeoutMs).then(() => ({ kind: "timeout" as const })),
+    ...signals,
+  ]);
+
+  if (outcome.kind === "bg") return detach("backgrounded");
+
+  if (outcome.kind === "exited") {
+    // Give the pipes a beat to flush, but never wait on them indefinitely —
+    // a surviving grandchild holds them open forever.
+    await Promise.race([draining, Bun.sleep(500)]);
+    return { content: `exit ${outcome.code}\n${body()}`, isError: outcome.code !== 0 };
+  }
+
+  // Timeout or user abort: kill the tree, keep whatever output we captured.
+  killProcessTree(proc.pid, "SIGTERM");
+  await Promise.race([draining, Bun.sleep(300)]);
+  killProcessTree(proc.pid, "SIGKILL");
+  const secs = Math.round((Date.now() - startedAt) / 1000);
+  const note =
+    outcome.kind === "abort"
+      ? `[interrupted by the user after ${secs}s — process tree killed]`
+      : `[timed out after ${secs}s — process tree killed. Re-run with a larger timeout_seconds, or run_in_background: true if it is meant to keep running.]`;
+  return { content: `${note}\n${body()}`, isError: true };
+}
+
+function onAbort<T>(signal: AbortSignal, value: T): Promise<T> {
+  if (signal.aborted) return Promise.resolve(value);
+  return new Promise((resolve) =>
+    signal.addEventListener("abort", () => resolve(value), { once: true }),
+  );
+}
 
 export const toolSpecs = TOOLS.map(({ name, description, input_schema }) => ({
   name,
@@ -257,8 +429,24 @@ export async function runTool(
 ): Promise<ToolResult> {
   const tool = TOOLS.find((t) => t.name === name);
   if (!tool) return { content: `unknown tool: ${name}`, isError: true };
+  // Outer watchdog: shell polices itself precisely, but ANY tool (an MCP
+  // server on a dead socket, a huge readdir) must be unable to stall a turn
+  // forever. Generous by design — this is a backstop, not a work budget.
+  const watchdogMs =
+    name === "shell"
+      ? (shellTimeoutFor(s(input["command"]), n(input["timeout_seconds"])) + 30) * 1000
+      : Number(process.env.MIST_TOOL_TIMEOUT ?? 300) * 1000;
   try {
-    return await tool.handler(input, ctx);
+    const result = await Promise.race([
+      tool.handler(input, ctx),
+      Bun.sleep(watchdogMs).then(
+        (): ToolResult => ({
+          content: `[tool '${name}' exceeded the ${Math.round(watchdogMs / 1000)}s watchdog and was abandoned — it may still be running. Try a narrower call.]`,
+          isError: true,
+        }),
+      ),
+    ]);
+    return result;
   } catch (err) {
     return { content: `tool error: ${(err as Error).message}`, isError: true };
   }

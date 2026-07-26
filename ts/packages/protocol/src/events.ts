@@ -47,6 +47,7 @@ export type MistEvent =
   | { kind: "context_compacted"; beforeTokens: number; afterTokens: number; summarized: number }
   | { kind: "narration"; text: string }
   | { kind: "model_retry"; attempt: number; maxAttempts: number; delayMs: number; reason: string }
+  | { kind: "tool_backgrounded"; ok: boolean }
   | { kind: "step_done"; label: string; preview: string[]; hiddenLines: number }
   | { kind: "thought"; ms: number }
   | {
@@ -144,6 +145,8 @@ export function classifyEvent(env: EventEnvelope): MistEvent {
       };
     case "narration":
       return { kind: "narration", text: str(d["text"]) };
+    case "tool.backgrounded":
+      return { kind: "tool_backgrounded", ok: d["ok"] === true };
     case "model.retry":
       return {
         kind: "model_retry",
