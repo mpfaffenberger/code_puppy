@@ -262,6 +262,19 @@ export class EngineSession {
     this.emit("steer.queued", { text });
   }
 
+  /** Ctrl+B — detach the running tool so the turn can continue. */
+  backgroundCurrentTool(): boolean {
+    const ok = this.engine.backgroundCurrentTool();
+    this.emit("tool.backgrounded", { ok });
+    return ok;
+  }
+
+  /** Esc — stop the turn and kill whatever tool is running. */
+  interrupt(): void {
+    this.engine.interrupt();
+    this.emit("session.interrupted", {});
+  }
+
   private pendingAnswer: ((answer: string) => void) | null = null;
 
   /** Answer the currently pending ask_user question (no-op if none). */

@@ -365,6 +365,24 @@ export class MistEngine {
     return before - this.history.length;
   }
 
+  private toolBg: AbortController | null = null;
+  private turnAbort: AbortController | null = null;
+
+  /**
+   * Ctrl+B — detach the tool running right now (a long build, a dev server)
+   * so the turn can continue. Returns false when nothing is detachable.
+   */
+  backgroundCurrentTool(): boolean {
+    if (!this.toolBg) return false;
+    this.toolBg.abort();
+    return true;
+  }
+
+  /** Esc — stop the turn: kills the running tool and ends the request loop. */
+  interrupt(): void {
+    this.turnAbort?.abort();
+  }
+
   /** Queue a mid-turn user nudge; injected before the next model request. */
   queueSteer(text: string): void {
     if (text.trim()) this.steerQueue.push(text.trim());
@@ -600,8 +618,14 @@ export class MistEngine {
     const maxRequests = requestCap(this.isSubagent);
     let endedNaturally = false;
     let midTurnCompactFailed = false;
+    let interrupted = false;
+    this.turnAbort = new AbortController();
 
     for (let request = 0; request < maxRequests; request++) {
+      if (this.turnAbort.signal.aborted) {
+        interrupted = true;
+        break;
+      }
       this.drainSteers();
       const reqStart = Date.now();
       const result = await client.stream(system, this.history, specs, {
@@ -780,6 +804,7 @@ export class MistEngine {
         // A crashing executor must yield an error RESULT, never abort the
         // turn — an abort here strands the tool_use without its tool_result
         // and every later request 400s (the dangling-pair bug).
+        this.toolBg = new AbortController(); // Ctrl+B target for THIS call
         const res = await runTool(tu.name, input, {
           cwd: this.cwd,
           onStep: (label) => {
@@ -787,10 +812,16 @@ export class MistEngine {
             cb.onStep(label);
           },
           onDiff: cb.onDiff,
-        }).catch((err: Error) => ({
-          content: `tool crashed: ${err.message}`,
-          isError: true,
-        }));
+          bgSignal: this.toolBg.signal,
+          abortSignal: this.turnAbort?.signal,
+        })
+          .catch((err: Error) => ({
+            content: `tool crashed: ${err.message}`,
+            isError: true,
+          }))
+          .finally(() => {
+            this.toolBg = null;
+          });
         reqLens.toolCalls.push({
           name: tu.name, label: stepLabel || tu.name,
           ms: Date.now() - toolStart, outputChars: res.content.length,
@@ -827,6 +858,16 @@ export class MistEngine {
           cb.onCompacted?.(r);
           lens.compactions.push({ beforeTokens: r.beforeTokens, afterTokens: r.afterTokens, summarized: r.summarized });
         } else midTurnCompactFailed = true;
+      }
+    }
+    this.turnAbort = null;
+    if (interrupted) {
+      // Esc: tools were killed and the loop stopped. History stays valid
+      // (pairing repaired next turn), so "continue" resumes cleanly.
+      endedNaturally = true;
+      cb.onStep("⏹ interrupted");
+      if (!finalText.trim()) {
+        finalText = "Stopped at your request. Send “continue” to pick up where I left off.";
       }
     }
     if (!endedNaturally) {

@@ -17,7 +17,7 @@ import { Box, Static, Text, render, useApp, useInput } from "ink";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { classifyEvent } from "@mist/protocol";
 import type { EventEnvelope } from "@mist/protocol";
-import { EngineSession, INIT_PROMPT, SessionStore, getConfiguredModelName, getModelDef, lensTotals, listModelNames, persistModelChoice, renderLensHtml } from "@mist/core";
+import { EngineSession, INIT_PROMPT, SessionStore, getConfiguredModelName, getModelDef, killBgJob, lensTotals, listBgJobs, listModelNames, persistModelChoice, renderLensHtml } from "@mist/core";
 import { readConfig, getConfig, setConfig, SETTING_DEFS } from "@mist/core";
 import type { ChatMessage, SessionMeta, StoredSession } from "@mist/core";
 import { MistClient } from "./client";
@@ -612,6 +612,9 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
         case "thought":
           push(item("info", `Thought for ${Math.max(1, Math.round(ev.ms / 1000))}s`));
           break;
+        case "tool_backgrounded":
+          if (ev.ok) push(item("info", "⇱ backgrounded — the command keeps running; /bg to check on it"));
+          break;
         case "model_retry":
           push(
             item(
@@ -777,6 +780,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
               { label: "/sessions", desc: "list saved sessions for this directory", action: "/sessions" },
               { label: "/rename", desc: "name this session (auto-named from your first question otherwise)", action: "/rename" },
               { label: "/init", desc: "explore the repo and draft AGENTS.md (repository guidelines)", action: "/init" },
+              { label: "/bg", desc: "list background jobs (ctrl+b detaches a running command) · /bg kill <id>", action: "/bg" },
               { label: "/new", desc: "start a fresh conversation (alias /clear)", action: "/new" },
               { label: "/lens", desc: "explainability: tokens, tools, subagents — /lens html for the diagram", action: "/lens" },
               { label: "/compact", desc: "summarize older context to free tokens", action: "/compact" },
@@ -799,7 +803,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
               { label: "/quit", desc: "leave mist (aliases /exit, /q)", action: "/quit" },
             ],
           });
-          say("keys: Enter send · type+Enter while busy = steer · Esc interrupt · ctrl+t toggle tasks · ↑/↓ history");
+          say("keys: Enter send · type+Enter while busy = steer · Esc interrupt · ctrl+b background a running command · ctrl+t toggle tasks · ↑/↓ history");
           say("flags: -c continue · -r <id> resume · --sessions · --help  |  env: MIST_HEADROOM=1 · MIST_COMPACT_AT · MIST_MODEL");
           break;
         }
@@ -873,6 +877,27 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
             break;
           }
           await sessionRef.current?.rename(arg);
+          break;
+        }
+        case "bg": {
+          const jobs = listBgJobs();
+          if (!jobs.length) {
+            say("(no background jobs — ctrl+b detaches a running command, or ask for run_in_background)");
+            break;
+          }
+          for (const j of jobs) {
+            const age = Math.round((Date.now() - j.startedAt) / 1000);
+            const status =
+              j.status === "running"
+                ? `running ${age}s (pid ${j.pid})`
+                : `${j.status}${j.exitCode !== undefined ? ` exit ${j.exitCode}` : ""}`;
+            say(`${j.id} · ${status} · $ ${j.command.slice(0, 60)}`);
+          }
+          if (rest[0] === "kill" && rest[1]) {
+            say(killBgJob(rest[1]) ? `⏹ killed ${rest[1]}` : `${rest[1]} was not running`);
+          } else {
+            say("logs live in the job's file; /bg kill <id> stops one");
+          }
           break;
         }
         case "init": {
@@ -1353,8 +1378,15 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
       return;
     }
     if (busy) {
-      if (key.escape && clientRef.current && sessionId) {
-        void clientRef.current.interrupt(sessionId);
+      if (key.escape) {
+        // Engine-level stop: kills the running tool tree and ends the loop.
+        sessionRef.current?.interrupt();
+        if (clientRef.current && sessionId) void clientRef.current.interrupt(sessionId);
+        return;
+      }
+      if (key.ctrl && ch === "b") {
+        const ok = sessionRef.current?.backgroundCurrentTool() ?? false;
+        if (!ok) push(item("info", "nothing to background right now (no tool running)"));
         return;
       }
       // Steering: type while the agent works; Enter queues the nudge.
@@ -1573,7 +1605,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
             {"  "}
           </Text>
           <Text color={theme.dim} dimColor>
-            esc to interrupt{plan.length ? ` · ctrl+t to ${planVisible ? "hide" : "show"} tasks` : ""}
+            esc interrupt · ctrl+b background{plan.length ? ` · ctrl+t ${planVisible ? "hide" : "show"} tasks` : ""}
           </Text>
           </Box>
           <InputFrame title={sessionTitle}>
