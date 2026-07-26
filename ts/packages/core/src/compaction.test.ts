@@ -79,6 +79,27 @@ test("dedupeSupersededReads: different ranges don't supersede; identical inputs 
   expect(body("r4").content).toBe("tiny");
 });
 
+test("context length: 300k default, /set-context-length applies, env wins, window clamps", async () => {
+  const { MistEngine } = await import("./agent");
+  const engine = new MistEngine("/tmp");
+  expect(engine.compactAt()).toBe(300_000); // raised default
+
+  engine.setCompactAt(500_000); // /set-context-length
+  expect(engine.compactAt()).toBe(500_000);
+
+  process.env.MIST_COMPACT_AT = "120000"; // env overrides the setting
+  try {
+    expect(engine.compactAt()).toBe(120_000);
+  } finally {
+    delete process.env.MIST_COMPACT_AT;
+  }
+
+  // No setting can exceed 80% of the model's real window.
+  (engine as unknown as { contextLength: number }).contextLength = 200_000;
+  engine.setCompactAt(900_000);
+  expect(engine.compactAt()).toBe(160_000);
+});
+
 test("repairToolPairing: synthesizes results for dangling tool_use, drops orphans, no-ops when intact", async () => {
   const { repairToolPairing } = await import("./compaction");
   const use = (id: string) => ({ type: "tool_use" as const, id, name: "shell", input: {} });

@@ -346,6 +346,34 @@ test("prompt-cache breakpoints are sent on the wire (and MIST_CACHE=0 disables)"
   }
 });
 
+test("subagent fan-out is bounded: order preserved, concurrency capped", async () => {
+  const { mapWithConcurrency } = await import("./agent");
+  const items = Array.from({ length: 40 }, (_, i) => i);
+  let live = 0;
+  let peak = 0;
+  const out = await mapWithConcurrency(items, 32, async (i) => {
+    live += 1;
+    peak = Math.max(peak, live);
+    await Bun.sleep(5);
+    live -= 1;
+    return i * 2;
+  });
+  expect(out).toEqual(items.map((i) => i * 2)); // input order preserved
+  expect(peak).toBeLessThanOrEqual(32); // never exceeds the cap
+  expect(peak).toBeGreaterThan(1); // genuinely parallel, not serialized
+
+  // A batch under the cap runs fully parallel.
+  let peakSmall = 0;
+  let liveSmall = 0;
+  await mapWithConcurrency([1, 2, 3], 32, async () => {
+    liveSmall += 1;
+    peakSmall = Math.max(peakSmall, liveSmall);
+    await Bun.sleep(5);
+    liveSmall -= 1;
+  });
+  expect(peakSmall).toBe(3);
+});
+
 test("lens: subagent traffic is attributed to the subagent entry", async () => {
   process.env.MOCK_SUB = "1";
   try {

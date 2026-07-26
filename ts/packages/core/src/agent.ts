@@ -21,7 +21,7 @@ import type { ChatMessage, ContentBlock, ToolSpec } from "./models";
 import { createModelClient, configFromDef } from "./models";
 import { discoverProjectDocs } from "./agents_md";
 import type { ModelClient, ModelResolver } from "./models";
-import { getConfiguredModelName, getModelDef } from "./config";
+import { getConfig, getConfiguredModelName, getModelDef } from "./config";
 import { applyPreToolHooks, loadHooks } from "./hooks";
 import type { Hooks } from "./hooks";
 import { normalizePlan } from "./plan";
@@ -166,12 +166,41 @@ export interface CompactionResult {
 // MIST_MAX_REQUESTS; cap exit is loud + resumable either way.
 const requestCap = (isSubagent: boolean): number =>
   Math.max(1, Number(process.env.MIST_MAX_REQUESTS ?? (isSubagent ? 500 : 2000)));
+
+// How many delegated children may run at once. Every child drives its own
+// request loop, so this is the real concurrency dial against the provider —
+// past it, extra children queue rather than pile onto rate limits.
+const parallelSubagentCap = (): number =>
+  Math.max(1, Number(process.env.MIST_MAX_PARALLEL_SUBAGENTS ?? 32));
+
+/**
+ * Run tasks with bounded concurrency, preserving input order in the results.
+ * Starts eagerly (the first wave launches on call, not on await) so subagents
+ * still overlap the sequential tools in the same batch.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i]!, i);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 const HEADROOM_MIN_CHARS = 2000;
 // Auto-compaction threshold in REAL tokens (the API reports input_tokens on
 // every request — that IS the context size). MIST_COMPACT_AT overrides;
 // clamped to 80% of the model's declared context_length when the registry
 // knows it. The chars/2.5 estimate is only the cold-start fallback.
-const DEFAULT_COMPACT_AT = 200_000;
+const DEFAULT_COMPACT_AT = 300_000;
 
 export class MistEngine {
   private history: ChatMessage[] = [];
@@ -210,9 +239,15 @@ export class MistEngine {
     return this.lastInputTokens > 0 ? this.lastInputTokens : estimateTokens(this.history);
   }
 
-  /** Compaction trigger in real tokens: MIST_COMPACT_AT (default 200k), clamped to 80% of the model's window. */
+  /**
+   * Compaction trigger in real tokens. Precedence: MIST_COMPACT_AT (env) >
+   * the persisted `auto_compact_at` setting (/set-context-length) > 300k
+   * default — then clamped to 80% of the model's declared window, since no
+   * setting can make a context bigger than the model actually has.
+   */
   private compactThreshold(): number {
-    const configured = Math.max(1_000, Number(process.env.MIST_COMPACT_AT ?? DEFAULT_COMPACT_AT));
+    const fromSetting = this.compactAtSetting > 0 ? this.compactAtSetting : DEFAULT_COMPACT_AT;
+    const configured = Math.max(1_000, Number(process.env.MIST_COMPACT_AT ?? fromSetting));
     const windowCap = this.contextLength
       ? Math.floor(this.contextLength * 0.8)
       : Number.POSITIVE_INFINITY;
@@ -366,6 +401,31 @@ export class MistEngine {
 
   private toolBg: AbortController | null = null;
   private turnAbort: AbortController | null = null;
+  /** Persisted auto_compact_at, loaded once per session (0 = unset). */
+  private compactAtSetting = 0;
+  private compactAtLoaded = false;
+
+  /** /set-context-length — apply a new compaction threshold immediately. */
+  setCompactAt(tokens: number): void {
+    this.compactAtSetting = Math.max(1_000, Math.floor(tokens));
+  }
+
+  /** The live threshold, for display (/status, /set-context-length). */
+  compactAt(): number {
+    return this.compactThreshold();
+  }
+
+  /**
+   * Resolve the model's window without building a client, so the threshold
+   * can be reported honestly before the first turn (the clamp always applies
+   * at runtime; this just stops the confirmation message overstating it).
+   */
+  async resolveContextLength(): Promise<void> {
+    if (this.contextLength !== null) return;
+    const name = this.modelOverride ?? (await getConfiguredModelName());
+    const def = await getModelDef(name).catch(() => null);
+    this.contextLength = def?.context_length ?? null;
+  }
 
   /**
    * Ctrl+B — detach the tool running right now (a long build, a dev server)
@@ -425,6 +485,12 @@ export class MistEngine {
 
   private async systemPrompt(): Promise<string> {
     if (this.hooks === null) this.hooks = await loadHooks(this.cwd);
+    // Persisted /set-context-length, read once per session (env still wins).
+    if (!this.compactAtLoaded) {
+      this.compactAtLoaded = true;
+      const stored = Number(await getConfig("auto_compact_at").catch(() => undefined));
+      if (Number.isFinite(stored) && stored > 0) this.compactAtSetting = stored;
+    }
     // AGENTS.md loads ONCE and freezes into the stable prefix (cache
     // contract). Mid-session edits arrive as tail messages, never here.
     if (this.docsInSystem === null) {
@@ -688,11 +754,18 @@ export class MistEngine {
       if (result.text.trim()) cb.onNarration?.(result.text);
 
       const toolResults: ContentBlock[] = [];
-      // Subagent fan-out: every invoke_subagent in this batch starts NOW and
-      // runs concurrently (with each other and with the sequential tools).
-      const subagentRuns = result.toolUses
-        .filter((tu) => tu.name === "invoke_subagent" && !this.isSubagent)
-        .map((tu) => this.runSubagent(tu.id, (tu.input ?? {}) as Record<string, unknown>, cb));
+      // Subagent fan-out: the batch starts NOW (concurrently with each other
+      // and with the sequential tools), but at most PARALLEL_SUBAGENTS at a
+      // time — each child runs its own request loop, so an unbounded batch
+      // multiplies straight into rate limits and token burn. Excess children
+      // queue and start as slots free; the promise is created (not awaited)
+      // here so the first wave overlaps the sequential tools as before.
+      const subagentCalls = result.toolUses.filter(
+        (tu) => tu.name === "invoke_subagent" && !this.isSubagent,
+      );
+      const subagentRuns = mapWithConcurrency(subagentCalls, parallelSubagentCap(), (tu) =>
+        this.runSubagent(tu.id, (tu.input ?? {}) as Record<string, unknown>, cb),
+      );
 
       for (const tu of result.toolUses) {
         if (tu.name === "invoke_subagent" && !this.isSubagent) continue; // gathered below
@@ -846,7 +919,7 @@ export class MistEngine {
           is_error: res.isError,
         });
       }
-      toolResults.push(...(await Promise.all(subagentRuns)));
+      toolResults.push(...(await subagentRuns));
       this.history.push({ role: "user", content: toolResults });
       // Mid-turn guard: with a 500-request cap a single turn can outgrow the
       // window — the old turn-start-only check never saw it. Uses the fresh

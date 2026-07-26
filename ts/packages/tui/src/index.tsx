@@ -38,6 +38,7 @@ const COMMAND_NAMES = [
   "compact", "steps", "tools", "status", "record", "export", "dump_context",
   "quit", "exit", "q", "set", "show", "cd", "reasoning", "verbosity",
   "pop", "prune", "truncate", "mcp", "lens",
+  "bg", "init", "set-context-length", "context-length",
 ];
 
 type Item =
@@ -781,6 +782,7 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
               { label: "/rename", desc: "name this session (auto-named from your first question otherwise)", action: "/rename" },
               { label: "/init", desc: "explore the repo and draft AGENTS.md (repository guidelines)", action: "/init" },
               { label: "/bg", desc: "list background jobs (ctrl+b detaches a running command) · /bg kill <id>", action: "/bg" },
+              { label: "/set-context-length", desc: "auto-compaction threshold in tokens (default 300k)", action: "/set-context-length" },
               { label: "/new", desc: "start a fresh conversation (alias /clear)", action: "/new" },
               { label: "/lens", desc: "explainability: tokens, tools, subagents — /lens html for the diagram", action: "/lens" },
               { label: "/compact", desc: "summarize older context to free tokens", action: "/compact" },
@@ -877,6 +879,23 @@ function App({ initialPrompt, resume, banner }: { initialPrompt?: string; resume
             break;
           }
           await sessionRef.current?.rename(arg);
+          break;
+        }
+        case "set-context-length":
+        case "context-length": {
+          const wanted = Number(arg.replace(/[_,]/g, "").replace(/k$/i, "000"));
+          if (!arg || !Number.isFinite(wanted) || wanted < 1000) {
+            const now = sessionRef.current?.contextLimit() ?? 0;
+            say(`context length (auto-compaction threshold): ${now.toLocaleString()} tok`);
+            say("usage: /set-context-length 300000 (or 300k) — persisted; clamped to 80% of the model's window");
+            break;
+          }
+          const effective = (await sessionRef.current?.setContextLength(wanted)) ?? wanted;
+          say(
+            effective < wanted
+              ? `✎ context length ${wanted.toLocaleString()} → clamped to ${effective.toLocaleString()} tok (80% of this model's window)`
+              : `✎ context length set to ${effective.toLocaleString()} tok — auto-compaction triggers there`,
+          );
           break;
         }
         case "bg": {
