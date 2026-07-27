@@ -288,7 +288,9 @@ async def _invoke_agent_impl(
             instructions = prepared.instructions
             prompt = prepared.user_prompt
 
-            model_settings = make_model_settings(effective_model_name)
+            model_settings = make_model_settings(
+                effective_model_name, prompt_cache_scope=instructions
+            )
 
             # Get MCP servers bound to this sub-agent and warm up any with
             # ``auto_start=True``. We MUST use the async autostart variant

@@ -595,7 +595,9 @@ class TestRegisterInvokeAgentExecution:
         )
         mock_prepare.assert_called_once()
         assert mock_prepare.call_args.args[0] == "override-model"
-        mock_settings.assert_called_once_with("override-model")
+        mock_settings.assert_called_once_with(
+            "override-model", prompt_cache_scope="prepared instructions"
+        )
         assert mock_register_tools.call_args.kwargs["model_name"] == "override-model"
 
     @pytest.mark.asyncio

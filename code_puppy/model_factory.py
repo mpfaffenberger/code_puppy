@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import pathlib
+from hashlib import sha256
 from typing import Any, Dict
 
 import httpx
@@ -61,6 +62,19 @@ _load_plugin_model_providers()
 CONTEXT_1M_BETA = "context-1m-2025-08-07"
 _CUSTOM_OPENAI_MODEL_TYPES = {"custom_openai", "custom_openai_responses"}
 _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL = "codex-gpt-5-codex"
+_PROMPT_CACHE_KEY_PREFIX = "code-puppy"
+
+
+def _make_prompt_cache_key(model_name: str, scope: str | None = None) -> str:
+    """Build a stable, opaque cache-routing key for an OpenAI prompt prefix.
+
+    OpenAI combines this key with its own exact-prefix hash. Including the
+    model and a caller-provided static prompt scope keeps unrelated agents on
+    separate routing keys without exposing prompt text in request metadata.
+    """
+    material = f"{model_name.lower()}\0{scope or 'default'}"
+    digest = sha256(material.encode("utf-8")).hexdigest()[:24]
+    return f"{_PROMPT_CACHE_KEY_PREFIX}:{digest}"
 
 
 def _custom_openai_uses_responses_api(
@@ -173,7 +187,10 @@ def _merge_dotted_key(target: dict, dotted_key: str, value: Any) -> None:
 
 
 def make_model_settings(
-    model_name: str, max_tokens: int | None = None
+    model_name: str,
+    max_tokens: int | None = None,
+    *,
+    prompt_cache_scope: str | None = None,
 ) -> ModelSettings:
     """Create appropriate ModelSettings for a given model.
 
@@ -186,6 +203,8 @@ def make_model_settings(
         model_name: The name of the model to create settings for.
         max_tokens: Optional max tokens limit. If None, automatically calculated
             as: max(2048, min(15% of context_length, 65536))
+        prompt_cache_scope: Stable prompt-prefix material used to partition
+            GPT-5.6 cache routing. The text is hashed and is never sent directly.
 
     Returns:
         Appropriate ModelSettings subclass instance for the model.
@@ -310,12 +329,25 @@ def make_model_settings(
         # Just use plain OpenAIChatModelSettings without reasoning params.
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
-    elif "gpt-5" in model_name:
+    elif (
+        "gpt-5" in model_name.lower()
+        or "gpt-5" in str(model_config.get("name", "")).lower()
+    ):
         # Normalize legacy effort values (minimal->none, ultra->max)
         _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
         effort = _EFFORT_ALIAS.get(effort, effort)
         model_settings_dict["openai_reasoning_effort"] = effort
+
+        underlying_name = str(model_config.get("name", "")).lower()
+        is_gpt_5_6 = "gpt-5.6" in model_name.lower() or "gpt-5.6" in underlying_name
+        if is_gpt_5_6:
+            # GPT-5.6 requires a stable prompt_cache_key for reliable implicit
+            # and explicit cache matching. Implicit mode and its 30m minimum
+            # TTL are API defaults; prompt_cache_retention is deprecated here.
+            model_settings_dict["openai_prompt_cache_key"] = _make_prompt_cache_key(
+                model_name, prompt_cache_scope
+            )
 
         uses_responses_api = (
             model_type == "chatgpt_oauth"
@@ -336,8 +368,6 @@ def make_model_settings(
                     "verbosity", "medium"
                 )
 
-            underlying_name = str(model_config.get("name", "")).lower()
-            is_gpt_5_6 = "gpt-5.6" in model_name.lower() or "gpt-5.6" in underlying_name
             if is_gpt_5_6:
                 # pydantic-ai 1.56 does not expose context/mode settings yet,
                 # although the OpenAI SDK does. Supply the complete reasoning

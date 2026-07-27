@@ -303,6 +303,8 @@ class TestMakeModelSettings:
             settings = make_model_settings("codex-gpt-5.6-sol", max_tokens=4096)
 
         reasoning = settings["extra_body"]["reasoning"]
+        assert settings["openai_prompt_cache_key"].startswith("code-puppy:")
+        assert "openai_prompt_cache_retention" not in settings
         assert reasoning["context"] == "all_turns"
         assert reasoning["mode"] == "standard"
         assert reasoning["effort"] == "medium"
@@ -336,6 +338,88 @@ class TestMakeModelSettings:
 
         assert settings["extra_body"]["reasoning"]["context"] == "current_turn"
         assert settings["extra_body"]["reasoning"]["mode"] == "pro"
+
+    def test_make_model_settings_gpt_5_6_cache_key_is_scoped(self):
+        """Stable prefixes share a key while unrelated prefixes are partitioned."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.model_factory.ModelFactory.load_config",
+            return_value={
+                "codex-gpt-5.6-sol": {
+                    "type": "chatgpt_oauth",
+                    "name": "gpt-5.6-sol",
+                }
+            },
+        ):
+            first = make_model_settings(
+                "codex-gpt-5.6-sol", prompt_cache_scope="same instructions"
+            )
+            repeated = make_model_settings(
+                "codex-gpt-5.6-sol", prompt_cache_scope="same instructions"
+            )
+            different = make_model_settings(
+                "codex-gpt-5.6-sol", prompt_cache_scope="different instructions"
+            )
+
+        assert first["openai_prompt_cache_key"] == repeated["openai_prompt_cache_key"]
+        assert first["openai_prompt_cache_key"] != different["openai_prompt_cache_key"]
+        assert "same instructions" not in first["openai_prompt_cache_key"]
+
+    def test_make_model_settings_gpt_5_6_chat_uses_prompt_cache_key(self):
+        """GPT-5.6 caching also applies when using Chat Completions."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.model_factory.ModelFactory.load_config",
+            return_value={
+                "gpt-5.6": {
+                    "type": "openai",
+                    "name": "gpt-5.6",
+                }
+            },
+        ):
+            settings = make_model_settings("gpt-5.6", max_tokens=4096)
+
+        assert isinstance(settings, dict)
+        assert settings["openai_prompt_cache_key"].startswith("code-puppy:")
+        assert "openai_prompt_cache_retention" not in settings
+
+    def test_make_model_settings_gpt_5_6_alias_uses_prompt_cache_key(self):
+        """Detection uses the configured OpenAI model ID, not just its alias."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.model_factory.ModelFactory.load_config",
+            return_value={
+                "fast-coding-model": {
+                    "type": "custom_openai_responses",
+                    "name": "gpt-5.6-sol",
+                }
+            },
+        ):
+            settings = make_model_settings("fast-coding-model", max_tokens=4096)
+
+        assert settings["openai_prompt_cache_key"].startswith("code-puppy:")
+        assert settings["extra_body"]["reasoning"]["context"] == "all_turns"
+
+    def test_make_model_settings_prompt_cache_is_gpt_5_6_only(self):
+        """Older GPT models must retain their existing request shape."""
+        from code_puppy.model_factory import make_model_settings
+
+        with patch(
+            "code_puppy.model_factory.ModelFactory.load_config",
+            return_value={
+                "codex-gpt-5.5": {
+                    "type": "chatgpt_oauth",
+                    "name": "gpt-5.5",
+                }
+            },
+        ):
+            settings = make_model_settings("codex-gpt-5.5", max_tokens=4096)
+
+        assert "openai_prompt_cache_key" not in settings
+        assert "openai_prompt_cache_retention" not in settings
 
     def test_make_model_settings_claude_has_temperature(self):
         """Test Claude model returns settings with temperature."""

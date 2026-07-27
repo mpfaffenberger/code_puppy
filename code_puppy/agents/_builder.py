@@ -530,7 +530,9 @@ def build_pydantic_agent(
     )
     instructions = _assemble_instructions(agent, resolved_model_name)
     mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
-    model_settings = make_model_settings(resolved_model_name)
+    model_settings = make_model_settings(
+        resolved_model_name, prompt_cache_scope=instructions
+    )
     history_processor = make_history_processor(agent)
     steer_processor = make_steer_history_processor(agent)
 
