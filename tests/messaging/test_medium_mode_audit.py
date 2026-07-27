@@ -601,10 +601,10 @@ class TestChecklist7_NoNewOutput:
         from code_puppy.messaging.spinner import pause_all_spinners, resume_all_spinners
 
         # The spinner imports is_subagent lazily from subagent_context,
-        # so we patch at the source module.
+        # so we patch at the source (canonical) module.
         with (
             patch(
-                "code_puppy.tools.subagent_context.is_subagent",
+                "code_puppy.subagent_context.is_subagent",
                 return_value=True,
             ),
             patch(

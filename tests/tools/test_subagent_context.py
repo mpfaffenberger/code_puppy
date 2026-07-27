@@ -1,31 +1,52 @@
-"""Tests for code_puppy.tools.subagent_context.
+"""Tests for :mod:`code_puppy.subagent_context`.
 
 This module tests the sub-agent context management functionality including
 ContextVar state tracking, context manager behavior, and async isolation.
+
+Historically these tests loaded ``code_puppy/tools/subagent_context.py`` via
+``importlib.util.spec_from_file_location`` to sidestep the tools-package
+import chain. That file is now a re-export shim onto
+:mod:`code_puppy.subagent_context`, so loading it off-disk would just wrap
+the canonical module in an extra namespace and pretend to give isolation
+that doesn't actually exist (state is shared via the shared ContextVar
+objects). Import directly from the canonical module instead — that's the
+real contract we ship.
 """
 
 import asyncio
-import importlib.util
-from pathlib import Path
 
 import pytest
 
-# Import directly from the module file
-spec = importlib.util.spec_from_file_location(
-    "subagent_context_module",
-    Path(__file__).parent.parent.parent
-    / "code_puppy"
-    / "tools"
-    / "subagent_context.py",
+from code_puppy.subagent_context import (
+    get_subagent_chain,
+    get_subagent_depth,
+    get_subagent_name,
+    is_subagent,
+    subagent_context,
 )
-subagent_context_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(subagent_context_module)
 
-subagent_context = subagent_context_module.subagent_context
-is_subagent = subagent_context_module.is_subagent
-get_subagent_name = subagent_context_module.get_subagent_name
-get_subagent_depth = subagent_context_module.get_subagent_depth
-get_subagent_chain = subagent_context_module.get_subagent_chain
+
+class TestShimReExport:
+    """The old ``code_puppy.tools.subagent_context`` path must remain
+    a fully-transparent re-export — external callers and monkeypatch
+    strings baked into other codebases rely on the shim resolving to
+    the *same* objects as the canonical module."""
+
+    def test_public_api_object_identity(self) -> None:
+        from code_puppy import subagent_context as canonical
+        from code_puppy.tools import subagent_context as shim
+
+        for name in (
+            "subagent_context",
+            "is_subagent",
+            "get_subagent_name",
+            "get_subagent_chain",
+            "get_subagent_depth",
+            "get_subagent_model_name",
+        ):
+            assert getattr(shim, name) is getattr(canonical, name), (
+                f"shim '{name}' must be the same object as canonical"
+            )
 
 
 class TestSubagentChain:

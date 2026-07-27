@@ -50,7 +50,7 @@ from pydantic_ai.messages import (
     ToolCallPartDelta,
 )
 
-from code_puppy.tools.subagent_context import is_subagent
+from code_puppy.subagent_context import is_subagent
 
 
 class AgentRunStats:

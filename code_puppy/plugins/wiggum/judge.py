@@ -23,7 +23,7 @@ from code_puppy.agents._history import stringify_part
 from code_puppy.agents.agent_manager import load_agent
 from code_puppy.model_factory import ModelFactory, make_model_settings
 from code_puppy.model_utils import prepare_prompt_for_model
-from code_puppy.tools.subagent_context import subagent_context
+from code_puppy.subagent_context import subagent_context
 
 from .judge_config import DEFAULT_JUDGE_PROMPT, JudgeConfig
 

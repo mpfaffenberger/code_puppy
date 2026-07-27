@@ -100,11 +100,13 @@ def update_spinner_context(info: str) -> None:
     doesn't apply to a status row that describes the main context.
     (Sub-agent status lives on the panel rows via ``set_panel_lines``.)
     """
-    try:
-        from code_puppy.subagent_context import is_subagent
-    except ImportError:
-        is_subagent = None
-    if is_subagent is not None and is_subagent():
+    # Skip sub-agent contexts entirely — status rows describe the main
+    # context; sub-agent status lives on panel rows via ``set_panel_lines``.
+    # Function-scope import keeps ``code_puppy.messaging`` off the tools
+    # graph at discovery time (see ``rich_renderer.py`` module note).
+    from code_puppy.subagent_context import is_subagent
+
+    if is_subagent():
         return
     try:
         from code_puppy.messaging.bottom_bar import get_bottom_bar

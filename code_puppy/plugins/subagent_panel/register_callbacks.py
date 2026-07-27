@@ -478,7 +478,7 @@ async def _on_agent_run_end(
     if not _runtime_enabled():
         return
     try:
-        from code_puppy.tools.subagent_context import is_subagent
+        from code_puppy.subagent_context import is_subagent
 
         if is_subagent():
             return  # a sub-agent finishing -- leave the live tree intact

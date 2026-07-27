@@ -17,6 +17,11 @@ canonical location:
 This shim is retained so existing external plugin authors (and tests
 that patch this exact string path) keep working. Prefer the canonical
 location for new code.
+
+Note: only the public API (``__all__``) is re-exported. The private
+``_subagent_*`` ContextVar objects are intentionally NOT re-exported —
+reach into them via :mod:`code_puppy.subagent_context` directly if you
+really need to poke at internals.
 """
 
 from code_puppy.subagent_context import (  # noqa: F401

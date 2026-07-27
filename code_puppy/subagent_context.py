@@ -15,7 +15,7 @@ ContextVars provide automatic context isolation in async environments:
 ## Usage Example:
 
 ```python
-from code_puppy.tools.subagent_context import subagent_context, is_subagent
+from code_puppy.subagent_context import subagent_context, is_subagent
 
 # Main agent
 print(is_subagent())  # False

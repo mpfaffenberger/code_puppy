@@ -32,7 +32,7 @@ from code_puppy.config import (
     get_suppress_thinking_messages,
 )
 from code_puppy.tools.display import erase_progress_line
-from code_puppy.tools.subagent_context import is_subagent
+from code_puppy.subagent_context import is_subagent
 
 logger = logging.getLogger(__name__)
 
