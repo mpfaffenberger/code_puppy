@@ -67,7 +67,7 @@ _git_branch = detect_git_branch
 def _context_block() -> Dict[str, Any]:
     block: Dict[str, Any] = {}
     try:
-        from code_puppy.plugins.context_indicator.usage import get_current_usage
+        from code_puppy.token_usage import get_current_usage
 
         usage = get_current_usage()
         if usage is not None:
