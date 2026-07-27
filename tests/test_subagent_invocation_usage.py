@@ -1,7 +1,10 @@
 """Tests for per-run usage/latency reporting in subagent_invocation.
 
-These cover the additive token-usage and timing fields added to
-``AgentInvokeOutput``:
+These cover the additive token-usage and timing fields on
+``AgentInvokeWithModelOutput`` -- scoped EXCLUSIVELY to
+``invoke_agent_with_model``. ``invoke_agent`` keeps returning the original,
+unmodified ``AgentInvokeOutput`` with no usage/timing fields at all; that
+contract is locked in by ``TestInvokeAgentUnaffected`` below.
 
 - success path populates every new field (non-cached input_tokens, cache read /
   creation buckets, output_tokens, total_tokens, num_requests, start_time,
@@ -10,6 +13,7 @@ These cover the additive token-usage and timing fields added to
   double-counted (Anthropic / OpenAI / Gemini shapes)
 - a failing ``result.usage()`` leaves token fields None but still times the run
 - an error path (the sub-agent run raises) leaves all new fields None
+- ``invoke_agent`` (no model override) never sees any of these fields
 
 The suite is intentionally isolated from ``test_agent_tools_coverage.py`` so the
 new behaviour stays focused and readable.
@@ -23,9 +27,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from code_puppy.tools.subagent_invocation import (
-    _extract_usage_metrics,
+    register_invoke_agent,
     register_invoke_agent_with_model,
 )
+from code_puppy.tools.subagent_usage_metrics import _extract_usage_metrics
 
 
 def _usage(**kwargs):
@@ -57,6 +62,20 @@ def _capture_invoke_with_model():
     return captured["func"]
 
 
+def _capture_invoke_default():
+    """Capture the registered invoke_agent (no model override) callable."""
+    mock_agent = MagicMock()
+    captured = {}
+
+    def capture_tool(func):
+        captured["func"] = func
+        return func
+
+    mock_agent.tool = capture_tool
+    register_invoke_agent(mock_agent)
+    return captured["func"]
+
+
 def _build_agent_config():
     config = MagicMock()
 
@@ -72,9 +91,16 @@ def _build_agent_config():
     return config
 
 
-async def _run_invoke(*, usage=None, usage_raises=False, run_raises=False, perf=None):
-    """Drive _invoke_agent_impl with a mocked temp agent and return the output."""
-    invoke = _capture_invoke_with_model()
+async def _run_invoke(
+    *, usage=None, usage_raises=False, run_raises=False, perf=None, use_default=False
+):
+    """Drive _invoke_agent_impl with a mocked temp agent and return the output.
+
+    ``use_default=True`` drives it through the plain ``invoke_agent`` tool
+    (no model override, no usage instrumentation) instead of
+    ``invoke_agent_with_model``.
+    """
+    invoke = _capture_invoke_default() if use_default else _capture_invoke_with_model()
     mock_context = MagicMock()
     agent_config = _build_agent_config()
 
@@ -192,6 +218,12 @@ async def _run_invoke(*, usage=None, usage_raises=False, run_raises=False, perf=
                 )
             )
 
+        if use_default:
+            return await invoke(
+                mock_context,
+                agent_name="test-agent",
+                prompt="Hello",
+            )
         return await invoke(
             mock_context,
             agent_name="test-agent",
@@ -461,3 +493,63 @@ class TestInvokeReportsUsageAndLatency:
         assert out.start_time is None
         assert out.end_time is None
         assert out.duration_ms is None
+
+
+class TestInvokeAgentUnaffected:
+    """Locks in that ``invoke_agent`` has ZERO functional/schema changes.
+
+    ``invoke_agent`` must keep returning a plain ``AgentInvokeOutput`` -- the
+    original five-field contract -- with no usage/timing fields present at
+    all (not even as ``None`` attributes), and must not pay the cost of
+    ``time.perf_counter()``/``datetime.now()``/``result.usage()`` calls.
+    """
+
+    @pytest.mark.asyncio
+    async def test_success_returns_plain_agent_invoke_output(self):
+        from code_puppy.tools.agent_tools import (
+            AgentInvokeOutput,
+            AgentInvokeWithModelOutput,
+        )
+
+        usage = _usage(input_tokens=120, output_tokens=60, total_tokens=180, requests=3)
+        out = await _run_invoke(usage=usage, use_default=True)
+
+        assert out.response == "subagent response"
+        assert out.error is None
+        assert type(out) is AgentInvokeOutput
+        assert not isinstance(out, AgentInvokeWithModelOutput)
+        # The usage/timing fields must not exist on this type at all.
+        for field in (
+            "input_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "num_requests",
+            "start_time",
+            "end_time",
+            "duration_ms",
+        ):
+            assert not hasattr(out, field)
+
+    @pytest.mark.asyncio
+    async def test_error_path_returns_plain_agent_invoke_output(self):
+        from code_puppy.tools.agent_tools import AgentInvokeWithModelOutput
+
+        out = await _run_invoke(run_raises=True, use_default=True)
+
+        assert out.response is None
+        assert out.error is not None
+        assert not isinstance(out, AgentInvokeWithModelOutput)
+
+    @pytest.mark.asyncio
+    async def test_usage_and_clock_are_never_touched(self):
+        """invoke_agent must not pay for timing/usage instrumentation at all."""
+        usage = _usage(input_tokens=1, output_tokens=1, total_tokens=2, requests=1)
+        with patch(
+            "code_puppy.tools.subagent_invocation.time.perf_counter"
+        ) as mock_perf:
+            out = await _run_invoke(usage=usage, use_default=True)
+
+        assert out.response == "subagent response"
+        mock_perf.assert_not_called()
