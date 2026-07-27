@@ -1,14 +1,37 @@
-"""Measure the cost of `import code_puppy.messaging` in isolation.
+"""Measure the cost of ``import code_puppy.messaging`` in isolation.
 
 This is the tightest, most honest number: how many modules and how much
-wall time does a plugin pay JUST to bring in the messaging package?
+wall time does a caller pay JUST to bring in the messaging package?
+
+Usage
+-----
+Compare two checkouts (typically ``main`` vs a feature branch)::
+
+    python perf/bench/bench_messaging_only.py \\
+        --before /path/to/checkout-before \\
+        --after  /path/to/checkout-after
+
+Optional flags:
+
+    --runs N       measurement runs per tree (default 7)
+    --warmup N     discarded warmup runs per tree (default 1)
+    --python PATH  Python interpreter to spawn subprocesses with
+                   (default: the interpreter running this script)
+
+The script only reads from the two checkouts; it doesn't modify them,
+doesn't install anything, and doesn't need them to share a venv --
+whatever ``--python`` points at (``sys.executable`` by default) needs
+to be able to import ``code_puppy`` from each of the two trees.
 """
 
+from __future__ import annotations
+
+import argparse
 import json
 import statistics
 import subprocess
-
-VENV = "/Users/t0w0oqh/projects/code_puppy-oss/.venv/bin/python"
+import sys
+from pathlib import Path
 
 SNIPPET = """
 import os, sys, time, json
@@ -25,15 +48,22 @@ print(json.dumps({{'wall_ms': round(dt * 1000, 2), 'new_modules': len(new)}}))
 """
 
 
-def run(repo, n=7):
-    times, mods = [], []
+def run(python: str, repo: str, n: int) -> tuple[list[float], list[int]]:
+    times: list[float] = []
+    mods: list[int] = []
     for _ in range(n):
         r = subprocess.run(
-            [VENV, "-c", SNIPPET.format(repo=repo)],
+            [python, "-c", SNIPPET.format(repo=repo)],
             capture_output=True,
             text=True,
             timeout=60,
         )
+        if r.returncode != 0:
+            print(
+                f"[bench] subprocess failed (repo={repo}): {r.stderr[-300:]}",
+                file=sys.stderr,
+            )
+            continue
         for line in reversed(r.stdout.strip().splitlines()):
             try:
                 d = json.loads(line)
@@ -41,31 +71,89 @@ def run(repo, n=7):
                 mods.append(d["new_modules"])
                 break
             except json.JSONDecodeError:
-                pass
+                continue
     return times, mods
 
 
-MAIN = "/Users/t0w0oqh/projects/code_puppy-oss"
-WORK = "/Users/t0w0oqh/projects/code_puppy-oss/.worktrees/perf-messaging-tools-decouple"
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument(
+        "--before",
+        required=True,
+        type=Path,
+        help="path to the baseline code_puppy checkout",
+    )
+    p.add_argument(
+        "--after",
+        required=True,
+        type=Path,
+        help="path to the candidate code_puppy checkout",
+    )
+    p.add_argument("--runs", type=int, default=7, help="measurement runs per tree")
+    p.add_argument(
+        "--warmup", type=int, default=1, help="warmup runs per tree (discarded)"
+    )
+    p.add_argument(
+        "--python",
+        default=sys.executable,
+        help="Python interpreter used to spawn subprocesses (default: sys.executable)",
+    )
+    args = p.parse_args()
 
-# discard warmup
-run(MAIN, n=1)
-run(WORK, n=1)
-mt, mm = run(MAIN, n=7)
-wt, wm = run(WORK, n=7)
+    before = args.before.resolve()
+    after = args.after.resolve()
+    for label, path in (("--before", before), ("--after", after)):
+        if not (path / "code_puppy").is_dir():
+            print(
+                f"[bench] {label}: {path} does not look like a code_puppy checkout "
+                "(no code_puppy/ subdir)",
+                file=sys.stderr,
+            )
+            return 2
 
-print("import code_puppy.messaging  (7 fresh subprocesses each)\n")
-print(f"{'':<10} {'wall (mean)':>14} {'wall (min)':>14} {'new_modules':>14}")
-print("-" * 55)
-print(
-    f"{'MAIN':<10} {statistics.mean(mt):>12.1f}ms {min(mt):>12.1f}ms {statistics.mean(mm):>12.0f}"
-)
-print(
-    f"{'WORKTREE':<10} {statistics.mean(wt):>12.1f}ms {min(wt):>12.1f}ms {statistics.mean(wm):>12.0f}"
-)
-print(
-    f"\nDelta wall (mean): {statistics.mean(wt) - statistics.mean(mt):+.1f}ms  ({100 * (statistics.mean(wt) / statistics.mean(mt) - 1):+.1f}%)"
-)
-print(
-    f"Delta modules:     {statistics.mean(wm) - statistics.mean(mm):+.0f}  ({100 * (statistics.mean(wm) / statistics.mean(mm) - 1):+.1f}%)"
-)
+    print(f"[bench] python:  {args.python}")
+    print(f"[bench] before:  {before}")
+    print(f"[bench] after:   {after}")
+    print(f"[bench] runs={args.runs}, warmup={args.warmup}\n")
+
+    # discard warmup
+    run(args.python, str(before), n=args.warmup)
+    run(args.python, str(after), n=args.warmup)
+
+    bt, bm = run(args.python, str(before), n=args.runs)
+    at, am = run(args.python, str(after), n=args.runs)
+
+    if len(bt) < 1 or len(at) < 1:
+        print(
+            f"[bench] insufficient samples (before={len(bt)}, after={len(at)})",
+            file=sys.stderr,
+        )
+        return 3
+
+    print(f"import code_puppy.messaging  ({args.runs} fresh subprocesses each)\n")
+    print(f"{'':<10} {'wall (mean)':>14} {'wall (min)':>14} {'new_modules':>14}")
+    print("-" * 55)
+    print(
+        f"{'BEFORE':<10} {statistics.mean(bt):>12.1f}ms "
+        f"{min(bt):>12.1f}ms {statistics.mean(bm):>12.0f}"
+    )
+    print(
+        f"{'AFTER':<10} {statistics.mean(at):>12.1f}ms "
+        f"{min(at):>12.1f}ms {statistics.mean(am):>12.0f}"
+    )
+
+    d_wall = statistics.mean(at) - statistics.mean(bt)
+    d_mods = statistics.mean(am) - statistics.mean(bm)
+    print(
+        f"\nDelta wall (mean): {d_wall:+.1f}ms  "
+        f"({100 * (statistics.mean(at) / statistics.mean(bt) - 1):+.1f}%)"
+    )
+    print(
+        f"Delta modules:     {d_mods:+.0f}  "
+        f"({100 * (statistics.mean(am) / statistics.mean(bm) - 1):+.1f}%)"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
