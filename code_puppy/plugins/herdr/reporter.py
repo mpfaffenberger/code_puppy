@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Optional
+from typing import Optional, Tuple
 
 from .client import HerdrClient
 from . import sources
@@ -63,7 +63,10 @@ class HerdrReporter:
         # Latest working activity (``thinking`` / ``running <tool>``). Only
         # surfaces while WORKING; BLOCKED and IDLE derive their own message.
         self._activity: Optional[str] = None
-        self._session_id: Optional[str] = None
+        # Durable session reference (name, pickle_path) -- NOT the per-run
+        # group_id UUID, which changes every turn and can't identify a
+        # resumable session.
+        self._session_ref: Optional[Tuple[str, str]] = None
 
     @property
     def active(self) -> bool:
@@ -108,31 +111,37 @@ class HerdrReporter:
                 return
             self._last_reported_state = state
             self._last_reported_message = message
-            session_id = self._session_id
+            session_id = self._session_ref[0] if self._session_ref else None
             critical = state_changed
         self._client.report_state(state, session_id, message=message, critical=critical)
 
-    def _remember_session(self, session_id: Optional[str]) -> None:
-        if not session_id:
+    def _refresh_session(self) -> None:
+        """Resolve the durable session reference and report it on change.
+
+        Ignores per-run group_ids entirely. Resolution happens OUTSIDE the
+        lock (guardrail). The next prompt after ``/clear``, ``/session new``,
+        ``/autosave_load``, ``/load_context``, a quick resume, or an agent
+        switch refreshes herdr with no core session callback.
+        """
+        ref = sources.current_session_ref()
+        if ref is None:
             return
         with self._lock:
-            new = session_id != self._session_id
-            self._session_id = session_id
-        if new:
-            self._client.report_session(session_id)
+            changed = ref != self._session_ref
+            self._session_ref = ref
+        if changed:
+            self._client.report_session(ref[0], ref[1])
 
     # -- lifecycle handlers (all sync; safe from async or worker threads) --
 
     def on_startup(self) -> None:
         self._sync()  # depth 0, not awaiting -> idle
 
-    def on_user_prompt(self, session_id: Optional[str] = None) -> None:
-        # Capture native session identity as early as possible; the run
-        # starting (below) is what actually flips us to working.
-        self._remember_session(session_id)
+    def on_user_prompt(self, *_ignored) -> None:
+        # Ignore the callback's per-run group_id; resolve the durable session.
+        self._refresh_session()
 
-    def on_run_start(self, session_id: Optional[str] = None) -> None:
-        self._remember_session(session_id)
+    def on_run_start(self, *_ignored) -> None:
         with self._lock:
             self._run_depth += 1
             # The OUTER run starting is the canonical "thinking" edge. Nested
@@ -141,8 +150,7 @@ class HerdrReporter:
                 self._activity = THINKING
         self._sync()
 
-    def on_run_end(self, session_id: Optional[str] = None) -> None:
-        self._remember_session(session_id)
+    def on_run_end(self, *_ignored) -> None:
         with self._lock:
             self._run_depth = max(0, self._run_depth - 1)
         # At depth 0 the model has stopped. The interactive turn boundary is
@@ -199,12 +207,11 @@ class HerdrReporter:
         self._sync()
 
     def on_shutdown(self) -> None:
-        with self._lock:
-            self._run_depth = 0
-            self._awaiting = False
-            self._activity = None
-        self._sync()  # idle
-        self._client.close()
+        # Release pane authority directly -- no intermediate idle report.
+        # release_and_close() is idempotent and bounded, so calling it from
+        # both session_end and shutdown (and against an unavailable herdr)
+        # can never delay process exit.
+        self._client.release_and_close()
 
 
 __all__ = ["HerdrReporter", "WORKING", "BLOCKED", "IDLE", "THINKING", "AWAITING"]

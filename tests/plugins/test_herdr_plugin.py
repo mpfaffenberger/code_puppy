@@ -37,7 +37,7 @@ class FakeClient:
         self.active = active
         self.states: list[tuple[str, str | None]] = []
         self.activity: list[tuple[str, str | None, bool]] = []
-        self.sessions: list[str] = []
+        self.sessions: list[tuple[str, str]] = []
         self.metadata: list[dict] = []
         self.closed = False
 
@@ -47,11 +47,14 @@ class FakeClient:
         self.states.append((state, agent_session_id))
         self.activity.append((state, message, critical))
 
-    def report_session(self, agent_session_id):
-        self.sessions.append(agent_session_id)
+    def report_session(self, agent_session_id, session_path=None):
+        self.sessions.append((agent_session_id, session_path))
 
     def report_metadata(self, tokens):
         self.metadata.append(tokens)
+
+    def release_and_close(self, timeout_s=1.0):
+        self.closed = True
 
     def close(self):
         self.closed = True
@@ -181,20 +184,77 @@ def test_reporter_no_heartbeat_no_background_chatter():
     assert not hasattr(r, "_heartbeat")
 
 
-def test_reporter_reports_session_once():
+def test_reporter_reports_durable_session_once_on_prompt():
+    """Session comes from the durable ref (name, path), not the run group_id."""
     fake = FakeClient()
     r = HerdrReporter(fake)
-    r.on_run_start("sess-1")
-    r.on_run_start("sess-1")  # same id, no re-report
-    assert fake.sessions == ["sess-1"]
-    assert all(sid == "sess-1" for _, sid in fake.states)
+    ref = ("auto_session_x", "/tmp/autosaves/auto_session_x.pkl")
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.current_session_ref",
+        return_value=ref,
+    ):
+        r.on_user_prompt("group-uuid-ignored")
+        r.on_user_prompt("another-group-uuid")  # unchanged ref -> no re-report
+    assert fake.sessions == [ref]
+    # State reports carry the durable session NAME, never a group_id.
+    r.on_run_start("group-uuid-ignored")
+    assert all(sid in (None, "auto_session_x") for _, sid in fake.states)
 
 
-def test_reporter_shutdown_closes_client():
+def test_reporter_reports_session_again_when_ref_changes():
+    """A new session (e.g. after /clear or resume) refreshes on the next prompt."""
     fake = FakeClient()
     r = HerdrReporter(fake)
+    ref1 = ("auto_session_a", "/tmp/a.pkl")
+    ref2 = ("auto_session_b", "/tmp/b.pkl")
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.current_session_ref",
+        side_effect=[ref1, ref2],
+    ):
+        r.on_user_prompt()
+        r.on_user_prompt()
+    assert fake.sessions == [ref1, ref2]
+
+
+def test_reporter_ignores_per_run_group_id_for_session():
+    """Passing a group_id to run_start must not produce a session report."""
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.current_session_ref",
+        return_value=None,
+    ):
+        r.on_run_start("group-uuid")
+        r.on_run_end("group-uuid")
+    assert fake.sessions == []
+
+
+def test_reporter_session_resolved_outside_lock():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    observed = {}
+
+    def _probe():
+        observed["locked"] = r._lock.locked()
+        return ("n", "/p")
+
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.current_session_ref",
+        side_effect=_probe,
+    ):
+        r.on_user_prompt()
+    assert observed["locked"] is False
+
+
+def test_reporter_shutdown_releases_without_intermediate_idle():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()  # working reported
+    fake.states.clear()
     r.on_shutdown()
     assert fake.closed is True
+    # No intermediate idle report on shutdown -- release only.
+    assert fake.states == []
 
 
 # --- Phase 3: pane metadata at interactive turn end ------------------------

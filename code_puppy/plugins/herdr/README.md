@@ -20,21 +20,44 @@ herdr injects three environment variables into every pane it owns:
 | `HERDR_PANE_ID`     | the pane this process owns (e.g. `w1:p1`) |
 
 On startup the plugin checks for those. If they're absent it does
-**nothing** -- zero overhead, zero output, no behaviour change. If
-they're present it opens a background reporter that maps code-puppy's
-lifecycle callbacks onto herdr's three semantic states:
+**nothing** -- zero overhead, zero output, no behaviour change, no socket,
+no worker thread. If they're present it opens a background reporter that
+reports code-puppy's state **authoritatively**: herdr never has to infer
+it from the screen.
 
-| code-puppy event                                | herdr state |
-| ----------------------------------------------- | ----------- |
-| `agent_run_start`, `user_prompt_submit`         | `working`   |
-| `pre_tool_call` (most tools), `post_tool_call`  | `working`   |
-| `ask_user_question`, file-permission prompts    | `blocked`   |
-| `interactive_turn_end`, `agent_run_cancel`      | `idle`      |
-| `startup`, `session_end`, `shutdown`            | `idle`      |
+## State is authoritative
 
-Sub-agent runs fire the same start/end hooks as the root run, so the
-reporter refcounts active runs and only falls `idle` when the whole turn
-hands control back to you (mirroring the `puppy_spinner` plugin).
+State is a pure function of two facts the plugin observes directly:
+
+```text
+blocked   if awaiting the human
+working   elif a run is in flight (run_depth > 0)
+idle      otherwise
+```
+
+* **run depth** comes from `agent_run_start` / `agent_run_end`, refcounted
+  so a finishing sub-agent doesn't flip the pane `idle` mid-turn (the same
+  pattern the `puppy_spinner` plugin uses).
+* **awaiting** comes from the `awaiting_user_input` callback, which fires
+  from the single process-wide choke-point
+  (`command_runner.set_awaiting_user_input`) that *every* interactive wait
+  already passes through -- shell-command approval, file-permission
+  approval, `ask_user_question`, and every menu/picker. One hook captures
+  every block, so there is nothing left for herdr to guess.
+
+User-initiated menus carry `notify=False`; the plugin suppresses their
+`blocked` report entirely so quick pickers don't spam attention.
+
+## Activity text is best-effort
+
+Alongside the authoritative state, the plugin attaches a short activity
+`message` (`thinking`, `running <tool>`, `awaiting input`) driven by
+`pre_tool_call` / `post_tool_call`. This is decorative: it rides a separate
+lane, deduplicates on the `(state, message)` pair, and can **never** delay
+or override the authoritative state, the session reference, or the final
+release. If a hook-blocked tool misses its completion callback, the next
+run / tool / wait / turn event corrects the message; state stays correct
+regardless.
 
 ## Pane metadata (model / context / tokens)
 
@@ -61,6 +84,31 @@ own state icons. If context usage can't be computed for a turn, no
 metadata is sent and the pane keeps its last good values until the TTL
 expires.
 
+## Session reference
+
+On each prompt the plugin reports a **stable** session reference (the
+durable autosave name and pickle path) via `pane.report_agent_session` --
+not the per-run `group_id`, which changes every turn. It re-reports only
+when the reference actually changes (after `/clear`, `/session new`,
+`/autosave_load`, `/load_context`, a quick resume, or an agent switch).
+This is a stable *reference*; automatic process restoration from it is
+**unverified** and not claimed here.
+
+## Notifications are herdr's job
+
+The plugin sends no notifications itself. herdr derives attention and
+completion notifications from the agent-state transitions the plugin
+reports, and herdr's own toast / sound settings control delivery. This
+plugin's only job is to report accurate state.
+
+## Release on exit
+
+On `session_end` / `shutdown` the plugin calls `pane.release_agent` once
+(idempotent, bounded) so herdr knows code-puppy has let go of the pane --
+no lingering stale `working`. There is no intermediate `idle` report on
+shutdown; if herdr is unavailable the release is bounded and can never
+delay process exit.
+
 ## No install needed on the herdr side
 
 Because this plugin ships with code-puppy and self-activates inside a
@@ -72,30 +120,26 @@ herdr           # start / attach herdr
 code-puppy      # (or: pup) -- herdr picks up its state automatically
 ```
 
-herdr also recognises the `code-puppy` / `pup` process on its own and
-reads the on-screen approval prompts, so even with this plugin disabled
-you still get detection. The plugin upgrades that from screen-scraped
-guessing to authoritative, event-driven state.
-
-## Blocked detection is shared with herdr
-
-Not every interactive prompt in code-puppy flows through a callback
-(shell-command approval, for instance, prompts from inside the tool).
-The plugin reports the prompts it *can* see, and herdr's screen manifest
-independently detects any visible approval UI and overrides a stale
-`working` -- which is exactly why this plugin does **not** claim herdr
-"full lifecycle authority". Belt and suspenders.
+herdr also recognises the `code-puppy` / `pup` process on its own, so even
+with this plugin disabled you still get basic detection. The plugin
+upgrades that from screen-scraped guessing to authoritative, event-driven
+state, metadata, and activity.
 
 ## Design notes
 
 * **Never disturbs the agent.** All socket I/O happens on a daemon
-  worker thread; the sync file-permission hot-path just enqueues and
-  returns. The permission observer always returns `None`, so it can
-  never accidentally veto a file operation.
-* **Edge-triggered + deduped.** Only state *changes* hit the socket.
-* **Fail-soft.** A missing/closed socket, a departed herdr, a full
-  queue -- all are swallowed to the debug log. Reporting your state is
-  never worth crashing your agent over.
+  worker thread; the sync file-permission and tool hot-paths just enqueue
+  and return. The tool observers always return `None`, so they can never
+  block or transform a tool call.
+* **Critical vs decorative.** State edges, session references, and the
+  release ride a critical lane that always overtakes decorative traffic
+  (activity messages, metadata). Decorative saturation can never displace
+  a critical report.
+* **Edge-triggered + deduped.** Only genuine `(state, message)` changes
+  hit the socket.
+* **Fail-soft.** A missing/closed socket, a departed herdr, an
+  unresolvable source -- all are swallowed to the debug log. Reporting
+  your state is never worth crashing your agent over.
 
 ## Files
 
