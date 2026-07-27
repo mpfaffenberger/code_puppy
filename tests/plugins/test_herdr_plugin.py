@@ -20,7 +20,14 @@ import time
 from unittest.mock import patch
 
 
-from code_puppy.plugins.herdr.reporter import BLOCKED, IDLE, WORKING, HerdrReporter
+from code_puppy.plugins.herdr.reporter import (
+    AWAITING,
+    BLOCKED,
+    IDLE,
+    THINKING,
+    WORKING,
+    HerdrReporter,
+)
 
 
 class FakeClient:
@@ -29,12 +36,16 @@ class FakeClient:
     def __init__(self, active: bool = True) -> None:
         self.active = active
         self.states: list[tuple[str, str | None]] = []
+        self.activity: list[tuple[str, str | None, bool]] = []
         self.sessions: list[str] = []
         self.metadata: list[dict] = []
         self.closed = False
 
-    def report_state(self, state, agent_session_id=None):
+    def report_state(
+        self, state, agent_session_id=None, *, message=None, critical=True
+    ):
         self.states.append((state, agent_session_id))
+        self.activity.append((state, message, critical))
 
     def report_session(self, agent_session_id):
         self.sessions.append(agent_session_id)
@@ -231,6 +242,116 @@ def test_reporter_metadata_computed_outside_lock():
         side_effect=_probe,
     ):
         r.on_turn_end()
+    assert observed["locked"] is False
+
+
+# --- Phase 4: decorative activity messages ---------------------------------
+
+
+def _activity(fake: FakeClient) -> list[tuple[str, str | None, bool]]:
+    return fake.activity
+
+
+def test_outer_run_start_carries_thinking_message_critically():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()
+    assert _activity(fake) == [(WORKING, THINKING, True)]
+
+
+def test_tool_start_is_decorative_running_message_same_state():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()  # (WORKING, thinking, critical)
+    r.on_tool_start("read_file")
+    # Same WORKING state, new activity -> decorative (critical=False).
+    assert _activity(fake)[-1] == (WORKING, "running read file", False)
+    # State never mutated by the tool callback.
+    assert _states(fake) == [WORKING, WORKING]
+
+
+def test_tool_complete_reverts_to_thinking_decoratively():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()
+    r.on_tool_start("read_file")
+    r.on_tool_complete()
+    assert _activity(fake)[-1] == (WORKING, THINKING, False)
+    assert all(s == WORKING for s in _states(fake))
+
+
+def test_activity_dedupes_on_state_and_message():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()
+    r.on_tool_start("read_file")
+    r.on_tool_start("read_file")  # identical (state, message) -> no re-send
+    running = [a for a in _activity(fake) if a[1] == "running read file"]
+    assert len(running) == 1
+
+
+def test_tool_callbacks_never_change_state():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()
+    r.on_tool_start("a_tool")
+    r.on_tool_complete()
+    r.on_tool_start("b_tool")
+    r.on_run_end()
+    # State is a pure function of run depth here: working ... then idle once.
+    assert _states(fake)[0] == WORKING
+    assert _states(fake)[-1] == IDLE
+    assert _states(fake).count(IDLE) == 1
+
+
+def test_blocked_message_is_awaiting_input():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()
+    r.on_awaiting_user_input(True)
+    assert _activity(fake)[-1] == (BLOCKED, AWAITING, True)
+    r.on_awaiting_user_input(False)
+    # Back to working -> activity restored to thinking, critical edge.
+    assert _activity(fake)[-1] == (WORKING, THINKING, True)
+
+
+def test_notify_false_menu_leaks_no_message():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()
+    r.on_tool_start("read_file")
+    r.on_awaiting_user_input(True, notify=False)
+    r.on_awaiting_user_input(False, notify=False)
+    # No BLOCKED / awaiting message ever surfaced.
+    assert BLOCKED not in _states(fake)
+    assert AWAITING not in [m for _, m, _ in _activity(fake)]
+
+
+def test_subagent_start_keeps_activity_no_duplicate_thinking():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()  # outer -> thinking
+    r.on_tool_start("read_file")  # running read file
+    r.on_run_start()  # nested subagent run: must NOT reset to thinking
+    # No new report for the nested start (state + message both unchanged).
+    assert _activity(fake)[-1] == (WORKING, "running read file", False)
+
+
+def test_tool_start_resolves_message_outside_lock():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    observed = {}
+
+    def _probe(name):
+        observed["locked"] = r._lock.locked()
+        return f"running {name}"
+
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.activity_message",
+        side_effect=_probe,
+    ):
+        r.on_run_start()
+        r.on_tool_start("read_file")
     assert observed["locked"] is False
 
 

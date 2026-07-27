@@ -43,6 +43,11 @@ WORKING = "working"
 BLOCKED = "blocked"
 IDLE = "idle"
 
+# Decorative activity strings (the ``message`` field on ``pane.report_agent``).
+# State stays authoritative; these are best-effort colour commentary.
+THINKING = "thinking"
+AWAITING = "awaiting input"
+
 
 class HerdrReporter:
     """Thread-safe, dedup-ing bridge from callbacks to :class:`HerdrClient`."""
@@ -54,6 +59,10 @@ class HerdrReporter:
         self._awaiting = False
         self._awaiting_notify = True
         self._last_reported_state: Optional[str] = None
+        self._last_reported_message: Optional[str] = None
+        # Latest working activity (``thinking`` / ``running <tool>``). Only
+        # surfaces while WORKING; BLOCKED and IDLE derive their own message.
+        self._activity: Optional[str] = None
         self._session_id: Optional[str] = None
 
     @property
@@ -70,21 +79,38 @@ class HerdrReporter:
             return WORKING
         return IDLE
 
-    def _sync(self) -> None:
-        """Report a changed state, optionally suppressing ``blocked``.
+    def _message_for_locked(self, state: str) -> Optional[str]:
+        """Derive the decorative message for a state. Caller holds lock."""
+        if state == BLOCKED:
+            return AWAITING
+        if state == WORKING:
+            return self._activity or THINKING
+        return None
 
-        User-initiated menus retain ``notify=False`` for their whole lifetime.
-        Their internal ``blocked`` state must not update the reported-state
-        edge tracker, so closing the menu does not re-send an unchanged state.
+    def _sync(self) -> None:
+        """Report a changed (state, message) pair, optionally suppressing blocked.
+
+        A genuine state edge rides the critical lane; a message-only change
+        (same state, new activity) rides the decorative lane so it can never
+        delay an authoritative edge. User-initiated menus retain
+        ``notify=False`` for their whole lifetime: their internal ``blocked``
+        state must not touch the edge trackers, so closing the menu does not
+        re-send an unchanged state.
         """
         with self._lock:
             state = self._recompute_locked()
-            suppress_blocked = state == BLOCKED and not self._awaiting_notify
-            if suppress_blocked or state == self._last_reported_state:
+            if state == BLOCKED and not self._awaiting_notify:
+                return
+            message = self._message_for_locked(state)
+            state_changed = state != self._last_reported_state
+            message_changed = message != self._last_reported_message
+            if not state_changed and not message_changed:
                 return
             self._last_reported_state = state
+            self._last_reported_message = message
             session_id = self._session_id
-        self._client.report_state(state, session_id)
+            critical = state_changed
+        self._client.report_state(state, session_id, message=message, critical=critical)
 
     def _remember_session(self, session_id: Optional[str]) -> None:
         if not session_id:
@@ -109,6 +135,10 @@ class HerdrReporter:
         self._remember_session(session_id)
         with self._lock:
             self._run_depth += 1
+            # The OUTER run starting is the canonical "thinking" edge. Nested
+            # sub-agent runs keep whatever activity is already showing.
+            if self._run_depth == 1:
+                self._activity = THINKING
         self._sync()
 
     def on_run_end(self, session_id: Optional[str] = None) -> None:
@@ -124,12 +154,29 @@ class HerdrReporter:
         with self._lock:
             self._run_depth = 0
             self._awaiting = False
+            self._activity = None
+        self._sync()
+
+    def on_tool_start(self, tool_name: str) -> None:
+        """A tool call started -> decorative ``running <tool>`` activity."""
+        # Resolve the message OUTSIDE the lock (guardrail: reporter locks
+        # never cover source resolution).
+        activity = sources.activity_message(tool_name)
+        with self._lock:
+            self._activity = activity
+        self._sync()
+
+    def on_tool_complete(self) -> None:
+        """A tool call finished -> back to ``thinking`` while the run continues."""
+        with self._lock:
+            self._activity = THINKING
         self._sync()
 
     def on_turn_end(self) -> None:
         with self._lock:
             self._run_depth = 0
             self._awaiting = False
+            self._activity = None
         self._sync()
         # A completed interactive turn is the canonical place to refresh pane
         # metadata: the token payload is computed once, OUTSIDE the reporter
@@ -155,8 +202,9 @@ class HerdrReporter:
         with self._lock:
             self._run_depth = 0
             self._awaiting = False
+            self._activity = None
         self._sync()  # idle
         self._client.close()
 
 
-__all__ = ["HerdrReporter", "WORKING", "BLOCKED", "IDLE"]
+__all__ = ["HerdrReporter", "WORKING", "BLOCKED", "IDLE", "THINKING", "AWAITING"]

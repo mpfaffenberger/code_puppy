@@ -82,6 +82,20 @@ def _on_turn_end(*_args, **_kw) -> None:
     _reporter.on_turn_end()
 
 
+def _on_tool_start(*args, **kwargs):
+    # (tool_name, tool_args, context=None). Decorative only -> return None so
+    # the tool is never blocked or transformed.
+    tool_name = _arg(args, 0) if args else kwargs.get("tool_name")
+    _reporter.on_tool_start(str(tool_name) if tool_name is not None else "")
+    return None
+
+
+def _on_tool_complete(*_args, **_kw):
+    # (tool_name, tool_args, result, duration_ms, context=None). Decorative.
+    _reporter.on_tool_complete()
+    return None
+
+
 def _on_awaiting_user_input(*args, **_kw) -> None:
     # Keep the public callback's historical one-argument signature. Notification
     # intent is read synchronously from command_runner's current wait state.
@@ -105,6 +119,8 @@ if _reporter.active:
     register_callback("agent_run_cancel", _on_run_cancel)
     register_callback("interactive_turn_end", _on_turn_end)
     register_callback("interactive_turn_cancel", _on_turn_end)
+    register_callback("pre_tool_call", _on_tool_start)
+    register_callback("post_tool_call", _on_tool_complete)
     register_callback("awaiting_user_input", _on_awaiting_user_input)
     register_callback("session_end", _on_shutdown)
     register_callback("shutdown", _on_shutdown)
