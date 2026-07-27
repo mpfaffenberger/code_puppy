@@ -17,6 +17,7 @@ Covers:
 from __future__ import annotations
 
 import time
+from unittest.mock import patch
 
 
 from code_puppy.plugins.herdr.reporter import BLOCKED, IDLE, WORKING, HerdrReporter
@@ -29,6 +30,7 @@ class FakeClient:
         self.active = active
         self.states: list[tuple[str, str | None]] = []
         self.sessions: list[str] = []
+        self.metadata: list[dict] = []
         self.closed = False
 
     def report_state(self, state, agent_session_id=None):
@@ -36,6 +38,9 @@ class FakeClient:
 
     def report_session(self, agent_session_id):
         self.sessions.append(agent_session_id)
+
+    def report_metadata(self, tokens):
+        self.metadata.append(tokens)
 
     def close(self):
         self.closed = True
@@ -179,6 +184,54 @@ def test_reporter_shutdown_closes_client():
     r = HerdrReporter(fake)
     r.on_shutdown()
     assert fake.closed is True
+
+
+# --- Phase 3: pane metadata at interactive turn end ------------------------
+
+
+def test_reporter_emits_metadata_at_turn_end():
+    """A completed interactive turn refreshes pane metadata (decorative)."""
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    payload = {"model": "claude", "context": "42%", "tokens": "48k/200k"}
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.current_tokens_payload",
+        return_value=payload,
+    ):
+        r.on_run_start()
+        r.on_turn_end()
+    assert fake.metadata == [payload]
+
+
+def test_reporter_skips_metadata_when_payload_unavailable():
+    """No usage -> no metadata report (pane keeps last good values / TTL)."""
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.current_tokens_payload",
+        return_value=None,
+    ):
+        r.on_run_start()
+        r.on_turn_end()
+    assert fake.metadata == []
+
+
+def test_reporter_metadata_computed_outside_lock():
+    """Token payload resolution must never happen under the reporter lock."""
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    observed = {}
+
+    def _probe():
+        observed["locked"] = r._lock.locked()
+        return {"context": "1%", "tokens": "1k/200k"}
+
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.current_tokens_payload",
+        side_effect=_probe,
+    ):
+        r.on_turn_end()
+    assert observed["locked"] is False
 
 
 # --- core wiring: set_awaiting_user_input fires the callback ----------------

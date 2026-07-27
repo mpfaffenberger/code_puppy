@@ -36,6 +36,31 @@ Sub-agent runs fire the same start/end hooks as the root run, so the
 reporter refcounts active runs and only falls `idle` when the whole turn
 hands control back to you (mirroring the `puppy_spinner` plugin).
 
+## Pane metadata (model / context / tokens)
+
+At the end of every interactive turn the plugin also reports pane
+metadata via `pane.report_metadata`: the current model, context-window
+fill percentage, and a compact token count. herdr stores these under the
+pane with a 24h TTL (so stale numbers self-clear after an abrupt exit),
+but it only *renders* them when your sidebar layout references the
+matching `$name` fields. Add them to `rows_by_agent` in your herdr
+config:
+
+```toml
+[ui.sidebar.agents.rows_by_agent]
+codepuppy = [
+  ["state_icon", "workspace", "tab"],
+  ["agent", "$model"],
+  ["$context", "$tokens"],
+]
+```
+
+The payload uses static keys (`model`, `context`, `tokens`) with
+string values and no indicator glyphs -- herdr rows already carry their
+own state icons. If context usage can't be computed for a turn, no
+metadata is sent and the pane keeps its last good values until the TTL
+expires.
+
 ## No install needed on the herdr side
 
 Because this plugin ships with code-puppy and self-activates inside a
@@ -78,4 +103,5 @@ independently detects any visible approval UI and overrides a stale
 | ----------------------- | ------------------------------------------- |
 | `client.py`             | herdr socket transport (JSON, worker thread)|
 | `reporter.py`           | event -> state machine (refcount + dedup)   |
+| `sources.py`            | fail-soft adapters (tokens / session / msg) |
 | `register_callbacks.py` | callback wiring + env activation guard       |

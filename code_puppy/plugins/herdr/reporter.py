@@ -35,6 +35,7 @@ import threading
 from typing import Optional
 
 from .client import HerdrClient
+from . import sources
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,18 @@ class HerdrReporter:
             self._run_depth = 0
             self._awaiting = False
         self._sync()
+        # A completed interactive turn is the canonical place to refresh pane
+        # metadata: the token payload is computed once, OUTSIDE the reporter
+        # lock, and enqueued on the decorative lane. Sending every turn also
+        # refreshes the metadata TTL even when the formatted values are
+        # unchanged. Tool callbacks and blocked edges do no token math.
+        self._emit_metadata()
+
+    def _emit_metadata(self) -> None:
+        """Compute and enqueue pane metadata. Never holds the reporter lock."""
+        payload = sources.current_tokens_payload()
+        if payload:
+            self._client.report_metadata(payload)
 
     def on_awaiting_user_input(self, awaiting: bool, *, notify: bool = True) -> None:
         """Track an interactive wait, notifying only when requested."""
