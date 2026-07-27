@@ -40,11 +40,11 @@ GREY = "\033[90m"
 WHITE = "\033[1;37m"
 
 # --- glyphs (escaped so emoji-stripping file writers leave them intact) -----
-FRAKTUR_F = "\U0001D571"   # mathematical bold fraktur capital F
-ICON_PROGRESS = "\U0001F504"   # clockwise arrows
-ICON_DONE = "\u2705"           # white heavy check mark on green
-ICON_REWORK = "\U0001F501"     # repeat
-DOT = "\u25CF"                 # solid circle
+FRAKTUR_F = "\U0001d571"  # mathematical bold fraktur capital F
+ICON_PROGRESS = "\U0001f504"  # clockwise arrows
+ICON_DONE = "\u2705"  # white heavy check mark on green
+ICON_REWORK = "\U0001f501"  # repeat
+DOT = "\u25cf"  # solid circle
 
 STATUS_STYLE = {
     "in-progress": (ICON_PROGRESS, ORANGE),
@@ -65,8 +65,8 @@ SEV_COL_WIDTH = {"critical": 10, "high": 6, "medium": 8, "low": 5}
 
 # Panel layout constants (named so a column-width tweak can't silently break
 # the header/rule alignment).
-_SECTION_PAD = 18   # extra width added to name_w + stage_w for section rules
-_MIN_PANEL_W = 48   # floor so short content still frames nicely
+_SECTION_PAD = 18  # extra width added to name_w + stage_w for section rules
+_MIN_PANEL_W = 48  # floor so short content still frames nicely
 
 
 class Theme:
@@ -256,9 +256,7 @@ def render(base: Path, sections: set[str], theme: Theme) -> str:
         # every severity column), not the generic section total_w -- otherwise
         # the rule is short by a few cols and drifts whenever SEV_COL_WIDTH
         # changes.
-        review_w = max(
-            name_w + sum(SEV_COL_WIDTH[s] for s in SEVERITIES), _MIN_PANEL_W
-        )
+        review_w = max(name_w + sum(SEV_COL_WIDTH[s] for s in SEVERITIES), _MIN_PANEL_W)
         lines.append(rule(review_w, "\u2500", GREY, theme))
         for name, sev in reviews:
             row = theme(CYAN, name.ljust(name_w))
@@ -274,7 +272,24 @@ def render(base: Path, sections: set[str], theme: Theme) -> str:
     return "\n".join(lines)
 
 
+def force_utf8_stdout() -> None:
+    """Reconfigure stdout to UTF-8 so emoji survive legacy Windows codepages.
+
+    Under the exec runner the env already forces UTF-8 (PYTHONIOENCODING);
+    this covers standalone runs in a cp1252 console, where printing a single
+    emoji or box-drawing glyph would otherwise raise UnicodeEncodeError.
+    Best-effort by design -- these scripts must never crash on an IO quirk.
+    (Duplicated across the flux_* scripts on purpose: each is a standalone,
+    dependency-free file.)
+    """
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    force_utf8_stdout()
     parser = argparse.ArgumentParser(description="Render /flux/status panel")
     parser.add_argument("--base", default=None, help="Explicit flux base dir")
     parser.add_argument(
@@ -318,7 +333,9 @@ def main(argv: list[str] | None = None) -> int:
     # environment even though isatty() is False. flux_about.py documents the
     # same contract via Rich's force_terminal=True -- keep the FORCE_COLOR branch
     # so colorized panels don't silently degrade to monochrome under the runner.
-    color_on = not args.no_color and (sys.stdout.isatty() or os.environ.get("FORCE_COLOR"))
+    color_on = not args.no_color and (
+        sys.stdout.isatty() or os.environ.get("FORCE_COLOR")
+    )
     theme = Theme(bool(color_on))
 
     if not base.exists():
