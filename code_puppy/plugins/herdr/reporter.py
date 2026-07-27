@@ -32,15 +32,21 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Optional
+from typing import Optional, Tuple
 
 from .client import HerdrClient
+from . import sources
 
 logger = logging.getLogger(__name__)
 
 WORKING = "working"
 BLOCKED = "blocked"
 IDLE = "idle"
+
+# Decorative activity strings (the ``message`` field on ``pane.report_agent``).
+# State stays authoritative; these are best-effort colour commentary.
+THINKING = "thinking"
+AWAITING = "awaiting input"
 
 
 class HerdrReporter:
@@ -53,7 +59,14 @@ class HerdrReporter:
         self._awaiting = False
         self._awaiting_notify = True
         self._last_reported_state: Optional[str] = None
-        self._session_id: Optional[str] = None
+        self._last_reported_message: Optional[str] = None
+        # Latest working activity (``thinking`` / ``running <tool>``). Only
+        # surfaces while WORKING; BLOCKED and IDLE derive their own message.
+        self._activity: Optional[str] = None
+        # Durable session reference (name, pickle_path) -- NOT the per-run
+        # group_id UUID, which changes every turn and can't identify a
+        # resumable session.
+        self._session_ref: Optional[Tuple[str, str]] = None
 
     @property
     def active(self) -> bool:
@@ -69,49 +82,75 @@ class HerdrReporter:
             return WORKING
         return IDLE
 
-    def _sync(self) -> None:
-        """Report a changed state, optionally suppressing ``blocked``.
+    def _message_for_locked(self, state: str) -> Optional[str]:
+        """Derive the decorative message for a state. Caller holds lock."""
+        if state == BLOCKED:
+            return AWAITING
+        if state == WORKING:
+            return self._activity or THINKING
+        return None
 
-        User-initiated menus retain ``notify=False`` for their whole lifetime.
-        Their internal ``blocked`` state must not update the reported-state
-        edge tracker, so closing the menu does not re-send an unchanged state.
+    def _sync(self) -> None:
+        """Report a changed (state, message) pair, optionally suppressing blocked.
+
+        A genuine state edge rides the critical lane; a message-only change
+        (same state, new activity) rides the decorative lane so it can never
+        delay an authoritative edge. User-initiated menus retain
+        ``notify=False`` for their whole lifetime: their internal ``blocked``
+        state must not touch the edge trackers, so closing the menu does not
+        re-send an unchanged state.
         """
         with self._lock:
             state = self._recompute_locked()
-            suppress_blocked = state == BLOCKED and not self._awaiting_notify
-            if suppress_blocked or state == self._last_reported_state:
+            if state == BLOCKED and not self._awaiting_notify:
+                return
+            message = self._message_for_locked(state)
+            state_changed = state != self._last_reported_state
+            message_changed = message != self._last_reported_message
+            if not state_changed and not message_changed:
                 return
             self._last_reported_state = state
-            session_id = self._session_id
-        self._client.report_state(state, session_id)
+            self._last_reported_message = message
+            session_id = self._session_ref[0] if self._session_ref else None
+            critical = state_changed
+        self._client.report_state(state, session_id, message=message, critical=critical)
 
-    def _remember_session(self, session_id: Optional[str]) -> None:
-        if not session_id:
+    def _refresh_session(self) -> None:
+        """Resolve the durable session reference and report it on change.
+
+        Ignores per-run group_ids entirely. Resolution happens OUTSIDE the
+        lock (guardrail). The next prompt after ``/clear``, ``/session new``,
+        ``/autosave_load``, ``/load_context``, a quick resume, or an agent
+        switch refreshes herdr with no core session callback.
+        """
+        ref = sources.current_session_ref()
+        if ref is None:
             return
         with self._lock:
-            new = session_id != self._session_id
-            self._session_id = session_id
-        if new:
-            self._client.report_session(session_id)
+            changed = ref != self._session_ref
+            self._session_ref = ref
+        if changed:
+            self._client.report_session(ref[0], ref[1])
 
     # -- lifecycle handlers (all sync; safe from async or worker threads) --
 
     def on_startup(self) -> None:
         self._sync()  # depth 0, not awaiting -> idle
 
-    def on_user_prompt(self, session_id: Optional[str] = None) -> None:
-        # Capture native session identity as early as possible; the run
-        # starting (below) is what actually flips us to working.
-        self._remember_session(session_id)
+    def on_user_prompt(self, *_ignored) -> None:
+        # Ignore the callback's per-run group_id; resolve the durable session.
+        self._refresh_session()
 
-    def on_run_start(self, session_id: Optional[str] = None) -> None:
-        self._remember_session(session_id)
+    def on_run_start(self, *_ignored) -> None:
         with self._lock:
             self._run_depth += 1
+            # The OUTER run starting is the canonical "thinking" edge. Nested
+            # sub-agent runs keep whatever activity is already showing.
+            if self._run_depth == 1:
+                self._activity = THINKING
         self._sync()
 
-    def on_run_end(self, session_id: Optional[str] = None) -> None:
-        self._remember_session(session_id)
+    def on_run_end(self, *_ignored) -> None:
         with self._lock:
             self._run_depth = max(0, self._run_depth - 1)
         # At depth 0 the model has stopped. The interactive turn boundary is
@@ -123,13 +162,42 @@ class HerdrReporter:
         with self._lock:
             self._run_depth = 0
             self._awaiting = False
+            self._activity = None
+        self._sync()
+
+    def on_tool_start(self, tool_name: str) -> None:
+        """A tool call started -> decorative ``running <tool>`` activity."""
+        # Resolve the message OUTSIDE the lock (guardrail: reporter locks
+        # never cover source resolution).
+        activity = sources.activity_message(tool_name)
+        with self._lock:
+            self._activity = activity
+        self._sync()
+
+    def on_tool_complete(self) -> None:
+        """A tool call finished -> back to ``thinking`` while the run continues."""
+        with self._lock:
+            self._activity = THINKING
         self._sync()
 
     def on_turn_end(self) -> None:
         with self._lock:
             self._run_depth = 0
             self._awaiting = False
+            self._activity = None
         self._sync()
+        # A completed interactive turn is the canonical place to refresh pane
+        # metadata: the token payload is computed once, OUTSIDE the reporter
+        # lock, and enqueued on the decorative lane. Sending every turn also
+        # refreshes the metadata TTL even when the formatted values are
+        # unchanged. Tool callbacks and blocked edges do no token math.
+        self._emit_metadata()
+
+    def _emit_metadata(self) -> None:
+        """Compute and enqueue pane metadata. Never holds the reporter lock."""
+        payload = sources.current_tokens_payload()
+        if payload:
+            self._client.report_metadata(payload)
 
     def on_awaiting_user_input(self, awaiting: bool, *, notify: bool = True) -> None:
         """Track an interactive wait, notifying only when requested."""
@@ -139,11 +207,11 @@ class HerdrReporter:
         self._sync()
 
     def on_shutdown(self) -> None:
-        with self._lock:
-            self._run_depth = 0
-            self._awaiting = False
-        self._sync()  # idle
-        self._client.close()
+        # Release pane authority directly -- no intermediate idle report.
+        # release_and_close() is idempotent and bounded, so calling it from
+        # both session_end and shutdown (and against an unavailable herdr)
+        # can never delay process exit.
+        self._client.release_and_close()
 
 
-__all__ = ["HerdrReporter", "WORKING", "BLOCKED", "IDLE"]
+__all__ = ["HerdrReporter", "WORKING", "BLOCKED", "IDLE", "THINKING", "AWAITING"]

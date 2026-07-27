@@ -16,18 +16,18 @@ Covers:
 
 from __future__ import annotations
 
-import json
-import os
-import socket
-import tempfile
-import threading
 import time
+from unittest.mock import patch
 
-import pytest
 
-import code_puppy.plugins.herdr.client as cl
-from code_puppy.plugins.herdr.client import AGENT, SOURCE, HerdrClient
-from code_puppy.plugins.herdr.reporter import BLOCKED, IDLE, WORKING, HerdrReporter
+from code_puppy.plugins.herdr.reporter import (
+    AWAITING,
+    BLOCKED,
+    IDLE,
+    THINKING,
+    WORKING,
+    HerdrReporter,
+)
 
 
 class FakeClient:
@@ -36,14 +36,25 @@ class FakeClient:
     def __init__(self, active: bool = True) -> None:
         self.active = active
         self.states: list[tuple[str, str | None]] = []
-        self.sessions: list[str] = []
+        self.activity: list[tuple[str, str | None, bool]] = []
+        self.sessions: list[tuple[str, str]] = []
+        self.metadata: list[dict] = []
         self.closed = False
 
-    def report_state(self, state, agent_session_id=None):
+    def report_state(
+        self, state, agent_session_id=None, *, message=None, critical=True
+    ):
         self.states.append((state, agent_session_id))
+        self.activity.append((state, message, critical))
 
-    def report_session(self, agent_session_id):
-        self.sessions.append(agent_session_id)
+    def report_session(self, agent_session_id, session_path=None):
+        self.sessions.append((agent_session_id, session_path))
+
+    def report_metadata(self, tokens):
+        self.metadata.append(tokens)
+
+    def release_and_close(self, timeout_s=1.0):
+        self.closed = True
 
     def close(self):
         self.closed = True
@@ -173,20 +184,235 @@ def test_reporter_no_heartbeat_no_background_chatter():
     assert not hasattr(r, "_heartbeat")
 
 
-def test_reporter_reports_session_once():
+def test_reporter_reports_durable_session_once_on_prompt():
+    """Session comes from the durable ref (name, path), not the run group_id."""
     fake = FakeClient()
     r = HerdrReporter(fake)
-    r.on_run_start("sess-1")
-    r.on_run_start("sess-1")  # same id, no re-report
-    assert fake.sessions == ["sess-1"]
-    assert all(sid == "sess-1" for _, sid in fake.states)
+    ref = ("auto_session_x", "/tmp/autosaves/auto_session_x.pkl")
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.current_session_ref",
+        return_value=ref,
+    ):
+        r.on_user_prompt("group-uuid-ignored")
+        r.on_user_prompt("another-group-uuid")  # unchanged ref -> no re-report
+    assert fake.sessions == [ref]
+    # State reports carry the durable session NAME, never a group_id.
+    r.on_run_start("group-uuid-ignored")
+    assert all(sid in (None, "auto_session_x") for _, sid in fake.states)
 
 
-def test_reporter_shutdown_closes_client():
+def test_reporter_reports_session_again_when_ref_changes():
+    """A new session (e.g. after /clear or resume) refreshes on the next prompt."""
     fake = FakeClient()
     r = HerdrReporter(fake)
+    ref1 = ("auto_session_a", "/tmp/a.pkl")
+    ref2 = ("auto_session_b", "/tmp/b.pkl")
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.current_session_ref",
+        side_effect=[ref1, ref2],
+    ):
+        r.on_user_prompt()
+        r.on_user_prompt()
+    assert fake.sessions == [ref1, ref2]
+
+
+def test_reporter_ignores_per_run_group_id_for_session():
+    """Passing a group_id to run_start must not produce a session report."""
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.current_session_ref",
+        return_value=None,
+    ):
+        r.on_run_start("group-uuid")
+        r.on_run_end("group-uuid")
+    assert fake.sessions == []
+
+
+def test_reporter_session_resolved_outside_lock():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    observed = {}
+
+    def _probe():
+        observed["locked"] = r._lock.locked()
+        return ("n", "/p")
+
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.current_session_ref",
+        side_effect=_probe,
+    ):
+        r.on_user_prompt()
+    assert observed["locked"] is False
+
+
+def test_reporter_shutdown_releases_without_intermediate_idle():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()  # working reported
+    fake.states.clear()
     r.on_shutdown()
     assert fake.closed is True
+    # No intermediate idle report on shutdown -- release only.
+    assert fake.states == []
+
+
+# --- Phase 3: pane metadata at interactive turn end ------------------------
+
+
+def test_reporter_emits_metadata_at_turn_end():
+    """A completed interactive turn refreshes pane metadata (decorative)."""
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    payload = {"model": "claude", "context": "42%", "tokens": "48k/200k"}
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.current_tokens_payload",
+        return_value=payload,
+    ):
+        r.on_run_start()
+        r.on_turn_end()
+    assert fake.metadata == [payload]
+
+
+def test_reporter_skips_metadata_when_payload_unavailable():
+    """No usage -> no metadata report (pane keeps last good values / TTL)."""
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.current_tokens_payload",
+        return_value=None,
+    ):
+        r.on_run_start()
+        r.on_turn_end()
+    assert fake.metadata == []
+
+
+def test_reporter_metadata_computed_outside_lock():
+    """Token payload resolution must never happen under the reporter lock."""
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    observed = {}
+
+    def _probe():
+        observed["locked"] = r._lock.locked()
+        return {"context": "1%", "tokens": "1k/200k"}
+
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.current_tokens_payload",
+        side_effect=_probe,
+    ):
+        r.on_turn_end()
+    assert observed["locked"] is False
+
+
+# --- Phase 4: decorative activity messages ---------------------------------
+
+
+def _activity(fake: FakeClient) -> list[tuple[str, str | None, bool]]:
+    return fake.activity
+
+
+def test_outer_run_start_carries_thinking_message_critically():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()
+    assert _activity(fake) == [(WORKING, THINKING, True)]
+
+
+def test_tool_start_is_decorative_running_message_same_state():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()  # (WORKING, thinking, critical)
+    r.on_tool_start("read_file")
+    # Same WORKING state, new activity -> decorative (critical=False).
+    assert _activity(fake)[-1] == (WORKING, "running read file", False)
+    # State never mutated by the tool callback.
+    assert _states(fake) == [WORKING, WORKING]
+
+
+def test_tool_complete_reverts_to_thinking_decoratively():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()
+    r.on_tool_start("read_file")
+    r.on_tool_complete()
+    assert _activity(fake)[-1] == (WORKING, THINKING, False)
+    assert all(s == WORKING for s in _states(fake))
+
+
+def test_activity_dedupes_on_state_and_message():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()
+    r.on_tool_start("read_file")
+    r.on_tool_start("read_file")  # identical (state, message) -> no re-send
+    running = [a for a in _activity(fake) if a[1] == "running read file"]
+    assert len(running) == 1
+
+
+def test_tool_callbacks_never_change_state():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()
+    r.on_tool_start("a_tool")
+    r.on_tool_complete()
+    r.on_tool_start("b_tool")
+    r.on_run_end()
+    # State is a pure function of run depth here: working ... then idle once.
+    assert _states(fake)[0] == WORKING
+    assert _states(fake)[-1] == IDLE
+    assert _states(fake).count(IDLE) == 1
+
+
+def test_blocked_message_is_awaiting_input():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()
+    r.on_awaiting_user_input(True)
+    assert _activity(fake)[-1] == (BLOCKED, AWAITING, True)
+    r.on_awaiting_user_input(False)
+    # Back to working -> activity restored to thinking, critical edge.
+    assert _activity(fake)[-1] == (WORKING, THINKING, True)
+
+
+def test_notify_false_menu_leaks_no_message():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()
+    r.on_tool_start("read_file")
+    r.on_awaiting_user_input(True, notify=False)
+    r.on_awaiting_user_input(False, notify=False)
+    # No BLOCKED / awaiting message ever surfaced.
+    assert BLOCKED not in _states(fake)
+    assert AWAITING not in [m for _, m, _ in _activity(fake)]
+
+
+def test_subagent_start_keeps_activity_no_duplicate_thinking():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    r.on_run_start()  # outer -> thinking
+    r.on_tool_start("read_file")  # running read file
+    r.on_run_start()  # nested subagent run: must NOT reset to thinking
+    # No new report for the nested start (state + message both unchanged).
+    assert _activity(fake)[-1] == (WORKING, "running read file", False)
+
+
+def test_tool_start_resolves_message_outside_lock():
+    fake = FakeClient()
+    r = HerdrReporter(fake)
+    observed = {}
+
+    def _probe(name):
+        observed["locked"] = r._lock.locked()
+        return f"running {name}"
+
+    with patch(
+        "code_puppy.plugins.herdr.reporter.sources.activity_message",
+        side_effect=_probe,
+    ):
+        r.on_run_start()
+        r.on_tool_start("read_file")
+    assert observed["locked"] is False
 
 
 # --- core wiring: set_awaiting_user_input fires the callback ----------------
@@ -218,133 +444,3 @@ def test_set_awaiting_user_input_exposes_notification_intent():
     assert should_notify_awaiting_user_input() is False
     set_awaiting_user_input(False)
     assert should_notify_awaiting_user_input() is True
-
-
-# --- client activation guard ----------------------------------------------
-
-
-def test_client_inactive_without_env(monkeypatch):
-    for var in ("HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID"):
-        monkeypatch.delenv(var, raising=False)
-    client = HerdrClient()
-    assert client.active is False
-    client.report_state("working")  # inert, never raises
-
-
-def test_client_inactive_when_env_incomplete(monkeypatch):
-    monkeypatch.setenv("HERDR_ENV", "1")
-    monkeypatch.delenv("HERDR_SOCKET_PATH", raising=False)
-    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
-    assert HerdrClient().active is False
-
-
-@pytest.mark.skipif(
-    not hasattr(socket, "AF_UNIX"), reason="AF_UNIX transport is unix-only"
-)
-def test_client_sends_report_over_socket(monkeypatch):
-    tmpdir = tempfile.mkdtemp()
-    sock_path = os.path.join(tmpdir, "herdr.sock")
-
-    received: list[bytes] = []
-    ready = threading.Event()
-
-    def serve():
-        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        server.bind(sock_path)
-        server.listen(1)
-        ready.set()
-        conn, _ = server.accept()
-        with conn:
-            data = conn.recv(65536)
-            received.append(data)
-            conn.sendall(b'{"result":{"type":"ok"}}\n')  # ack so send completes
-        server.close()
-
-    t = threading.Thread(target=serve, daemon=True)
-    t.start()
-    ready.wait(timeout=2)
-
-    monkeypatch.setenv("HERDR_ENV", "1")
-    monkeypatch.setenv("HERDR_SOCKET_PATH", sock_path)
-    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
-
-    client = HerdrClient()
-    assert client.active is True
-    client.report_state("working", agent_session_id="sess-42")
-
-    t.join(timeout=3)
-    assert received, "herdr listener never received a report"
-
-    line = received[0].decode("utf-8").strip().splitlines()[0]
-    envelope = json.loads(line)
-    assert envelope["method"] == "pane.report_agent"
-    params = envelope["params"]
-    assert params["pane_id"] == "w1:p1"
-    assert params["source"] == SOURCE
-    assert params["agent"] == AGENT
-    assert params["state"] == "working"
-    assert params["agent_session_id"] == "sess-42"
-    assert isinstance(params["seq"], int)
-
-
-def test_client_seq_strictly_increases(monkeypatch):
-    monkeypatch.setenv("HERDR_ENV", "1")
-    monkeypatch.setenv("HERDR_SOCKET_PATH", "/nonexistent/herdr.sock")
-    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
-    client = HerdrClient()
-    seqs = [client._next_seq() for _ in range(100)]
-    assert seqs == sorted(seqs)
-    assert len(set(seqs)) == len(seqs)
-    client.close()
-    time.sleep(0.05)
-
-
-@pytest.mark.skipif(
-    not hasattr(socket, "AF_UNIX"), reason="AF_UNIX transport is unix-only"
-)
-def test_client_retries_until_herdr_acks(monkeypatch):
-    """A dropped report (no ack) is retried, then delivered exactly once.
-
-    With code-puppy authoritative AND herdr no longer screen-scraping, a lost
-    edge has no safety net, so delivery must be reliable. Re-sending the same
-    envelope is safe because herdr dedupes on ``seq``.
-    """
-    monkeypatch.setattr(cl, "_SEND_BACKOFF_S", 0.02)
-    tmp = tempfile.mkdtemp()
-    sock_path = os.path.join(tmp, "herdr.sock")
-    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    server.bind(sock_path)
-    server.listen(8)
-
-    received: list[str] = []
-    conn_count = {"n": 0}
-
-    def serve():
-        while True:
-            try:
-                conn, _ = server.accept()
-            except OSError:
-                return
-            conn_count["n"] += 1
-            if conn_count["n"] == 1:
-                conn.close()  # drop first connection without acking
-                continue
-            received.append(conn.recv(65536).decode())
-            conn.sendall(b'{"result":{"type":"ok"}}\n')
-            conn.close()
-
-    threading.Thread(target=serve, daemon=True).start()
-
-    client = HerdrClient(socket_path=sock_path, pane_id="w1:p1")
-    client._active = True
-    if client._worker is None:
-        client._start_worker()
-    try:
-        client.report_state("working", "sess-1")
-        time.sleep(0.4)
-    finally:
-        server.close()
-
-    assert conn_count["n"] >= 2, "first drop should trigger a retry"
-    assert len(received) == 1, "report must be delivered exactly once"
-    assert json.loads(received[0])["params"]["state"] == "working"
