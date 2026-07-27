@@ -41,20 +41,30 @@ def _agent_block() -> Optional[Dict[str, Any]]:
 
 
 def detect_git_branch(cwd: str) -> Optional[str]:
-    """Return the active git branch for cwd, or None outside a branch/repo."""
+    """Return the active git branch for cwd, or None outside a branch/repo.
+
+    Windows hardening: ``capture_output=True`` uses reader threads, and if the
+    spawned git (or a grandchild) keeps a pipe write-handle open, ``run`` hangs
+    forever joining them -- even with a timeout -- which deadlocks the ACP event
+    loop when this runs from a ``post_tool_call`` hook. Route stdout through a
+    temp file (no reader threads) and detach stdin from any inherited pipe.
+    """
     try:
-        out = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",  # explicit UTF-8: prevents cp1252 crash on Windows
-            errors="replace",  # never raise UnicodeDecodeError on branch names
-            timeout=0.5,
-        )
-        if out.returncode == 0:
-            branch = out.stdout.strip()
-            return branch or None
+        import tempfile
+
+        with tempfile.TemporaryFile() as out_f:
+            proc = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=cwd,
+                stdin=subprocess.DEVNULL,
+                stdout=out_f,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+            if proc.returncode == 0:
+                out_f.seek(0)
+                branch = out_f.read().decode("utf-8", "replace").strip()
+                return branch or None
     except Exception:
         return None
     return None
