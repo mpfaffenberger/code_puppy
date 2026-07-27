@@ -1303,7 +1303,16 @@ def get_cli_yolo_override() -> Optional[bool]:
 
 
 def get_yolo_mode() -> bool:
-    """Return effective YOLO mode using CLI > persisted config precedence."""
+    """Return effective YOLO mode using CLI > persisted config precedence.
+
+    YOLO mode bypasses every human-in-the-loop confirmation prompt
+    (file writes, deletes, destructive shell commands, force-pushes).
+    Because it is a safety *bypass*, it must fail closed: when the user
+    has not explicitly opted in via the CLI flag or a persisted
+    ``yolo_mode`` config value, we default to ``False`` so confirmation
+    gates stay ON. Defaulting to ``True`` here silently disabled the
+    confirmation guardrail for anyone who never touched the setting.
+    """
     if _cli_yolo_override is not None:
         return _cli_yolo_override
 
@@ -1311,7 +1320,7 @@ def get_yolo_mode() -> bool:
     cfg_val = get_value("yolo_mode")
     if cfg_val is not None:
         return str(cfg_val).strip().lower() in true_vals
-    return True
+    return False
 
 
 def get_safety_permission_level():

@@ -141,7 +141,7 @@ class TestConfigExtendedPart1:
             assert result is True  # Default should be True
 
     def test_get_yolo_mode_default(self, temp_config_dir):
-        """Test get_yolo_mode returns True when not set"""
+        """Test get_yolo_mode returns False when not set (fails closed)"""
         temp_dir, config_file = temp_config_dir
 
         # Create config without yolo_mode key
@@ -152,7 +152,7 @@ class TestConfigExtendedPart1:
 
         with patch("code_puppy.config.CONFIG_FILE", config_file):
             result = get_yolo_mode()
-            assert result is True  # Default should be True
+            assert result is False  # Default should be False (fail closed)
 
     def test_get_auto_save_session_default(self, temp_config_dir):
         """Test get_auto_save_session returns True when not set"""

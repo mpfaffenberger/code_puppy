@@ -576,10 +576,10 @@ class TestGetYoloMode:
             mock_get_value.assert_called_once_with("yolo_mode")
 
     @patch("code_puppy.config.get_value")
-    def test_get_yolo_mode_not_in_config_defaults_true(self, mock_get_value):
+    def test_get_yolo_mode_not_in_config_defaults_false(self, mock_get_value):
         mock_get_value.return_value = None
 
-        assert cp_config.get_yolo_mode() is True
+        assert cp_config.get_yolo_mode() is False
         mock_get_value.assert_called_once_with("yolo_mode")
 
 

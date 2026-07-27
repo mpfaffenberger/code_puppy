@@ -67,10 +67,11 @@ class TestBooleanGetters:
         cp_config.set_config_value("enable_streaming", "false")
         assert cp_config.get_enable_streaming() is False
 
-    def test_get_yolo_mode_default_true(self):
-        # yolo_mode defaults to True
+    def test_get_yolo_mode_default_false(self):
+        # yolo_mode is a safety bypass, so it must fail closed: when unset,
+        # confirmation prompts stay ON (yolo defaults to False).
         cp_config.reset_value("yolo_mode")
-        assert cp_config.get_yolo_mode() is True
+        assert cp_config.get_yolo_mode() is False
 
     def test_get_yolo_mode_off(self):
         cp_config.set_config_value("yolo_mode", "off")
