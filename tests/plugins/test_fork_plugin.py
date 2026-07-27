@@ -75,18 +75,19 @@ async def _wait_for_forks():
 
 
 def test_parse_no_agent_prefix():
-    assert rc._parse_fork_args("do a thing") == (None, "do a thing")
+    assert rc._parse_fork_args("do a thing") == (None, None, "do a thing")
 
 
 def test_parse_agent_prefix():
     assert rc._parse_fork_args("@qa-kitten test the login page") == (
         "qa-kitten",
+        None,
         "test the login page",
     )
 
 
 def test_parse_agent_prefix_without_prompt():
-    assert rc._parse_fork_args("@qa-kitten") == ("qa-kitten", "")
+    assert rc._parse_fork_args("@qa-kitten") == ("qa-kitten", None, "")
 
 
 def test_unrelated_command_returns_none():

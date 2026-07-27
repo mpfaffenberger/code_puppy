@@ -96,6 +96,36 @@ jobs:
           echo "Required environment variables are set (using CI fallbacks if secrets not available)"
           uv run pytest tests/ --ignore tests/integration -v --cov=code_puppy --cov-report=term-missing
 
+  # The exec-runner UTF-8 pipe contract is a Windows-only failure mode: child
+  # Pythons attached to a pipe default their stdio to the legacy codepage
+  # (cp1252) and crash on emoji, while macOS/Linux children default to UTF-8 --
+  # so regressions are invisible on the main (macos) test job. The full suite
+  # has pre-existing, unrelated Windows failures, so this job deliberately
+  # scopes to the tests that pin the encoding contract instead of gating CI on
+  # a platform the suite has never run on. Widen it as Windows support grows.
+  windows-encoding:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Setup uv virtual environment
+        run: uv venv
+
+      - name: Install dependencies
+        run: uv pip install -e .
+
+      - name: Run Windows encoding regression tests
+        run: uv run pytest tests/plugins/test_customizable_commands_callbacks.py -v --no-cov
+
   quality:
     runs-on: ubuntu-latest
     steps:

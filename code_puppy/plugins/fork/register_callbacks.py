@@ -7,10 +7,11 @@ execute on the main thread with the event loop running, so the fork runs
 concurrently with whatever the foreground agent is doing.
 
 Commands:
-    /fork <prompt>            fork the current agent with the prompt
-    /fork @<agent> <prompt>   fork a named agent
-    /fork cancel <id>         cancel a running fork
-    /forks                    show status of all forks this session
+    /fork <prompt>              fork the current agent with the prompt
+    /fork @<agent> <prompt>     fork a named agent
+    /fork @<agent> @<model> <prompt>  fork with a specific model
+    /fork cancel <id>           cancel a running fork
+    /forks                      show status of all forks this session
 
 Results are explicitly bridged onto the interactive transcript queue when
 the fork completes. Forks suppress ``_invoke_agent_impl``'s generic structured
@@ -125,16 +126,24 @@ def _response_message(fork_id: int, agent_name: str, response: str):
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
-def _parse_fork_args(args: str) -> Tuple[Optional[str], str]:
-    """Split ``@agent prompt...`` into (agent_name, prompt).
+def _parse_fork_args(
+    args: str,
+) -> Tuple[Optional[str], Optional[str], str]:
+    """Split ``@agent [@model] prompt...`` into (agent_name, model_name, prompt).
 
-    Returns (None, args) when no ``@agent`` prefix is present, meaning
+    Returns (None, None, args) when no ``@agent`` prefix is present, meaning
     "fork the current agent".
     """
     if args.startswith("@"):
         head, _, rest = args.partition(" ")
-        return head[1:], rest.strip()
-    return None, args
+        agent_name = head[1:]
+        rest = rest.strip()
+        # Check for a second @ as model prefix
+        if rest.startswith("@"):
+            model_head, _, prompt = rest.partition(" ")
+            return agent_name, model_head[1:], prompt.strip()
+        return agent_name, None, rest
+    return None, None, args
 
 
 def _resolve_agent_name(requested: Optional[str]) -> Optional[str]:
@@ -163,7 +172,7 @@ def _resolve_agent_name(requested: Optional[str]) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Fork lifecycle
 # ---------------------------------------------------------------------------
-async def _run_fork(agent_name: str, prompt: str):
+async def _run_fork(agent_name: str, prompt: str, model_name: str | None = None):
     """Run the sub-agent and publish its tool-equivalent completion signal."""
     from code_puppy.callbacks import on_post_tool_call
     from code_puppy.tools.subagent_invocation import _invoke_agent_impl
@@ -176,6 +185,7 @@ async def _run_fork(agent_name: str, prompt: str):
             context=None,
             agent_name=agent_name,
             prompt=prompt,
+            model_name=model_name,
             emit_response_message=False,
         )
         return result
@@ -233,7 +243,7 @@ def _on_fork_done(fork_id: int, task: asyncio.Task) -> None:
         record.status = "failed"
 
 
-def _start_fork(agent_name: str, prompt: str) -> None:
+def _start_fork(agent_name: str, prompt: str, model_name: str | None = None) -> None:
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -241,7 +251,9 @@ def _start_fork(agent_name: str, prompt: str) -> None:
         return
 
     fork_id = next(_fork_ids)
-    task = loop.create_task(_run_fork(agent_name, prompt), name=f"fork-{fork_id}")
+    task = loop.create_task(
+        _run_fork(agent_name, prompt, model_name), name=f"fork-{fork_id}"
+    )
     _forks[fork_id] = _ForkRecord(
         fork_id=fork_id, agent_name=agent_name, prompt=prompt, task=task
     )
@@ -273,9 +285,9 @@ def _handle_fork(command: str) -> bool:
     args = command.split(" ", 1)[1].strip() if " " in command else ""
     if not args:
         _emit_info(
-            "Usage: /fork [@agent] <prompt> — run a sub-agent in the background.\n"
-            "       /fork cancel <id>      — stop a running fork.\n"
-            "       /forks                 — list forks."
+            "Usage: /fork [@agent] [@model] <prompt> — run a sub-agent in the background.\n"
+            "       /fork cancel <id>              — stop a running fork.\n"
+            "       /forks                         — list forks."
         )
         return True
 
@@ -284,22 +296,22 @@ def _handle_fork(command: str) -> bool:
         _cancel_fork(rest.strip())
         return True
 
-    requested_agent, prompt = _parse_fork_args(args)
+    requested_agent, requested_model, prompt = _parse_fork_args(args)
     if not prompt:
-        _emit_warning("Fork what, exactly? Usage: /fork [@agent] <prompt>")
+        _emit_warning("Fork what, exactly? Usage: /fork [@agent] [@model] <prompt>")
         return True
 
     agent_name = _resolve_agent_name(requested_agent)
     if agent_name is None:
         return True
 
-    _start_fork(agent_name, prompt)
+    _start_fork(agent_name, prompt, requested_model)
     return True
 
 
 def _handle_forks(command: str) -> bool:
     if not _forks:
-        _emit_info("No forks yet — /fork [@agent] <prompt> to start one.")
+        _emit_info("No forks yet — /fork [@agent] [@model] <prompt> to start one.")
         return True
 
     from rich.table import Table
@@ -350,7 +362,10 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
 
 def _custom_help() -> List[Tuple[str, str]]:
     return [
-        (_FORK, "Spawn a sub-agent in the background: /fork [@agent] <prompt>"),
+        (
+            _FORK,
+            "Spawn a sub-agent in the background: /fork [@agent] [@model] <prompt>",
+        ),
         (_FORKS, "Show status of background forks"),
     ]
 

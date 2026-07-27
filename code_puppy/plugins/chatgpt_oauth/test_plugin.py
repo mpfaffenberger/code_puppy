@@ -46,6 +46,101 @@ def test_codex_image_generation_posts_codex_payload(tmp_path):
     assert call.kwargs["headers"]["ChatGPT-Account-Id"] == "account"
 
 
+def test_codex_image_generation_with_references_posts_edits_payload(tmp_path):
+    """Reference images must go to /images/edits as [{"image_url": data-url}].
+
+    The Codex backend rejects every other shape with HTTP 400 (see the
+    image_generation module docstring), so this asserts the exact wire format.
+    """
+    reference = tmp_path / "ref.png"
+    reference.write_bytes(b"pngbytes")
+    expected_b64 = image_generation.base64.b64encode(b"pngbytes").decode()
+
+    encoded = "aGVsbG8="
+    response = MagicMock()
+    response.json.return_value = {"data": [{"b64_json": encoded}]}
+    response.raise_for_status.return_value = None
+
+    with (
+        patch.object(image_generation, "get_valid_access_token", return_value="token"),
+        patch.object(
+            image_generation,
+            "load_stored_tokens",
+            return_value={"account_id": "account"},
+        ),
+        patch.object(image_generation.config, "DATA_DIR", str(tmp_path)),
+        patch.object(image_generation.requests, "post", return_value=response) as post,
+    ):
+        image_generation.generate_image("a red fox", [reference])
+
+    call = post.call_args
+    assert call.args[0].endswith("/images/edits")
+    payload = call.kwargs["json"]
+    assert payload["images"] == [{"image_url": f"data:image/png;base64,{expected_b64}"}]
+    assert payload["prompt"] == "a red fox"
+    assert payload["model"] == "gpt-image-2"
+    # `background` is not accepted by the edits endpoint.
+    assert "background" not in payload
+
+
+def test_codex_image_generation_without_references_still_uses_generations(tmp_path):
+    """An empty/omitted reference list must not change existing behavior."""
+    response = MagicMock()
+    response.json.return_value = {"data": [{"b64_json": "aGVsbG8="}]}
+    response.raise_for_status.return_value = None
+
+    with (
+        patch.object(image_generation, "get_valid_access_token", return_value="token"),
+        patch.object(
+            image_generation,
+            "load_stored_tokens",
+            return_value={"account_id": "account"},
+        ),
+        patch.object(image_generation.config, "DATA_DIR", str(tmp_path)),
+        patch.object(image_generation.requests, "post", return_value=response) as post,
+    ):
+        image_generation.generate_image("a red fox", [])
+
+    assert post.call_args.args[0].endswith("/images/generations")
+    assert "images" not in post.call_args.kwargs["json"]
+
+
+def test_codex_image_generation_rejects_missing_reference(tmp_path):
+    with (
+        patch.object(image_generation, "get_valid_access_token", return_value="token"),
+        patch.object(
+            image_generation,
+            "load_stored_tokens",
+            return_value={"account_id": "account"},
+        ),
+        patch.object(image_generation.requests, "post") as post,
+        pytest.raises(image_generation.CodexImageGenerationError),
+    ):
+        image_generation.generate_image("a red fox", [tmp_path / "nope.png"])
+
+    post.assert_not_called()
+
+
+def test_codex_image_generation_rejects_oversized_reference(tmp_path):
+    reference = tmp_path / "huge.png"
+    reference.write_bytes(b"x" * 16)
+
+    with (
+        patch.object(image_generation, "get_valid_access_token", return_value="token"),
+        patch.object(
+            image_generation,
+            "load_stored_tokens",
+            return_value={"account_id": "account"},
+        ),
+        patch.object(image_generation, "_MAX_REFERENCE_BYTES", 8),
+        patch.object(image_generation.requests, "post") as post,
+        pytest.raises(image_generation.CodexImageGenerationError),
+    ):
+        image_generation.generate_image("a red fox", [reference])
+
+    post.assert_not_called()
+
+
 def test_codex_image_generation_requires_auth():
     with (
         patch.object(image_generation, "get_valid_access_token", return_value=None),
@@ -181,7 +276,9 @@ def test_codex_imagegen_agent_tool(tmp_path):
     image_tool.register_codex_imagegen(FakeAgent())
     output_path = tmp_path / "generated.png"
     with (
-        patch.object(image_tool, "generate_image", return_value=output_path),
+        patch.object(
+            image_tool, "generate_image", return_value=output_path
+        ) as generate,
         patch.object(image_tool, "emit_iterm_image", return_value=True),
     ):
         result = asyncio.run(registered["codex_imagegen"](MagicMock(), "a fox"))
@@ -191,6 +288,32 @@ def test_codex_imagegen_agent_tool(tmp_path):
         "path": str(output_path),
         "displayed_inline": True,
     }
+    generate.assert_called_once_with("a fox", None)
+
+
+def test_codex_imagegen_agent_tool_forwards_reference_images(tmp_path):
+    registered = {}
+
+    class FakeAgent:
+        def tool(self, function):
+            registered[function.__name__] = function
+            return function
+
+    image_tool.register_codex_imagegen(FakeAgent())
+    output_path = tmp_path / "generated.png"
+    refs = [str(tmp_path / "ref.png")]
+    with (
+        patch.object(
+            image_tool, "generate_image", return_value=output_path
+        ) as generate,
+        patch.object(image_tool, "emit_iterm_image", return_value=False),
+    ):
+        result = asyncio.run(
+            registered["codex_imagegen"](MagicMock(), "same fox, at night", refs)
+        )
+
+    assert result["success"] is True
+    generate.assert_called_once_with("same fox, at night", refs)
 
 
 def test_config_paths():
