@@ -32,20 +32,42 @@ class TestShimReExport:
     strings baked into other codebases rely on the shim resolving to
     the *same* objects as the canonical module."""
 
-    def test_public_api_object_identity(self) -> None:
-        from code_puppy import subagent_context as canonical
-        from code_puppy.tools import subagent_context as shim
-
-        for name in (
+    @pytest.mark.parametrize(
+        "name",
+        [
             "subagent_context",
             "is_subagent",
             "get_subagent_name",
             "get_subagent_chain",
             "get_subagent_depth",
             "get_subagent_model_name",
+        ],
+    )
+    def test_shim_symbol_is_canonical(self, name: str) -> None:
+        from code_puppy import subagent_context as canonical
+        from code_puppy.tools import subagent_context as shim
+
+        assert getattr(shim, name) is getattr(canonical, name), (
+            f"shim '{name}' must be the same object as canonical "
+            f"(monkeypatch strings baked into external callers depend "
+            f"on this)"
+        )
+
+    def test_shim_does_not_re_export_private_names(self) -> None:
+        """Private ContextVars are intentionally NOT proxied — documented
+        in the shim docstring. Assert the contract holds so a well-meaning
+        ‘clean-up’ doesn't quietly start re-exporting them."""
+        from code_puppy.tools import subagent_context as shim
+
+        for private in (
+            "_subagent_depth",
+            "_subagent_name",
+            "_subagent_chain",
+            "_subagent_model_name",
         ):
-            assert getattr(shim, name) is getattr(canonical, name), (
-                f"shim '{name}' must be the same object as canonical"
+            assert not hasattr(shim, private), (
+                f"shim should not expose private '{private}'; "
+                f"reach into code_puppy.subagent_context directly"
             )
 
 
