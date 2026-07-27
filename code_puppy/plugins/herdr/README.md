@@ -149,3 +149,20 @@ state, metadata, and activity.
 | `reporter.py`           | event -> state machine (refcount + dedup)   |
 | `sources.py`            | fail-soft adapters (tokens / session / msg) |
 | `register_callbacks.py` | callback wiring + env activation guard       |
+| `smoke.py`              | manual live smoke test (disposable pane)     |
+
+## Live smoke test
+
+The unit tests (`tests/plugins/test_herdr_*.py`) are the CI contract. For
+an end-to-end check against a real herdr server, run the manual smoke test
+from inside a herdr pane:
+
+```bash
+python -m code_puppy.plugins.herdr.smoke
+```
+
+It creates its **own** disposable pane, drives the real client through
+every protocol-16 method (state edges, session reference, metadata,
+release), reads each result back with `herdr pane get`, then closes the
+disposable pane -- your working pane is never touched. Exits non-zero if
+any check fails.
