@@ -25,8 +25,18 @@ from code_puppy.config import (
     get_suppress_informational_messages,
     get_suppress_thinking_messages,
 )
-from code_puppy.tools.common import format_diff_with_colors
-from code_puppy.tools.subagent_context import is_subagent
+from code_puppy.subagent_context import is_subagent
+
+# NOTE: ``format_diff_with_colors`` is intentionally NOT imported here.
+# It lives in ``code_puppy.tools.common``, and importing anything from
+# ``code_puppy.tools`` executes ``code_puppy/tools/__init__.py`` — which
+# eagerly loads the full tool registry (browser->playwright,
+# image_tools->PIL, agent_tools->rapidfuzz, and dozens more). That drags
+# ~1000 modules into every plugin's import path via this renderer.
+#
+# The function is only called inside ``_render_diff_message`` (a
+# post-tool-call rendering path). Importing it there keeps the
+# discovery-time cost of ``code_puppy.messaging`` at a bare minimum.
 
 from .bus import MessageBus
 from .commands import (
@@ -873,7 +883,11 @@ class RichConsoleRenderer:
         if not msg.diff_lines:
             return
 
-        # Reconstruct unified diff text from diff_lines for format_diff_with_colors
+        # Reconstruct unified diff text from diff_lines for format_diff_with_colors.
+        # See the module-level note: importing this function is deferred to
+        # keep ``code_puppy.messaging`` off the ``code_puppy.tools`` import path.
+        from code_puppy.tools.common import format_diff_with_colors
+
         diff_text_lines = []
         for line in msg.diff_lines:
             if line.type == "add":

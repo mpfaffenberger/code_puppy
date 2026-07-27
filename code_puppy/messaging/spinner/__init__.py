@@ -101,7 +101,7 @@ def update_spinner_context(info: str) -> None:
     (Sub-agent status lives on the panel rows via ``set_panel_lines``.)
     """
     try:
-        from code_puppy.tools.subagent_context import is_subagent
+        from code_puppy.subagent_context import is_subagent
     except ImportError:
         is_subagent = None
     if is_subagent is not None and is_subagent():

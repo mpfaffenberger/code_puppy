@@ -1,9 +1,6 @@
 """Tests for the rich console renderer."""
 
-import sys
-import types
 from io import StringIO
-from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -14,25 +11,26 @@ from rich.panel import Panel
 from rich.rule import Rule
 from rich.text import Text
 
-ROOT = Path(__file__).resolve().parents[1]
-MESSAGING_PATH = ROOT / "code_puppy" / "messaging"
-TOOLS_PATH = ROOT / "code_puppy" / "tools"
+# NOTE: This file previously stubbed ``code_puppy.messaging``,
+# ``code_puppy.tools`` and ``code_puppy.tools.common`` via
+# ``sys.modules.setdefault`` to keep the tools import chain out of the
+# renderer's module load. That was already load-order-dependent — it
+# only worked because ``rich_renderer`` used to eagerly import
+# ``code_puppy.tools.common.format_diff_with_colors`` at module scope,
+# so the real ``code_puppy.tools`` package (and its transitively-loaded
+# submodules) was already in ``sys.modules`` before this file ran.
+#
+# ``rich_renderer`` now defers that import to the ``_render_diff`` call
+# site (see the module-level note in ``rich_renderer.py``). With the
+# eager import gone, the leftover stubs would shadow the real
+# ``code_puppy.tools.common`` and any subsequent access (e.g. through
+# ``azure_foundry``’s conftest hook loading ``command_runner``) would
+# hit the stub instead. The stubs are therefore removed — the real
+# modules are cheap enough for a single test file and correctness now
+# doesn't depend on import ordering.
 
-messaging_pkg = types.ModuleType("code_puppy.messaging")
-messaging_pkg.__path__ = [str(MESSAGING_PATH)]
-sys.modules.setdefault("code_puppy.messaging", messaging_pkg)
-
-tools_pkg = types.ModuleType("code_puppy.tools")
-tools_pkg.__path__ = [str(TOOLS_PATH)]
-sys.modules.setdefault("code_puppy.tools", tools_pkg)
-
-common_stub = types.ModuleType("code_puppy.tools.common")
-common_stub.format_diff_with_colors = lambda diff_text: diff_text
-sys.modules.setdefault("code_puppy.tools.common", common_stub)
-
-from code_puppy.messaging import rich_renderer as rich_renderer_module  # noqa: E402
-from code_puppy.messaging.bus import MessageBus  # noqa: E402
-from code_puppy.messaging.messages import (  # noqa: E402
+from code_puppy.messaging.bus import MessageBus
+from code_puppy.messaging.messages import (
     AgentReasoningMessage,
     ConfirmationRequest,
     DiffLine,
@@ -123,8 +121,14 @@ def test_render_diff_uses_formatter(monkeypatch: pytest.MonkeyPatch) -> None:
     renderer, console = _make_renderer()
     renderer._get_banner_color = Mock(return_value="blue")
 
+    # ``format_diff_with_colors`` is imported inside ``_render_diff`` (lazy)
+    # to keep ``code_puppy.messaging`` off the ``code_puppy.tools`` import
+    # path. Patch it at its canonical location so the deferred ``from ...
+    # import`` picks up the mock.
+    import code_puppy.tools.common as tools_common
+
     monkeypatch.setattr(
-        rich_renderer_module,
+        tools_common,
         "format_diff_with_colors",
         lambda diff_text: f"FORMATTED:{diff_text}",
     )

@@ -90,7 +90,7 @@ def test_update_spinner_context_dropped_for_subagents(monkeypatch):
     bar = bottom_bar_mod.BottomBar(stream=tty, get_size=lambda: (80, 24))
     bottom_bar_mod.reset_bottom_bar()
     bottom_bar_mod._bottom_bar = bar
-    monkeypatch.setattr("code_puppy.tools.subagent_context.is_subagent", lambda: True)
+    monkeypatch.setattr("code_puppy.subagent_context.is_subagent", lambda: True)
     try:
         bar.start()
         bar.set_status("main agent context")
