@@ -609,6 +609,11 @@ class TestSummarize:
         ):
             result, dropped = summarize(msgs, protected_tokens=500)
 
-        # Must still compact; string got wrapped into a ModelRequest
+        # Must still compact; string got wrapped into a valid request part.
         assert len(result) < len(msgs)
         assert result[0] is msgs[0]  # system preserved
+        summary_request = result[1]
+        assert isinstance(summary_request, ModelRequest)
+        assert len(summary_request.parts) == 1
+        assert isinstance(summary_request.parts[0], UserPromptPart)
+        assert summary_request.parts[0].content == "summary as string"
