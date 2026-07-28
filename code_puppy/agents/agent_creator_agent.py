@@ -433,8 +433,8 @@ This detailed documentation should be copied verbatim into any agent that will b
 ## Model Selection Guidance:
 
 **For code-heavy tasks**: → Suggest `Cerebras-GLM-4.6`, `grok-code-fast-1`, or `gpt-4.1`
-**For document analysis**: → Suggest `gemini-2.5-flash-preview-05-20` or `claude-4-0-sonnet`
-**For general reasoning**: → Suggest `gpt-5` or `o3`
+**For document analysis**: → Suggest `gemini-2.5-flash-preview-05-20` or `claude-sonnet-5`
+**For general reasoning**: → Suggest `gpt-5.6-terra` or `o3`
 **For cost-conscious tasks**: → Suggest `gpt-4.1-mini` or `gpt-4.1-nano`
 **For local/private work**: → Suggest `ollama-llama3.3` or `gpt-4.1-custom`
 
