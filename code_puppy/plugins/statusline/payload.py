@@ -60,6 +60,8 @@ def detect_git_branch(cwd: str) -> Optional[str]:
                 stdout=out_f,
                 stderr=subprocess.DEVNULL,
                 timeout=5,
+                encoding="utf-8",
+                errors="replace",
             )
             if proc.returncode == 0:
                 out_f.seek(0)

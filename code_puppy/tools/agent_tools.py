@@ -201,13 +201,24 @@ class ListAgentsOutput(BaseModel):
 
 
 class AgentInvokeOutput(BaseModel):
-    """Output for the invoke_agent tool.
+    """Output for the invoke_agent tool."""
 
-    The token-usage and timing fields are populated on the success path so
-    benchmarking/model-comparison callers can measure per-run cost without
-    reconstructing it from downstream telemetry. They are purely additive and
-    remain ``None`` on every error path, so existing callers that ignore them
-    are unaffected.
+    response: str | None
+    agent_name: str
+    session_id: str | None = None
+    model_name: str | None = None
+    error: str | None = None
+
+
+class AgentInvokeWithModelOutput(AgentInvokeOutput):
+    """Output for the invoke_agent_with_model tool.
+
+    Extends :class:`AgentInvokeOutput` with per-run token-usage and timing
+    fields, populated on the success path only, so benchmarking/
+    model-comparison callers that explicitly pin a model can measure per-run
+    cost without reconstructing it from downstream telemetry. These fields are
+    scoped to THIS tool only -- ``invoke_agent`` keeps the original five-field
+    contract untouched, with no functional or schema changes.
 
     Token accounting is normalized so the input buckets never overlap:
     ``input_tokens`` counts only regular (non-cached) input, while cached input
@@ -216,11 +227,6 @@ class AgentInvokeOutput(BaseModel):
     report a given bucket leaves that field ``None`` rather than a fabricated 0.
     """
 
-    response: str | None
-    agent_name: str
-    session_id: str | None = None
-    model_name: str | None = None
-    error: str | None = None
     input_tokens: int | None = None
     cache_read_input_tokens: int | None = None
     cache_creation_input_tokens: int | None = None
@@ -300,6 +306,7 @@ from code_puppy.tools.subagent_invocation import (  # noqa: E402
 __all__ = [
     "AgentInfo",
     "AgentInvokeOutput",
+    "AgentInvokeWithModelOutput",
     "ListAgentsOutput",
     "_active_subagent_tasks",
     "_generate_session_hash_suffix",
