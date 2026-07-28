@@ -83,6 +83,54 @@ def test_agent_arg_completion(monkeypatch):
     assert [i.insert for i in result.items] == ["helios"]
 
 
+def test_fork_at_completes_agents_and_models(monkeypatch):
+    """Inside /fork, @ completes agent + model names (mirrors classic
+    AgentCompleter + ModelNameCompleter, both trigger='/fork' prefix='@'),
+    not file paths. Agents come first, matching classic registration order.
+    """
+    monkeypatch.setattr(
+        "code_puppy.agents.agent_manager.get_available_agents",
+        lambda: {"code-puppy": "Code Puppy", "helios": "Helios"},
+    )
+    monkeypatch.setattr(
+        "code_puppy.command_line.model_picker_completion.load_model_names",
+        lambda: ["gpt-x", "claude-y"],
+    )
+    line = "/fork @"
+    result = compute_completions(line, len(line))
+    assert result is not None
+    # start_col points at the @ so the whole @token is replaced.
+    assert result.start_col == len("/fork ")
+    inserts = [i.insert for i in result.items]
+    # All inserts keep the @ prefix; agents (sorted) precede models (sorted).
+    assert inserts == ["@code-puppy", "@helios", "@claude-y", "@gpt-x"]
+
+
+def test_fork_at_filters_by_fragment(monkeypatch):
+    monkeypatch.setattr(
+        "code_puppy.agents.agent_manager.get_available_agents",
+        lambda: {"code-puppy": "Code Puppy", "helios": "Helios"},
+    )
+    monkeypatch.setattr(
+        "code_puppy.command_line.model_picker_completion.load_model_names",
+        lambda: ["gpt-x", "claude-y"],
+    )
+    line = "/fork @hel"
+    result = compute_completions(line, len(line))
+    assert result is not None
+    assert [i.insert for i in result.items] == ["@helios"]
+
+
+def test_at_outside_fork_still_completes_paths():
+    """@ in a non-/fork context stays file-path completion."""
+    line = "look at @pyproj"
+    result = compute_completions(line, len(line))
+    assert result is not None
+    assert any(
+        i.insert.startswith("@") and "pyproject" in i.insert for i in result.items
+    )
+
+
 def test_mcp_subcommand_completion():
     line = "/mcp sta"
     result = compute_completions(line, len(line))

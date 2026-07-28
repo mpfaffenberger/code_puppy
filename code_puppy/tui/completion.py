@@ -224,14 +224,31 @@ def compute_completions(line: str, col: int) -> Optional[CompletionResult]:
         token_start -= 1
     token = before[token_start:col]
 
-    # 2. @path works anywhere (incl. inside command args).
+    # 2. Inside /fork, @ completes agent + model names instead of file paths
+    #    (mirrors classic AgentCompleter + ModelNameCompleter, both registered
+    #    for trigger="/fork" with prefix="@"). Agents first, matching classic
+    #    registration order.
+    head = before.split(" ", 1)[0].lower()
+    if token.startswith("@") and head == "/fork":
+        frag = token[1:].lower()
+        names = _agent_names() + _model_names()
+        items = [
+            CompletionItem(insert=f"@{c}", display=c)
+            for c in names
+            if not frag or frag in c.lower()
+        ]
+        if not items:
+            return None
+        return CompletionResult(start_col=token_start, end_col=col, items=items)
+
+    # 3. @path works anywhere else (incl. inside command args).
     if token.startswith("@"):
         items = _path_items(token[1:])
         if not items:
             return None
         return CompletionResult(start_col=token_start, end_col=col, items=items)
 
-    # 3. Slash-command argument completion (/model, /agent, /mcp ...).
+    # 4. Slash-command argument completion (/model, /agent, /mcp ...).
     if before.startswith("/"):
         items = _arg_items(before, token)
         if not items:
