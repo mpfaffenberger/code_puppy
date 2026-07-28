@@ -74,9 +74,7 @@ def test_tool_detection_fails_closed():
 
 
 @pytest.mark.parametrize("configured_limit", [2, 3, 5])
-def test_gpt_5_6_invoke_guard_reads_live_recursion_limit(
-    monkeypatch, configured_limit
-):
+def test_gpt_5_6_invoke_guard_reads_live_recursion_limit(monkeypatch, configured_limit):
     """The GPT-5.6 delegation guard text MUST interpolate the live value of
     ``get_subagent_recursion_limit_gpt_5_6`` at prompt-assembly time.
 
