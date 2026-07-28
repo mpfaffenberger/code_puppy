@@ -93,6 +93,7 @@ Here's the complete schema for JSON agent files:
 
 ```json
 {{
+  "id": "uuid",
   "name": "agent-name",
   "display_name": "Agent Name ",
   "description": "What this agent does",
