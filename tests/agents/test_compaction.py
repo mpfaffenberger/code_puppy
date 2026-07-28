@@ -13,6 +13,9 @@ from __future__ import annotations
 from typing import List
 from unittest.mock import patch
 
+from pydantic_ai.models import ModelRequestParameters
+from pydantic_ai.models.openai import OpenAIResponsesModel
+from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -598,7 +601,7 @@ class TestSummarize:
         assert result == msgs, "failure must return original messages unchanged"
         assert dropped == []
 
-    def test_non_list_output_is_wrapped(self):
+    async def test_non_list_output_is_wrapped(self):
         """If summarizer returns a string, it should be wrapped into a message."""
         msgs = _build_long_history(n_turns=10)
 
@@ -617,3 +620,15 @@ class TestSummarize:
         assert len(summary_request.parts) == 1
         assert isinstance(summary_request.parts[0], UserPromptPart)
         assert summary_request.parts[0].content == "summary as string"
+
+        # Exercise the provider mapper that previously raised assert_never()
+        # for TextPart inside a ModelRequest. No API request is made.
+        model = OpenAIResponsesModel(
+            "gpt-5", provider=OpenAIProvider(api_key="test")
+        )
+        _, mapped = await model._map_messages(
+            result,
+            {},
+            ModelRequestParameters(),
+        )
+        assert mapped[1] == {"role": "user", "content": "summary as string"}
