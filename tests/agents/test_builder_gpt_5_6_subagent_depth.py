@@ -23,7 +23,9 @@ def test_subagent_context_tracks_model_and_restores_parent():
 
 
 def test_recursion_guard_checks_caller_model_not_child_model():
-    # Non-GPT-5.6 immediate caller: always allowed regardless of depth.
+    # Non-GPT-5.6 immediate caller: not blocked by the GPT-5.6-specific guard
+    # at any depth. (The generic subagent_recursion_limit can still block --
+    # that is enforced separately and is not this guard's concern.)
     with subagent_context("other-parent", "gpt-5.5"):
         assert not subagent_invocation._gpt_5_6_recursion_blocked()
         with subagent_context("other-child", "gpt-5.5"):
@@ -38,9 +40,10 @@ def test_recursion_guard_checks_caller_model_not_child_model():
             assert subagent_invocation._gpt_5_6_recursion_blocked()
 
     # Immediate-caller-wins-over-ancestor: a non-GPT-5.6 sub-agent nested
-    # under a GPT-5.6 ancestor is unaffected by the GPT-5.6 cap. This is a
-    # deliberate policy boundary -- the guard reads the immediate caller
-    # model only, not the full ancestor chain.
+    # under a GPT-5.6 ancestor is unaffected by the GPT-5.6-specific guard.
+    # This is a deliberate policy boundary -- the guard reads the immediate
+    # caller model only, not the full ancestor chain. The generic recursion
+    # limit still applies to this call path.
     with subagent_context("gpt-ancestor", "gpt-5.6-sol"):
         with subagent_context("non-gpt-child", "gpt-5.5"):
             assert not subagent_invocation._gpt_5_6_recursion_blocked()

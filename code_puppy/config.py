@@ -13,6 +13,15 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SUBAGENT_RECURSION_LIMIT = 4
 
+# GPT-5.6 has demonstrated a runaway-delegation failure mode where a sub-agent
+# invokes another sub-agent that invokes another, chewing through tokens
+# without converging. This overlay cap sits on top of the generic
+# ``subagent_recursion_limit`` and applies only when the immediate caller is
+# on a GPT-5.6 model. The default of ``2`` (main -> level 1 -> level 2)
+# preserves useful two-hop delegation without re-opening the runaway door;
+# operators who understand the risk can raise it via ``/set``.
+DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6 = 2
+
 
 def _get_xdg_dir(env_var: str, fallback: str) -> str:
     """
@@ -93,6 +102,25 @@ def get_subagent_recursion_limit() -> int:
         return DEFAULT_SUBAGENT_RECURSION_LIMIT
 
     return limit if limit >= 0 else DEFAULT_SUBAGENT_RECURSION_LIMIT
+
+
+def get_subagent_recursion_limit_gpt_5_6() -> int:
+    """Return the max sub-agent depth allowed for a GPT-5.6 immediate caller.
+
+    Overlays the generic ``subagent_recursion_limit``: whichever fires first
+    wins. Default is 2 -- see ``DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6`` for
+    the rationale. Invalid or negative values fall back to the default.
+    """
+    cfg_val = get_value("subagent_recursion_limit_gpt_5_6")
+    if cfg_val is None:
+        return DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6
+
+    try:
+        limit = int(str(cfg_val).strip())
+    except (TypeError, ValueError):
+        return DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6
+
+    return limit if limit >= 0 else DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6
 
 
 # Pack agents - the specialized sub-agents coordinated by Pack Leader
@@ -410,6 +438,7 @@ def get_config_keys():
         "message_limit",
         "allow_recursion",
         "subagent_recursion_limit",
+        "subagent_recursion_limit_gpt_5_6",
         "auto_save_session",
         "max_saved_sessions",
         "http2",

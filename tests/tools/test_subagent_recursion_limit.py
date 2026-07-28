@@ -6,8 +6,10 @@ import pytest
 
 from code_puppy.config import (
     DEFAULT_SUBAGENT_RECURSION_LIMIT,
+    DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6,
     get_config_keys,
     get_subagent_recursion_limit,
+    get_subagent_recursion_limit_gpt_5_6,
 )
 from code_puppy.tools.agent_tools import AgentInvokeOutput
 from code_puppy.tools.subagent_context import subagent_context
@@ -33,6 +35,25 @@ def test_recursion_limit_uses_configured_nonnegative_integer(configured, expecte
 
 def test_recursion_limit_is_discoverable_by_config_commands():
     assert "subagent_recursion_limit" in get_config_keys()
+    assert "subagent_recursion_limit_gpt_5_6" in get_config_keys()
+
+
+@pytest.mark.parametrize("configured", [None, "", "not-a-number", "-1"])
+def test_gpt_5_6_recursion_limit_defaults_for_missing_or_invalid_values(configured):
+    with patch("code_puppy.config.get_value", return_value=configured):
+        assert (
+            get_subagent_recursion_limit_gpt_5_6()
+            == DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6
+            == 2
+        )
+
+
+@pytest.mark.parametrize(("configured", "expected"), [("0", 0), ("1", 1), ("5", 5)])
+def test_gpt_5_6_recursion_limit_uses_configured_nonnegative_integer(
+    configured, expected
+):
+    with patch("code_puppy.config.get_value", return_value=configured):
+        assert get_subagent_recursion_limit_gpt_5_6() == expected
 
 
 def test_recursion_guard_allows_calls_below_limit_and_blocks_at_limit():
@@ -134,11 +155,15 @@ async def test_invocation_tools_preserve_gpt_5_6_two_level_cap(
     tool = _capture_tool(register_tool)
 
     # Nest two GPT-5.6 sub-agent contexts so the third invocation would push
-    # chain depth to 3, exceeding GPT_5_6_SUBAGENT_DEPTH_LIMIT = 2.
+    # chain depth to 3, exceeding the (default) GPT-5.6 cap of 2.
     with (
         patch(
             "code_puppy.tools.subagent_invocation.get_subagent_recursion_limit",
             return_value=4,
+        ),
+        patch(
+            "code_puppy.tools.subagent_invocation.get_subagent_recursion_limit_gpt_5_6",
+            return_value=2,
         ),
         patch("code_puppy.tools.subagent_invocation.emit_error"),
         patch("code_puppy.agents.agent_manager.load_agent") as load_agent,
@@ -153,8 +178,8 @@ async def test_invocation_tools_preserve_gpt_5_6_two_level_cap(
         )
 
     assert result.error == (
-        "GPT-5.6 sub-agent chain depth cap (2) would be exceeded by "
-        "invoking 'child' at depth 3."
+        "Cannot invoke 'child' at sub-agent depth 3: "
+        "GPT-5.6 callers are limited to depth 2."
     )
     load_agent.assert_not_called()
 
