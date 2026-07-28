@@ -623,9 +623,7 @@ class TestSummarize:
 
         # Exercise the provider mapper that previously raised assert_never()
         # for TextPart inside a ModelRequest. No API request is made.
-        model = OpenAIResponsesModel(
-            "gpt-5", provider=OpenAIProvider(api_key="test")
-        )
+        model = OpenAIResponsesModel("gpt-5", provider=OpenAIProvider(api_key="test"))
         _, mapped = await model._map_messages(
             result,
             {},
