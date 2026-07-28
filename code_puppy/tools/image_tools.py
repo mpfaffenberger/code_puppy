@@ -16,7 +16,18 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Union
 
-from PIL import Image, UnidentifiedImageError
+try:
+    from PIL import Image, UnidentifiedImageError
+
+    PIL_AVAILABLE = True
+except ImportError:  # Pillow is optional; install code-puppy[images]
+    Image = None
+
+    class UnidentifiedImageError(Exception):
+        """Fallback used only when Pillow is not installed."""
+
+    PIL_AVAILABLE = False
+
 from pydantic_ai import BinaryContent, RunContext, ToolReturn
 
 from code_puppy.messaging import emit_error, emit_info, emit_success
@@ -40,6 +51,11 @@ def _validate_and_prepare_image(
     file extension. If the image is resized, the output is normalized to PNG so
     the returned bytes and MIME type stay in sync like civilized software.
     """
+    if not PIL_AVAILABLE or Image is None:
+        raise ValueError(
+            "Image tools require Pillow. Install with: pip install 'code-puppy[images]'"
+        )
+
     try:
         with Image.open(io.BytesIO(image_bytes)) as verified_image:
             verified_image.verify()

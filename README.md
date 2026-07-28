@@ -75,6 +75,73 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 uvx code-puppy
 ```
 
+#### Android / Termux
+
+Code Puppy installs lean on Android/Termux. Read the full guide at
+[`docs/ANDROID_INSTALL.md`](docs/ANDROID_INSTALL.md). Android's Python wheel
+availability is different from desktop Linux, so the installer keeps optional
+native-heavy features detached and makes the required Termux build toolchain
+explicit.
+
+**The one-command path (recommended):** the interactive bootstrap *wizard*
+detects the device and walks you through every remaining step (native helper
+packages, Code Puppy) with a `[Y/n]` confirmation before each one, then verifies
+the install. Install `uv rust clang` first because `uvx --from code-puppy ...`
+must resolve Code Puppy's required Python dependencies before the wizard can run:
+
+```bash
+pkg update
+pkg install python git uv rust clang
+uvx --from code-puppy code-puppy-bootstrap wizard
+```
+
+The wizard is stdlib-only, gates every state-changing step behind a prompt, and
+finishes with a verification + reconciliation summary. Add `--yes` to
+auto-confirm for scripted installs, or `--dry-run` to preview without executing
+anything. You can also inspect the plan without running it:
+
+```bash
+uvx --from code-puppy code-puppy-bootstrap detect   # what the wizard sees
+uvx --from code-puppy code-puppy-bootstrap plan      # the lean install plan
+```
+
+<details>
+<summary>Prefer to drive it by hand? Here is the manual flow the wizard runs.</summary>
+
+```bash
+# In Termux
+pkg update
+pkg install python git uv rust clang ripgrep proot
+uv tool install --refresh code-puppy
+code-puppy -i
+```
+
+</details>
+
+Install `ripgrep` from Termux (`pkg install ripgrep`) so the file-search and
+recursive-listing tools work — Code Puppy uses the system `rg` binary. Android
+support does not remove search support; it only prevents the PyPI `ripgrep`
+package from being installed on Android/Termux, where it is known to fail.
+Desktop and CI installs using the optional `[search]` extra remain unchanged.
+
+#### Optional: Browser automation
+
+Browser tools are powered by [Playwright](https://playwright.dev/), which has no
+wheels for some platforms (e.g. Android/Termux). It is therefore an optional
+extra and is **not** part of the base install. On supported platforms, opt in:
+
+```bash
+pip install "code-puppy[browser]"
+# or
+uv tool install "code-puppy[browser]"
+
+# then download the browser binaries
+playwright install chromium
+```
+
+Without this extra, Code Puppy runs normally; browser tools simply report that
+the optional `browser` dependency is missing when they are invoked.
+
 #### Optional: DBOS durable execution
 
 Code Puppy ships with an optional [DBOS](https://github.com/dbos-inc/dbos-transact-py)-backed
