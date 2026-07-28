@@ -128,11 +128,13 @@ async def test_invocation_tools_stop_before_loading_agent_at_limit(
         (register_invoke_agent_with_model, {"model_name": "test-model"}),
     ],
 )
-async def test_invocation_tools_preserve_gpt_5_6_single_level_cap(
+async def test_invocation_tools_preserve_gpt_5_6_two_level_cap(
     register_tool, extra_kwargs
 ):
     tool = _capture_tool(register_tool)
 
+    # Nest two GPT-5.6 sub-agent contexts so the third invocation would push
+    # chain depth to 3, exceeding GPT_5_6_SUBAGENT_DEPTH_LIMIT = 2.
     with (
         patch(
             "code_puppy.tools.subagent_invocation.get_subagent_recursion_limit",
@@ -140,7 +142,8 @@ async def test_invocation_tools_preserve_gpt_5_6_single_level_cap(
         ),
         patch("code_puppy.tools.subagent_invocation.emit_error"),
         patch("code_puppy.agents.agent_manager.load_agent") as load_agent,
-        subagent_context("parent", "gpt-5.6-sol"),
+        subagent_context("outer", "gpt-5.6-sol"),
+        subagent_context("inner", "gpt-5.6-sol"),
     ):
         result = await tool(
             MagicMock(),
@@ -149,5 +152,53 @@ async def test_invocation_tools_preserve_gpt_5_6_single_level_cap(
             **extra_kwargs,
         )
 
-    assert result.error == "GPT-5.6 sub-agents cannot invoke 'child'."
+    assert result.error == (
+        "GPT-5.6 sub-agent chain depth cap (2) would be exceeded by "
+        "invoking 'child' at depth 3."
+    )
     load_agent.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("register_tool", "extra_kwargs"),
+    [
+        (register_invoke_agent, {}),
+        (register_invoke_agent_with_model, {"model_name": "test-model"}),
+    ],
+)
+async def test_invocation_tools_allow_gpt_5_6_up_to_two_levels(
+    register_tool, extra_kwargs
+):
+    """A GPT-5.6 sub-agent at depth 1 must still be allowed to invoke a
+    depth-2 child -- the cap is 2, not 1. Locks down the depth-1 vs depth-2
+    boundary so a future ``tighten it back down`` edit trips a test.
+    """
+    tool = _capture_tool(register_tool)
+
+    with (
+        patch(
+            "code_puppy.tools.subagent_invocation.get_subagent_recursion_limit",
+            return_value=4,
+        ),
+        patch("code_puppy.tools.subagent_invocation.emit_error"),
+        # Stop before the sub-agent actually runs -- we just want to prove
+        # the recursion guard let us past load_agent().
+        patch(
+            "code_puppy.agents.agent_manager.load_agent",
+            side_effect=RuntimeError("stop-here"),
+        ) as load_agent,
+        subagent_context("outer", "gpt-5.6-sol"),
+    ):
+        result = await tool(
+            MagicMock(),
+            agent_name="child",
+            prompt="delegate this",
+            **extra_kwargs,
+        )
+
+    # Guard did not fire; execution reached load_agent() and only failed there.
+    load_agent.assert_called_once()
+    assert result.response is None
+    assert result.error is not None
+    assert "GPT-5.6" not in result.error

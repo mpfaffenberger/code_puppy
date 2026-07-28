@@ -428,7 +428,8 @@ _GPT_5_6_INVOKE_AGENT_GUARD_TEXT = """
 ## Sub-Agent Delegation (GPT-5.6)
 Use `invoke_agent` only for focused work that benefits from separate context or
 specialized tools. Handle work directly when you can. Never invoke
-`planning-agent`.
+`planning-agent`. Hard cap: at most 2 total sub-agent levels in a delegation
+chain (main agent -> level 1 -> level 2). Do not attempt deeper chains.
 """
 
 _GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT = """

@@ -52,6 +52,14 @@ from code_puppy.tools.subagent_usage_metrics import (
 # Set to track active subagent invocation tasks
 _active_subagent_tasks: Set[asyncio.Task] = set()
 
+# Hard cap on the total sub-agent chain depth that a GPT-5.6 immediate caller
+# is allowed to produce. This is intentionally a small constant (not a config
+# key): the cap exists to prevent GPT-5.6's tendency to spawn runaway
+# delegation chains, and giving ops a knob to raise it defeats the purpose.
+# ``2`` allows ``main -> level 1 -> level 2`` and blocks anything deeper when
+# the immediate caller is on GPT-5.6.
+GPT_5_6_SUBAGENT_DEPTH_LIMIT = 2
+
 
 def _subagent_recursion_blocked() -> bool:
     """Return whether another invocation would exceed the configured depth."""
@@ -59,10 +67,20 @@ def _subagent_recursion_blocked() -> bool:
 
 
 def _gpt_5_6_recursion_blocked() -> bool:
-    """Preserve the stricter single-level policy for GPT-5.6 callers."""
+    """Enforce the GPT-5.6 hard cap on resulting sub-agent chain depth.
+
+    The rule keys off the *immediate* caller's model (via the
+    ``subagent_model_name`` contextvar). An earlier GPT-5.6 ancestor that
+    has since handed off to a non-GPT-5.6 sub-agent is intentionally not
+    penalised -- broadening to a full-chain scan would be a policy change
+    beyond this cap.
+    """
     from code_puppy.agents._builder import _is_gpt_5_6_family
 
-    return _is_gpt_5_6_family(get_subagent_model_name())
+    if not _is_gpt_5_6_family(get_subagent_model_name()):
+        return False
+    attempted_depth = get_subagent_depth() + 1
+    return attempted_depth > GPT_5_6_SUBAGENT_DEPTH_LIMIT
 
 
 def _subagent_identity_prompt(agent_name: str) -> str:
@@ -112,7 +130,12 @@ async def _invoke_agent_impl(
             agent=agent_name,
         )
     elif _gpt_5_6_recursion_blocked():
-        error = t("subagent.gpt_5_6_recursion_blocked", agent=agent_name)
+        error = t(
+            "subagent.gpt_5_6_recursion_blocked",
+            agent=agent_name,
+            depth=get_subagent_depth() + 1,
+            limit=GPT_5_6_SUBAGENT_DEPTH_LIMIT,
+        )
     else:
         error = None
 
