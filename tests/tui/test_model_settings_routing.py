@@ -1,15 +1,16 @@
 """Routing tests for the TUI model-settings save/reset helpers.
 
 The TUI reuses the classic ``SETTING_DEFINITIONS`` but has its own persistence
-helpers. Three storage backends must be routed correctly, exactly like
+helpers. Two storage backends must be routed correctly, exactly like
 ``ModelSettingsMenu._save_edit`` / ``_reset_to_default``:
 
-* global OpenAI controls -> global setters
 * per-model retry overrides -> the dedicated ``retry_model_`` namespace
-* everything else -> generic per-model ``set_model_setting``
+* everything else (incl. OpenAI reasoning_effort/summary/verbosity, which
+  main made per-model in 6faab505) -> generic per-model ``set_model_setting``
 
 Regression guard for the bug where retry edits fell through to
-``set_model_setting`` and silently no-opped.
+``set_model_setting`` and silently no-opped, and for the stale global
+``set_openai_*`` setters that were removed upstream.
 """
 
 import code_puppy.tui.screens.model_settings as ms
@@ -62,17 +63,35 @@ def test_save_generic_setting_routes_to_set_model_setting(monkeypatch):
     assert calls["retry"] == []
 
 
-def test_save_global_setting_uses_global_setter(monkeypatch):
-    """Global OpenAI controls must hit the global setter, never per-model."""
-    seen = []
-    monkeypatch.setitem(ms._GLOBAL_SETTERS, "reasoning_effort", seen.append)
+def test_save_reasoning_setting_routes_per_model(monkeypatch):
+    """OpenAI reasoning controls are now per-model (main removed the global
+    ``set_openai_*`` setters in 6faab505), so they route through
+    ``set_model_setting`` like any other non-retry setting."""
+    calls = {"retry": [], "generic": []}
     monkeypatch.setattr(
-        ms, "set_model_setting", lambda *a: (_ for _ in ()).throw(AssertionError())
+        ms, "_write_per_model_retry", lambda m, k, v: calls["retry"].append((m, k, v))
     )
     monkeypatch.setattr(
-        ms, "_write_per_model_retry", lambda *a: (_ for _ in ()).throw(AssertionError())
+        ms, "set_model_setting", lambda m, k, v: calls["generic"].append((m, k, v))
     )
 
     ms._save_setting("gpt-x", "reasoning_effort", "high")
 
-    assert seen == ["high"]
+    assert calls["generic"] == [("gpt-x", "reasoning_effort", "high")]
+    assert calls["retry"] == []
+
+
+def test_reset_reasoning_setting_routes_per_model(monkeypatch):
+    """Resetting a reasoning control clears the per-model value (None)."""
+    calls = {"retry": [], "generic": []}
+    monkeypatch.setattr(
+        ms, "_write_per_model_retry", lambda m, k, v: calls["retry"].append((m, k, v))
+    )
+    monkeypatch.setattr(
+        ms, "set_model_setting", lambda m, k, v: calls["generic"].append((m, k, v))
+    )
+
+    ms._reset_setting("gpt-x", "reasoning_effort")
+
+    assert calls["generic"] == [("gpt-x", "reasoning_effort", None)]
+    assert calls["retry"] == []

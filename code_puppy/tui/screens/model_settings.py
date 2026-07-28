@@ -40,9 +40,6 @@ from code_puppy.config import (
     get_global_model_name,
     model_supports_setting,
     set_model_setting,
-    set_openai_reasoning_effort,
-    set_openai_reasoning_summary,
-    set_openai_verbosity,
 )
 from code_puppy.list_filtering import query_matches_text
 
@@ -68,25 +65,12 @@ def _format_value(setting: str, value, model_name: str) -> str:
     return sdef.get("format", "{:.2f}").format(value)
 
 
-# OpenAI reasoning controls are global, not per-model; route them specially
-# (mirrors ModelSettingsMenu._save_edit / _reset_to_default).
-_GLOBAL_SETTERS = {
-    "reasoning_effort": set_openai_reasoning_effort,
-    "summary": set_openai_reasoning_summary,
-    "verbosity": set_openai_verbosity,
-}
-_GLOBAL_RESET_DEFAULTS = {
-    "reasoning_effort": "medium",
-    "summary": "auto",
-    "verbosity": "medium",
-}
-
-
+# All model settings -- including OpenAI reasoning_effort/summary/verbosity --
+# are now stored per-model via set_model_setting (main removed the old global
+# set_openai_* setters). Only retry overrides take a special namespace. This
+# mirrors ModelSettingsMenu._save_edit / _reset_to_default in the classic menu.
 def _save_setting(model_name: str, setting: str, value) -> None:
-    setter = _GLOBAL_SETTERS.get(setting)
-    if setter is not None:
-        setter(value)
-    elif setting in _RETRY_MENU_KEYS:
+    if setting in _RETRY_MENU_KEYS:
         # Per-model retry overrides live in a dedicated ``retry_model_``
         # namespace, not the generic per-model setting store (mirrors
         # ModelSettingsMenu._save_edit). Writing them via set_model_setting
@@ -97,9 +81,7 @@ def _save_setting(model_name: str, setting: str, value) -> None:
 
 
 def _reset_setting(model_name: str, setting: str) -> None:
-    if setting in _GLOBAL_RESET_DEFAULTS:
-        _GLOBAL_SETTERS[setting](_GLOBAL_RESET_DEFAULTS[setting])
-    elif setting in _RETRY_MENU_KEYS:
+    if setting in _RETRY_MENU_KEYS:
         # Clear the per-model retry override -> falls back to global default.
         _write_per_model_retry(model_name, setting, None)
     else:
