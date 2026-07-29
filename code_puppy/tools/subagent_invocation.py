@@ -16,7 +16,11 @@ from code_puppy.callbacks import (
     on_agent_run_context,
     on_wrap_pydantic_agent,
 )
-from code_puppy.config import get_message_limit, get_subagent_recursion_limit
+from code_puppy.config import (
+    get_message_limit,
+    get_subagent_recursion_limit,
+    get_subagent_recursion_limit_gpt_5_6,
+)
 from code_puppy.i18n import t
 from code_puppy.messaging import (
     SubAgentInvocationMessage,
@@ -59,10 +63,21 @@ def _subagent_recursion_blocked() -> bool:
 
 
 def _gpt_5_6_recursion_blocked() -> bool:
-    """Preserve the stricter single-level policy for GPT-5.6 callers."""
+    """Enforce the GPT-5.6 overlay cap on resulting sub-agent chain depth.
+
+    The rule keys off the *immediate* caller's model (via the
+    ``subagent_model_name`` contextvar). An earlier GPT-5.6 ancestor that
+    has since handed off to a non-GPT-5.6 sub-agent is intentionally not
+    penalised -- broadening to a full-chain scan would be a policy change
+    beyond this cap. The limit itself is user-tunable via the
+    ``subagent_recursion_limit_gpt_5_6`` config key.
+    """
     from code_puppy.agents._builder import _is_gpt_5_6_family
 
-    return _is_gpt_5_6_family(get_subagent_model_name())
+    if not _is_gpt_5_6_family(get_subagent_model_name()):
+        return False
+    attempted_depth = get_subagent_depth() + 1
+    return attempted_depth > get_subagent_recursion_limit_gpt_5_6()
 
 
 def _subagent_identity_prompt(agent_name: str) -> str:
@@ -112,7 +127,12 @@ async def _invoke_agent_impl(
             agent=agent_name,
         )
     elif _gpt_5_6_recursion_blocked():
-        error = t("subagent.gpt_5_6_recursion_blocked", agent=agent_name)
+        error = t(
+            "subagent.gpt_5_6_recursion_blocked",
+            agent=agent_name,
+            depth=get_subagent_depth() + 1,
+            limit=get_subagent_recursion_limit_gpt_5_6(),
+        )
     else:
         error = None
 
