@@ -452,6 +452,10 @@ def get_config_keys():
     default_keys.append("goal_max_iterations")
     # Add dangerous command guard disable (skips force push and destructive command guards)
     default_keys.append("disable_dangerous_command_guard")
+    # Granular per-pattern allowlist for the command guards: comma-separated
+    # pattern names (e.g. "git reset --hard, --force") that bypass the guards
+    # while everything else stays protected. See get_dangerous_command_guard_allowlist().
+    default_keys.append("dangerous_command_guard_allow")
     # Add retry profile keys (backoff policy for streaming retries). Per-model
     # overrides live under the model_settings_ namespace; these are the globals.
     default_keys.append("retry_main_strategy")
@@ -1386,6 +1390,64 @@ def get_disable_dangerous_command_guard() -> bool:
             return True
         return False
     return False
+
+
+def normalize_guard_pattern_name(name: str) -> str:
+    """Canonicalize a guard pattern name for case/whitespace-insensitive match.
+
+    Lowercases and collapses internal whitespace runs to a single space so
+    allowlist entries survive copy-paste sloppiness (e.g. 'Git   Reset --Hard'
+    matches the detector's 'git reset --hard').
+
+    Args:
+        name: Raw pattern name (from config or a detector match).
+
+    Returns:
+        The normalized form, or '' for falsy input.
+    """
+    if not name:
+        return ""
+    return " ".join(str(name).split()).lower()
+
+
+def get_dangerous_command_guard_allowlist() -> set:
+    """Return the granular allowlist of guard pattern names to bypass.
+
+    Reads the 'dangerous_command_guard_allow' config key: a comma-separated
+    list of *pattern names* (as reported by the destructive command guard and
+    the force push guard, e.g. 'git reset --hard' or '--force') that should be
+    waved through while every other dangerous pattern stays guarded.
+
+    Unlike 'disable_dangerous_command_guard' (all-or-nothing), this lets you
+    trust specific commands without dropping protection on the rest. Applies to
+    BOTH guards, matching pattern names exactly (after normalization).
+
+    Returns:
+        A set of normalized pattern names (empty if unset).
+    """
+    raw = get_value("dangerous_command_guard_allow")
+    if not raw:
+        return set()
+    return {
+        normalized
+        for chunk in str(raw).split(",")
+        if (normalized := normalize_guard_pattern_name(chunk))
+    }
+
+
+def is_dangerous_command_allowlisted(pattern_name: str) -> bool:
+    """Check whether a detected guard pattern is on the granular allowlist.
+
+    Args:
+        pattern_name: The detector's pattern_name for the match.
+
+    Returns:
+        True if the pattern should bypass the guard, False otherwise.
+    """
+    normalized = normalize_guard_pattern_name(pattern_name)
+    if not normalized:
+        return False
+    return normalized in get_dangerous_command_guard_allowlist()
 
 
 def get_protected_token_count():
