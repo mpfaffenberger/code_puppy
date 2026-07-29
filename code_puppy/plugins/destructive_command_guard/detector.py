@@ -18,6 +18,7 @@ class DestructiveCommandMatch:
 
     pattern_name: str
     description: str
+    block_immediately: bool = False
 
 
 # ---------------------------------------------------------------------------
