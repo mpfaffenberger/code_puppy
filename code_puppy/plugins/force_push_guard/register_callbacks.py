@@ -17,6 +17,7 @@ _FORCE_PUSH_GUARD_SPEC = GuardSpec(
         "terminal after double-checking the target branch."
     ),
     detect=detect_force_push,
+    allow_disable_guard=True,
 )
 
 

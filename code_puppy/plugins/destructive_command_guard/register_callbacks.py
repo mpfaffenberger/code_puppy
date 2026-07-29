@@ -19,6 +19,7 @@ _DESTRUCTIVE_GUARD_SPEC = GuardSpec(
         "after double-checking the target."
     ),
     detect=detect_destructive_command,
+    allow_disable_guard=True,
 )
 
 

@@ -15,6 +15,7 @@ class GuardSpec:
     consequence: str            # "Force pushing rewrites remote history..."
     block_advice: str           # "If you *really* need to ... in your terminal ..."
     detect: Callable[[str], Optional[Any]]   # returns match with .pattern_name/.description
+    allow_disable_guard: bool = True  # Honor disable_dangerous_command_guard when enabled
 
 
 async def _prompt_user_approval(spec: GuardSpec, command: str, match: Any) -> Optional[Dict[str, Any]]:
@@ -100,8 +101,9 @@ def _is_interactive() -> bool:
 
 def make_shell_guard(spec: GuardSpec) -> Callable:
     async def guard(context, command, cwd=None, timeout=60):
-        if get_disable_dangerous_command_guard():
-            return None
+        if spec.allow_disable_guard:
+            if get_disable_dangerous_command_guard():
+                return None
         match = spec.detect(command)
         if match is None:
             return None
