@@ -1,0 +1,217 @@
+{
+    "groups": [
+        {
+            "name": "Unix destructive commands",
+            "cheap_substrings": [
+                "rm",
+                "docker",
+                "drop",
+                "npm",
+                "yarn",
+                "twine",
+                "psql",
+                "mysql",
+                "sqlite3"
+            ],
+            "expensive_patterns": [
+                {
+                    "regex": "\\brm\\b(?=.*\\s-[a-zA-Z]*r)(?=.*\\s-[a-zA-Z]*f).*\\s(?:/$|/\\s|/\\*)",
+                    "name": "rm -rf /",
+                    "description": "recursive delete of root filesystem",
+                    "block_immediately": true
+                },
+                {
+                    "regex": "\\brm\\b(?=.*\\s-[a-zA-Z]*r)(?=.*\\s-[a-zA-Z]*f).*\\s/\\*\\s*$",
+                    "name": "rm -rf /*",
+                    "description": "recursive delete of root filesystem (glob)",
+                    "block_immediately": true
+                },
+                {
+                    "regex": "\\brm\\b(?=.*\\s-[a-zA-Z]*r)(?=.*\\s-[a-zA-Z]*f).*\\s~\\s*$",
+                    "name": "rm -rf ~",
+                    "description": "recursive delete of home directory",
+                    "block_immediately": true
+                },
+                {
+                    "regex": "\\brm\\b(?=.*\\s-[a-zA-Z]*r)(?=.*\\s-[a-zA-Z]*f).*\\s~/\\*\\s*$",
+                    "name": "rm -rf ~/*",
+                    "description": "recursive delete of home directory (glob)",
+                    "block_immediately": true
+                },
+                {
+                    "regex": "\\brm\\b.*--no-preserve-root",
+                    "name": "rm --no-preserve-root",
+                    "description": "overrides the OS safety guard for rm -rf /",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "(?:psql|mysql|sqlite3)\\b.*(?:-c|-e)\\b.*DROP\\s+(?:TABLE|DATABASE|SCHEMA)\\b",
+                    "name": "DROP via SQL client",
+                    "description": "drops a table/database/schema via SQL client",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "DROP\\s+(?:TABLE|DATABASE|SCHEMA)\\b.*\\|\\s*(?:psql|mysql|sqlite3)\\b",
+                    "name": "DROP via SQL pipe",
+                    "description": "drops a table/database/schema piped to SQL client",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "\\bdocker\\s+(?:system|volume)\\s+prune\\b.*(?:-[af]|\\s-[af]|\\s--all)",
+                    "name": "docker prune",
+                    "description": "nukes Docker resources without confirmation",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "\\b(?:npm|yarn)\\s+publish\\b",
+                    "name": "npm/yarn publish",
+                    "description": "accidental package publishing",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "\\btwine\\s+upload\\b",
+                    "name": "twine upload",
+                    "description": "accidental package publishing",
+                    "block_immediately": false
+                }
+            ]
+        },
+        {
+            "name": "Windows PowerShell destructive commands",
+            "cheap_substrings": [
+                "remove-item",
+                "ri ",
+                " rmdir",
+                "del",
+                "erase",
+                "format-volume",
+                "clear-disk",
+                "remove-itemproperty",
+                "clear-recyclebin",
+                "invoke-expression",
+                " irm ",
+                "iex",
+                "get-childitem"
+            ],
+            "expensive_patterns": [
+                {
+                    "regex": "(?:^|[;|&])\\s*(?:Remove-Item|ri)\\b.*\\s-(?:r|recurse|f|force)\\b",
+                    "name": "Remove-Item with recursive/force flags",
+                    "description": "deletion with recursive or force flag",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "\\b(?:Remove-Item|ri)\\b.*\\s-(?:r|recurse)\\b.*(?:C:|Windows|System32|Users|Program Files|ProgramData)",
+                    "name": "Remove-Item on system location",
+                    "description": "deletion operation on system directory or drive",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "\\|\\s*\\b(?:Remove-Item|ri|del|erase)\\b",
+                    "name": "Piped deletion command",
+                    "description": "deletion via pipeline (potentially recursive)",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "\\b(?:Format-Volume|fdisk)\\b",
+                    "name": "Format-Volume",
+                    "description": "formats a disk volume",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "\\bClear-Disk\\b",
+                    "name": "Clear-Disk",
+                    "description": "removes all data and OEM recovery partitions",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "\\b(?:Remove-ItemProperty|rp)\\b.*\\sHK(?:LM|CU|CR|U|CC):",
+                    "name": "Remove-ItemProperty registry",
+                    "description": "removes critical registry values",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "\\b(?:Clear-RecycleBin|recycle)\\b.*\\s-(?:f|force)\\b",
+                    "name": "Clear-RecycleBin -Force",
+                    "description": "permanently deletes all recycle bin contents",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "\\b(?:irm|Invoke-WebRequest|iwr|Invoke-RestMethod|curl|wget)\\b.*\\|\\s*(?:iex|Invoke-Expression)\\b",
+                    "name": "Download + Execute (IWR|IEX)",
+                    "description": "downloads and executes remote code",
+                    "block_immediately": false
+                }
+            ]
+        },
+        {
+            "name": "Windows CMD destructive commands",
+            "cheap_substrings": [
+                "rd ",
+                "format",
+                "diskpart",
+                "bcdedit",
+                "reg ",
+                "del",
+                "rmdir",
+                "erase"
+            ],
+            "expensive_patterns": [
+                {
+                    "regex": "\\b(?:rmdir|rd)\\b.*\\s/s\\b.*\\s/q\\b",
+                    "name": "rd /s /q",
+                    "description": "recursive silent directory delete",
+                    "block_immediately": true
+                },
+                {
+                    "regex": "\\b(?:rmdir|rd)\\b.*\\s/q\\b.*\\s/s\\b",
+                    "name": "rd /s /q",
+                    "description": "recursive silent directory delete",
+                    "block_immediately": true
+                },
+                {
+                    "regex": "\\b(?:del|erase)\\b.*\\s/s\\b.*(?:Windows|System32|Program)",
+                    "name": "del /s system files",
+                    "description": "recursive delete of system files",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "\\b(?:del|erase)\\b.*\\s/f\\b.*\\s/s\\b.*(?:Windows|System32|Program)",
+                    "name": "del /f /s system files",
+                    "description": "force recursive delete of system files",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "(?:^|&&|\\|\\||;|\\|)\\s*format\\b.*\\s[A-Za-z]:",
+                    "name": "format",
+                    "description": "formats drive",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "(?:^|&&|\\|\\||;|\\|)\\s*format\\b.*\\s/q\\b.*\\s[A-Za-z]:",
+                    "name": "format /q",
+                    "description": "quick formats drive",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "\\bdiskpart\\b",
+                    "name": "diskpart",
+                    "description": "diskpart disk management tool",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "\\bbcdedit\\b.*\\s/(?:delete|set|export|import|bootsequence)\\b.*\\s(?:\\{.*\\}|.*bootmgr|.*resume)",
+                    "name": "bcdedit destructive",
+                    "description": "modifies critical boot configuration",
+                    "block_immediately": false
+                },
+                {
+                    "regex": "\\breg\\s+delete\\b.*\\sHK(?:LM|CR|CU)",
+                    "name": "reg delete",
+                    "description": "deletes critical registry keys",
+                    "block_immediately": false
+                }
+            ]
+        }
+    ]
+}
