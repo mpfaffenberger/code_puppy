@@ -10,6 +10,11 @@ calls, no caching, no yolo-mode checks. Covers:
 import re
 import psutil
 from dataclasses import dataclass
+import shlex
+from collections.abc import Sequence
+
+from code_puppy.messaging import emit_info, emit_warning
+
 
 
 @dataclass
@@ -36,12 +41,8 @@ _QUOTED_WORD_RE      = re.compile(r'(["\'])(\w+)\1')
 _CARET_ESCAPE_RE     = re.compile(r"\^(.?)")
 _SEPARATOR_RE        = re.compile(r"[,;\s]+")
 _TOKEN_RE            = re.compile(r"\b\w+(?:-\w+)*\b")
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
 
-STATIC_PROTECTED_NAMES = {
-    "code-puppy",
-    "code_puppy",
-    "code-puppy-venv",
-}
 
 def normalize_command(command: str) -> str:
     command = _EMPTY_QUOTES_RE.sub("", command)             # strip '' and ""
@@ -82,87 +83,148 @@ def get_processes() -> set[str]:
     return processes
 
 
-def get_quoted_regions(text: str) -> list[tuple[int, int]]:
-    regions = []
-    i = 0
-    while i < len(text):
-        if text[i] in ('"', "'"):
-            quote_char = text[i]
-            start = i
-            i += 1
-            while i < len(text):
-                if text[i] == '\\':
-                    i += 2
-                elif text[i] == quote_char:
-                    regions.append((start, i))
-                    break
-                else:
-                    i += 1
-        i += 1
-    return regions
+# Intentionally small: only wrappers whose option syntax we understand belong here.
+_WRAPPERS = {"sudo", "env", "nice", "nohup", "time", "command"}
+_SUDO_VALUE_OPTIONS = {"-u", "-g", "-h", "-p", "-r", "-t"}
+_SUDO_LONG_VALUE_OPTIONS = { "--user", "--group", "--host", "--prompt", "--role", "--type",}
 
 
-def both_in_same_quote(text: str, cmd_pos: int, name_pos: int) -> bool:
-    for start, end in get_quoted_regions(text):
-        if start < cmd_pos and name_pos < end:
-            return True
-    return False
+def _skip_assignments(tokens: Sequence[str], index: int) -> int:
+    while index < len(tokens) and _ASSIGNMENT.fullmatch(tokens[index]):
+        index += 1
+    return index
 
 
-def check_window(tokens: list, candidate_commands: set, candidate_names: set, window: int = 5) -> tuple[set, set, int | None, int | None]:
-    matched_commands = set()
-    matched_names = set()
-    cmd_idx = None
-    name_idx = None
+def _skip_wrapper(tokens: Sequence[str], wrapper_index: int) -> int | None:
+    """Return the index immediately after one recognized wrapper and its options."""
+    wrapper = tokens[wrapper_index]
+    index = wrapper_index + 1
 
-    for i, token in enumerate(tokens):
-        if token in candidate_commands:
-            lo = i + 1
-            hi = min(len(tokens), i + window + 1)
+    if wrapper == "sudo":
+        return _skip_sudo_options(tokens, index)
+    if wrapper == "env":
+        return _skip_env_options(tokens, index)
+    if wrapper == "nice":
+        return _skip_nice_options(tokens, index)
+    if wrapper == "command":
+        while index < len(tokens) and tokens[index] in {"-p", "-v", "-V"}:
+            index += 1
+        return index
 
-            for j in range(lo, hi):
-                if tokens[j] in candidate_names:
-                    matched_commands.add(token)
-                    matched_names.add(tokens[j])
-                    if cmd_idx is None:
-                        cmd_idx = i
-                        name_idx = j
+    # nohup and time options vary by implementation. ``--`` is universally
+    # useful; otherwise leave the next token alone so it is treated as a command.
+    if index < len(tokens) and tokens[index] == "--":
+        return index + 1
+    return index
 
-    return matched_commands, matched_names, cmd_idx, name_idx
+
+def _skip_sudo_options(tokens: Sequence[str], index: int) -> int | None:
+    while index < len(tokens):
+        option = tokens[index]
+        if option == "--":
+            return index + 1
+        if option in _SUDO_VALUE_OPTIONS or option in _SUDO_LONG_VALUE_OPTIONS:
+            if index + 1 >= len(tokens):
+                return None
+            index += 2
+        elif option.startswith("--") and "=" in option:
+            index += 1
+        elif option.startswith("-"):
+            # Flags such as -n and bundled flags such as -nE need no value.
+            index += 1
+        else:
+            return index
+    return index
+
+
+def _skip_env_options(tokens: Sequence[str], index: int) -> int | None:
+    while index < len(tokens):
+        option = tokens[index]
+        if option == "--":
+            return index + 1
+        if option == "-u" or option == "--unset":
+            if index + 1 >= len(tokens):
+                return None
+            index += 2
+        elif option in {"-i", "--ignore-environment", "-0", "--null"}:
+            index += 1
+        elif _ASSIGNMENT.fullmatch(option):
+            index += 1
+        else:
+            return index
+    return index
+
+
+def _skip_nice_options(tokens: Sequence[str], index: int) -> int | None:
+    if index < len(tokens) and tokens[index] == "--":
+        return index + 1
+    if index < len(tokens) and tokens[index] in {"-n", "--adjustment"}:
+        if index + 1 >= len(tokens):
+            return None
+        return index + 2
+    return index
+
+
+def find_command_executable(tokens: list[str]) -> tuple[set[str], set[str]]:
+    """Return the executable and its arguments after supported shell wrappers.
+
+    Both values are sets so callers can perform direct set intersections with
+    the command and protected-process collections. An unrecognizable or empty
+    command returns two empty sets.
+    """
+    index = _skip_assignments(tokens, 0)
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "--":
+            index += 1
+            continue
+        if token not in _WRAPPERS:
+            return {token}, set(tokens[index + 1 :])
+
+        index = _skip_wrapper(tokens, index)
+        if index is None:
+            return set(), set()
+        index = _skip_assignments(tokens, index)
+
+    return set(), set()
 
 
 COMMANDS = {"kill", "pkill", "killall", "taskkill", "stop-process", "spps"}
 
+STATIC_PROTECTED_NAMES = { "code-puppy", "code_puppy", "code-puppy-venv", }
+
 PROTECTED_NAMES = get_processes()
 
 def detect_self_termination_command(command: str) ->  TerminationCommandMatch | None:
-
-    #Normalize command to remove obfuscations and standardize separators
-    command = normalize_command(command)
-
+    emit_info(PROTECTED_NAMES)
     #Split commands on operators Ex: &&, ||, ;, &, \n
     subcommands = split_command(command)
 
     for subcommand in subcommands:
-        token_matches = list(_TOKEN_RE.finditer(subcommand.lower()))
-        tokens = [m.group() for m in token_matches]
-        token_set = set(tokens)
+        #Normalize command to remove obfuscations and standardize separators
+        norm_command = normalize_command(subcommand)
 
-        candidate_commands = token_set & COMMANDS
-        candidate_names = token_set & PROTECTED_NAMES
+        #Tokenize command
+        try:
+            tokens = [token.lower() for token in shlex.split(norm_command, posix=True)]
+        except ValueError:
+            return None
 
-        if not(candidate_commands and candidate_names):
-            continue
+        # Find the executable separately from its arguments so quoted command
+        # text and wrapper options cannot be mistaken for a command.
+        executable, args = find_command_executable(tokens)
+        matched_commands = executable & COMMANDS
+        matched_names = {
+            arg.removesuffix(".exe") for arg in args
+        } & PROTECTED_NAMES
 
-        matched_commands, matched_names, cmd_idx, name_idx = check_window(tokens, candidate_commands, candidate_names)
-
-        if not(matched_commands and matched_names):
-            continue
-
-        if both_in_same_quote(subcommand, token_matches[cmd_idx].start(), token_matches[name_idx].start()):
+        if not (matched_commands and matched_names):
             continue
 
         return TerminationCommandMatch(
-            pattern_name=f"{', '.join(sorted(matched_commands))} targeting {', '.join(sorted(matched_names))}"
+            pattern_name=(
+                f"{', '.join(sorted(matched_commands))} targeting "
+                f"{', '.join(sorted(matched_names))}"
+            )
         )
     return None

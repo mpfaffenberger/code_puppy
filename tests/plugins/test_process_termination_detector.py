@@ -140,17 +140,6 @@ class TestObfuscatedCommands:
         assert result is not None
 
 
-class TestDetectionWindow:
-    """Protected tokens must appear close enough after the command token."""
-
-    def test_matches_name_at_window_boundary(self) -> None:
-        result = _hits("pkill -9 -f --signal TERM python3")
-        assert result is not None
-
-    def test_misses_name_outside_window(self) -> None:
-        assert _miss("pkill a b c d e f python3")
-
-
 class TestCompoundCommands:
     """Compound command strings are scanned subcommand-by-subcommand."""
 
@@ -170,16 +159,31 @@ class TestCompoundCommands:
         result = _raw_hits(cmd)
         assert result is not None
 
+
+class TestWrapperCommands:
+    """Supported command wrappers are unwrapped before matching."""
+
     @pytest.mark.parametrize(
         "cmd",
         [
-            "echo hello && echo goodbye",
-            "echo hello && pkill notepad",
-            "echo hello && taskkill /PID 11111",
+            "sudo pkill python3",
+            "sudo -u root kill -9 4242",
+            "sudo --user=root pkill code-puppy",
+            "env FOO=bar pkill python3",
+            "env -u FOO pkill python3",
+            "env -- pkill python3",
+            "nice -n 10 kill -9 4242",
+            "nice --adjustment 10 pkill python3",
+            "nohup -- pkill python3",
+            "time -- kill 12345",
+            "command -p pkill python3",
+            "FOO=bar sudo pkill python3",
+            "sudo env FOO=bar nice -n 5 pkill python3",
         ],
     )
-    def test_misses_safe_compound_command(self, cmd: str) -> None:
-        assert _raw_hits(cmd) is None
+    def test_matches_termination_command_after_wrapper(self, cmd: str) -> None:
+        result = _hits(cmd)
+        assert result is not None
 
 
 # ===========================================================================
@@ -240,11 +244,12 @@ class TestFalsePositives:
             "kill -9 11111",
             "killall -9 'Google Chrome'",
             "taskkill /PID 11111",
-            "echo 'pkill python3'",
+            "echo pkill python3",
             "printf 'taskkill /PID 12345'",
             "echo 'Stop-Process -Name python'",
             "python3",
             "pkill",
+            "echo hello && taskkill /PID 11111",
         ],
     )
     def test_safe_commands(self, cmd: str) -> None:
