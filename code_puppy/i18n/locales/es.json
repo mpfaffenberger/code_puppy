@@ -1,6 +1,7 @@
 {
   "startup.welcome": "¡Bienvenido(a) a Code Puppy, {name}!",
   "startup.ready": "Listo para ir por el código. 🐶",
+  "computer_use.startup.opt_in": "Computer Use de macOS está desactivado de forma predeterminada. Ejecuta `/computer-use enable` para activarlo.",
   "locale.set": "Idioma configurado en {locale}.",
   "locale.current": "Idioma actual: {locale}",
   "files.deleted": {

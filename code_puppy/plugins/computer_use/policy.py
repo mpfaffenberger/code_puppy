@@ -82,6 +82,11 @@ class PolicyStore:
         with self._lock:
             self._paused = paused
 
+    def is_enabled(self) -> bool:
+        """Return whether the user explicitly opted in to Computer Use."""
+        with self._lock:
+            return self._load()["enabled"] is True
+
     def require_enabled(self) -> None:
         with self._lock:
             if self._paused:

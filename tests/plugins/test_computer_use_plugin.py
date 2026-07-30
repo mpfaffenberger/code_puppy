@@ -50,19 +50,53 @@ def make_state(tmp_path, elements=None):
     )
 
 
-def test_plugin_registers_only_on_macos(monkeypatch):
+def test_plugin_registers_only_when_macos_user_opts_in(monkeypatch):
     monkeypatch.setattr(register_callbacks.sys, "platform", "linux")
+    monkeypatch.setattr(register_callbacks.policy_store, "is_enabled", lambda: True)
     assert register_callbacks._register_tools() == []
     assert register_callbacks._register_agent_tools() == []
     assert register_callbacks._load_prompt() is None
 
     monkeypatch.setattr(register_callbacks.sys, "platform", "darwin")
+    monkeypatch.setattr(register_callbacks.policy_store, "is_enabled", lambda: False)
+    assert register_callbacks._register_tools() == []
+    assert register_callbacks._register_agent_tools() == []
+    assert register_callbacks._load_prompt() is None
+
+    monkeypatch.setattr(register_callbacks.policy_store, "is_enabled", lambda: True)
     definitions = register_callbacks._register_tools()
     assert {item["name"] for item in definitions} == set(tools.REGISTRARS)
     assert set(register_callbacks._register_agent_tools()) == set(tools.REGISTRARS)
     prompt = register_callbacks._load_prompt()
     assert "always call the appropriate Computer Use state tool again" in prompt
     assert "tool's current result is authoritative" in prompt
+
+
+def test_startup_explains_how_to_opt_in_on_macos(monkeypatch):
+    messages = []
+    monkeypatch.setattr(register_callbacks.sys, "platform", "darwin")
+    monkeypatch.setattr(register_callbacks.policy_store, "is_enabled", lambda: False)
+    monkeypatch.setattr(register_callbacks, "emit_info", messages.append)
+
+    register_callbacks._startup()
+
+    assert messages == [
+        "macOS Computer Use is off by default. Run `/computer-use enable` to opt in."
+    ]
+
+
+def test_startup_is_silent_when_enabled_or_not_on_macos(monkeypatch):
+    messages = []
+    monkeypatch.setattr(register_callbacks, "emit_info", messages.append)
+    monkeypatch.setattr(register_callbacks.sys, "platform", "darwin")
+    monkeypatch.setattr(register_callbacks.policy_store, "is_enabled", lambda: True)
+    register_callbacks._startup()
+
+    monkeypatch.setattr(register_callbacks.sys, "platform", "linux")
+    monkeypatch.setattr(register_callbacks.policy_store, "is_enabled", lambda: False)
+    register_callbacks._startup()
+
+    assert messages == []
 
 
 def test_model_state_removes_repetitive_accessibility_bookkeeping():

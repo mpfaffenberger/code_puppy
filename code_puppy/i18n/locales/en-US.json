@@ -1,6 +1,7 @@
 {
   "startup.welcome": "Welcome to Code Puppy, {name}!",
   "startup.ready": "Ready to fetch some code. 🐶",
+  "computer_use.startup.opt_in": "macOS Computer Use is off by default. Run `/computer-use enable` to opt in.",
   "locale.set": "Locale set to {locale}.",
   "locale.current": "Current locale: {locale}",
   "files.deleted": {

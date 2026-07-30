@@ -19,8 +19,9 @@ runs Code Puppy:
 Grant these under **System Settings → Privacy & Security**. Restart Code Puppy
 after changing Screen Recording access.
 
-On first use, Computer Use fails closed and asks you to choose whether to
-enable it. The choice is stored in the normal Code Puppy settings directory:
+Computer Use is off by default: its tools are not exposed to the model until
+you explicitly opt in. On macOS, Code Puppy shows a launch reminder with the
+enable command. The choice is stored in the normal Code Puppy settings directory:
 
 ```text
 /computer-use enable
@@ -68,8 +69,8 @@ and cursor placement before or after the match.
 ## Safety
 
 - Prefer accessibility element IDs over pixel coordinates.
-- First use requires persisted user consent; disabling the feature immediately
-  blocks future captures and actions.
+- Persisted user consent is required before tools are exposed to the model;
+  disabling the feature removes them again and blocks future captures/actions.
 - State revisions and element IDs are single-use and expire after 120 seconds.
 - Physical keyboard and pointer input do not interrupt YOLO-mode execution.
 - Every capture and mutation re-checks the application policy; the emergency

@@ -9,6 +9,17 @@ from code_puppy.plugins.computer_use.safety import require_safe_state
 from code_puppy.plugins.computer_use.state import state_store
 
 
+def test_policy_reports_only_explicit_opt_in_as_enabled(tmp_path):
+    policy = PolicyStore(tmp_path / "policy.json")
+    assert policy.is_enabled() is False
+
+    policy.set_enabled(True)
+    assert policy.is_enabled() is True
+
+    policy.set_enabled(False)
+    assert policy.is_enabled() is False
+
+
 def test_policy_requires_first_use_consent_then_persists_choice(tmp_path):
     path = tmp_path / "policy.json"
     policy = PolicyStore(path)
