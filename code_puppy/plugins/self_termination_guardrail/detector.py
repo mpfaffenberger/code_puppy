@@ -104,7 +104,7 @@ def _skip_wrapper(tokens: Sequence[str], wrapper_index: int) -> int | None:
     if wrapper == "nice":
         return _skip_nice_options(tokens, index)
     if wrapper == "command":
-        while index < len(tokens) and tokens[index] in {"-p", "-v", "-V"}:
+        while index < len(tokens) and tokens[index] in {"-p"}:
             index += 1
         return index
 
@@ -188,7 +188,7 @@ def find_command_executable(tokens: list[str]) -> tuple[set[str], set[str]]:
 
 COMMANDS = {"kill", "pkill", "killall", "taskkill", "stop-process", "spps"}
 
-STATIC_PROTECTED_NAMES = { "code-puppy", "code_puppy", "code-puppy-venv", }
+STATIC_PROTECTED_NAMES = { "code-puppy", "code_puppy", "code-puppy-venv", "$$", "$ppid", }
 
 PROTECTED_NAMES = get_processes()
 
