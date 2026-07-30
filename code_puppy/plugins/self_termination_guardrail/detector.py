@@ -13,9 +13,6 @@ from dataclasses import dataclass
 import shlex
 from collections.abc import Sequence
 
-from code_puppy.messaging import emit_info, emit_warning
-
-
 
 @dataclass
 class TerminationCommandMatch:
@@ -196,7 +193,6 @@ STATIC_PROTECTED_NAMES = { "code-puppy", "code_puppy", "code-puppy-venv", }
 PROTECTED_NAMES = get_processes()
 
 def detect_self_termination_command(command: str) ->  TerminationCommandMatch | None:
-    emit_info(PROTECTED_NAMES)
     #Split commands on operators Ex: &&, ||, ;, &, \n
     subcommands = split_command(command)
 
