@@ -373,8 +373,8 @@ def _supports_xhigh_reasoning(model_name: str) -> bool:
     )
 
 
-def _supports_ultra_reasoning(model_name: str) -> bool:
-    """Return whether a ChatGPT OAuth model supports ultra reasoning."""
+def _supports_max_reasoning(model_name: str) -> bool:
+    """Return whether a ChatGPT OAuth model supports max reasoning effort."""
     return model_name.lower().startswith("gpt-5.6")
 
 
@@ -488,11 +488,11 @@ def add_models_to_extra_config(models: List[str]) -> bool:
             if model_name.lower().startswith("gpt-5.6"):
                 supported_settings.extend(["reasoning_context", "reasoning_mode"])
 
-            # xhigh is supported by codex and GPT-5.4+ variants; ultra is
+            # xhigh is supported by codex and GPT-5.4+ variants; max is
             # narrower and starts with GPT-5.6. Keep separate capabilities so
             # adding a stronger effort never leaks into older model menus.
             supports_xhigh_reasoning = _supports_xhigh_reasoning(model_name)
-            supports_ultra_reasoning = _supports_ultra_reasoning(model_name)
+            supports_max_reasoning = _supports_max_reasoning(model_name)
 
             chatgpt_models[prefixed] = {
                 "type": "chatgpt_oauth",
@@ -507,7 +507,7 @@ def add_models_to_extra_config(models: List[str]) -> bool:
                 "oauth_source": "chatgpt-oauth-plugin",
                 "supported_settings": supported_settings,
                 "supports_xhigh_reasoning": supports_xhigh_reasoning,
-                "supports_ultra_reasoning": supports_ultra_reasoning,
+                "supports_max_reasoning": supports_max_reasoning,
             }
             added += 1
         if save_chatgpt_models(chatgpt_models):
