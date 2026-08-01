@@ -430,6 +430,11 @@ def _create_azure_foundry_openai_model(
         make_openai_provider,
         resolve_provider_identity,
     )
+    from code_puppy.openai_prompt_cache import (
+        CacheAwareChatModel,
+        CacheAwareResponsesModel,
+    )
+    from code_puppy.model_factory import supports_openai_prompt_cache
 
     resource_config = model_config.get("foundry_resource", f"${ENV_FOUNDRY_RESOURCE}")
     resource_name = resolve_env_var(resource_config)
@@ -464,6 +469,7 @@ def _create_azure_foundry_openai_model(
 
         provider_identity = resolve_provider_identity(model_name, model_config)
         provider = make_openai_provider(provider_identity, openai_client=azure_client)
+        cache_adapter_enabled = supports_openai_prompt_cache(model_name, model_config)
 
         if deployment_name.startswith("gpt-5"):
             # Azure returns reasoning items without encrypted_content, so pydantic-ai
@@ -472,11 +478,17 @@ def _create_azure_foundry_openai_model(
             # openai_send_reasoning_ids=False disables ID replay; thinking is re-sent as
             # plain assistant text instead.
             settings = OpenAIResponsesModelSettings(openai_send_reasoning_ids=False)
-            model = OpenAIResponsesModel(
+            responses_cls = (
+                CacheAwareResponsesModel
+                if cache_adapter_enabled
+                else OpenAIResponsesModel
+            )
+            model = responses_cls(
                 model_name=deployment_name, provider=provider, settings=settings
             )
         else:
-            model = OpenAIChatModel(model_name=deployment_name, provider=provider)
+            chat_cls = CacheAwareChatModel if cache_adapter_enabled else OpenAIChatModel
+            model = chat_cls(model_name=deployment_name, provider=provider)
         logger.info(
             "Created Azure Foundry OpenAI model: %s -> %s @ %s",
             model_name,

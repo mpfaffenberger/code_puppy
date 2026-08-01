@@ -289,8 +289,16 @@ async def _invoke_agent_impl(
             prompt = prepared.user_prompt
 
             model_settings = make_model_settings(
-                effective_model_name, prompt_cache_scope=instructions
+                effective_model_name, prompt_cache_scope=agent_name
             )
+
+            from code_puppy.model_factory import supports_openai_prompt_cache
+            from code_puppy.openai_prompt_cache import add_cache_boundary
+
+            if is_new_session and supports_openai_prompt_cache(
+                effective_model_name, models_config[effective_model_name]
+            ):
+                prompt = add_cache_boundary(prompt)
 
             # Get MCP servers bound to this sub-agent and warm up any with
             # ``auto_start=True``. We MUST use the async autostart variant

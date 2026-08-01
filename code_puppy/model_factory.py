@@ -65,6 +65,50 @@ _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL = "codex-gpt-5-codex"
 _PROMPT_CACHE_KEY_PREFIX = "code-puppy"
 
 
+def _is_gpt_5_6_model(model_name: str, model_config: Dict[str, Any]) -> bool:
+    """Recognize GPT-5.6 through either its friendly alias or provider ID."""
+    provider_model_name = str(model_config.get("name") or model_name)
+    return "gpt-5.6" in model_name.lower() or "gpt-5.6" in provider_model_name.lower()
+
+
+def supports_openai_prompt_cache(model_name: str, model_config: Dict[str, Any]) -> bool:
+    """Return whether CodePuppy's focused GPT-5.6 adapter owns this model."""
+    return (
+        model_config.get("prompt_cache_breakpoint_enabled", True) is not False
+        and _is_gpt_5_6_model(model_name, model_config)
+        and model_config.get("type")
+        in {
+            "openai",
+            "azure_openai",
+            "chatgpt_oauth",
+            "azure_foundry_openai",
+            *_CUSTOM_OPENAI_MODEL_TYPES,
+        }
+    )
+
+
+def get_openai_request_path(model_name: str, model_config: Dict[str, Any]) -> str:
+    """Return the OpenAI API path selected by CodePuppy for this model."""
+    model_type = model_config.get("type")
+    if model_type not in {
+        "openai",
+        "azure_openai",
+        "chatgpt_oauth",
+        "azure_foundry_openai",
+        *_CUSTOM_OPENAI_MODEL_TYPES,
+    }:
+        return "provider_default"
+    uses_responses = (
+        model_type in {"chatgpt_oauth", "azure_foundry_openai"}
+        or (model_type == "openai" and "codex" in model_name)
+        or (
+            model_type in _CUSTOM_OPENAI_MODEL_TYPES
+            and _custom_openai_uses_responses_api(model_name, model_config)
+        )
+    )
+    return "responses" if uses_responses else "chat_completions"
+
+
 def _make_prompt_cache_key(model_name: str, scope: str | None = None) -> str:
     """Build a stable, opaque cache-routing key for an OpenAI prompt prefix.
 
@@ -203,8 +247,8 @@ def make_model_settings(
         model_name: The name of the model to create settings for.
         max_tokens: Optional max tokens limit. If None, automatically calculated
             as: max(2048, min(15% of context_length, 65536))
-        prompt_cache_scope: Stable prompt-prefix material used to partition
-            GPT-5.6 cache routing. The text is hashed and is never sent directly.
+        prompt_cache_scope: Stable logical agent identity used to partition
+            GPT-5.6 cache routing. The value is hashed and never sent directly.
 
     Returns:
         Appropriate ModelSettings subclass instance for the model.
@@ -339,24 +383,18 @@ def make_model_settings(
         effort = _EFFORT_ALIAS.get(effort, effort)
         model_settings_dict["openai_reasoning_effort"] = effort
 
-        underlying_name = str(model_config.get("name", "")).lower()
-        is_gpt_5_6 = "gpt-5.6" in model_name.lower() or "gpt-5.6" in underlying_name
+        is_gpt_5_6 = _is_gpt_5_6_model(model_name, model_config)
         if is_gpt_5_6:
             # GPT-5.6 requires a stable prompt_cache_key for reliable implicit
             # and explicit cache matching. Implicit mode and its 30m minimum
             # TTL are API defaults; prompt_cache_retention is deprecated here.
+            provider_model_name = str(model_config.get("name") or model_name)
             model_settings_dict["openai_prompt_cache_key"] = _make_prompt_cache_key(
-                model_name, prompt_cache_scope
+                provider_model_name, prompt_cache_scope
             )
 
         uses_responses_api = (
-            model_type == "chatgpt_oauth"
-            or model_type == "azure_foundry_openai"
-            or (model_type == "openai" and "codex" in model_name)
-            or (
-                model_type in _CUSTOM_OPENAI_MODEL_TYPES
-                and _custom_openai_uses_responses_api(model_name, model_config)
-            )
+            get_openai_request_path(model_name, model_config) == "responses"
         )
 
         if uses_responses_api:
@@ -390,9 +428,9 @@ def make_model_settings(
             # Chat Completions models don't support configurable reasoning summaries.
             # Keep the old verbosity injection path for non-Responses GPT-5 models.
             if "codex" not in model_name:
-                model_settings_dict["extra_body"] = {
-                    "verbosity": effective_settings.get("verbosity", "medium")
-                }
+                extra_body = dict(model_settings_dict.get("extra_body") or {})
+                extra_body["verbosity"] = effective_settings.get("verbosity", "medium")
+                model_settings_dict["extra_body"] = extra_body
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif _is_anthropic_model(model_name, model_config):
         # Handle Anthropic extended thinking settings
@@ -734,13 +772,23 @@ class ModelFactory:
                 return None
 
             provider = make_openai_provider(provider_identity, api_key=api_key)
-            model = OpenAIChatModel(
+            chat_model_cls = OpenAIChatModel
+            responses_model_cls = OpenAIResponsesModel
+            if supports_openai_prompt_cache(model_name, model_config):
+                from code_puppy.openai_prompt_cache import (
+                    CacheAwareChatModel,
+                    CacheAwareResponsesModel,
+                )
+
+                chat_model_cls = CacheAwareChatModel
+                responses_model_cls = CacheAwareResponsesModel
+            model = chat_model_cls(
                 model_name=model_config["name"],
                 provider=provider,
                 profile=_thinking_tags_profile(model_name, model_config),
             )
             if "codex" in model_name:
-                model = OpenAIResponsesModel(
+                model = responses_model_cls(
                     model_name=model_config["name"], provider=provider
                 )
             return model
@@ -897,6 +945,12 @@ class ModelFactory:
             provider = make_openai_provider(
                 provider_identity, openai_client=azure_client
             )
+            if supports_openai_prompt_cache(model_name, model_config):
+                from code_puppy.openai_prompt_cache import CacheAwareChatModel
+
+                return CacheAwareChatModel(
+                    model_name=model_config["name"], provider=provider
+                )
             return OpenAIChatModel(model_name=model_config["name"], provider=provider)
 
         elif model_type in _CUSTOM_OPENAI_MODEL_TYPES:
@@ -912,9 +966,24 @@ class ModelFactory:
             if api_key:
                 provider_args["api_key"] = api_key
             provider = make_openai_provider(provider_identity, **provider_args)
+            use_cache_adapter = supports_openai_prompt_cache(model_name, model_config)
             if _custom_openai_uses_responses_api(model_name, model_config):
+                if use_cache_adapter:
+                    from code_puppy.openai_prompt_cache import CacheAwareResponsesModel
+
+                    return CacheAwareResponsesModel(
+                        model_name=model_config["name"], provider=provider
+                    )
                 return OpenAIResponsesModel(
                     model_name=model_config["name"], provider=provider
+                )
+            if use_cache_adapter:
+                from code_puppy.openai_prompt_cache import CacheAwareChatModel
+
+                return CacheAwareChatModel(
+                    model_name=model_config["name"],
+                    provider=provider,
+                    profile=_thinking_tags_profile(model_name, model_config),
                 )
             return OpenAIChatModel(
                 model_name=model_config["name"],

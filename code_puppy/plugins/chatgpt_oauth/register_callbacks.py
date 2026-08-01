@@ -167,11 +167,13 @@ def _create_chatgpt_oauth_model(
     This handler is registered via the 'register_model_type' callback to handle
     models with type='chatgpt_oauth'.
     """
-    from pydantic_ai.models.openai import OpenAIResponsesModel
     from pydantic_ai.providers.openai import OpenAIProvider
 
     from code_puppy.chatgpt_codex_client import create_codex_async_client
     from code_puppy.http_utils import get_cert_bundle_path
+    from code_puppy.model_factory import supports_openai_prompt_cache
+    from code_puppy.openai_prompt_cache import CacheAwareResponsesModel
+    from pydantic_ai.models.openai import OpenAIResponsesModel
 
     # Get a valid access token (refreshing if needed)
     access_token = get_valid_access_token()
@@ -224,7 +226,12 @@ def _create_chatgpt_oauth_model(
     )
 
     # ChatGPT Codex API only supports Responses format
-    return OpenAIResponsesModel(model_name=model_config["name"], provider=provider)
+    responses_cls = (
+        CacheAwareResponsesModel
+        if supports_openai_prompt_cache(model_name, model_config)
+        else OpenAIResponsesModel
+    )
+    return responses_cls(model_name=model_config["name"], provider=provider)
 
 
 def _register_imagegen_skill() -> list[dict[str, str]]:

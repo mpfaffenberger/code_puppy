@@ -340,7 +340,7 @@ class TestMakeModelSettings:
         assert settings["extra_body"]["reasoning"]["mode"] == "pro"
 
     def test_make_model_settings_gpt_5_6_cache_key_is_scoped(self):
-        """Stable prefixes share a key while unrelated prefixes are partitioned."""
+        """Stable agent identities share a key across separately built instances."""
         from code_puppy.model_factory import make_model_settings
 
         with patch(
@@ -353,18 +353,34 @@ class TestMakeModelSettings:
             },
         ):
             first = make_model_settings(
-                "codex-gpt-5.6-sol", prompt_cache_scope="same instructions"
+                "codex-gpt-5.6-sol", prompt_cache_scope="primary-agent"
             )
             repeated = make_model_settings(
-                "codex-gpt-5.6-sol", prompt_cache_scope="same instructions"
+                "codex-gpt-5.6-sol", prompt_cache_scope="primary-agent"
             )
             different = make_model_settings(
-                "codex-gpt-5.6-sol", prompt_cache_scope="different instructions"
+                "codex-gpt-5.6-sol", prompt_cache_scope="reviewer"
             )
 
         assert first["openai_prompt_cache_key"] == repeated["openai_prompt_cache_key"]
         assert first["openai_prompt_cache_key"] != different["openai_prompt_cache_key"]
-        assert "same instructions" not in first["openai_prompt_cache_key"]
+        assert "primary-agent" not in first["openai_prompt_cache_key"]
+
+    def test_gpt_5_6_aliases_share_provider_model_cache_key(self):
+        """Friendly aliases use the configured provider model for routing."""
+        from code_puppy.model_factory import make_model_settings
+
+        config = {
+            "fast": {"type": "custom_openai_responses", "name": "gpt-5.6-sol"},
+            "deep": {"type": "custom_openai_responses", "name": "gpt-5.6-sol"},
+        }
+        with patch(
+            "code_puppy.model_factory.ModelFactory.load_config", return_value=config
+        ):
+            fast = make_model_settings("fast", prompt_cache_scope="reviewer")
+            deep = make_model_settings("deep", prompt_cache_scope="reviewer")
+
+        assert fast["openai_prompt_cache_key"] == deep["openai_prompt_cache_key"]
 
     def test_make_model_settings_gpt_5_6_chat_uses_prompt_cache_key(self):
         """GPT-5.6 caching also applies when using Chat Completions."""
@@ -420,6 +436,18 @@ class TestMakeModelSettings:
 
         assert "openai_prompt_cache_key" not in settings
         assert "openai_prompt_cache_retention" not in settings
+
+    def test_gpt_5_6_breakpoint_adapter_can_be_disabled(self):
+        from code_puppy.model_factory import supports_openai_prompt_cache
+
+        assert not supports_openai_prompt_cache(
+            "codex-gpt-5.6-sol",
+            {
+                "type": "chatgpt_oauth",
+                "name": "gpt-5.6-sol",
+                "prompt_cache_breakpoint_enabled": False,
+            },
+        )
 
     def test_make_model_settings_claude_has_temperature(self):
         """Test Claude model returns settings with temperature."""
