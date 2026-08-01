@@ -927,7 +927,7 @@ def register_delete_file(agent):
     """Register only the delete_file tool."""
 
     @agent.tool
-    async def delete_file(context: RunContext, file_path: str = "") -> Dict[str, Any]:
+    async def delete_file(context: RunContext, file_path: str) -> Dict[str, Any]:
         """Safely delete files with comprehensive logging and diff generation.
 
         Shows exactly what content was removed via diff output.
@@ -968,8 +968,8 @@ def register_create_file(agent):
     @agent.tool
     async def create_file(
         context: RunContext,
-        file_path: str = "",
-        content: str = "",
+        file_path: str,
+        content: str,
         overwrite: bool = False,
     ) -> Dict[str, Any]:
         """Create a new file or overwrite an existing one with the provided content."""
@@ -1054,8 +1054,8 @@ def register_replace_in_file(agent):
     @agent.tool
     async def replace_in_file(
         context: RunContext,
-        file_path: str = "",
-        replacements: RepairableReplacementsList = [],
+        file_path: str,
+        replacements: RepairableReplacementsList,
     ) -> Dict[str, Any]:
         """Apply targeted text replacements to an existing file.
 
@@ -1131,8 +1131,8 @@ def register_delete_snippet(agent):
     @agent.tool
     async def delete_snippet(
         context: RunContext,
-        file_path: str = "",
-        snippet: str = "",
+        file_path: str,
+        snippet: str,
     ) -> Dict[str, Any]:
         """Remove the first occurrence of a text snippet from a file."""
         group_id = generate_group_id("delete_snippet", file_path)
