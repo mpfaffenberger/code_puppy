@@ -297,22 +297,14 @@ def test_all_shipped_catalogs_are_valid_json():
         assert isinstance(data, dict), f"{path} is not a JSON object"
 
 
-def test_target_locales_are_available():
+def test_shipped_locales_are_available():
     available = i18n.available_locales()
-    for expected in (
-        "en-US",
-        "es",
-        "fr-CA",
-        "es-MX",
-        "es-AR",
-        "es-CO",
-        "es-CL",
-    ):
+    for expected in ("en-US", "es", "fr-CA"):
         assert expected in available, f"{expected} catalog is missing"
 
 
-def test_dialect_stubs_inherit_from_base_es():
-    # The empty country stubs must resolve every key via es -> en-US.
+def test_unshipped_spanish_region_falls_back_to_base_es():
+    # Regional catalogs are added only when reviewed translations exist.
     for dialect in ("es-MX", "es-AR", "es-CO", "es-CL"):
         translate.set_locale(dialect)
         assert i18n.t("confirm.yes") == "S\u00ed"

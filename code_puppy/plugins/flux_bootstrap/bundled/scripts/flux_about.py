@@ -94,7 +94,23 @@ def resolve_width(cli_width: int | None) -> int:
     return DEFAULT_WIDTH
 
 
+def force_utf8_stdout() -> None:
+    """Reconfigure stdout to UTF-8 so emoji survive legacy Windows codepages.
+
+    Under the exec runner the env already forces UTF-8 (PYTHONIOENCODING);
+    this covers standalone runs in a cp1252 console, where printing a single
+    emoji would otherwise raise UnicodeEncodeError. Best-effort by design --
+    these scripts must never crash on an IO quirk. (Duplicated across the
+    flux_* scripts on purpose: each is a standalone, dependency-free file.)
+    """
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    force_utf8_stdout()
     parser = argparse.ArgumentParser(description="Render /flux/about overview")
     parser.add_argument(
         "--source",
@@ -107,9 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=f"Render width in cols (default: $COLUMNS or {DEFAULT_WIDTH})",
     )
-    parser.add_argument(
-        "--no-color", action="store_true", help="Disable ANSI color"
-    )
+    parser.add_argument("--no-color", action="store_true", help="Disable ANSI color")
     args = parser.parse_args(argv)
 
     source = Path(args.source).expanduser()
@@ -122,8 +136,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # ``force_terminal=True`` makes Rich emit ANSI even though our stdout is a
     # pipe (the code-puppy exec runner captures it). ``no_color`` honors --no-color.
+    # ``legacy_windows=False`` keeps Rich off the win32 LegacyWindowsTerm path:
+    # our stdout is a pipe, not a console handle, so that path both loses the
+    # ANSI the runner re-renders AND crashes encoding emoji on cp1252. Plain
+    # ANSI bytes through the pipe are exactly what the runner contract wants.
     console = Console(
         force_terminal=True,
+        legacy_windows=False,
         color_system=None if args.no_color else "truecolor",
         width=resolve_width(args.width),
         no_color=args.no_color,

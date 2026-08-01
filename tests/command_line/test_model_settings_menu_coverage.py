@@ -56,28 +56,28 @@ class TestGetSettingChoices:
         assert "high" in choices
 
     @patch("code_puppy.command_line.model_settings_menu.ModelFactory")
-    def test_reasoning_effort_with_xhigh_but_without_ultra(self, mock_factory):
+    def test_reasoning_effort_with_xhigh_but_without_max(self, mock_factory):
         mock_factory.load_config.return_value = {
             "codex": {
                 "supports_xhigh_reasoning": True,
-                "supports_ultra_reasoning": False,
+                "supports_max_reasoning": False,
             }
         }
         choices = _get_setting_choices("reasoning_effort", "codex")
         assert "xhigh" in choices
-        assert "ultra" not in choices
+        assert "max" not in choices
 
     @patch("code_puppy.command_line.model_settings_menu.ModelFactory")
-    def test_reasoning_effort_with_ultra(self, mock_factory):
+    def test_reasoning_effort_with_max(self, mock_factory):
         mock_factory.load_config.return_value = {
             "gpt-5.6-sol": {
                 "supports_xhigh_reasoning": True,
-                "supports_ultra_reasoning": True,
+                "supports_max_reasoning": True,
             }
         }
         choices = _get_setting_choices("reasoning_effort", "gpt-5.6-sol")
         assert "xhigh" in choices
-        assert "ultra" in choices
+        assert "max" in choices
 
     def test_non_choice_setting(self):
         choices = _get_setting_choices("temperature")
@@ -87,7 +87,7 @@ class TestGetSettingChoices:
     def test_reasoning_effort_no_model_name(self, mock_factory):
         choices = _get_setting_choices("reasoning_effort")
         assert "xhigh" in choices  # no filtering without model
-        assert "ultra" in choices
+        assert "max" in choices
 
 
 # --------------- ModelSettingsMenu properties ---------------

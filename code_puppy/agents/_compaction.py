@@ -20,8 +20,8 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    TextPart,
     ThinkingPart,
+    UserPromptPart,
 )
 
 from code_puppy.agents._history import (
@@ -218,7 +218,9 @@ def _run_summarization_core(
     # Splice ONLY the summary output into context — not the summarization
     # run's request/response envelope (which would drag the prompt + full
     # history right back into the window we just tried to shrink).
-    new_messages: List[ModelMessage] = [ModelRequest([TextPart(str(summary_text))])]
+    new_messages: List[ModelMessage] = [
+        ModelRequest(parts=[UserPromptPart(content=str(summary_text))])
+    ]
 
     compacted: List[ModelMessage] = [system_message] + list(new_messages)
     compacted.extend(msg for msg in protected_messages if msg is not system_message)

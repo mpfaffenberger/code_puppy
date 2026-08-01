@@ -423,13 +423,30 @@ def filter_conflicting_mcp_tools(
     return filtered
 
 
-_GPT_5_6_INVOKE_AGENT_GUARD_TEXT = """
+def _build_gpt_5_6_invoke_agent_guard_text() -> str:
+    """Compose the GPT-5.6 delegation guard, interpolating the live cap.
 
-## Sub-Agent Delegation (GPT-5.6)
-Use `invoke_agent` only for focused work that benefits from separate context or
-specialized tools. Handle work directly when you can. Never invoke
-`planning-agent`.
-"""
+    Reading the limit at prompt-assembly time (rather than baking it into a
+    module constant) guarantees the model-facing guidance and the runtime
+    enforcement in ``subagent_invocation._gpt_5_6_recursion_blocked`` can
+    never drift out of sync -- they both resolve to
+    ``get_subagent_recursion_limit_gpt_5_6()``.
+    """
+    # Local import to avoid a top-level ``code_puppy.config`` cycle -- this
+    # module is imported very early during agent construction.
+    from code_puppy.config import get_subagent_recursion_limit_gpt_5_6
+
+    limit = get_subagent_recursion_limit_gpt_5_6()
+    return (
+        "\n\n## Sub-Agent Delegation (GPT-5.6)\n"
+        "Use `invoke_agent` only for focused work that benefits from separate "
+        "context or specialized tools. Handle work directly when you can. "
+        "Never invoke `planning-agent`. "
+        f"Hard cap: as a GPT-5.6 caller you may only invoke a sub-agent while "
+        f"the resulting chain depth stays at or below {limit} "
+        f"(main agent = depth 0). Do not attempt deeper chains.\n"
+    )
+
 
 _GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT = """
 
@@ -469,7 +486,7 @@ def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
 
     if _is_gpt_5_6_family(resolved_model_name):
         if _agent_exposes_tool(agent, "invoke_agent"):
-            instructions += _GPT_5_6_INVOKE_AGENT_GUARD_TEXT
+            instructions += _build_gpt_5_6_invoke_agent_guard_text()
         if _agent_exposes_tool(agent, "agent_run_shell_command"):
             instructions += _GPT_5_6_RUN_SHELL_COMMAND_GUARD_TEXT
 

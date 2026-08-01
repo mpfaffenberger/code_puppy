@@ -530,8 +530,8 @@ emit_info(lazy("startup.ready"))                 # resolved at render time
 
 - JSON per locale: `i18n/locales/<locale>.json` (dotted-key → string, or a
   plural dict `{"one": ..., "other": ...}`).
-- Shipped: `en-US` (source), `es` (Latin American `es-419` folded in), `fr-CA`
-  + `es-MX/AR/CO/CL` stubs.
+- Shipped: `en-US` (source), `es` (Latin American `es-419` folded in), and
+  `fr-CA`. Regional catalogs are added only when reviewed translations exist.
 - **Fallback chain**: plain BCP-47 truncation, `es-AR → es → en-US` (see
   `i18n.locale.fallback_chain`). `i18n.locale.PARENT_LOCALES` is a currently-
   empty CLDR override seam for non-truncation parents. Plugins / the private

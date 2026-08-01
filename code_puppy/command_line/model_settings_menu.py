@@ -74,7 +74,7 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "name": "Reasoning Effort",
         "description": "Controls how much effort GPT-5 models spend on reasoning. Higher = more thorough but slower.",
         "type": "choice",
-        "choices": ["minimal", "low", "medium", "high", "xhigh", "ultra"],
+        "choices": ["none", "low", "medium", "high", "xhigh", "max"],
         "default": "medium",
     },
     "reasoning_context": {
@@ -293,7 +293,7 @@ def _get_setting_choices(
     """Get the available choices for a setting, filtered by model capabilities.
 
     Reasoning effort is capability-gated: xhigh is available to codex and
-    GPT-5.4+ models, while ultra is reserved for GPT-5.6+ variants.
+    GPT-5.4+ models, while max is reserved for GPT-5.6+ variants.
 
     Args:
         setting_key: The setting name (e.g., 'reasoning_effort', 'verbosity')
@@ -314,8 +314,8 @@ def _get_setting_choices(
         unsupported_choices = set()
         if not model_config.get("supports_xhigh_reasoning", False):
             unsupported_choices.add("xhigh")
-        if not model_config.get("supports_ultra_reasoning", False):
-            unsupported_choices.add("ultra")
+        if not model_config.get("supports_max_reasoning", False):
+            unsupported_choices.add("max")
         return [choice for choice in base_choices if choice not in unsupported_choices]
 
     return base_choices

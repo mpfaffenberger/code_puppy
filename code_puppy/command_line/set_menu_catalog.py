@@ -58,6 +58,7 @@ from code_puppy.config import (
     get_smooth_response_stream,
     get_smooth_thinking_stream,
     get_subagent_recursion_limit,
+    get_subagent_recursion_limit_gpt_5_6,
     get_subagent_verbose,
     get_summarization_model_name,
     get_suppress_informational_messages,
@@ -169,6 +170,18 @@ _BEHAVIOR = SettingsCategory(
             ),
             type_hint="int",
             effective_getter=get_subagent_recursion_limit,
+        ),
+        Setting(
+            key="subagent_recursion_limit_gpt_5_6",
+            display_name="Sub-agent Recursion Limit (GPT-5.6)",
+            description=(
+                "Overlay cap that applies only when the immediate caller is on a "
+                "GPT-5.6 model. Defaults to 2 to prevent GPT-5.6's runaway-delegation "
+                "pattern. Whichever fires first between this and the generic limit wins. "
+                "Raising it re-opens the runaway-chain risk; do so knowingly."
+            ),
+            type_hint="int",
+            effective_getter=get_subagent_recursion_limit_gpt_5_6,
         ),
         Setting(
             key="subagent_verbose",
