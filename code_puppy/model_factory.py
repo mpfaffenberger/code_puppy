@@ -290,9 +290,11 @@ def make_model_settings(
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
     elif "gpt-5" in model_name:
-        model_settings_dict["openai_reasoning_effort"] = effective_settings.get(
-            "reasoning_effort", "medium"
-        )
+        # Normalize legacy effort values (minimal->none, ultra->max)
+        _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
+        effort = effective_settings.get("reasoning_effort", "medium")
+        effort = _EFFORT_ALIAS.get(effort, effort)
+        model_settings_dict["openai_reasoning_effort"] = effort
 
         uses_responses_api = (
             model_type == "chatgpt_oauth"
