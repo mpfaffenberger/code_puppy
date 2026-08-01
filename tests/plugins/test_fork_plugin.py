@@ -38,24 +38,39 @@ def fake_agent_manager():
             "code_puppy.agents.agent_manager.get_current_agent_name",
             return_value="code-puppy",
         ),
+        patch(
+            "code_puppy.agents.agent_manager.get_current_agent",
+            return_value=SimpleNamespace(get_message_history=lambda: []),
+        ),
     ):
         yield
 
 
-def _fake_impl(response="did the thing", error=None, session_id="sess-abc123"):
+def _fake_impl(
+    response="did the thing", error=None, result_session_id="sess-abc123", calls=None
+):
     async def impl(
         context,
         agent_name,
         prompt,
-        session_id_=None,
+        session_id=None,
         model_name=None,
         emit_response_message=True,
     ):
         assert emit_response_message is False
+        if calls is not None:
+            calls.append(
+                {
+                    "agent_name": agent_name,
+                    "prompt": prompt,
+                    "session_id": session_id,
+                    "model_name": model_name,
+                }
+            )
         return SimpleNamespace(
             response=response,
             agent_name=agent_name,
-            session_id=session_id,
+            session_id=result_session_id,
             error=error,
         )
 
@@ -358,6 +373,102 @@ async def test_fork_cancel_finished_fork_is_noop():
 
     assert rc._forks[fork_id].status == "done"
     assert any("already done" in str(m) for m in infos)
+
+
+# =========================================================================
+# Context snapshot (the whole point of "fork")
+# =========================================================================
+
+
+def test_seed_fork_session_returns_none_for_empty_history():
+    assert rc._seed_fork_session("code-puppy", "do stuff") is None
+
+
+def test_seed_fork_session_persists_point_in_time_copy():
+    history = ["msg-1", "msg-2"]
+    saved = {}
+
+    def fake_save(session_id, message_history, agent_name, initial_prompt=None):
+        saved.update(
+            session_id=session_id,
+            message_history=message_history,
+            agent_name=agent_name,
+            initial_prompt=initial_prompt,
+        )
+
+    with (
+        patch(
+            "code_puppy.agents.agent_manager.get_current_agent",
+            return_value=SimpleNamespace(get_message_history=lambda: history),
+        ),
+        patch("code_puppy.tools.agent_tools._save_session_history", new=fake_save),
+    ):
+        session_id = rc._seed_fork_session("qa-kitten", "test the login page")
+
+    assert session_id is not None
+    assert session_id.startswith("qa-kitten-fork-")
+    assert saved["session_id"] == session_id
+    assert saved["message_history"] == history
+    # A *copy*, not the live list — later foreground turns must not leak in.
+    assert saved["message_history"] is not history
+    assert saved["agent_name"] == "qa-kitten"
+    assert saved["initial_prompt"] == "test the login page"
+
+
+def test_seed_fork_session_survives_snapshot_failure():
+    warnings = []
+    with (
+        patch(
+            "code_puppy.agents.agent_manager.get_current_agent",
+            side_effect=RuntimeError("no agent for you"),
+        ),
+        patch.object(rc, "_emit_warning", warnings.append),
+    ):
+        assert rc._seed_fork_session("code-puppy", "do stuff") is None
+    assert any("fresh context" in str(m) for m in warnings)
+
+
+async def test_fork_passes_seeded_session_to_invocation():
+    calls = []
+    with (
+        patch(
+            "code_puppy.tools.subagent_invocation._invoke_agent_impl",
+            new=_fake_impl(calls=calls),
+        ),
+        patch.object(
+            rc, "_seed_fork_session", return_value="code-puppy-fork-abc123"
+        ) as seed,
+        patch.object(rc, "_emit_info"),
+        patch.object(rc, "_emit_success"),
+    ):
+        rc._handle_fork("/fork continue our work")
+        await _wait_for_forks()
+
+    seed.assert_called_once_with("code-puppy", "continue our work")
+    assert calls == [
+        {
+            "agent_name": "code-puppy",
+            "prompt": "continue our work",
+            "session_id": "code-puppy-fork-abc123",
+            "model_name": None,
+        }
+    ]
+
+
+async def test_fork_with_no_history_starts_fresh():
+    calls = []
+    with (
+        patch(
+            "code_puppy.tools.subagent_invocation._invoke_agent_impl",
+            new=_fake_impl(calls=calls),
+        ),
+        patch.object(rc, "_emit_info"),
+        patch.object(rc, "_emit_success"),
+    ):
+        rc._handle_fork("/fork brand new task")
+        await _wait_for_forks()
+
+    assert calls[0]["session_id"] is None
 
 
 # =========================================================================

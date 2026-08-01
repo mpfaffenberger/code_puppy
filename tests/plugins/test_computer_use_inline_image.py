@@ -2,7 +2,21 @@ from __future__ import annotations
 
 import io
 
+import pytest
+
 from code_puppy.plugins.computer_use import inline_image
+
+
+@pytest.fixture(autouse=True)
+def hermetic_terminal_env(monkeypatch):
+    """Scrub terminal-identity env vars so the host terminal can't leak in.
+
+    ``_terminal_kind`` checks ``ITERM_SESSION_ID`` before ``TERM_PROGRAM``,
+    so running the suite inside iTerm2 (or kitty) would otherwise override
+    the values these tests monkeypatch.
+    """
+    for var in ("TERM_PROGRAM", "TERM", "ITERM_SESSION_ID", "KITTY_WINDOW_ID"):
+        monkeypatch.delenv(var, raising=False)
 
 
 def test_terminal_detection(monkeypatch):
@@ -12,7 +26,6 @@ def test_terminal_detection(monkeypatch):
     monkeypatch.setenv("TERM_PROGRAM", "iTerm.app")
     assert inline_image._terminal_kind() == "iterm"
 
-    monkeypatch.delenv("ITERM_SESSION_ID", raising=False)
     monkeypatch.setenv("TERM_PROGRAM", "unknown")
     monkeypatch.setenv("TERM", "dumb")
     assert inline_image._terminal_kind() is None

@@ -6,6 +6,13 @@ task. It works at the idle prompt AND mid-run: both command dispatch paths
 execute on the main thread with the event loop running, so the fork runs
 concurrently with whatever the foreground agent is doing.
 
+A fork is a true fork: the current conversation history is snapshotted at
+the moment ``/fork`` is typed, persisted as a sub-agent session, and the
+child resumes from that copy (mirroring ACP's ``fork_session``). The
+snapshot is point-in-time — later foreground turns never leak into the
+fork, and the fork's turns never mutate the main history. When there is no
+history yet (or the snapshot fails), the fork starts with a fresh context.
+
 Commands:
     /fork <prompt>              fork the current agent with the prompt
     /fork @<agent> <prompt>     fork a named agent
@@ -172,7 +179,53 @@ def _resolve_agent_name(requested: Optional[str]) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Fork lifecycle
 # ---------------------------------------------------------------------------
-async def _run_fork(agent_name: str, prompt: str, model_name: str | None = None):
+def _seed_fork_session(agent_name: str, prompt: str) -> Optional[str]:
+    """Snapshot the current conversation so the fork continues from it.
+
+    Copies the main agent's live message history (the point-in-time state at
+    the moment ``/fork`` is typed) into a persisted sub-agent session and
+    returns its id. ``_invoke_agent_impl`` then loads that non-empty history
+    and treats the fork as a *continuing* session — a real fork, not a blank
+    slate.
+
+    Returns ``None`` when there is nothing to copy (fresh conversation) or
+    the snapshot fails; the fork then starts with a fresh context.
+    """
+    try:
+        from code_puppy.agents.agent_manager import get_current_agent
+        from code_puppy.tools.agent_tools import (
+            _generate_session_hash_suffix,
+            _sanitize_for_session_id,
+            _save_session_history,
+        )
+
+        history = list(get_current_agent().get_message_history() or [])
+        if not history:
+            return None
+
+        safe_agent = _sanitize_for_session_id(agent_name) or "agent"
+        session_id = f"{safe_agent}-fork-{_generate_session_hash_suffix()}"
+        _save_session_history(
+            session_id=session_id,
+            message_history=history,
+            agent_name=agent_name,
+            initial_prompt=prompt,
+        )
+        return session_id
+    except Exception:  # pragma: no cover - snapshot must never block the fork
+        _emit_warning(
+            "/fork couldn't snapshot the current conversation — "
+            "forking with a fresh context."
+        )
+        return None
+
+
+async def _run_fork(
+    agent_name: str,
+    prompt: str,
+    model_name: str | None = None,
+    session_id: str | None = None,
+):
     """Run the sub-agent and publish its tool-equivalent completion signal."""
     from code_puppy.callbacks import on_post_tool_call
     from code_puppy.tools.subagent_invocation import _invoke_agent_impl
@@ -185,6 +238,7 @@ async def _run_fork(agent_name: str, prompt: str, model_name: str | None = None)
             context=None,
             agent_name=agent_name,
             prompt=prompt,
+            session_id=session_id,
             model_name=model_name,
             emit_response_message=False,
         )
@@ -250,9 +304,13 @@ def _start_fork(agent_name: str, prompt: str, model_name: str | None = None) -> 
         _emit_warning("/fork needs a running event loop — can't fork here.")
         return
 
+    # Snapshot BEFORE scheduling the task: the copy must reflect the exact
+    # moment /fork was typed, not whenever the event loop gets around to it.
+    session_id = _seed_fork_session(agent_name, prompt)
+
     fork_id = next(_fork_ids)
     task = loop.create_task(
-        _run_fork(agent_name, prompt, model_name), name=f"fork-{fork_id}"
+        _run_fork(agent_name, prompt, model_name, session_id), name=f"fork-{fork_id}"
     )
     _forks[fork_id] = _ForkRecord(
         fork_id=fork_id, agent_name=agent_name, prompt=prompt, task=task
@@ -376,6 +434,7 @@ register_callback("custom_command_help", _custom_help)
 
 __all__ = [
     "_cancel_fork",
+    "_seed_fork_session",
     "_custom_help",
     "_handle_custom_command",
     "_handle_fork",
