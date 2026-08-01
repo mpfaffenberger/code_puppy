@@ -16,7 +16,7 @@ from typing import Optional, Tuple
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
@@ -33,14 +33,16 @@ $mScreen {
 }
 #dialog {
     width: 72;
-    max-height: 24;
+    height: auto;
+    max-height: 90%;
     border: round $accent;
     background: $panel;
     padding: 1 2;
 }
-#title { text-style: bold; color: $accent; margin-bottom: 1; }
-#desc { margin-bottom: 1; }
-#buttons { height: auto; margin-top: 1; align-horizontal: right; }
+#title { text-style: bold; color: $accent; margin-bottom: 1; height: auto; }
+#desc-scroll { height: 1fr; max-height: 16; margin-bottom: 1; }
+#desc { margin-bottom: 1; height: auto; }
+#buttons { height: auto; margin-top: 1; align-horizontal: right; dock: bottom; }
 Button { margin-left: 1; }
 """
 
@@ -103,15 +105,24 @@ class ConfirmModal(ModalScreen[Tuple[bool, Optional[str]]]):
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
             yield Label(self._request.title, id="title")
-            yield Static(self._request.description, id="desc")
-            if self._request.allow_feedback:
-                yield Input(placeholder="optional feedback...", id="feedback")
+            with VerticalScroll(id="desc-scroll"):
+                yield Static(self._request.description, id="desc")
+                if self._request.allow_feedback:
+                    yield Input(placeholder="optional feedback...", id="feedback")
             with Horizontal(id="buttons"):
                 for i, opt in enumerate(self._request.options):
                     variant = "primary" if i == 0 else "default"
                     yield Button(opt, id=f"opt-{i}", variant=variant)
 
     def on_mount(self) -> None:
+        # Long descriptions push desc-scroll to its max-height and become
+        # scrollable; default to the bottom so the feedback input (if any)
+        # and the tail of the description are what's visible, rather than
+        # silently scrolled out of view above the fold.
+        try:
+            self.query_one("#desc-scroll", VerticalScroll).scroll_end(animate=False)
+        except Exception:
+            pass
         first = self.query("Button").first()
         if first:
             first.focus()
