@@ -481,6 +481,55 @@ for budget strategies (fixed vs terminal-height-relative).
 
 ---
 
+## Gap #7: Custom Params + retry overrides invisible in TUI `/model_settings`  [FIXED]
+
+> **Resolution (done, 2026-08-01):** two bugs, same root cause
+> (`model_supports_setting()` gating on the per-model `supported_settings`
+> allowlist, which neither retry keys nor the new `custom` key are ever
+> listed in):
+> 1. `code_puppy/tui/screens/model_settings.py::_supported_settings()` now
+>    bypasses `model_supports_setting()` for `CUSTOM_MODEL_SETTING` and
+>    everything in `_RETRY_MENU_KEYS`, mirroring
+>    `ModelSettingsMenu._get_supported_settings`'s existing bypass. Without
+>    this, retry_main_strategy/retry_main_max_attempts/
+>    retry_subagent_strategy/retry_subagent_max_attempts and the new Custom
+>    Params entry never appeared in the TUI's settings list at all.
+> 2. `custom` is non-scalar (a dict of key/value pairs, not a
+>    choice/boolean/numeric), so it needed its own add/edit/delete UI rather
+>    than reusing the existing editors. Extracted to a new sibling module
+>    `code_puppy/tui/screens/custom_params.py::CustomParamsModal` (kept
+>    `model_settings.py` under the repo's 600-line cap) that reuses the
+>    classic module's `_format_custom_value` / `get_custom_model_settings` /
+>    `set_custom_model_setting` / `parse_config_scalar` helpers (DRY — same
+>    persistence format, no reimplementation). `_format_value()` and
+>    `_build_detail()` in `model_settings.py` also special-case
+>    `CUSTOM_MODEL_SETTING` to render `"k=v; k=v"` / `"(none)"` instead of
+>    trying to run a dict through the scalar format-string path.
+>    `action_reset` on the custom entry clears every pair (there's no single
+>    static default) instead of writing `None` through the generic per-model
+>    setter, which would have been a silent no-op.
+>
+> Tests: `tests/tui/test_model_settings_routing.py` (visibility bypass +
+> reset-clears-all-pairs + format regressions) and the new
+> `tests/tui/test_custom_params_modal.py` (add/edit/delete/rename/malformed-
+> input flows against the real modal). 13 new/updated tests, all passing.
+
+**Found during a routine "what changed on main since 0.0.674" parity audit**
+(2 upstream commits: `d08b6c97` *"feat(model-settings): user-defined custom
+request params per model"* added the whole Custom Params feature +
+`CUSTOM_MODEL_SETTING` reserved key to the classic menu; `fefb31b0` renamed
+`ultra`/`minimal` reasoning-effort labels to `max`/`none` in the same shared
+`SETTING_DEFINITIONS`/`chatgpt_oauth/utils.py` files, already inherited
+cleanly by the TUI since it imports those definitions generically). The
+reasoning-effort rename needed **no TUI change** — confirmed via
+`_get_setting_choices('reasoning_effort', 'gpt-5.6-sol')` returning
+`['none', 'low', 'medium', 'high', 'xhigh']` with zero code touched. The
+retry-key visibility bug was **not new** (pre-dates 0.0.674, just never
+caught before because nobody had audited `_supported_settings()` against
+`_RETRY_MENU_KEYS` directly) — this audit is what surfaced it.
+
+---
+
 ## Things confirmed fine (no action needed)
 
 - GLM/Claude-5/reasoning-effort model settings (`thinking_type`,

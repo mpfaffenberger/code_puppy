@@ -30,6 +30,7 @@ from textual.widgets.option_list import Option
 from code_puppy.command_line.model_settings_menu import (
     _RETRY_MENU_KEYS,
     SETTING_DEFINITIONS,
+    _format_custom_pairs,
     _get_model_display_settings,
     _get_setting_choices,
     _get_setting_default,
@@ -37,8 +38,11 @@ from code_puppy.command_line.model_settings_menu import (
     _write_per_model_retry,
 )
 from code_puppy.config import (
+    CUSTOM_MODEL_SETTING,
+    get_custom_model_settings,
     get_global_model_name,
     model_supports_setting,
+    set_custom_model_setting,
     set_model_setting,
 )
 from code_puppy.list_filtering import query_matches_text
@@ -46,8 +50,20 @@ from code_puppy.list_filtering import query_matches_text
 
 # --------------------------------------------------------------------------- helpers
 def _supported_settings(model_name: str) -> List[str]:
-    """Settings (in canonical order) that the given model supports."""
-    return [k for k in SETTING_DEFINITIONS if model_supports_setting(model_name, k)]
+    """Settings (in canonical order) that the given model supports.
+
+    Retry overrides and custom params apply to every model regardless of
+    capability flags (mirrors ModelSettingsMenu._get_supported_settings) --
+    without this bypass they'd never show up since model_supports_setting()
+    only knows about the per-model ``supported_settings`` allowlist.
+    """
+    return [
+        k
+        for k in SETTING_DEFINITIONS
+        if k == CUSTOM_MODEL_SETTING
+        or k in _RETRY_MENU_KEYS
+        or model_supports_setting(model_name, k)
+    ]
 
 
 def _format_value(setting: str, value, model_name: str) -> str:
@@ -55,6 +71,12 @@ def _format_value(setting: str, value, model_name: str) -> str:
     sdef = SETTING_DEFINITIONS.get(setting)
     if sdef is None:
         return str(value) if value is not None else "(unknown)"
+    if setting == CUSTOM_MODEL_SETTING:
+        return (
+            _format_custom_pairs(value)
+            if isinstance(value, dict) and value
+            else "(none)"
+        )
     if value is None:
         default = _get_setting_default(setting, model_name)
         return f"(default: {default})" if default is not None else "(model default)"
@@ -81,7 +103,12 @@ def _save_setting(model_name: str, setting: str, value) -> None:
 
 
 def _reset_setting(model_name: str, setting: str) -> None:
-    if setting in _RETRY_MENU_KEYS:
+    if setting == CUSTOM_MODEL_SETTING:
+        # "Default" for custom params is having none at all (mirrors
+        # ModelSettingsMenu._reset_to_default's custom-params branch).
+        for key in list(get_custom_model_settings(model_name)):
+            set_custom_model_setting(model_name, key, None)
+    elif setting in _RETRY_MENU_KEYS:
         # Clear the per-model retry override -> falls back to global default.
         _write_per_model_retry(model_name, setting, None)
     else:
@@ -186,9 +213,16 @@ class ModelSettingDetailScreen(ModalScreen[bool]):
             return t
         sdef = SETTING_DEFINITIONS[setting]
         value = self._values.get(setting)
-        default = _get_setting_default(setting, self._model)
         t.append(f"{sdef['name']}\n\n", style="bold cyan")
         t.append(f"{sdef.get('description', '')}\n\n")
+        if setting == CUSTOM_MODEL_SETTING:
+            # Non-scalar -- has its own Add/Edit/Delete screen, no static
+            # default/range/choices to show.
+            t.append("Current: ", style="bold")
+            t.append(f"{_format_value(setting, value, self._model)}\n")
+            t.append("\nPress Enter to manage params.\n", style="dim")
+            return t
+        default = _get_setting_default(setting, self._model)
         t.append("Current: ", style="bold")
         t.append(f"{_format_value(setting, value, self._model)}\n")
         t.append("Default: ", style="bold")
@@ -215,6 +249,9 @@ class ModelSettingDetailScreen(ModalScreen[bool]):
     def _edit(self, setting: Optional[str]) -> None:
         if not setting:
             return
+        if setting == CUSTOM_MODEL_SETTING:
+            self._edit_custom()
+            return
         stype = SETTING_DEFINITIONS[setting].get("type")
         if stype == "choice":
             self._edit_choice(setting)
@@ -222,6 +259,17 @@ class ModelSettingDetailScreen(ModalScreen[bool]):
             self._edit_boolean(setting)
         elif stype == "numeric":
             self._edit_numeric(setting)
+
+    def _edit_custom(self) -> None:
+        from .custom_params import CustomParamsModal
+
+        def _done(changed) -> None:
+            if changed:
+                self._values = _get_model_display_settings(self._model)
+                self._changed = True
+                self._populate()
+
+        self.app.push_screen(CustomParamsModal(self._model), _done)
 
     def _edit_choice(self, setting: str) -> None:
         from .base import FilterableListScreen, ListChoice
