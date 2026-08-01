@@ -518,12 +518,13 @@ class TestRunShellCommand:
             return_value=[],
         ):
             with patch("code_puppy.tools.command_runner.emit_error"):
-                # Source code has a bug with missing fields, so this may raise ValidationError
-                try:
-                    result = await run_shell_command(ctx, "", timeout=10)
-                    assert result.success is False
-                except Exception:
-                    pass  # ValidationError from missing fields - still exercises the code path
+                # Empty command -> clean ShellCommandOutput (not a ValidationError).
+                result = await run_shell_command(ctx, "", timeout=10)
+                assert result.success is False
+                assert "cannot be empty" in result.error
+                assert result.exit_code is None
+                assert result.stdout is None
+                assert result.stderr is None
 
     @pytest.mark.asyncio
     async def test_blocked_by_callback(self):

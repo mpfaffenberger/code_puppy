@@ -1226,7 +1226,13 @@ async def run_shell_command(
     if not command or not command.strip():
         emit_error("Command cannot be empty", message_group=group_id)
         return ShellCommandOutput(
-            **{"success": False, "error": "Command cannot be empty"}
+            success=False,
+            command=command,
+            error="Command cannot be empty",
+            stdout=None,
+            stderr=None,
+            exit_code=None,
+            execution_time=None,
         )
 
     from code_puppy.config import get_yolo_mode
@@ -1557,7 +1563,7 @@ def register_agent_run_shell_command(agent):
     @agent.tool
     async def agent_run_shell_command(
         context: RunContext,
-        command: str = "",
+        command: str,
         cwd: str = None,
         timeout: int = 60,
         background: bool = False,
