@@ -1002,12 +1002,25 @@ class RichConsoleRenderer:
         # Content (markdown or plain)
         if msg.is_markdown:
             md = Markdown(msg.content)
-            # Give colorless Markdown styles (bold/headings) an explicit base
-            # foreground. Some terminals ignore OSC 10, making Rich resets leak
-            # the terminal profile's white into otherwise themed responses.
-            from code_puppy.callbacks import on_prompt_text_color
+            # Historically we applied the theme's foreground to every cell so
+            # that terminals which ignore OSC 10 wouldn't leak their profile's
+            # white through Rich resets. That was a cosmetic win for a few
+            # terminals but broke text-selection contrast for everyone: the
+            # theme's soft body color (e.g. Tokyo Night's #a9b1d6) has almost
+            # zero contrast against typical pale selection backgrounds, making
+            # highlighted text unreadable while dragging to copy.
+            #
+            # Default now: let the terminal keep its default fg so its own
+            # selection inversion works. Opt back in to the legacy behavior
+            # via ``selection_friendly_transcript = false`` in config.
+            from code_puppy.config import get_selection_friendly_transcript
 
-            self._console.print(md, style=on_prompt_text_color())
+            if get_selection_friendly_transcript():
+                self._console.print(md)
+            else:
+                from code_puppy.callbacks import on_prompt_text_color
+
+                self._console.print(md, style=on_prompt_text_color())
         else:
             self._console.print(msg.content)
 
