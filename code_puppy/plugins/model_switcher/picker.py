@@ -8,6 +8,7 @@ two commands share the same look and feel.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 import textwrap
@@ -439,20 +440,31 @@ class ModelSwitcherMenu:
                 self.result = None
                 event.app.exit()
 
+            # Build the Application ONCE and reuse it across the credential-edit
+            # loop (mirrors theme/picker.py). A fresh prompt_toolkit Application
+            # + Renderer re-runs the cursor-position-request (CPR) probe and
+            # re-enters its own render loop every iteration; interleaving that
+            # with the manual alt-screen writes right where the key listener
+            # hands stdin back can eat the CPR reply on Terminal.app ->
+            # "your terminal doesn't support CPR" + a flaky second invocation.
+            layout = Layout(
+                VSplit([Frame(left, title="Models"), Frame(right, title="Preview")])
+            )
+            app = Application(
+                layout=layout,
+                key_bindings=kb,
+                full_screen=False,
+                mouse_support=False,
+                color_depth="DEPTH_24_BIT",
+                style=on_prompt_toolkit_style(),
+            )
+
             while True:
                 sys.stdout.write("\033[?1049h\033[2J\033[H")
                 sys.stdout.flush()
-                layout = Layout(
-                    VSplit([Frame(left, title="Models"), Frame(right, title="Preview")])
-                )
-                app = Application(
-                    layout=layout,
-                    key_bindings=kb,
-                    full_screen=False,
-                    mouse_support=False,
-                    color_depth="DEPTH_24_BIT",
-                    style=on_prompt_toolkit_style(),
-                )
+                # Settle before the Application's CPR probe, like the theme
+                # picker (which repeats reliably) -- see picker.py:260.
+                await asyncio.sleep(0.05)
                 await app.run_async()
                 sys.stdout.write("\033[?1049l")
                 sys.stdout.flush()
