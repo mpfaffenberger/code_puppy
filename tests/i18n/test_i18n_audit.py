@@ -1,5 +1,7 @@
 """Tests for the static i18n extraction audit (code_puppy.i18n.audit)."""
 
+import ast
+
 from code_puppy.i18n import audit
 
 
@@ -14,6 +16,47 @@ def test_raw_string_literal_is_flagged():
 
 def test_fstring_is_raw():
     assert _kinds('emit_warning(f"hi {name}")') == ["raw"]
+
+
+def test_fstring_pure_variable_is_dynamic():
+    """f"{var}" has no literal content — must not be reported as raw."""
+    assert _kinds('emit_info(f"{result}")') == ["dynamic"]
+
+
+def test_fstring_whitespace_only_literal_is_dynamic():
+    """f"  {var}" has only whitespace in the constant part — not translatable."""
+    assert _kinds('emit_info(f"   {msg}")') == ["dynamic"]
+
+
+def test_fstring_with_content_and_variable_is_raw():
+    """f"Error: {e}" has a meaningful literal prefix — must stay raw."""
+    assert _kinds('emit_error(f"Error: {e}")') == ["raw"]
+
+
+def test_fstring_wrapped_literal_is_raw():
+    """f"{'literal'}" wraps a Constant inside a FormattedValue.
+
+    The classifier used to only inspect direct Constant children of
+    JoinedStr, so this parsed as ``JoinedStr([FormattedValue(Constant)])``
+    and was silently classified as dynamic — a false negative. Recurse
+    into FormattedValue.value so it now shows up as raw.
+    """
+    src = "emit_info(f\"{'Error: connection refused'}\")"
+    # Direct AST check so we're not relying on the higher-level pipeline.
+    tree = ast.parse(src, mode="eval")
+    call = tree.body
+    assert isinstance(call, ast.Call)
+    joined = call.args[0]
+    assert isinstance(joined, ast.JoinedStr)
+    assert isinstance(joined.values[0], ast.FormattedValue)
+    # And end-to-end through the classifier.
+    assert audit._classify(joined) == "raw"
+    assert _kinds(src) == ["raw"]
+
+
+def test_fstring_with_only_arrow_is_raw():
+    """Non-whitespace punctuation like an arrow counts as a literal."""
+    assert _kinds('emit_info(f"-> {item}")') == ["raw"]
 
 
 def test_string_concat_is_raw():
@@ -106,6 +149,57 @@ def test_json_output_is_valid(tmp_path, capsys):
     assert payload["extracted"] == 1
     assert payload["raw"] == 1
     assert payload["coverage"] == 50.0
+
+
+def test_single_file_path_is_accepted(tmp_path, capsys):
+    """Passing a .py file directly must produce a non-empty report.
+
+    Previously ``_iter_py_files`` called ``os.walk(file)`` which yields
+    nothing, so every per-file audit silently returned 0 sites.
+    """
+    import json
+
+    mod = tmp_path / "solo.py"
+    mod.write_text('emit_info("raw string")\n', encoding="utf-8")
+    assert audit.main([str(mod), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["raw"] == 1, "single-file audit must find the raw site"
+
+
+def test_single_file_pure_variable_fstring_not_raw(tmp_path, capsys):
+    """Single-file audit: f"{var}" must NOT be counted as raw."""
+    import json
+
+    mod = tmp_path / "mod.py"
+    mod.write_text('emit_info(f"{result}")\n', encoding="utf-8")
+    assert audit.main([str(mod), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["raw"] == 0
+    assert payload["dynamic"] == 1
+
+
+def test_nonexistent_path_raises(tmp_path, capsys):
+    """A typo'd path must not silently report 100% coverage.
+
+    Previously ``audit_tree('/does/not/exist')`` returned an empty
+    ``Report`` whose ``coverage`` property is ``100.0``, so
+    ``--fail-under`` would happily pass on a typo'd path and tell CI
+    everything was fine. Fail loud instead: this is a
+    programming/config error, so ``FileNotFoundError`` propagates all
+    the way out of ``main()`` and produces a nonzero exit.
+    """
+    import pytest
+
+    missing = tmp_path / "totally-not-real"
+    assert not missing.exists()
+
+    # audit_tree raises directly.
+    with pytest.raises(FileNotFoundError):
+        audit.audit_tree(str(missing))
+
+    # And main() lets it propagate — no accidental swallow, no exit 0.
+    with pytest.raises(FileNotFoundError):
+        audit.main([str(missing)])
 
 
 # --- integration smoke ----------------------------------------------------
