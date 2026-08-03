@@ -261,7 +261,11 @@ async def _invoke_agent_impl(
                 )
 
             # Create a temporary agent instance to avoid interfering with current agent state
-            instructions = agent_config.get_full_system_prompt()
+            from code_puppy.agents._builder import _full_system_prompt_for_model
+
+            instructions = _full_system_prompt_for_model(
+                agent_config, effective_model_name
+            )
             instructions += f"\n\n{_subagent_identity_prompt(agent_name)}"
 
             # AGENTS.md (puppy rules) is deliberately NOT injected into

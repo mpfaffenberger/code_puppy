@@ -468,6 +468,26 @@ def _agent_exposes_tool(agent: Any, tool_name: str) -> bool:
         return False
 
 
+def _full_system_prompt_for_model(agent: Any, resolved_model_name: str) -> str:
+    """Return instructions whose GPT-5.6 cache prefix is launch-stable.
+
+    The agent keeps its unique runtime UUID internally. GPT-5.6 receives the
+    stable logical agent name in system instructions so separate processes can
+    reuse the same prompt-cache prefix.
+    """
+    instructions = agent.get_full_system_prompt()
+    if not _is_gpt_5_6_family(resolved_model_name):
+        return instructions
+
+    runtime_identity = agent.get_identity_prompt()
+    if instructions.endswith(runtime_identity):
+        return (
+            instructions[: -len(runtime_identity)]
+            + agent.get_cache_stable_identity_prompt()
+        )
+    return instructions
+
+
 def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
     """Compose full system prompt + puppy rules + extended-thinking note."""
     from code_puppy.model_utils import prepare_prompt_for_model
@@ -476,7 +496,7 @@ def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
         has_extended_thinking_active,
     )
 
-    instructions = agent.get_full_system_prompt()
+    instructions = _full_system_prompt_for_model(agent, resolved_model_name)
     puppy_rules = load_puppy_rules()
     if puppy_rules:
         instructions += f"\n{puppy_rules}"

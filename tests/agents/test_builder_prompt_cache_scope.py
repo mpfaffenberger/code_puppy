@@ -1,7 +1,10 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
-from code_puppy.agents._builder import build_pydantic_agent
+from code_puppy.agents._builder import (
+    _full_system_prompt_for_model,
+    build_pydantic_agent,
+)
 
 
 def _agent(identity: str):
@@ -47,3 +50,25 @@ def test_two_agent_builds_use_same_logical_cache_scope():
         call("codex-gpt-5.6-sol", prompt_cache_scope="code-puppy"),
         call("codex-gpt-5.6-sol", prompt_cache_scope="code-puppy"),
     ]
+
+
+def test_gpt_5_6_instructions_replace_per_launch_identity():
+    def agent(instance_id: str):
+        dynamic = f"\n\nYour ID is `code-puppy-{instance_id}`."
+        return SimpleNamespace(
+            get_full_system_prompt=lambda: "authored instructions" + dynamic,
+            get_identity_prompt=lambda: dynamic,
+            get_cache_stable_identity_prompt=lambda: "\n\nYour ID is `code-puppy`.",
+        )
+
+    first = _full_system_prompt_for_model(agent("random-one"), "gpt-5.6-sol")
+    second = _full_system_prompt_for_model(agent("random-two"), "gpt-5.6-sol")
+
+    assert first == second == "authored instructions\n\nYour ID is `code-puppy`."
+
+
+def test_older_models_keep_unique_runtime_identity():
+    dynamic = "\n\nYour ID is `code-puppy-random`."
+    agent = SimpleNamespace(get_full_system_prompt=lambda: "instructions" + dynamic)
+
+    assert _full_system_prompt_for_model(agent, "gpt-5.5") == ("instructions" + dynamic)
