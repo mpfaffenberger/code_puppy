@@ -563,3 +563,51 @@ caught before because nobody had audited `_supported_settings()` against
 - Branch: `feature/add-tui`, rebased onto `main` @ `183298ac` (0.0.605),
   pushed with `--force-with-lease` already — start fresh work from current
   HEAD, no rebase needed again for this session.
+
+---
+
+## Audit: main changes since v0.0.676 (2026-08-04) — NO new gaps found
+
+Branch was rebased again onto `main` @ `09085be5` (0.0.677), landing 15
+commits (`f689b290`..`5f9b52e1`, unchanged count/content, no conflicts —
+see git log for the new tip). This audit checked the 20 commits that landed
+on `main` between `v0.0.676` and `main` for TUI parity impact. Three PRs,
+all confirmed **backend-only / already-shared** — no TUI code changes needed:
+
+1. **`dc957973` feat(guards): granular per-pattern allowlist for command
+   guards** (`dangerous_command_guard_allow` config key). Pure backend:
+   `config.py` getters + both guard callbacks
+   (`destructive_command_guard`/`force_push_guard`). The key is **not**
+   curated in `set_menu_catalog.py`'s `_SAFETY` category in either UI — it
+   only ever showed up in the `Dynamic` catch-all section of `/set`. Since
+   the TUI's `set_picker.py` builds its list from the exact same
+   `set_menu._build_entries()` (curated + `get_config_keys()` Dynamic
+   fallback) that classic uses, the new key appears in the TUI's `/set`
+   Dynamic section automatically, identical to classic. No gap.
+2. **`6a9f539b` fix(mcp): a config can't be its own untrusted project twin**
+   (CWD == $HOME false-positive on the MCP trust gate). Pure backend fix in
+   `mcp_/project_config.py::get_project_mcp_servers_file()`. The TUI's
+   `_dispatch_command` only special-cases `/mcp install`; every other `/mcp`
+   subcommand (including `/mcp trust`) falls through to the shared
+   `handle_command()` → `command_line/mcp/trust_command.py`, which only
+   calls `emit_info`/`emit_error` (routes fine through the message bus to
+   either UI). Fix benefits both UIs for free. No gap.
+3. **`930d8ea1`..`ab601a23` i18n(claude_code_oauth) extraction** — wrapped
+   ~48 existing `emit_error`/`emit_info`/`emit_warning` string literals in
+   `claude_code_oauth/register_callbacks.py` with `t("oauth....")` catalog
+   lookups. Zero behavior change (English strings resolve identically), and
+   `t()` resolves to a plain string *before* `emit_*` is called, so the TUI's
+   capture bridge never even sees an i18n object — it's UI-agnostic by
+   construction (see `i18n/translate.py::t()` + the `emit_message` chokepoint
+   note in this repo's `AGENTS.md`). No gap.
+
+Also spot-checked `code_puppy/i18n/audit.py` fixes (`44f98c48`, `f77f3654`,
+`27bb1ead`, `7d972ae6`) — these are the **audit tool itself** (CI gate,
+developer-facing), not user-facing runtime code. No UI surface, no gap.
+
+**Verification:** ran the newly-landed backend test files directly —
+`tests/plugins/test_command_guard_allowlist.py`,
+`tests/mcp/test_project_config.py`, `tests/i18n/test_claude_oauth_i18n.py`,
+`tests/i18n/test_i18n_audit.py` — 73 passed. Full `tests/tui/` suite — 276
+passed. Rebase was conflict-free (16 flagged overlap files, zero actual
+conflicts).
