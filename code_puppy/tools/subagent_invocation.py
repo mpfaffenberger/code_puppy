@@ -292,10 +292,12 @@ async def _invoke_agent_impl(
                 effective_model_name, prompt_cache_scope=agent_name
             )
 
-            from code_puppy.model_factory import supports_openai_prompt_cache
+            from code_puppy.model_factory import (
+                supports_explicit_prompt_cache_breakpoint,
+            )
             from code_puppy.openai_prompt_cache import add_cache_boundary
 
-            if is_new_session and supports_openai_prompt_cache(
+            if is_new_session and supports_explicit_prompt_cache_breakpoint(
                 effective_model_name, models_config[effective_model_name]
             ):
                 prompt = add_cache_boundary(prompt)

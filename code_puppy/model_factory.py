@@ -72,19 +72,33 @@ def _is_gpt_5_6_model(model_name: str, model_config: Dict[str, Any]) -> bool:
 
 
 def supports_openai_prompt_cache(model_name: str, model_config: Dict[str, Any]) -> bool:
-    """Return whether CodePuppy's focused GPT-5.6 adapter owns this model."""
-    return (
-        model_config.get("prompt_cache_breakpoint_enabled", True) is not False
-        and _is_gpt_5_6_model(model_name, model_config)
-        and model_config.get("type")
-        in {
-            "openai",
-            "azure_openai",
-            "chatgpt_oauth",
-            "azure_foundry_openai",
-            *_CUSTOM_OPENAI_MODEL_TYPES,
-        }
-    )
+    """Return whether CodePuppy's focused GPT-5.6 usage adapter owns this model."""
+    return _is_gpt_5_6_model(model_name, model_config) and model_config.get("type") in {
+        "openai",
+        "azure_openai",
+        "chatgpt_oauth",
+        "azure_foundry_openai",
+        *_CUSTOM_OPENAI_MODEL_TYPES,
+    }
+
+
+def supports_explicit_prompt_cache_breakpoint(
+    model_name: str, model_config: Dict[str, Any]
+) -> bool:
+    """Return whether this provider accepts explicit cache markers.
+
+    The public OpenAI API supports GPT-5.6 breakpoints, but provider-specific
+    backends can expose the same model slug without accepting the parameter.
+    ChatGPT OAuth currently returns ``invalid_parameter`` for it. Keep the
+    official OpenAI provider enabled by default and require an explicit opt-in
+    for Azure, OAuth, and custom-compatible endpoints.
+    """
+    if not supports_openai_prompt_cache(model_name, model_config):
+        return False
+    configured = model_config.get("prompt_cache_breakpoint_enabled")
+    if configured is not None:
+        return configured is True
+    return model_config.get("type") == "openai"
 
 
 def get_openai_request_path(model_name: str, model_config: Dict[str, Any]) -> str:

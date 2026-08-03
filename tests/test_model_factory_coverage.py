@@ -438,14 +438,54 @@ class TestMakeModelSettings:
         assert "openai_prompt_cache_retention" not in settings
 
     def test_gpt_5_6_breakpoint_adapter_can_be_disabled(self):
-        from code_puppy.model_factory import supports_openai_prompt_cache
+        from code_puppy.model_factory import (
+            supports_explicit_prompt_cache_breakpoint,
+            supports_openai_prompt_cache,
+        )
 
-        assert not supports_openai_prompt_cache(
+        config = {
+            "type": "chatgpt_oauth",
+            "name": "gpt-5.6-sol",
+            "prompt_cache_breakpoint_enabled": False,
+        }
+
+        # Disabling a marker must not disable cache usage normalization.
+        assert supports_openai_prompt_cache("codex-gpt-5.6-sol", config)
+        assert not supports_explicit_prompt_cache_breakpoint(
+            "codex-gpt-5.6-sol", config
+        )
+
+    def test_chatgpt_oauth_breakpoint_is_disabled_by_default(self):
+        from code_puppy.model_factory import (
+            supports_explicit_prompt_cache_breakpoint,
+        )
+
+        assert not supports_explicit_prompt_cache_breakpoint(
+            "codex-gpt-5.6-sol",
+            {"type": "chatgpt_oauth", "name": "gpt-5.6-sol"},
+        )
+
+    def test_official_openai_breakpoint_is_enabled_by_default(self):
+        from code_puppy.model_factory import (
+            supports_explicit_prompt_cache_breakpoint,
+        )
+
+        assert supports_explicit_prompt_cache_breakpoint(
+            "gpt-5.6-sol",
+            {"type": "openai", "name": "gpt-5.6-sol"},
+        )
+
+    def test_provider_breakpoint_can_be_explicitly_enabled(self):
+        from code_puppy.model_factory import (
+            supports_explicit_prompt_cache_breakpoint,
+        )
+
+        assert supports_explicit_prompt_cache_breakpoint(
             "codex-gpt-5.6-sol",
             {
                 "type": "chatgpt_oauth",
                 "name": "gpt-5.6-sol",
-                "prompt_cache_breakpoint_enabled": False,
+                "prompt_cache_breakpoint_enabled": True,
             },
         )
 

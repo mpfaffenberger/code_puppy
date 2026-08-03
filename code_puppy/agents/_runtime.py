@@ -692,7 +692,7 @@ async def _run_with_mcp_impl(
     from code_puppy.model_factory import (
         ModelFactory,
         get_openai_request_path,
-        supports_openai_prompt_cache,
+        supports_explicit_prompt_cache_breakpoint,
     )
 
     resolved_name = getattr(agent, "_last_model_name", None) or agent.get_model_name()
@@ -705,7 +705,9 @@ async def _run_with_mcp_impl(
     if not agent._message_history:
         from code_puppy.openai_prompt_cache import add_cache_boundary
 
-        if resolved_name and supports_openai_prompt_cache(resolved_name, model_config):
+        if resolved_name and supports_explicit_prompt_cache_breakpoint(
+            resolved_name, model_config
+        ):
             prompt_payload = add_cache_boundary(prompt_payload)
 
     actual_model_id = str(model_config.get("name") or resolved_name or "")
