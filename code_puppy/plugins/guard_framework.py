@@ -13,15 +13,21 @@ from code_puppy.messaging import emit_info, emit_warning
 
 @dataclass(frozen=True)
 class GuardSpec:
-    title: str                  # "Force Push Guard "
-    detected_label: str         # "Force push detected: "
-    consequence: str            # "Force pushing rewrites remote history..."
-    block_advice: str           # "If you *really* need to ... in your terminal ..."
-    detect: Callable[[str], Optional[Any]]   # returns match with .pattern_name/.description
-    allow_disable_guard: bool = True  # Honor disable_dangerous_command_guard when enabled
+    title: str  # "Force Push Guard "
+    detected_label: str  # "Force push detected: "
+    consequence: str  # "Force pushing rewrites remote history..."
+    block_advice: str  # "If you *really* need to ... in your terminal ..."
+    detect: Callable[
+        [str], Optional[Any]
+    ]  # returns match with .pattern_name/.description
+    allow_disable_guard: bool = (
+        True  # Honor disable_dangerous_command_guard when enabled
+    )
 
 
-async def _prompt_user_approval(spec: GuardSpec, command: str, match: Any) -> Optional[Dict[str, Any]]:
+async def _prompt_user_approval(
+    spec: GuardSpec, command: str, match: Any
+) -> Optional[Dict[str, Any]]:
     """Show an interactive approval prompt for the detected destructive command.
 
     Args:
@@ -41,7 +47,7 @@ async def _prompt_user_approval(spec: GuardSpec, command: str, match: Any) -> Op
     panel_content.append("\n\n", style="")
     panel_content.append("$ ", style="bold green")
     panel_content.append(command, style="bold white")
-    panel_content.append("\n\n")                                                                                                                                                                                                                    
+    panel_content.append("\n\n")
     panel_content.append(spec.consequence, style="yellow")
 
     confirmed, user_feedback = await get_user_approval_async(
@@ -94,6 +100,7 @@ def _block_command(spec: GuardSpec, command: str, match: Any) -> Dict[str, Any]:
         "error_message": error_message,
     }
 
+
 def _is_interactive() -> bool:
     """Check if we're in an interactive terminal that can show prompts."""
     try:
@@ -119,5 +126,8 @@ def make_shell_guard(spec: GuardSpec) -> Callable:
         if match.block_immediately or not _is_interactive():
             return _block_command(spec, command, match)
 
-        return await _prompt_user_approval(spec, command, match)   # shared TTY/non-TTY logic
+        return await _prompt_user_approval(
+            spec, command, match
+        )  # shared TTY/non-TTY logic
+
     return guard

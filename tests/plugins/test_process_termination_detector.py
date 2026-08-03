@@ -5,7 +5,9 @@ from __future__ import annotations
 import pytest
 
 from code_puppy.plugins.self_termination_guardrail import detector
-from code_puppy.plugins.self_termination_guardrail.detector import TerminationCommandMatch
+from code_puppy.plugins.self_termination_guardrail.detector import (
+    TerminationCommandMatch,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers

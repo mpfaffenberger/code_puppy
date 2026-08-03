@@ -19,34 +19,37 @@ class TerminationCommandMatch:
     """Result of a self termination command pattern match."""
 
     pattern_name: str
-    description: str = "This command can terminate the code-puppy process or parent process"
+    description: str = (
+        "This command can terminate the code-puppy process or parent process"
+    )
     block_immediately: bool = True
 
 
-#regex pattern to split on
+# regex pattern to split on
 _CMD_SPLIT_RE = re.compile(r"\s*(?:&&|\|\||;|&)\s*")
 
-#Split a command string into subcommands based on shell operators.
+
+# Split a command string into subcommands based on shell operators.
 def split_command(command: str) -> list[str]:
     return _CMD_SPLIT_RE.split(command)
-    
+
 
 # Regex patterns to remove simple obfuscations like empty quotes, backslash escapes, and caret escapes.
-_EMPTY_QUOTES_RE     = re.compile(r"(['\"])\1")
+_EMPTY_QUOTES_RE = re.compile(r"(['\"])\1")
 _BACKSLASH_ESCAPE_RE = re.compile(r"\\(.)")
-_QUOTED_WORD_RE      = re.compile(r'(["\'])(\w+)\1')
-_CARET_ESCAPE_RE     = re.compile(r"\^(.?)")
-_SEPARATOR_RE        = re.compile(r"[,;\s]+")
-_TOKEN_RE            = re.compile(r"\b\w+(?:-\w+)*\b")
+_QUOTED_WORD_RE = re.compile(r'(["\'])(\w+)\1')
+_CARET_ESCAPE_RE = re.compile(r"\^(.?)")
+_SEPARATOR_RE = re.compile(r"[,;\s]+")
+_TOKEN_RE = re.compile(r"\b\w+(?:-\w+)*\b")
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
 
 
 def normalize_command(command: str) -> str:
-    command = _EMPTY_QUOTES_RE.sub("", command)             # strip '' and ""
-    command = _BACKSLASH_ESCAPE_RE.sub(r"\1", command)      # strip backslash escapes
-    command = _CARET_ESCAPE_RE.sub(r"\1", command)          # strip caret escapes
-    command = _QUOTED_WORD_RE.sub(r"\2", command)           # unquote words
-    command = _SEPARATOR_RE.sub(" ", command)               # normalize all separators + whitespace
+    command = _EMPTY_QUOTES_RE.sub("", command)  # strip '' and ""
+    command = _BACKSLASH_ESCAPE_RE.sub(r"\1", command)  # strip backslash escapes
+    command = _CARET_ESCAPE_RE.sub(r"\1", command)  # strip caret escapes
+    command = _QUOTED_WORD_RE.sub(r"\2", command)  # unquote words
+    command = _SEPARATOR_RE.sub(" ", command)  # normalize all separators + whitespace
     return command
 
 
@@ -83,7 +86,14 @@ def get_processes() -> set[str]:
 # Intentionally small: only wrappers whose option syntax we understand belong here.
 _WRAPPERS = {"sudo", "env", "nice", "nohup", "time", "command"}
 _SUDO_VALUE_OPTIONS = {"-u", "-g", "-h", "-p", "-r", "-t"}
-_SUDO_LONG_VALUE_OPTIONS = { "--user", "--group", "--host", "--prompt", "--role", "--type",}
+_SUDO_LONG_VALUE_OPTIONS = {
+    "--user",
+    "--group",
+    "--host",
+    "--prompt",
+    "--role",
+    "--type",
+}
 
 
 def _skip_assignments(tokens: Sequence[str], index: int) -> int:
@@ -188,20 +198,26 @@ def find_command_executable(tokens: list[str]) -> tuple[set[str], set[str]]:
 
 COMMANDS = {"kill", "pkill", "killall", "taskkill", "stop-process", "spps"}
 
-STATIC_PROTECTED_NAMES = { "code-puppy", "code_puppy", "code-puppy-venv", "$$", "$ppid", }
+STATIC_PROTECTED_NAMES = {
+    "code-puppy",
+    "code_puppy",
+    "code-puppy-venv",
+    "$$",
+    "$ppid",
+}
 
 PROTECTED_NAMES = get_processes()
 
-def detect_self_termination_command(command: str) ->  TerminationCommandMatch | None:
-    #Normalize command to remove obfuscations and standardize separators
+
+def detect_self_termination_command(command: str) -> TerminationCommandMatch | None:
+    # Normalize command to remove obfuscations and standardize separators
     norm_command = normalize_command(command)
-    
-    #Split commands on operators Ex: &&, ||, ;, &, \n
+
+    # Split commands on operators Ex: &&, ||, ;, &, \n
     subcommands = split_command(norm_command)
 
     for subcommand in subcommands:
-
-        #Tokenize command
+        # Tokenize command
         try:
             tokens = [token.lower() for token in shlex.split(subcommand, posix=True)]
         except ValueError:
@@ -211,9 +227,7 @@ def detect_self_termination_command(command: str) ->  TerminationCommandMatch | 
         # text and wrapper options cannot be mistaken for a command.
         executable, args = find_command_executable(tokens)
         matched_commands = executable & COMMANDS
-        matched_names = {
-            arg.removesuffix(".exe") for arg in args
-        } & PROTECTED_NAMES
+        matched_names = {arg.removesuffix(".exe") for arg in args} & PROTECTED_NAMES
 
         if not (matched_commands and matched_names):
             continue
