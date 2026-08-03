@@ -133,6 +133,16 @@ class PromptArea(TextArea):
             self.app.reset_vim_mode()
             return
 
+        # Up/Down prompt-history recall (classic prompt_toolkit parity).
+        # Only kicks in when the cursor can't move a real line within a
+        # multiline buffer -- Up on line 2 of 3 still moves the cursor,
+        # exactly like the raw editor's own up/down handling.
+        if event.key in ("up", "down"):
+            if self.app.recall_prompt_history(self, event.key == "up"):
+                event.prevent_default()
+                event.stop()
+                return
+
         # Shift+Enter / Ctrl+J insert a literal newline. Textual's TextArea
         # only inserts "\n" for the bare "enter" key (which we hijack for
         # submit above) -- shift+enter and ctrl+j are neither "printable" nor
@@ -421,9 +431,20 @@ class CooperApp(App):
         self._attachment_placeholders: list[tuple[str, str]] = []
         # Reentrancy guard: our own buffer rewrite posts another Changed.
         self._transforming_attachments = False
+        # Same idea, for history recall: a recalled entry that happens to be
+        # a bare/no-arg slash command (e.g. "/flux/status") would otherwise
+        # pop the completion dropdown open via on_text_area_changed, and then
+        # the NEXT Up press gets eaten by completion-menu navigation instead
+        # of continuing to walk further back in history.
+        self._recalling_history = False
         # Track the prompt of the current (or most-recently-run) turn so
         # action_cancel_turn can pass it to on_interactive_turn_cancel.
         self._current_turn_prompt: str = ""
+        # Up/Down prompt-history recall (shares the file with the classic
+        # prompt_toolkit path + the /history picker -- see submit_prompt).
+        from code_puppy.messaging.editor_history import safe_navigator
+
+        self._prompt_history = safe_navigator()
 
     def register_attachment_placeholders(self, mapping: list[tuple[str, str]]) -> None:
         """Record placeholder->path pairs from a dragged-in attachment paste."""
@@ -807,15 +828,14 @@ class CooperApp(App):
         lowered = text.lower()
 
         # Persist the submission to the shared prompt-history file so /history
-        # (Ctrl+R) reflects TUI prompts too. The classic UI gets this for free
-        # via prompt_toolkit's FileHistory auto-append; the Textual prompt has
-        # no such hook, so mirror it here. Skip bare exit/quit noise. Reuses
-        # HistoryStore so the on-disk format matches what the picker reads.
+        # (Ctrl+R) and Up/Down recall reflect TUI prompts too. The classic UI
+        # gets this for free via prompt_toolkit's FileHistory auto-append; the
+        # Textual prompt has no such hook, so mirror it here. Skip bare
+        # exit/quit noise. Goes through the same HistoryNavigator that backs
+        # Up/Down recall, so submitting also resets any in-progress browsing.
         if lowered not in ("exit", "quit", "/exit", "/quit"):
             try:
-                from code_puppy.messaging.editor_history import HistoryStore
-
-                HistoryStore().append(original)
+                self._prompt_history.record_submit(original)
             except Exception:
                 pass
 
@@ -1257,6 +1277,43 @@ class CooperApp(App):
         from .menus import open_history
 
         open_history(self)
+
+    def recall_prompt_history(self, prompt: PromptArea, going_up: bool) -> bool:
+        """Up/Down prompt-history recall, mirroring the classic raw editor.
+
+        Only fires when the cursor is already at the buffer's edge in the
+        requested direction (top line for Up, bottom line for Down) --
+        multiline buffers still get normal in-place cursor movement first,
+        exactly like ``HistoryNavigator`` gates on ``line_up``/``line_down``
+        in the raw editor. Returns True if the key was consumed (a history
+        entry was recalled or there was nothing further to show but we're
+        still "in" history browsing -- i.e. don't let TextArea also move the
+        cursor).
+        """
+        row, _col = prompt.cursor_location
+        if going_up:
+            if row != 0:
+                return False
+            text = self._prompt_history.up(prompt.text)
+        else:
+            if row != prompt.document.line_count - 1:
+                return False
+            text = self._prompt_history.down(prompt.text)
+        if text is None:
+            return self._prompt_history.browsing
+        # ``prompt.text = ...`` posts a Changed message that's handled on a
+        # later refresh, not synchronously -- so the guard has to stay armed
+        # until after that message is drained, not just for this call frame.
+        self._recalling_history = True
+        prompt.text = text
+        prompt.move_cursor(prompt.document.end)
+        self.hide_completions()
+        self.call_after_refresh(self._end_history_recall)
+        return True
+
+    def _end_history_recall(self) -> None:
+        self._recalling_history = False
+        self.hide_completions()
 
     @work(thread=True, group="shell")
     def _run_shell_passthrough(self, command: str) -> None:
@@ -1911,6 +1968,8 @@ class CooperApp(App):
     # ------------------------------------------------------------------ #
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         if event.text_area.id == "prompt":
+            if self._recalling_history:
+                return  # programmatic recall -- never reopens completions
             self._transform_prompt_attachments(event.text_area)
             self._refresh_completions()
 
