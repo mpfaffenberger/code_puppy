@@ -193,16 +193,17 @@ STATIC_PROTECTED_NAMES = { "code-puppy", "code_puppy", "code-puppy-venv", "$$", 
 PROTECTED_NAMES = get_processes()
 
 def detect_self_termination_command(command: str) ->  TerminationCommandMatch | None:
+    #Normalize command to remove obfuscations and standardize separators
+    norm_command = normalize_command(command)
+    
     #Split commands on operators Ex: &&, ||, ;, &, \n
-    subcommands = split_command(command)
+    subcommands = split_command(norm_command)
 
     for subcommand in subcommands:
-        #Normalize command to remove obfuscations and standardize separators
-        norm_command = normalize_command(subcommand)
 
         #Tokenize command
         try:
-            tokens = [token.lower() for token in shlex.split(norm_command, posix=True)]
+            tokens = [token.lower() for token in shlex.split(subcommand, posix=True)]
         except ValueError:
             return None
 

@@ -4,7 +4,10 @@ from dataclasses import dataclass
 
 from rich.text import Text
 
-from code_puppy.config import get_disable_dangerous_command_guard
+from code_puppy.config import (
+    get_disable_dangerous_command_guard,
+    is_dangerous_command_allowlisted,
+)
 from code_puppy.messaging import emit_info, emit_warning
 
 
@@ -106,6 +109,12 @@ def make_shell_guard(spec: GuardSpec) -> Callable:
                 return None
         match = spec.detect(command)
         if match is None:
+            return None
+        if is_dangerous_command_allowlisted(match.pattern_name):
+            emit_info(
+                f"Allowlisted force-push pattern '{match.pattern_name}' -- "
+                "proceeding (guard still active for other patterns)."
+            )
             return None
         if match.block_immediately or not _is_interactive():
             return _block_command(spec, command, match)
