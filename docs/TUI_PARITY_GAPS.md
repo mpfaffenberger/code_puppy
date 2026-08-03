@@ -1,272 +1,34 @@
 # TUI Parity Gaps — findings from rebasing `feature/add-tui` onto `main`
 
 **Context:** `feature/add-tui` was forked from `main` at `6df8f79e` (v0.0.567).
-Since then, 110 commits landed on `main` (mostly backend fixes that "just
-work" via the shared plugin/hook system — DRY paying off). This doc tracks
-the **4 real parity gaps** found where a `main` feature doesn't work, or
+This doc tracks parity gaps found where a `main` feature doesn't work, or
 works differently/worse, in the Textual TUI (`code_puppy/tui/`) vs classic.
 
-A 5th gap (`/queue`) was found later during a per-plugin `register_screen`
-audit and has since been **FIXED** — see Gap #5 below.
+**Status as of the latest rebase (2026-08-04):** branch is rebased cleanly
+onto `main` @ `09085be5` (0.0.677), tip `5f9b52e1` (15 commits, unchanged
+count/content across the rebase, zero merge conflicts). Four previously
+tracked gaps (customizable spinners, `/queue` menu, sub-agent panel overflow,
+Custom Params + retry overrides in `/model_settings`) have been **fixed and
+removed from this doc** — see git history for `docs/TUI_PARITY_GAPS.md` if
+you need the old write-ups. **3 gaps remain open**, renumbered below.
 
-Status: **investigation done, fixes NOT YET STARTED** (except #5, done). Pick up here.
-
-Fork point: `6df8f79e`. Rebase done cleanly onto `main` at `183298ac`
-(0.0.605) — see git log for the merge commit `0dd54948`.
+An audit of everything that landed on `main` between `v0.0.676` and `0.0.677`
+(20 commits / 3 merged PRs: the granular command-guard allowlist, an MCP
+project-config self-twin fix, and an i18n extraction for claude_code_oauth)
+found **no new parity gaps** — all three were backend-only or already flow
+through code paths shared by both UIs. See "Confirmed fine" section below.
 
 ---
 
 ## Priority order (recommended)
 
-1. **Turn-boundary hooks** (#4 below) — smallest fix, unblocks 2 existing plugins
-2. **Sub-agent live panel** (#1 below) — biggest UX hole, users will notice immediately
-3. ~~**Spinner catalogue wiring** (#3 below)~~ — **DONE** (both parts; see #3)
-4. **Trust ceremony in `/plugins` TUI** (#2 below) — security-relevant, more UI work
+1. **Turn-boundary hooks** (#1 below) — smallest fix, unblocks 2 existing plugins
+2. **Sub-agent live panel** (#2 below) — biggest UX hole, users will notice immediately
+3. **Trust ceremony in `/plugins` TUI** (#3 below) — security-relevant, more UI work
 
 ---
 
-## Gap #1: Sub-agent live status panel — invisible in TUI
-
-**New in main (post-fork), plugin didn't exist before:** `code_puppy/plugins/subagent_panel/`
-(confirmed via `git cat-file -e 6df8f79e:code_puppy/plugins/subagent_panel/register_callbacks.py` → not found)
-
-### The problem
-`subagent_panel/register_callbacks.py` renders live per-sub-agent rows by calling
-`get_bottom_bar().set_panel_lines(lines)` (see `_push_panel()` in that file).
-The bottom bar (`code_puppy/messaging/bottom_bar.py`) is a **classic-UI-only
-construct** — it's only ever `.start()`'d via `code_puppy/messaging/run_ui.py`
-(`bar.start()` at line 119), which is entered via `run_prompt_with_attachments(...,
-use_run_ui=True)`.
-
-The TUI **always** calls `run_prompt_with_attachments(..., use_run_ui=False)`
-(see `code_puppy/tui/app.py` `_run_agent_turn`, ~line 1006-1010). So the bottom
-bar never activates in the TUI, and `set_panel_lines()` calls go nowhere.
-
-**Net effect:** fan out sub-agents in the TUI → **zero visibility** into their
-live progress. No rows, no spin, no elapsed clock. The entire live-panel
-feature is a no-op in the TUI.
-
-The "frozen" completion record (printed via `RichConsoleRenderer._do_render`
-when a `SubAgentResponseMessage` arrives) *might* still show up through the
-TUI's capture bridge (`code_puppy/tui/capture.py`), since `subagent_panel`
-monkeypatches `RichConsoleRenderer._do_render` at the **class** level, and the
-capture bridge instantiates a private `RichConsoleRenderer` too. **Needs a
-manual smoke test to confirm** — the monkeypatch in
-`_install_render_wrapper()` calls `_handle_frozen(self._console, ...)`, which
-in turn calls `console.print()` on whatever console `self` was constructed
-with. If that's the capture bridge's `StringIO`-backed console, it might
-actually render as scrollback text in the TUI (ugly but not silently lost).
-The **live** panel (mid-run rows) is definitely 100% dead — that part
-requires `bottom_bar.is_active()` to be true, and it's never even started.
-
-### Where the code lives
-- `code_puppy/plugins/subagent_panel/register_callbacks.py` — the whole plugin
-- `code_puppy/plugins/subagent_panel/panel_render.py` — `_ordered_tree`, `_row_lines` (pure rendering helpers, reusable)
-- `code_puppy/plugins/subagent_panel/state.py` — the live-tree state tracker (`state.snapshot()`, `state.mark_done()`, etc.)
-- `code_puppy/messaging/bottom_bar.py::set_panel_lines` (line ~235) — what the plugin calls
-- `code_puppy/tui/app.py` — `_run_agent_turn` (~line 985-1022), `handle_bus_message` (~line 660)
-
-### Suggested approach
-The TUI needs its **own** rendering of the live sub-agent tree, fed by the
-same `state` module (or a `register_screen`/new-hook-driven equivalent) —
-NOT by trying to activate the bottom bar (that would fight the Textual
-screen the same way `/theme` and `/spinner`'s prompt_toolkit pickers do).
-
-Options:
-- **(a)** Add a new callback hook e.g. `subagent_panel_lines_changed` that
-  the plugin fires instead of/in addition to `_push_panel()`, and have
-  `tui/app.py` subscribe to render a small panel widget (mirrors how
-  `bottom_bar.set_panel_lines` works, but Textual-native — a `Static` widget
-  above the prompt, toggled visible while `state.has_active()`).
-- **(b)** Have `_panel_lines()` / `_push_panel()` detect TUI mode (check
-  `get_ui_mode()` or similar) and, when in TUI mode, push lines through the
-  message bus as a structured message type instead of `bottom_bar`, which the
-  TUI's `handle_bus_message` already knows how to route.
-- Reuse `_ordered_tree()` / `_row_lines()` from `panel_render.py` either way —
-  don't reimplement the tree-render logic (DRY).
-
-### Also check
-- `code_puppy/plugins/subagent_panel/register_callbacks.py` registers
-  `stream_event`, `agent_run_end`, `agent_run_cancel`, `post_tool_call`. All
-  of those callbacks presumably still fire fine in TUI mode (they're core
-  hooks, not classic-only) — only the *rendering sink* (`bottom_bar`) is the
-  gap. Confirm this assumption once fixing.
-
----
-
-## Gap #2: Project-plugin trust ceremony — missing from TUI's `/plugins`
-
-**New in main (post-fork):** commit `89bc4ad7` "feat: require explicit user
-trust before loading project plugins (#527)". Added a whole trust-gate
-system: `code_puppy/plugins/trust.py`, `code_puppy/plugins/trust_notice.py`,
-`code_puppy/plugins/plugin_list/project_trust_flow.py`, plus rewrote
-`plugins_menu.py` (classic prompt_toolkit) to add the ceremony.
-
-### The problem
-`code_puppy/plugins/plugin_list/plugins_tui.py` (`PluginsScreen`, the
-Textual `ModalScreen` for `/plugins`) **predates** this trust system. It only
-calls:
-```python
-from code_puppy.plugins import get_loaded_plugins
-from code_puppy.plugins.config import get_disabled_plugins
-```
-— the old boolean enabled/disabled model. It never calls
-`get_project_plugin_status()` (new API, used by classic's `plugins_menu.py`
-`_refresh_data()`), so:
-- Untrusted/changed/error-state **project plugins are completely invisible**
-  in the TUI's `/plugins` list (classic shows them with a status label so
-  `Enter` can open the trust ceremony).
-- There's no ceremony UI at all in the TUI — no equivalent of classic's
-  trust popup (`plugins_menu_layout.py`'s float + `TextArea` requiring the
-  user to type `trust`).
-
-**Security angle:** a user running the TUI has literally no way to see that
-a project plugin exists-but-untrusted, let alone review/trust it. They'd
-need to drop to classic mode to manage trust.
-
-### Where the code lives (classic reference implementation)
-- `code_puppy/plugins/plugin_list/plugins_menu.py` — `PluginsMenu` class,
-  see `_refresh_data()` (loads `get_project_plugin_status()`),
-  `_toggle_current()` (branches on `entry.status`), `_open_trust_modal()`,
-  `_accept_trust()`
-- `code_puppy/plugins/plugin_list/plugins_menu_render.py` — `render_trust_modal()`,
-  the `_PROJECT_STATUS_LABELS`-style status text (also duplicated conceptually
-  in `register_callbacks.py`'s `_PROJECT_STATUS_LABELS` for the `/plugins list` text output)
-- `code_puppy/plugins/plugin_list/project_trust_flow.py` — the actual
-  trust/activate logic (`activate_project_plugin()`, ceremony validation)
-- `code_puppy/plugins/trust.py` — SHA-256 hashing, `~/.code_puppy/trusted_plugins.json`
-- `code_puppy/plugins/__init__.py` — `get_project_plugin_status()`,
-  `get_project_plugins_directory()` (the new APIs)
-
-### Where the TUI needs work
-- `code_puppy/plugins/plugin_list/plugins_tui.py` — `PluginsScreen`
-  - `_load_rows()` needs to also pull `get_project_plugin_status()` entries
-    (mirrors classic `_refresh_data()`'s project-tier merge logic — see lines
-    ~155-165 in `plugins_menu.py`)
-  - `_PluginRow` needs a `status` field beyond just `disabled: bool` (classic's
-    `_PluginEntry.status` is the model: `"loaded"` | `"untrusted"` | `"changed"`
-    | `"disabled"` | `"error"`)
-  - `_toggle()` needs to branch: untrusted/changed → open a new trust modal
-    (Textual `ModalScreen`, e.g. `TrustCeremonyScreen`) instead of just
-    flipping the disabled flag; disabled/error (already trusted) → call
-    `activate_project_plugin()` directly (no ceremony); normal plugins →
-    existing `set_plugin_disabled()` path unchanged.
-  - New: a Textual modal for the ceremony itself — needs to show the plugin's
-    file list + require typing `trust` (mirror `render_trust_modal()`'s
-    content, rendered natively instead of via `FormattedTextControl`).
-
-### Suggested approach
-Don't try to reuse the prompt_toolkit `Application`-based ceremony (same
-"fights the Textual screen" problem as `/theme`/`/spinner`). Build a small
-native `ModalScreen` (call it `TrustCeremonyScreen`) that:
-1. Shows plugin name + file list (call `project_trust_flow`'s helpers for
-   the file listing — check what's available, might need a small new export)
-2. Has an `Input` requiring the literal string `trust` to confirm (mirrors
-   classic's `_accept_trust`)
-3. On confirm, calls the same `project_trust_flow.activate_project_plugin()`
-   / trust-write logic classic uses (or whatever the trust.py-level function
-   is — check `project_trust_flow.py` for the accept/hash-write path)
-4. Dismisses back to `PluginsScreen`, which refreshes.
-
----
-
-## Gap #3: Customizable spinners — TUI ignores your choice; `/spinner` picker breaks TUI  [FIXED]
-
-> **Resolution (both parts done):**
-> * **(b)** the TUI thinking-spinner now reads the active style live —
->   `tui/app.py::_tick_spinner`/`_render_spinner` call
->   `puppy_spinner.register_callbacks._current_frames_and_interval()` (the
->   deprecated shim `FRAMES` is only the `except` fallback). A custom
->   `/spinner` choice is reflected in the TUI.
-> * **(a)** `/spinner` now opens a **real** native Textual live-preview modal
->   (`code_puppy/plugins/puppy_spinner/spinner_tui.py` — `SpinnerScreen` +
->   `open_spinner`), wired via `register_screen`. It animates each spinner at
->   its own speed, has the speed dial (-/+), `i` to init `spinners.json`, and
->   reads/writes the SAME catalogue / `set_active` data layer. It reuses the
->   classic picker's `_step_interval` speed-grid math (DRY). This replaces the
->   earlier text-redirect stopgap. Tests: `tests/plugins/test_puppy_spinner_tui.py`.
->
-> The original investigation notes are kept below for context.
-
-**New in main (post-fork):** `1c681a27` "feat(puppy_spinner): customizable
-spinner styles via /spinner + spinners.json (#528)" and `ed75fffe` "fix
-(puppy_spinner): quicker classic puppy + gap before status text (#529)".
-
-### Two-part problem
-
-**(a) `/spinner` (bare, no args) launches a prompt_toolkit fullscreen `Application`.**
-See `code_puppy/plugins/puppy_spinner/picker.py` — `interactive_spinner_picker()`
-uses `from prompt_toolkit import Application` directly, same class of bug the
-TUI rebuild plan doc explicitly flagged for `/theme` ("fights the Textual
-screen, corrupts it"). Unlike `/theme`, **nobody added a `register_screen`
-guard/redirect for `/spinner`** — compare:
-```python
-# code_puppy/plugins/theme/register_callbacks.py (has the guard):
-def _open_theme_in_tui(app) -> None:
-    del app
-    emit_info("In the TUI, themes live in the command palette...")
-def _register_theme_screen():
-    return [{"command": "theme", "open": _open_theme_in_tui}]
-register_callback("register_screen", _register_theme_screen)
-```
-`code_puppy/plugins/puppy_spinner/register_callbacks.py` has **no**
-`register_screen` registration at all. Running bare `/spinner` in the TUI
-today will likely corrupt/crash the Textual screen (needs a repro to confirm
-severity, but the theme precedent says it's bad).
-
-**(b) The TUI's own thinking-spinner is hardcoded to the OLD static frame set
-and never reads the user's chosen spinner.**
-`code_puppy/tui/app.py`:
-```python
-def _tick_spinner(self) -> None:
-    from code_puppy.messaging.spinner import FRAMES   # <-- static, old frames
-    ...
-def _render_spinner(self) -> None:
-    from code_puppy.messaging.spinner import (
-        FRAMES, THINKING_MESSAGE, get_context_info,
-    )
-```
-`code_puppy/messaging/spinner/__init__.py` is explicitly a **DEPRECATED
-compat shim** (its own docstring says so) — `FRAMES` there is a fixed
-constant, unrelated to `code_puppy/plugins/puppy_spinner/spinners.py`'s
-catalogue (`spinners.get_active_spinner()`, `spinners.BUILTIN_SPINNERS`,
-user's `spinners.json` overrides). **The TUI's spinner never reflects a
-custom `/spinner` choice, no matter what the user picks** (assuming (a) is
-fixed so they even can pick one without crashing).
-
-### Where the code lives
-- `code_puppy/plugins/puppy_spinner/commands.py` — `handle_spinner()`, the `/spinner` command handler
-- `code_puppy/plugins/puppy_spinner/picker.py` — the prompt_toolkit picker (`interactive_spinner_picker()`)
-- `code_puppy/plugins/puppy_spinner/spinners.py` — the catalogue: `get_active_spinner()`, `get_catalogue()`, `set_active()`, `BUILTIN_SPINNERS`, `DEFAULT_SPINNER`
-- `code_puppy/plugins/puppy_spinner/register_callbacks.py` — the classic bottom-bar ticker (`_current_frames_and_interval()` shows the RIGHT pattern to copy — reads `spinners.get_active_spinner()` live every tick)
-- `code_puppy/tui/app.py` — `_start_spinner`, `_stop_spinner`, `_tick_spinner`, `_render_spinner` (~line 1569-1611)
-- `code_puppy/messaging/spinner/__init__.py` — the deprecated shim `_tick_spinner`/`_render_spinner` currently import from (only use its `THINKING_MESSAGE`/`get_context_info`, drop `FRAMES`)
-
-### Suggested approach
-**(b) first (small, isolated, no UI risk):**
-In `tui/app.py`, replace the `FRAMES` import with a live read of
-`code_puppy.plugins.puppy_spinner.spinners.get_active_spinner()` each tick —
-mirror exactly what `puppy_spinner/register_callbacks.py::_current_frames_and_interval()`
-already does for classic mode (same catalogue, same interval logic, same
-fallback-to-stock-puppy-on-broken-catalogue safety). Don't duplicate that
-logic — consider extracting `_current_frames_and_interval()` into a shared
-helper in `spinners.py` itself so both classic and TUI call the same
-function (DRY).
-
-**(a) second:**
-Add a `register_screen` entry for `puppy_spinner`, same pattern as `theme`:
-either (i) redirect to a message pointing at the (now TUI-aware) spinner via
-`/spinner <name>` direct-set (which already works fine — it's just data
-mutation, no UI), or (ii) build a native Textual picker (bigger lift, matches
-theme's own aspiration noted in its comment about "themes live in the
-command palette" — could genuinely just live behind Ctrl+P too, or get a
-small `ModalScreen` with a live-preview `OptionList`, reusing `spinners.py`'s
-catalogue). Given low usage, (i) — the redirect message — is probably the
-pragmatic v1; a native picker is a nice-to-have follow-up.
-
----
-
-## Gap #4: Missing turn-boundary hooks — regression for 2 pre-existing plugins
+## Gap #1: Missing turn-boundary hooks — regression for 2 pre-existing plugins
 
 **Not a new main feature — a TUI regression.** Both `wiggum` and `herdr`
 existed *before* the fork and rely on hooks the TUI never fires.
@@ -360,188 +122,167 @@ in `_run_agent_turn` covers both Esc-cancel and any other cancellation path.
 
 ---
 
-## Gap #5: `/queue` interactive menu — dead in the TUI  FIXED
+## Gap #2: Sub-agent live status panel — invisible in TUI
 
-**Found during a per-plugin `register_screen` audit** (not part of the original
-4). `code_puppy/plugins/steer_queue/` ships `/queue`, an interactive manager
-for the mid-run prompt queue (view / add / edit / delete).
-
-### The problem
-`queue_menu.py` builds the menu with `arrow_select_async` +
-`PromptSession().prompt_async()`, and `open_queue_menu_blocking()` hops to a
-worker thread to `asyncio.run()` it — a design that assumes
-`suspended_run_ui` handed prompt_toolkit the raw terminal (the classic REPL /
-mid-run drain both wrap command execution in it). **The Textual app has no
-run-UI to suspend**, so running `/queue` in the TUI either no-ops, hangs the
-worker thread until its 600s timeout, or fights the Textual screen — the exact
-failure class the other five `register_screen` plugins were built to dodge.
-
-`steer_queue` had **only** a `custom_command` hook — no `register_screen` —
-so this was invisible in the TUI with no native fallback.
-
-### The fix (done)
-Added a native Textual `ModalScreen` mirroring the `prune` pattern:
-- `code_puppy/plugins/steer_queue/queue_tui.py` — `QueueScreen` + `open_queue`.
-  Single-select `OptionList` + live detail pane; `a` add / `e` edit /
-  `d` delete / Esc close. Add/edit reuse the shared `tui/screens/form.py`
-  `FormScreen` (textarea field) rather than a bespoke input modal (DRY).
-- All mutations route through the **same** `PauseController` steer-queue
-  (`peek_pending_steer_queued` / `request_steer(mode="queue")` /
-  `replace_pending_steer_queued`), so the `(N pending)` status suffix updates
-  live exactly as in classic.
-- `register_callbacks.py` now registers the `register_screen` opener
-  (`_register_queue_screen`).
-- Tests: `tests/plugins/test_steer_queue_tui.py` (7 tests, green).
-
-### Note for the next reader
-The per-plugin audit that surfaced this confirmed that **every** interactive
-picker plugin now has a real native Textual screen (`puppy_spinner`'s
-text-redirect stopgap was replaced with a live-preview modal — see Gap #3).
-Every other `custom_command` plugin is fire-and-forget (prints / toggles
-config) and needs no screen.
-
----
-
-## Gap #6: Sub-agent panel overflow — silently clipped in TUI (merge regression)  [FIXED]
-
-> **Resolution (done):** extracted the classic bar's clamp into a shared
-> `code_puppy/messaging/bar_painters.py::clamp_panel_lines(lines, budget)`
-> helper (single source of truth for the `… +N more` overflow behavior).
-> `BarPainterMixin._visible_panel_lines()` now delegates to it (behavior
-> unchanged), and the TUI's `_apply_subagent_panel()` (`tui/app.py`) runs the
-> uncapped plugin list through the SAME helper.
->
-> **Budget is height-relative, not a fixed cap.** A first pass used a fixed
-> `max-height: 5`, but side-by-side testing (20-agent swarm) showed the TUI
-> looked stingy — 4 rows + `… +16 more` with a whole empty screen below —
-> while classic filled the terminal. So the TUI now mirrors classic's
-> height-relative clamp: `_subagent_panel_budget()` = `terminal_height -
-> _SUBAGENT_PANEL_RESERVE` (floored at `_SUBAGENT_PANEL_MIN_ROWS`), and
-> `widget.styles.max_height` is pinned to the painted row count each update.
-> The panel sits above `#log` (`height: 1fr`), so growth only ever steals
-> transcript rows — never the prompt/footer. Big swarm on a tall terminal =
-> most/all agents shown; on a short one it clamps with `… +N more`.
-> Tests: `tests/messaging/test_bottom_bar.py::test_clamp_panel_lines_helper_contract`,
-> `tests/tui/test_parity_gaps.py::test_subagent_panel_clamps_overflow_with_summary_row`,
-> `::test_subagent_panel_no_summary_when_within_budget`,
-> `::test_subagent_panel_budget_scales_with_terminal_height`. Investigation
-> notes kept below for context.
-
-**Not a fork-point gap — a fresh regression pulled in by rebasing onto `main`
-`fad8955b` (0.0.649).** Surfaced auditing the 26 commits between the old base
-(`1c4d7af0`) and current `main`. Two main commits conspired:
-
-- `b9f5d12a` *"fix: show all sub-agent panel rows"* — **removed** the plugin's
-  fixed `_PANEL_ROW_CAP = 4`. `subagent_panel/register_callbacks.py::_panel_lines()`
-  now returns **every** tracked agent, uncapped.
-- `153063b3` *"fix: clamp sub-agent panel to terminal height with +N more
-  overflow"* — re-added a height-relative clamp, but **only inside the classic
-  `BarPainterMixin`** (`messaging/bar_painters.py::_panel_row_budget` /
-  `_visible_panel_lines` + `_panel_overflow_row`), consumed by `bottom_bar.py`
-  and `inline_bar.py`. **The TUI uses none of those.**
+**New in main (post-fork), plugin didn't exist before:** `code_puppy/plugins/subagent_panel/`
+(confirmed via `git cat-file -e 6df8f79e:code_puppy/plugins/subagent_panel/register_callbacks.py` → not found)
 
 ### The problem
-`_push_panel()` sends the identical uncapped `lines` list to *both* sinks:
-```python
-get_bottom_bar().set_panel_lines(lines)                    # classic: clamped in painter
-_trigger_callbacks_sync("subagent_panel_lines_changed", lines)  # TUI: NOT clamped
-```
-The TUI's `code_puppy/tui/app.py::_apply_subagent_panel()` (~line 1707) joins
-**all** lines into the `#subagent-panel` `Static`, which has `max-height: 5`
-in the inline CSS (~line 264). So Textual clips to 5 rows and **silently drops
-the rest with no indicator**.
+`subagent_panel/register_callbacks.py` renders live per-sub-agent rows by calling
+`get_bottom_bar().set_panel_lines(lines)` (see `_push_panel()` in that file).
+The bottom bar (`code_puppy/messaging/bottom_bar.py`) is a **classic-UI-only
+construct** — it's only ever `.start()`'d via `code_puppy/messaging/run_ui.py`
+(`bar.start()` at line 119), which is entered via `run_prompt_with_attachments(...,
+use_run_ui=True)`.
 
-| | Before this rebase | After (now) |
-|---|---|---|
-| Rows `_panel_lines()` emits | ≤ 4 (incl. `(+N more)`) | **unbounded** |
-| TUI actually shows | ≤ 4, with overflow summary | first 5 agents, **rest clipped, no `… +N more`** |
+The TUI **always** calls `run_prompt_with_attachments(..., use_run_ui=False)`
+(see `code_puppy/tui/app.py` `_run_agent_turn`, ~line 1006-1010). So the bottom
+bar never activates in the TUI, and `set_panel_lines()` calls go nowhere.
 
-So on a sub-agent swarm the TUI now hides overflow agents with **zero**
-affordance that more exist — losing the `… +N more` summary the classic bar
-keeps. Not a crash (the CSS `max-height` prevents the layout from blowing up),
-but a genuine parity/UX regression: the classic clamp fix (`153063b3`) never
-reached the Textual render path.
+**Net effect:** fan out sub-agents in the TUI → **zero visibility** into their
+live progress. No rows, no spin, no elapsed clock. The entire live-panel
+feature is a no-op in the TUI.
+
+The "frozen" completion record (printed via `RichConsoleRenderer._do_render`
+when a `SubAgentResponseMessage` arrives) *might* still show up through the
+TUI's capture bridge (`code_puppy/tui/capture.py`), since `subagent_panel`
+monkeypatches `RichConsoleRenderer._do_render` at the **class** level, and the
+capture bridge instantiates a private `RichConsoleRenderer` too. **Needs a
+manual smoke test to confirm** — the monkeypatch in
+`_install_render_wrapper()` calls `_handle_frozen(self._console, ...)`, which
+in turn calls `console.print()` on whatever console `self` was constructed
+with. If that's the capture bridge's `StringIO`-backed console, it might
+actually render as scrollback text in the TUI (ugly but not silently lost).
+The **live** panel (mid-run rows) is definitely 100% dead — that part
+requires `bottom_bar.is_active()` to be true, and it's never even started.
 
 ### Where the code lives
-- `code_puppy/plugins/subagent_panel/register_callbacks.py` — `_panel_lines()`
-  (now uncapped), `_push_panel()` (~line 220, fans out to both sinks)
-- `code_puppy/messaging/bar_painters.py` — `_panel_row_budget()` /
-  `_visible_panel_lines()` / `_panel_overflow_row()` (the classic clamp —
-  reference logic to mirror)
-- `code_puppy/tui/app.py` — `_apply_subagent_panel()` (~line 1707, the fix
-  site), `#subagent-panel` CSS (~line 264, `max-height: 5`)
+- `code_puppy/plugins/subagent_panel/register_callbacks.py` — the whole plugin
+- `code_puppy/plugins/subagent_panel/panel_render.py` — `_ordered_tree`, `_row_lines` (pure rendering helpers, reusable)
+- `code_puppy/plugins/subagent_panel/state.py` — the live-tree state tracker (`state.snapshot()`, `state.mark_done()`, etc.)
+- `code_puppy/messaging/bottom_bar.py::set_panel_lines` (line ~235) — what the plugin calls
+- `code_puppy/tui/app.py` — `_run_agent_turn` (~line 985-1022), `handle_bus_message` (~line 660)
 
 ### Suggested approach
-Clamp inside `_apply_subagent_panel()` before building the `Text` block:
-take a row budget, and when `len(lines) > budget` render the first
-`budget - 1` rows plus a `… +N more` summary row (reuse
-`bar_painters._panel_overflow_row()` for the exact same string — DRY — rather
-than hand-rolling the text). See the fix-options discussion in the session
-for budget strategies (fixed vs terminal-height-relative).
+The TUI needs its **own** rendering of the live sub-agent tree, fed by the
+same `state` module (or a `register_screen`/new-hook-driven equivalent) —
+NOT by trying to activate the bottom bar (that would fight the Textual
+screen the same way `/theme` and `/spinner`'s prompt_toolkit pickers do).
+
+Options:
+- **(a)** Add a new callback hook e.g. `subagent_panel_lines_changed` that
+  the plugin fires instead of/in addition to `_push_panel()`, and have
+  `tui/app.py` subscribe to render a small panel widget (mirrors how
+  `bottom_bar.set_panel_lines` works, but Textual-native — a `Static` widget
+  above the prompt, toggled visible while `state.has_active()`).
+- **(b)** Have `_panel_lines()` / `_push_panel()` detect TUI mode (check
+  `get_ui_mode()` or similar) and, when in TUI mode, push lines through the
+  message bus as a structured message type instead of `bottom_bar`, which the
+  TUI's `handle_bus_message` already knows how to route.
+- Reuse `_ordered_tree()` / `_row_lines()` from `panel_render.py` either way —
+  don't reimplement the tree-render logic (DRY).
+- **Note:** the sub-agent panel *overflow clamping* is already fixed and
+  shared via `bar_painters.py::clamp_panel_lines()` — whatever TUI rendering
+  path gets built here should call that same helper for the `… +N more`
+  behavior rather than reinventing it.
+
+### Also check
+- `code_puppy/plugins/subagent_panel/register_callbacks.py` registers
+  `stream_event`, `agent_run_end`, `agent_run_cancel`, `post_tool_call`. All
+  of those callbacks presumably still fire fine in TUI mode (they're core
+  hooks, not classic-only) — only the *rendering sink* (`bottom_bar`) is the
+  gap. Confirm this assumption once fixing.
 
 ---
 
-## Gap #7: Custom Params + retry overrides invisible in TUI `/model_settings`  [FIXED]
+## Gap #3: Project-plugin trust ceremony — missing from TUI's `/plugins`
 
-> **Resolution (done, 2026-08-01):** two bugs, same root cause
-> (`model_supports_setting()` gating on the per-model `supported_settings`
-> allowlist, which neither retry keys nor the new `custom` key are ever
-> listed in):
-> 1. `code_puppy/tui/screens/model_settings.py::_supported_settings()` now
->    bypasses `model_supports_setting()` for `CUSTOM_MODEL_SETTING` and
->    everything in `_RETRY_MENU_KEYS`, mirroring
->    `ModelSettingsMenu._get_supported_settings`'s existing bypass. Without
->    this, retry_main_strategy/retry_main_max_attempts/
->    retry_subagent_strategy/retry_subagent_max_attempts and the new Custom
->    Params entry never appeared in the TUI's settings list at all.
-> 2. `custom` is non-scalar (a dict of key/value pairs, not a
->    choice/boolean/numeric), so it needed its own add/edit/delete UI rather
->    than reusing the existing editors. Extracted to a new sibling module
->    `code_puppy/tui/screens/custom_params.py::CustomParamsModal` (kept
->    `model_settings.py` under the repo's 600-line cap) that reuses the
->    classic module's `_format_custom_value` / `get_custom_model_settings` /
->    `set_custom_model_setting` / `parse_config_scalar` helpers (DRY — same
->    persistence format, no reimplementation). `_format_value()` and
->    `_build_detail()` in `model_settings.py` also special-case
->    `CUSTOM_MODEL_SETTING` to render `"k=v; k=v"` / `"(none)"` instead of
->    trying to run a dict through the scalar format-string path.
->    `action_reset` on the custom entry clears every pair (there's no single
->    static default) instead of writing `None` through the generic per-model
->    setter, which would have been a silent no-op.
->
-> Tests: `tests/tui/test_model_settings_routing.py` (visibility bypass +
-> reset-clears-all-pairs + format regressions) and the new
-> `tests/tui/test_custom_params_modal.py` (add/edit/delete/rename/malformed-
-> input flows against the real modal). 13 new/updated tests, all passing.
+**New in main (post-fork):** commit `89bc4ad7` "feat: require explicit user
+trust before loading project plugins (#527)". Added a whole trust-gate
+system: `code_puppy/plugins/trust.py`, `code_puppy/plugins/trust_notice.py`,
+`code_puppy/plugins/plugin_list/project_trust_flow.py`, plus rewrote
+`plugins_menu.py` (classic prompt_toolkit) to add the ceremony.
 
-**Found during a routine "what changed on main since 0.0.674" parity audit**
-(2 upstream commits: `d08b6c97` *"feat(model-settings): user-defined custom
-request params per model"* added the whole Custom Params feature +
-`CUSTOM_MODEL_SETTING` reserved key to the classic menu; `fefb31b0` renamed
-`ultra`/`minimal` reasoning-effort labels to `max`/`none` in the same shared
-`SETTING_DEFINITIONS`/`chatgpt_oauth/utils.py` files, already inherited
-cleanly by the TUI since it imports those definitions generically). The
-reasoning-effort rename needed **no TUI change** — confirmed via
-`_get_setting_choices('reasoning_effort', 'gpt-5.6-sol')` returning
-`['none', 'low', 'medium', 'high', 'xhigh']` with zero code touched. The
-retry-key visibility bug was **not new** (pre-dates 0.0.674, just never
-caught before because nobody had audited `_supported_settings()` against
-`_RETRY_MENU_KEYS` directly) — this audit is what surfaced it.
+### The problem
+`code_puppy/plugins/plugin_list/plugins_tui.py` (`PluginsScreen`, the
+Textual `ModalScreen` for `/plugins`) **predates** this trust system. It only
+calls:
+```python
+from code_puppy.plugins import get_loaded_plugins
+from code_puppy.plugins.config import get_disabled_plugins
+```
+— the old boolean enabled/disabled model. It never calls
+`get_project_plugin_status()` (new API, used by classic's `plugins_menu.py`
+`_refresh_data()`), so:
+- Untrusted/changed/error-state **project plugins are completely invisible**
+  in the TUI's `/plugins` list (classic shows them with a status label so
+  `Enter` can open the trust ceremony).
+- There's no ceremony UI at all in the TUI — no equivalent of classic's
+  trust popup (`plugins_menu_layout.py`'s float + `TextArea` requiring the
+  user to type `trust`).
+
+**Security angle:** a user running the TUI has literally no way to see that
+a project plugin exists-but-untrusted, let alone review/trust it. They'd
+need to drop to classic mode to manage trust.
+
+### Where the code lives (classic reference implementation)
+- `code_puppy/plugins/plugin_list/plugins_menu.py` — `PluginsMenu` class,
+  see `_refresh_data()` (loads `get_project_plugin_status()`),
+  `_toggle_current()` (branches on `entry.status`), `_open_trust_modal()`,
+  `_accept_trust()`
+- `code_puppy/plugins/plugin_list/plugins_menu_render.py` — `render_trust_modal()`,
+  the `_PROJECT_STATUS_LABELS`-style status text (also duplicated conceptually
+  in `register_callbacks.py`'s `_PROJECT_STATUS_LABELS` for the `/plugins list` text output)
+- `code_puppy/plugins/plugin_list/project_trust_flow.py` — the actual
+  trust/activate logic (`activate_project_plugin()`, ceremony validation)
+- `code_puppy/plugins/trust.py` — SHA-256 hashing, `~/.code_puppy/trusted_plugins.json`
+- `code_puppy/plugins/__init__.py` — `get_project_plugin_status()`,
+  `get_project_plugins_directory()` (the new APIs)
+
+### Where the TUI needs work
+- `code_puppy/plugins/plugin_list/plugins_tui.py` — `PluginsScreen`
+  - `_load_rows()` needs to also pull `get_project_plugin_status()` entries
+    (mirrors classic `_refresh_data()`'s project-tier merge logic — see lines
+    ~155-165 in `plugins_menu.py`)
+  - `_PluginRow` needs a `status` field beyond just `disabled: bool` (classic's
+    `_PluginEntry.status` is the model: `"loaded"` | `"untrusted"` | `"changed"`
+    | `"disabled"` | `"error"`)
+  - `_toggle()` needs to branch: untrusted/changed → open a new trust modal
+    (Textual `ModalScreen`, e.g. `TrustCeremonyScreen`) instead of just
+    flipping the disabled flag; disabled/error (already trusted) → call
+    `activate_project_plugin()` directly (no ceremony); normal plugins →
+    existing `set_plugin_disabled()` path unchanged.
+  - New: a Textual modal for the ceremony itself — needs to show the plugin's
+    file list + require typing `trust` (mirror `render_trust_modal()`'s
+    content, rendered natively instead of via `FormattedTextControl`).
+
+### Suggested approach
+Don't try to reuse the prompt_toolkit `Application`-based ceremony (same
+"fights the Textual screen" problem as `/theme`/`/spinner`). Build a small
+native `ModalScreen` (call it `TrustCeremonyScreen`) that:
+1. Shows plugin name + file list (call `project_trust_flow`'s helpers for
+   the file listing — check what's available, might need a small new export)
+2. Has an `Input` requiring the literal string `trust` to confirm (mirrors
+   classic's `_accept_trust`)
+3. On confirm, calls the same `project_trust_flow.activate_project_plugin()`
+   / trust-write logic classic uses (or whatever the trust.py-level function
+   is — check `project_trust_flow.py` for the accept/hash-write path)
+4. Dismisses back to `PluginsScreen`, which refreshes.
 
 ---
 
-## Things confirmed fine (no action needed)
+## Confirmed fine (no action needed)
 
 - GLM/Claude-5/reasoning-effort model settings (`thinking_type`,
   `glm_reasoning_effort`, etc.) — TUI's `model_settings.py` imports
   `SETTING_DEFINITIONS` from the shared `command_line/model_settings_menu.py`
-  and iterates generically. New settings appear automatically. 
+  and iterates generically. New settings appear automatically.
 - `/undo`, `/plan` — plain `register_command` handlers dispatched via
-  `handle_command()`, identical in both UIs. 
+  `handle_command()`, identical in both UIs.
 - `register_screen`-based plugins (agent_skills, hook_manager, plugin_list's
-  enable/disable list itself, prune, steer_queue's /queue, theme's redirect
-  message) — all correctly wired for the TUI via the `register_screen` hook +
-  `tui/menus.py::get_menu_opener`. 
+  enable/disable list itself, prune, steer_queue's `/queue`, theme's redirect
+  message, puppy_spinner's live-preview modal) — all correctly wired for the
+  TUI via the `register_screen` hook + `tui/menus.py::get_menu_opener`.
 - MCP agent-binding menu (`command_line/mcp_binding_menu.py`) — predates the
   fork (`d91c758e`, confirmed ancestor of `6df8f79e`), not a new feature; the
   TUI's `agent_picker.py` shows bound-server info read-only in the preview
@@ -550,64 +291,38 @@ caught before because nobody had audited `_supported_settings()` against
   wasn't part of "main's new features."
 - `dbos_durable_exec` SQLite migration race fix (`45b5e7a4`) — backend-only, no UI surface.
 - quick_resume, statusline, context_indicator changes — backend/config-layer only.
+- **Granular command-guard allowlist** (`dangerous_command_guard_allow`,
+  `dc957973`) — pure `config.py` + guard-callback logic, never curated into
+  either UI's `_SAFETY` category; shows up in the shared "Dynamic" `/set`
+  catch-all identically in both UIs since the TUI's `set_picker.py` builds
+  off the same `set_menu._build_entries()` classic uses.
+- **MCP project-config self-twin fix** (`6a9f539b`, fixes a false-positive
+  trust warning when `CWD == $HOME`) — backend-only in
+  `mcp_/project_config.py`; `/mcp trust` and friends route through the same
+  shared `handle_command()` → `trust_command.py` path for both UIs.
+- **i18n extraction for claude_code_oauth** (`930d8ea1`..`ab601a23`) — wraps
+  existing `emit_*` string literals in `t("oauth....")` catalog lookups;
+  `t()` resolves to a plain string before `emit_*` is called, so it's
+  UI-agnostic by construction. Zero behavior change either UI.
+- `code_puppy/i18n/audit.py` fixes (`44f98c48`, `f77f3654`, `27bb1ead`,
+  `7d972ae6`) — the i18n audit tool itself (CI gate, developer-facing), no
+  runtime UI surface.
 
 ---
 
 ## Testing notes for whoever picks this up
 
-- Full TUI test suite: `uv run pytest -q tests/tui/` (250 tests passed as of
-  the rebase commit `0dd54948`)
+- Full TUI test suite: `uv run pytest -q tests/tui/` (276 tests passed as of
+  rebase tip `5f9b52e1` / 0.0.677)
+- Targeted backend tests for the audited `main` changes above also pass (73
+  tests: `tests/plugins/test_command_guard_allowlist.py`,
+  `tests/mcp/test_project_config.py`, `tests/i18n/test_claude_oauth_i18n.py`,
+  `tests/i18n/test_i18n_audit.py`)
 - `uv lock --check` confirms lockfile isn't stale after the rebase
-- No merge conflicts occurred during the rebase (real overlap with main was
-  only `pyproject.toml`/`uv.lock`, both trivial auto-merges)
-- Branch: `feature/add-tui`, rebased onto `main` @ `183298ac` (0.0.605),
-  pushed with `--force-with-lease` already — start fresh work from current
-  HEAD, no rebase needed again for this session.
-
----
-
-## Audit: main changes since v0.0.676 (2026-08-04) — NO new gaps found
-
-Branch was rebased again onto `main` @ `09085be5` (0.0.677), landing 15
-commits (`f689b290`..`5f9b52e1`, unchanged count/content, no conflicts —
-see git log for the new tip). This audit checked the 20 commits that landed
-on `main` between `v0.0.676` and `main` for TUI parity impact. Three PRs,
-all confirmed **backend-only / already-shared** — no TUI code changes needed:
-
-1. **`dc957973` feat(guards): granular per-pattern allowlist for command
-   guards** (`dangerous_command_guard_allow` config key). Pure backend:
-   `config.py` getters + both guard callbacks
-   (`destructive_command_guard`/`force_push_guard`). The key is **not**
-   curated in `set_menu_catalog.py`'s `_SAFETY` category in either UI — it
-   only ever showed up in the `Dynamic` catch-all section of `/set`. Since
-   the TUI's `set_picker.py` builds its list from the exact same
-   `set_menu._build_entries()` (curated + `get_config_keys()` Dynamic
-   fallback) that classic uses, the new key appears in the TUI's `/set`
-   Dynamic section automatically, identical to classic. No gap.
-2. **`6a9f539b` fix(mcp): a config can't be its own untrusted project twin**
-   (CWD == $HOME false-positive on the MCP trust gate). Pure backend fix in
-   `mcp_/project_config.py::get_project_mcp_servers_file()`. The TUI's
-   `_dispatch_command` only special-cases `/mcp install`; every other `/mcp`
-   subcommand (including `/mcp trust`) falls through to the shared
-   `handle_command()` → `command_line/mcp/trust_command.py`, which only
-   calls `emit_info`/`emit_error` (routes fine through the message bus to
-   either UI). Fix benefits both UIs for free. No gap.
-3. **`930d8ea1`..`ab601a23` i18n(claude_code_oauth) extraction** — wrapped
-   ~48 existing `emit_error`/`emit_info`/`emit_warning` string literals in
-   `claude_code_oauth/register_callbacks.py` with `t("oauth....")` catalog
-   lookups. Zero behavior change (English strings resolve identically), and
-   `t()` resolves to a plain string *before* `emit_*` is called, so the TUI's
-   capture bridge never even sees an i18n object — it's UI-agnostic by
-   construction (see `i18n/translate.py::t()` + the `emit_message` chokepoint
-   note in this repo's `AGENTS.md`). No gap.
-
-Also spot-checked `code_puppy/i18n/audit.py` fixes (`44f98c48`, `f77f3654`,
-`27bb1ead`, `7d972ae6`) — these are the **audit tool itself** (CI gate,
-developer-facing), not user-facing runtime code. No UI surface, no gap.
-
-**Verification:** ran the newly-landed backend test files directly —
-`tests/plugins/test_command_guard_allowlist.py`,
-`tests/mcp/test_project_config.py`, `tests/i18n/test_claude_oauth_i18n.py`,
-`tests/i18n/test_i18n_audit.py` — 73 passed. Full `tests/tui/` suite — 276
-passed. Rebase was conflict-free (16 flagged overlap files, zero actual
-conflicts).
+- No merge conflicts occurred during the latest rebase (16 files flagged as
+  overlapping between `main`'s new commits and this branch — config.py,
+  i18n locale files, mcp/project_config.py, oauth + guard plugins, uv.lock,
+  pyproject.toml — all merged clean)
+- Branch: `feature/add-tui`, rebased onto `main` @ `09085be5` (0.0.677),
+  tip `5f9b52e1`, pushed with `--force-with-lease` already — start fresh
+  work from current HEAD, no rebase needed again for this session.
