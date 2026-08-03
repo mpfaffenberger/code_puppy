@@ -34,11 +34,25 @@ from .constants import (
 )
 from .renderers import render_question_panel
 from .theme import get_rich_colors, get_tui_colors
-from code_puppy.callbacks import on_prompt_toolkit_style
 
 if TYPE_CHECKING:
     from .models import QuestionAnswer
     from .terminal_ui import QuestionUIState
+
+
+def _get_prompt_toolkit_style():
+    """Lazy import of ``on_prompt_toolkit_style``.
+
+    ``tui_loop`` is loaded lazily from inside a ``with`` block on a worker
+    thread during exception recovery (see ``terminal_ui.interactive_question_picker``).
+    If the main thread is concurrently (re-)initialising ``code_puppy.callbacks``
+    via a plugin hook, a module-level ``from code_puppy.callbacks import
+    on_prompt_toolkit_style`` can observe a partially-initialised module and
+    raise ``ImportError``. Deferring the lookup to call time avoids the race.
+    """
+    from code_puppy.callbacks import on_prompt_toolkit_style
+
+    return on_prompt_toolkit_style()
 
 
 def _wait_for_keypress() -> None:
@@ -421,7 +435,7 @@ async def run_question_tui(
         mouse_support=False,
         color_depth=ColorDepth.DEPTH_24_BIT,
         output=output,
-        style=on_prompt_toolkit_style(),
+        style=_get_prompt_toolkit_style(),
     )
 
     # Timeout checker background task

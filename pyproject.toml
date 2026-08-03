@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.662"
+version = "0.0.677"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
@@ -56,6 +56,11 @@ classifiers = [
 [project.optional-dependencies]
 bedrock = ["boto3>=1.35.0"]
 durable = ["dbos>=2.11.0"]
+computer-use = [
+    "pyobjc-framework-ApplicationServices>=10.3; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=10.3; sys_platform == 'darwin'",
+    "pyobjc-framework-Quartz>=10.3; sys_platform == 'darwin'",
+]
 
 [project.urls]
 repository = "https://github.com/mpfaffenberger/code_puppy"

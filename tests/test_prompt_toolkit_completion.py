@@ -62,6 +62,112 @@ def test_fork_agent_completion_requires_at_prefix():
     assert list(completions) == []
 
 
+def test_fork_model_completion_with_prefix():
+    """Test that ModelNameCompleter works with @ prefix in /fork context."""
+    from code_puppy.command_line.model_picker_completion import ModelNameCompleter
+
+    document = Document(
+        text="/fork @code-puppy @codex", cursor_position=len("/fork @code-puppy @codex")
+    )
+
+    with (
+        patch(
+            "code_puppy.command_line.model_picker_completion.load_model_names",
+            return_value=["codex-gpt-5.6-luna", "gpt-4o", "claude-sonnet"],
+        ),
+        patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="gpt-4o",
+        ),
+    ):
+        models = list(
+            ModelNameCompleter(trigger="/fork", prefix="@").get_completions(
+                document, None
+            )
+        )
+
+    # Should only match codex models
+    assert len(models) == 1
+    assert models[0].text == "codex-gpt-5.6-luna"
+    # start_position should be -5 (length of "codex")
+    assert models[0].start_position == -5
+
+
+def test_fork_model_completion_requires_at_prefix():
+    """Test that ModelNameCompleter with prefix requires @ in /fork context."""
+    from code_puppy.command_line.model_picker_completion import ModelNameCompleter
+
+    document = Document(
+        text="/fork @code-puppy gpt", cursor_position=len("/fork @code-puppy gpt")
+    )
+
+    with patch(
+        "code_puppy.command_line.model_picker_completion.load_model_names",
+        return_value=["gpt-4o"],
+    ):
+        models = list(
+            ModelNameCompleter(trigger="/fork", prefix="@").get_completions(
+                document, None
+            )
+        )
+
+    # No @ prefix before "gpt", so no completions
+    assert models == []
+
+
+def test_fork_model_completion_no_prefix_still_works():
+    """Test that ModelNameCompleter without prefix still works for /model."""
+    from code_puppy.command_line.model_picker_completion import ModelNameCompleter
+
+    document = Document(text="/model gpt", cursor_position=len("/model gpt"))
+
+    with (
+        patch(
+            "code_puppy.command_line.model_picker_completion.load_model_names",
+            return_value=["gpt-4o", "claude-sonnet"],
+        ),
+        patch(
+            "code_puppy.command_line.model_picker_completion.get_active_model",
+            return_value="claude-sonnet",
+        ),
+    ):
+        models = list(
+            ModelNameCompleter(trigger="/model").get_completions(document, None)
+        )
+
+    assert len(models) == 1
+    assert models[0].text == "gpt-4o"
+
+
+def test_fork_parse_args_with_model():
+    """Test fork arg parsing extracts both agent and model."""
+    from code_puppy.plugins.fork.register_callbacks import _parse_fork_args
+
+    # Both agent and model
+    agent, model, prompt = _parse_fork_args("@code-puppy @gpt-5 fizzbuzz")
+    assert agent == "code-puppy"
+    assert model == "gpt-5"
+    assert prompt == "fizzbuzz"
+
+    # Only agent
+    agent, model, prompt = _parse_fork_args("@code-puppy fizzbuzz")
+    assert agent == "code-puppy"
+    assert model is None
+    assert prompt == "fizzbuzz"
+
+    # Neither
+    agent, model, prompt = _parse_fork_args("just a prompt")
+    assert agent is None
+    assert model is None
+    assert prompt == "just a prompt"
+
+    # Empty after @model
+    agent, model, prompt = _parse_fork_args("@agent @model")
+    assert agent == "agent"
+    assert model == "model"
+    assert prompt == ""
+
+
 def test_no_symbol(tmp_path):
     completer = FilePathCompleter(symbol="@")
     doc = Document(text="no_completion_here", cursor_position=7)

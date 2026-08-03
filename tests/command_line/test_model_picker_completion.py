@@ -1,6 +1,6 @@
 """Tests for model_picker_completion.py to achieve 100% coverage."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from prompt_toolkit.document import Document
@@ -516,8 +516,7 @@ class TestInteractiveModelPicker:
 
         assert result == "gpt-4"
         mock_run.assert_called_once()
-        assert mock_set.call_args_list[0].args == (True,)
-        assert mock_set.call_args_list[-1].args == (False,)
+        mock_set.assert_has_calls([call(True, notify=False), call(False, notify=False)])
 
 
 class TestGetInputWithModelCompletion:

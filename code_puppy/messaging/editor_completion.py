@@ -73,6 +73,7 @@ def build_completer():
             AgentCompleter(trigger="/switch-agent"),
             AgentCompleter(trigger="/sa"),
             AgentCompleter(trigger="/fork", prefix="@"),
+            ModelNameCompleter(trigger="/fork", prefix="@"),
             MCPCompleter(trigger="/mcp"),
             SkillsCompleter(trigger="/skills"),
             OllamaSetupCompleter(),

@@ -65,10 +65,15 @@ class ModelNameCompleter(Completer):
     """
     A completer that triggers on '/model' to show available models from models.json.
     Only '/model' (not just '/') will trigger the dropdown.
+
+    When ``prefix`` is set (e.g. ``"@"``), it also matches patterns like
+    ``/fork @agent @model`` — the text after the last ``@`` following the
+    trigger is used for filtering.
     """
 
-    def __init__(self, trigger: str = "/model"):
+    def __init__(self, trigger: str = "/model", prefix: str = ""):
         self.trigger = trigger
+        self.prefix = prefix
         self.model_names = load_model_names()
 
     def get_completions(
@@ -78,26 +83,38 @@ class ModelNameCompleter(Completer):
         cursor_position = document.cursor_position
         text_before_cursor = text[:cursor_position]
 
-        # Only trigger if /model is at the very beginning of the line and has a space after it
+        # Only trigger if /model (or trigger) is at the very beginning of the line
         stripped_text = text_before_cursor.lstrip()
         if not stripped_text.startswith(self.trigger + " "):
             return
-
-        # Find where /model actually starts (after any leading whitespace)
-        symbol_pos = text_before_cursor.find(self.trigger)
-        text_after_trigger = text_before_cursor[
-            symbol_pos + len(self.trigger) + 1 :
-        ].lstrip()
-        start_position = -(len(text_after_trigger))
 
         from code_puppy.model_descriptions import get_model_description
 
         models_config = _load_models_config()
 
-        # Filter model names based on what's typed after /model (case-insensitive)
+        # --- Prefix mode (e.g. ``/fork @agent @mod``) ---
+        if self.prefix:
+            # Find trigger start
+            trigger_pos = text_before_cursor.find(self.trigger)
+            after_trigger = text_before_cursor[trigger_pos + len(self.trigger) + 1 :]
+            # Find the LAST occurrence of prefix after the trigger
+            last_prefix_pos = after_trigger.rfind(self.prefix)
+            if last_prefix_pos < 0:
+                return  # no prefix found at all
+            text_after_prefix = after_trigger[last_prefix_pos + len(self.prefix) :]
+            start_position = -len(text_after_prefix)
+        else:
+            # --- Standard /model mode ---
+            symbol_pos = text_before_cursor.find(self.trigger)
+            text_after_prefix = text_before_cursor[
+                symbol_pos + len(self.trigger) + 1 :
+            ].lstrip()
+            start_position = -len(text_after_prefix)
+
+        # Filter model names based on what's typed (case-insensitive)
         for model_name in self.model_names:
-            if text_after_trigger and not query_matches_text(
-                text_after_trigger, model_name
+            if text_after_prefix and not query_matches_text(
+                text_after_prefix, model_name
             ):
                 continue  # Skip models that don't match the typed text
 
@@ -571,7 +588,7 @@ async def interactive_model_picker() -> Optional[str]:
     """Run the paginated interactive model picker used by /model."""
     from code_puppy.tools.command_runner import set_awaiting_user_input
 
-    set_awaiting_user_input(True)
+    set_awaiting_user_input(True, notify=False)
     try:
         try:
             return await ModelSelectionMenu().run_async()
@@ -590,7 +607,7 @@ async def interactive_model_picker() -> Optional[str]:
                 return None
             return _normalize_legacy_picker_choice(selected)
     finally:
-        set_awaiting_user_input(False)
+        set_awaiting_user_input(False, notify=False)
 
 
 async def get_input_with_model_completion(

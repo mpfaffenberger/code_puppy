@@ -110,9 +110,8 @@ class TestModelManagement:
         assert models["codex-gpt-5.6-terra"]["context_length"] == 1050000
         assert models["codex-gpt-5.6-luna"]["context_length"] == 1050000
         assert models["codex-gpt-5.6-sol"]["supports_xhigh_reasoning"] is True
-        assert models["codex-gpt-5.6-sol"]["supports_ultra_reasoning"] is True
-        assert models["codex-gpt-5.5"]["supports_xhigh_reasoning"] is True
-        assert models["codex-gpt-5.5"]["supports_ultra_reasoning"] is False
+        assert models["codex-gpt-5.6-sol"]["supports_max_reasoning"] is True
+        assert models["codex-gpt-5.5"]["supports_max_reasoning"] is False
 
     @patch("code_puppy.plugins.chatgpt_oauth.utils.get_chatgpt_models_path")
     def test_add_models_with_context_settings(self, mock_path, tmp_path):

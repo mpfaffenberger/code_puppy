@@ -725,6 +725,7 @@ async def get_input_with_combined_completion(
             AgentCompleter(trigger="/switch-agent"),
             AgentCompleter(trigger="/sa"),
             AgentCompleter(trigger="/fork", prefix="@"),
+            ModelNameCompleter(trigger="/fork", prefix="@"),
             MCPCompleter(trigger="/mcp"),
             SkillsCompleter(trigger="/skills"),
             OllamaSetupCompleter(),

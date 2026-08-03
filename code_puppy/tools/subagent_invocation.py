@@ -2,8 +2,10 @@
 
 import asyncio
 import inspect
+import time
 import traceback
 from contextlib import AsyncExitStack
+from datetime import datetime, timezone
 from functools import partial
 from typing import Set
 
@@ -14,7 +16,11 @@ from code_puppy.callbacks import (
     on_agent_run_context,
     on_wrap_pydantic_agent,
 )
-from code_puppy.config import get_message_limit, get_subagent_recursion_limit
+from code_puppy.config import (
+    get_message_limit,
+    get_subagent_recursion_limit,
+    get_subagent_recursion_limit_gpt_5_6,
+)
 from code_puppy.i18n import t
 from code_puppy.messaging import (
     SubAgentInvocationMessage,
@@ -28,6 +34,7 @@ from code_puppy.messaging import (
 )
 from code_puppy.tools.agent_tools import (
     AgentInvokeOutput,
+    AgentInvokeWithModelOutput,
     _generate_session_hash_suffix,
     _load_session_history,
     _sanitize_for_session_id,
@@ -41,6 +48,10 @@ from code_puppy.tools.subagent_context import (
     get_subagent_model_name,
     subagent_context,
 )
+from code_puppy.tools.subagent_usage_metrics import (
+    _safe_usage_metrics,
+    build_invoke_output,
+)
 
 # Set to track active subagent invocation tasks
 _active_subagent_tasks: Set[asyncio.Task] = set()
@@ -52,10 +63,21 @@ def _subagent_recursion_blocked() -> bool:
 
 
 def _gpt_5_6_recursion_blocked() -> bool:
-    """Preserve the stricter single-level policy for GPT-5.6 callers."""
+    """Enforce the GPT-5.6 overlay cap on resulting sub-agent chain depth.
+
+    The rule keys off the *immediate* caller's model (via the
+    ``subagent_model_name`` contextvar). An earlier GPT-5.6 ancestor that
+    has since handed off to a non-GPT-5.6 sub-agent is intentionally not
+    penalised -- broadening to a full-chain scan would be a policy change
+    beyond this cap. The limit itself is user-tunable via the
+    ``subagent_recursion_limit_gpt_5_6`` config key.
+    """
     from code_puppy.agents._builder import _is_gpt_5_6_family
 
-    return _is_gpt_5_6_family(get_subagent_model_name())
+    if not _is_gpt_5_6_family(get_subagent_model_name()):
+        return False
+    attempted_depth = get_subagent_depth() + 1
+    return attempted_depth > get_subagent_recursion_limit_gpt_5_6()
 
 
 def _subagent_identity_prompt(agent_name: str) -> str:
@@ -85,8 +107,16 @@ async def _invoke_agent_impl(
     session_id: str | None = None,
     model_name: str | None = None,
     emit_response_message: bool = True,
+    include_usage_metrics: bool = False,
 ) -> AgentInvokeOutput:
-    """Invoke a sub-agent, optionally suppressing its standard response message."""
+    """Invoke a sub-agent, optionally suppressing its standard response message.
+
+    ``include_usage_metrics`` is set by ``invoke_agent_with_model`` only; it
+    gates BOTH the returned type (``AgentInvokeWithModelOutput`` vs the plain
+    ``AgentInvokeOutput``) and whether any timing/usage instrumentation runs
+    at all, so ``invoke_agent`` callers see zero behavioral or performance
+    change from before this instrumentation existed.
+    """
     from code_puppy.agents.agent_manager import load_agent
 
     group_id = generate_group_id("invoke_agent", agent_name)
@@ -97,13 +127,19 @@ async def _invoke_agent_impl(
             agent=agent_name,
         )
     elif _gpt_5_6_recursion_blocked():
-        error = t("subagent.gpt_5_6_recursion_blocked", agent=agent_name)
+        error = t(
+            "subagent.gpt_5_6_recursion_blocked",
+            agent=agent_name,
+            depth=get_subagent_depth() + 1,
+            limit=get_subagent_recursion_limit_gpt_5_6(),
+        )
     else:
         error = None
 
     if error:
         emit_error(error, message_group=group_id)
-        return AgentInvokeOutput(
+        return build_invoke_output(
+            include_usage_metrics=include_usage_metrics,
             response=None,
             agent_name=agent_name,
             model_name=model_name,
@@ -117,7 +153,8 @@ async def _invoke_agent_impl(
         except ValueError as e:
             # Return error immediately if session_id is invalid
             emit_error(str(e), message_group=group_id)
-            return AgentInvokeOutput(
+            return build_invoke_output(
+                include_usage_metrics=include_usage_metrics,
                 response=None,
                 agent_name=agent_name,
                 model_name=model_name,
@@ -227,14 +264,13 @@ async def _invoke_agent_impl(
             instructions = agent_config.get_full_system_prompt()
             instructions += f"\n\n{_subagent_identity_prompt(agent_name)}"
 
-            # Add AGENTS.md content to subagents.
-            # ``load_puppy_rules`` lives on the builder module since the
-            # base_agent split in 79dfc3c8; it's not a method on the agent.
-            from code_puppy.agents._builder import load_puppy_rules
-
-            puppy_rules = load_puppy_rules()
-            if puppy_rules:
-                instructions += f"\n\n{puppy_rules}"
+            # AGENTS.md (puppy rules) is deliberately NOT injected into
+            # sub-agents. Those files are user-facing steering for the MAIN
+            # agent; feeding them to sub-agents creates anti-patterns — e.g.
+            # a rule like "always invoke the xyz agent for abc" makes the
+            # xyz sub-agent (which has ``invoke_agent``) re-invoke itself in
+            # an infinite recursion trap. Sub-agents get only their own
+            # authored prompt + the identity note above.
 
             # NOTE: ``load_prompt`` fragments (file-permission handling, kennel
             # memory, ...) are already baked into ``get_full_system_prompt``
@@ -388,6 +424,21 @@ async def _invoke_agent_impl(
                             event_stream_handler=stream_handler,
                         )
 
+                    # Time the full run (including streaming retries) so the
+                    # returned timestamps and duration_ms reflect honest
+                    # user-observed latency, not just a single attempt.
+                    # start_time/end_time are timezone-aware UTC ISO-8601
+                    # strings; duration_ms uses a monotonic clock so it is
+                    # immune to wall-clock adjustments during the run. This
+                    # instrumentation only runs for invoke_agent_with_model
+                    # (include_usage_metrics=True) -- invoke_agent skips it
+                    # entirely so its behavior/performance is unchanged.
+                    run_started = time.perf_counter() if include_usage_metrics else None
+                    start_time = (
+                        datetime.now(timezone.utc).isoformat()
+                        if include_usage_metrics
+                        else None
+                    )
                     task = asyncio.create_task(_run_subagent())
                     _active_subagent_tasks.add(task)
 
@@ -397,6 +448,17 @@ async def _invoke_agent_impl(
                         _active_subagent_tasks.discard(task)
                         if task.cancelled():
                             await on_agent_run_cancel(group_id)
+
+                    # Capture usage + latency as close to the run boundary as
+                    # possible, before any rendering/history/emit bookkeeping.
+                    if include_usage_metrics:
+                        end_time = datetime.now(timezone.utc).isoformat()
+                        duration_ms = (time.perf_counter() - run_started) * 1000.0
+                        usage_metrics = _safe_usage_metrics(result)
+                    else:
+                        end_time = None
+                        duration_ms = None
+                        usage_metrics = None
 
                 # Still inside subagent_context: if high mode and streaming
                 # didn't produce any text, fall back to the one-shot renderer
@@ -445,11 +507,16 @@ async def _invoke_agent_impl(
                 f"✓ {agent_name} completed successfully", message_group=group_id
             )
 
-            return AgentInvokeOutput(
+            return build_invoke_output(
+                include_usage_metrics=include_usage_metrics,
                 response=response,
                 agent_name=agent_name,
                 session_id=session_id,
                 model_name=effective_model_name,
+                usage_metrics=usage_metrics,
+                start_time=start_time,
+                end_time=end_time,
+                duration_ms=duration_ms,
             )
 
     except Exception as e:
@@ -482,7 +549,8 @@ async def _invoke_agent_impl(
         except Exception:
             pass
 
-        return AgentInvokeOutput(
+        return build_invoke_output(
+            include_usage_metrics=include_usage_metrics,
             response=None,
             agent_name=agent_name,
             session_id=session_id,
@@ -559,7 +627,7 @@ def register_invoke_agent_with_model(agent):
         prompt: str,
         model_name: str,
         session_id: str | None = None,
-    ) -> AgentInvokeOutput:
+    ) -> AgentInvokeWithModelOutput:
         """Invoke a sub-agent with an explicit one-call model override.
 
         Use this only when a model override is intentionally required. For
@@ -576,15 +644,22 @@ def register_invoke_agent_with_model(agent):
             session_id: Optional kebab-case session id for continuing memory.
 
         Returns:
-            AgentInvokeOutput: Contains response, agent_name, session_id,
-            effective model_name, and error fields.
+            AgentInvokeWithModelOutput: Contains response, agent_name,
+            session_id, effective model_name, and error fields. On a
+            successful run it also reports per-run token usage (non-cached
+            input_tokens, cache_read_input_tokens, cache_creation_input_tokens,
+            output_tokens, total_tokens, num_requests) and timing
+            (start_time/end_time as UTC ISO-8601 strings plus duration_ms);
+            those fields are None on any error path. This extra usage/timing
+            reporting is scoped to invoke_agent_with_model only -- invoke_agent
+            is unaffected.
         """
         normalized_model_name = model_name.strip()
         if not normalized_model_name:
             group_id = generate_group_id("invoke_agent", agent_name)
             error_msg = "model_name cannot be empty"
             emit_error(error_msg, message_group=group_id)
-            return AgentInvokeOutput(
+            return AgentInvokeWithModelOutput(
                 response=None,
                 agent_name=agent_name,
                 session_id=session_id,
@@ -597,6 +672,7 @@ def register_invoke_agent_with_model(agent):
             prompt=prompt,
             session_id=session_id,
             model_name=normalized_model_name,
+            include_usage_metrics=True,
         )
 
     return invoke_agent_with_model

@@ -28,12 +28,46 @@ saves the resulting PNG, and displays it inline when iTerm2 supports doing so.
    so do not redundantly embed it unless the user asks.
 7. If authentication is missing, tell the user to run `/codex-auth`.
 
+## Reference images (visual consistency)
+
+Pass `reference_images` to condition the result on images that already exist,
+instead of generating from text alone. Use it whenever the output has to stay
+visually consistent with something:
+
+- **Same character across many images.** Conditioning on one canonical
+  reference holds a face/outfit together far better than re-describing it in
+  words. This is the reliable way to produce a set of portraits, expressions,
+  or poses that are recognizably the same person.
+- **Matching an established style,** palette, or lighting across a set of
+  assets.
+- **Iterating on an existing asset** — "same logo, dark background".
+
+When references are supplied, write the `prompt` as the CHANGE you want; the
+references supply the subject and style to preserve.
+
+```text
+codex_imagegen(
+    prompt="Same man, same clothing and lighting, now glancing over his shoulder, anxious",
+    reference_images=["portraits/sandoval/_ref.png"],
+)
+```
+
+Guidance:
+
+1. Prefer one strong reference over several weak ones; extra references dilute
+   the conditioning.
+2. Do not re-describe what the reference already shows unless you want it
+   changed — describing the face again can fight the reference.
+3. Paths must exist and be readable image files, else the call fails with a
+   clear error.
+
 ## Tool
 
 Call:
 
 ```text
 codex_imagegen(prompt="A complete standalone image prompt")
+codex_imagegen(prompt="The change you want", reference_images=["path/to/ref.png"])
 ```
 
 The result contains:

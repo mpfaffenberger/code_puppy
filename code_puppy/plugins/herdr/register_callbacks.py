@@ -23,12 +23,21 @@ nothing for herdr to guess.
 
 Callback -> effect:
 
-* ``startup`` / ``session_end`` / ``shutdown`` ......... resync (-> idle)
-* ``user_prompt_submit`` .............................. capture session id
-* ``agent_run_start`` / ``agent_run_end`` ............. run-depth +/- 1
-* ``agent_run_cancel`` / ``interactive_turn_end`` ..... reset -> idle
-* ``interactive_turn_cancel`` ......................... reset -> idle
-* ``awaiting_user_input`` ............................. blocked <-> not
+* ``startup`` ......................................... resync (-> idle)
+* ``session_end`` / ``shutdown`` ..................... release pane authority
+* ``user_prompt_submit`` ............................. refresh durable session
+* ``agent_run_start`` / ``agent_run_end`` ............ run-depth +/- 1
+* ``pre_tool_call`` / ``post_tool_call`` ............. decorative activity msg
+* ``agent_run_cancel`` / ``interactive_turn_end`` .... reset -> idle
+* ``interactive_turn_cancel`` ........................ reset -> idle
+* ``awaiting_user_input`` ............................ blocked <-> not
+
+Session identity is the durable autosave (name, path) resolved by
+``sources.current_session_ref`` -- NOT the per-run ``group_id`` UUID, which
+changes every turn. Pane metadata (model / context / tokens) and the
+best-effort activity ``message`` are decorative: they never perturb the
+authoritative state and never delay a state edge, session reference, or the
+final ``pane.release_agent`` on exit.
 
 Handlers are plain sync functions that swallow every argument: the callback
 dispatcher passes hook args positionally and runs sync callbacks happily
@@ -59,19 +68,18 @@ def _on_startup(*_args, **_kw) -> None:
     _reporter.on_startup()
 
 
-def _on_user_prompt(*args, **_kw) -> None:
-    # (prompt, session_id=None)
-    _reporter.on_user_prompt(_arg(args, 1))
+def _on_user_prompt(*_args, **_kw) -> None:
+    # The callback's per-run group_id is ignored; the reporter resolves the
+    # durable session reference itself.
+    _reporter.on_user_prompt()
 
 
-def _on_run_start(*args, **_kw) -> None:
-    # (agent_name, model_name, session_id=None)
-    _reporter.on_run_start(_arg(args, 2))
+def _on_run_start(*_args, **_kw) -> None:
+    _reporter.on_run_start()
 
 
-def _on_run_end(*args, **_kw) -> None:
-    # (agent_name, model_name, session_id=None, ...)
-    _reporter.on_run_end(_arg(args, 2))
+def _on_run_end(*_args, **_kw) -> None:
+    _reporter.on_run_end()
 
 
 def _on_run_cancel(*_args, **_kw) -> None:
@@ -82,9 +90,29 @@ def _on_turn_end(*_args, **_kw) -> None:
     _reporter.on_turn_end()
 
 
+def _on_tool_start(*args, **kwargs):
+    # (tool_name, tool_args, context=None). Decorative only -> return None so
+    # the tool is never blocked or transformed.
+    tool_name = _arg(args, 0) if args else kwargs.get("tool_name")
+    _reporter.on_tool_start(str(tool_name) if tool_name is not None else "")
+    return None
+
+
+def _on_tool_complete(*_args, **_kw):
+    # (tool_name, tool_args, result, duration_ms, context=None). Decorative.
+    _reporter.on_tool_complete()
+    return None
+
+
 def _on_awaiting_user_input(*args, **_kw) -> None:
-    # (awaiting: bool)
-    _reporter.on_awaiting_user_input(bool(_arg(args, 0)))
+    # Keep the public callback's historical one-argument signature. Notification
+    # intent is read synchronously from command_runner's current wait state.
+    from code_puppy.tools.command_runner import should_notify_awaiting_user_input
+
+    _reporter.on_awaiting_user_input(
+        bool(_arg(args, 0)),
+        notify=should_notify_awaiting_user_input(),
+    )
 
 
 def _on_shutdown(*_args, **_kw) -> None:
@@ -99,6 +127,8 @@ if _reporter.active:
     register_callback("agent_run_cancel", _on_run_cancel)
     register_callback("interactive_turn_end", _on_turn_end)
     register_callback("interactive_turn_cancel", _on_turn_end)
+    register_callback("pre_tool_call", _on_tool_start)
+    register_callback("post_tool_call", _on_tool_complete)
     register_callback("awaiting_user_input", _on_awaiting_user_input)
     register_callback("session_end", _on_shutdown)
     register_callback("shutdown", _on_shutdown)

@@ -1,0 +1,47 @@
+"""macOS virtual key codes for keys exposed by the computer-use tool."""
+
+KEY_CODES = {
+    "return": 36,
+    "enter": 36,
+    "tab": 48,
+    "space": 49,
+    "delete": 51,
+    "escape": 53,
+    "left": 123,
+    "right": 124,
+    "down": 125,
+    "up": 126,
+    **dict(
+        zip(
+            "abcdefghijklmnopqrstuvwxyz",
+            (
+                0,
+                11,
+                8,
+                2,
+                14,
+                3,
+                5,
+                4,
+                34,
+                38,
+                40,
+                37,
+                46,
+                45,
+                31,
+                35,
+                12,
+                15,
+                1,
+                17,
+                32,
+                9,
+                13,
+                7,
+                16,
+                6,
+            ),
+        )
+    ),
+}

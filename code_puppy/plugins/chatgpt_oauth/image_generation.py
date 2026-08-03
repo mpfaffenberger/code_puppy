@@ -1,14 +1,42 @@
-"""Image generation through the ChatGPT Codex OAuth backend."""
+"""Image generation through the ChatGPT Codex OAuth backend.
+
+Two endpoints are used, both on the Codex backend rather than api.openai.com:
+
+``POST /images/generations``
+    Plain text-to-image. JSON body ``{model, prompt, size, quality,
+    background}``.
+
+``POST /images/edits``
+    Reference-conditioned generation — the model sees one or more input images
+    and preserves their subject/style. JSON body ``{model, prompt, images,
+    size, quality}`` where ``images`` is a list of OBJECTS, each with exactly
+    one accepted key, ``image_url``, holding a base64 data-URL string::
+
+        {"images": [{"image_url": "data:image/png;base64,iVBORw0..."}]}
+
+.. note::
+   This endpoint is undocumented and its request shape was derived empirically
+   against the live service (2026-07). Deviations are rejected with HTTP 400:
+   a singular ``image`` key reports "Missing required parameter: 'images'";
+   bare base64 strings report "expected an object, but got a string";
+   ``url`` / ``b64_json`` / ``data`` / ``type`` object keys report "Unknown
+   parameter"; and multipart/form-data uploads (the shape the public OpenAI
+   images API uses) are rejected outright. If reference conditioning starts
+   failing, re-probe those variants first — and note that unknown keys on
+   ``/images/generations`` are silently IGNORED rather than rejected, so a
+   wrong shape there fails open as an unconditioned image.
+"""
 
 from __future__ import annotations
 
 import base64
 import binascii
+import mimetypes
 import os
 import sys
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Sequence
 
 import requests
 
@@ -21,13 +49,31 @@ from .utils import get_valid_access_token, load_stored_tokens
 _IMAGE_MODEL = "gpt-image-2"
 _REQUEST_TIMEOUT_SECONDS = 180
 
+# Guard against pathologically large payloads: references are inlined as base64
+# data URLs, so a huge file becomes a huge request body.
+_MAX_REFERENCE_BYTES = 20 * 1024 * 1024
+
 
 class CodexImageGenerationError(RuntimeError):
     """A safe, user-displayable image generation failure."""
 
 
-def generate_image(prompt: str) -> Path:
-    """Generate one image with Codex OAuth and save it under Code Puppy data."""
+def generate_image(
+    prompt: str, reference_images: Sequence[str | Path] | None = None
+) -> Path:
+    """Generate one image with Codex OAuth and save it under Code Puppy data.
+
+    Args:
+        prompt: The image description.
+        reference_images: Optional paths to existing images. When provided, the
+            request goes to ``/images/edits`` and the model conditions on them,
+            preserving subject identity and style far better than describing the
+            subject in words. When omitted, behavior is unchanged: a plain
+            text-to-image call to ``/images/generations``.
+
+    Returns:
+        Path to the saved PNG.
+    """
     normalized_prompt = prompt.strip()
     if not normalized_prompt:
         raise CodexImageGenerationError(t("codex.imagegen.prompt_required"))
@@ -38,13 +84,46 @@ def generate_image(prompt: str) -> Path:
     if not access_token or not account_id:
         raise CodexImageGenerationError(t("codex.imagegen.auth_required"))
 
-    response = _post_generation_request(access_token, account_id, normalized_prompt)
+    encoded_references = _encode_references(reference_images or ())
+    response = _post_generation_request(
+        access_token, account_id, normalized_prompt, encoded_references
+    )
     image_bytes = _decode_first_image(response)
     return _save_image(image_bytes)
 
 
+def _encode_references(paths: Iterable[str | Path]) -> list[str]:
+    """Read reference images and return them as base64 data-URL strings."""
+    encoded: list[str] = []
+    for raw in paths:
+        path = Path(raw).expanduser()
+        if not path.is_file():
+            raise CodexImageGenerationError(
+                t("codex.imagegen.reference_missing", path=str(path))
+            )
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            raise CodexImageGenerationError(
+                t("codex.imagegen.reference_unreadable", path=str(path))
+            ) from exc
+        if len(data) > _MAX_REFERENCE_BYTES:
+            raise CodexImageGenerationError(
+                t("codex.imagegen.reference_too_large", path=str(path))
+            )
+        mime, _ = mimetypes.guess_type(str(path))
+        if not (mime or "").startswith("image/"):
+            mime = "image/png"
+        b64 = base64.b64encode(data).decode("ascii")
+        encoded.append(f"data:{mime};base64,{b64}")
+    return encoded
+
+
 def _post_generation_request(
-    access_token: str, account_id: str, prompt: str
+    access_token: str,
+    account_id: str,
+    prompt: str,
+    reference_data_urls: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     base_url = str(CHATGPT_OAUTH_CONFIG["api_base_url"]).rstrip("/")
     headers = {
@@ -58,17 +137,31 @@ def _post_generation_request(
             f"{CHATGPT_OAUTH_CONFIG.get('client_version', 'unknown')}"
         ),
     }
-    payload = {
-        "prompt": prompt,
-        "background": "auto",
-        "model": _IMAGE_MODEL,
-        "quality": "auto",
-        "size": "auto",
-    }
+    if reference_data_urls:
+        # Reference-conditioned edit. `images` entries MUST be objects whose
+        # only accepted key is `image_url` (see module docstring); `background`
+        # is not accepted on this endpoint.
+        endpoint = "/images/edits"
+        payload = {
+            "prompt": prompt,
+            "model": _IMAGE_MODEL,
+            "images": [{"image_url": url} for url in reference_data_urls],
+            "quality": "auto",
+            "size": "auto",
+        }
+    else:
+        endpoint = "/images/generations"
+        payload = {
+            "prompt": prompt,
+            "background": "auto",
+            "model": _IMAGE_MODEL,
+            "quality": "auto",
+            "size": "auto",
+        }
 
     try:
         response = requests.post(
-            f"{base_url}/images/generations",
+            f"{base_url}{endpoint}",
             headers=headers,
             json=payload,
             timeout=_REQUEST_TIMEOUT_SECONDS,

@@ -56,28 +56,28 @@ class TestGetSettingChoices:
         assert "high" in choices
 
     @patch("code_puppy.command_line.model_settings_menu.ModelFactory")
-    def test_reasoning_effort_with_xhigh_but_without_ultra(self, mock_factory):
+    def test_reasoning_effort_with_xhigh_but_without_max(self, mock_factory):
         mock_factory.load_config.return_value = {
             "codex": {
                 "supports_xhigh_reasoning": True,
-                "supports_ultra_reasoning": False,
+                "supports_max_reasoning": False,
             }
         }
         choices = _get_setting_choices("reasoning_effort", "codex")
         assert "xhigh" in choices
-        assert "ultra" not in choices
+        assert "max" not in choices
 
     @patch("code_puppy.command_line.model_settings_menu.ModelFactory")
-    def test_reasoning_effort_with_ultra(self, mock_factory):
+    def test_reasoning_effort_with_max(self, mock_factory):
         mock_factory.load_config.return_value = {
             "gpt-5.6-sol": {
                 "supports_xhigh_reasoning": True,
-                "supports_ultra_reasoning": True,
+                "supports_max_reasoning": True,
             }
         }
         choices = _get_setting_choices("reasoning_effort", "gpt-5.6-sol")
         assert "xhigh" in choices
-        assert "ultra" in choices
+        assert "max" in choices
 
     def test_non_choice_setting(self):
         choices = _get_setting_choices("temperature")
@@ -87,7 +87,7 @@ class TestGetSettingChoices:
     def test_reasoning_effort_no_model_name(self, mock_factory):
         choices = _get_setting_choices("reasoning_effort")
         assert "xhigh" in choices  # no filtering without model
-        assert "ultra" in choices
+        assert "max" in choices
 
 
 # --------------- ModelSettingsMenu properties ---------------
@@ -324,9 +324,27 @@ class TestRenderMainList:
     @patch.dict(
         "code_puppy.command_line.model_settings_menu._RETRY_MENU_KEYS", {}, clear=True
     )
-    def test_render_settings_view_no_settings(self, mock_settings, mock_supports):
+    def test_render_settings_view_universal_settings_always_offered(
+        self, mock_settings, mock_supports
+    ):
+        # Custom Params apply to every model regardless of capability flags,
+        # so even a model supporting zero gated settings still gets a row.
         menu = _make_menu()
         menu._load_model_settings("gpt-5")
+        menu.view_mode = "settings"
+        lines = menu._render_main_list()
+        text = "".join(t for _, t in lines)
+        assert "Custom Params" in text
+        assert "No configurable settings" not in text
+
+    def test_render_settings_view_no_settings_empty_state(self):
+        # Defensive branch: unreachable via _load_model_settings today (the
+        # universal settings above guarantee a non-empty list), but the
+        # renderer must still degrade gracefully if the list is empty.
+        menu = _make_menu()
+        menu.selected_model = "gpt-5"
+        menu.supported_settings = []
+        menu.current_settings = {}
         menu.view_mode = "settings"
         lines = menu._render_main_list()
         text = "".join(t for _, t in lines)
@@ -402,10 +420,12 @@ class TestRenderDetailsPanel:
         "code_puppy.command_line.model_settings_menu._RETRY_MENU_KEYS", {}, clear=True
     )
     def test_models_view_no_supported_settings(self, mock_settings, mock_supports):
+        # Universal settings (Custom Params) are offered for every model, so
+        # the configurable-settings list is never truly empty.
         menu = _make_menu(models=["m1"])
         lines = menu._render_details_panel()
         text = "".join(t for _, t in lines)
-        assert "None" in text
+        assert "Custom Params" in text
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
     @patch(
@@ -492,9 +512,24 @@ class TestRenderDetailsPanel:
         "code_puppy.command_line.model_settings_menu._RETRY_MENU_KEYS", {}, clear=True
     )
     def test_settings_view_no_settings(self, mock_settings, mock_supports):
+        # Even a model with zero capability-gated settings gets the universal
+        # Custom Params entry, so the details panel shows its description.
         mock_supports.return_value = False
         menu = _make_menu()
         menu._load_model_settings("gpt-5")
+        menu.view_mode = "settings"
+        lines = menu._render_details_panel()
+        text = "".join(t for _, t in lines)
+        assert "Custom Params" in text
+        assert "doesn't expose" not in text
+
+    def test_settings_view_empty_list_defensive(self):
+        # Defensive branch: unreachable via _load_model_settings today, but
+        # the panel must still degrade gracefully with no settings at all.
+        menu = _make_menu()
+        menu.selected_model = "gpt-5"
+        menu.supported_settings = []
+        menu.current_settings = {}
         menu.view_mode = "settings"
         lines = menu._render_details_panel()
         text = "".join(t for _, t in lines)
@@ -707,6 +742,9 @@ class TestEditing:
             mock_supports.side_effect = lambda m, s: s == "_test_numeric"
             menu2 = _make_menu()
             menu2._load_model_settings("gpt-5")
+            # Custom Params is always offered too, so index 0 isn't
+            # guaranteed to be our test setting — select it explicitly.
+            menu2.setting_index = menu2.supported_settings.index("_test_numeric")
             menu2._start_editing()
             assert menu2.edit_value == 5.0  # (0+10)/2
         finally:
