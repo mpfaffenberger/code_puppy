@@ -25,6 +25,11 @@ Trust model (identical philosophy to ``code_puppy/plugins/trust.py``):
   ``allow``).
 * **Fail closed**: an unreadable store, malformed JSON, or an unhashable file
   all resolve to "not trusted" → the project config is silently ignored.
+* **A file can't be its own less-trusted twin**: the project candidate can
+  resolve to the very same file as ``config.MCP_SERVERS_FILE`` — the usual
+  way being ``<CWD> == $HOME`` under the default config location. That file
+  is already loaded as user-level (implicitly trusted), so there is nothing
+  to gate and :func:`get_project_mcp_servers_file` returns ``None``.
 """
 
 from __future__ import annotations
@@ -66,15 +71,47 @@ def get_project_mcp_servers_file(project_root: Optional[Path] = None) -> Optiona
 
     Like :func:`code_puppy.config.get_project_agents_directory`, this never
     creates anything — the team opts in by committing the file.
+
+    Returns ``None`` when the candidate resolves to the *same file* as
+    :data:`code_puppy.config.MCP_SERVERS_FILE`. That is the case whenever
+    ``<CWD>/.code_puppy/mcp_servers.json`` and the user-level config are one
+    path — most commonly ``CWD == $HOME`` under the default config location,
+    which is the normal state for anyone who just runs ``code-puppy`` from
+    their home directory. (With ``XDG_CONFIG_HOME`` set the user-level file
+    lives elsewhere and the two are ordinarily distinct — which is why the
+    check is against ``MCP_SERVERS_FILE`` itself, never against ``$HOME``.)
+
+    There is no second, less-trusted source to gate: the file is already
+    loaded as user-level (implicitly trusted). Reporting it as an untrusted
+    *project* config would be simply false — it told the user "its servers
+    are NOT loaded" while they were in fact loaded — and ``/mcp trust`` would
+    be ceremony over a decision the user already made by writing the file.
     """
     root = Path(project_root) if project_root is not None else Path.cwd()
     candidate = root / PROJECT_MCP_RELPATH
     try:
-        if candidate.is_file():
-            return candidate
+        if not candidate.is_file():
+            return None
+        if _is_user_level_config(candidate):
+            return None
+        return candidate
     except OSError:  # pragma: no cover - exotic filesystem errors
         return None
-    return None
+
+
+def _is_user_level_config(candidate: Path) -> bool:
+    """True when ``candidate`` IS the user-level MCP config file.
+
+    Compared with ``os.path.samefile`` so a symlink or bind-mount pointing at
+    the user-level config is recognized too, not just a literally equal path.
+    """
+    from code_puppy.config import MCP_SERVERS_FILE
+
+    try:
+        return candidate.samefile(MCP_SERVERS_FILE)
+    except OSError:
+        # User-level file absent/unreadable — then it isn't the same file.
+        return False
 
 
 # ---------- content hashing --------------------------------------------------

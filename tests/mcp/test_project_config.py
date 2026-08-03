@@ -144,6 +144,70 @@ def test_loader_ignores_untrusted_project(project, monkeypatch):
     assert merged == {"user_only": "u"}
 
 
+# ---------- CWD == $HOME: the config is its own "project" file ----------------
+#
+# Run `code-puppy` from your home directory and CWD == $HOME, so
+# <CWD>/.code_puppy/mcp_servers.json IS ~/.code_puppy/mcp_servers.json. The
+# gate used to flag that single file as an untrusted *project* config and warn
+# "its servers are NOT loaded" — while the very same file was already loaded as
+# user-level. One file cannot be its own less-trusted twin.
+
+
+def test_config_that_is_the_user_level_file_is_not_a_project_config(
+    project, monkeypatch
+):
+    cfg = _write_project_config(project, {"some-server": {"type": "sse"}})
+    monkeypatch.setattr(cp_config, "MCP_SERVERS_FILE", str(cfg))
+
+    assert pc.get_project_mcp_servers_file() is None
+    assert pc.is_project_mcp_trusted() is False  # nothing to trust
+    assert pc.load_project_mcp_server_configs() == {}
+
+
+def test_no_untrusted_warning_when_config_is_the_user_level_file(project, monkeypatch):
+    """The warning claimed servers were not loaded. They were."""
+    cfg = _write_project_config(project, {"some-server": {"type": "sse", "url": "u"}})
+    monkeypatch.setattr(cp_config, "MCP_SERVERS_FILE", str(cfg))
+
+    warnings = []
+    monkeypatch.setattr(pc, "_warn_untrusted", lambda *a, **k: warnings.append(a))
+
+    merged = cp_config.load_mcp_server_configs()
+
+    # Loaded via the user-level source — so no "NOT loaded" warning is honest.
+    assert merged == {"some-server": {"type": "sse", "url": "u"}}
+    assert warnings == []
+
+
+def test_symlink_to_user_level_config_is_not_a_project_config(
+    project, monkeypatch, tmp_path
+):
+    """samefile(), not path equality — a symlink is the same file too."""
+    real = tmp_path / "real_mcp.json"
+    real.write_text(json.dumps({"mcp_servers": {"s": "v"}}))
+    monkeypatch.setattr(cp_config, "MCP_SERVERS_FILE", str(real))
+
+    cfg_dir = project / ".code_puppy"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "mcp_servers.json").symlink_to(real)
+
+    assert pc.get_project_mcp_servers_file() is None
+
+
+def test_a_genuinely_separate_project_config_is_still_gated(project, monkeypatch):
+    """The real gate must keep working — this fix must not widen it."""
+    user_file = project / "user_mcp.json"
+    user_file.write_text(json.dumps({"mcp_servers": {"user_only": "u"}}))
+    monkeypatch.setattr(cp_config, "MCP_SERVERS_FILE", str(user_file))
+
+    _write_project_config(project, {"proj_only": {"type": "stdio", "command": "x"}})
+
+    assert pc.get_project_mcp_servers_file() is not None
+    assert cp_config.load_mcp_server_configs() == {"user_only": "u"}  # gated
+    assert pc.trust_project_mcp() is True
+    assert "proj_only" in cp_config.load_mcp_server_configs()  # honored once trusted
+
+
 # ---------- parse helper -----------------------------------------------------
 
 
