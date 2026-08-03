@@ -72,3 +72,11 @@ def test_older_models_keep_unique_runtime_identity():
     agent = SimpleNamespace(get_full_system_prompt=lambda: "instructions" + dynamic)
 
     assert _full_system_prompt_for_model(agent, "gpt-5.5") == ("instructions" + dynamic)
+
+
+def test_gpt_5_6_preserves_instructions_for_untyped_identity_hook():
+    """Alternate agents and test doubles may not implement identity hooks."""
+    agent = MagicMock()
+    agent.get_full_system_prompt.return_value = "instructions"
+
+    assert _full_system_prompt_for_model(agent, "gpt-5.6-sol") == "instructions"

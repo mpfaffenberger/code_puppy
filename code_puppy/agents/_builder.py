@@ -480,12 +480,15 @@ def _full_system_prompt_for_model(agent: Any, resolved_model_name: str) -> str:
         return instructions
 
     runtime_identity = agent.get_identity_prompt()
-    if instructions.endswith(runtime_identity):
-        return (
-            instructions[: -len(runtime_identity)]
-            + agent.get_cache_stable_identity_prompt()
-        )
-    return instructions
+    if not isinstance(runtime_identity, str) or not runtime_identity:
+        return instructions
+    if not instructions.endswith(runtime_identity):
+        return instructions
+
+    stable_identity = agent.get_cache_stable_identity_prompt()
+    if not isinstance(stable_identity, str) or not stable_identity:
+        return instructions
+    return instructions[: -len(runtime_identity)] + stable_identity
 
 
 def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
