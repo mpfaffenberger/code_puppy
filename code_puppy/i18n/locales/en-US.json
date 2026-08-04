@@ -12,6 +12,7 @@
     "other": "Wrote {count} files."
   },
   "error.generic": "Something went wrong: {detail}",
+  "cli.error.no_ports": "No available ports in range {port_base}-{port_end}!",
   "version.current": "Current version: {version}",
   "version.latest": "Latest version: {version}",
   "version.update_available": "A new version of code puppy is available: {version}",

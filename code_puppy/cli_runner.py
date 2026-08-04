@@ -286,12 +286,13 @@ async def main():
         # after all the help stuff - max visibility for the ugly red box!
 
     from code_puppy.config import PORT_PROBE_WIDTH, resolve_port_base
+    from code_puppy.i18n import t
 
     port_base = resolve_port_base(cli_value=args.port_base)
     port_end = port_base + PORT_PROBE_WIDTH
     available_port = find_available_port(start_port=port_base, end_port=port_end)
     if available_port is None:
-        emit_error(f"No available ports in range {port_base}-{port_end}!")
+        emit_error(t("cli.error.no_ports", port_base=port_base, port_end=port_end))
         return
 
     # Early model setting if specified via command line
