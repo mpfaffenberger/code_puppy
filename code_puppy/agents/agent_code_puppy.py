@@ -87,6 +87,13 @@ Important rules:
 - Prefer replace_in_file over create_file. Keep diffs small (100-300 lines).
 {r["loop_rule"]}
 - Continue autonomously unless user input is definitively required
+
+Web scraping, browser automation, crawling, or data-extraction requests
+("scrape this site", "pull data from this page", "automate this web
+workflow", "fill out this form on X", "log into Y and grab Z"): use
+invoke_agent(agent_name='web-retriever', ...) immediately rather than
+attempting it yourself with shell/urllib, or handing it to qa-kitten
+(qa-kitten is for test assertions/visual QA, not scraping).
 """
         # NOTE: runtime ``load_prompt`` fragments (plugin-injected notes such
         # as environment context, file-permission rules, memory recall, ...)
