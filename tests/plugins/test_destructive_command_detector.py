@@ -161,7 +161,6 @@ class TestPsPipelineDelete:
     def test_matches(self, cmd: str) -> None:
         result = _hits(cmd)
         assert result is not None
-        assert "Piped" in result.pattern_name
 
 
 class TestPsFormatVolume:

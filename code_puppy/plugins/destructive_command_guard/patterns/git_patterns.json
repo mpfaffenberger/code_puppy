@@ -3,14 +3,7 @@
         {
             "name": "Git destructive commands",
             "cheap_substrings": [
-                "git push",
-                "git clean",
-                "git reset",
-                "git checkout",
-                "git restore",
-                "--force",
-                "--mirror",
-                "--hard"
+                "git"
             ],
             "expensive_patterns": [
                 {

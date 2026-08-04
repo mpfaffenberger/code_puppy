@@ -80,8 +80,8 @@
             "name": "Windows PowerShell destructive commands",
             "cheap_substrings": [
                 "remove-item",
-                "ri ",
-                " rmdir",
+                "ri",
+                "rmdir",
                 "del",
                 "erase",
                 "format-volume",
@@ -89,7 +89,7 @@
                 "remove-itemproperty",
                 "clear-recyclebin",
                 "invoke-expression",
-                " irm ",
+                "irm",
                 "iex",
                 "get-childitem"
             ],
@@ -147,11 +147,11 @@
         {
             "name": "Windows CMD destructive commands",
             "cheap_substrings": [
-                "rd ",
+                "rd",
                 "format",
                 "diskpart",
                 "bcdedit",
-                "reg ",
+                "reg",
                 "del",
                 "rmdir",
                 "erase"
