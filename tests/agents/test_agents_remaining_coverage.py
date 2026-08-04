@@ -55,6 +55,62 @@ def test_qa_kitten():
     assert "visual assertions" in lowered or "visual assertion" in lowered
 
 
+def test_web_retriever():
+    from code_puppy.agents.agent_web_retriever import WebRetrieverAgent
+
+    agent = WebRetrieverAgent()
+    tools = agent.get_available_tools()
+    assert isinstance(tools, list)
+    prompt = agent.get_system_prompt()
+    assert isinstance(prompt, str)
+
+    # DOM-first progression tools, same as qa-kitten.
+    for tool in (
+        "browser_page_snapshot",
+        "browser_click_by_role",
+        "browser_click_by_text",
+        "browser_set_text_by_label",
+    ):
+        assert tool in tools
+
+    # Screenshot capability preserved for genuinely visual fallback.
+    assert "browser_screenshot_analyze" in tools
+
+    # Unlike qa-kitten, this agent can persist extracted data to disk.
+    for tool in ("create_file", "replace_in_file", "read_file"):
+        assert tool in tools
+
+    lowered = prompt.lower()
+    assert "dom-first" in lowered
+
+    # Anti-injection boundary: scraped page content must be treated as
+    # data, never as instructions to follow.
+    assert "data, never" in lowered or "never a command" in lowered
+
+    # Credential-persistence guardrail: never write literal secrets to
+    # saved workflows/extraction output.
+    assert "plaintext passwords" in lowered
+
+
+def test_code_puppy_routes_scraping_to_web_retriever():
+    """Regression guard: the default orchestrator's routing rule must name
+    web-retriever exactly (a typo here would silently misroute scraping
+    asks with no test failure to catch it)."""
+    from code_puppy.agents.agent_code_puppy import CodePuppyAgent
+
+    prompt = CodePuppyAgent().get_system_prompt()
+    assert "web-retriever" in prompt
+    assert "invoke_agent" in prompt
+
+
+def test_planning_agent_routes_scraping_to_web_retriever():
+    """Same regression guard for planning-agent's routing table."""
+    from code_puppy.agents.agent_planning import PlanningAgent
+
+    prompt = PlanningAgent().get_system_prompt()
+    assert "web-retriever" in prompt
+
+
 def test_helios_agent():
     from code_puppy.agents.agent_helios import HeliosAgent
 
