@@ -529,6 +529,18 @@ def patch_termflow_clipboard() -> None:
         pass  # never crash on patch failure
 
 
+def patch_termflow_table_alignment() -> None:
+    """Keep Termflow table alignment metadata column-aligned."""
+    try:
+        from code_puppy.termflow_patches import patch_termflow_table_alignment as patch
+
+        patch()
+    except ImportError:
+        pass  # termflow or the compatibility helper is unavailable
+    except Exception:
+        pass  # never crash on patch failure
+
+
 def _no_pad_render_code_line(_line, highlighted, width, margin, style, pretty_pad=True):
     """Drop-in for ``render_code_line`` minus the ``' ' * padding`` suffix."""
     return f"{margin}{highlighted}"
@@ -569,3 +581,4 @@ def apply_all_patches() -> None:
     patch_prompt_toolkit_emoji_width()
     patch_termflow_clipboard()
     patch_termflow_code_padding()
+    patch_termflow_table_alignment()
