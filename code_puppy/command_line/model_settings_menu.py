@@ -5,6 +5,7 @@ settings like temperature and seed on a per-model basis.
 """
 
 import sys
+import inspect
 import time
 from typing import Dict, List, Optional
 
@@ -262,12 +263,10 @@ def _supports_setting(
     model_name: str, setting: str, models_config: Optional[dict] = None
 ) -> bool:
     """Check capability against one preloaded model-catalog snapshot."""
-    try:
+    parameters = inspect.signature(model_supports_setting).parameters
+    if "models_config" in parameters:
         return model_supports_setting(model_name, setting, models_config=models_config)
-    except TypeError:
-        # Preserve compatibility with older plugin overrides/test doubles that
-        # still implement the historical two-argument callable.
-        return model_supports_setting(model_name, setting)
+    return model_supports_setting(model_name, setting)
 
 
 # Per-model retry override keys are handled specially: they live in the dedicated
@@ -413,11 +412,10 @@ class ModelSettingsMenu:
         # Model config callbacks may perform network discovery. Snapshot once
         # for this menu session; render/key paths must stay pure and immediate.
         self.models_config = ModelFactory.load_config()
-        try:
+        parameters = inspect.signature(_load_all_model_names).parameters
+        if "models_config" in parameters:
             self.all_models = _load_all_model_names(self.models_config)
-        except TypeError:
-            # Compatibility for older overrides/test doubles with no snapshot
-            # parameter. Production uses the one-load path above.
+        else:
             self.all_models = _load_all_model_names()
         self.current_model_name = get_global_model_name()
 
