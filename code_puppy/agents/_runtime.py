@@ -75,6 +75,7 @@ from code_puppy.agents._non_streaming_render import (
 )
 from code_puppy.agents._run_signals import (
     drain_pause_state_on_cancel,
+    inject_interrupted_subagent_notes,
     make_schedule_cancel,
     prepare_queued_steer_injection,
     reset_pause_state_at_run_start,
@@ -663,6 +664,10 @@ async def _run_with_mcp_impl(
     # steers it would drain are the OUTER run's live ones.
     if not is_nested_run:
         reset_pause_state_at_run_start()
+        # Surface any sub-agent interrupted since the last run (foreground
+        # cancel, or a /fork cancelled while the agent was idle) so the model
+        # knows the delegation was stopped and where to resume it.
+        inject_interrupted_subagent_notes(agent)
 
     prompt = _sanitize_prompt(prompt)
     group_id = str(uuid.uuid4())
