@@ -787,3 +787,67 @@ class TestProgressAwareRetry:
                 asyncio.run(_always())
 
         assert calls["n"] == 4
+
+    def test_progress_reset_uses_minimum_delay_not_maximum(self):
+        # Regression: a progress reset must resend the FIRST (smallest) delay,
+        # not wrap around to delays[-1] (the biggest). Every failure here
+        # "progresses" so streak resets to 0 on every iteration -- the sleep
+        # picked must consistently be delays[0], never delays[-1].
+        from unittest.mock import patch
+
+        from code_puppy.agents._runtime import streaming_retry
+
+        state = {"progress": 0}
+        sleeps = []
+
+        @streaming_retry(
+            max_attempts=3,
+            delays=[5, 15, 30],
+            progress_fn=lambda: state["progress"],
+            max_total_attempts=100,
+        )
+        async def _flaky():
+            state["progress"] += 1  # always makes progress -> streak stays 0
+            raise httpx.ConnectError("blip")
+
+        async def fake_sleep(d):
+            sleeps.append(d)
+            if len(sleeps) >= 3:
+                raise SystemExit("stop-test")
+
+        with patch("code_puppy.agents._runtime.asyncio.sleep", side_effect=fake_sleep):
+            with pytest.raises(SystemExit):
+                asyncio.run(_flaky())
+
+        assert sleeps == [5, 5, 5]
+
+    def test_empty_delays_does_not_crash(self):
+        # Regression: max_attempts=1 makes compute_delays() return [], and the
+        # progress-reset path used to index delays[-1] into that empty list,
+        # raising IndexError instead of falling back gracefully.
+        from unittest.mock import patch
+
+        from code_puppy.agents._runtime import streaming_retry
+        from code_puppy.agents.retry_profiles import MIN_DELAY_SECONDS
+
+        state = {"progress": 0}
+        sleeps = []
+
+        @streaming_retry(
+            max_attempts=1,
+            delays=[],
+            progress_fn=lambda: state["progress"],
+            max_total_attempts=3,
+        )
+        async def _flaky():
+            state["progress"] += 1  # always makes progress -> streak stays 0
+            raise httpx.ConnectError("blip")
+
+        async def fake_sleep(d):
+            sleeps.append(d)
+
+        with patch("code_puppy.agents._runtime.asyncio.sleep", side_effect=fake_sleep):
+            with pytest.raises(httpx.ConnectError):
+                asyncio.run(_flaky())
+
+        assert sleeps == [MIN_DELAY_SECONDS, MIN_DELAY_SECONDS]
