@@ -714,12 +714,18 @@ def reset_session_model():
     _SESSION_MODEL = None
 
 
-def model_supports_setting(model_name: str, setting: str) -> bool:
+def model_supports_setting(
+    model_name: str,
+    setting: str,
+    models_config: Optional[dict[str, Any]] = None,
+) -> bool:
     """Check if a model supports a particular setting (e.g., 'temperature', 'seed').
 
     Args:
         model_name: The name of the model to check.
         setting: The setting name to check for (e.g., 'temperature', 'seed', 'top_p').
+        models_config: Optional preloaded model catalog. Callers checking several
+            settings should pass one snapshot to avoid repeated config loads.
 
     Returns:
         True if the model supports the setting, False otherwise.
@@ -747,7 +753,8 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
     try:
         from code_puppy.model_factory import ModelFactory
 
-        models_config = ModelFactory.load_config()
+        if models_config is None:
+            models_config = ModelFactory.load_config()
         model_config = models_config.get(model_name, {})
         if setting in ("reasoning_context", "reasoning_mode"):
             underlying_name = str(model_config.get("name", "")).lower()
