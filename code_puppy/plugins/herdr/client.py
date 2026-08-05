@@ -1,4 +1,4 @@
-"""Fire-and-forget client for the herdr pane socket.
+r"""Fire-and-forget client for the herdr pane socket.
 
 herdr (https://herdr.dev) is a terminal workspace manager for coding
 agents. When code-puppy runs inside a herdr pane, herdr injects three
@@ -30,9 +30,13 @@ always converges on the latest authoritative facts. Request ``id`` and
 order stays monotonic even when critical work overtakes decorative work;
 retries reuse the same serialized envelope (herdr dedupes on ``seq``).
 
-Windows named-pipe transport is intentionally out of scope; herdr's
-Windows build is beta and ``AF_UNIX`` is the contract everywhere else.
-When the socket is unavailable the client is simply inactive.
+Transport is ``AF_UNIX`` everywhere it exists. On Windows (where CPython
+still has no ``socket.AF_UNIX``), herdr's build -- via Rust's
+``interprocess`` crate -- maps the file-style ``HERDR_SOCKET_PATH`` onto a
+named pipe whose name *is* the full path (``\\.\pipe\C:\...\herdr.sock``),
+so plain stdlib file I/O on that pipe path gives the same bidirectional
+byte stream. When neither transport is available the client is simply
+inactive.
 """
 
 from __future__ import annotations
@@ -90,7 +94,7 @@ class HerdrClient:
             os.environ.get("HERDR_ENV") == "1"
             and self._socket_path
             and self._pane_id
-            and hasattr(socket, "AF_UNIX")
+            and (hasattr(socket, "AF_UNIX") or os.name == "nt")
         )
 
         # One condition guards every mailbox slot and the lifecycle flags.
@@ -289,16 +293,8 @@ class HerdrClient:
         last_exc: Optional[Exception] = None
         for attempt in range(_SEND_ATTEMPTS):
             try:
-                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-                    sock.settimeout(_CONNECT_TIMEOUT_S)
-                    sock.connect(self._socket_path)  # type: ignore[arg-type]
-                    sock.sendall(payload)
-                    # Any nonempty response is an ack: herdr already treats the
-                    # report as taken (even a busy ``shown:false`` reply), so we
-                    # stop. No bytes (closed / timed-out) means it may not have
-                    # applied -> retry the identical envelope.
-                    if sock.recv(_ACK_BYTES):
-                        return
+                if self._deliver(payload):
+                    return
             except (OSError, ValueError) as exc:
                 last_exc = exc
             if attempt + 1 < _SEND_ATTEMPTS:
@@ -311,6 +307,38 @@ class HerdrClient:
             _SEND_ATTEMPTS,
             last_exc,
         )
+
+    def _deliver(self, payload: bytes) -> bool:
+        """One wire attempt. ``True`` means herdr acked the report.
+
+        Any nonempty response is an ack: herdr already treats the report as
+        taken (even a busy ``shown:false`` reply). No bytes (closed /
+        timed-out) means it may not have applied -> caller retries the
+        identical envelope.
+        """
+        if os.name == "nt":
+            return self._deliver_pipe(payload)
+        return self._deliver_unix(payload)
+
+    def _deliver_unix(self, payload: bytes) -> bool:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(_CONNECT_TIMEOUT_S)
+            sock.connect(self._socket_path)  # type: ignore[arg-type]
+            sock.sendall(payload)
+            return bool(sock.recv(_ACK_BYTES))
+
+    def _deliver_pipe(self, payload: bytes) -> bool:
+        # herdr's Windows build (Rust ``interprocess`` crate) exposes the
+        # named pipe ``\\.\pipe\<full HERDR_SOCKET_PATH>``; the .sock file
+        # itself is just a pid marker. CreateFile fails fast when herdr is
+        # gone (OSError -> retry lane). The ack read has no timeout, but
+        # replies are immediate in practice, the worker is a daemon thread,
+        # and ``release_and_close`` is caller-bounded, so a wedged herdr
+        # cannot hang the agent or its shutdown.
+        pipe_name = "\\\\.\\pipe\\" + str(self._socket_path)
+        with open(pipe_name, "r+b", buffering=0) as pipe:
+            pipe.write(payload)
+            return bool(pipe.readline(_ACK_BYTES))
 
 
 __all__ = ["HerdrClient", "SOURCE", "AGENT"]
