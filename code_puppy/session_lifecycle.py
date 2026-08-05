@@ -73,7 +73,7 @@ def persist_named_session(
     *,
     base_dir: Path,
     auto_saved: bool = False,
-    success_message_template: Optional[str] = None,
+    success_message_key: Optional[str] = None,
 ) -> SessionMetadata:
     """Save ``agent.get_message_history()`` under ``session_name`` and fire hooks.
 
@@ -83,14 +83,19 @@ def persist_named_session(
     ``/dump_context``. The bit is preserved in ``SessionMetadata`` so
     downstream consumers can filter.
 
-    ``success_message_template`` (optional) is a format string with these
-    available substitutions: ``{message_count}``, ``{total_tokens}``,
-    ``{pickle_path}``, ``{metadata_path}``, ``{session_name}``. When provided,
-    the formatted result is emitted via ``emit_success`` so a caller like
-    ``/dump_context`` can keep its existing user-facing line without
-    bifurcating the helper. When omitted, no success line is emitted (the
-    correct behavior for silent save-back paths like ``-r NAME`` and
-    periodic autosave).
+    ``success_message_key`` (optional) is an i18n catalog key. When provided,
+    the helper resolves it via ``t()`` with the following available named
+    parameters -- ``{message_count}``, ``{total_tokens}``, ``{pickle_path}``,
+    ``{metadata_path}``, ``{session_name}`` -- and emits the result via
+    ``emit_success`` so a caller like ``/dump_context`` can keep its
+    user-facing line without bifurcating the helper. When omitted, no success
+    line is emitted (the correct behavior for silent save-back paths like
+    ``-r NAME`` and periodic autosave).
+
+    Passing a catalog *key* (not a raw template) is deliberate: catalog text
+    is untrusted input and must NEVER be routed through ``str.format`` --
+    ``t()`` uses a hardened ``{identifier}``-only interpolator that neither
+    walks object internals nor honours format specs. See ``docs/I18N.md``.
 
     Returns the ``SessionMetadata`` produced by ``save_session`` so callers can
     surface their own UX as well.
@@ -103,27 +108,24 @@ def persist_named_session(
         token_estimator=agent.estimate_tokens_for_message,
         auto_saved=auto_saved,
     )
-    if success_message_template is not None:
-        try:
-            from code_puppy.messaging import emit_success
+    if success_message_key is not None:
+        # Safe seam: t() interpolates via the hardened {identifier} grammar,
+        # so a missing/renamed placeholder leaves the token intact rather
+        # than raising -- no need for the old defensive try/except that
+        # str.format required.
+        from code_puppy.i18n import t
+        from code_puppy.messaging import emit_success
 
-            emit_success(
-                success_message_template.format(
-                    message_count=metadata.message_count,
-                    total_tokens=metadata.total_tokens,
-                    pickle_path=metadata.pickle_path,
-                    metadata_path=metadata.metadata_path,
-                    session_name=session_name,
-                )
+        emit_success(
+            t(
+                success_message_key,
+                message_count=metadata.message_count,
+                total_tokens=metadata.total_tokens,
+                pickle_path=metadata.pickle_path,
+                metadata_path=metadata.metadata_path,
+                session_name=session_name,
             )
-        except (KeyError, IndexError, ValueError):
-            # KeyError: template references an unknown {field}.
-            # IndexError: positional placeholder out of range.
-            # ValueError: bad format spec like "{x:!}". All three are bugs
-            # in the caller-supplied template, not transient failures --
-            # swallow so the save path keeps running, but DON'T swallow
-            # MemoryError / KeyboardInterrupt / etc.
-            pass
+        )
     # NOTE: deliberately does NOT fire ``fire_post_autosave_callback``.
     # The ``post_autosave`` hook is reserved for the periodic background
     # auto-save path (``config.auto_save_session_if_enabled``); firing it
