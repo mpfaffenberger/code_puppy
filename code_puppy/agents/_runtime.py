@@ -480,9 +480,20 @@ def streaming_retry(
 
                     # Delay indexes into the current no-progress streak, so a
                     # progress reset also resets the backoff to the quick first
-                    # retry.
-                    idx = streak - 1
-                    delay = delays[idx] if idx < len(delays) else delays[-1]
+                    # retry. streak >= 1 here (checked above), but clamp with
+                    # max(0, ...) defensively rather than trust that invariant
+                    # forever, and reuse the *last* (largest) delay once the
+                    # streak outgrows the list -- never wrap around to it via
+                    # Python's negative-index trick.
+                    idx = max(0, streak - 1)
+                    if delays:
+                        delay = delays[min(idx, len(delays) - 1)]
+                    else:
+                        from code_puppy.agents.retry_profiles import (
+                            MIN_DELAY_SECONDS,
+                        )
+
+                        delay = MIN_DELAY_SECONDS
                     emit_warning(
                         "\u26a1 Turn interrupted mid-stream, re-running from the "
                         f"last completed step in {delay}s... "
