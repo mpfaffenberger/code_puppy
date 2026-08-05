@@ -219,6 +219,20 @@ class TestModelFiltering:
         assert "claude-opus-4-6" not in filtered
         assert "claude-opus-4-1-20250805" not in filtered
 
+    def test_filter_latest_claude_models_opus_5_special_case(self):
+        """claude-opus-5 (single-digit, no date) should win over 4-x opus models."""
+        models = [
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-opus-5",
+        ]
+
+        filtered = filter_latest_claude_models(models, max_per_family=1)
+
+        assert "claude-opus-5" in filtered
+        assert "claude-opus-4-8" not in filtered
+        assert "claude-opus-4-7" not in filtered
+
     def test_filter_latest_claude_models_max_per_family_one(self):
         """Test that max_per_family=1 keeps only the single latest."""
         models = [

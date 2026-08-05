@@ -78,9 +78,9 @@ class TestSettingDefinitions:
         """Test reasoning_effort setting has correct choices."""
         reason_def = SETTING_DEFINITIONS["reasoning_effort"]
         assert reason_def["type"] == "choice"
-        assert "minimal" in reason_def["choices"]
+        assert "none" in reason_def["choices"]
         assert "high" in reason_def["choices"]
-        assert "ultra" in reason_def["choices"]
+        assert "max" in reason_def["choices"]
 
     def test_summary_setting_definition(self):
         """Test reasoning summary setting has correct choices."""
@@ -271,7 +271,7 @@ class TestChoiceSettingValidation:
         """Test reasoning effort accepts valid choices."""
         reason_def = SETTING_DEFINITIONS["reasoning_effort"]
         valid_choices = reason_def["choices"]
-        for choice in ["minimal", "low", "medium", "high", "xhigh", "ultra"]:
+        for choice in ["none", "low", "medium", "high", "xhigh", "max"]:
             if choice in valid_choices:
                 assert True
                 break

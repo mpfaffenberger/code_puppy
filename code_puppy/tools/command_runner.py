@@ -105,6 +105,8 @@ else:
 
 
 _AWAITING_USER_INPUT = threading.Event()
+_AWAITING_USER_INPUT_NOTIFY = threading.Event()
+_AWAITING_USER_INPUT_NOTIFY.set()
 
 # NOTE: The previous module-level ``_CONFIRMATION_LOCK`` was removed --
 # queueing of parallel approval prompts now lives inside
@@ -295,9 +297,18 @@ def is_awaiting_user_input():
     return _AWAITING_USER_INPUT.is_set()
 
 
+def should_notify_awaiting_user_input() -> bool:
+    """Return whether the current interactive wait should alert observers."""
+    return _AWAITING_USER_INPUT_NOTIFY.is_set()
+
+
 # Function to set user input flag
-def set_awaiting_user_input(awaiting=True):
-    """Set the flag indicating if user input is awaited.
+def set_awaiting_user_input(awaiting=True, *, notify=True):
+    """Set whether input is awaited and whether observers should notify.
+
+    ``notify=False`` is for user-initiated menus such as ``/model``. Agent-
+    initiated prompts and approval gates should retain the default so external
+    observers can alert the user.
 
     NOTE: this only toggles the flag. Components that actually take over
     the terminal for input (approval prompts, ask_user_question TUI) are
@@ -312,6 +323,10 @@ def set_awaiting_user_input(awaiting=True):
     than each prompt having to announce itself (or an external watcher having
     to guess from the screen).
     """
+    if notify:
+        _AWAITING_USER_INPUT_NOTIFY.set()
+    else:
+        _AWAITING_USER_INPUT_NOTIFY.clear()
     if awaiting:
         _AWAITING_USER_INPUT.set()
     else:
@@ -1211,7 +1226,13 @@ async def run_shell_command(
     if not command or not command.strip():
         emit_error("Command cannot be empty", message_group=group_id)
         return ShellCommandOutput(
-            **{"success": False, "error": "Command cannot be empty"}
+            success=False,
+            command=command,
+            error="Command cannot be empty",
+            stdout=None,
+            stderr=None,
+            exit_code=None,
+            execution_time=None,
         )
 
     from code_puppy.config import get_yolo_mode
@@ -1542,7 +1563,7 @@ def register_agent_run_shell_command(agent):
     @agent.tool
     async def agent_run_shell_command(
         context: RunContext,
-        command: str = "",
+        command: str,
         cwd: str = None,
         timeout: int = 60,
         background: bool = False,

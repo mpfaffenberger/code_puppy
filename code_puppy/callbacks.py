@@ -511,6 +511,9 @@ def on_awaiting_user_input(awaiting: bool) -> List[Any]:
     (shell-command approval, file-permission approval, ``ask_user_question``,
     and every menu/picker). ``awaiting`` is ``True`` when a prompt takes over
     the terminal and ``False`` the instant control returns to the agent.
+    Notification intent is available through
+    ``command_runner.should_notify_awaiting_user_input()`` without changing
+    this callback's backward-compatible signature.
 
     Observers only (e.g. the herdr reporter mapping it to blocked/working);
     return values are ignored. Sync, because the callers are sync and on hot

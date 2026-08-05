@@ -455,6 +455,9 @@ def filter_latest_claude_models(
     family_models: Dict[str, List[Tuple[str, int, int, int]]] = {}
 
     for model_name in models:
+        if model_name == "claude-opus-5":
+            family_models.setdefault("opus", []).append((model_name, 5, 0, 0))
+            continue
         if model_name == "claude-opus-4-8":
             family_models.setdefault("opus", []).append((model_name, 4, 8, 20250301))
             continue
@@ -576,6 +579,8 @@ def _build_model_entry(model_name: str, access_token: str, context_length: int) 
         or "4-7-opus" in lower
         or "opus-4-8" in lower
         or "4-8-opus" in lower
+        or "opus-5" in lower
+        or "5-opus" in lower
         or "sonnet-5" in lower
         or "5-sonnet" in lower
         or "fable-5" in lower

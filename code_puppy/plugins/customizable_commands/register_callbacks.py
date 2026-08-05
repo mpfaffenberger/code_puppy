@@ -329,6 +329,17 @@ def _run_exec_directive(directive: str, name: str, args: str = "") -> None:
     one in.
     Sets ``FORCE_COLOR=1`` so scripts emit ANSI even though stdout is a pipe;
     :func:`emit_shell_line` then renders the ANSI via Rich's ``Text.from_ansi``.
+    Also sets ``PYTHONIOENCODING=utf-8`` and decodes the captured output as
+    UTF-8 explicitly: on Windows a child Python attached to a pipe otherwise
+    defaults its stdout to the legacy codepage (cp1252) and dies with
+    ``UnicodeEncodeError`` the moment a script prints an emoji -- and the
+    parent-side ``text=True`` decode would mojibake for the same reason.
+    UTF-8 on both ends of the pipe, no exceptions. Deliberately NOT setting
+    ``PYTHONUTF8=1``: full UTF-8 mode also flips the default ``open()``
+    encoding for every Python child of every exec command -- a much broader
+    semantic change than the stdio bug calls for, and ``PYTHONIOENCODING``
+    alone is verified sufficient to prevent the crash (even for older
+    installed scripts still using Rich's legacy-Windows path).
 
     Any extra tokens the user typed after the command (e.g. ``/flux/status todo``)
     are shell-quoted and appended to the directive so dangerous shell chars in
@@ -351,13 +362,20 @@ def _run_exec_directive(directive: str, name: str, args: str = "") -> None:
             full_cmd = directive + " " + " ".join(shlex.quote(t) for t in tokens)
 
     emit_info(f"  Running exec for /{name}: {full_cmd}")
-    env = {**os.environ, "FORCE_COLOR": "1"}
+    env = {
+        **os.environ,
+        "FORCE_COLOR": "1",
+        # Force UTF-8 stdio in child Pythons; harmless for non-Python tools.
+        # (Narrowest lever on purpose -- see docstring for why not PYTHONUTF8.)
+        "PYTHONIOENCODING": "utf-8",
+    }
     try:
         result = subprocess.run(
             full_cmd,
             shell=True,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=_EXEC_TIMEOUT_SECONDS,
             env=env,
         )

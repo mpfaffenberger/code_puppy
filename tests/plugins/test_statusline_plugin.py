@@ -851,29 +851,42 @@ class TestCrossPlatform:
 
     # --- payload.py encoding guard ---
 
-    def test_detect_git_branch_uses_utf8_encoding(self):
-        """detect_git_branch() subprocess call must use encoding='utf-8'.
+    def test_detect_git_branch_handles_unicode_branch(self):
+        """detect_git_branch() must return non-ASCII branch names without raising.
 
         Branch names containing non-ASCII chars (e.g. feature/für-münchen)
-        would hit the same cp1252 crash on Windows as the runner bug.
+        would crash on Windows if the output weren't decoded as UTF-8.
+
+        Note: detect_git_branch uses a temp file for stdout (not subprocess.PIPE)
+        to avoid Windows pipe deadlocks, so it decodes manually via
+        ``out_f.read().decode("utf-8", "replace")`` rather than
+        ``subprocess.run(encoding=...)``. We verify the UTF-8 decoding works
+        by injecting a mock temp file that yields UTF-8 bytes.
         """
         from code_puppy.plugins.statusline.payload import detect_git_branch
 
-        captured_kwargs = {}
+        branch_name = "feature/für-münchen"
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
 
-        def fake_run(*args, **kwargs):
-            captured_kwargs.update(kwargs)
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = "main\n"
-            return result
+        # Simulate the temp file pattern: stdout is a BinaryIO
+        mock_temp = MagicMock()
+        mock_temp.__enter__ = MagicMock(return_value=mock_temp)
+        mock_temp.__exit__ = MagicMock(return_value=False)
+        mock_temp.read.return_value = branch_name.encode("utf-8")
 
-        with patch(
-            "code_puppy.plugins.statusline.payload.subprocess.run", side_effect=fake_run
+        with (
+            patch(
+                "code_puppy.plugins.statusline.payload.subprocess.run",
+                return_value=mock_proc,
+            ),
+            patch(
+                "tempfile.TemporaryFile",
+                return_value=mock_temp,
+            ),
         ):
-            detect_git_branch("/tmp")
+            result = detect_git_branch("/tmp")
 
-        assert captured_kwargs.get("encoding") == "utf-8", (
-            "detect_git_branch subprocess.run must use encoding='utf-8'"
-        )
-        assert captured_kwargs.get("errors") == "replace"
+        assert result == branch_name, f"Expected {branch_name!r}, got {result!r}"
+        mock_temp.read.assert_called_once()
+        mock_temp.seek.assert_called_with(0)

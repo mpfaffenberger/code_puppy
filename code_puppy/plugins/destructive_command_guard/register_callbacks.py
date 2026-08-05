@@ -13,7 +13,10 @@ from typing import Any, Dict, Optional
 from rich.text import Text
 
 from code_puppy.callbacks import register_callback
-from code_puppy.config import get_disable_dangerous_command_guard
+from code_puppy.config import (
+    get_disable_dangerous_command_guard,
+    is_dangerous_command_allowlisted,
+)
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.plugins.destructive_command_guard.detector import (
     detect_destructive_command,
@@ -57,6 +60,15 @@ async def destructive_command_guard_callback(
 
     match = detect_destructive_command(command)
     if match is None:
+        return None
+
+    # Granular allowlist: trusted patterns bypass the guard while everything
+    # else stays protected (unlike the all-or-nothing disable flag above).
+    if is_dangerous_command_allowlisted(match.pattern_name):
+        emit_info(
+            f"Allowlisted destructive pattern '{match.pattern_name}' -- "
+            "proceeding (guard still active for other patterns)."
+        )
         return None
 
     # --- Interactive TTY: ask the user ---

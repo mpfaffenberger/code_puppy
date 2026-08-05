@@ -13,6 +13,15 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SUBAGENT_RECURSION_LIMIT = 4
 
+# GPT-5.6 has demonstrated a runaway-delegation failure mode where a sub-agent
+# invokes another sub-agent that invokes another, chewing through tokens
+# without converging. This overlay cap sits on top of the generic
+# ``subagent_recursion_limit`` and applies only when the immediate caller is
+# on a GPT-5.6 model. The default of ``2`` (main -> level 1 -> level 2)
+# preserves useful two-hop delegation without re-opening the runaway door;
+# operators who understand the risk can raise it via ``/set``.
+DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6 = 2
+
 
 def _get_xdg_dir(env_var: str, fallback: str) -> str:
     """
@@ -93,6 +102,25 @@ def get_subagent_recursion_limit() -> int:
         return DEFAULT_SUBAGENT_RECURSION_LIMIT
 
     return limit if limit >= 0 else DEFAULT_SUBAGENT_RECURSION_LIMIT
+
+
+def get_subagent_recursion_limit_gpt_5_6() -> int:
+    """Return the max sub-agent depth allowed for a GPT-5.6 immediate caller.
+
+    Overlays the generic ``subagent_recursion_limit``: whichever fires first
+    wins. Default is 2 -- see ``DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6`` for
+    the rationale. Invalid or negative values fall back to the default.
+    """
+    cfg_val = get_value("subagent_recursion_limit_gpt_5_6")
+    if cfg_val is None:
+        return DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6
+
+    try:
+        limit = int(str(cfg_val).strip())
+    except (TypeError, ValueError):
+        return DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6
+
+    return limit if limit >= 0 else DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6
 
 
 # Pack agents - the specialized sub-agents coordinated by Pack Leader
@@ -410,6 +438,7 @@ def get_config_keys():
         "message_limit",
         "allow_recursion",
         "subagent_recursion_limit",
+        "subagent_recursion_limit_gpt_5_6",
         "auto_save_session",
         "max_saved_sessions",
         "http2",
@@ -452,6 +481,10 @@ def get_config_keys():
     default_keys.append("goal_max_iterations")
     # Add dangerous command guard disable (skips force push and destructive command guards)
     default_keys.append("disable_dangerous_command_guard")
+    # Granular per-pattern allowlist for the command guards: comma-separated
+    # pattern names (e.g. "git reset --hard, --force") that bypass the guards
+    # while everything else stays protected. See get_dangerous_command_guard_allowlist().
+    default_keys.append("dangerous_command_guard_allow")
     # Add retry profile keys (backoff policy for streaming retries). Per-model
     # overrides live under the model_settings_ namespace; these are the globals.
     default_keys.append("retry_main_strategy")
@@ -989,6 +1022,31 @@ def set_model_setting(model_name: str, setting: str, value: Any | None) -> None:
         set_config_value(key, str(value))
 
 
+# Reserved per-model setting name that holds user-defined custom request
+# params as a JSON object, e.g. {"chat_template_kwargs.thinking": "medium"}.
+# It lives in the model_settings_ namespace on disk but is structured data,
+# so the generic scalar readers must never treat it as a plain setting.
+CUSTOM_MODEL_SETTING = "custom"
+
+
+def parse_config_scalar(val: str) -> Any:
+    """Parse a raw config string into bool, int, float, or string.
+
+    Booleans win first (``true``/``false``, case-insensitive), then ints,
+    then floats; anything else stays a string.
+    """
+    val_stripped = val.strip()
+    if val_stripped.lower() in ("true", "false"):
+        return val_stripped.lower() == "true"
+    try:
+        # Try int first for cleaner values like budget_tokens
+        if "." not in val_stripped:
+            return int(val_stripped)
+        return float(val_stripped)
+    except (ValueError, TypeError):
+        return val_stripped
+
+
 def get_all_model_settings(model_name: str) -> dict:
     """Get all settings for a specific model.
 
@@ -1011,24 +1069,59 @@ def get_all_model_settings(model_name: str) -> dict:
         for key, val in config[DEFAULT_SECTION].items():
             if key.startswith(prefix) and val.strip():
                 setting_name = key[len(prefix) :]
-                # Handle different value types
-                val_stripped = val.strip()
-                # Check for boolean values first
-                if val_stripped.lower() in ("true", "false"):
-                    settings[setting_name] = val_stripped.lower() == "true"
-                else:
-                    # Try to parse as number (int first, then float)
-                    try:
-                        # Try int first for cleaner values like budget_tokens
-                        if "." not in val_stripped:
-                            settings[setting_name] = int(val_stripped)
-                        else:
-                            settings[setting_name] = float(val_stripped)
-                    except (ValueError, TypeError):
-                        # Keep as string if not a number
-                        settings[setting_name] = val_stripped
+                if setting_name == CUSTOM_MODEL_SETTING:
+                    # JSON blob managed by get_custom_model_settings(); not a
+                    # scalar setting, so keep it out of the generic namespace.
+                    continue
+                settings[setting_name] = parse_config_scalar(val)
 
     return settings
+
+
+def get_custom_model_settings(model_name: str) -> dict:
+    """Get user-defined custom request params for a model.
+
+    These are free-form key/value pairs configured via /model_settings ->
+    Custom Params. Dotted keys (e.g. ``chat_template_kwargs.thinking``)
+    are expanded into nested dicts and merged into ``extra_body`` by
+    :func:`code_puppy.model_factory.make_model_settings`.
+
+    Returns:
+        Dict of dotted_key -> value. Empty dict when unset or unparseable
+        (fails closed -- a corrupt blob never crashes settings resolution).
+    """
+    sanitized_name = _sanitize_model_name_for_key(model_name)
+    key = f"model_settings_{sanitized_name}_{CUSTOM_MODEL_SETTING}"
+    raw = get_value(key)
+    if raw is None or not raw.strip():
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def set_custom_model_setting(model_name: str, key: str, value: Any | None) -> None:
+    """Set (or delete, when value is None) one custom request param.
+
+    The full mapping is persisted as a JSON blob under the reserved
+    ``model_settings_<model>_custom`` config key. An empty mapping clears
+    the config entry entirely.
+    """
+    key = key.strip()
+    if not key:
+        return
+
+    settings = get_custom_model_settings(model_name)
+    if value is None:
+        settings.pop(key, None)
+    else:
+        settings[key] = value
+
+    sanitized_name = _sanitize_model_name_for_key(model_name)
+    cfg_key = f"model_settings_{sanitized_name}_{CUSTOM_MODEL_SETTING}"
+    set_config_value(cfg_key, json.dumps(settings) if settings else "")
 
 
 def clear_model_settings(model_name: str) -> None:
@@ -1386,6 +1479,64 @@ def get_disable_dangerous_command_guard() -> bool:
             return True
         return False
     return False
+
+
+def normalize_guard_pattern_name(name: str) -> str:
+    """Canonicalize a guard pattern name for case/whitespace-insensitive match.
+
+    Lowercases and collapses internal whitespace runs to a single space so
+    allowlist entries survive copy-paste sloppiness (e.g. 'Git   Reset --Hard'
+    matches the detector's 'git reset --hard').
+
+    Args:
+        name: Raw pattern name (from config or a detector match).
+
+    Returns:
+        The normalized form, or '' for falsy input.
+    """
+    if not name:
+        return ""
+    return " ".join(str(name).split()).lower()
+
+
+def get_dangerous_command_guard_allowlist() -> set:
+    """Return the granular allowlist of guard pattern names to bypass.
+
+    Reads the 'dangerous_command_guard_allow' config key: a comma-separated
+    list of *pattern names* (as reported by the destructive command guard and
+    the force push guard, e.g. 'git reset --hard' or '--force') that should be
+    waved through while every other dangerous pattern stays guarded.
+
+    Unlike 'disable_dangerous_command_guard' (all-or-nothing), this lets you
+    trust specific commands without dropping protection on the rest. Applies to
+    BOTH guards, matching pattern names exactly (after normalization).
+
+    Returns:
+        A set of normalized pattern names (empty if unset).
+    """
+    raw = get_value("dangerous_command_guard_allow")
+    if not raw:
+        return set()
+    return {
+        normalized
+        for chunk in str(raw).split(",")
+        if (normalized := normalize_guard_pattern_name(chunk))
+    }
+
+
+def is_dangerous_command_allowlisted(pattern_name: str) -> bool:
+    """Check whether a detected guard pattern is on the granular allowlist.
+
+    Args:
+        pattern_name: The detector's pattern_name for the match.
+
+    Returns:
+        True if the pattern should bypass the guard, False otherwise.
+    """
+    normalized = normalize_guard_pattern_name(pattern_name)
+    if not normalized:
+        return False
+    return normalized in get_dangerous_command_guard_allowlist()
 
 
 def get_protected_token_count():
@@ -2338,16 +2489,26 @@ def _detect_git_toplevel(path: str) -> Optional[str]:
         return None
     try:
         import subprocess
+        import tempfile
 
-        out = subprocess.run(
-            ["git", "-C", probe_dir, "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=0.5,
-        )
-        if out.returncode == 0:
-            root = out.stdout.strip()
-            return os.path.realpath(root) if root else None
+        # Windows hardening: capture_output=True uses reader threads, and if the
+        # spawned git (or a grandchild) keeps a pipe write-handle open,
+        # subprocess.run hangs FOREVER joining those threads -- even with a
+        # timeout -- which deadlocks the ACP event loop from post_tool_call.
+        # Route output through a temp file (no reader threads) and detach stdin
+        # from any inherited pipe so run() can never block on a thread join.
+        with tempfile.TemporaryFile() as out_f:
+            proc = subprocess.run(
+                ["git", "-C", probe_dir, "rev-parse", "--show-toplevel"],
+                stdin=subprocess.DEVNULL,
+                stdout=out_f,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+            if proc.returncode == 0:
+                out_f.seek(0)
+                root = out_f.read().decode("utf-8", "replace").strip()
+                return os.path.realpath(root) if root else None
     except Exception:
         return None
     return None

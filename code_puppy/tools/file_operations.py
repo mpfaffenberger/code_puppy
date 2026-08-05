@@ -1233,7 +1233,7 @@ def register_read_file(agent):
     @agent.tool
     def read_file(
         context: RunContext,
-        file_path: str = "",
+        file_path: str,
         start_line: int | None = None,
         num_lines: int | None = None,
     ) -> ReadFileOutput:
@@ -1249,7 +1249,7 @@ def register_grep(agent):
 
     @agent.tool
     def grep(
-        context: RunContext, search_string: str = "", directory: str = "."
+        context: RunContext, search_string: str, directory: str = "."
     ) -> GrepOutput:
         """Recursively search file contents for a regex pattern using ripgrep (rg).
 

@@ -151,6 +151,27 @@ def _thinking_tags_profile(
     return OpenAIModelProfile(thinking_tags=tags)
 
 
+def _merge_dotted_key(target: dict, dotted_key: str, value: Any) -> None:
+    """Merge ``value`` into ``target`` at the path described by ``dotted_key``.
+
+    ``"chat_template_kwargs.thinking"`` becomes
+    ``target["chat_template_kwargs"]["thinking"]``, creating intermediate
+    dicts as needed. A non-dict node along the path is replaced -- the
+    user's dotted key expresses intent for a nested object.
+    """
+    parts = [part for part in dotted_key.split(".") if part]
+    if not parts:
+        return
+    node = target
+    for part in parts[:-1]:
+        child = node.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            node[part] = child
+        node = child
+    node[parts[-1]] = value
+
+
 def make_model_settings(
     model_name: str, max_tokens: int | None = None
 ) -> ModelSettings:
@@ -290,9 +311,11 @@ def make_model_settings(
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
     elif "gpt-5" in model_name:
-        model_settings_dict["openai_reasoning_effort"] = effective_settings.get(
-            "reasoning_effort", "medium"
-        )
+        # Normalize legacy effort values (minimal->none, ultra->max)
+        _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
+        effort = effective_settings.get("reasoning_effort", "medium")
+        effort = _EFFORT_ALIAS.get(effort, effort)
+        model_settings_dict["openai_reasoning_effort"] = effort
 
         uses_responses_api = (
             model_type == "chatgpt_oauth"
@@ -421,6 +444,19 @@ def make_model_settings(
             model_settings_dict["thinking_level"] = "low"
         # Recreate settings with Gemini thinking config
         model_settings = ModelSettings(**model_settings_dict)
+
+    # User-defined custom params (/model_settings -> Custom Params): dotted
+    # keys expand into nested dicts and ride along in extra_body so they
+    # reach the request body regardless of provider. Applied last, after
+    # every model-specific branch, so custom values always win.
+    from code_puppy.config import get_custom_model_settings
+
+    custom_params = get_custom_model_settings(model_name)
+    if custom_params:
+        extra_body = dict(model_settings.get("extra_body") or {})
+        for dotted_key, value in custom_params.items():
+            _merge_dotted_key(extra_body, dotted_key, value)
+        model_settings["extra_body"] = extra_body
 
     return model_settings
 

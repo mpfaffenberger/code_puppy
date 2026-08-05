@@ -9,6 +9,7 @@ import time
 from typing import Dict, List, Optional
 
 from prompt_toolkit import Application
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
@@ -21,11 +22,15 @@ from code_puppy.command_line.pagination import (
     get_total_pages,
 )
 from code_puppy.config import (
+    CUSTOM_MODEL_SETTING,
     get_all_model_settings,
+    get_custom_model_settings,
     get_global_model_name,
     get_value,
     model_supports_setting,
+    parse_config_scalar,
     reset_value,
+    set_custom_model_setting,
     set_model_setting,
     set_value,
 )
@@ -74,7 +79,7 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "name": "Reasoning Effort",
         "description": "Controls how much effort GPT-5 models spend on reasoning. Higher = more thorough but slower.",
         "type": "choice",
-        "choices": ["minimal", "low", "medium", "high", "xhigh", "ultra"],
+        "choices": ["none", "low", "medium", "high", "xhigh", "max"],
         "default": "medium",
     },
     "reasoning_context": {
@@ -219,7 +224,31 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
         "default": None,
         "format": "{:.0f}",
     },
+    CUSTOM_MODEL_SETTING: {
+        "name": "Custom Params",
+        "description": (
+            "Free-form key = value params merged into the request body via "
+            "extra_body. Dotted keys nest: 'chat_template_kwargs.thinking = medium' "
+            "becomes {'chat_template_kwargs': {'thinking': 'medium'}}. Values "
+            "parse as bool/int/float; anything else stays a string. Applied "
+            "last, so they override built-in settings on conflict."
+        ),
+        "type": "custom",
+        "default": None,
+    },
 }
+
+
+def _format_custom_value(value) -> str:
+    """Format a custom param value so it round-trips through parse_config_scalar."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _format_custom_pairs(pairs: Dict) -> str:
+    """Render a custom-params dict as a compact 'k=v; k=v' summary string."""
+    return "; ".join(f"{k}={_format_custom_value(v)}" for k, v in pairs.items())
 
 
 def _load_all_model_names() -> List[str]:
@@ -284,6 +313,12 @@ def _get_model_display_settings(model_name: str) -> Dict:
         if val is not None:
             settings[menu_key] = val
 
+    # Custom params are a JSON blob in their own reserved key -- inject the
+    # parsed dict (only when non-empty) so displays can summarize it.
+    custom = get_custom_model_settings(model_name)
+    if custom:
+        settings[CUSTOM_MODEL_SETTING] = custom
+
     return settings
 
 
@@ -293,7 +328,7 @@ def _get_setting_choices(
     """Get the available choices for a setting, filtered by model capabilities.
 
     Reasoning effort is capability-gated: xhigh is available to codex and
-    GPT-5.4+ models, while ultra is reserved for GPT-5.6+ variants.
+    GPT-5.4+ models, while max is reserved for GPT-5.6+ variants.
 
     Args:
         setting_key: The setting name (e.g., 'reasoning_effort', 'verbosity')
@@ -314,8 +349,8 @@ def _get_setting_choices(
         unsupported_choices = set()
         if not model_config.get("supports_xhigh_reasoning", False):
             unsupported_choices.add("xhigh")
-        if not model_config.get("supports_ultra_reasoning", False):
-            unsupported_choices.add("ultra")
+        if not model_config.get("supports_max_reasoning", False):
+            unsupported_choices.add("max")
         return [choice for choice in base_choices if choice not in unsupported_choices]
 
     return base_choices
@@ -379,6 +414,13 @@ class ModelSettingsMenu:
         self.edit_value: Optional[float] = None
         self.result_changed = False
 
+        # Custom params view state
+        self.custom_settings: Dict = {}
+        self.custom_index = 0
+        self.custom_input: Optional[str] = None  # None = not typing
+        self.custom_editing_key: Optional[str] = None  # original key being edited
+        self.custom_error: Optional[str] = None
+
         # Cache for selected model's settings
         self.selected_model: Optional[str] = None
         self.supported_settings: List[str] = []
@@ -419,10 +461,12 @@ class ModelSettingsMenu:
         """Get list of settings supported by a model."""
         supported = []
         for setting_key in SETTING_DEFINITIONS:
-            # Retry overrides apply to every model (anything can be rate-limited),
-            # so they're always offered regardless of model capability flags.
-            if setting_key in _RETRY_MENU_KEYS or model_supports_setting(
-                model_name, setting_key
+            # Retry overrides and custom params apply to every model, so
+            # they're always offered regardless of model capability flags.
+            if (
+                setting_key == CUSTOM_MODEL_SETTING
+                or setting_key in _RETRY_MENU_KEYS
+                or model_supports_setting(model_name, setting_key)
             ):
                 supported.append(setting_key)
         return supported
@@ -432,6 +476,7 @@ class ModelSettingsMenu:
         self.selected_model = model_name
         self.supported_settings = self._get_supported_settings(model_name)
         self.current_settings = _get_model_display_settings(model_name)
+        self.custom_settings = get_custom_model_settings(model_name)
 
         self.setting_index = 0
 
@@ -445,6 +490,11 @@ class ModelSettingsMenu:
         if setting_def is None:
             # Unknown/stale setting from saved config — just stringify it
             return str(value) if value is not None else "(unknown)"
+
+        if setting == CUSTOM_MODEL_SETTING:
+            if isinstance(value, dict) and value:
+                return _format_custom_pairs(value)
+            return "(none)"
 
         if value is None:
             # Per-model retry overrides fall back to the global /set value, not a
@@ -500,9 +550,11 @@ class ModelSettingsMenu:
                 prefix = " › " if is_selected else "   "
                 style = "class:tui.selected" if is_selected else "class:tui.body"
 
-                # Check if model has any custom settings
-                model_settings = get_all_model_settings(model_name)
-                has_settings = len(model_settings) > 0
+                # Check if model has any configured settings (incl. custom params)
+                has_settings = bool(
+                    get_all_model_settings(model_name)
+                    or get_custom_model_settings(model_name)
+                )
 
                 lines.append((style, f"{prefix}{model_name}"))
 
@@ -520,9 +572,11 @@ class ModelSettingsMenu:
 
             lines.append(("", "\n"))
             self._add_model_nav_hints(lines)
+        elif self.view_mode == "custom":
+            lines.extend(self._render_custom_list())
         else:
             # Settings view
-            lines.append(("class:tui.header", f" ⚙ Settings for {self.selected_model}"))
+            lines.append(("class:tui.header", f"  Settings for {self.selected_model}"))
             lines.append(("", "\n\n"))
 
             if not self.supported_settings:
@@ -560,6 +614,62 @@ class ModelSettingsMenu:
             self._add_settings_nav_hints(lines)
 
         return lines
+
+    def _render_custom_list(self) -> List:
+        """Render the custom params list (custom view mode)."""
+        lines: List = []
+        lines.append(("class:tui.header", f"  Custom Params for {self.selected_model}"))
+        lines.append(("", "\n\n"))
+
+        keys = list(self.custom_settings)
+        for i, key in enumerate(keys):
+            is_selected = i == self.custom_index and self.custom_input is None
+            prefix = " › " if is_selected else "   "
+            style = "class:tui.selected" if is_selected else "class:tui.body"
+            display_value = _format_custom_value(self.custom_settings[key])
+            lines.append((style, f"{prefix}{key} = {display_value}"))
+            lines.append(("", "\n"))
+
+        add_selected = self.custom_index == len(keys) and self.custom_input is None
+        prefix = " › " if add_selected else "   "
+        style = "class:tui.selected" if add_selected else "class:tui.muted"
+        lines.append((style, f"{prefix}+ Add new param"))
+        lines.append(("", "\n"))
+
+        if self.custom_input is not None:
+            lines.append(("", "\n"))
+            lines.append(("class:tui.success", "   "))
+            lines.append(("class:tui.body", self.custom_input))
+            lines.append(("class:tui.selected", "█"))
+            lines.append(("", "\n"))
+
+        if self.custom_error:
+            lines.append(("class:tui.warning", f"  {self.custom_error}"))
+            lines.append(("", "\n"))
+
+        lines.append(("", "\n"))
+        self._add_custom_nav_hints(lines)
+        return lines
+
+    def _add_custom_nav_hints(self, lines: List):
+        """Add navigation hints for the custom params view."""
+        lines.append(("", "\n"))
+        if self.custom_input is not None:
+            lines.append(("class:tui.help-key", "  Type  "))
+            lines.append(("class:tui.help", "key = value\n"))
+            lines.append(("class:tui.help-key", "  Enter  "))
+            lines.append(("class:tui.help", "Save\n"))
+            lines.append(("class:tui.help-key", "  Esc  "))
+            lines.append(("class:tui.help", "Cancel\n"))
+        else:
+            lines.append(("class:tui.help-key", "  ↑/↓  "))
+            lines.append(("class:tui.help", "Navigate params\n"))
+            lines.append(("class:tui.help-key", "  Enter  "))
+            lines.append(("class:tui.help", "Add / edit param\n"))
+            lines.append(("class:tui.help-key", "  d  "))
+            lines.append(("class:tui.help", "Delete param\n"))
+            lines.append(("class:tui.help-key", "  Esc  "))
+            lines.append(("class:tui.help", "Back to settings\n"))
 
     def _add_model_nav_hints(self, lines: List):
         """Add navigation hints for model list view."""
@@ -706,6 +816,19 @@ class ModelSettingsMenu:
                         "    Enabled | Disabled",
                     )
                 )
+            elif setting_def.get("type") == "custom":
+                lines.append(("class:tui.label", "  Configured Params:"))
+                lines.append(("", "\n"))
+                if self.custom_settings:
+                    for key, val in self.custom_settings.items():
+                        lines.append(
+                            (
+                                "class:tui.muted",
+                                f"    {key} = {_format_custom_value(val)}\n",
+                            )
+                        )
+                else:
+                    lines.append(("class:tui.muted", "    (none yet)\n"))
             else:
                 lines.append(("class:tui.label", "  Range:"))
                 lines.append(("", "\n"))
@@ -768,6 +891,9 @@ class ModelSettingsMenu:
             return
 
         setting_key = self.supported_settings[self.setting_index]
+        if setting_key == CUSTOM_MODEL_SETTING:
+            # Custom params have their own view; Enter routes there instead.
+            return
         setting_def = SETTING_DEFINITIONS[setting_key]
         current = self._get_current_value(setting_key)
 
@@ -865,6 +991,75 @@ class ModelSettingsMenu:
         self.editing_mode = False
         self.edit_value = None
 
+    def _enter_custom_view(self):
+        """Enter the custom params view for the selected model."""
+        self._reload_custom()
+        self.view_mode = "custom"
+        self.custom_index = 0
+        self.custom_input = None
+        self.custom_editing_key = None
+        self.custom_error = None
+
+    def _reload_custom(self):
+        """Re-read custom params from config and sync the display cache."""
+        self.custom_settings = get_custom_model_settings(self.selected_model)
+        if self.custom_settings:
+            self.current_settings[CUSTOM_MODEL_SETTING] = self.custom_settings
+        else:
+            self.current_settings.pop(CUSTOM_MODEL_SETTING, None)
+
+    def _start_custom_input(self):
+        """Begin typing a new pair, or editing the selected existing one."""
+        keys = list(self.custom_settings)
+        if self.custom_index < len(keys):
+            key = keys[self.custom_index]
+            self.custom_editing_key = key
+            value = _format_custom_value(self.custom_settings[key])
+            self.custom_input = f"{key} = {value}"
+        else:
+            self.custom_editing_key = None
+            self.custom_input = ""
+        self.custom_error = None
+
+    def _save_custom_input(self):
+        """Parse 'key = value' from the input buffer and persist it."""
+        if self.selected_model is None:
+            return
+        text = (self.custom_input or "").strip()
+        key, sep, value = (part.strip() for part in text.partition("="))
+        if not sep or not key or not value:
+            self.custom_error = "Expected format: key = value"
+            return
+        if self.custom_editing_key and self.custom_editing_key != key:
+            # Renamed: drop the old key so it doesn't linger.
+            set_custom_model_setting(self.selected_model, self.custom_editing_key, None)
+        set_custom_model_setting(self.selected_model, key, parse_config_scalar(value))
+        self._reload_custom()
+        keys = list(self.custom_settings)
+        self.custom_index = keys.index(key) if key in keys else 0
+        self.custom_input = None
+        self.custom_editing_key = None
+        self.custom_error = None
+        self.result_changed = True
+
+    def _cancel_custom_input(self):
+        """Abort typing without saving."""
+        self.custom_input = None
+        self.custom_editing_key = None
+        self.custom_error = None
+
+    def _delete_custom_pair(self):
+        """Delete the currently selected custom param."""
+        if self.selected_model is None:
+            return
+        keys = list(self.custom_settings)
+        if self.custom_index >= len(keys):
+            return
+        set_custom_model_setting(self.selected_model, keys[self.custom_index], None)
+        self._reload_custom()
+        self.custom_index = min(self.custom_index, len(self.custom_settings))
+        self.result_changed = True
+
     def _reset_to_default(self):
         """Reset the current setting to model default."""
         if not self.supported_settings or self.selected_model is None:
@@ -876,7 +1071,12 @@ class ModelSettingsMenu:
             # Reset edit value to default
             self.edit_value = _get_setting_default(setting_key, self.selected_model)
         else:
-            if setting_key in _RETRY_MENU_KEYS:
+            if setting_key == CUSTOM_MODEL_SETTING:
+                # "Default" for custom params is having none at all.
+                for key in list(get_custom_model_settings(self.selected_model)):
+                    set_custom_model_setting(self.selected_model, key, None)
+                self._reload_custom()
+            elif setting_key in _RETRY_MENU_KEYS:
                 # Clear the per-model retry override -> falls back to global.
                 _write_per_model_retry(self.selected_model, setting_key, None)
                 if setting_key in self.current_settings:
@@ -934,6 +1134,10 @@ class ModelSettingsMenu:
         # Key bindings
         kb = KeyBindings()
 
+        # True while the user is typing a custom param in the custom view.
+        # Printable-char bindings (like 'd') must yield to text entry.
+        text_editing = Condition(lambda: self.custom_input is not None)
+
         @kb.add("up")
         @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
         def _(event):
@@ -941,6 +1145,10 @@ class ModelSettingsMenu:
                 if self.model_index > 0:
                     self.model_index -= 1
                     self._ensure_selection_visible()
+                    self.update_display()
+            elif self.view_mode == "custom":
+                if self.custom_input is None and self.custom_index > 0:
+                    self.custom_index -= 1
                     self.update_display()
             else:
                 if not self.editing_mode and self.setting_index > 0:
@@ -954,6 +1162,13 @@ class ModelSettingsMenu:
                 if self.model_index < len(self.all_models) - 1:
                     self.model_index += 1
                     self._ensure_selection_visible()
+                    self.update_display()
+            elif self.view_mode == "custom":
+                # Max index == len(pairs), i.e. the '+ Add new param' row.
+                if self.custom_input is None and self.custom_index < len(
+                    self.custom_settings
+                ):
+                    self.custom_index += 1
                     self.update_display()
             else:
                 if (
@@ -999,17 +1214,31 @@ class ModelSettingsMenu:
         def _(event):
             if self.view_mode == "models":
                 self._enter_settings_view()
-                self.update_display()
-            else:
-                if self.editing_mode:
-                    self._save_edit()
+            elif self.view_mode == "custom":
+                if self.custom_input is not None:
+                    self._save_custom_input()
                 else:
-                    self._start_editing()
-                self.update_display()
+                    self._start_custom_input()
+            elif self.editing_mode:
+                self._save_edit()
+            elif (
+                self.supported_settings
+                and self.supported_settings[self.setting_index] == CUSTOM_MODEL_SETTING
+            ):
+                self._enter_custom_view()
+            else:
+                self._start_editing()
+            self.update_display()
 
         @kb.add("escape")
         def _(event):
-            if self.view_mode == "settings":
+            if self.view_mode == "custom":
+                if self.custom_input is not None:
+                    self._cancel_custom_input()
+                else:
+                    self.view_mode = "settings"
+                self.update_display()
+            elif self.view_mode == "settings":
                 if self.editing_mode:
                     self._cancel_edit()
                     self.update_display()
@@ -1020,10 +1249,27 @@ class ModelSettingsMenu:
                 # At model list level, ESC closes the TUI
                 event.app.exit()
 
-        @kb.add("d")
+        @kb.add("d", filter=~text_editing)
         def _(event):
             if self.view_mode == "settings":
                 self._reset_to_default()
+                self.update_display()
+            elif self.view_mode == "custom":
+                self._delete_custom_pair()
+                self.update_display()
+
+        @kb.add("backspace", filter=text_editing)
+        def _(event):
+            self.custom_input = (self.custom_input or "")[:-1]
+            self.custom_error = None
+            self.update_display()
+
+        @kb.add("<any>", filter=text_editing)
+        def _(event):
+            data = event.data or ""
+            if data.isprintable():
+                self.custom_input = (self.custom_input or "") + data
+                self.custom_error = None
                 self.update_display()
 
         @kb.add("c-c")
@@ -1101,7 +1347,9 @@ def show_model_settings_summary(model_name: Optional[str] = None) -> None:
         setting_def = SETTING_DEFINITIONS.get(setting_key, {})
         name = setting_def.get("name", setting_key)
         setting_type = setting_def.get("type")
-        if setting_type in ("choice", "boolean"):
+        if setting_type == "custom":
+            display = _format_custom_pairs(value) if isinstance(value, dict) else ""
+        elif setting_type in ("choice", "boolean"):
             display = (
                 str(value)
                 if setting_type == "choice"
