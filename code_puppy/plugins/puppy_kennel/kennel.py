@@ -350,6 +350,41 @@ def _sanitize_fts_query(query: str) -> str:
     return " OR ".join(tokens)
 
 
+def delete_drawer(drawer_id: int) -> tuple[bool, str | None]:
+    """Delete a drawer by ID. Returns (found, content_preview).
+
+    The FTS ``drawers_ad`` trigger keeps the full-text index in sync
+    automatically — no manual index cleanup needed.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT content FROM drawers WHERE id = ?", (drawer_id,)
+        ).fetchone()
+        if not row:
+            return False, None
+        preview = row["content"][:200]
+        conn.execute("DELETE FROM drawers WHERE id = ?", (drawer_id,))
+        return True, preview
+
+
+def update_drawer(drawer_id: int, new_content: str) -> bool:
+    """Replace the content of a drawer. Returns True if the row was found.
+
+    The FTS ``drawers_au`` trigger removes the old index entry and inserts
+    the new one — no manual reindex needed.
+    """
+    if not new_content or not new_content.strip():
+        return False
+    if len(new_content) > MAX_DRAWER_CHARS:
+        new_content = new_content[:MAX_DRAWER_CHARS] + "\n...[truncated]"
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE drawers SET content = ?, ts = ? WHERE id = ?",
+            (new_content, _now_iso(), drawer_id),
+        )
+        return cur.rowcount > 0
+
+
 def list_wings() -> list[str]:
     with _connect() as conn:
         rows = conn.execute("SELECT name FROM wings ORDER BY name").fetchall()
