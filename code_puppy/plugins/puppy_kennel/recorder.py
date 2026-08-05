@@ -16,13 +16,39 @@ instead.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from code_puppy.messaging.bus import emit_debug
 
 from . import kennel
+from .config import STRIP_NOISE
 from .state import is_enabled
 from .wings import detect_cwd, repo_wing
+
+# Lines entirely wrapped in *...* (not **...**) are personality emotes:
+#   *wags tail excitedly*,  *zooms around happily*,  *woof woof*
+# Bold (**...**), bullet points (* item), and inline italics mid-sentence
+# are all unaffected because they don't match this pattern.
+_EMOTE_LINE_RE = re.compile(r"^\s*\*(?!\*)[^*\n]+\*\s*$")
+
+
+def _strip_noise(text: str) -> str:
+    """Remove personality emote lines from a response before kennel storage.
+
+    Processes line-by-line so code-fence content is never touched, even if
+    a fence happens to contain a line that looks like *emote*.
+    """
+    in_fence = False
+    out: list[str] = []
+    for line in text.split("\n"):
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+        if not in_fence and _EMOTE_LINE_RE.match(line):
+            continue
+        out.append(line)
+    cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(out))
+    return cleaned.strip()
 
 
 def _room_name(session_id: str | None) -> str:
@@ -48,6 +74,8 @@ def record_run_end(
     Failures here must never crash the host app — the kennel is best-
     effort memory, not a transactional system of record.
     """
+    if STRIP_NOISE and response_text:
+        response_text = _strip_noise(response_text)
     if not response_text or not response_text.strip():
         return
     if not success:

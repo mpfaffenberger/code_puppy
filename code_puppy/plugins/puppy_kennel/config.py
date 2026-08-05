@@ -37,3 +37,7 @@ MIN_DRAWER_CHARS = int(os.environ.get("PUPPY_KENNEL_MIN_DRAWER_CHARS", "80"))
 # Cap on stored drawer text length (chars). Keeps SQLite happy and FTS indexes
 # from getting comically large. Truncation is fine — verbatim within reason.
 MAX_DRAWER_CHARS = int(os.environ.get("PUPPY_KENNEL_MAX_DRAWER_CHARS", "32000"))
+
+# Strip personality emote lines (e.g. *wags tail excitedly*) before storing.
+# Set to "0" or "false" to disable and store responses fully verbatim.
+STRIP_NOISE = os.environ.get("PUPPY_KENNEL_STRIP_NOISE", "1") not in ("0", "false", "False")
