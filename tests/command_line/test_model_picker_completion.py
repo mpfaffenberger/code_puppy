@@ -125,6 +125,28 @@ class TestModelNameCompleter:
             assert len(completions) == 1
             assert completions[0].text == "claude-3"
 
+    def test_no_active_model_does_not_crash(self):
+        """Regression test: get_completions must not crash when no model is
+        configured and get_active_model() returns None."""
+        from code_puppy.command_line.model_picker_completion import ModelNameCompleter
+
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion._load_models_config",
+                return_value={"gpt-4": {}, "claude-3": {}},
+            ),
+            patch(
+                "code_puppy.command_line.model_picker_completion.get_active_model",
+                return_value=None,
+            ),
+        ):
+            c = ModelNameCompleter(trigger="/model")
+            completions = list(c.get_completions(self._make_doc("/model "), None))
+            assert len(completions) == 2
+            # None of the completions should be marked as active ✓
+            for comp in completions:
+                assert "✓" not in str(comp.display_meta)
+
 
 class TestFindMatchingModel:
     def test_exact_match(self):
