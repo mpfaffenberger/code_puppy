@@ -593,6 +593,9 @@ class TestCancellationPersistence:
 
     @pytest.mark.asyncio
     async def test_cancellation_saves_partial_and_reraises(self):
+        from code_puppy.tools.subagent_invocation import drain_interrupted_subagents
+
+        drain_interrupted_subagents()  # isolate module-level queue
         cap = {}
         with pytest.raises(asyncio.CancelledError):
             await _run_invoke(
@@ -612,6 +615,15 @@ class TestCancellationPersistence:
         assert "interrupted" in warn_text
         assert "test-agent-session-abc123" in warn_text
         assert "resume" in warn_text.lower()
+
+        # The parent agent must be able to learn about this interruption.
+        records = drain_interrupted_subagents()
+        assert len(records) == 1
+        assert records[0] == {
+            "agent_name": "test-agent",
+            "session_id": "test-agent-session-abc123",
+            "saved_count": 2,
+        }
 
     @pytest.mark.asyncio
     async def test_grouped_cancellation_is_treated_as_interruption(self):
@@ -650,6 +662,9 @@ class TestCancellationPersistence:
     @pytest.mark.asyncio
     async def test_ordinary_failure_still_returns_error_output(self):
         """Non-cancellation crashes keep the existing failure-result contract."""
+        from code_puppy.tools.subagent_invocation import drain_interrupted_subagents
+
+        drain_interrupted_subagents()  # isolate module-level queue
         cap = {}
         out = await _run_invoke(
             run_raises=True,
@@ -662,3 +677,5 @@ class TestCancellationPersistence:
         assert out.error is not None
         cap["save"].assert_called_once()
         cap["warning"].assert_not_called()
+        # A crash is not an interruption: nothing to resume, no parent note.
+        assert drain_interrupted_subagents() == []

@@ -57,6 +57,34 @@ from code_puppy.tools.subagent_usage_metrics import (
 # Set to track active subagent invocation tasks
 _active_subagent_tasks: Set[asyncio.Task] = set()
 
+# Records of sub-agents interrupted by cancellation, drained into the parent
+# agent's message history at the next run start so the model learns a delegated
+# run was stopped and where to resume it. Populated on the event loop (the
+# cancel raises inside the coroutine), drained on the same loop -- a plain list
+# is safe. Both foreground ``invoke_agent`` and detached ``/fork`` share
+# ``_invoke_agent_impl``, so this single seam covers both.
+_interrupted_subagents: list[dict] = []
+
+
+def record_interrupted_subagent(
+    *, agent_name: str, session_id: str, saved_count: int | None
+) -> None:
+    """Remember that ``agent_name``'s session was interrupted."""
+    _interrupted_subagents.append(
+        {
+            "agent_name": agent_name,
+            "session_id": session_id,
+            "saved_count": saved_count,
+        }
+    )
+
+
+def drain_interrupted_subagents() -> list[dict]:
+    """Return and clear all pending interrupted-subagent records."""
+    drained = list(_interrupted_subagents)
+    _interrupted_subagents.clear()
+    return drained
+
 
 def _subagent_recursion_blocked() -> bool:
     """Return whether another invocation would exceed the configured depth."""
@@ -588,6 +616,16 @@ async def _invoke_agent_impl(
                 f"{saved} message(s) saved"
                 if saved is not None
                 else "no new messages to save"
+            )
+            # Leave a durable breadcrumb for the parent agent: its awaited
+            # tool call is about to be pruned from history as a dangling
+            # (return-less) call, so without this the model would forget the
+            # delegation ever happened. Drained + injected at the next run
+            # start.
+            record_interrupted_subagent(
+                agent_name=agent_name,
+                session_id=session_id,
+                saved_count=saved,
             )
             emit_warning(
                 f"{agent_name} interrupted - {detail}. "
