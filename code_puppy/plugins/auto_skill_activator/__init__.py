@@ -1,0 +1,1 @@
+"""Auto Skill Activator plugin."""
