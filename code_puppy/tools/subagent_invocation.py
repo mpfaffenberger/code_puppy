@@ -28,6 +28,7 @@ from code_puppy.messaging import (
     emit_error,
     emit_info,
     emit_success,
+    emit_warning,
     get_message_bus,
     get_session_context,
     set_session_context,
@@ -98,6 +99,52 @@ Default to no further delegation. If delegation is truly essential, invoke at
 most one child level for a narrowly scoped task, tell that child to complete the
 work directly without further delegation, then finish the task yourself. Do not
 create recursive, cyclic, or open-ended agent chains."""
+
+
+def _contains_cancellation(exc: BaseException) -> bool:
+    """True if ``exc`` is a cancellation, including one nested in a group.
+
+    Async teardown (e.g. ``AsyncExitStack``) can wrap ``CancelledError`` in a
+    ``BaseExceptionGroup``. Such a shape is still an interruption, not a crash,
+    so it must follow the cancellation path rather than the failure path.
+    """
+    if isinstance(exc, asyncio.CancelledError):
+        return True
+    if isinstance(exc, BaseExceptionGroup):
+        return any(_contains_cancellation(inner) for inner in exc.exceptions)
+    return False
+
+
+def _save_partial_session(
+    *,
+    agent_config,
+    session_id: str,
+    agent_name: str,
+    baseline_count: int,
+    initial_prompt: str | None,
+) -> int | None:
+    """Persist any progress made before an interruption or crash.
+
+    The history processor keeps ``agent_config._message_history`` in sync with
+    each completed turn, so this captures every committed turn up to the exit
+    point. Best-effort: a save failure must never mask the original error, so
+    anything the save itself raises is swallowed.
+
+    Returns the saved message count, or ``None`` if nothing was persisted.
+    """
+    try:
+        partial_history = agent_config.get_message_history() if agent_config else []
+        if partial_history and len(partial_history) > baseline_count:
+            _save_session_history(
+                session_id=session_id,
+                message_history=partial_history,
+                agent_name=agent_name,
+                initial_prompt=initial_prompt,
+            )
+            return len(partial_history)
+    except Exception:
+        pass
+    return None
 
 
 async def _invoke_agent_impl(
@@ -519,35 +566,62 @@ async def _invoke_agent_impl(
                 duration_ms=duration_ms,
             )
 
-    except Exception as e:
+    except BaseException as e:
+        interrupted = isinstance(
+            e, (asyncio.CancelledError, KeyboardInterrupt)
+        ) or _contains_cancellation(e)
+
+        if interrupted:
+            # Ctrl-C raises CancelledError, which derives from BaseException and
+            # therefore slipped past the old ``except Exception`` save path --
+            # so an interrupted subagent lost both its partial history and its
+            # session ID. Persist progress, tell the user how to resume, then
+            # re-raise: persistence must not convert cancellation into success.
+            saved = _save_partial_session(
+                agent_config=agent_config,
+                session_id=session_id,
+                agent_name=agent_name,
+                baseline_count=len(message_history),
+                initial_prompt=prompt if is_new_session else None,
+            )
+            detail = (
+                f"{saved} message(s) saved"
+                if saved is not None
+                else "no new messages to save"
+            )
+            emit_warning(
+                f"{agent_name} interrupted - {detail}. "
+                f"Resume: invoke_agent(session_id='{session_id}')",
+                message_group=group_id,
+            )
+            raise
+
+        if not isinstance(e, Exception):
+            # A non-cancellation BaseException (e.g. SystemExit): don't swallow
+            # it into a failure result.
+            raise
+
         # Emit clean failure summary
-        emit_error(f"✗ {agent_name} failed: {str(e)}", message_group=group_id)
+        emit_error(f"{agent_name} failed: {str(e)}", message_group=group_id)
 
         # Full traceback for debugging
         error_msg = f"Error invoking agent '{agent_name}': {traceback.format_exc()}"
         emit_error(error_msg, message_group=group_id)
 
-        # Save whatever progress the agent made before crashing. The history
-        # processor keeps ``agent_config._message_history`` in sync with each
-        # completed turn, so this captures every committed turn up to the
-        # failure point. Best-effort: a save failure must not mask the
-        # original error, so we swallow anything the save itself raises.
-        try:
-            partial_history = agent_config.get_message_history() if agent_config else []
-            if partial_history and len(partial_history) > len(message_history):
-                _save_session_history(
-                    session_id=session_id,
-                    message_history=partial_history,
-                    agent_name=agent_name,
-                    initial_prompt=prompt if is_new_session else None,
-                )
-                emit_info(
-                    f"💾 Saved partial session '{session_id}' "
-                    f"({len(partial_history)} message(s)) before error",
-                    message_group=group_id,
-                )
-        except Exception:
-            pass
+        # Save whatever progress the agent made before crashing.
+        saved = _save_partial_session(
+            agent_config=agent_config,
+            session_id=session_id,
+            agent_name=agent_name,
+            baseline_count=len(message_history),
+            initial_prompt=prompt if is_new_session else None,
+        )
+        if saved is not None:
+            emit_info(
+                f"Saved partial session '{session_id}' "
+                f"({saved} message(s)) before error",
+                message_group=group_id,
+            )
 
         return build_invoke_output(
             include_usage_metrics=include_usage_metrics,
