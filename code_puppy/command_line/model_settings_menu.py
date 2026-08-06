@@ -5,6 +5,7 @@ settings like temperature and seed on a per-model basis.
 """
 
 import sys
+import inspect
 import time
 from typing import Dict, List, Optional
 
@@ -251,10 +252,21 @@ def _format_custom_pairs(pairs: Dict) -> str:
     return "; ".join(f"{k}={_format_custom_value(v)}" for k, v in pairs.items())
 
 
-def _load_all_model_names() -> List[str]:
+def _load_all_model_names(models_config: Optional[dict] = None) -> List[str]:
     """Load all available model names from config."""
-    models_config = ModelFactory.load_config()
+    if models_config is None:
+        models_config = ModelFactory.load_config()
     return list(models_config.keys())
+
+
+def _supports_setting(
+    model_name: str, setting: str, models_config: Optional[dict] = None
+) -> bool:
+    """Check capability against one preloaded model-catalog snapshot."""
+    parameters = inspect.signature(model_supports_setting).parameters
+    if "models_config" in parameters:
+        return model_supports_setting(model_name, setting, models_config=models_config)
+    return model_supports_setting(model_name, setting)
 
 
 # Per-model retry override keys are handled specially: they live in the dedicated
@@ -298,13 +310,15 @@ def _write_per_model_retry(model_name: str, menu_key: str, value) -> None:
         set_value(key, str(value))
 
 
-def _get_model_display_settings(model_name: str) -> Dict:
+def _get_model_display_settings(
+    model_name: str, models_config: Optional[dict] = None
+) -> Dict:
     """Get configured model settings plus model-specific display defaults."""
     settings = get_all_model_settings(model_name)
 
-    if model_supports_setting(model_name, "reasoning_context"):
+    if _supports_setting(model_name, "reasoning_context", models_config):
         settings.setdefault("reasoning_context", "all_turns")
-    if model_supports_setting(model_name, "reasoning_mode"):
+    if _supports_setting(model_name, "reasoning_mode", models_config):
         settings.setdefault("reasoning_mode", "standard")
     # Per-model retry overrides live in their own namespace, so inject their
     # current values here (only when actually set -- unset shows the default).
@@ -323,7 +337,9 @@ def _get_model_display_settings(model_name: str) -> Dict:
 
 
 def _get_setting_choices(
-    setting_key: str, model_name: Optional[str] = None
+    setting_key: str,
+    model_name: Optional[str] = None,
+    models_config: Optional[dict] = None,
 ) -> List[str]:
     """Get the available choices for a setting, filtered by model capabilities.
 
@@ -344,7 +360,8 @@ def _get_setting_choices(
     base_choices = setting_def.get("choices", [])
 
     if setting_key == "reasoning_effort" and model_name:
-        models_config = ModelFactory.load_config()
+        if models_config is None:
+            models_config = ModelFactory.load_config()
         model_config = models_config.get(model_name, {})
         unsupported_choices = set()
         if not model_config.get("supports_xhigh_reasoning", False):
@@ -392,7 +409,14 @@ class ModelSettingsMenu:
 
     def __init__(self):
         """Initialize the settings menu."""
-        self.all_models = _load_all_model_names()
+        # Model config callbacks may perform network discovery. Snapshot once
+        # for this menu session; render/key paths must stay pure and immediate.
+        self.models_config = ModelFactory.load_config()
+        parameters = inspect.signature(_load_all_model_names).parameters
+        if "models_config" in parameters:
+            self.all_models = _load_all_model_names(self.models_config)
+        else:
+            self.all_models = _load_all_model_names()
         self.current_model_name = get_global_model_name()
 
         # Navigation state
@@ -466,7 +490,7 @@ class ModelSettingsMenu:
             if (
                 setting_key == CUSTOM_MODEL_SETTING
                 or setting_key in _RETRY_MENU_KEYS
-                or model_supports_setting(model_name, setting_key)
+                or _supports_setting(model_name, setting_key, self.models_config)
             ):
                 supported.append(setting_key)
         return supported
@@ -475,7 +499,9 @@ class ModelSettingsMenu:
         """Load settings for a specific model."""
         self.selected_model = model_name
         self.supported_settings = self._get_supported_settings(model_name)
-        self.current_settings = _get_model_display_settings(model_name)
+        self.current_settings = _get_model_display_settings(
+            model_name, self.models_config
+        )
         self.custom_settings = get_custom_model_settings(model_name)
 
         self.setting_index = 0
@@ -539,8 +565,6 @@ class ModelSettingsMenu:
 
             from code_puppy.model_descriptions import get_model_description
 
-            models_config = ModelFactory.load_config()
-
             # Only render models on the current page
             for i, model_name in enumerate(self.models_on_page):
                 absolute_index = self.page_start + i
@@ -567,7 +591,7 @@ class ModelSettingsMenu:
                 lines.append(("", "\n"))
 
                 if is_selected:
-                    description = get_model_description(models_config, model_name)
+                    description = get_model_description(self.models_config, model_name)
                     lines.append(("class:tui.body", f"      {description}\n"))
 
             lines.append(("", "\n"))
@@ -730,7 +754,7 @@ class ModelSettingsMenu:
                 lines.append(("", "\n\n"))
 
             # Show current settings for this model
-            model_settings = _get_model_display_settings(model_name)
+            model_settings = _get_model_display_settings(model_name, self.models_config)
             if model_settings:
                 lines.append(("class:tui.label", "  Effective Settings:"))
                 lines.append(("", "\n"))
@@ -800,7 +824,9 @@ class ModelSettingsMenu:
                 lines.append(("class:tui.label", "  Options:"))
                 lines.append(("", "\n"))
                 # Get filtered choices based on model capabilities
-                choices = _get_setting_choices(setting_key, self.selected_model)
+                choices = _get_setting_choices(
+                    setting_key, self.selected_model, self.models_config
+                )
                 lines.append(
                     (
                         "class:tui.muted",
@@ -902,7 +928,9 @@ class ModelSettingsMenu:
             self.edit_value = current
         elif setting_def.get("type") == "choice":
             # For choice settings, start with the default (using filtered choices)
-            choices = _get_setting_choices(setting_key, self.selected_model)
+            choices = _get_setting_choices(
+                setting_key, self.selected_model, self.models_config
+            )
             resolved = _get_setting_default(setting_key, self.selected_model)
             self.edit_value = resolved or (choices[0] if choices else None)
         elif setting_def.get("type") == "boolean":
@@ -941,7 +969,9 @@ class ModelSettingsMenu:
 
         if setting_def.get("type") == "choice":
             # Cycle through filtered choices based on model capabilities
-            choices = _get_setting_choices(setting_key, self.selected_model)
+            choices = _get_setting_choices(
+                setting_key, self.selected_model, self.models_config
+            )
             current_idx = (
                 choices.index(self.edit_value) if self.edit_value in choices else 0
             )
