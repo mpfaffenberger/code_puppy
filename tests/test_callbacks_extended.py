@@ -63,13 +63,27 @@ class TestCallbacksExtended:
         def second(exc, **metadata):
             return " [two]"
 
-        for callback in (first, broken, invalid, oversized, second):
+        class NamelessBrokenCallback:
+            def __call__(self, exc, **metadata):
+                raise RuntimeError("nameless plugin boom")
+
+        for callback in (
+            first,
+            broken,
+            invalid,
+            oversized,
+            NamelessBrokenCallback(),
+            second,
+        ):
             register_callback("streaming_retry_display_suffix", callback)
 
         error = RuntimeError("transient")
-        assert on_streaming_retry_display_suffix(
-            error, delay=5, total=2, streak=1, max_attempts=3
-        ) == " [one] [two]"
+        assert (
+            on_streaming_retry_display_suffix(
+                error, delay=5, total=2, streak=1, max_attempts=3
+            )
+            == " [one] [two]"
+        )
         assert seen == [
             (
                 error,
@@ -77,13 +91,17 @@ class TestCallbacksExtended:
             )
         ]
         assert "plugin boom" in caplog.text
+        assert "nameless plugin boom" in caplog.text
         assert "returned int" in caplog.text
         assert "oversized value" in caplog.text
 
     def test_streaming_retry_display_suffix_has_no_plugin_output(self):
-        assert on_streaming_retry_display_suffix(
-            RuntimeError("transient"), delay=5, total=1, streak=1, max_attempts=3
-        ) == ""
+        assert (
+            on_streaming_retry_display_suffix(
+                RuntimeError("transient"), delay=5, total=1, streak=1, max_attempts=3
+            )
+            == ""
+        )
 
     def test_register_callback(self):
         """Test callback registration."""

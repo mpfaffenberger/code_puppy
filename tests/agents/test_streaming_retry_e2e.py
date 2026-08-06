@@ -136,9 +136,7 @@ async def test_streaming_retry_warning_is_generic_without_suffix_plugin(monkeypa
     result = await streaming_retry(max_attempts=3, delays=(0,))(factory)()
 
     assert result == "streamed-result"
-    assert warnings[0].endswith(
-        "last completed step in 0s... (attempt 1, streak 1/3)"
-    )
+    assert warnings[0].endswith("last completed step in 0s... (attempt 1, streak 1/3)")
     assert "[resp_id:" not in warnings[0]
 
 
@@ -162,9 +160,14 @@ async def test_streaming_retry_suffix_plugin_is_additive_and_cannot_block_recove
             raise _make_anthropic_upstream_idle_timeout()
         return "streamed-result"
 
-    assert await streaming_retry(max_attempts=3, delays=(0,))(factory)() == "streamed-result"
+    assert (
+        await streaming_retry(max_attempts=3, delays=(0,))(factory)()
+        == "streamed-result"
+    )
     assert call_count["n"] == 2
     assert warnings[-1].endswith("[diagnostic]")
+
+
 # --- Teams messages so any future regression that breaks classification of
 # --- the actual shapes seen in production gets caught.
 
