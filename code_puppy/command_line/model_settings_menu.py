@@ -343,8 +343,7 @@ def _get_setting_choices(
 ) -> List[str]:
     """Get the available choices for a setting, filtered by model capabilities.
 
-    Reasoning effort is capability-gated: xhigh is available to codex and
-    GPT-5.4+ models, while max is reserved for GPT-5.6+ variants.
+    Catalog-declared choices take precedence over legacy reasoning flags.
 
     Args:
         setting_key: The setting name (e.g., 'reasoning_effort', 'verbosity')
@@ -359,16 +358,25 @@ def _get_setting_choices(
 
     base_choices = setting_def.get("choices", [])
 
-    if setting_key == "reasoning_effort" and model_name:
+    if model_name:
         if models_config is None:
             models_config = ModelFactory.load_config()
         model_config = models_config.get(model_name, {})
-        unsupported_choices = set()
-        if not model_config.get("supports_xhigh_reasoning", False):
-            unsupported_choices.add("xhigh")
-        if not model_config.get("supports_max_reasoning", False):
-            unsupported_choices.add("max")
-        return [choice for choice in base_choices if choice not in unsupported_choices]
+        advertised = model_config.get("setting_choices", {}).get(setting_key)
+        if isinstance(advertised, list):
+            recognized = [choice for choice in base_choices if choice in advertised]
+            if recognized:
+                return recognized
+
+        if setting_key == "reasoning_effort":
+            unsupported_choices = set()
+            if not model_config.get("supports_xhigh_reasoning", False):
+                unsupported_choices.add("xhigh")
+            if not model_config.get("supports_max_reasoning", False):
+                unsupported_choices.add("max")
+            return [
+                choice for choice in base_choices if choice not in unsupported_choices
+            ]
 
     return base_choices
 
