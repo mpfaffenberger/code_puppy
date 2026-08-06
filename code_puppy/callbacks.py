@@ -27,6 +27,7 @@ PhaseType = Literal[
     "pre_tool_call",
     "post_tool_call",
     "stream_event",
+    "streaming_retry_display_suffix",
     "thinking_display_filter",
     "termflow_style",
     "prompt_toolkit_style",
@@ -90,6 +91,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "pre_tool_call": [],
     "post_tool_call": [],
     "stream_event": [],
+    "streaming_retry_display_suffix": [],
     "thinking_display_filter": [],
     "termflow_style": [],
     "prompt_toolkit_style": [],
@@ -598,6 +600,55 @@ async def on_post_tool_call(
     return await _trigger_callbacks(
         "post_tool_call", tool_name, tool_args, result, duration_ms, context
     )
+
+
+def on_streaming_retry_display_suffix(
+    exc: BaseException,
+    *,
+    delay: float,
+    total: int,
+    streak: int,
+    max_attempts: int,
+) -> str:
+    """Collect safe, additive plugin text for a streaming retry warning.
+
+    This synchronous hot-path hook runs immediately before each retry sleep.
+    Callbacks must be quick and non-blocking. Failures, non-string returns, and
+    oversized strings are ignored so plugins cannot interrupt retry behavior or
+    hide the core warning.
+    """
+    suffixes: list[str] = []
+    for callback in get_callbacks("streaming_retry_display_suffix"):
+        try:
+            result = callback(
+                exc,
+                delay=delay,
+                total=total,
+                streak=streak,
+                max_attempts=max_attempts,
+            )
+            if isinstance(result, str) and result:
+                if len(result) <= 256:
+                    suffixes.append(result)
+                else:
+                    logger.warning(
+                        "Streaming retry display suffix %s returned an oversized value; ignoring it",
+                        callback.__name__,
+                    )
+            elif result is not None:
+                logger.warning(
+                    "Streaming retry display suffix %s returned %s; ignoring it",
+                    callback.__name__,
+                    type(result).__name__,
+                )
+        except Exception as callback_exc:
+            logger.error(
+                "Streaming retry display suffix %s failed: %s\n%s",
+                callback.__name__,
+                callback_exc,
+                traceback.format_exc(),
+            )
+    return "".join(suffixes)
 
 
 def on_thinking_display_filter(

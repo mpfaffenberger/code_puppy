@@ -23,7 +23,7 @@ import signal
 import threading
 import uuid
 from contextlib import AsyncExitStack
-from typing import Any, Callable, Iterator, List, Optional, Sequence, Type, Union
+from typing import Any, Callable, List, Optional, Sequence, Type, Union
 
 import httpcore
 import httpx
@@ -59,7 +59,7 @@ try:  # pragma: no cover - pydantic-ai version dependent
 except ImportError:
     ModelAPIError = None  # type: ignore[misc,assignment]
 
-# Python 3.11+ builtin; graceful fallback for 3.10
+# Python 3.11+ builtin; graceful fallback for 3.10.
 try:
     from builtins import BaseExceptionGroup  # type: ignore[attr-defined]
 except ImportError:  # pragma: no cover - 3.10 only
@@ -81,6 +81,7 @@ from code_puppy.agents._run_signals import (
     sigint_should_cancel,
 )
 from code_puppy.agents.event_stream_handler import event_stream_handler
+from code_puppy.agents.exception_tree import walk_exception_tree
 from code_puppy.callbacks import (
     on_agent_exception,
     on_agent_run_cancel,
@@ -89,6 +90,7 @@ from code_puppy.callbacks import (
     on_agent_run_result,
     on_agent_run_start,
     on_should_skip_fallback_render,
+    on_streaming_retry_display_suffix,
     on_user_prompt_submit,
 )
 from code_puppy.config import (
@@ -187,34 +189,12 @@ def _embedded_http_status(text: str) -> Optional[int]:
     return int(match.group(1)) if match else None
 
 
-def _walk_cause_chain(
-    exc: BaseException, max_depth: int = 5
-) -> "Iterator[BaseException]":
-    """Yield ``exc`` and follow its ``__cause__`` / ``__context__`` chain.
-
-    Depth-capped and cycle-safe (tracked by ``id``) so a pathological
-    self-referencing chain can't loop forever. We walk both attributes because
-    Anthropic-SDK / pydantic-ai wrap the real transport error in ``__cause__``
-    (explicit ``raise X from Y``), while some libraries use the implicit
-    ``__context__`` set by ``except: raise``. Cost of a false-positive cause
-    match is at most 3 silent retries; cost of a false-negative is the 60-line
-    REPL traceback this whole helper exists to prevent.
-    """
-    seen: set[int] = set()
-    current: Optional[BaseException] = exc
-    for _ in range(max_depth):
-        if current is None or id(current) in seen:
-            return
-        seen.add(id(current))
-        yield current
-        current = current.__cause__ or current.__context__
-
-
 def _is_retryable_one(exc: BaseException) -> bool:
     """Per-exception predicate: is *this single* exception transient?
 
-    Intentionally does NOT walk the cause chain -- that's :func:`_walk_cause_chain`'s
-    job, kept as a separate concern so each piece stays independently testable.
+    Intentionally does NOT walk wrapped exceptions --
+    :func:`walk_exception_tree` owns that concern, keeping this predicate
+    independently testable.
     """
     if isinstance(exc, _RETRYABLE_EXCEPTIONS):
         return True
@@ -310,20 +290,6 @@ def _is_retryable_one(exc: BaseException) -> bool:
     return False
 
 
-def _group_members(exc: BaseException) -> tuple:
-    """Return an ExceptionGroup's sub-exceptions, or ``()`` for a plain error.
-
-    Guards against the 3.10 fallback where ``BaseExceptionGroup`` aliases
-    ``Exception`` -- there we'd otherwise treat *every* exception as a group.
-    On 3.11+ (and 3.10 with the backport) real groups expose ``.exceptions``.
-    """
-    if BaseExceptionGroup is Exception:  # 3.10 without exceptiongroup backport
-        return ()
-    if isinstance(exc, BaseExceptionGroup):
-        return tuple(exc.exceptions)
-    return ()
-
-
 def should_retry_streaming(exc: Exception) -> bool:
     """Decide whether ``exc`` (or anything it wraps) is a transient hiccup.
 
@@ -340,24 +306,10 @@ def should_retry_streaming(exc: Exception) -> bool:
     ``.exceptions``, so a retryable 5xx used to look opaque and crash the REPL
     with a full traceback instead of getting the slow spaced-out retry.
 
-    Returns ``True`` if *any* reachable exception is transient. Cycle-safe via
-    an ``id`` set; the per-chain depth cap of :func:`_walk_cause_chain` is
-    preserved (group membership is a separate traversal axis).
+    Returns ``True`` if *any* reachable exception is transient. Traversal is
+    cycle-safe and preserves a bounded cause/context depth for each group node.
     """
-    seen: set[int] = set()
-    stack: list[BaseException] = [exc]
-    while stack:
-        node = stack.pop()
-        if node is None or id(node) in seen:
-            continue
-        for link in _walk_cause_chain(node):
-            if id(link) in seen:
-                continue
-            seen.add(id(link))
-            if _is_retryable_one(link):
-                return True
-            stack.extend(_group_members(link))
-    return False
+    return any(_is_retryable_one(link) for link in walk_exception_tree(exc))
 
 
 # Default retry budget for the raw ``streaming_retry`` mechanism when called
@@ -494,11 +446,19 @@ def streaming_retry(
                         )
 
                         delay = MIN_DELAY_SECONDS
-                    emit_warning(
+                    suffix = on_streaming_retry_display_suffix(
+                        exc,
+                        delay=delay,
+                        total=total,
+                        streak=streak,
+                        max_attempts=max_attempts,
+                    )
+                    message = (
                         "\u26a1 Turn interrupted mid-stream, re-running from the "
                         f"last completed step in {delay}s... "
-                        f"(attempt {total}, streak {streak}/{max_attempts})"
+                        f"(attempt {total}, streak {streak}/{max_attempts}){suffix}"
                     )
+                    emit_warning(message)
                     await asyncio.sleep(delay)
 
         return runner

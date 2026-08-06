@@ -10,6 +10,7 @@ to escape the classifier.
 import httpx
 import pytest
 
+from code_puppy.callbacks import register_callback
 from code_puppy.agents._runtime import streaming_retry
 
 
@@ -119,7 +120,51 @@ async def test_streaming_retry_does_not_retry_genuine_bugs():
     assert call_count["n"] == 1  # NO retries -- single attempt and done
 
 
-# --- Real reports from the field. These bodies are copy-pasted from user
+@pytest.mark.asyncio
+async def test_streaming_retry_warning_is_generic_without_suffix_plugin(monkeypatch):
+    warnings = []
+    monkeypatch.setattr("code_puppy.agents._runtime.emit_warning", warnings.append)
+
+    call_count = {"n": 0}
+
+    async def factory():
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise _make_anthropic_upstream_idle_timeout()
+        return "streamed-result"
+
+    result = await streaming_retry(max_attempts=3, delays=(0,))(factory)()
+
+    assert result == "streamed-result"
+    assert warnings[0].endswith(
+        "last completed step in 0s... (attempt 1, streak 1/3)"
+    )
+    assert "[resp_id:" not in warnings[0]
+
+
+@pytest.mark.asyncio
+async def test_streaming_retry_suffix_plugin_is_additive_and_cannot_block_recovery(
+    monkeypatch,
+):
+    warnings = []
+    monkeypatch.setattr("code_puppy.agents._runtime.emit_warning", warnings.append)
+
+    def suffix(exc, **metadata):
+        assert metadata == {"delay": 0, "total": 1, "streak": 1, "max_attempts": 3}
+        return " [diagnostic]"
+
+    register_callback("streaming_retry_display_suffix", suffix)
+    call_count = {"n": 0}
+
+    async def factory():
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise _make_anthropic_upstream_idle_timeout()
+        return "streamed-result"
+
+    assert await streaming_retry(max_attempts=3, delays=(0,))(factory)() == "streamed-result"
+    assert call_count["n"] == 2
+    assert warnings[-1].endswith("[diagnostic]")
 # --- Teams messages so any future regression that breaks classification of
 # --- the actual shapes seen in production gets caught.
 
