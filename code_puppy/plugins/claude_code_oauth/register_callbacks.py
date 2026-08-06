@@ -160,6 +160,48 @@ def _parse_pasted_callback(context: OAuthContext, raw_input: str) -> Optional[st
     return parsed.code
 
 
+def _read_pasted_callback_line() -> Optional[str]:
+    """Return one pasted callback line from whichever input the UI owns.
+
+    The trap: under the persistent TUI a *live agent run* owns stdin via the
+    key-listener thread (this is the mid-run re-auth path — an expired token
+    triggers ``_reauthenticate_after_expired_oauth`` from inside the HTTP
+    client while the run is in flight). A pasted callback URL is therefore
+    routed onto the PauseController steer queues, NOT ``sys.stdin`` — so a
+    naive ``select()`` on stdin here would spin until timeout while the paste
+    sits on the queue, unread until the run ends. Pull it off the queue.
+
+    Every other context keeps reading stdin directly:
+      * classic / headless mode — nothing owns stdin;
+      * the idle ``/claude-code-auth`` command — dispatched inside
+        ``suspended_run_ui()``, which releases the key-listener, so stdin is
+        free and ``is_run_active()`` is False.
+    """
+    try:
+        from code_puppy.messaging import run_ui
+
+        if run_ui.is_persistent() and run_ui.is_run_active():
+            from code_puppy.messaging.pause_controller import get_pause_controller
+
+            pc = get_pause_controller()
+            # Alt+Enter (queue mode) → oldest queued line first.
+            queued = pc.pop_next_steer_queued()
+            if queued is not None:
+                return queued
+            # Plain Enter mid-run lands on the now-queue. Take the oldest
+            # line and hand the rest back so genuine steers aren't swallowed.
+            drained = pc.drain_pending_steer_now()
+            if not drained:
+                return None
+            for leftover in drained[1:]:
+                pc.request_steer(leftover, mode="now")
+            return drained[0]
+    except Exception:  # noqa: BLE001 - never let UI plumbing break auth
+        logger.debug("queue paste read failed; falling back to stdin", exc_info=True)
+
+    return read_available_stdin_line()
+
+
 def _wait_for_callback_or_paste(
     *,
     context: OAuthContext,
@@ -182,7 +224,7 @@ def _wait_for_callback_or_paste(
 
             return result.code
 
-        pasted = read_available_stdin_line()
+        pasted = _read_pasted_callback_line()
         if pasted is not None and pasted.strip():
             code = _parse_pasted_callback(context, pasted)
             if code:
