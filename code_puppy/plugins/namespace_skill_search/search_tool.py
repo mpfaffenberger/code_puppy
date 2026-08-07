@@ -18,6 +18,7 @@ skill. This tool is just the drill-down mechanism underneath it.
 
 from __future__ import annotations
 
+import asyncio
 from typing import List, Optional
 
 from pydantic import BaseModel
@@ -40,6 +41,20 @@ def _skill_matches(skill_haystack: str, terms: List[str]) -> bool:
     return any(term in skill_haystack for term in terms)
 
 
+def _query_terms(query: Optional[str]) -> List[str]:
+    """Split a query into lowercase terms.
+
+    A blank or whitespace-only query means "no filter", not "filter to
+    nothing" -- ``any(term in haystack for term in [])`` is ``False`` for
+    every skill, which would otherwise make ``query=""`` or
+    ``query="   "`` silently return zero results instead of the
+    unfiltered set the caller almost certainly intended.
+    """
+    if not query or not query.strip():
+        return []
+    return query.lower().split()
+
+
 def register_browse_skill_namespace(agent):
     """Register the browse_skill_namespace tool on an agent."""
 
@@ -60,7 +75,21 @@ def register_browse_skill_namespace(agent):
             namespace: Exact namespace name to list skills within.
             query: Keyword(s) to search across name/description/tags.
         """
-        namespaces = build_namespaces()
+        # build_namespaces() does a full filesystem walk + frontmatter
+        # re-parse per call. Left inline, that blocking I/O runs directly
+        # on the event loop -- pydantic-ai only auto-offloads to a worker
+        # thread for *sync* tool functions (anyio.to_thread), not async
+        # ones. Since this tool must stay async (RunContext-taking tools
+        # in this codebase are conventionally async -- see
+        # activate_skill/list_or_search_skills in
+        # code_puppy/tools/skills_tools.py), we offload explicitly instead.
+        try:
+            namespaces = await asyncio.to_thread(build_namespaces)
+        except Exception as exc:  # noqa: BLE001 - surface to the model, don't crash the turn
+            return NamespaceBrowseOutput(
+                mode="directory",
+                error=f"Failed to read skill catalog: {exc}",
+            )
         total = sum(len(v) for v in namespaces.values())
 
         if not namespaces:
@@ -92,8 +121,8 @@ def register_browse_skill_namespace(agent):
                     ),
                 )
             skills = namespaces[matched_ns]
-            if query:
-                terms = query.lower().split()
+            terms = _query_terms(query)
+            if terms:
                 skills = [
                     s
                     for s in skills
@@ -111,8 +140,11 @@ def register_browse_skill_namespace(agent):
                 total_skills=len(skills),
             )
 
-        # Mode 3: keyword search across every namespace
-        terms = (query or "").lower().split()
+        # Mode 3: keyword search across every namespace. An empty/blank
+        # query (explicit query="" rather than omitted entirely -- mode 1
+        # only triggers when both args are None) means "no filter",
+        # matching mode 2's semantics above.
+        terms = _query_terms(query)
         results = [
             {
                 "name": s.name,
@@ -122,7 +154,8 @@ def register_browse_skill_namespace(agent):
             }
             for ns, skills in namespaces.items()
             for s in skills
-            if _skill_matches(
+            if not terms
+            or _skill_matches(
                 f"{s.name} {s.description} {' '.join(s.tags)}".lower(), terms
             )
         ]

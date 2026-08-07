@@ -1,13 +1,15 @@
 """Entry point: registers all hooks for the namespace_skill_search plugin.
 
-Two hooks, both additive (no last-write-wins risk):
+Three hooks:
 
-1. `load_prompt`    -> injects the compact namespace directory (a few lines
+1. `startup`        -> one-time migration that turns off the built-in flat
+                       skill list (see `_maybe_disable_frontmatter` below).
+2. `load_prompt`    -> injects the compact namespace directory (a few lines
                        per namespace instead of one line per skill).
                        Fragments from every plugin are simply
                        newline-joined by base_agent.py, so this coexists
                        safely with any other plugin's fragment.
-2. `register_tools` -> adds `browse_skill_namespace` as a real tool, wired
+3. `register_tools` -> adds `browse_skill_namespace` as a real tool, wired
                        to every agent automatically via
                        `register_agent_tools`.
 
@@ -24,6 +26,7 @@ the prompt.
 import logging
 
 from code_puppy.callbacks import register_callback
+from code_puppy.config import get_value, set_config_value
 from code_puppy.plugins.agent_skills.config import (
     get_frontmatter_in_system_prompt,
     set_frontmatter_in_system_prompt,
@@ -33,6 +36,48 @@ from .namespaces import build_namespace_summary
 from .search_tool import register_browse_skill_namespace
 
 logger = logging.getLogger(__name__)
+
+# Dedicated marker so we can tell "this plugin already performed its
+# one-time frontmatter migration" apart from "the shared flag happens to
+# be True right now". Without this marker we can't distinguish "user
+# explicitly re-enabled frontmatter after we turned it off" from "we
+# haven't run yet" — both look like `get_frontmatter_in_system_prompt()
+# == True`. Storing our own marker lets us flip the shared flag exactly
+# once, ever, and never again fight a user's later `/skills frontmatter
+# on`.
+_MIGRATION_MARKER_KEY = "namespace_skill_search_frontmatter_migrated"
+
+
+def _maybe_disable_frontmatter() -> None:
+    """One-time migration: turn off the built-in flat per-skill list.
+
+    Runs on the `startup` callback (not at import time) so it is:
+    - testable in isolation (call this function directly with mocked
+      config, same pattern as `theme._apply_default_theme_on_first_run`);
+    - not repeated on every module import (`startup` callbacks fire once
+      per process, same as any other plugin);
+    - a single, auditable point of config mutation rather than an
+      import-time side effect.
+
+    Only ever flips the shared `frontmatter_in_system_prompt` flag from
+    True -> False, and only the first time this plugin ever starts up. A
+    user who runs `/skills frontmatter on` afterwards keeps that choice
+    forever — the marker means we never re-evaluate `get_value` for this
+    decision again.
+    """
+    if get_value(_MIGRATION_MARKER_KEY):
+        return
+
+    if get_frontmatter_in_system_prompt():
+        set_frontmatter_in_system_prompt(False)
+        logger.info(
+            "namespace_skill_search: disabled flat skill-list frontmatter "
+            "(one-time migration); namespace directory + "
+            "browse_skill_namespace tool take over. Run `/skills "
+            "frontmatter on` to restore the flat list."
+        )
+
+    set_config_value(_MIGRATION_MARKER_KEY, "true")
 
 
 def _on_load_prompt():
@@ -52,18 +97,7 @@ def _advertise_to_all_agents(agent_name=None):
     return ["browse_skill_namespace"]
 
 
-# Turn off the built-in flat per-skill list (one line per skill -> gone)
-# the first time this plugin loads. We only ever flip it False when it's
-# currently True, so a user who explicitly re-enables it later via
-# `/skills frontmatter on` keeps that choice on subsequent restarts — we
-# don't fight config the user set on purpose after our first load.
-if get_frontmatter_in_system_prompt():
-    set_frontmatter_in_system_prompt(False)
-    logger.info(
-        "namespace_skill_search: disabled flat skill-list frontmatter; "
-        "namespace directory + browse_skill_namespace tool take over."
-    )
-
+register_callback("startup", _maybe_disable_frontmatter)
 register_callback("load_prompt", _on_load_prompt)
 register_callback("register_tools", _register_tools)
 register_callback("register_agent_tools", _advertise_to_all_agents)

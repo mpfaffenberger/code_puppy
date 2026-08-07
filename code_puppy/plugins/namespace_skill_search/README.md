@@ -13,6 +13,14 @@ every item injected into the system prompt upfront.
   `defer_loading: true`, results injected at end of context to preserve
   prompt caching. ~85% token reduction, measurable accuracy gains on
   internal MCP evals ([Anthropic engineering blog, Nov 2025](https://www.anthropic.com/engineering/advanced-tool-use)).
+  Note: our `load_prompt` fragment lands earlier in the assembled prompt
+  (layer 2 of `base_agent.py::get_full_system_prompt`) than the built-in
+  flat skill list it replaces did (layer 6, dead last). We prioritized
+  additive-safety (`load_prompt` can't collide with another plugin's
+  fragment; `get_model_system_prompt` can) over exactly matching
+  Anthropic's end-of-context caching position. If cache-hit rate on the
+  namespace block ever matters in practice, moving it later is a
+  follow-up, not a redesign.
 - OpenAI's shipped `tool_search`: same on-demand mechanic, PLUS an
   explicit **namespace** grouping layer above it
   (`{"type": "namespace", "name": "crm", "tools": [...]}`), because
@@ -53,18 +61,40 @@ Claude, GPT, Gemini, or any custom endpoint wired through
    - no args -> namespace directory (same content as the prompt block)
    - `namespace="X"` -> every skill in that namespace
    - `query="..."` -> keyword search across all namespaces
-4. **Flat list turned off** — on first load, the plugin calls
+4. **Flat list turned off** — the first time this plugin ever starts up
+   (via a `startup` callback, not an import-time side effect — see
+   "What we deliberately avoided" below), it calls
    `set_frontmatter_in_system_prompt(False)` via the public config API
    (`code_puppy.plugins.agent_skills.config`) so the built-in per-skill
-   flat list doesn't also render alongside the namespace directory. This
-   is a one-time flip; if a user re-enables it later with
-   `/skills frontmatter on`, we don't fight that choice on next launch.
+   flat list doesn't also render alongside the namespace directory.
+
+   **This is a real, persisted config write, not an in-memory toggle.**
+   Enabling this plugin once permanently sets
+   `frontmatter_in_system_prompt=false` in `puppy.cfg`. A dedicated
+   marker key (`namespace_skill_search_frontmatter_migrated`) records
+   that the flip already happened, so if you re-enable it afterwards
+   with `/skills frontmatter on`, we never touch the flag again — your
+   choice sticks across restarts. But if you disable or remove this
+   plugin entirely, the flag stays `false`; nothing restores the flat
+   list automatically. Run `/skills frontmatter on` yourself if you want
+   it back.
 
 ## What we deliberately avoided
 
+- **No config mutation at import time.** The `frontmatter_in_system_prompt`
+  flip runs inside a `register_callback("startup", ...)` handler (matching
+  the same pattern as `code_puppy/plugins/theme`'s
+  `_apply_default_theme_on_first_run`), not as top-level code in
+  `register_callbacks.py`. Import-time disk writes are a landmine: they
+  fire on every import (including test collection), can't be unit-tested
+  without `importlib.reload` gymnastics, and race with plugin load order
+  in ways a callback doesn't. A dedicated migration marker (see above)
+  makes the one-time-ness explicit and testable instead of relying on
+  "only flip it when the shared flag is currently True" as the sole
+  signal.
 - **No `get_model_system_prompt` callback.** That phase is
   last-write-wins across plugins — `model_utils.prepare_prompt_for_model`
-  threads augmenter results through sequentially and the *last* callback
+  threads augmenter results sequentially and the *last* callback
   processed wins on any key both callbacks set. A second plugin
   registering on that phase risks silently clobbering the built-in
   `agent_skills` plugin's contribution. `load_prompt` avoids that

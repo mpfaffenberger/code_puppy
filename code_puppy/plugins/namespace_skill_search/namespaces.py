@@ -11,6 +11,7 @@ model-provider-specific request field.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Dict, List, Optional
 
 from code_puppy.plugins.agent_skills.enabled_skills import list_enabled_skill_metadata
@@ -35,14 +36,42 @@ def _namespace_for(skill: SkillMetadata) -> str:
 def build_namespaces() -> Dict[str, List[SkillMetadata]]:
     """Group every enabled skill by namespace.
 
+    Grouping is case-insensitive: skills tagged "finance" and "Finance"
+    land in the same bucket. Without this, the directory would silently
+    fragment into two separate namespace entries that look distinct to
+    the model but are semantically the same category, and a
+    case-sensitive drill-down would only ever surface one of them (see
+    `search_tool.py`'s case-insensitive `namespace=` lookup, which
+    depends on this function never producing two keys that only differ
+    by case). The *first* casing encountered wins for display purposes,
+    which keeps behavior deterministic for a given skill-discovery order.
+
     Returns an empty dict if skills are globally disabled or none exist —
     callers should treat that as "nothing to show", not an error.
     """
     namespaces: Dict[str, List[SkillMetadata]] = {}
+    display_names: Dict[str, str] = {}
     for skill in list_enabled_skill_metadata():
-        ns = _namespace_for(skill)
-        namespaces.setdefault(ns, []).append(skill)
+        raw_ns = _namespace_for(skill)
+        key = raw_ns.lower()
+        display = display_names.setdefault(key, raw_ns)
+        namespaces.setdefault(display, []).append(skill)
     return namespaces
+
+
+def _duplicate_skill_names(namespaces: Dict[str, List[SkillMetadata]]) -> List[str]:
+    """Names shared by 2+ skills, regardless of namespace.
+
+    Nothing in `agent_skills` enforces globally-unique skill names, and
+    grouping by namespace makes a collision more visible (two entries
+    with the same name can now show up side-by-side across namespace
+    listings), not less. We can't resolve the ambiguity here -- that's an
+    `agent_skills`-level concern -- but we can at least flag it instead
+    of silently presenting the model with two indistinguishable
+    `activate_skill(name)` targets.
+    """
+    counts = Counter(s.name for skills in namespaces.values() for s in skills)
+    return sorted(name for name, count in counts.items() if count > 1)
 
 
 def build_namespace_summary() -> Optional[str]:
@@ -84,4 +113,13 @@ def build_namespace_summary() -> Optional[str]:
         "to keyword-search across all namespaces. Then `activate_skill(name)` "
         "to load full instructions."
     )
+
+    duplicates = _duplicate_skill_names(namespaces)
+    if duplicates:
+        lines.append(
+            "Note: these skill names appear more than once across "
+            f"namespaces, so `activate_skill(name)` may be ambiguous: "
+            f"{', '.join(duplicates)}."
+        )
+
     return "\n".join(lines)
