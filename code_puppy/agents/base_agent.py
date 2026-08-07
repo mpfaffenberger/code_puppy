@@ -157,14 +157,6 @@ class BaseAgent(ABC):
             "such as claiming task ownership or coordination with other agents."
         )
 
-    def get_cache_stable_identity_prompt(self) -> str:
-        """Return the logical identity used in cacheable model instructions."""
-        return (
-            f"\n\nYour ID is `{self.name}`. "
-            "Use this for any tasks which require identifying yourself "
-            "such as claiming task ownership or coordination with other agents."
-        )
-
     def get_full_system_prompt(self) -> str:
         """Assemble the runtime system prompt.
 

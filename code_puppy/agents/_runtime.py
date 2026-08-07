@@ -689,10 +689,10 @@ async def _run_with_mcp_impl(
 
     prompt = _should_prepend_system_prompt(agent, prompt)
     prompt_payload = _build_prompt_payload(prompt, attachments, link_attachments)
-    from code_puppy.model_factory import (
-        ModelFactory,
-        get_openai_request_path,
-        supports_explicit_prompt_cache_breakpoint,
+    from code_puppy.model_factory import ModelFactory
+    from code_puppy.openai_prompt_cache import (
+        get_request_path,
+        supports_explicit_breakpoint,
     )
 
     resolved_name = getattr(agent, "_last_model_name", None) or agent.get_model_name()
@@ -705,13 +705,11 @@ async def _run_with_mcp_impl(
     if not agent._message_history:
         from code_puppy.openai_prompt_cache import add_cache_boundary
 
-        if resolved_name and supports_explicit_prompt_cache_breakpoint(
-            resolved_name, model_config
-        ):
+        if resolved_name and supports_explicit_breakpoint(resolved_name, model_config):
             prompt_payload = add_cache_boundary(prompt_payload)
 
     actual_model_id = str(model_config.get("name") or resolved_name or "")
-    request_path = get_openai_request_path(resolved_name or "", model_config)
+    request_path = get_request_path(resolved_name or "", model_config)
 
     async def _do_run(prompt_to_use: Any) -> Any:
         """Run the agent once, then honour any plugin ``retry`` requests."""

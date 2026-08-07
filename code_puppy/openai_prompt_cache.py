@@ -6,6 +6,7 @@ backport only those two behaviours; other OpenAI models keep the stock adapter.
 """
 
 from dataclasses import fields
+from hashlib import sha256
 from typing import Any, Sequence
 
 from pydantic_ai import CachePoint
@@ -17,6 +18,86 @@ from pydantic_ai.models.openai import (
 )
 
 CACHE_ANCHOR = "Use the existing CodePuppy instructions."
+_CACHE_KEY_PREFIX = "code-puppy"
+_OPENAI_MODEL_TYPES = {
+    "openai",
+    "azure_openai",
+    "chatgpt_oauth",
+    "azure_foundry_openai",
+    "custom_openai",
+    "custom_openai_responses",
+}
+_LEGACY_CUSTOM_RESPONSES_MODEL = "codex-gpt-5-codex"
+
+
+def is_gpt_5_6_model(model_name: str, model_config: dict[str, Any]) -> bool:
+    """Recognize GPT-5.6 through either its alias or provider model ID."""
+    provider_model_name = str(model_config.get("name") or model_name)
+    return "gpt-5.6" in model_name.lower() or "gpt-5.6" in provider_model_name.lower()
+
+
+def supports_prompt_cache(model_name: str, model_config: dict[str, Any]) -> bool:
+    """Return whether the focused GPT-5.6 cache adapter owns this model."""
+    return (
+        is_gpt_5_6_model(model_name, model_config)
+        and model_config.get("type") in _OPENAI_MODEL_TYPES
+    )
+
+
+def supports_explicit_breakpoint(model_name: str, model_config: dict[str, Any]) -> bool:
+    """Return whether the provider accepts explicit prompt-cache markers."""
+    if not supports_prompt_cache(model_name, model_config):
+        return False
+    configured = model_config.get("prompt_cache_breakpoint_enabled")
+    if configured is not None:
+        return configured is True
+    # Provider-specific OpenAI-compatible backends can expose the model slug
+    # without supporting the marker. The public OpenAI API is the safe default.
+    return model_config.get("type") == "openai"
+
+
+def get_request_path(model_name: str, model_config: dict[str, Any]) -> str:
+    """Return the OpenAI API path selected for this model configuration."""
+    model_type = model_config.get("type")
+    if model_type not in _OPENAI_MODEL_TYPES:
+        return "provider_default"
+    custom_responses = model_type == "custom_openai_responses" or (
+        model_type == "custom_openai" and model_name == _LEGACY_CUSTOM_RESPONSES_MODEL
+    )
+    uses_responses = (
+        model_type in {"chatgpt_oauth", "azure_foundry_openai"}
+        or (model_type == "openai" and "codex" in model_name)
+        or custom_responses
+    )
+    return "responses" if uses_responses else "chat_completions"
+
+
+def apply_cache_key(
+    settings: dict[str, Any],
+    model_name: str,
+    model_config: dict[str, Any],
+    scope: str | None,
+) -> bool:
+    """Add a stable opaque routing key and return whether GPT-5.6 matched."""
+    if not is_gpt_5_6_model(model_name, model_config):
+        return False
+    provider_model_name = str(model_config.get("name") or model_name)
+    material = f"{provider_model_name.lower()}\0{scope or 'default'}"
+    digest = sha256(material.encode("utf-8")).hexdigest()[:24]
+    settings["openai_prompt_cache_key"] = f"{_CACHE_KEY_PREFIX}:{digest}"
+    return True
+
+
+def get_model_classes(
+    model_name: str,
+    model_config: dict[str, Any],
+    chat_model_cls: type[OpenAIChatModel] = OpenAIChatModel,
+    responses_model_cls: type[OpenAIResponsesModel] = OpenAIResponsesModel,
+) -> tuple[type[OpenAIChatModel], type[OpenAIResponsesModel]]:
+    """Select stock or cache-aware pydantic-ai OpenAI model adapters."""
+    if supports_prompt_cache(model_name, model_config):
+        return CacheAwareChatModel, CacheAwareResponsesModel
+    return chat_model_cls, responses_model_cls
 
 
 def add_cache_boundary(prompt: str | Sequence[Any]) -> list[Any]:

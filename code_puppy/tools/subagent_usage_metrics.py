@@ -102,13 +102,11 @@ def _extract_usage_metrics(usage: Any) -> dict[str, int | None]:
 
     cache_read = _pick_reported_tokens(
         usage,
-        ("cache_read_input_tokens", "cached_content_tokens", "cache_read_tokens"),
+        ("cache_read_input_tokens", "cached_content_tokens"),
         "cache_read_tokens",
     )
     cache_creation = _pick_reported_tokens(
-        usage,
-        ("cache_creation_input_tokens", "cache_write_tokens"),
-        "cache_write_tokens",
+        usage, ("cache_creation_input_tokens",), "cache_write_tokens"
     )
 
     # pydantic-ai reports a combined input count that already includes the

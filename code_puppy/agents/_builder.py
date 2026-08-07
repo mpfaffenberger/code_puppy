@@ -485,8 +485,17 @@ def _full_system_prompt_for_model(agent: Any, resolved_model_name: str) -> str:
     if not instructions.endswith(runtime_identity):
         return instructions
 
-    stable_identity = agent.get_cache_stable_identity_prompt()
-    if not isinstance(stable_identity, str) or not stable_identity:
+    identity_getter = getattr(agent, "get_identity", None)
+    logical_name = getattr(agent, "name", None)
+    if not callable(identity_getter) or not isinstance(logical_name, str):
+        return instructions
+    runtime_id = identity_getter()
+    if not isinstance(runtime_id, str) or not runtime_id:
+        return instructions
+    stable_identity = runtime_identity.replace(
+        f"`{runtime_id}`", f"`{logical_name}`", 1
+    )
+    if stable_identity == runtime_identity:
         return instructions
     return instructions[: -len(runtime_identity)] + stable_identity
 

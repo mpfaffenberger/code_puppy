@@ -171,8 +171,10 @@ def _create_chatgpt_oauth_model(
 
     from code_puppy.chatgpt_codex_client import create_codex_async_client
     from code_puppy.http_utils import get_cert_bundle_path
-    from code_puppy.model_factory import supports_openai_prompt_cache
-    from code_puppy.openai_prompt_cache import CacheAwareResponsesModel
+    from code_puppy.openai_prompt_cache import (
+        CacheAwareResponsesModel,
+        supports_prompt_cache,
+    )
     from pydantic_ai.models.openai import OpenAIResponsesModel
 
     # Get a valid access token (refreshing if needed)
@@ -228,7 +230,7 @@ def _create_chatgpt_oauth_model(
     # ChatGPT Codex API only supports Responses format
     responses_cls = (
         CacheAwareResponsesModel
-        if supports_openai_prompt_cache(model_name, model_config)
+        if supports_prompt_cache(model_name, model_config)
         else OpenAIResponsesModel
     )
     return responses_cls(model_name=model_config["name"], provider=provider)
