@@ -700,6 +700,27 @@ async def _run_with_mcp_impl(
 
     prompt = _should_prepend_system_prompt(agent, prompt)
     prompt_payload = _build_prompt_payload(prompt, attachments, link_attachments)
+    from code_puppy.model_factory import ModelFactory
+    from code_puppy.openai_prompt_cache import (
+        get_request_path,
+        supports_explicit_breakpoint,
+    )
+
+    resolved_name = getattr(agent, "_last_model_name", None) or agent.get_model_name()
+    model_config = getattr(agent, "_model_config", None)
+    if not isinstance(model_config, dict):
+        try:
+            model_config = ModelFactory.load_config().get(resolved_name, {})
+        except Exception:
+            model_config = {}
+    if not agent._message_history:
+        from code_puppy.openai_prompt_cache import add_cache_boundary
+
+        if resolved_name and supports_explicit_breakpoint(resolved_name, model_config):
+            prompt_payload = add_cache_boundary(prompt_payload)
+
+    actual_model_id = str(model_config.get("name") or resolved_name or "")
+    request_path = get_request_path(resolved_name or "", model_config)
 
     async def _do_run(prompt_to_use: Any) -> Any:
         """Run the agent once, then honour any plugin ``retry`` requests."""
@@ -998,7 +1019,11 @@ async def _run_with_mcp_impl(
     run_success = False
     run_error: Optional[BaseException] = None
     run_response_text = ""
-    run_usage_metadata: dict[str, int | None] = {
+    run_usage_metadata: dict[str, Any] = {
+        "usage_model_id": actual_model_id,
+        "usage_agent_kind": agent.__class__.__name__,
+        "usage_request_path": request_path,
+        "usage_streaming": get_enable_streaming(),
         "usage_input_tokens": None,
         "usage_output_tokens": None,
         "usage_total_tokens": None,
@@ -1068,10 +1093,14 @@ async def _run_with_mcp_impl(
                 for name in names:
                     value = getattr(usage, name, None)
                     if value is not None:
-                        return int(value) or None
+                        return int(value)
                 return None
 
             run_usage_metadata = {
+                "usage_model_id": actual_model_id,
+                "usage_agent_kind": agent.__class__.__name__,
+                "usage_request_path": request_path,
+                "usage_streaming": get_enable_streaming(),
                 "usage_input_tokens": _pick_usage_int(
                     "input_tokens", "request_tokens", "prompt_tokens"
                 ),

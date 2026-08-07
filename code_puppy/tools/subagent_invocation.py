@@ -261,7 +261,11 @@ async def _invoke_agent_impl(
                 )
 
             # Create a temporary agent instance to avoid interfering with current agent state
-            instructions = agent_config.get_full_system_prompt()
+            from code_puppy.agents._builder import _full_system_prompt_for_model
+
+            instructions = _full_system_prompt_for_model(
+                agent_config, effective_model_name
+            )
             instructions += f"\n\n{_subagent_identity_prompt(agent_name)}"
 
             # AGENTS.md (puppy rules) is deliberately NOT injected into
@@ -288,7 +292,19 @@ async def _invoke_agent_impl(
             instructions = prepared.instructions
             prompt = prepared.user_prompt
 
-            model_settings = make_model_settings(effective_model_name)
+            model_settings = make_model_settings(
+                effective_model_name, prompt_cache_scope=agent_name
+            )
+
+            from code_puppy.openai_prompt_cache import (
+                add_cache_boundary,
+                supports_explicit_breakpoint,
+            )
+
+            if is_new_session and supports_explicit_breakpoint(
+                effective_model_name, models_config[effective_model_name]
+            ):
+                prompt = add_cache_boundary(prompt)
 
             # Get MCP servers bound to this sub-agent and warm up any with
             # ``auto_start=True``. We MUST use the async autostart variant

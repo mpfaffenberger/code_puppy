@@ -21,6 +21,11 @@ from pydantic_ai.settings import ModelSettings
 
 from code_puppy.gemini_model import GeminiModel
 from code_puppy.messaging import emit_warning
+from code_puppy.openai_prompt_cache import (
+    apply_cache_key,
+    get_model_classes,
+    get_request_path,
+)
 
 from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
@@ -173,7 +178,10 @@ def _merge_dotted_key(target: dict, dotted_key: str, value: Any) -> None:
 
 
 def make_model_settings(
-    model_name: str, max_tokens: int | None = None
+    model_name: str,
+    max_tokens: int | None = None,
+    *,
+    prompt_cache_scope: str | None = None,
 ) -> ModelSettings:
     """Create appropriate ModelSettings for a given model.
 
@@ -186,6 +194,8 @@ def make_model_settings(
         model_name: The name of the model to create settings for.
         max_tokens: Optional max tokens limit. If None, automatically calculated
             as: max(2048, min(15% of context_length, 65536))
+        prompt_cache_scope: Stable logical agent identity used to partition
+            GPT-5.6 cache routing. The value is hashed and never sent directly.
 
     Returns:
         Appropriate ModelSettings subclass instance for the model.
@@ -310,22 +320,21 @@ def make_model_settings(
         # Just use plain OpenAIChatModelSettings without reasoning params.
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
-    elif "gpt-5" in model_name:
+    elif (
+        "gpt-5" in model_name.lower()
+        or "gpt-5" in str(model_config.get("name", "")).lower()
+    ):
         # Normalize legacy effort values (minimal->none, ultra->max)
         _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
         effort = _EFFORT_ALIAS.get(effort, effort)
         model_settings_dict["openai_reasoning_effort"] = effort
 
-        uses_responses_api = (
-            model_type == "chatgpt_oauth"
-            or model_type == "azure_foundry_openai"
-            or (model_type == "openai" and "codex" in model_name)
-            or (
-                model_type in _CUSTOM_OPENAI_MODEL_TYPES
-                and _custom_openai_uses_responses_api(model_name, model_config)
-            )
+        is_gpt_5_6 = apply_cache_key(
+            model_settings_dict, model_name, model_config, prompt_cache_scope
         )
+
+        uses_responses_api = get_request_path(model_name, model_config) == "responses"
 
         if uses_responses_api:
             model_settings_dict["openai_reasoning_summary"] = effective_settings.get(
@@ -336,8 +345,6 @@ def make_model_settings(
                     "verbosity", "medium"
                 )
 
-            underlying_name = str(model_config.get("name", "")).lower()
-            is_gpt_5_6 = "gpt-5.6" in model_name.lower() or "gpt-5.6" in underlying_name
             if is_gpt_5_6:
                 # pydantic-ai 1.56 does not expose context/mode settings yet,
                 # although the OpenAI SDK does. Supply the complete reasoning
@@ -360,9 +367,9 @@ def make_model_settings(
             # Chat Completions models don't support configurable reasoning summaries.
             # Keep the old verbosity injection path for non-Responses GPT-5 models.
             if "codex" not in model_name:
-                model_settings_dict["extra_body"] = {
-                    "verbosity": effective_settings.get("verbosity", "medium")
-                }
+                extra_body = dict(model_settings_dict.get("extra_body") or {})
+                extra_body["verbosity"] = effective_settings.get("verbosity", "medium")
+                model_settings_dict["extra_body"] = extra_body
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif _is_anthropic_model(model_name, model_config):
         # Handle Anthropic extended thinking settings
@@ -704,13 +711,16 @@ class ModelFactory:
                 return None
 
             provider = make_openai_provider(provider_identity, api_key=api_key)
-            model = OpenAIChatModel(
+            chat_model_cls, responses_model_cls = get_model_classes(
+                model_name, model_config, OpenAIChatModel, OpenAIResponsesModel
+            )
+            model = chat_model_cls(
                 model_name=model_config["name"],
                 provider=provider,
                 profile=_thinking_tags_profile(model_name, model_config),
             )
             if "codex" in model_name:
-                model = OpenAIResponsesModel(
+                model = responses_model_cls(
                     model_name=model_config["name"], provider=provider
                 )
             return model
@@ -867,7 +877,10 @@ class ModelFactory:
             provider = make_openai_provider(
                 provider_identity, openai_client=azure_client
             )
-            return OpenAIChatModel(model_name=model_config["name"], provider=provider)
+            chat_model_cls, _ = get_model_classes(
+                model_name, model_config, OpenAIChatModel, OpenAIResponsesModel
+            )
+            return chat_model_cls(model_name=model_config["name"], provider=provider)
 
         elif model_type in _CUSTOM_OPENAI_MODEL_TYPES:
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
@@ -882,11 +895,14 @@ class ModelFactory:
             if api_key:
                 provider_args["api_key"] = api_key
             provider = make_openai_provider(provider_identity, **provider_args)
+            chat_model_cls, responses_model_cls = get_model_classes(
+                model_name, model_config, OpenAIChatModel, OpenAIResponsesModel
+            )
             if _custom_openai_uses_responses_api(model_name, model_config):
-                return OpenAIResponsesModel(
+                return responses_model_cls(
                     model_name=model_config["name"], provider=provider
                 )
-            return OpenAIChatModel(
+            return chat_model_cls(
                 model_name=model_config["name"],
                 provider=provider,
                 profile=_thinking_tags_profile(model_name, model_config),

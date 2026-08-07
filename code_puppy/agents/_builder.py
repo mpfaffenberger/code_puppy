@@ -468,6 +468,38 @@ def _agent_exposes_tool(agent: Any, tool_name: str) -> bool:
         return False
 
 
+def _full_system_prompt_for_model(agent: Any, resolved_model_name: str) -> str:
+    """Return instructions whose GPT-5.6 cache prefix is launch-stable.
+
+    The agent keeps its unique runtime UUID internally. GPT-5.6 receives the
+    stable logical agent name in system instructions so separate processes can
+    reuse the same prompt-cache prefix.
+    """
+    instructions = agent.get_full_system_prompt()
+    if not _is_gpt_5_6_family(resolved_model_name):
+        return instructions
+
+    runtime_identity = agent.get_identity_prompt()
+    if not isinstance(runtime_identity, str) or not runtime_identity:
+        return instructions
+    if not instructions.endswith(runtime_identity):
+        return instructions
+
+    identity_getter = getattr(agent, "get_identity", None)
+    logical_name = getattr(agent, "name", None)
+    if not callable(identity_getter) or not isinstance(logical_name, str):
+        return instructions
+    runtime_id = identity_getter()
+    if not isinstance(runtime_id, str) or not runtime_id:
+        return instructions
+    stable_identity = runtime_identity.replace(
+        f"`{runtime_id}`", f"`{logical_name}`", 1
+    )
+    if stable_identity == runtime_identity:
+        return instructions
+    return instructions[: -len(runtime_identity)] + stable_identity
+
+
 def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
     """Compose full system prompt + puppy rules + extended-thinking note."""
     from code_puppy.model_utils import prepare_prompt_for_model
@@ -476,7 +508,7 @@ def _assemble_instructions(agent: Any, resolved_model_name: str) -> str:
         has_extended_thinking_active,
     )
 
-    instructions = agent.get_full_system_prompt()
+    instructions = _full_system_prompt_for_model(agent, resolved_model_name)
     puppy_rules = load_puppy_rules()
     if puppy_rules:
         instructions += f"\n{puppy_rules}"
@@ -530,7 +562,10 @@ def build_pydantic_agent(
     )
     instructions = _assemble_instructions(agent, resolved_model_name)
     mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
-    model_settings = make_model_settings(resolved_model_name)
+    cache_scope = getattr(agent, "name", None) or agent.__class__.__name__
+    model_settings = make_model_settings(
+        resolved_model_name, prompt_cache_scope=cache_scope
+    )
     history_processor = make_history_processor(agent)
     steer_processor = make_steer_history_processor(agent)
 
@@ -584,6 +619,7 @@ def build_pydantic_agent(
 
     agent.cur_model = model
     agent._last_model_name = resolved_model_name
+    agent._model_config = models_config.get(resolved_model_name, {})
     agent._mcp_servers = filtered_mcp_servers
 
     wrapped = on_wrap_pydantic_agent(
