@@ -82,6 +82,12 @@ class TestSettingDefinitions:
         assert "high" in reason_def["choices"]
         assert "max" in reason_def["choices"]
 
+    def test_adaptive_effort_setting_includes_xhigh(self):
+        """Adaptive effort supports Anthropic's xhigh level."""
+        effort_def = SETTING_DEFINITIONS["effort"]
+        assert effort_def["type"] == "choice"
+        assert effort_def["choices"] == ["low", "medium", "high", "xhigh", "max"]
+
     def test_summary_setting_definition(self):
         """Test reasoning summary setting has correct choices."""
         summary_def = SETTING_DEFINITIONS["summary"]
