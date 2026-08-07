@@ -426,11 +426,22 @@ This skill includes:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | string | ✅ Yes | Unique skill identifier (kebab-case recommended) |
-| `description` | string | ✅ Yes | Brief description of what the skill does |
-| `version` | string | ❌ No | Semantic version (e.g., "1.0.0") |
-| `author` | string | ❌ No | Author name or email |
-| `tags` | list | ❌ No | List of keywords for categorization |
+| `name` | string | Yes | Unique skill identifier (kebab-case recommended) |
+| `description` | string | Yes | Brief description of what the skill does |
+| `version` | string | No | Semantic version (e.g., "1.0.0") |
+| `author` | string | No | Author name or email |
+| `tags` | list | No | List of keywords for categorization. **The first tag also determines the skill's namespace** — see below. |
+
+> **Namespace tip:** if `namespace_skill_search` is enabled (the default —
+> see [Skill Namespaces (Large Catalogs)](#skill-namespaces-large-catalogs)),
+> your skill's **first** `tags:` entry becomes its namespace, grouping it
+> with every other skill that shares that first tag. An untagged skill
+> falls into a generic `General` namespace alongside every other untagged
+> skill. Put your most specific, meaningful category **first** —
+> e.g. `docker` before `devops` for a Docker-specific skill — rather than
+> leading with a broad tag that dumps unrelated skills into the same
+> bucket. Namespace matching is case-insensitive, so `docker`/`Docker`/
+> `DOCKER` all land in one namespace regardless of casing.
 
 ### Frontmatter Examples
 
