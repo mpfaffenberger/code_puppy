@@ -275,6 +275,69 @@ class TestPatchTermflowClipboard:
             patch_termflow_clipboard()  # must not raise
 
 
+class TestPatchTermflowTableAlignment:
+    """Regression coverage for Termflow Markdown table alignment metadata."""
+
+    @staticmethod
+    def _separator_alignments(separator: str) -> tuple[str, ...]:
+        from termflow import Parser
+
+        parser = Parser()
+        parser.parse_line("| A | B | C |\n")
+        events = parser.parse_line(separator + "\n")
+        event = next(
+            item for item in events if type(item).__name__ == "TableSeparatorEvent"
+        )
+        return event.alignments
+
+    def test_preserves_unaligned_columns(self):
+        from code_puppy.pydantic_patches import patch_termflow_table_alignment
+
+        patch_termflow_table_alignment()
+
+        assert self._separator_alignments("|---|---|---:|") == (
+            "none",
+            "none",
+            "right",
+        )
+
+    def test_preserves_left_center_and_right_alignment(self):
+        from code_puppy.pydantic_patches import patch_termflow_table_alignment
+
+        patch_termflow_table_alignment()
+
+        assert self._separator_alignments("|:---|:---:|---:|") == (
+            "left",
+            "center",
+            "right",
+        )
+
+    def test_patch_is_idempotent(self):
+        from code_puppy.pydantic_patches import patch_termflow_table_alignment
+        from termflow.parser.parser import Parser
+
+        patch_termflow_table_alignment()
+        patched = Parser._parse_table_alignments
+        patch_termflow_table_alignment()
+
+        assert Parser._parse_table_alignments is patched
+
+    def test_patch_does_not_crash_without_termflow(self):
+        import builtins
+
+        from code_puppy.pydantic_patches import patch_termflow_table_alignment
+
+        real_import = builtins.__import__
+
+        def block_termflow(name, *args, **kwargs):
+            if name.startswith("termflow"):
+                raise ImportError("simulated: termflow not installed")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=block_termflow):
+            patch_termflow_table_alignment()
+
+
 class TestPatchTermflowCodePadding:
     """Regression guard for #505: no trailing spaces on termflow code lines."""
 
