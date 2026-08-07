@@ -96,6 +96,22 @@ to check, `/dbos off` to disable.
 
 ## Usage
 
+### Meta Muse OAuth
+
+Code Puppy can use the same Meta account login as Muse Code. If Muse is already
+logged in, its credential at `~/.config/muse/auth.json` is detected automatically.
+You can also authenticate directly from Code Puppy:
+
+```text
+/meta-auth       # approve a device code with your Meta account
+/meta-status     # show the credential source and available Muse models
+/meta-logout     # remove only Code Puppy's saved Meta credential
+```
+
+Meta models are registered with a `meta-` prefix, including
+`meta-muse-spark-1.2-contributor` and `meta-muse-spark-1.2`. `META_API_KEY`
+remains supported and takes precedence over saved OAuth credentials.
+
 ### Adding Models from models.dev 🆕
 
 While there are several models configured right out of the box from providers like Synthetic, Cerebras, OpenAI, Google, and Anthropic, Code Puppy integrates with [models.dev](https://models.dev) to let you browse and add models from **65+ providers** with a single command:
