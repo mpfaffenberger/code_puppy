@@ -27,6 +27,7 @@ PhaseType = Literal[
     "pre_tool_call",
     "post_tool_call",
     "stream_event",
+    "streaming_retry_display_suffix",
     "thinking_display_filter",
     "termflow_style",
     "prompt_toolkit_style",
@@ -90,6 +91,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "pre_tool_call": [],
     "post_tool_call": [],
     "stream_event": [],
+    "streaming_retry_display_suffix": [],
     "thinking_display_filter": [],
     "termflow_style": [],
     "prompt_toolkit_style": [],
@@ -174,6 +176,11 @@ def _get_disabled_plugins() -> Set[str]:
         return set()
 
 
+def _callback_name(callback: CallbackFunc) -> str:
+    """Return a stable diagnostic label for functions and callable objects."""
+    return getattr(callback, "__name__", type(callback).__name__)
+
+
 def register_callback(phase: PhaseType, func: CallbackFunc) -> None:
     if phase not in _callbacks:
         raise ValueError(
@@ -187,7 +194,7 @@ def register_callback(phase: PhaseType, func: CallbackFunc) -> None:
     # This can happen if plugins are accidentally loaded multiple times
     if func in _callbacks[phase]:
         logger.debug(
-            f"Callback {func.__name__} already registered for phase '{phase}', skipping"
+            f"Callback {_callback_name(func)} already registered for phase '{phase}', skipping"
         )
         return
 
@@ -197,7 +204,9 @@ def register_callback(phase: PhaseType, func: CallbackFunc) -> None:
     if _current_loading_plugin is not None:
         _callback_owners[func] = _current_loading_plugin
 
-    logger.debug(f"Registered async callback {func.__name__} for phase '{phase}'")
+    logger.debug(
+        f"Registered async callback {_callback_name(func)} for phase '{phase}'"
+    )
 
 
 def unregister_callback(phase: PhaseType, func: CallbackFunc) -> bool:
@@ -207,7 +216,7 @@ def unregister_callback(phase: PhaseType, func: CallbackFunc) -> bool:
     try:
         _callbacks[phase].remove(func)
         logger.debug(
-            f"Unregistered async callback {func.__name__} from phase '{phase}'"
+            f"Unregistered async callback {_callback_name(func)} from phase '{phase}'"
         )
         return True
     except ValueError:
@@ -598,6 +607,56 @@ async def on_post_tool_call(
     return await _trigger_callbacks(
         "post_tool_call", tool_name, tool_args, result, duration_ms, context
     )
+
+
+def on_streaming_retry_display_suffix(
+    exc: BaseException,
+    *,
+    delay: float,
+    total: int,
+    streak: int,
+    max_attempts: int,
+) -> str:
+    """Collect safe, additive plugin text for a streaming retry warning.
+
+    This synchronous hot-path hook runs immediately before each retry sleep.
+    Callbacks must be quick and non-blocking. Failures, non-string returns, and
+    oversized strings are ignored so plugins cannot interrupt retry behavior or
+    hide the core warning.
+    """
+    suffixes: list[str] = []
+    for callback in get_callbacks("streaming_retry_display_suffix"):
+        callback_name = _callback_name(callback)
+        try:
+            result = callback(
+                exc,
+                delay=delay,
+                total=total,
+                streak=streak,
+                max_attempts=max_attempts,
+            )
+            if isinstance(result, str) and result:
+                if len(result) <= 256:
+                    suffixes.append(result)
+                else:
+                    logger.warning(
+                        "Streaming retry display suffix %s returned an oversized value; ignoring it",
+                        callback_name,
+                    )
+            elif result is not None:
+                logger.warning(
+                    "Streaming retry display suffix %s returned %s; ignoring it",
+                    callback_name,
+                    type(result).__name__,
+                )
+        except Exception as callback_exc:
+            logger.error(
+                "Streaming retry display suffix %s failed: %s\n%s",
+                callback_name,
+                callback_exc,
+                traceback.format_exc(),
+            )
+    return "".join(suffixes)
 
 
 def on_thinking_display_filter(
