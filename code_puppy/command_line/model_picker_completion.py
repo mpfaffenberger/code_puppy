@@ -74,7 +74,6 @@ class ModelNameCompleter(Completer):
     def __init__(self, trigger: str = "/model", prefix: str = ""):
         self.trigger = trigger
         self.prefix = prefix
-        self.model_names = load_model_names()
 
     def get_completions(
         self, document: Document, complete_event
@@ -91,6 +90,7 @@ class ModelNameCompleter(Completer):
         from code_puppy.model_descriptions import get_model_description
 
         models_config = _load_models_config()
+        model_names = load_model_names()
 
         # --- Prefix mode (e.g. ``/fork @agent @mod``) ---
         if self.prefix:
@@ -112,7 +112,7 @@ class ModelNameCompleter(Completer):
             start_position = -len(text_after_prefix)
 
         # Filter model names based on what's typed (case-insensitive)
-        for model_name in self.model_names:
+        for model_name in model_names:
             if text_after_prefix and not query_matches_text(
                 text_after_prefix, model_name
             ):
@@ -120,7 +120,7 @@ class ModelNameCompleter(Completer):
 
             description = get_model_description(models_config, model_name)
             active_model_name = get_active_model()
-            if model_name.lower() == active_model_name.lower():
+            if active_model_name is not None and model_name.lower() == active_model_name.lower():
                 short = (
                     description[:45] + "..." if len(description) > 48 else description
                 )
