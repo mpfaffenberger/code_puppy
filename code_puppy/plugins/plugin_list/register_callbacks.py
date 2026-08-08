@@ -277,5 +277,18 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
 
 
 register_callback("startup", _on_startup)
+
+
+# -- Textual TUI integration -----------------------------------------------
+# The prompt_toolkit PluginsMenu corrupts the Textual screen, so the TUI opens
+# a native ModalScreen instead. register_screen is consumed only by the TUI;
+# classic mode is unaffected.
+def _register_plugins_screen():
+    from code_puppy.plugins.plugin_list.plugins_tui import open_plugins
+
+    return [{"command": "plugins", "open": open_plugins}]
+
+
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
+register_callback("register_screen", _register_plugins_screen)

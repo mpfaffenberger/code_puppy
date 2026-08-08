@@ -40,6 +40,8 @@ class MCPCompleter(Completer):
             "logs": "Show logs for a specific MCP server",
             "edit": "Edit an existing MCP server config",
             "remove": "Remove an MCP server",
+            "bind": "Bind a server to an agent (persistent)",
+            "unbind": "Remove a server <-> agent binding",
         }
 
         # Subcommands that don't take server names.

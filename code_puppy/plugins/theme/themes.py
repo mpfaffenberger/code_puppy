@@ -373,7 +373,6 @@ CURATED_THEMES: dict[str, dict] = {
             bright_blue="#6a9955",
             bright_magenta="#6a9955",
             white="#6a9955",
-            bright_white="#00ff00",
         ),
         "terminal_palette": bp.GREEN_SCREEN,
     },

@@ -66,12 +66,20 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
 
     from code_puppy.messaging import emit_error, emit_info
 
-    from . import inline_view
+    from . import inline_view, tui_view
     from .side_query import ask_blocking, resolve_model_name
 
     model_name = resolve_model_name()
     if not model_name:
         emit_error("/btw: could not resolve a model to ask. Check your model config.")
+        return True
+
+    # Textual UI: the classic path below writes raw ANSI + does a blocking
+    # termios/msvcrt raw-key read for dismissal, both of which fight the
+    # Textual app for the terminal (it looks like a silent hang). Push a
+    # real modal instead and let its own async worker run the query.
+    if tui_view.is_textual_active():
+        tui_view.ask_in_modal(question, model_name)
         return True
 
     tty = inline_view.is_tty()

@@ -77,7 +77,7 @@ def _base_main_patches():
 def _interactive_patches():
     return {
         "code_puppy.cli_runner.print_truecolor_warning": MagicMock(),
-        "code_puppy.cli_runner.get_cancel_agent_display_name": MagicMock(
+        "code_puppy.startup_banner.get_cancel_agent_display_name": MagicMock(
             return_value="Ctrl+C"
         ),
         "code_puppy.cli_runner.reset_windows_terminal_ansi": MagicMock(),
@@ -452,12 +452,15 @@ class TestInteractiveMode:
             _interactive_patches(),
             AsyncMock(return_value="/exit"),
             extra_patches={
-                "code_puppy.messaging.emit_system_message": emit_system_message,
+                # startup_banner binds emit_system_message at import time via
+                # ``from code_puppy.messaging import emit_system_message``, so
+                # patch the name where it is actually looked up.
+                "code_puppy.startup_banner.emit_system_message": emit_system_message,
             },
         )
 
         messages = [call.args[0] for call in emit_system_message.call_args_list]
-        assert any("newline: Shift+Enter" in message for message in messages)
+        assert any("newline: Ctrl+J" in message for message in messages)
         assert any(
             "Ctrl+X Ctrl+E to open $EDITOR (Notepad on Windows)" in message
             for message in messages

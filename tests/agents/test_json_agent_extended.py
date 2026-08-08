@@ -342,14 +342,17 @@ class TestJsonAgentExtended:
         agent_file.write_text(json.dumps(config))
 
         agent = JSONAgent(str(agent_file))
-        # Should fall back to the base class implementation, which resolves
-        # the global model. models.json ships empty, so pin the global
-        # resolver to a sentinel to prove the delegation happens.
+        # With no per-agent model configured, get_model_name() falls back to
+        # the base class (global model). models.json ships empty, so pin a
+        # global model to make the fallback resolvable and deterministic.
+        from unittest.mock import patch
+
         with patch(
             "code_puppy.agents.base_agent.get_global_model_name",
-            return_value="sentinel-global-model",
+            return_value="test-model",
         ):
-            assert agent.get_model_name() == "sentinel-global-model"
+            model_name = agent.get_model_name()
+        assert model_name == "test-model"
 
 
 class TestDiscoverJsonAgents:
