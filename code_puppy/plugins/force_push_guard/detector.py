@@ -14,6 +14,7 @@ class ForcePushMatch:
 
     pattern_name: str
     description: str
+    block_immediately: bool = False
 
 
 # Matches shell operators that precede a new command in a pipeline/chain.

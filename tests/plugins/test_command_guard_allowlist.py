@@ -19,6 +19,7 @@ import asyncio
 import pytest
 
 from code_puppy import config
+from code_puppy.plugins import guard_framework
 from code_puppy.plugins.destructive_command_guard import (
     register_callbacks as dcg,
 )
@@ -41,6 +42,12 @@ def cfg(monkeypatch):
     store: dict = {}
     monkeypatch.setattr(config, "get_value", _fake_get_value(store))
     return store
+
+
+@pytest.fixture
+def non_interactive(monkeypatch):
+    """Make shared guard callbacks use the non-TTY hard-block path."""
+    monkeypatch.setattr(guard_framework, "_is_interactive", lambda: False)
 
 
 # ---------------------------------------------------------------------------
@@ -91,33 +98,27 @@ class TestAllowlistParsing:
 
 
 class TestDestructiveGuardAllowlist:
-    def test_allowlisted_pattern_is_waved_through(self, cfg, monkeypatch):
+    def test_allowlisted_pattern_is_waved_through(self, cfg, non_interactive):
         cfg["dangerous_command_guard_allow"] = "git reset --hard"
-        monkeypatch.setattr(dcg, "_is_interactive", lambda: False)
-
         result = asyncio.run(
-            dcg.destructive_command_guard_callback(
+            dcg.destructive_command_callback(
                 None, "cd repo && git reset --hard origin/main"
             )
         )
         assert result is None  # allowed, no prompt/block
 
-    def test_non_allowlisted_pattern_still_blocked(self, cfg, monkeypatch):
+    def test_non_allowlisted_pattern_still_blocked(self, cfg, non_interactive):
         cfg["dangerous_command_guard_allow"] = "git reset --hard"
-        monkeypatch.setattr(dcg, "_is_interactive", lambda: False)
-
         result = asyncio.run(
-            dcg.destructive_command_guard_callback(None, "cd tmp && rm -rf /")
+            dcg.destructive_command_callback(None, "cd tmp && rm -rf /")
         )
         assert result is not None
         assert result["blocked"] is True
 
-    def test_legacy_disable_flag_still_wins(self, cfg, monkeypatch):
+    def test_legacy_disable_flag_still_wins(self, cfg, non_interactive):
         cfg["disable_dangerous_command_guard"] = "true"
-        monkeypatch.setattr(dcg, "_is_interactive", lambda: False)
-
         result = asyncio.run(
-            dcg.destructive_command_guard_callback(None, "cd tmp && rm -rf /")
+            dcg.destructive_command_callback(None, "cd tmp && rm -rf /")
         )
         assert result is None  # global kill-switch bypasses everything
 
@@ -128,22 +129,18 @@ class TestDestructiveGuardAllowlist:
 
 
 class TestForcePushGuardAllowlist:
-    def test_allowlisted_force_push_is_waved_through(self, cfg, monkeypatch):
+    def test_allowlisted_force_push_is_waved_through(self, cfg, non_interactive):
         # Same shared config key covers the force-push guard's pattern names.
         cfg["dangerous_command_guard_allow"] = "git reset --hard, --force"
-        monkeypatch.setattr(fpg, "_is_interactive", lambda: False)
-
         result = asyncio.run(
-            fpg.force_push_guard_callback(None, "git push --force origin develop")
+            fpg.force_push_callback(None, "git push --force origin develop")
         )
         assert result is None
 
-    def test_non_allowlisted_force_push_still_blocked(self, cfg, monkeypatch):
+    def test_non_allowlisted_force_push_still_blocked(self, cfg, non_interactive):
         cfg["dangerous_command_guard_allow"] = "--force"  # only long flag trusted
-        monkeypatch.setattr(fpg, "_is_interactive", lambda: False)
-
         result = asyncio.run(
-            fpg.force_push_guard_callback(None, "git push -f origin develop")
+            fpg.force_push_callback(None, "git push -f origin develop")
         )
         assert result is not None
         assert result["blocked"] is True
