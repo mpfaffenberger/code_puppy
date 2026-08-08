@@ -174,6 +174,54 @@ def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[Any]:
     return content
 
 
+def inject_interrupted_subagent_notes(agent: Any) -> None:
+    """Tell the agent about any sub-agents interrupted since the last run.
+
+    Ctrl+C cancels both the delegated sub-agent task and the parent run, and
+    the parent's return-less ``invoke_agent`` tool call is pruned from history
+    as a dangling call -- so without this the model would have no memory that
+    it ever delegated. We drain the records left by the sub-agent cancel path
+    and append one plain user-message note per interrupted session (the same
+    injection shape the steer processor uses), which survives the interrupted
+    tool-call prune because it is a valid standalone message.
+
+    Called at run start (never nested) so a foreground cancel surfaces on the
+    user's next turn, and a ``/fork`` cancelled while the agent was idle
+    surfaces on the next run too.
+    """
+    from pydantic_ai.messages import ModelRequest, UserPromptPart
+
+    from code_puppy.tools.subagent_invocation import drain_interrupted_subagents
+
+    if not hasattr(agent, "_message_history"):
+        return
+    records = drain_interrupted_subagents()
+    if not records:
+        return
+
+    injected = []
+    for rec in records:
+        session_id = rec["session_id"]
+        saved = rec["saved_count"]
+        saved_phrase = (
+            f"{saved} message(s) of its work were saved"
+            if saved is not None
+            else "no completed messages had been produced yet"
+        )
+        note = (
+            f"[system note] The sub-agent '{rec['agent_name']}' you invoked was "
+            f"interrupted by the user before it finished; {saved_phrase}. Its "
+            f"partial session is saved as '{session_id}'."
+        )
+        injected.append(ModelRequest(parts=[UserPromptPart(content=note)]))
+        emit_info(
+            f"Noting interrupted sub-agent '{rec['agent_name']}' "
+            f"(session {session_id}) for the agent's next turn."
+        )
+
+    agent._message_history = list(agent._message_history) + injected
+
+
 def drain_pause_state_on_cancel() -> None:
     """Clear ``PauseController`` state when a run is cancelled.
 
@@ -192,8 +240,9 @@ def drain_pause_state_on_cancel() -> None:
         )
 
 
-__all__ = [
+all__ = [
     "drain_pause_state_on_cancel",
+    "inject_interrupted_subagent_notes",
     "make_schedule_cancel",
     "prepare_queued_steer_injection",
     "reset_pause_state_at_run_start",
