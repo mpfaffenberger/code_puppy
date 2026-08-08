@@ -9,9 +9,13 @@ import pytest
 
 from code_puppy.session_storage import (
     cleanup_sessions,
+    is_pinned,
     list_sessions,
+    load_pins,
     load_session,
+    save_pins,
     save_session,
+    toggle_pin,
 )
 
 
@@ -81,3 +85,90 @@ def test_cleanup_sessions(tmp_path: Path, history: List[str], token_estimator):
     assert removed == ["session_earliest"]
     remaining = list_sessions(tmp_path)
     assert sorted(remaining) == sorted(["session_middle", "session_latest"])
+
+
+def test_load_pins_empty_when_no_file(tmp_path: Path):
+    assert load_pins(tmp_path) == set()
+
+
+def test_toggle_pin_round_trip(tmp_path: Path, history: List[str], token_estimator):
+    # toggle_pin only pins sessions that actually exist on disk.
+    save_session(
+        history=history,
+        session_name="sess",
+        base_dir=tmp_path,
+        timestamp="2024-01-01T00:00:00",
+        token_estimator=token_estimator,
+    )
+
+    assert is_pinned(tmp_path, "sess") is False
+
+    # First toggle pins it.
+    assert toggle_pin(tmp_path, "sess") is True
+    assert is_pinned(tmp_path, "sess") is True
+    assert load_pins(tmp_path) == {"sess"}
+
+    # Second toggle unpins it.
+    assert toggle_pin(tmp_path, "sess") is False
+    assert is_pinned(tmp_path, "sess") is False
+    assert load_pins(tmp_path) == set()
+
+
+def test_toggle_pin_refuses_missing_session(tmp_path: Path):
+    # Pinning a session that doesn't exist is a no-op (no ghost pins).
+    assert toggle_pin(tmp_path, "does_not_exist") is False
+    assert load_pins(tmp_path) == set()
+
+
+def test_toggle_pin_prunes_stale_pins(
+    tmp_path: Path, history: List[str], token_estimator
+):
+    # A pin left over for a now-deleted session gets pruned on next toggle.
+    save_session(
+        history=history,
+        session_name="real",
+        base_dir=tmp_path,
+        timestamp="2024-01-01T00:00:00",
+        token_estimator=token_estimator,
+    )
+    # Seed the registry with a ghost entry directly.
+    save_pins(tmp_path, {"ghost", "real"})
+
+    # Toggling the real session prunes the ghost in the same write.
+    toggle_pin(tmp_path, "real")  # was pinned -> now unpinned
+    assert load_pins(tmp_path) == set()
+
+
+def test_save_and_load_pins(tmp_path: Path):
+    save_pins(tmp_path, {"a", "b", "c"})
+    assert load_pins(tmp_path) == {"a", "b", "c"}
+
+
+def test_load_pins_handles_corrupt_file(tmp_path: Path):
+    from code_puppy.session_storage import get_pins_path
+
+    get_pins_path(tmp_path).write_text("not valid json{{", encoding="utf-8")
+    assert load_pins(tmp_path) == set()
+
+
+def test_cleanup_sessions_protects_pinned(
+    tmp_path: Path, history: List[str], token_estimator
+):
+    session_names = ["session_earliest", "session_middle", "session_latest"]
+    for index, name in enumerate(session_names):
+        metadata = save_session(
+            history=history,
+            session_name=name,
+            base_dir=tmp_path,
+            timestamp="2024-01-01T00:00:00",
+            token_estimator=token_estimator,
+        )
+        os.utime(metadata.pickle_path, (0, index))
+
+    # Pin the oldest session - it must survive cleanup.
+    toggle_pin(tmp_path, "session_earliest")
+
+    removed = cleanup_sessions(tmp_path, 2)
+    assert "session_earliest" not in removed
+    remaining = list_sessions(tmp_path)
+    assert "session_earliest" in remaining

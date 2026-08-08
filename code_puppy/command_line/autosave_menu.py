@@ -6,6 +6,7 @@ autosave sessions with live preview of message content.
 
 import asyncio
 import json
+import logging
 import sys
 from datetime import datetime
 from io import StringIO
@@ -33,8 +34,15 @@ from code_puppy.command_line.pagination import (
 )
 from code_puppy.callbacks import on_prompt_toolkit_style
 from code_puppy.config import AUTOSAVE_DIR
-from code_puppy.session_storage import list_sessions, load_session
+from code_puppy.session_storage import (
+    list_sessions,
+    load_pins,
+    load_session,
+    toggle_pin,
+)
 from code_puppy.tools.command_runner import set_awaiting_user_input
+
+logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 15  # Sessions per page
 
@@ -49,23 +57,16 @@ def _get_session_metadata(base_dir: Path, session_name: str) -> dict:
         return {}
 
 
-def _get_session_entries(base_dir: Path) -> List[Tuple[str, dict]]:
-    """Get all sessions with their metadata, most recent first."""
-    try:
-        sessions = list_sessions(base_dir)
-    except (FileNotFoundError, PermissionError):
-        return []
+def _order_entries(
+    entries: List[Tuple[str, dict]],
+) -> List[Tuple[str, dict]]:
+    """Order entries for display: pinned first, then most-recent-first.
 
-    entries = []
+    Pin state is read from each entry's ``metadata['pinned']`` flag
+    (populated by :func:`_get_session_entries`). Pulled out as a standalone
+    helper so the initial load and the live pin-toggle share one ordering rule.
+    """
 
-    for name in sessions:
-        try:
-            metadata = _get_session_metadata(base_dir, name)
-        except (FileNotFoundError, PermissionError):
-            metadata = {}
-        entries.append((name, metadata))
-
-    # Sort by timestamp (most recent first)
     def sort_key(entry):
         _, metadata = entry
         timestamp = metadata.get("timestamp")
@@ -76,8 +77,34 @@ def _get_session_entries(base_dir: Path) -> List[Tuple[str, dict]]:
                 return datetime.min
         return datetime.min
 
-    entries.sort(key=sort_key, reverse=True)
-    return entries
+    pinned = [e for e in entries if e[1].get("pinned")]
+    rest = [e for e in entries if not e[1].get("pinned")]
+    pinned.sort(key=sort_key, reverse=True)
+    rest.sort(key=sort_key, reverse=True)
+    return pinned + rest
+
+
+def _get_session_entries(base_dir: Path) -> List[Tuple[str, dict]]:
+    """Get all sessions with their metadata, most recent first."""
+    try:
+        sessions = list_sessions(base_dir)
+    except (FileNotFoundError, PermissionError):
+        return []
+
+    entries = []
+    pins = load_pins(base_dir)
+
+    for name in sessions:
+        try:
+            metadata = _get_session_metadata(base_dir, name)
+        except (FileNotFoundError, PermissionError):
+            metadata = {}
+        # Stash pin state in the (display-only) metadata dict so the renderer
+        # can show a marker without re-reading the registry per row.
+        metadata["pinned"] = name in pins
+        entries.append((name, metadata))
+
+    return _order_entries(entries)
 
 
 def _extract_last_user_message(history: list) -> str:
@@ -236,10 +263,16 @@ def _render_menu_panel(
             label = f"{time_str} \u2022 {msg_count} msgs ({session_name})"
 
         # Highlight selected item
-        if is_selected:
-            lines.append(("class:tui.selected", f" > {label}"))
+        is_session_pinned = bool(metadata.get("pinned"))
+        row_style = "class:tui.selected" if is_selected else "class:tui.muted"
+        caret = " > " if is_selected else "   "
+        lines.append((row_style, caret))
+        # Pin marker column (keeps rows aligned when not pinned).
+        if is_session_pinned:
+            lines.append(("class:tui.success", "* "))
         else:
-            lines.append(("class:tui.muted", f"   {label}"))
+            lines.append(("", "  "))
+        lines.append((row_style, label))
 
         lines.append(("", "\n"))
 
@@ -259,6 +292,8 @@ def _render_menu_panel(
         lines.append(("", "Browse msgs\n"))
         lines.append(("class:tui.help-key", "  /   "))
         lines.append(("", "Search content\n"))
+        lines.append(("class:tui.help-key", "  p   "))
+        lines.append(("", "Pin/Unpin\n"))
     lines.append(("class:tui.help-key", "  Enter  "))
     lines.append(("", "Load\n"))
     lines.append(("class:tui.help-key", "  Ctrl+C "))
@@ -382,6 +417,10 @@ def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> 
     lines.append(("class:tui.label", "  Session: "))
     lines.append(("", session_name))
     lines.append(("", "\n"))
+
+    if metadata.get("pinned"):
+        lines.append(("class:tui.success", "  * Pinned"))
+        lines.append(("", "\n"))
 
     timestamp = metadata.get("timestamp", "unknown")
     try:
@@ -579,8 +618,10 @@ async def interactive_autosave_picker() -> Optional[str]:
         this is safe to invoke from an ``asyncio.to_thread`` worker.
         """
         if not needle:
-            return list(entries)
-        return [e for e in entries if entry_matches(e, needle, content_index, base_dir)]
+            return _order_entries(list(entries))
+        return _order_entries(
+            [e for e in entries if entry_matches(e, needle, content_index, base_dir)]
+        )
 
     def _apply_filter_result(filtered: List[Tuple[str, dict]]) -> None:
         """Apply a filter result to picker state. Must run on the main thread."""
@@ -756,7 +797,13 @@ async def interactive_autosave_picker() -> Optional[str]:
                 message_idx[0] = 0  # Start at most recent
                 update_display()
             except Exception:
-                pass  # Silently fail if can't load
+                # Can't load this session (e.g. unpicklable or missing).
+                # Stay in list mode; log so the failure is debuggable.
+                logger.warning(
+                    "Failed to load session %r for browsing",
+                    session_name,
+                    exc_info=True,
+                )
 
     @kb.add("escape")
     def _(event):
@@ -841,6 +888,43 @@ async def interactive_autosave_picker() -> Optional[str]:
             if in_search_mode[0]:
                 search_buffer[0] += _c
                 update_display()
+
+    @kb.add("p")
+    def _(event):
+        """Pin/unpin the selected session -- unless we're typing a search."""
+        # While typing a search query, 'p' is just a character. This binding
+        # is registered after the alphabet loop so it owns the 'p' key.
+        if in_search_mode[0]:
+            search_buffer[0] += "p"
+            update_display()
+            return
+        if browse_mode[0]:
+            return  # Pinning only makes sense in the session list
+        entry = get_current_entry()
+        if not entry:
+            return
+        session_name, metadata = entry
+        try:
+            new_state = toggle_pin(base_dir, session_name)
+        except Exception:
+            # Don't crash the picker on a write hiccup; log so it's debuggable.
+            logger.warning(
+                "Failed to toggle pin for session %r",
+                session_name,
+                exc_info=True,
+            )
+            return
+        # Reflect the new flag on the shared metadata dict, then re-order the
+        # visible list (honoring any active search) and keep this session
+        # selected so the cursor follows it to its new position.
+        metadata["pinned"] = new_state
+        update_visible_entries()
+        for i, (name, _meta) in enumerate(visible_entries[0]):
+            if name == session_name:
+                selected_idx[0] = i
+                current_page[0] = get_page_for_index(i, PAGE_SIZE)
+                break
+        update_display()
 
     @kb.add("c-c")
     def _(event):
