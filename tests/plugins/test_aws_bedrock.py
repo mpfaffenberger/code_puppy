@@ -352,41 +352,33 @@ class TestCustomHelp:
 class TestSupportsAdaptiveThinking:
     """Test the shared supports_adaptive_thinking helper."""
 
-    def test_opus_4_7_by_alias(self):
+    @pytest.mark.parametrize(
+        "alias, actual_model_id, expected",
+        [
+            ("claude-opus-4-7", None, True),
+            ("claude-opus-4-6", None, True),
+            ("claude-sonnet-4-6", None, True),
+            ("claude-haiku-4-5", None, False),
+            # The alias doesn't contain the tag, but the actual_model_id does
+            ("bedrock-opus", "us.anthropic.claude-opus-4-7", True),
+            ("gpt-4o", None, False),
+        ],
+        ids=[
+            "opus_4_7_by_alias",
+            "opus_4_6_by_alias",
+            "sonnet_4_6_by_alias",
+            "haiku_not_adaptive",
+            "bedrock_opus_via_actual_model_id",
+            "unknown_model",
+        ],
+    )
+    def test_supports_adaptive_thinking(self, alias, actual_model_id, expected):
         from code_puppy.model_utils import supports_adaptive_thinking
 
-        assert supports_adaptive_thinking("claude-opus-4-7") is True
-
-    def test_opus_4_6_by_alias(self):
-        from code_puppy.model_utils import supports_adaptive_thinking
-
-        assert supports_adaptive_thinking("claude-opus-4-6") is True
-
-    def test_sonnet_4_6_by_alias(self):
-        from code_puppy.model_utils import supports_adaptive_thinking
-
-        assert supports_adaptive_thinking("claude-sonnet-4-6") is True
-
-    def test_haiku_not_adaptive(self):
-        from code_puppy.model_utils import supports_adaptive_thinking
-
-        assert supports_adaptive_thinking("claude-haiku-4-5") is False
-
-    def test_bedrock_opus_via_actual_model_id(self):
-        from code_puppy.model_utils import supports_adaptive_thinking
-
-        # The alias doesn't contain the tag, but the actual_model_id does
         assert (
-            supports_adaptive_thinking(
-                "bedrock-opus", actual_model_id="us.anthropic.claude-opus-4-7"
-            )
-            is True
+            supports_adaptive_thinking(alias, actual_model_id=actual_model_id)
+            is expected
         )
-
-    def test_unknown_model(self):
-        from code_puppy.model_utils import supports_adaptive_thinking
-
-        assert supports_adaptive_thinking("gpt-4o") is False
 
 
 class TestGetDefaultExtendedThinking:

@@ -164,17 +164,6 @@ class TestFindByRole(BrowserLocatorsBaseTest):
             assert result["count"] == 3
             assert len(result["elements"]) == 3
 
-    def test_register_find_by_role(self, mock_context):
-        """Test registration of find_by_role tool."""
-        agent = MagicMock()
-
-        register_find_by_role(agent)
-
-        # Verify tool was added to agent
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_find_by_role"
-
 
 class TestFindByText(BrowserLocatorsBaseTest):
     """Test find_by_text function and its registration."""
@@ -239,16 +228,6 @@ class TestFindByText(BrowserLocatorsBaseTest):
             assert result["count"] == 0
             assert len(result["elements"]) == 0
 
-    def test_register_find_by_text(self):
-        """Test registration of find_by_text tool."""
-        agent = MagicMock()
-
-        register_find_by_text(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_find_by_text"
-
 
 class TestFindByLabel(BrowserLocatorsBaseTest):
     """Test find_by_label function for form elements."""
@@ -304,16 +283,6 @@ class TestFindByLabel(BrowserLocatorsBaseTest):
             assert result["elements"][0]["tag"] == "textarea"
             assert result["elements"][0]["value"] == "textarea content"
 
-    def test_register_find_by_label(self):
-        """Test registration of find_by_label tool."""
-        agent = MagicMock()
-
-        register_find_by_label(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_find_by_label"
-
 
 class TestFindByPlaceholder(BrowserLocatorsBaseTest):
     """Test find_by_placeholder function."""
@@ -359,16 +328,6 @@ class TestFindByPlaceholder(BrowserLocatorsBaseTest):
             assert result["success"] is True
             assert result["exact"] is True
             page.get_by_placeholder.assert_called_once_with("Search", exact=True)
-
-    def test_register_find_by_placeholder(self):
-        """Test registration of find_by_placeholder tool."""
-        agent = MagicMock()
-
-        register_find_by_placeholder(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_find_by_placeholder"
 
 
 class TestFindByTestId(BrowserLocatorsBaseTest):
@@ -417,16 +376,6 @@ class TestFindByTestId(BrowserLocatorsBaseTest):
 
             assert result["success"] is True
             assert len(result["elements"][0]["text"]) <= len(long_text)
-
-    def test_register_find_by_test_id(self):
-        """Test registration of find_by_test_id tool."""
-        agent = MagicMock()
-
-        register_find_by_test_id(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_find_by_test_id"
 
 
 class TestXPathQuery(BrowserLocatorsBaseTest):
@@ -496,16 +445,6 @@ class TestXPathQuery(BrowserLocatorsBaseTest):
             assert result["success"] is False
             assert "Invalid XPath" in result["error"]
             assert result["xpath"] == "//*[invalid"
-
-    def test_register_run_xpath_query(self):
-        """Test registration of XPath query tool."""
-        agent = MagicMock()
-
-        register_run_xpath_query(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_xpath_query"
 
 
 class TestFindButtons(BrowserLocatorsBaseTest):
@@ -623,16 +562,6 @@ class TestFindButtons(BrowserLocatorsBaseTest):
             assert result["filtered_count"] == 0
             assert len(result["buttons"]) == 0
 
-    def test_register_find_buttons(self):
-        """Test registration of find_buttons tool."""
-        agent = MagicMock()
-
-        register_find_buttons(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_find_buttons"
-
 
 class TestFindLinks(BrowserLocatorsBaseTest):
     """Test find_links functionality."""
@@ -728,16 +657,6 @@ class TestFindLinks(BrowserLocatorsBaseTest):
             assert result["success"] is True
             assert result["links"][0]["href"] is None
 
-    def test_register_find_links(self):
-        """Test registration of find_links tool."""
-        agent = MagicMock()
-
-        register_find_links(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_find_links"
-
 
 class TestIntegrationScenarios(BrowserLocatorsBaseTest):
     """Integration test scenarios combining multiple locator functions."""
@@ -774,3 +693,39 @@ class TestIntegrationScenarios(BrowserLocatorsBaseTest):
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+@pytest.mark.parametrize(
+    "register_func,expected_tool",
+    [
+        (register_find_by_role, "browser_find_by_role"),
+        (register_find_by_text, "browser_find_by_text"),
+        (register_find_by_label, "browser_find_by_label"),
+        (register_find_by_placeholder, "browser_find_by_placeholder"),
+        (register_find_by_test_id, "browser_find_by_test_id"),
+        (register_run_xpath_query, "browser_xpath_query"),
+        (register_find_buttons, "browser_find_buttons"),
+        (register_find_links, "browser_find_links"),
+    ],
+    ids=[
+        "find_by_role",
+        "find_by_text",
+        "find_by_label",
+        "find_by_placeholder",
+        "find_by_test_id",
+        "run_xpath_query",
+        "find_buttons",
+        "find_links",
+    ],
+)
+class TestToolRegistration:
+    """Parametrized registration checks for every tool in this module."""
+
+    def test_register_tool(self, register_func, expected_tool):
+        agent = MagicMock()
+
+        register_func(agent)
+
+        agent.tool.assert_called_once()
+        tool_name = agent.tool.call_args[0][0]
+        assert tool_name.__name__ == expected_tool

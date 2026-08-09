@@ -199,72 +199,52 @@ def test_register_tools_callback_shape() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_kennel_command_ignores_other_names(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
-
-    assert commands.handle("/notkennel", "notkennel") is None
-
-
-def test_kennel_help_returns_true(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
-
-    assert commands.handle("/kennel help", "kennel") is True
-    assert commands.handle("/kennel ?", "kennel") is True
-
-
-def test_kennel_wings_with_data(kennel_root: Path) -> None:
+@pytest.mark.parametrize(
+    "cmd, name, record_text, expected",
+    [
+        ("/notkennel", "notkennel", None, None),
+        ("/kennel help", "kennel", None, True),
+        ("/kennel ?", "kennel", None, True),
+        ("/kennel wings", "kennel", "Some wisdom.", True),
+        ("/kennel wings", "kennel", None, True),
+        ("/kennel stats", "kennel", None, True),
+        ("/kennel search", "kennel", None, True),
+        (
+            "/kennel search octopi",
+            "kennel",
+            "Octopi have nine brains, technically.",
+            True,
+        ),
+        ("/kennel", "kennel", None, True),
+        # Should not return None — we own /kennel, we handle it.
+        ("/kennel bogus", "kennel", None, True),
+    ],
+    ids=[
+        "ignores_other_names",
+        "help",
+        "question_mark",
+        "wings_with_data",
+        "wings_empty",
+        "stats",
+        "search_no_query",
+        "search_with_hits",
+        "default_overview",
+        "unknown_subcommand",
+    ],
+)
+def test_kennel_commands(
+    kennel_root: Path, cmd: str, name: str, record_text: str | None, expected
+) -> None:
     from code_puppy.plugins.puppy_kennel import commands, recorder
 
-    recorder.record_run_end(
-        agent_name="code-puppy",
-        model_name="m",
-        success=True,
-        response_text="Some wisdom.",
-    )
-    assert commands.handle("/kennel wings", "kennel") is True
-
-
-def test_kennel_wings_empty(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
-
-    assert commands.handle("/kennel wings", "kennel") is True
-
-
-def test_kennel_stats(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
-
-    assert commands.handle("/kennel stats", "kennel") is True
-
-
-def test_kennel_search_no_query(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
-
-    assert commands.handle("/kennel search", "kennel") is True
-
-
-def test_kennel_search_with_hits(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands, recorder
-
-    recorder.record_run_end(
-        agent_name="code-puppy",
-        model_name="m",
-        success=True,
-        response_text="Octopi have nine brains, technically.",
-    )
-    assert commands.handle("/kennel search octopi", "kennel") is True
-
-
-def test_kennel_default_overview(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
-
-    assert commands.handle("/kennel", "kennel") is True
-
-
-def test_kennel_unknown_subcommand_falls_through_to_help(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
-
-    # Should not return None — we own /kennel, we handle it.
-    assert commands.handle("/kennel bogus", "kennel") is True
+    if record_text:
+        recorder.record_run_end(
+            agent_name="code-puppy",
+            model_name="m",
+            success=True,
+            response_text=record_text,
+        )
+    assert commands.handle(cmd, name) is expected
 
 
 def test_help_entries_advertised() -> None:

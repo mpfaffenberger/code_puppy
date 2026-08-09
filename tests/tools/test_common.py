@@ -369,3 +369,66 @@ class TestGenerateGroupId:
         assert id1 == id2, (
             f"Expected deterministic IDs with mocked time/random, got {id1} != {id2}"
         )
+
+
+class TestDiffSyntaxThemePropagation:
+    """Theme callback + per-diff-line tint propagation for highlighting."""
+
+    @staticmethod
+    def _themed_highlighter():
+        class _Themed:
+            def highlight_line(self, code, language):
+                return f"\x1b[38;2;12;34;56m{code}\x1b[0m"
+
+        return _Themed()
+
+    def test_diff_syntax_uses_termflow_theme_callback(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from rich.color import Color
+        from rich.console import Console
+
+        monkeypatch.setattr(
+            "code_puppy.callbacks.on_termflow_highlighter",
+            lambda _default: self._themed_highlighter(),
+        )
+        lexer = SimpleNamespace(aliases=["python"])
+
+        result = common_module._highlight_code_line("return 42", "#102030", lexer)
+        rendered_style = result.get_style_at_offset(Console(), 0)
+
+        assert result.plain == "return 42"
+        assert rendered_style.color == Color.from_rgb(12, 34, 56)
+        assert rendered_style.bgcolor == Color.parse("#102030")
+
+    def test_diff_syntax_applies_theme_line_tints(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from rich.color import Color
+        from rich.console import Console
+
+        highlighter = self._themed_highlighter()
+        highlighter.diff_line_tints = {
+            "added": (10, 20, 30),
+            "removed": (-5, -10, -15),
+        }
+        monkeypatch.setattr(
+            "code_puppy.callbacks.on_termflow_highlighter",
+            lambda _default: highlighter,
+        )
+        lexer = SimpleNamespace(aliases=["python"])
+
+        added = common_module._highlight_code_line("added", "#102030", lexer, "added")
+        removed = common_module._highlight_code_line(
+            "removed", "#301020", lexer, "removed"
+        )
+
+        console = Console()
+        assert (
+            added.get_style_at_offset(console, 0).color.triplet
+            == Color.from_rgb(22, 54, 86).triplet
+        )
+        assert (
+            removed.get_style_at_offset(console, 0).color.triplet
+            == Color.from_rgb(7, 24, 41).triplet
+        )

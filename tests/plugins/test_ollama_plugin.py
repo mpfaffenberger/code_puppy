@@ -69,47 +69,31 @@ def test_no_custom_endpoint_defaults_to_localhost(
     mock_async_client.assert_called_once_with(headers={}, verify=None)
 
 
-def test_ollama_host_env_appends_v1(mock_async_client, mock_provider, monkeypatch):
-    monkeypatch.setenv("OLLAMA_HOST", "http://myserver:11434")
+@pytest.mark.parametrize(
+    "host, expected",
+    [
+        ("http://myserver:11434", "http://myserver:11434/v1"),
+        ("http://myserver:11434/v1", "http://myserver:11434/v1"),
+        ("http://myserver:11434/", "http://myserver:11434/v1"),
+        ("", _DEFAULT_OLLAMA_BASE_URL),
+    ],
+    ids=[
+        "appends_v1",
+        "already_ends_with_v1",
+        "trailing_slash_stripped",
+        "empty_string_uses_default",
+    ],
+)
+def test_ollama_host_base_url(
+    mock_async_client, mock_provider, monkeypatch, host, expected
+):
+    monkeypatch.setenv("OLLAMA_HOST", host)
     model_config = {"name": "gpt3:30b"}
     create_ollama_model("my-model", model_config, {})
 
-    # Check the provider was called with /v1 appended
+    # Check the provider was called with the normalized /v1 base URL
     call_kwargs = mock_provider.call_args[1]
-    assert call_kwargs["base_url"] == "http://myserver:11434/v1"
-
-
-def test_ollama_host_already_ends_with_v1(
-    mock_async_client, mock_provider, monkeypatch
-):
-    monkeypatch.setenv("OLLAMA_HOST", "http://myserver:11434/v1")
-    model_config = {"name": "gpt3:30b"}
-    create_ollama_model("my-model", model_config, {})
-
-    call_kwargs = mock_provider.call_args[1]
-    assert call_kwargs["base_url"] == "http://myserver:11434/v1"
-
-
-def test_ollama_host_trailing_slash_stripped(
-    mock_async_client, mock_provider, monkeypatch
-):
-    monkeypatch.setenv("OLLAMA_HOST", "http://myserver:11434/")
-    model_config = {"name": "gpt3:30b"}
-    create_ollama_model("my-model", model_config, {})
-
-    call_kwargs = mock_provider.call_args[1]
-    assert call_kwargs["base_url"] == "http://myserver:11434/v1"
-
-
-def test_ollama_host_empty_string_uses_default(
-    mock_async_client, mock_provider, monkeypatch
-):
-    monkeypatch.setenv("OLLAMA_HOST", "")
-    model_config = {"name": "llama3:8b"}
-    create_ollama_model("my-model", model_config, {})
-
-    call_kwargs = mock_provider.call_args[1]
-    assert call_kwargs["base_url"] == _DEFAULT_OLLAMA_BASE_URL
+    assert call_kwargs["base_url"] == expected
 
 
 def test_returns_open_ai_chat_model_not_responses(

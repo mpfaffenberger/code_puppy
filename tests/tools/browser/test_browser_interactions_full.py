@@ -1,31 +1,34 @@
-"""Full coverage tests for browser_interactions.py - exception branches."""
+"""Exception-branch coverage for browser interactions."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from code_puppy.tools.browser.browser_interactions import (
-    check_element,
-    click_element,
-    double_click_element,
-    get_element_text,
-    get_element_value,
-    hover_element,
-    register_browser_check,
-    register_browser_uncheck,
-    register_click_element,
-    register_double_click_element,
-    register_get_element_text,
-    register_get_element_value,
-    register_hover_element,
-    register_select_option,
-    register_set_element_text,
-    select_option,
-    set_element_text,
-    uncheck_element,
-)
+from code_puppy.tools.browser import browser_interactions as interactions
 
-MOD = "code_puppy.tools.browser.browser_interactions"
+MOD = interactions.__name__
+OPERATIONS = [
+    ("click", interactions.click_element, ("#x",)),
+    ("double_click", interactions.double_click_element, ("#x",)),
+    ("hover", interactions.hover_element, ("#x",)),
+    ("set_text", interactions.set_element_text, ("#x", "hello")),
+    ("get_text", interactions.get_element_text, ("#x",)),
+    ("get_value", interactions.get_element_value, ("#x",)),
+    ("select", interactions.select_option, ("#x",), {"value": "a"}),
+    ("check", interactions.check_element, ("#x",)),
+    ("uncheck", interactions.uncheck_element, ("#x",)),
+]
+REGISTRARS = [
+    interactions.register_click_element,
+    interactions.register_double_click_element,
+    interactions.register_hover_element,
+    interactions.register_set_element_text,
+    interactions.register_get_element_text,
+    interactions.register_get_element_value,
+    interactions.register_select_option,
+    interactions.register_browser_check,
+    interactions.register_browser_uncheck,
+]
 
 
 @pytest.fixture(autouse=True)
@@ -38,168 +41,36 @@ def _suppress():
         yield
 
 
-def _mgr_with_page(page):
-    mgr = AsyncMock()
-    mgr.get_current_page.return_value = page
-    return mgr
+def _manager(page):
+    manager = AsyncMock()
+    manager.get_current_page.return_value = page
+    return manager
 
 
-def _patch_mgr(mgr):
-    return patch(f"{MOD}.get_session_browser_manager", return_value=mgr)
-
-
-def _page_with_element(element):
-    page = AsyncMock()
+def _page_raising_on_wait():
+    element = AsyncMock()
+    element.wait_for.side_effect = RuntimeError("interaction failed")
+    page = MagicMock()
     locator = MagicMock()
     locator.first = element
     page.locator.return_value = locator
     return page
 
 
-class TestExceptionBranches:
-    """Test exception handling in each interaction function."""
-
-    @pytest.mark.asyncio
-    async def test_click_no_page(self):
-        with _patch_mgr(_mgr_with_page(None)):
-            r = await click_element("#x")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_click_exception(self):
-        elem = AsyncMock()
-        elem.wait_for.side_effect = RuntimeError("timeout")
-        page = _page_with_element(elem)
-        with _patch_mgr(_mgr_with_page(page)):
-            r = await click_element("#x")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_double_click_no_page(self):
-        with _patch_mgr(_mgr_with_page(None)):
-            r = await double_click_element("#x")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_double_click_exception(self):
-        elem = AsyncMock()
-        elem.wait_for.side_effect = RuntimeError("err")
-        with _patch_mgr(_mgr_with_page(_page_with_element(elem))):
-            r = await double_click_element("#x")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_hover_no_page(self):
-        with _patch_mgr(_mgr_with_page(None)):
-            r = await hover_element("#x")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_hover_exception(self):
-        elem = AsyncMock()
-        elem.wait_for.side_effect = RuntimeError("err")
-        with _patch_mgr(_mgr_with_page(_page_with_element(elem))):
-            r = await hover_element("#x")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_set_text_no_page(self):
-        with _patch_mgr(_mgr_with_page(None)):
-            r = await set_element_text("#x", "hello")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_set_text_exception(self):
-        elem = AsyncMock()
-        elem.wait_for.side_effect = RuntimeError("err")
-        with _patch_mgr(_mgr_with_page(_page_with_element(elem))):
-            r = await set_element_text("#x", "hello")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_get_text_no_page(self):
-        with _patch_mgr(_mgr_with_page(None)):
-            r = await get_element_text("#x")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_get_text_exception(self):
-        elem = AsyncMock()
-        elem.wait_for.side_effect = RuntimeError("err")
-        with _patch_mgr(_mgr_with_page(_page_with_element(elem))):
-            r = await get_element_text("#x")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_get_value_no_page(self):
-        with _patch_mgr(_mgr_with_page(None)):
-            r = await get_element_value("#x")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_get_value_exception(self):
-        elem = AsyncMock()
-        elem.wait_for.side_effect = RuntimeError("err")
-        with _patch_mgr(_mgr_with_page(_page_with_element(elem))):
-            r = await get_element_value("#x")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_select_no_page(self):
-        with _patch_mgr(_mgr_with_page(None)):
-            r = await select_option("#x", value="a")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_select_exception(self):
-        elem = AsyncMock()
-        elem.wait_for.side_effect = RuntimeError("err")
-        with _patch_mgr(_mgr_with_page(_page_with_element(elem))):
-            r = await select_option("#x", value="a")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_check_no_page(self):
-        with _patch_mgr(_mgr_with_page(None)):
-            r = await check_element("#x")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_check_exception(self):
-        elem = AsyncMock()
-        elem.wait_for.side_effect = RuntimeError("err")
-        with _patch_mgr(_mgr_with_page(_page_with_element(elem))):
-            r = await check_element("#x")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_uncheck_no_page(self):
-        with _patch_mgr(_mgr_with_page(None)):
-            r = await uncheck_element("#x")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_uncheck_exception(self):
-        elem = AsyncMock()
-        elem.wait_for.side_effect = RuntimeError("err")
-        with _patch_mgr(_mgr_with_page(_page_with_element(elem))):
-            r = await uncheck_element("#x")
-            assert r["success"] is False
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", OPERATIONS, ids=lambda case: case[0])
+@pytest.mark.parametrize("page", [None, "raising"], ids=["no-page", "exception"])
+async def test_interaction_failure_branches(case, page):
+    _, operation, args, *optional_kwargs = case
+    kwargs = optional_kwargs[0] if optional_kwargs else {}
+    page = _page_raising_on_wait() if page == "raising" else None
+    with patch(f"{MOD}.get_session_browser_manager", return_value=_manager(page)):
+        result = await operation(*args, **kwargs)
+    assert result["success"] is False
 
 
-class TestRegisterFunctions:
-    def test_all(self):
-        for fn in [
-            register_click_element,
-            register_double_click_element,
-            register_hover_element,
-            register_set_element_text,
-            register_get_element_text,
-            register_get_element_value,
-            register_select_option,
-            register_browser_check,
-            register_browser_uncheck,
-        ]:
-            agent = MagicMock()
-            fn(agent)
-            agent.tool.assert_called_once()
+@pytest.mark.parametrize("register", REGISTRARS)
+def test_register_interaction(register):
+    agent = MagicMock()
+    register(agent)
+    agent.tool.assert_called_once()

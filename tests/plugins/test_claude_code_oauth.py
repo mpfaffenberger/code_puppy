@@ -213,31 +213,32 @@ class TestOAuthContext:
 class TestAuthorizationCodeParsing:
     """Test parsing authorization codes in various formats."""
 
-    def test_parse_authorization_code_with_state_suffix(self):
-        """Test parsing code with state suffix (code#state format)."""
-        code, state = parse_authorization_code("ABC123#STATE456")
-        assert code == "ABC123"
-        assert state == "STATE456"
-
-    def test_parse_authorization_code_space_separated(self):
-        """Test parsing space-separated code and state."""
-        code, state = parse_authorization_code("ABC123 STATE456")
-        assert code == "ABC123"
-        assert state == "STATE456"
-
-    def test_parse_authorization_code_bare(self):
-        """Test parsing bare code without state."""
-        code, state = parse_authorization_code("ABC123")
-        assert code == "ABC123"
-        assert state is None
-
-    def test_parse_authorization_code_full_callback_url(self):
-        """Test parsing full callback URL."""
-        code, state = parse_authorization_code(
-            "http://localhost:8765/callback?code=ABC123&state=STATE456"
-        )
-        assert code == "ABC123"
-        assert state == "STATE456"
+    @pytest.mark.parametrize(
+        "raw, expected_code, expected_state",
+        [
+            ("ABC123#STATE456", "ABC123", "STATE456"),
+            ("ABC123 STATE456", "ABC123", "STATE456"),
+            ("ABC123", "ABC123", None),
+            (
+                "http://localhost:8765/callback?code=ABC123&state=STATE456",
+                "ABC123",
+                "STATE456",
+            ),
+            ("  ABC123#STATE456  ", "ABC123", "STATE456"),
+        ],
+        ids=[
+            "with_state_suffix",
+            "space_separated",
+            "bare",
+            "full_callback_url",
+            "strips_whitespace",
+        ],
+    )
+    def test_parse_authorization_code(self, raw, expected_code, expected_state):
+        """Test parsing authorization codes in various formats."""
+        code, state = parse_authorization_code(raw)
+        assert code == expected_code
+        assert state == expected_state
 
     def test_parse_authorization_code_error_raises(self):
         """Test parsing OAuth error callback raises."""
@@ -245,12 +246,6 @@ class TestAuthorizationCodeParsing:
             parse_authorization_code(
                 "http://localhost:8765/callback?error=access_denied"
             )
-
-    def test_parse_authorization_code_strips_whitespace(self):
-        """Test that whitespace is stripped."""
-        code, state = parse_authorization_code("  ABC123#STATE456  ")
-        assert code == "ABC123"
-        assert state == "STATE456"
 
     def test_parse_authorization_code_empty_raises(self):
         """Test that empty code raises ValueError."""

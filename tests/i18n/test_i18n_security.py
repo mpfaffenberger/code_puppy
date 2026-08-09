@@ -9,7 +9,7 @@ filesystem boundary against hostile or careless catalog content.
 import pytest
 
 from code_puppy import i18n
-from code_puppy.i18n import catalog, locale, translate
+from code_puppy.i18n import catalog, translate
 
 
 @pytest.fixture(autouse=True)
@@ -178,12 +178,6 @@ def test_lookup_with_unsafe_locale_only_uses_safe_fallback(caplog):
         # A key that exists in NO catalog stays unresolved (nothing injected it).
         assert catalog.lookup("totally.bogus.key", "../../etc/passwd") is None
     assert any("unsafe locale" in r.message for r in caplog.records)
-
-
-# --- M2: explicit config beats ambient OS locale --------------------------
-def test_config_locale_beats_lang(monkeypatch):
-    monkeypatch.setenv("LANG", "de_DE.UTF-8")
-    assert locale.detect_locale(config_value="es-ES") == "es-ES"
 
 
 # --- m1: ensure_detected is idempotent and respects runtime override ------

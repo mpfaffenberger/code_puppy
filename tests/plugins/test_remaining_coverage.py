@@ -15,6 +15,8 @@ Covers:
 import ast
 from pathlib import Path
 from types import ModuleType
+
+import pytest
 from unittest.mock import MagicMock, patch
 
 # ============================================================
@@ -529,18 +531,17 @@ def my_tool(x: int) -> str:
         assert tool is not None
         assert tool.meta.name == "my_tool"
 
-    def test_scan_tool_no_meta(self, tmp_path):
-        (tmp_path / "no_meta.py").write_text("def foo(): pass")
-        reg = UCRegistry(tools_dir=tmp_path)
-        assert reg.scan() == 0
-
-    def test_scan_tool_meta_not_dict(self, tmp_path):
-        (tmp_path / "bad_meta.py").write_text('TOOL_META = "not a dict"')
-        reg = UCRegistry(tools_dir=tmp_path)
-        assert reg.scan() == 0
-
-    def test_scan_tool_invalid_meta(self, tmp_path):
-        (tmp_path / "invalid.py").write_text('TOOL_META = {"bad": "fields"}')
+    @pytest.mark.parametrize(
+        "filename, content",
+        [
+            ("no_meta.py", "def foo(): pass"),
+            ("bad_meta.py", 'TOOL_META = "not a dict"'),
+            ("invalid.py", 'TOOL_META = {"bad": "fields"}'),
+        ],
+        ids=["no_meta", "meta_not_dict", "invalid_meta"],
+    )
+    def test_scan_rejects_invalid_tool(self, tmp_path, filename, content):
+        (tmp_path / filename).write_text(content)
         reg = UCRegistry(tools_dir=tmp_path)
         assert reg.scan() == 0
 

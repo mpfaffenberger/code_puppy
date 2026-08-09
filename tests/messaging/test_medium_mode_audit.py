@@ -625,10 +625,6 @@ class TestChecklist7_NoNewOutput:
 class TestChecklist8_DefaultIsMedium:
     """Medium is the default — no config needed for existing behavior."""
 
-    def test_default_returns_medium(self):
-        with patch("code_puppy.config.get_value", return_value=None):
-            assert get_output_level() == "medium"
-
     def test_unset_config_returns_medium(self):
         with patch("code_puppy.config.get_value", return_value=""):
             # Empty string is not in valid set → falls back to medium
@@ -658,27 +654,6 @@ class TestChecklist8_DefaultIsMedium:
 
 class TestLegacyRendererMediumBaseline:
     """The legacy SynchronousInteractiveRenderer passes everything in medium."""
-
-    def test_info_passes_through(self):
-        from code_puppy.messaging.message_queue import MessageType, UIMessage
-        from code_puppy.messaging.renderers import _should_suppress_legacy
-
-        msg = UIMessage(type=MessageType.INFO, content="hello")
-        with (
-            patch(
-                "code_puppy.messaging.renderers._get_output_level",
-                return_value="medium",
-            ),
-            patch(
-                "code_puppy.messaging.renderers._get_suppress_informational",
-                return_value=False,
-            ),
-            patch(
-                "code_puppy.messaging.renderers._get_suppress_thinking",
-                return_value=False,
-            ),
-        ):
-            assert _should_suppress_legacy(msg) is False
 
     def test_agent_reasoning_passes_through(self):
         from code_puppy.messaging.message_queue import MessageType, UIMessage

@@ -164,16 +164,6 @@ class TestClickElement(BrowserInteractionsBaseTest):
             assert "Element not clickable" in result["error"]
             assert result["selector"] == "#button"
 
-    def test_register_click_element(self, mock_context):
-        """Test registration of click_element tool."""
-        agent = MagicMock()
-
-        register_click_element(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_click"
-
 
 class TestDoubleClickElement(BrowserInteractionsBaseTest):
     """Test double_click_element function and its registration."""
@@ -220,16 +210,6 @@ class TestDoubleClickElement(BrowserInteractionsBaseTest):
             locator.wait_for.assert_called_once_with(state="visible", timeout=3000)
             locator.dblclick.assert_called_once_with(force=True, timeout=3000)
 
-    def test_register_double_click_element(self):
-        """Test registration of double_click_element tool."""
-        agent = MagicMock()
-
-        register_double_click_element(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_double_click"
-
 
 class TestHoverElement(BrowserInteractionsBaseTest):
     """Test hover_element function and its registration."""
@@ -270,16 +250,6 @@ class TestHoverElement(BrowserInteractionsBaseTest):
 
             assert result["success"] is True
             locator.hover.assert_called_once_with(force=True, timeout=2000)
-
-    def test_register_hover_element(self):
-        """Test registration of hover_element tool."""
-        agent = MagicMock()
-
-        register_hover_element(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_hover"
 
 
 class TestSetElementText(BrowserInteractionsBaseTest):
@@ -365,16 +335,6 @@ class TestSetElementText(BrowserInteractionsBaseTest):
             assert result["text"] == long_text
             locator.fill.assert_called_once_with(long_text, timeout=10000)
 
-    def test_register_set_element_text(self):
-        """Test registration of set_element_text tool."""
-        agent = MagicMock()
-
-        register_set_element_text(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_set_text"
-
 
 class TestGetElementText(BrowserInteractionsBaseTest):
     """Test get_element_text function and its registration."""
@@ -436,16 +396,6 @@ class TestGetElementText(BrowserInteractionsBaseTest):
 
             assert result["success"] is True
             assert result["text"] is None
-
-    def test_register_get_element_text(self):
-        """Test registration of get_element_text tool."""
-        agent = MagicMock()
-
-        register_get_element_text(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_get_text"
 
 
 class TestGetElementValue(BrowserInteractionsBaseTest):
@@ -509,16 +459,6 @@ class TestGetElementValue(BrowserInteractionsBaseTest):
 
             assert result["success"] is False
             assert "Element is not an input" in result["error"]
-
-    def test_register_get_element_value(self):
-        """Test registration of get_element_value tool."""
-        agent = MagicMock()
-
-        register_get_element_value(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_get_value"
 
 
 class TestSelectOption(BrowserInteractionsBaseTest):
@@ -627,16 +567,6 @@ class TestSelectOption(BrowserInteractionsBaseTest):
             assert result["success"] is False
             assert "Option not found" in result["error"]
 
-    def test_register_select_option(self):
-        """Test registration of select_option tool."""
-        agent = MagicMock()
-
-        register_select_option(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_select_option"
-
 
 class TestCheckElement(BrowserInteractionsBaseTest):
     """Test check_element function and its registration."""
@@ -699,16 +629,6 @@ class TestCheckElement(BrowserInteractionsBaseTest):
             assert result["success"] is False
             assert "Not checkable" in result["error"]
 
-    def test_register_browser_check(self):
-        """Test registration of check_element tool."""
-        agent = MagicMock()
-
-        register_browser_check(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_check"
-
 
 class TestUncheckElement(BrowserInteractionsBaseTest):
     """Test uncheck_element function and its registration."""
@@ -750,16 +670,6 @@ class TestUncheckElement(BrowserInteractionsBaseTest):
 
             assert result["success"] is False
             assert "Not uncheckable" in result["error"]
-
-    def test_register_browser_uncheck(self):
-        """Test registration of uncheck_element tool."""
-        agent = MagicMock()
-
-        register_browser_uncheck(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_uncheck"
 
 
 class TestIntegrationScenarios(BrowserInteractionsBaseTest):
@@ -861,3 +771,41 @@ class TestIntegrationScenarios(BrowserInteractionsBaseTest):
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+@pytest.mark.parametrize(
+    "register_func,expected_tool",
+    [
+        (register_click_element, "browser_click"),
+        (register_double_click_element, "browser_double_click"),
+        (register_hover_element, "browser_hover"),
+        (register_set_element_text, "browser_set_text"),
+        (register_get_element_text, "browser_get_text"),
+        (register_get_element_value, "browser_get_value"),
+        (register_select_option, "browser_select_option"),
+        (register_browser_check, "browser_check"),
+        (register_browser_uncheck, "browser_uncheck"),
+    ],
+    ids=[
+        "click_element",
+        "double_click_element",
+        "hover_element",
+        "set_element_text",
+        "get_element_text",
+        "get_element_value",
+        "select_option",
+        "browser_check",
+        "browser_uncheck",
+    ],
+)
+class TestToolRegistration:
+    """Parametrized registration checks for every tool in this module."""
+
+    def test_register_tool(self, register_func, expected_tool):
+        agent = MagicMock()
+
+        register_func(agent)
+
+        agent.tool.assert_called_once()
+        tool_name = agent.tool.call_args[0][0]
+        assert tool_name.__name__ == expected_tool

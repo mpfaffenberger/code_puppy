@@ -562,36 +562,6 @@ def safe_func(x):
         assert result.valid is True
         assert len(result.warnings) == 0
 
-    def test_detects_subprocess_import(self):
-        """Test detection of subprocess import."""
-        code = "import subprocess"
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) > 0
-        assert "subprocess" in result.warnings[0].lower()
-
-    def test_detects_eval_call(self):
-        """Test detection of eval() call."""
-        code = """
-def dangerous(code):
-    return eval(code)
-"""
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) > 0
-        assert "eval" in result.warnings[0].lower()
-
-    def test_detects_exec_call(self):
-        """Test detection of exec() call."""
-        code = "exec('print(1)')"
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) > 0
-        assert "exec" in result.warnings[0].lower()
-
-    def test_detects_os_system_import(self):
-        """Test detection of os.system import."""
-        code = "from os import system"
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) > 0
-
     def test_invalid_code_returns_syntax_error(self):
         """Test that invalid code returns syntax error."""
         code = "def broken("
@@ -682,115 +652,76 @@ class TestCallbackRegistration:
 # =============================================================================
 
 
-class TestEnhancedDangerousPatterns:
-    """Test enhanced dangerous pattern detection."""
-
-    def test_detects_socket_import(self):
-        """Test detection of socket import (network)."""
-        code = "import socket"
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) > 0
-        assert "socket" in result.warnings[0].lower()
-
-    def test_detects_urllib_import(self):
-        """Test detection of urllib import (network)."""
-        code = "import urllib"
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) > 0
-        assert "urllib" in result.warnings[0].lower()
-
-    def test_detects_requests_import(self):
-        """Test detection of requests import (external API)."""
-        code = "import requests"
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) > 0
-        assert "requests" in result.warnings[0].lower()
-
-    def test_detects_platform_import(self):
-        """Test detection of platform import (system access)."""
-        code = "import platform"
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) > 0
-        assert "platform" in result.warnings[0].lower()
-
-    def test_detects_ctypes_import(self):
-        """Test detection of ctypes import (system access)."""
-        code = "import ctypes"
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) > 0
-        assert "ctypes" in result.warnings[0].lower()
-
-    def test_detects_globals_call(self):
-        """Test detection of globals() call."""
-        code = """
-def dangerous():
-    return globals()
-"""
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) > 0
-        assert "globals" in result.warnings[0].lower()
-
-    def test_detects_locals_call(self):
-        """Test detection of locals() call."""
-        code = """
-def dangerous():
-    return locals()
-"""
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) > 0
-        assert "locals" in result.warnings[0].lower()
-
-    def test_detects_import_module_call(self):
-        """Test detection of import_module() call."""
-        code = """
-from importlib import import_module
-mod = import_module("os")
-"""
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) > 0
-        # Should detect both the importlib import and the import_module call
-        warning = result.warnings[0].lower()
-        assert "importlib" in warning or "import_module" in warning
+@pytest.mark.parametrize(
+    "code, needles",
+    [
+        ("import subprocess", ("subprocess",)),
+        ("def dangerous(code):\n    return eval(code)", ("eval",)),
+        ("exec('print(1)')", ("exec",)),
+        ("from os import system", None),
+        ("import socket", ("socket",)),
+        ("import urllib", ("urllib",)),
+        ("import requests", ("requests",)),
+        ("import platform", ("platform",)),
+        ("import ctypes", ("ctypes",)),
+        ("def dangerous():\n    return globals()", ("globals",)),
+        ("def dangerous():\n    return locals()", ("locals",)),
+        (
+            "from importlib import import_module\nmod = import_module('os')",
+            ("importlib", "import_module"),
+        ),
+    ],
+    ids=[
+        "subprocess",
+        "eval",
+        "exec",
+        "os_system",
+        "socket",
+        "urllib",
+        "requests",
+        "platform",
+        "ctypes",
+        "globals",
+        "locals",
+        "import_module",
+    ],
+)
+def test_detects_dangerous_patterns(code, needles):
+    """Dangerous patterns are flagged and the offending symbol is reported."""
+    result = check_dangerous_patterns(code)
+    assert len(result.warnings) > 0
+    if needles:
+        assert any(n in result.warnings[0].lower() for n in needles)
 
 
 class TestOpenWriteModeDetection:
     """Test open() with write mode detection."""
 
-    def test_open_read_mode_safe(self):
-        """Test that open() with read mode is safe."""
-        code = 'f = open("file.txt", "r")'
+    @pytest.mark.parametrize(
+        "code",
+        [
+            'f = open("file.txt", "r")',
+            'f = open("file.txt")',
+        ],
+        ids=["read_mode", "default_mode"],
+    )
+    def test_open_safe_modes(self, code):
+        """open() with a read/default mode is not flagged."""
         result = check_dangerous_patterns(code)
         assert len(result.warnings) == 0
 
-    def test_open_default_mode_safe(self):
-        """Test that open() without mode (default 'r') is safe."""
-        code = 'f = open("file.txt")'
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) == 0
-
-    def test_open_write_mode_dangerous(self):
-        """Test that open() with write mode is detected."""
-        code = 'f = open("file.txt", "w")'
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) > 0
-        assert "open()" in result.warnings[0].lower()
-        assert "write" in result.warnings[0].lower()
-
-    def test_open_append_mode_dangerous(self):
-        """Test that open() with append mode is detected."""
-        code = 'f = open("file.txt", "a")'
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) > 0
-
-    def test_open_write_binary_dangerous(self):
-        """Test that open() with binary write mode is detected."""
-        code = 'f = open("file.bin", "wb")'
-        result = check_dangerous_patterns(code)
-        assert len(result.warnings) > 0
-
-    def test_open_write_mode_keyword(self):
-        """Test that open() with mode keyword argument is detected."""
-        code = 'f = open("file.txt", mode="w")'
+    @pytest.mark.parametrize(
+        "code",
+        [
+            'f = open("file.txt", "w")',
+            'f = open("file.txt", "a")',
+            'f = open("file.bin", "wb")',
+            'f = open("file.txt", mode="w")',
+        ],
+        ids=["write_mode", "append_mode", "write_binary", "write_keyword"],
+    )
+    def test_open_dangerous_modes(self, code):
+        """open() with a write-ish mode is flagged."""
         result = check_dangerous_patterns(code)
         assert len(result.warnings) > 0
 

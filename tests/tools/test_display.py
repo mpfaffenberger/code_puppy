@@ -798,3 +798,16 @@ class TestEraseProgressLine:
         console = Console(file=buf, force_terminal=False)
         erase_progress_line(console)
         assert buf.getvalue() == ""
+
+
+class TestDisplaySubagentSkip:
+    """Sub-agent responses are skipped unless verbose / high output mode."""
+
+    @patch("code_puppy.tools.display.get_subagent_verbose", return_value=False)
+    @patch("code_puppy.tools.display.is_subagent", return_value=True)
+    def test_skips_display_for_subagent(self, mock_sub, mock_verbose):
+        """Plain sub-agent (not verbose, not high output) short-circuits."""
+        from code_puppy.tools.display import display_non_streamed_result
+
+        result = display_non_streamed_result("test content")
+        assert result is None

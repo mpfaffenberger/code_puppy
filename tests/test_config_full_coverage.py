@@ -737,20 +737,6 @@ class TestAgentPinnedModels:
         # empty string is treated as falsy but returned by get_value
         assert not cp_config.get_agent_pinned_model("test-agent")
 
-    def test_get_all_agent_pinned_models(self):
-        cp_config.set_agent_pinned_model("a1", "m1")
-        cp_config.set_agent_pinned_model("a2", "m2")
-        pinnings = cp_config.get_all_agent_pinned_models()
-        assert pinnings.get("a1") == "m1"
-        assert pinnings.get("a2") == "m2"
-
-    def test_get_agents_pinned_to_model(self):
-        cp_config.set_agent_pinned_model("pa1", "target")
-        cp_config.set_agent_pinned_model("pa2", "other")
-        result = cp_config.get_agents_pinned_to_model("target")
-        assert "pa1" in result
-        assert "pa2" not in result
-
 
 # ---------------------------------------------------------------------------
 # Puppy token

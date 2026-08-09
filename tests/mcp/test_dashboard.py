@@ -13,6 +13,7 @@ Provides full coverage of MCPDashboard functionality including:
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, Mock, patch
 
+import pytest
 from rich.console import Console
 from rich.table import Table
 
@@ -427,24 +428,22 @@ class TestFormatLatency:
         result = dashboard.format_latency("invalid")
         assert result == "error"
 
-    def test_format_latency_boundary_50ms(self):
-        """Test latency boundary at 50ms."""
+    @pytest.mark.parametrize(
+        ("latency", "color", "expect_seconds"),
+        [
+            (50.0, "yellow", False),  # acceptable, not fast
+            (200.0, "red", False),  # slow, not acceptable
+            (1000.0, "red", True),  # formatted in seconds
+        ],
+        ids=["50ms", "200ms", "1000ms"],
+    )
+    def test_format_latency_boundary(self, latency, color, expect_seconds):
+        """Test latency boundary tiers."""
         dashboard = MCPDashboard()
-        result = dashboard.format_latency(50.0)
-        assert "yellow" in result.lower()  # Should be acceptable, not fast
-
-    def test_format_latency_boundary_200ms(self):
-        """Test latency boundary at 200ms."""
-        dashboard = MCPDashboard()
-        result = dashboard.format_latency(200.0)
-        assert "red" in result.lower()  # Should be slow, not acceptable
-
-    def test_format_latency_boundary_1000ms(self):
-        """Test latency boundary at 1000ms."""
-        dashboard = MCPDashboard()
-        result = dashboard.format_latency(1000.0)
-        assert "red" in result.lower()
-        assert "s" in result  # Should be formatted in seconds
+        result = dashboard.format_latency(latency)
+        assert color in result.lower()
+        if expect_seconds:
+            assert "s" in result
 
 
 class TestRenderMetricsSummary:

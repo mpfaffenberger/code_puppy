@@ -2,25 +2,13 @@
 
 Validates cmd.session.*, cmd.clear.*, cmd.compact.*, cmd.truncate.*,
 cmd.quick_resume.*, cmd.dump_context.*, and cmd.load_context.* keys.
+The generic catalog-health sweeps live in ``test_catalog_namespaces.py``;
+this module keeps the concrete key/interpolation contracts.
 """
-
-import re
 
 import pytest
 
-from code_puppy.i18n import catalog, pseudo, translate
-
-_PLACEHOLDER = re.compile(r"\{(\w+)\}")
-
-SESSION_PREFIXES = (
-    "cmd.session.",
-    "cmd.clear.",
-    "cmd.compact.",
-    "cmd.truncate.",
-    "cmd.quick_resume.",
-    "cmd.dump_context.",
-    "cmd.load_context.",
-)
+from code_puppy.i18n import catalog, translate
 
 
 @pytest.fixture(autouse=True)
@@ -30,29 +18,6 @@ def _reset_locale():
     yield
     translate.get_translator().set_locale("en-US")
     catalog.reset()
-
-
-def _session_keys():
-    src = catalog.load_catalog("en-US")
-    return [k for k in src if any(k.startswith(p) for p in SESSION_PREFIXES)]
-
-
-def test_session_namespace_is_populated():
-    assert len(_session_keys()) >= 35
-
-
-def test_every_session_key_resolves():
-    translate.set_locale("en-US")
-    offenders = [
-        k for k in _session_keys() if not translate.t(k) or translate.t(k) == k
-    ]
-    assert not offenders, f"session keys not resolving: {offenders}"
-
-
-def test_every_session_key_pseudolocalizes():
-    translate.set_locale(pseudo.PSEUDO_LOCALE)
-    offenders = [k for k in _session_keys() if not translate.t(k).startswith("\u27e6")]
-    assert not offenders, f"session keys not pseudolocalized: {offenders}"
 
 
 def test_session_keys_interpolate():
@@ -142,21 +107,6 @@ def test_load_context_keys_interpolate():
         file="x.pkl",
     )
     assert "5" in success and "auto_session_123" in success
-
-
-def test_no_leftover_placeholders():
-    translate.set_locale("en-US")
-    src = catalog.load_catalog("en-US")
-    for key in _session_keys():
-        entry = src[key]
-        text = entry if isinstance(entry, str) else entry.get("other", "")
-        if "{{" in text:
-            continue
-        params = {name: "X" for name in _PLACEHOLDER.findall(text)}
-        rendered = translate.t(key, **params)
-        assert "{" not in rendered.replace("{{", "").replace("}}", ""), (
-            f"{key} left an un-substituted placeholder: {rendered!r}"
-        )
 
 
 def test_session_commands_imports_cleanly():

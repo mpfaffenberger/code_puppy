@@ -338,35 +338,21 @@ def _handler_in(module_name):
     return _h
 
 
-def test_plugin_owner_of_module_builtin():
-    assert (
-        pc._plugin_owner_of_module("code_puppy.plugins.wiggum.register_callbacks")
-        == "wiggum"
-    )
-
-
-def test_plugin_owner_of_module_project():
-    assert (
-        pc._plugin_owner_of_module("project_plugins.my_plug.register_callbacks")
-        == "my_plug"
-    )
-
-
-def test_plugin_owner_of_module_user():
-    assert pc._plugin_owner_of_module("user_plug.register_callbacks") == "user_plug"
-
-
-def test_plugin_owner_of_module_core_does_not_match_plugin():
-    # Core modules resolve to a prefix that is not a real plugin name.
-    assert (
-        pc._plugin_owner_of_module("code_puppy.command_line.command_handler")
-        == "code_puppy"
-    )
-
-
-def test_plugin_owner_of_module_none():
-    assert pc._plugin_owner_of_module(None) is None
-    assert pc._plugin_owner_of_module("") is None
+@pytest.mark.parametrize(
+    "module, expected",
+    [
+        ("code_puppy.plugins.wiggum.register_callbacks", "wiggum"),
+        ("project_plugins.my_plug.register_callbacks", "my_plug"),
+        ("user_plug.register_callbacks", "user_plug"),
+        # Core modules resolve to a prefix that is not a real plugin name.
+        ("code_puppy.command_line.command_handler", "code_puppy"),
+        (None, None),
+        ("", None),
+    ],
+    ids=["builtin", "project", "user", "core", "none", "empty"],
+)
+def test_plugin_owner_of_module(module, expected):
+    assert pc._plugin_owner_of_module(module) == expected
 
 
 def test_registry_commands_attributed_by_handler_module(monkeypatch):

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
@@ -45,22 +46,20 @@ from ._helpers import (
 
 
 class TestClassifyTool:
-    def test_write_tool(self):
-        assert classify_tool("create_file") == "✎"
-        assert classify_tool("replace_in_file") == "✎"
-        assert classify_tool("delete_file") == "✎"
-
-    def test_shell_tool(self):
-        assert classify_tool("agent_run_shell_command") == "⚡"
-
-    def test_browser_prefix(self):
-        assert classify_tool("browser_open") == "🌐"
-
-    def test_terminal_prefix(self):
-        assert classify_tool("terminal_run") == "▶"
-
-    def test_unclassified(self):
-        assert classify_tool("read_file") == "·"
+    @pytest.mark.parametrize(
+        ("tool", "codepoint"),
+        [
+            ("create_file", 0x270E),
+            ("replace_in_file", 0x270E),
+            ("delete_file", 0x270E),
+            ("agent_run_shell_command", 0x26A1),
+            ("browser_open", 0x1F310),
+            ("terminal_run", 0x25B6),
+            ("read_file", 0xB7),
+        ],
+    )
+    def test_classification(self, tool, codepoint):
+        assert classify_tool(tool) == chr(codepoint)
 
 
 class TestShortStr:
@@ -112,35 +111,21 @@ class TestMessageEntryIsLocked:
     stays locked while a pure first-user message is now prunable.
     """
 
-    def test_role_system_is_locked(self):
-        entry = MessageEntry(history_index=5, role="system", preview="x", full_text="x")
-        assert entry.is_locked is True
-
-    def test_history_index_0_with_user_role_is_now_prunable(self):
-        """Non-Anthropic transports put a plain UserPromptPart at
-        history[0]; users must be allowed to prune it. Previously this
-        was locked by a position-based check.
-        """
-        entry = MessageEntry(history_index=0, role="user", preview="x", full_text="x")
-        assert entry.is_locked is False
-
-    def test_regular_user_entry_is_not_locked(self):
-        entry = MessageEntry(history_index=3, role="user", preview="x", full_text="x")
-        assert entry.is_locked is False
-
-    def test_assistant_entry_is_not_locked(self):
+    @pytest.mark.parametrize(
+        ("history_index", "role", "expected"),
+        [
+            (5, "system", True),
+            (0, "user", False),
+            (3, "user", False),
+            (1, "assistant", False),
+            (0, "system", True),
+        ],
+    )
+    def test_lock_depends_on_role_not_position(self, history_index, role, expected):
         entry = MessageEntry(
-            history_index=1, role="assistant", preview="x", full_text="x"
+            history_index=history_index, role=role, preview="x", full_text="x"
         )
-        assert entry.is_locked is False
-
-    def test_history_index_0_with_system_role_remains_locked(self):
-        """Anthropic-style: pydantic-ai bundles SystemPromptPart +
-        UserPromptPart at history[0] and build_message_entries tags it
-        ``role='system'``. The bundle must stay locked.
-        """
-        entry = MessageEntry(history_index=0, role="system", preview="x", full_text="x")
-        assert entry.is_locked is True
+        assert entry.is_locked is expected
 
 
 # ───────────────────────────────────────────────────────────────────────────

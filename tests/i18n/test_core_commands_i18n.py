@@ -1,17 +1,16 @@
 """i18n coverage for the core-commands extraction.
 
-Locks in the ``cmd.*`` catalog namespace that core_commands.py depends on.
-Command handlers own the terminal and require the full CLI stack, so we
-test the catalog keys directly rather than invoking handlers end-to-end.
+Locks in the concrete ``cmd.*`` key contracts that core_commands.py
+depends on. Command handlers own the terminal and require the full CLI
+stack, so we test the catalog keys directly rather than invoking handlers
+end-to-end. The generic namespace sweep (every key resolves /
+pseudolocalizes / no leftover placeholders) lives in
+``test_catalog_namespaces.py``.
 """
-
-import re
 
 import pytest
 
-from code_puppy.i18n import catalog, pseudo, translate
-
-_PLACEHOLDER = re.compile(r"\{(\w+)\}")
+from code_puppy.i18n import catalog, translate
 
 
 @pytest.fixture(autouse=True)
@@ -21,27 +20,6 @@ def _reset_locale():
     yield
     translate.get_translator().set_locale("en-US")
     catalog.reset()
-
-
-def _cmd_keys():
-    src = catalog.load_catalog("en-US")
-    return [k for k in src if k.startswith("cmd.")]
-
-
-def test_cmd_namespace_is_populated():
-    assert len(_cmd_keys()) >= 32
-
-
-def test_every_cmd_key_resolves_to_real_text():
-    translate.set_locale("en-US")
-    offenders = [k for k in _cmd_keys() if not translate.t(k) or translate.t(k) == k]
-    assert not offenders, f"cmd.* keys not resolving: {offenders}"
-
-
-def test_every_cmd_key_pseudolocalizes():
-    translate.set_locale(pseudo.PSEUDO_LOCALE)
-    offenders = [k for k in _cmd_keys() if not translate.t(k).startswith("\u27e6")]
-    assert not offenders, f"cmd.* keys not pseudolocalized: {offenders}"
 
 
 def test_cd_keys_interpolate():
@@ -86,21 +64,6 @@ def test_model_settings_keys_interpolate():
     translate.set_locale("en-US")
     assert "boom" in translate.t("cmd.model_settings.reload_failed", error="boom")
     assert "boom" in translate.t("cmd.model_settings.failed", error="boom")
-
-
-def test_no_leftover_placeholder_for_supplied_params():
-    translate.set_locale("en-US")
-    src = catalog.load_catalog("en-US")
-    for key in _cmd_keys():
-        entry = src[key]
-        text = entry if isinstance(entry, str) else entry.get("other", "")
-        if "{{" in text:
-            continue
-        params = {name: "X" for name in _PLACEHOLDER.findall(text)}
-        rendered = translate.t(key, **params)
-        assert "{" not in rendered.replace("{{", "").replace("}}", ""), (
-            f"{key} left an un-substituted placeholder: {rendered!r}"
-        )
 
 
 def test_core_commands_imports_cleanly():

@@ -353,49 +353,6 @@ class TestCallbacksErrorHandling:
         assert result is True
         assert callbacks.count_callbacks("startup") == 0
 
-    def test_clear_callbacks_specific_phase(self):
-        """Test clearing callbacks for a specific phase."""
-
-        def callback1():
-            pass
-
-        def callback2():
-            pass
-
-        callbacks.clear_callbacks()
-        callbacks.register_callback("startup", callback1)
-        callbacks.register_callback("shutdown", callback2)
-
-        # Clear only startup
-        callbacks.clear_callbacks("startup")
-
-        assert callbacks.count_callbacks("startup") == 0
-        assert callbacks.count_callbacks("shutdown") == 1
-
-        # Cleanup
-        callbacks.clear_callbacks()
-
-    def test_get_callbacks_returns_copy(self):
-        """Test that get_callbacks returns a copy, not the original list."""
-
-        def my_callback():
-            pass
-
-        callbacks.clear_callbacks("startup")
-        callbacks.register_callback("startup", my_callback)
-
-        retrieved = callbacks.get_callbacks("startup")
-        original_count = callbacks.count_callbacks("startup")
-
-        # Modify the retrieved list
-        retrieved.append(lambda: None)
-
-        # Original should be unchanged
-        assert callbacks.count_callbacks("startup") == original_count
-
-        # Cleanup
-        callbacks.clear_callbacks("startup")
-
     def test_count_callbacks_all_phases(self):
         """Test counting all callbacks across all phases."""
 

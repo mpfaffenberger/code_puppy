@@ -1,25 +1,26 @@
-"""Full coverage tests for browser_navigation.py."""
+"""Branch coverage for browser navigation helpers."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from code_puppy.tools.browser.browser_navigation import (
-    get_page_info,
-    go_back,
-    go_forward,
-    navigate_to_url,
-    register_browser_go_back,
-    register_browser_go_forward,
-    register_get_page_info,
-    register_navigate_to_url,
-    register_reload_page,
-    register_wait_for_load_state,
-    reload_page,
-    wait_for_load_state,
-)
+from code_puppy.tools.browser import browser_navigation as navigation
 
-MOD = "code_puppy.tools.browser.browser_navigation"
+MOD = navigation.__name__
+SIMPLE_OPERATIONS = [
+    ("back", navigation.go_back, "go_back", True),
+    ("forward", navigation.go_forward, "go_forward", True),
+    ("reload", navigation.reload_page, "reload", True),
+    ("wait", navigation.wait_for_load_state, "wait_for_load_state", False),
+]
+REGISTRARS = [
+    navigation.register_navigate_to_url,
+    navigation.register_get_page_info,
+    navigation.register_browser_go_back,
+    navigation.register_browser_go_forward,
+    navigation.register_reload_page,
+    navigation.register_wait_for_load_state,
+]
 
 
 @pytest.fixture(autouse=True)
@@ -32,157 +33,57 @@ def _suppress():
         yield
 
 
-def _mgr_with_page(page=None):
-    mgr = AsyncMock()
-    mgr.get_current_page.return_value = page
-    return mgr
+def _manager(page=None):
+    manager = AsyncMock()
+    manager.get_current_page.return_value = page
+    return manager
 
 
-def _patch_mgr(mgr):
-    return patch(f"{MOD}.get_session_browser_manager", return_value=mgr)
-
-
-class TestNavigateToUrl:
-    @pytest.mark.asyncio
-    async def test_no_page(self):
-        with _patch_mgr(_mgr_with_page(None)):
-            r = await navigate_to_url("http://x")
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_exception(self):
+@pytest.mark.asyncio
+@pytest.mark.parametrize("page_kind", ["none", "raising"], ids=["no-page", "exception"])
+async def test_navigate_failure_branches(page_kind):
+    page = None
+    if page_kind == "raising":
         page = AsyncMock()
-        page.goto.side_effect = RuntimeError("net")
-        with _patch_mgr(_mgr_with_page(page)):
-            r = await navigate_to_url("http://x")
-            assert r["success"] is False
+        page.goto.side_effect = RuntimeError("network failed")
+    with patch(f"{MOD}.get_session_browser_manager", return_value=_manager(page)):
+        result = await navigation.navigate_to_url("http://x")
+    assert result["success"] is False
 
 
-class TestGetPageInfo:
-    @pytest.mark.asyncio
-    async def test_no_page(self):
-        with _patch_mgr(_mgr_with_page(None)):
-            r = await get_page_info()
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_exception(self):
-        mgr = AsyncMock()
-        mgr.get_current_page.side_effect = RuntimeError("err")
-        with _patch_mgr(mgr):
-            r = await get_page_info()
-            assert r["success"] is False
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "manager", [_manager(None), None], ids=["no-page", "exception"]
+)
+async def test_get_page_info_failure_branches(manager):
+    if manager is None:
+        manager = AsyncMock()
+        manager.get_current_page.side_effect = RuntimeError("failed")
+    with patch(f"{MOD}.get_session_browser_manager", return_value=manager):
+        result = await navigation.get_page_info()
+    assert result["success"] is False
 
 
-class TestGoBack:
-    @pytest.mark.asyncio
-    async def test_no_page(self):
-        with _patch_mgr(_mgr_with_page(None)):
-            r = await go_back()
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_success(self):
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", SIMPLE_OPERATIONS, ids=lambda case: case[0])
+@pytest.mark.parametrize("state", ["no-page", "success", "exception"])
+async def test_navigation_operation_branches(case, state):
+    _, operation, page_method, needs_title = case
+    page = None
+    if state != "no-page":
         page = AsyncMock()
-        page.url = "http://prev"
-        page.title.return_value = "Prev"
-        with _patch_mgr(_mgr_with_page(page)):
-            r = await go_back()
-            assert r["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_exception(self):
-        page = AsyncMock()
-        page.go_back.side_effect = RuntimeError("err")
-        with _patch_mgr(_mgr_with_page(page)):
-            r = await go_back()
-            assert r["success"] is False
+        page.url = "http://result"
+        if needs_title:
+            page.title.return_value = "Result"
+        if state == "exception":
+            getattr(page, page_method).side_effect = RuntimeError("failed")
+    with patch(f"{MOD}.get_session_browser_manager", return_value=_manager(page)):
+        result = await operation()
+    assert result["success"] is (state == "success")
 
 
-class TestGoForward:
-    @pytest.mark.asyncio
-    async def test_no_page(self):
-        with _patch_mgr(_mgr_with_page(None)):
-            r = await go_forward()
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_success(self):
-        page = AsyncMock()
-        page.url = "http://next"
-        page.title.return_value = "Next"
-        with _patch_mgr(_mgr_with_page(page)):
-            r = await go_forward()
-            assert r["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_exception(self):
-        page = AsyncMock()
-        page.go_forward.side_effect = RuntimeError("err")
-        with _patch_mgr(_mgr_with_page(page)):
-            r = await go_forward()
-            assert r["success"] is False
-
-
-class TestReloadPage:
-    @pytest.mark.asyncio
-    async def test_no_page(self):
-        with _patch_mgr(_mgr_with_page(None)):
-            r = await reload_page()
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_success(self):
-        page = AsyncMock()
-        page.url = "http://r"
-        page.title.return_value = "R"
-        with _patch_mgr(_mgr_with_page(page)):
-            r = await reload_page()
-            assert r["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_exception(self):
-        page = AsyncMock()
-        page.reload.side_effect = RuntimeError("err")
-        with _patch_mgr(_mgr_with_page(page)):
-            r = await reload_page()
-            assert r["success"] is False
-
-
-class TestWaitForLoadState:
-    @pytest.mark.asyncio
-    async def test_no_page(self):
-        with _patch_mgr(_mgr_with_page(None)):
-            r = await wait_for_load_state()
-            assert r["success"] is False
-
-    @pytest.mark.asyncio
-    async def test_success(self):
-        page = AsyncMock()
-        page.url = "http://w"
-        with _patch_mgr(_mgr_with_page(page)):
-            r = await wait_for_load_state()
-            assert r["success"] is True
-
-    @pytest.mark.asyncio
-    async def test_exception(self):
-        page = AsyncMock()
-        page.wait_for_load_state.side_effect = RuntimeError("timeout")
-        with _patch_mgr(_mgr_with_page(page)):
-            r = await wait_for_load_state()
-            assert r["success"] is False
-
-
-class TestRegisterFunctions:
-    def test_all_register_functions(self):
-        for fn in [
-            register_navigate_to_url,
-            register_get_page_info,
-            register_browser_go_back,
-            register_browser_go_forward,
-            register_reload_page,
-            register_wait_for_load_state,
-        ]:
-            agent = MagicMock()
-            fn(agent)
-            agent.tool.assert_called_once()
+@pytest.mark.parametrize("register", REGISTRARS)
+def test_register_navigation(register):
+    agent = MagicMock()
+    register(agent)
+    agent.tool.assert_called_once()

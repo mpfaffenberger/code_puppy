@@ -429,37 +429,33 @@ class TestEmitHelperFunctions:
         assert msg.content == "debug content"
         assert msg.metadata.get("extra") == "data"
 
-    def test_emit_info(self):
-        """Test emit_info function."""
-        emit_info("info message", key="value")
-
+    @pytest.mark.parametrize(
+        ("emitter", "expected_type", "content"),
+        [
+            (emit_info, MessageType.INFO, "info message"),
+            (emit_success, MessageType.SUCCESS, "success message"),
+            (emit_warning, MessageType.WARNING, "warning message"),
+            (emit_error, MessageType.ERROR, "error message"),
+            (emit_agent_reasoning, MessageType.AGENT_REASONING, "thinking about stuff"),
+            (emit_agent_response, MessageType.AGENT_RESPONSE, "Here is my response"),
+            (emit_system_message, MessageType.SYSTEM, "system notification"),
+        ],
+        ids=[
+            "info",
+            "success",
+            "warning",
+            "error",
+            "agent_reasoning",
+            "agent_response",
+            "system_message",
+        ],
+    )
+    def test_emit_simple(self, emitter, expected_type, content):
+        """Every simple emit_* helper enqueues a message of the right type."""
+        emitter(content)
         msg = self.queue.get_nowait()
-        assert msg.type == MessageType.INFO
-        assert msg.content == "info message"
-
-    def test_emit_success(self):
-        """Test emit_success function."""
-        emit_success("success message")
-
-        msg = self.queue.get_nowait()
-        assert msg.type == MessageType.SUCCESS
-        assert msg.content == "success message"
-
-    def test_emit_warning(self):
-        """Test emit_warning function."""
-        emit_warning("warning message")
-
-        msg = self.queue.get_nowait()
-        assert msg.type == MessageType.WARNING
-        assert msg.content == "warning message"
-
-    def test_emit_error(self):
-        """Test emit_error function."""
-        emit_error("error message")
-
-        msg = self.queue.get_nowait()
-        assert msg.type == MessageType.ERROR
-        assert msg.content == "error message"
+        assert msg.type == expected_type
+        assert msg.content == content
 
     def test_emit_tool_output_without_tool_name(self):
         """Test emit_tool_output without tool_name."""
@@ -495,14 +491,6 @@ class TestEmitHelperFunctions:
         assert msg.type == MessageType.COMMAND_OUTPUT
         assert msg.metadata["command"] == "ls -la"
 
-    def test_emit_agent_reasoning(self):
-        """Test emit_agent_reasoning function."""
-        emit_agent_reasoning("thinking about stuff")
-
-        msg = self.queue.get_nowait()
-        assert msg.type == MessageType.AGENT_REASONING
-        assert msg.content == "thinking about stuff"
-
     def test_emit_planned_next_steps(self):
         """Test emit_planned_next_steps function."""
         emit_planned_next_steps(["step 1", "step 2"])
@@ -510,22 +498,6 @@ class TestEmitHelperFunctions:
         msg = self.queue.get_nowait()
         assert msg.type == MessageType.PLANNED_NEXT_STEPS
         assert msg.content == ["step 1", "step 2"]
-
-    def test_emit_agent_response(self):
-        """Test emit_agent_response function."""
-        emit_agent_response("Here is my response")
-
-        msg = self.queue.get_nowait()
-        assert msg.type == MessageType.AGENT_RESPONSE
-        assert msg.content == "Here is my response"
-
-    def test_emit_system_message(self):
-        """Test emit_system_message function."""
-        emit_system_message("system notification")
-
-        msg = self.queue.get_nowait()
-        assert msg.type == MessageType.SYSTEM
-        assert msg.content == "system notification"
 
     def test_emit_divider_default(self):
         """Test emit_divider with default content."""

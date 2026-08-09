@@ -201,125 +201,50 @@ class TestRecordTerminalSession:
 class TestGetLastTerminalSession:
     """Tests for code_puppy.config.get_last_terminal_session()."""
 
-    def test_returns_session_for_current_tty(self, tmp_path):
-        """Returns the session name previously recorded for this TTY."""
+    @pytest.mark.parametrize(
+        "tty, filename, content, expected",
+        [
+            (
+                "/dev/ttys001",
+                "dev_ttys001.txt",
+                "auto_session_20260101_010101",
+                "auto_session_20260101_010101",
+            ),
+            ("/dev/ttys001", "dev_ttys099.txt", "other-session", None),
+            ("/dev/ttys001", None, None, None),
+            (None, None, None, None),
+            ("/dev/ttys001", "dev_ttys001.txt", "../../payload", None),
+            ("/dev/ttys001", "dev_ttys001.txt", "bad name with spaces", None),
+            ("/dev/ttys001", "dev_ttys001.txt", "mywork", "mywork"),
+        ],
+        ids=[
+            "current_tty",
+            "tty_not_in_file",
+            "file_does_not_exist",
+            "tty_is_none",
+            "path_traversal_marker",
+            "malformed_marker",
+            "user_named_session",
+        ],
+    )
+    def test_get_last_terminal_session(
+        self, tmp_path, tty, filename, content, expected
+    ):
+        """Terminal session lookup keyed by TTY with marker validation."""
         from code_puppy.config import get_last_terminal_session
 
-        tty_sessions_dir = tmp_path / "tty_sessions"
-        tty_sessions_dir.mkdir()
-        (tty_sessions_dir / "dev_ttys001.txt").write_text(
-            "auto_session_20260101_010101"
-        )
+        if filename:
+            tty_sessions_dir = tmp_path / "tty_sessions"
+            tty_sessions_dir.mkdir()
+            (tty_sessions_dir / filename).write_text(content)
 
         with (
-            patch.object(_config_mod, "get_terminal_tty", return_value="/dev/ttys001"),
+            patch.object(_config_mod, "get_terminal_tty", return_value=tty),
             patch.object(_config_mod, "CACHE_DIR", str(tmp_path)),
         ):
             result = get_last_terminal_session()
 
-        assert result == "auto_session_20260101_010101"
-
-    def test_returns_none_when_tty_not_in_file(self, tmp_path):
-        """Returns None when no .txt file exists for our TTY (only another TTY has one)."""
-        from code_puppy.config import get_last_terminal_session
-
-        tty_sessions_dir = tmp_path / "tty_sessions"
-        tty_sessions_dir.mkdir()
-        (tty_sessions_dir / "dev_ttys099.txt").write_text("other-session")
-
-        with (
-            patch.object(_config_mod, "get_terminal_tty", return_value="/dev/ttys001"),
-            patch.object(_config_mod, "CACHE_DIR", str(tmp_path)),
-        ):
-            result = get_last_terminal_session()
-
-        assert result is None
-
-    def test_returns_none_when_file_does_not_exist(self, tmp_path):
-        """Returns None gracefully when no session file exists yet for this TTY."""
-        from code_puppy.config import get_last_terminal_session
-
-        with (
-            patch.object(_config_mod, "get_terminal_tty", return_value="/dev/ttys001"),
-            patch.object(_config_mod, "CACHE_DIR", str(tmp_path)),
-        ):
-            result = get_last_terminal_session()
-
-        assert result is None
-
-    def test_returns_none_when_tty_is_none(self, tmp_path):
-        """Returns None when there's no TTY available at all."""
-        from code_puppy.config import get_last_terminal_session
-
-        with (
-            patch.object(_config_mod, "get_terminal_tty", return_value=None),
-            patch.object(_config_mod, "CACHE_DIR", str(tmp_path)),
-        ):
-            result = get_last_terminal_session()
-
-        assert result is None
-
-    def test_returns_none_for_path_traversal_marker(self, tmp_path):
-        """Rejects tampered marker values that could traverse out of AUTOSAVE_DIR."""
-        from code_puppy.config import get_last_terminal_session
-
-        tty_sessions_dir = tmp_path / "tty_sessions"
-        tty_sessions_dir.mkdir()
-        (tty_sessions_dir / "dev_ttys001.txt").write_text("../../payload")
-
-        with (
-            patch.object(_config_mod, "get_terminal_tty", return_value="/dev/ttys001"),
-            patch.object(_config_mod, "CACHE_DIR", str(tmp_path)),
-        ):
-            result = get_last_terminal_session()
-
-        assert result is None
-
-    def test_returns_none_for_malformed_marker(self, tmp_path):
-        """Rejects names that fail the stored-name validator.
-
-        Post-unified-autosave migration the validator accepts BOTH auto-flavored names
-        (``auto_session_<TS>``) and user-named slugs matching the bare-name
-        regex with ``allow_reserved_prefix=True``. This regression guard
-        therefore uses a name that fails the slug regex (contains a
-        path-separator character) rather than the pre-unification
-        ``manual_session`` which the new contract correctly accepts.
-        """
-        from code_puppy.config import get_last_terminal_session
-
-        tty_sessions_dir = tmp_path / "tty_sessions"
-        tty_sessions_dir.mkdir()
-        # Spaces and slashes are not in [A-Za-z0-9._-] -- always rejected.
-        (tty_sessions_dir / "dev_ttys001.txt").write_text("bad name with spaces")
-
-        with (
-            patch.object(_config_mod, "get_terminal_tty", return_value="/dev/ttys001"),
-            patch.object(_config_mod, "CACHE_DIR", str(tmp_path)),
-        ):
-            result = get_last_terminal_session()
-
-        assert result is None
-
-    def test_returns_user_named_session(self, tmp_path):
-        """Regression guard: user-named markers MUST be accepted (was a B2 bug).
-
-        Pre-unification the validator required ``auto_session_\\d{8}_\\d{6}``
-        and would silently reject every user-named entry, breaking TTY-keyed
-        cross-restart resume for ``-r NAME`` users.
-        """
-        from code_puppy.config import get_last_terminal_session
-
-        tty_sessions_dir = tmp_path / "tty_sessions"
-        tty_sessions_dir.mkdir()
-        (tty_sessions_dir / "dev_ttys001.txt").write_text("mywork")
-
-        with (
-            patch.object(_config_mod, "get_terminal_tty", return_value="/dev/ttys001"),
-            patch.object(_config_mod, "CACHE_DIR", str(tmp_path)),
-        ):
-            result = get_last_terminal_session()
-
-        assert result == "mywork"
+        assert result == expected
 
 
 # ---------------------------------------------------------------------------

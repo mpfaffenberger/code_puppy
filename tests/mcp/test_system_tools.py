@@ -11,6 +11,8 @@ This module tests the SystemToolDetector class which provides:
 import subprocess
 from unittest.mock import MagicMock, Mock, patch
 
+import pytest
+
 from code_puppy.mcp_.system_tools import (
     SystemToolDetector,
     ToolInfo,
@@ -456,68 +458,30 @@ class TestSystemToolDetectorCheckPythonPackage:
 class TestSystemToolDetectorGetInstallationSuggestions:
     """Test cases for SystemToolDetector.get_installation_suggestions() method."""
 
-    def test_suggestions_for_node(self):
-        """Test installation suggestions for Node.js."""
-        suggestions = SystemToolDetector.get_installation_suggestions("node")
+    @pytest.mark.parametrize(
+        ("tool", "fragments"),
+        [
+            ("node", ("nodejs", "node.js")),
+            ("npm", ("node",)),
+            ("npx", ()),
+            ("python", ("python",)),
+            ("python3", ()),
+            ("pip", ("ensurepip",)),
+            ("pip3", ()),
+            ("git", ("git",)),
+            ("docker", ("docker",)),
+            ("java", ("jdk", "openjdk")),
+            ("jupyter", ("pip",)),
+        ],
+    )
+    def test_suggestions_for_tool(self, tool, fragments):
+        """Test installation suggestions for a known tool."""
+        suggestions = SystemToolDetector.get_installation_suggestions(tool)
         assert len(suggestions) >= 1
-        assert any("nodejs" in s.lower() or "node.js" in s.lower() for s in suggestions)
-
-    def test_suggestions_for_npm(self):
-        """Test installation suggestions for npm."""
-        suggestions = SystemToolDetector.get_installation_suggestions("npm")
-        assert len(suggestions) >= 1
-        assert any("node" in s.lower() for s in suggestions)
-
-    def test_suggestions_for_npx(self):
-        """Test installation suggestions for npx."""
-        suggestions = SystemToolDetector.get_installation_suggestions("npx")
-        assert len(suggestions) >= 1
-
-    def test_suggestions_for_python(self):
-        """Test installation suggestions for Python."""
-        suggestions = SystemToolDetector.get_installation_suggestions("python")
-        assert len(suggestions) >= 1
-        assert any("python" in s.lower() for s in suggestions)
-
-    def test_suggestions_for_python3(self):
-        """Test installation suggestions for Python3."""
-        suggestions = SystemToolDetector.get_installation_suggestions("python3")
-        assert len(suggestions) >= 1
-
-    def test_suggestions_for_pip(self):
-        """Test installation suggestions for pip."""
-        suggestions = SystemToolDetector.get_installation_suggestions("pip")
-        assert len(suggestions) >= 1
-        assert any("ensurepip" in s.lower() for s in suggestions)
-
-    def test_suggestions_for_pip3(self):
-        """Test installation suggestions for pip3."""
-        suggestions = SystemToolDetector.get_installation_suggestions("pip3")
-        assert len(suggestions) >= 1
-
-    def test_suggestions_for_git(self):
-        """Test installation suggestions for git."""
-        suggestions = SystemToolDetector.get_installation_suggestions("git")
-        assert len(suggestions) >= 1
-        assert any("git" in s.lower() for s in suggestions)
-
-    def test_suggestions_for_docker(self):
-        """Test installation suggestions for Docker."""
-        suggestions = SystemToolDetector.get_installation_suggestions("docker")
-        assert len(suggestions) >= 1
-        assert any("docker" in s.lower() for s in suggestions)
-
-    def test_suggestions_for_java(self):
-        """Test installation suggestions for Java."""
-        suggestions = SystemToolDetector.get_installation_suggestions("java")
-        assert len(suggestions) >= 1
-        assert any("jdk" in s.lower() or "openjdk" in s.lower() for s in suggestions)
-
-    def test_suggestions_for_jupyter(self):
-        """Test installation suggestions for Jupyter."""
-        suggestions = SystemToolDetector.get_installation_suggestions("jupyter")
-        assert len(suggestions) >= 1
-        assert any("pip" in s.lower() for s in suggestions)
+        if fragments:
+            assert any(
+                any(frag in s.lower() for s in suggestions) for frag in fragments
+            )
 
     def test_suggestions_for_unknown_tool(self):
         """Test installation suggestions for unknown tool."""

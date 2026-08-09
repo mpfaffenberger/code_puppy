@@ -408,54 +408,33 @@ class TestSanitizeEventData:
 
 
 class TestIsSuccessfulResult:
-    def test_none(self):
+    @pytest.mark.parametrize(
+        "result, expected",
+        [
+            (None, True),
+            ({"error": "oops"}, False),
+            ({"success": False}, False),
+            ({"data": 1}, True),
+            (True, True),
+            (False, False),
+            ("anything", True),
+        ],
+        ids=[
+            "none",
+            "dict_with_error",
+            "dict_success_false",
+            "dict_ok",
+            "bool_true",
+            "bool_false",
+            "other",
+        ],
+    )
+    def test_is_successful_result(self, result, expected):
         from code_puppy.plugins.frontend_emitter.register_callbacks import (
             _is_successful_result,
         )
 
-        assert _is_successful_result(None) is True
-
-    def test_dict_with_error(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
-            _is_successful_result,
-        )
-
-        assert _is_successful_result({"error": "oops"}) is False
-
-    def test_dict_success_false(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
-            _is_successful_result,
-        )
-
-        assert _is_successful_result({"success": False}) is False
-
-    def test_dict_ok(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
-            _is_successful_result,
-        )
-
-        assert _is_successful_result({"data": 1}) is True
-
-    def test_bool_true(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
-            _is_successful_result,
-        )
-
-        assert _is_successful_result(True) is True
-
-    def test_bool_false(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
-            _is_successful_result,
-        )
-
-        assert _is_successful_result(False) is False
-
-    def test_other(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
-            _is_successful_result,
-        )
-
-        assert _is_successful_result("anything") is True
+        assert _is_successful_result(result) is expected
 
 
 class TestSummarizeResult:

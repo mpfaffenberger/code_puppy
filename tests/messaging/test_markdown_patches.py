@@ -2,6 +2,7 @@
 
 from io import StringIO
 
+import pytest
 from rich.console import Console
 from rich.markdown import Markdown
 
@@ -21,34 +22,22 @@ def test_patch_markdown_idempotent():
     assert Markdown.elements["code_block"] is NoPadCodeBlock
 
 
-def test_left_justified_heading_h1():
-    """H1 should render as a panel."""
+@pytest.mark.parametrize(
+    ("src", "expected"),
+    [
+        ("# Hello World", "Hello World"),  # H1 renders as a panel
+        ("## Section Title", "Section Title"),  # H2 styled text
+        ("### Subsection", "Subsection"),  # H3+ styled text
+    ],
+)
+def test_left_justified_heading(src, expected):
+    """All heading levels render through the patched Markdown."""
     console = Console(file=StringIO(), force_terminal=False, width=80)
     patch_markdown()
-    md = Markdown("# Hello World")
+    md = Markdown(src)
     console.print(md)
     output = console.file.getvalue()
-    assert "Hello World" in output
-
-
-def test_left_justified_heading_h2():
-    """H2 should render as styled text with blank line."""
-    console = Console(file=StringIO(), force_terminal=False, width=80)
-    patch_markdown()
-    md = Markdown("## Section Title")
-    console.print(md)
-    output = console.file.getvalue()
-    assert "Section Title" in output
-
-
-def test_left_justified_heading_h3():
-    """H3+ should render as styled text."""
-    console = Console(file=StringIO(), force_terminal=False, width=80)
-    patch_markdown()
-    md = Markdown("### Subsection")
-    console.print(md)
-    output = console.file.getvalue()
-    assert "Subsection" in output
+    assert expected in output
 
 
 def test_code_block_no_trailing_whitespace():

@@ -443,25 +443,19 @@ class TestStatuslineCommand:
             assert result is True
             mock_mode.assert_called_once_with(mode)
 
-    def test_mode_invalid_warns(self):
+    @pytest.mark.parametrize(
+        "cmd",
+        ["/statusline mode supermode", "/statusline mode"],
+        ids=["invalid_mode", "missing_arg"],
+    )
+    def test_mode_invalid_warns(self, cmd):
         with (
             patch(
                 "code_puppy.plugins.statusline.statusline_command.emit_warning"
             ) as mock_warn,
             patch("code_puppy.plugins.statusline.statusline_command.emit_info"),
         ):
-            result = self._call("/statusline mode supermode")
-        assert result is True
-        mock_warn.assert_called_once()
-
-    def test_mode_missing_arg_warns(self):
-        with (
-            patch(
-                "code_puppy.plugins.statusline.statusline_command.emit_warning"
-            ) as mock_warn,
-            patch("code_puppy.plugins.statusline.statusline_command.emit_info"),
-        ):
-            result = self._call("/statusline mode")
+            result = self._call(cmd)
         assert result is True
         mock_warn.assert_called_once()
 
@@ -651,29 +645,18 @@ class TestCrossPlatform:
 
     # --- _default_script_path ---
 
-    def test_default_script_path_windows(self):
-        """On win32 the init path must end with .ps1."""
+    @pytest.mark.parametrize(
+        "platform, suffix",
+        [("win32", ".ps1"), ("linux", ".sh"), ("darwin", ".sh")],
+        ids=["windows", "linux", "darwin"],
+    )
+    def test_default_script_path(self, platform, suffix):
+        """The init script path must match the platform convention."""
         import code_puppy.plugins.statusline.statusline_command as sc
 
-        with patch.object(sys, "platform", "win32"):
+        with patch.object(sys, "platform", platform):
             p = sc._default_script_path()
-        assert str(p).endswith(".ps1"), f"Expected .ps1 on win32, got {p}"
-
-    def test_default_script_path_linux(self):
-        """On linux the init path must end with .sh."""
-        import code_puppy.plugins.statusline.statusline_command as sc
-
-        with patch.object(sys, "platform", "linux"):
-            p = sc._default_script_path()
-        assert str(p).endswith(".sh"), f"Expected .sh on linux, got {p}"
-
-    def test_default_script_path_darwin(self):
-        """On darwin (macOS) the init path must also end with .sh."""
-        import code_puppy.plugins.statusline.statusline_command as sc
-
-        with patch.object(sys, "platform", "darwin"):
-            p = sc._default_script_path()
-        assert str(p).endswith(".sh"), f"Expected .sh on darwin, got {p}"
+        assert str(p).endswith(suffix), f"Expected {suffix} on {platform}, got {p}"
 
     # --- PS1 template content ---
 

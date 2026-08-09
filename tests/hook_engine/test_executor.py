@@ -165,90 +165,110 @@ class TestExecuteHooksSequential:
 
 
 class TestInterpretControlPayload:
-    """Stdout JSON control payloads (issue #470)."""
+    """Stdout JSON control payloads (issue #470).
 
-    def test_plugin_dialect_block(self):
-        stdout = '{"result": "block", "reason": "dangerous command"}'
-        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
-        assert blocked is True
-        assert error == "dangerous command"
-        assert new_stdout == ""
+    Each case asserts (blocked, error, new_stdout) for a given stdout plus
+    the pre-existing already_blocked / block_reason state. ``None`` for
+    expected_stdout means "assert new_stdout == original stdout" and
+    ``_DONT_CARE`` means the original test did not pin stdout.
+    """
 
-    def test_plugin_dialect_continue_stripped_from_context(self):
-        """Control JSON must not leak into model context (issue #298 noise)."""
-        stdout = '{"result": "continue"}'
-        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
-        assert blocked is False
-        assert error is None
-        assert new_stdout == ""
+    _DONT_CARE = object()
 
-    def test_official_decision_block(self):
-        stdout = '{"decision": "block", "reason": "nope"}'
-        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
-        assert blocked is True
-        assert error == "nope"
-        assert new_stdout == ""
-
-    def test_official_permission_decision_deny(self):
-        stdout = (
+    _CASES = [
+        # (stdout, already_blocked, block_reason, expected_blocked, expected_error, expected_stdout)
+        # plugin dialect: block verdict
+        (
+            '{"result": "block", "reason": "dangerous command"}',
+            False,
+            None,
+            True,
+            "dangerous command",
+            "",
+        ),
+        # plugin dialect: continue is stripped from model context (issue #298)
+        ('{"result": "continue"}', False, None, False, None, ""),
+        # official decision payload: block
+        ('{"decision": "block", "reason": "nope"}', False, None, True, "nope", ""),
+        # official permissionDecision: deny
+        (
             '{"hookSpecificOutput": {"permissionDecision": "deny", '
-            '"permissionDecisionReason": "policy violation"}}'
-        )
-        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
-        assert blocked is True
-        assert error == "policy violation"
-        assert new_stdout == ""
-
-    def test_official_permission_decision_allow(self):
-        stdout = '{"hookSpecificOutput": {"permissionDecision": "allow"}}'
-        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
-        assert blocked is False
-        assert error is None
-        assert new_stdout == ""
-
-    def test_additional_context_replaces_stdout(self):
-        stdout = (
+            '"permissionDecisionReason": "policy violation"}}',
+            False,
+            None,
+            True,
+            "policy violation",
+            "",
+        ),
+        # official permissionDecision: allow
+        (
+            '{"hookSpecificOutput": {"permissionDecision": "allow"}}',
+            False,
+            None,
+            False,
+            None,
+            "",
+        ),
+        # additionalContext replaces stdout
+        (
             '{"decision": "block", "reason": "bad", '
-            '"hookSpecificOutput": {"additionalContext": "use git push without --force"}}'
-        )
-        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
-        assert blocked is True
-        assert error == "bad"
-        assert new_stdout == "use git push without --force"
+            '"hookSpecificOutput": {"additionalContext": "use git push without --force"}}',
+            False,
+            None,
+            True,
+            "bad",
+            "use git push without --force",
+        ),
+        # continue:false + stopReason
+        (
+            '{"continue": false, "stopReason": "halting"}',
+            False,
+            None,
+            True,
+            "halting",
+            _DONT_CARE,
+        ),
+        # non-control JSON a hook legitimately printed must be untouched
+        ('{"foo": "bar"}', False, None, False, None, None),
+        # plain text passthrough
+        ("hello", False, None, False, None, None),
+        # truncated JSON passthrough
+        ('{"result": "block"', False, None, False, None, None),
+        # exit-code-1 semantics win even if the payload says continue
+        (
+            '{"result": "continue"}',
+            True,
+            "exit 1 reason",
+            True,
+            "exit 1 reason",
+            _DONT_CARE,
+        ),
+    ]
 
-    def test_continue_false_blocks_with_stop_reason(self):
-        stdout = '{"continue": false, "stopReason": "halting"}'
-        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
-        assert blocked is True
-        assert error == "halting"
-
-    def test_non_control_json_passthrough(self):
-        """A hook legitimately printing JSON must be untouched."""
-        stdout = '{"foo": "bar"}'
-        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
-        assert new_stdout == stdout
-        assert blocked is False
-        assert error is None
-
-    def test_plain_text_passthrough(self):
-        new_stdout, blocked, error = _interpret_control_payload("hello", False, None)
-        assert new_stdout == "hello"
-        assert blocked is False
-
-    def test_invalid_json_passthrough(self):
-        stdout = '{"result": "block"'  # truncated JSON
-        new_stdout, blocked, error = _interpret_control_payload(stdout, False, None)
-        assert new_stdout == stdout
-        assert blocked is False
-
-    def test_exit_code_block_not_unset_by_continue_payload(self):
-        """Exit-code-1 semantics win even if the payload says continue."""
-        stdout = '{"result": "continue"}'
+    @pytest.mark.parametrize(
+        "stdout,already_blocked,block_reason,expected_blocked,expected_error,expected_stdout",
+        _CASES,
+    )
+    def test_control_payload(
+        self,
+        stdout,
+        already_blocked,
+        block_reason,
+        expected_blocked,
+        expected_error,
+        expected_stdout,
+    ):
         new_stdout, blocked, error = _interpret_control_payload(
-            stdout, True, "exit 1 reason"
+            stdout, already_blocked, block_reason
         )
-        assert blocked is True
-        assert error == "exit 1 reason"
+        assert blocked is expected_blocked
+        assert error == expected_error
+        if expected_stdout is self._DONT_CARE:
+            return
+        if expected_stdout is None:
+            assert new_stdout == stdout
+        else:
+            assert new_stdout == expected_stdout
 
 
 @pytest.mark.asyncio

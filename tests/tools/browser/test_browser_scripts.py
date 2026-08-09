@@ -122,21 +122,6 @@ class TestExecuteJavaScript(BrowserScriptsBaseTest):
             assert result["result"] == "Hello World"
 
     @pytest.mark.asyncio
-    async def test_execute_javascript_no_page(self, mock_browser_manager):
-        """Test behavior when no active page is available."""
-        manager, page = mock_browser_manager
-        manager.get_current_page.return_value = None
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            result = await execute_javascript("return true;")
-
-            assert result["success"] is False
-            assert "No active browser page available" in result["error"]
-
-    @pytest.mark.asyncio
     async def test_execute_javascript_exception(self, mock_browser_manager):
         """Test exception handling during JavaScript execution."""
         manager, page = mock_browser_manager
@@ -168,16 +153,6 @@ class TestExecuteJavaScript(BrowserScriptsBaseTest):
 
             assert result["success"] is False
             assert "Timeout" in result["error"] or "exceeded" in result["error"]
-
-    def test_register_execute_javascript(self):
-        """Test registration of execute_javascript tool."""
-        agent = MagicMock()
-
-        register_execute_javascript(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_execute_js"
 
 
 class TestScrollPage(BrowserScriptsBaseTest):
@@ -287,21 +262,6 @@ class TestScrollPage(BrowserScriptsBaseTest):
             locator.evaluate.assert_called()  # Should be called for scroll info
 
     @pytest.mark.asyncio
-    async def test_scroll_page_no_page(self, mock_browser_manager):
-        """Test scroll behavior when no page is available."""
-        manager, page = mock_browser_manager
-        manager.get_current_page.return_value = None
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            result = await scroll_page("down", 3)
-
-            assert result["success"] is False
-            assert "No active browser page available" in result["error"]
-
-    @pytest.mark.asyncio
     async def test_scroll_page_exception(self, mock_browser_manager):
         """Test exception handling during page scrolling."""
         manager, page = mock_browser_manager
@@ -315,16 +275,6 @@ class TestScrollPage(BrowserScriptsBaseTest):
 
             assert result["success"] is False
             assert "Scroll failed" in result["error"]
-
-    def test_register_scroll_page(self):
-        """Test registration of scroll_page tool."""
-        agent = MagicMock()
-
-        register_scroll_page(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_scroll"
 
 
 class TestScrollToElement(BrowserScriptsBaseTest):
@@ -387,16 +337,6 @@ class TestScrollToElement(BrowserScriptsBaseTest):
             assert result["success"] is False
             assert "Element not found" in result["error"]
 
-    def test_register_scroll_to_element(self):
-        """Test registration of scroll_to_element tool."""
-        agent = MagicMock()
-
-        register_scroll_to_element(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_scroll_to_element"
-
 
 class TestSetViewportSize(BrowserScriptsBaseTest):
     """Test set_viewport_size function and its registration."""
@@ -440,21 +380,6 @@ class TestSetViewportSize(BrowserScriptsBaseTest):
             )
 
     @pytest.mark.asyncio
-    async def test_set_viewport_size_no_page(self, mock_browser_manager):
-        """Test viewport setting when no page is available."""
-        manager, page = mock_browser_manager
-        manager.get_current_page.return_value = None
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            result = await set_viewport_size(800, 600)
-
-            assert result["success"] is False
-            assert "No active browser page available" in result["error"]
-
-    @pytest.mark.asyncio
     async def test_set_viewport_size_exception(self, mock_browser_manager):
         """Test exception handling during viewport setting."""
         manager, page = mock_browser_manager
@@ -470,16 +395,6 @@ class TestSetViewportSize(BrowserScriptsBaseTest):
             assert "Invalid viewport size" in result["error"]
             assert result["width"] == -100
             assert result["height"] == -100
-
-    def test_register_set_viewport_size(self):
-        """Test registration of set_viewport_size tool."""
-        agent = MagicMock()
-
-        register_set_viewport_size(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_set_viewport"
 
 
 class TestWaitForElement(BrowserScriptsBaseTest):
@@ -565,21 +480,6 @@ class TestWaitForElement(BrowserScriptsBaseTest):
             locator.wait_for.assert_called_once_with(state="detached", timeout=30000)
 
     @pytest.mark.asyncio
-    async def test_wait_for_element_no_page(self, mock_browser_manager):
-        """Test wait behavior when no page is available."""
-        manager, page = mock_browser_manager
-        manager.get_current_page.return_value = None
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            result = await wait_for_element("#element")
-
-            assert result["success"] is False
-            assert "No active browser page available" in result["error"]
-
-    @pytest.mark.asyncio
     async def test_wait_for_element_timeout(self, mock_browser_manager, mock_locator):
         """Test timeout when waiting for element."""
         manager, page = mock_browser_manager
@@ -597,16 +497,6 @@ class TestWaitForElement(BrowserScriptsBaseTest):
             assert result["success"] is False
             assert "Timeout exceeded" in result["error"]
             assert result["selector"] == "#slow-element"
-
-    def test_register_wait_for_element(self):
-        """Test registration of wait_for_element tool."""
-        agent = MagicMock()
-
-        register_wait_for_element(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_wait_for_element"
 
 
 class TestHighlightElement(BrowserScriptsBaseTest):
@@ -660,21 +550,6 @@ class TestHighlightElement(BrowserScriptsBaseTest):
             assert "blue" in highlight_script
 
     @pytest.mark.asyncio
-    async def test_highlight_element_no_page(self, mock_browser_manager):
-        """Test highlighting when no page is available."""
-        manager, page = mock_browser_manager
-        manager.get_current_page.return_value = None
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            result = await highlight_element("#element")
-
-            assert result["success"] is False
-            assert "No active browser page available" in result["error"]
-
-    @pytest.mark.asyncio
     async def test_highlight_element_exception(self, mock_browser_manager):
         """Test exception handling during highlighting."""
         manager, page = mock_browser_manager
@@ -688,16 +563,6 @@ class TestHighlightElement(BrowserScriptsBaseTest):
 
             assert result["success"] is False
             assert "Element not found" in result["error"]
-
-    def test_register_highlight_element(self):
-        """Test registration of highlight_element tool."""
-        agent = MagicMock()
-
-        register_browser_highlight_element(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_highlight_element"
 
 
 class TestClearHighlights(BrowserScriptsBaseTest):
@@ -740,21 +605,6 @@ class TestClearHighlights(BrowserScriptsBaseTest):
             assert result["cleared_count"] == 0
 
     @pytest.mark.asyncio
-    async def test_clear_highlights_no_page(self, mock_browser_manager):
-        """Test clearing highlights when no page is available."""
-        manager, page = mock_browser_manager
-        manager.get_current_page.return_value = None
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            result = await clear_highlights()
-
-            assert result["success"] is False
-            assert "No active browser page available" in result["error"]
-
-    @pytest.mark.asyncio
     async def test_clear_highlights_exception(self, mock_browser_manager):
         """Test exception handling during highlight clearing."""
         manager, page = mock_browser_manager
@@ -768,16 +618,6 @@ class TestClearHighlights(BrowserScriptsBaseTest):
 
             assert result["success"] is False
             assert "JavaScript error" in result["error"]
-
-    def test_register_clear_highlights(self):
-        """Test registration of clear_highlights tool."""
-        agent = MagicMock()
-
-        register_browser_clear_highlights(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_clear_highlights"
 
 
 class TestIntegrationScenarios(BrowserScriptsBaseTest):
@@ -850,3 +690,74 @@ class TestIntegrationScenarios(BrowserScriptsBaseTest):
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+@pytest.mark.parametrize(
+    "register_func,expected_tool",
+    [
+        (register_execute_javascript, "browser_execute_js"),
+        (register_scroll_page, "browser_scroll"),
+        (register_scroll_to_element, "browser_scroll_to_element"),
+        (register_set_viewport_size, "browser_set_viewport"),
+        (register_wait_for_element, "browser_wait_for_element"),
+        (register_browser_highlight_element, "browser_highlight_element"),
+        (register_browser_clear_highlights, "browser_clear_highlights"),
+    ],
+    ids=[
+        "execute_javascript",
+        "scroll_page",
+        "scroll_to_element",
+        "set_viewport_size",
+        "wait_for_element",
+        "highlight_element",
+        "clear_highlights",
+    ],
+)
+class TestToolRegistration:
+    """Parametrized registration checks for every tool in this module."""
+
+    def test_register_tool(self, register_func, expected_tool):
+        agent = MagicMock()
+
+        register_func(agent)
+
+        agent.tool.assert_called_once()
+        tool_name = agent.tool.call_args[0][0]
+        assert tool_name.__name__ == expected_tool
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("func", "args"),
+    [
+        (execute_javascript, ("return true;",)),
+        (scroll_page, ("down", 3)),
+        (set_viewport_size, (800, 600)),
+        (wait_for_element, ("#element",)),
+        (highlight_element, ("#element",)),
+        (clear_highlights, ()),
+    ],
+    ids=[
+        "execute_javascript",
+        "scroll_page",
+        "set_viewport_size",
+        "wait_for_element",
+        "highlight_element",
+        "clear_highlights",
+    ],
+)
+class TestNoActivePage(BrowserScriptsBaseTest):
+    """Every script tool degrades gracefully when no page is active."""
+
+    async def test_no_active_page(self, mock_browser_manager, func, args):
+        manager, page = mock_browser_manager
+        manager.get_current_page.return_value = None
+
+        with patch(
+            "tools.browser.browser_scripts.get_session_browser_manager",
+            return_value=manager,
+        ):
+            result = await func(*args)
+
+            assert result["success"] is False
+            assert "No active browser page available" in result["error"]

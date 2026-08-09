@@ -3,6 +3,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 _MOD = "code_puppy.plugins.agent_skills.skills_install_menu"
 
@@ -71,25 +73,20 @@ class TestWrapText:
 
 
 class TestCategoryKey:
-    def test_normal(self):
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("Data", "data"),
+            ("Product Management!", "productmanagement"),
+            (None, ""),
+            ("", ""),
+        ],
+        ids=["normal", "special_chars", "none", "empty"],
+    )
+    def test_category_key(self, raw, expected):
         from code_puppy.plugins.agent_skills.skills_install_menu import _category_key
 
-        assert _category_key("Data") == "data"
-
-    def test_special_chars(self):
-        from code_puppy.plugins.agent_skills.skills_install_menu import _category_key
-
-        assert _category_key("Product Management!") == "productmanagement"
-
-    def test_none(self):
-        from code_puppy.plugins.agent_skills.skills_install_menu import _category_key
-
-        assert _category_key(None) == ""
-
-    def test_empty(self):
-        from code_puppy.plugins.agent_skills.skills_install_menu import _category_key
-
-        assert _category_key("") == ""
+        assert _category_key(raw) == expected
 
 
 class TestIsSkillInstalled:

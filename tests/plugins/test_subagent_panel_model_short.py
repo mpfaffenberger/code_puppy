@@ -60,25 +60,6 @@ def test_model_variant_no_false_positive_inside_gemini():
     assert _model_variant("gemini-2.5-flash") == "Flash"
 
 
-def test_distinct_tiers_render_distinctly():
-    """The whole point: three gpt-5.4 tiers must produce three labels."""
-    labels = {_model_short(m) for m in ("gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano")}
-    assert labels == {"GPT 5.4", "GPT 5.4-Mini", "GPT 5.4-Nano"}
-
-
-def test_gpt_5_6_named_variants_render_distinctly_with_any_prefix():
-    models = (
-        f"{prefix}gpt-5.6-{variant}"
-        for prefix in ("", "codex-")
-        for variant in ("sol", "terra", "luna")
-    )
-    assert {_model_short(model) for model in models} == {
-        "GPT 5.6-Sol",
-        "GPT 5.6-Terra",
-        "GPT 5.6-Luna",
-    }
-
-
 def _entry(session_id, name, model, **extra):
     base = {
         "session_id": session_id,

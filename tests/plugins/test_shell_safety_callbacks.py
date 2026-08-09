@@ -20,35 +20,16 @@ class TestShellSafetyCallbackOAuthBypass:
     """Test OAuth model bypass in shell_safety_callback."""
 
     @pytest.mark.anyio
-    async def test_callback_skips_for_oauth_model_anthropic(self):
-        """Test callback returns None for Anthropic OAuth models."""
+    @pytest.mark.parametrize(
+        "model",
+        ["claude-code-123", "chatgpt-4", "gemini-oauth-pro"],
+        ids=["anthropic", "openai", "google"],
+    )
+    async def test_callback_skips_for_oauth_model(self, model):
+        """Test callback returns None for OAuth models."""
         with patch(
             "code_puppy.plugins.shell_safety.register_callbacks.get_global_model_name",
-            return_value="claude-code-123",
-        ):
-            result = await shell_safety_callback(
-                context=None, command="rm -rf /", cwd=None, timeout=60
-            )
-            assert result is None
-
-    @pytest.mark.anyio
-    async def test_callback_skips_for_oauth_model_openai(self):
-        """Test callback returns None for OpenAI OAuth models."""
-        with patch(
-            "code_puppy.plugins.shell_safety.register_callbacks.get_global_model_name",
-            return_value="chatgpt-4",
-        ):
-            result = await shell_safety_callback(
-                context=None, command="rm -rf /", cwd=None, timeout=60
-            )
-            assert result is None
-
-    @pytest.mark.anyio
-    async def test_callback_skips_for_oauth_model_google(self):
-        """Test callback returns None for Google OAuth models."""
-        with patch(
-            "code_puppy.plugins.shell_safety.register_callbacks.get_global_model_name",
-            return_value="gemini-oauth-pro",
+            return_value=model,
         ):
             result = await shell_safety_callback(
                 context=None, command="rm -rf /", cwd=None, timeout=60

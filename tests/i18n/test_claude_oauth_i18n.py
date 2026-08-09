@@ -1,30 +1,14 @@
 """i18n coverage for the claude_code_oauth/register_callbacks extraction.
 
-Validates the ``oauth.*`` catalog namespace introduced by this extraction.
-Integration with the live OAuth flow is tested elsewhere; this suite
-focuses purely on catalog correctness and interpolation.
+Validates the concrete ``oauth.*`` key/interpolation contracts introduced
+by this extraction. Integration with the live OAuth flow is tested
+elsewhere; this suite focuses purely on catalog correctness. The generic
+namespace sweep lives in ``test_catalog_namespaces.py``.
 """
-
-import re
 
 import pytest
 
-from code_puppy.i18n import catalog, pseudo, translate
-
-_PLACEHOLDER = re.compile(r"\{(\w+)\}")
-
-OAUTH_PREFIXES = (
-    "oauth.server.",
-    "oauth.pasteback.",
-    "oauth.state_mismatch",
-    "oauth.callback.",
-    "oauth.browser.",
-    "oauth.auth.",
-    "oauth.reauth.",
-    "oauth.cmd.",
-    "oauth.model.",
-    "oauth.claude.",
-)
+from code_puppy.i18n import catalog, translate
 
 
 @pytest.fixture(autouse=True)
@@ -34,27 +18,6 @@ def _reset_locale():
     yield
     translate.get_translator().set_locale("en-US")
     catalog.reset()
-
-
-def _oauth_keys():
-    src = catalog.load_catalog("en-US")
-    return [k for k in src if any(k.startswith(p) for p in OAUTH_PREFIXES)]
-
-
-def test_oauth_namespace_is_populated():
-    assert len(_oauth_keys()) >= 48
-
-
-def test_every_oauth_key_resolves():
-    translate.set_locale("en-US")
-    offenders = [k for k in _oauth_keys() if not translate.t(k) or translate.t(k) == k]
-    assert not offenders, f"oauth.* keys not resolving: {offenders}"
-
-
-def test_every_oauth_key_pseudolocalizes():
-    translate.set_locale(pseudo.PSEUDO_LOCALE)
-    offenders = [k for k in _oauth_keys() if not translate.t(k).startswith("\u27e6")]
-    assert not offenders, f"oauth.* keys not pseudolocalized: {offenders}"
 
 
 def test_server_keys_interpolate():
@@ -115,21 +78,6 @@ def test_logout_keys_interpolate():
 def test_model_no_api_key_interpolates():
     translate.set_locale("en-US")
     assert "my-model" in translate.t("oauth.claude.model.no_api_key", model="my-model")
-
-
-def test_no_leftover_placeholders():
-    translate.set_locale("en-US")
-    src = catalog.load_catalog("en-US")
-    for key in _oauth_keys():
-        entry = src[key]
-        text = entry if isinstance(entry, str) else entry.get("other", "")
-        if "{{" in text:
-            continue
-        params = {name: "X" for name in _PLACEHOLDER.findall(text)}
-        rendered = translate.t(key, **params)
-        assert "{" not in rendered.replace("{{", "").replace("}}", ""), (
-            f"{key} left an un-substituted placeholder: {rendered!r}"
-        )
 
 
 def test_register_callbacks_imports_cleanly():
