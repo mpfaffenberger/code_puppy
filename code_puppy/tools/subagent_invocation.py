@@ -2,6 +2,7 @@
 
 import asyncio
 import inspect
+import sys
 import time
 import traceback
 from contextlib import AsyncExitStack
@@ -285,13 +286,12 @@ async def _invoke_agent_impl(
     previous_session_id = get_session_context()
     set_session_context(session_id)
 
-    # Set browser session for browser tools (qa-kitten, etc.)
-    # This allows parallel agent invocations to each have their own browser
-    from code_puppy.tools.browser.browser_manager import (
-        set_browser_session,
-    )
+    # Keep parallel browser agents isolated without importing Playwright on Android.
+    browser_session_token = None
+    if sys.platform != "android":
+        from code_puppy.tools.browser.browser_manager import set_browser_session
 
-    browser_session_token = set_browser_session(f"browser-{session_id}")
+        browser_session_token = set_browser_session(f"browser-{session_id}")
 
     # Bound up-front so the ``except`` block can always reach for it even
     # if load_agent() itself fails before assignment.
@@ -673,12 +673,10 @@ async def _invoke_agent_impl(
     finally:
         # Restore the previous session context
         set_session_context(previous_session_id)
-        # Reset browser session context
-        from code_puppy.tools.browser.browser_manager import (
-            _browser_session_var,
-        )
+        if browser_session_token is not None:
+            from code_puppy.tools.browser.browser_manager import _browser_session_var
 
-        _browser_session_var.reset(browser_session_token)
+            _browser_session_var.reset(browser_session_token)
 
 
 def register_invoke_agent(agent):
