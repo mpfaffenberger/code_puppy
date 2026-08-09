@@ -1,4 +1,4 @@
-"""Regression tests for excluding unsupported Playwright features on Android."""
+"""Regression tests for excluding unsupported dependencies on Android."""
 
 import builtins
 import tomllib
@@ -13,6 +13,15 @@ def test_playwright_dependency_excludes_android():
     ]
 
     assert "playwright>=1.40.0; sys_platform != 'android'" in dependencies
+
+
+def test_bundled_ripgrep_dependency_excludes_android():
+    pyproject_path = Path(__file__).parents[1] / "pyproject.toml"
+    dependencies = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))["project"][
+        "dependencies"
+    ]
+
+    assert "ripgrep==14.1.0; sys_platform != 'android'" in dependencies
 
 
 def test_browser_tool_registry_skips_imports_on_android():

@@ -22,7 +22,7 @@ dependencies = [
     "pyfiglet>=0.8.post1",
     "rapidfuzz>=3.13.0",
     "openai>=1.99.1",
-    "ripgrep==14.1.0",
+    "ripgrep==14.1.0; sys_platform != 'android'",
     "playwright>=1.40.0; sys_platform != 'android'",
     "termflow-md>=0.1.11",
     "Pillow>=10.0.0",
