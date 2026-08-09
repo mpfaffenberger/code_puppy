@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from code_puppy.agents.agent_creator_agent import AgentCreatorAgent
 
 
@@ -104,71 +106,21 @@ class TestAgentCreatorAgent:
         errors = agent.validate_agent_json({})
         assert len(errors) == 4
 
-    def test_validate_agent_json_bad_name(self):
+    @pytest.mark.parametrize(
+        "config,error_keyword",
+        [
+            ({"name": "bad name", "description": "Test", "system_prompt": "ok", "tools": []}, "spaces"),
+            ({"name": "", "description": "Test", "system_prompt": "ok", "tools": []}, "non-empty"),
+            ({"name": "test", "description": "Test", "system_prompt": "ok", "tools": "not-a-list"}, "list"),
+            ({"name": "test", "description": "Test", "system_prompt": "ok", "tools": ["nonexistent_tool_xyz"]}, "Invalid"),
+            ({"name": "test", "description": "Test", "system_prompt": 123, "tools": []}, "string or list"),
+            ({"name": "test", "description": "Test", "system_prompt": ["ok", 123], "tools": []}, "strings"),
+        ],
+    )
+    def test_validate_agent_json_invalid(self, config, error_keyword):
         agent = AgentCreatorAgent()
-        config = {
-            "name": "bad name",
-            "description": "Test",
-            "system_prompt": "ok",
-            "tools": [],
-        }
         errors = agent.validate_agent_json(config)
-        assert any("spaces" in e for e in errors)
-
-    def test_validate_agent_json_empty_name(self):
-        agent = AgentCreatorAgent()
-        config = {
-            "name": "",
-            "description": "Test",
-            "system_prompt": "ok",
-            "tools": [],
-        }
-        errors = agent.validate_agent_json(config)
-        assert any("non-empty" in e for e in errors)
-
-    def test_validate_agent_json_bad_tools(self):
-        agent = AgentCreatorAgent()
-        config = {
-            "name": "test",
-            "description": "Test",
-            "system_prompt": "ok",
-            "tools": "not-a-list",
-        }
-        errors = agent.validate_agent_json(config)
-        assert any("list" in e for e in errors)
-
-    def test_validate_agent_json_invalid_tools(self):
-        agent = AgentCreatorAgent()
-        config = {
-            "name": "test",
-            "description": "Test",
-            "system_prompt": "ok",
-            "tools": ["nonexistent_tool_xyz"],
-        }
-        errors = agent.validate_agent_json(config)
-        assert any("Invalid" in e for e in errors)
-
-    def test_validate_agent_json_bad_system_prompt(self):
-        agent = AgentCreatorAgent()
-        config = {
-            "name": "test",
-            "description": "Test",
-            "system_prompt": 123,
-            "tools": [],
-        }
-        errors = agent.validate_agent_json(config)
-        assert any("string or list" in e for e in errors)
-
-    def test_validate_agent_json_bad_list_prompt(self):
-        agent = AgentCreatorAgent()
-        config = {
-            "name": "test",
-            "description": "Test",
-            "system_prompt": ["ok", 123],
-            "tools": [],
-        }
-        errors = agent.validate_agent_json(config)
-        assert any("strings" in e for e in errors)
+        assert any(error_keyword in e for e in errors)
 
     def test_get_agent_file_path(self):
         agent = AgentCreatorAgent()

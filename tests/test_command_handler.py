@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from code_puppy.command_line.command_handler import handle_command
 from code_puppy.command_line.command_registry import get_command
 
@@ -966,129 +968,55 @@ class TestGetCommandsHelp:
 class TestCommandRegistry:
     """Tests verifying commands are properly registered."""
 
-    def test_help_command_registered(self):
-        """Test that help command is registered."""
-        cmd = get_command("help")
+    @pytest.mark.parametrize(
+        "name,category",
+        [
+            ("show", "config"),
+            ("compact", "session"),
+            ("truncate", "session"),
+            ("set", "config"),
+            ("agent", "core"),
+            ("mcp", "core"),
+            ("pin_model", "config"),
+            ("unpin", "config"),
+            ("generate-pr-description", "core"),
+            ("plan", "core"),
+            ("dump_context", "session"),
+            ("load_context", "session"),
+            ("diff", "config"),
+        ],
+    )
+    def test_categorized_command_registered(self, name, category):
+        """Commands are registered under their expected category."""
+        cmd = get_command(name)
         assert cmd is not None
-        assert cmd.name == "help"
-        assert "h" in cmd.aliases
+        assert cmd.category == category
 
-    def test_session_command_registered(self):
-        """Test that session command is registered."""
-        cmd = get_command("session")
+    @pytest.mark.parametrize(
+        "name,alias",
+        [
+            ("help", "h"),
+            ("session", "s"),
+            ("exit", "quit"),
+            ("model", "m"),
+            ("agent", "a"),
+        ],
+    )
+    def test_aliased_command_registered(self, name, alias):
+        """Commands advertise their documented alias."""
+        cmd = get_command(name)
         assert cmd is not None
-        assert cmd.name == "session"
-        assert "s" in cmd.aliases
+        assert alias in cmd.aliases
 
-    def test_show_command_registered(self):
-        """Test that show command is registered."""
-        cmd = get_command("show")
-        assert cmd is not None
-        assert cmd.category == "config"
-
-    def test_cd_command_registered(self):
-        """Test that cd command is registered."""
-        cmd = get_command("cd")
-        assert cmd is not None
-
-    def test_tools_command_registered(self):
-        """Test that tools command is registered."""
-        cmd = get_command("tools")
-        assert cmd is not None
-
-    def test_exit_command_registered(self):
-        """Test that exit command is registered."""
-        cmd = get_command("exit")
-        assert cmd is not None
-        assert "quit" in cmd.aliases
-
-    def test_compact_command_registered(self):
-        """Test that compact command is registered."""
-        cmd = get_command("compact")
-        assert cmd is not None
-        assert cmd.category == "session"
+    @pytest.mark.parametrize("name", ["cd", "tools", "autosave_load"])
+    def test_simple_command_registered(self, name):
+        """Commands without extras are still registered."""
+        assert get_command(name) is not None
 
     def test_model_controls_are_not_top_level_commands(self):
         """Reasoning effort and verbosity live only in /model_settings."""
         assert get_command("reasoning") is None
         assert get_command("verbosity") is None
-
-    def test_truncate_command_registered(self):
-        """Test that truncate command is registered."""
-        cmd = get_command("truncate")
-        assert cmd is not None
-        assert cmd.category == "session"
-
-    def test_autosave_load_command_registered(self):
-        """Test that autosave_load command is registered."""
-        cmd = get_command("autosave_load")
-        assert cmd is not None
-
-    def test_set_command_registered(self):
-        """Test that set command is registered."""
-        cmd = get_command("set")
-        assert cmd is not None
-        assert cmd.category == "config"
-
-    def test_agent_command_registered(self):
-        """Test that agent command is registered."""
-        cmd = get_command("agent")
-        assert cmd is not None
-        assert cmd.category == "core"
-
-    def test_model_command_registered(self):
-        """Test that model command is registered."""
-        cmd = get_command("model")
-        assert cmd is not None
-        assert "m" in cmd.aliases
-
-    def test_mcp_command_registered(self):
-        """Test that mcp command is registered."""
-        cmd = get_command("mcp")
-        assert cmd is not None
-        assert cmd.category == "core"
-
-    def test_pin_model_command_registered(self):
-        """Test that pin_model command is registered."""
-        cmd = get_command("pin_model")
-        assert cmd is not None
-        assert cmd.category == "config"
-
-    def test_unpin_command_registered(self):
-        """Test that unpin command is registered."""
-        cmd = get_command("unpin")
-        assert cmd is not None
-        assert cmd.category == "config"
-
-    def test_generate_pr_description_command_registered(self):
-        """Test that generate-pr-description command is registered."""
-        cmd = get_command("generate-pr-description")
-        assert cmd is not None
-        assert cmd.category == "core"
-
-    def test_plan_command_registered(self):
-        """Test that /plan command is registered."""
-        cmd = get_command("plan")
-        assert cmd is not None
-        assert cmd.category == "core"
-
-    def test_dump_context_command_registered(self):
-        """Test that dump_context command is registered."""
-        cmd = get_command("dump_context")
-        assert cmd is not None
-        assert cmd.category == "session"
-
-    def test_load_context_command_registered(self):
-        """Test that load_context command is registered."""
-        cmd = get_command("load_context")
-        assert cmd is not None
-        assert cmd.category == "session"
-
-    def test_diff_command_registered(self):
-        """Test that diff command is registered."""
-        cmd = get_command("diff")
-        assert cmd is not None
-        assert cmd.category == "config"
 
 
 def test_m_command_case_sensitive_baseline():
@@ -1338,13 +1266,6 @@ def test_edge_case_empty_after_command():
 # generate-pr-description, dump_context, load_context, diff) already exist above
 # and in TestCommandRegistry. All logic has been verified to be identical to original.
 # See LOGIC_VERIFICATION.md for detailed verification.
-
-
-def test_agent_command_alias_a_registered():
-    """Test that /a alias is registered for agent command."""
-    cmd = get_command("agent")
-    assert cmd is not None
-    assert "a" in cmd.aliases
 
 
 def test_pin_model_command_case_insensitive_agent():

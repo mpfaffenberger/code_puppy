@@ -350,7 +350,15 @@ class TestClaudeCodeToolPrefixGating:
 
         return ToolManager
 
-    def test_unprefix_when_claude_code_active(self):
+    @pytest.mark.parametrize(
+        "model_name,expected_names",
+        [
+            ("claude-code-claude-opus-4-7", ["read_file"]),
+            ("some-custom-anthropic-model", ["cp_read_file"]),
+        ],
+    )
+    def test_cp_prefix_handling_depends_on_active_model(self, model_name, expected_names):
+        """cp_ prefix is stripped only when a claude-code model is active."""
         ToolManager = self._install_patch()
 
         seen_names: list = []
@@ -366,7 +374,7 @@ class TestClaudeCodeToolPrefixGating:
             ),
             patch(
                 "code_puppy.config.get_global_model_name",
-                return_value="claude-code-claude-opus-4-7",
+                return_value=model_name,
             ),
         ):
             # Re-apply patch so it captures our fake _original_get_tool_def
@@ -376,38 +384,8 @@ class TestClaudeCodeToolPrefixGating:
             mgr = ToolManager.__new__(ToolManager)
             ToolManager.get_tool_def(mgr, "cp_read_file")
 
-        assert seen_names == ["read_file"], (
-            f"claude-code active: prefix should be stripped, got {seen_names}"
-        )
-
-    def test_no_unprefix_when_custom_anthropic_active(self):
-        ToolManager = self._install_patch()
-
-        seen_names: list = []
-
-        def fake_lookup(self, name):
-            seen_names.append(name)
-            return None
-
-        with (
-            patch(
-                "pydantic_ai._tool_manager.ToolManager.get_tool_def",
-                fake_lookup,
-            ),
-            patch(
-                "code_puppy.config.get_global_model_name",
-                return_value="some-custom-anthropic-model",
-            ),
-        ):
-            from code_puppy.pydantic_patches import patch_tool_call_callbacks
-
-            patch_tool_call_callbacks()
-            mgr = ToolManager.__new__(ToolManager)
-            # A tool whose real name legitimately begins with ``cp_``
-            ToolManager.get_tool_def(mgr, "cp_read_file")
-
-        assert seen_names == ["cp_read_file"], (
-            f"non-claude-code: prefix must be preserved verbatim, got {seen_names}"
+        assert seen_names == expected_names, (
+            f"model {model_name!r}: expected {expected_names}, got {seen_names}"
         )
 
     def test_no_unprefix_when_model_lookup_fails(self):

@@ -10,33 +10,35 @@ from code_puppy.model_factory import ModelFactory, get_custom_config
 class TestModelFactoryErrors:
     """Test error handling in ModelFactory - focus on exception paths."""
 
-    def test_get_model_invalid_name(self):
-        """Test get_model() with completely invalid model name."""
-        config = {"valid-model": {"type": "openai", "name": "gpt-4"}}
-        with pytest.raises(
-            ValueError, match="Model 'nonexistent-model-xyz' not found in configuration"
-        ):
-            ModelFactory.get_model("nonexistent-model-xyz", config)
-
-    def test_get_model_empty_name(self):
-        """Test get_model() with empty model name."""
-        config = {"valid-model": {"type": "openai", "name": "gpt-4"}}
-        with pytest.raises(ValueError, match="Model '' not found in configuration"):
-            ModelFactory.get_model("", config)
-
-    def test_get_model_none_name(self):
-        """Test get_model() with None model name."""
-        config = {"valid-model": {"type": "openai", "name": "gpt-4"}}
-        with pytest.raises(ValueError, match="Model 'None' not found in configuration"):
-            ModelFactory.get_model(None, config)
-
-    def test_unsupported_model_type(self):
-        """Test get_model() with unsupported model type."""
-        config = {"bad-model": {"type": "unsupported-type", "name": "fake-model"}}
-        with pytest.raises(
-            ValueError, match="Unsupported model type: unsupported-type"
-        ):
-            ModelFactory.get_model("bad-model", config)
+    @pytest.mark.parametrize(
+        "model_name,config,match",
+        [
+            (
+                "nonexistent-model-xyz",
+                {"valid-model": {"type": "openai", "name": "gpt-4"}},
+                "Model 'nonexistent-model-xyz' not found in configuration",
+            ),
+            (
+                "",
+                {"valid-model": {"type": "openai", "name": "gpt-4"}},
+                "Model '' not found in configuration",
+            ),
+            (
+                None,
+                {"valid-model": {"type": "openai", "name": "gpt-4"}},
+                "Model 'None' not found in configuration",
+            ),
+            (
+                "bad-model",
+                {"bad-model": {"type": "unsupported-type", "name": "fake-model"}},
+                "Unsupported model type: unsupported-type",
+            ),
+        ],
+    )
+    def test_get_model_raises(self, model_name, config, match):
+        """get_model() raises ValueError for unknown/empty/unsupported names."""
+        with pytest.raises(ValueError, match=match):
+            ModelFactory.get_model(model_name, config)
 
     def test_missing_bundled_models_file(self):
         """Test load_config() when the bundled models.json can't be opened."""
@@ -135,45 +137,34 @@ class TestModelFactoryErrors:
         ):
             ModelFactory.get_model("azure-bad-3", config3)
 
-    def test_custom_endpoint_missing_custom_endpoint_config(self):
-        """Test custom endpoint models missing custom_endpoint configuration."""
-        config = {"custom-bad": {"type": "custom_openai", "name": "model"}}
-        with pytest.raises(
-            ValueError, match="Custom model requires 'custom_endpoint' configuration"
-        ):
+    @pytest.mark.parametrize(
+        "config,match",
+        [
+            (
+                {"custom-bad": {"type": "custom_openai", "name": "model"}},
+                "Custom model requires 'custom_endpoint' configuration",
+            ),
+            (
+                {
+                    "custom-bad": {
+                        "type": "custom_openai",
+                        "name": "model",
+                        "custom_endpoint": {"headers": {"Authorization": "Bearer token"}},
+                    }
+                },
+                "Custom endpoint requires 'url' field",
+            ),
+        ],
+    )
+    def test_custom_endpoint_missing_config(self, config, match):
+        """Custom endpoint models fail without custom_endpoint or url."""
+        with pytest.raises(ValueError, match=match):
             ModelFactory.get_model("custom-bad", config)
 
-    def test_custom_endpoint_missing_url(self):
-        """Test custom endpoint models missing URL in custom_endpoint."""
-        config = {
-            "custom-bad": {
-                "type": "custom_openai",
-                "name": "model",
-                "custom_endpoint": {"headers": {"Authorization": "Bearer token"}},
-            }
-        }
-        with pytest.raises(ValueError, match="Custom endpoint requires 'url' field"):
-            ModelFactory.get_model("custom-bad", config)
-
-    def test_round_robin_missing_models_list(self):
-        """Test round-robin model missing models list."""
-        config = {"rr-bad": {"type": "round_robin", "models": None}}
-        with pytest.raises(
-            ValueError, match="Round-robin model 'rr-bad' requires a 'models' list"
-        ):
-            ModelFactory.get_model("rr-bad", config)
-
-    def test_round_robin_empty_models_list(self):
-        """Test round-robin model with empty models list."""
-        config = {"rr-bad": {"type": "round_robin", "models": []}}
-        with pytest.raises(
-            ValueError, match="Round-robin model 'rr-bad' requires a 'models' list"
-        ):
-            ModelFactory.get_model("rr-bad", config)
-
-    def test_round_robin_invalid_models_list(self):
-        """Test round-robin model with invalid models list (not a list)."""
-        config = {"rr-bad": {"type": "round_robin", "models": "not-a-list"}}
+    @pytest.mark.parametrize("models", [None, [], "not-a-list"])
+    def test_round_robin_requires_models_list(self, models):
+        """Round-robin model rejects missing/empty/invalid models list."""
+        config = {"rr-bad": {"type": "round_robin", "models": models}}
         with pytest.raises(
             ValueError, match="Round-robin model 'rr-bad' requires a 'models' list"
         ):

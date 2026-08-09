@@ -264,35 +264,8 @@ class TestRunSummarizationSync:
         result.output = "summary1 summary2"
         return result
 
-    def test_run_summarization_sync_no_event_loop(self, mock_sync_result):
-        """Test run_summarization_sync uses thread pool."""
-        with (
-            patch(
-                "code_puppy.summarization_agent.get_summarization_agent"
-            ) as mock_get_agent,
-            patch("code_puppy.summarization_agent._ensure_thread_pool") as mock_pool,
-        ):
-            mock_agent = MagicMock()
-            mock_get_agent.return_value = mock_agent
-
-            mock_pool_instance = MagicMock()
-            mock_future = MagicMock()
-            mock_future.result.return_value = mock_sync_result
-            mock_pool_instance.submit.return_value = mock_future
-            mock_pool.return_value = mock_pool_instance
-
-            prompt = "Test prompt"
-            history = ["msg1", "msg2"]
-
-            result = run_summarization_sync(prompt, history)
-
-            assert result == "summary1 summary2"
-            mock_get_agent.assert_called_once()
-            mock_pool.assert_called_once()
-            mock_pool_instance.submit.assert_called_once()
-
-    def test_run_summarization_sync_with_event_loop(self, mock_sync_result):
-        """Test run_summarization_sync always uses thread pool."""
+    def test_run_summarization_sync_uses_thread_pool(self, mock_sync_result):
+        """Test run_summarization_sync always funnels through the thread pool."""
         with (
             patch(
                 "code_puppy.summarization_agent.get_summarization_agent"

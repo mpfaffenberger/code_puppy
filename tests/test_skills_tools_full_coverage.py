@@ -219,19 +219,28 @@ class TestListOrSearchSkills:
             assert result.error is None
             assert result.total_count == 1
 
+    @pytest.mark.parametrize(
+        "name,description,tags,query,expected_count",
+        [
+            ("weather", "Get weather", [], "weath", 1),
+            ("x", "Handles authentication", [], "auth", 1),
+            ("x", "desc", ["database"], "database", 1),
+            ("x", "desc", [], "zzzzz", 0),
+        ],
+    )
     @pytest.mark.anyio
-    async def test_filter_by_query_name(self):
+    async def test_filter_by_query(self, name, description, tags, query, expected_count):
         fn = _register_and_get(register_list_or_search_skills)
         ctx = MagicMock()
         mock_skill = MagicMock()
-        mock_skill.name = "weather"
+        mock_skill.name = name
         mock_skill.has_skill_md = True
         mock_skill.path = "/path"
         mock_meta = MagicMock()
-        mock_meta.name = "weather"
-        mock_meta.description = "Get weather"
+        mock_meta.name = name
+        mock_meta.description = description
         mock_meta.path = "/path"
-        mock_meta.tags = []
+        mock_meta.tags = tags
         mock_meta.version = "1.0"
         mock_meta.author = "me"
         with (
@@ -257,131 +266,8 @@ class TestListOrSearchSkills:
             ),
             patch("code_puppy.tools.skills_tools.get_message_bus"),
         ):
-            result = await fn(ctx, query="weath")
-            assert result.total_count == 1
-
-    @pytest.mark.anyio
-    async def test_filter_by_query_description(self):
-        fn = _register_and_get(register_list_or_search_skills)
-        ctx = MagicMock()
-        mock_skill = MagicMock()
-        mock_skill.name = "x"
-        mock_skill.has_skill_md = True
-        mock_skill.path = "/path"
-        mock_meta = MagicMock()
-        mock_meta.name = "x"
-        mock_meta.description = "Handles authentication"
-        mock_meta.path = "/path"
-        mock_meta.tags = []
-        mock_meta.version = "1.0"
-        mock_meta.author = "me"
-        with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_disabled_skills",
-                return_value=set(),
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skill_directories",
-                return_value=[],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.discovery.discover_skills",
-                return_value=[mock_skill],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.metadata.parse_skill_metadata",
-                return_value=mock_meta,
-            ),
-            patch("code_puppy.tools.skills_tools.get_message_bus"),
-        ):
-            result = await fn(ctx, query="auth")
-            assert result.total_count == 1
-
-    @pytest.mark.anyio
-    async def test_filter_by_query_tag(self):
-        fn = _register_and_get(register_list_or_search_skills)
-        ctx = MagicMock()
-        mock_skill = MagicMock()
-        mock_skill.name = "x"
-        mock_skill.has_skill_md = True
-        mock_skill.path = "/path"
-        mock_meta = MagicMock()
-        mock_meta.name = "x"
-        mock_meta.description = "desc"
-        mock_meta.path = "/path"
-        mock_meta.tags = ["database"]
-        mock_meta.version = "1.0"
-        mock_meta.author = "me"
-        with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_disabled_skills",
-                return_value=set(),
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skill_directories",
-                return_value=[],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.discovery.discover_skills",
-                return_value=[mock_skill],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.metadata.parse_skill_metadata",
-                return_value=mock_meta,
-            ),
-            patch("code_puppy.tools.skills_tools.get_message_bus"),
-        ):
-            result = await fn(ctx, query="database")
-            assert result.total_count == 1
-
-    @pytest.mark.anyio
-    async def test_filter_no_match(self):
-        fn = _register_and_get(register_list_or_search_skills)
-        ctx = MagicMock()
-        mock_skill = MagicMock()
-        mock_skill.name = "x"
-        mock_skill.has_skill_md = True
-        mock_skill.path = "/path"
-        mock_meta = MagicMock()
-        mock_meta.name = "x"
-        mock_meta.description = "desc"
-        mock_meta.path = "/path"
-        mock_meta.tags = []
-        mock_meta.version = "1.0"
-        mock_meta.author = "me"
-        with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_disabled_skills",
-                return_value=set(),
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skill_directories",
-                return_value=[],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.discovery.discover_skills",
-                return_value=[mock_skill],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.metadata.parse_skill_metadata",
-                return_value=mock_meta,
-            ),
-            patch("code_puppy.tools.skills_tools.get_message_bus"),
-        ):
-            result = await fn(ctx, query="zzzzz")
-            assert result.total_count == 0
+            result = await fn(ctx, query=query)
+            assert result.total_count == expected_count
 
     @pytest.mark.anyio
     async def test_skip_disabled_and_no_skill_md(self):
