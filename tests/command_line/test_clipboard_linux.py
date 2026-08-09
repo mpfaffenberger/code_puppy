@@ -42,27 +42,15 @@ class TestGetLinuxClipboardImage:
         ):
             assert _get_linux_clipboard_image() is None
 
-    def test_wl_paste_success(self):
+    @pytest.mark.parametrize("tool", ["wl-paste", "xclip"])
+    def test_linux_tool_success(self, tool):
         from code_puppy.command_line.clipboard import _get_linux_clipboard_image
 
         mock_result = MagicMock(returncode=0, stdout=b"pngdata")
         with (
             patch(
                 "code_puppy.command_line.clipboard._check_linux_clipboard_tool",
-                return_value="wl-paste",
-            ),
-            patch("subprocess.run", return_value=mock_result),
-        ):
-            assert _get_linux_clipboard_image() == b"pngdata"
-
-    def test_xclip_success(self):
-        from code_puppy.command_line.clipboard import _get_linux_clipboard_image
-
-        mock_result = MagicMock(returncode=0, stdout=b"pngdata")
-        with (
-            patch(
-                "code_puppy.command_line.clipboard._check_linux_clipboard_tool",
-                return_value="xclip",
+                return_value=tool,
             ),
             patch("subprocess.run", return_value=mock_result),
         ):

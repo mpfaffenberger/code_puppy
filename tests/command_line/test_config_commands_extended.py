@@ -85,24 +85,22 @@ class TestSetCommand:
 
                     mock_set.assert_called_once_with("test_key", "")
 
-    def test_set_command_value_with_equals(self):
-        """Test set command with value containing equals sign."""
+    @pytest.mark.parametrize(
+        ("command", "key", "value"),
+        [
+            ("/set key=value=with=equals", "key", "value=with=equals"),
+            ("/set invalid_key value", "invalid_key", "value"),
+        ],
+        ids=["value_with_equals", "invalid_key"],
+    )
+    def test_set_command_passthrough(self, command, key, value):
+        """Test set command passes the value through to set_config_value."""
         with patch("code_puppy.config.set_config_value") as mock_set:
             with patch("code_puppy.messaging.emit_success"):
-                result = handle_set_command("/set key=value=with=equals")
+                result = handle_set_command(command)
                 assert result is True
 
-                mock_set.assert_called_once_with("key", "value=with=equals")
-
-    def test_set_command_invalid_key(self):
-        """Test set command with invalid configuration key."""
-        with patch("code_puppy.config.set_config_value") as mock_set:
-            with patch("code_puppy.messaging.emit_success"):
-                result = handle_set_command("/set invalid_key value")
-                assert result is True
-
-                # The actual implementation doesn't validate keys, it just calls set_config_value
-                mock_set.assert_called_once_with("invalid_key", "value")
+                mock_set.assert_called_once_with(key, value)
 
     def test_set_command_no_arguments(self):
         """Test set command with no arguments launches interactive menu."""
@@ -450,10 +448,11 @@ class TestDiffCommand:
 class TestShowColorOptions:
     """Test the _show_color_options utility function."""
 
-    def test_show_addition_color_options(self):
-        """Test showing color options for additions."""
+    @pytest.mark.parametrize("group", ["additions", "deletions"])
+    def test_show_color_options(self, group):
+        """Test showing color options for a color group."""
         with patch("code_puppy.messaging.emit_info") as mock_emit:
-            _show_color_options("additions")
+            _show_color_options(group)
 
             # Should emit multiple messages
             assert mock_emit.call_count >= 3
@@ -464,23 +463,7 @@ class TestShowColorOptions:
                 for call in mock_emit.call_args_list
                 if "Usage:" in call[0][0]
             ][0]
-            assert "/diff additions <color_name>" in usage_call
-
-    def test_show_deletion_color_options(self):
-        """Test showing color options for deletions."""
-        with patch("code_puppy.messaging.emit_info") as mock_emit:
-            _show_color_options("deletions")
-
-            # Should emit multiple messages
-            assert mock_emit.call_count >= 3
-
-            # Check for usage instructions
-            usage_call = [
-                call[0][0]
-                for call in mock_emit.call_args_list
-                if "Usage:" in call[0][0]
-            ][0]
-            assert "/diff deletions <color_name>" in usage_call
+            assert f"/diff {group} <color_name>" in usage_call
 
 
 class TestGetAgentByName:

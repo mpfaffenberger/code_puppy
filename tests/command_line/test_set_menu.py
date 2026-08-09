@@ -1,7 +1,5 @@
 """Tests for ``code_puppy.command_line.set_menu`` and the slash dispatcher.
 
-Value resolution + masking tests live in ``test_set_menu_values.py``.
-
 This file covers:
 * ``apply_setting`` validation + restart warnings + agent reload toggle
 * ``_prompt_for_value`` control flow: Cancel returns None without
@@ -34,10 +32,19 @@ from code_puppy.command_line.set_menu import (
     _record_reset,
 )
 from code_puppy.command_line.set_menu_settings import (
+    SETTINGS_CATEGORIES,
     Setting,
     SettingsCategory,
 )
-from tests.command_line.test_set_menu_values import find_setting
+
+
+def find_setting(key: str) -> Setting:
+    """Locate a curated :class:`Setting` by key. Test helper."""
+    for category in SETTINGS_CATEGORIES:
+        for setting in category.settings:
+            if setting.key == key:
+                return setting
+    raise AssertionError(f"Setting '{key}' not found in SETTINGS_CATEGORIES")
 
 
 # ---------------------------------------------------------------------------

@@ -417,43 +417,19 @@ class TestRunOnboardingWizard:
             assert result == "skipped"
             mock_mark.assert_called_once()
 
+    @pytest.mark.parametrize(
+        ("trigger_oauth", "expected"),
+        [(None, "completed"), ("chatgpt", "chatgpt")],
+        ids=["completed", "trigger_oauth"],
+    )
     @pytest.mark.asyncio
     @patch(f"{MODULE}.mark_onboarding_complete")
     @patch("code_puppy.messaging.emit_info")
     @patch("code_puppy.tools.command_runner.set_awaiting_user_input")
     @patch(f"{MODULE}.sys")
     @patch(f"{MODULE}.Application")
-    async def test_completed(self, MockApp, mock_sys, mock_set, mock_emit, mock_mark):
-        from code_puppy.command_line.onboarding_wizard import run_onboarding_wizard
-
-        mock_sys.stdout = MagicMock()
-        app_instance = MagicMock()
-
-        async def fake_run_async():
-            pass
-
-        app_instance.run_async = fake_run_async
-        MockApp.return_value = app_instance
-
-        with patch(f"{MODULE}.OnboardingWizard") as MockWizard:
-            wizard = MagicMock()
-            wizard.TOTAL_SLIDES = 5
-            wizard.result = "completed"
-            wizard._should_exit = True
-            wizard.trigger_oauth = None
-            MockWizard.return_value = wizard
-
-            result = await run_onboarding_wizard()
-            assert result == "completed"
-
-    @pytest.mark.asyncio
-    @patch(f"{MODULE}.mark_onboarding_complete")
-    @patch("code_puppy.messaging.emit_info")
-    @patch("code_puppy.tools.command_runner.set_awaiting_user_input")
-    @patch(f"{MODULE}.sys")
-    @patch(f"{MODULE}.Application")
-    async def test_trigger_oauth(
-        self, MockApp, mock_sys, mock_set, mock_emit, mock_mark
+    async def test_run_wizard_completion(
+        self, MockApp, mock_sys, mock_set, mock_emit, mock_mark, trigger_oauth, expected
     ):
         from code_puppy.command_line.onboarding_wizard import run_onboarding_wizard
 
@@ -471,11 +447,11 @@ class TestRunOnboardingWizard:
             wizard.TOTAL_SLIDES = 5
             wizard.result = "completed"
             wizard._should_exit = True
-            wizard.trigger_oauth = "chatgpt"
+            wizard.trigger_oauth = trigger_oauth
             MockWizard.return_value = wizard
 
             result = await run_onboarding_wizard()
-            assert result == "chatgpt"
+            assert result == expected
 
     @pytest.mark.asyncio
     @patch("code_puppy.messaging.emit_info")

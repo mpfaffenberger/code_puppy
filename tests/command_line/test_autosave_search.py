@@ -13,6 +13,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, List
 
+import pytest
+
 from code_puppy.command_line.autosave_search import (
     SEARCH_ALPHABET,
     SessionContentIndex,
@@ -310,27 +312,21 @@ class TestEntryMatches:
         },
     )
 
-    def test_empty_needle_matches_everything(self):
-        # Empty needle is the "no filter" state; we never touch the index.
+    @pytest.mark.parametrize(
+        "needle",
+        ["", "a1b2", "A1B2", "2026-06-23 08:13", "42"],
+        ids=[
+            "empty_needle",
+            "session_name",
+            "case_insensitive",
+            "formatted_timestamp",
+            "message_count",
+        ],
+    )
+    def test_matches_without_loading(self, needle):
+        # Cheap checks must hit without ever touching the content index.
         idx = _index_that_never_loads()
-        assert entry_matches(self.ENTRY, "", idx, self.BASE) is True
-
-    def test_matches_session_name_without_loading(self):
-        idx = _index_that_never_loads()
-        assert entry_matches(self.ENTRY, "a1b2", idx, self.BASE) is True
-
-    def test_matches_session_name_case_insensitive(self):
-        idx = _index_that_never_loads()
-        assert entry_matches(self.ENTRY, "A1B2", idx, self.BASE) is True
-
-    def test_matches_formatted_timestamp_without_loading(self):
-        # User sees "2026-06-23 08:13"; typing that must hit without loading.
-        idx = _index_that_never_loads()
-        assert entry_matches(self.ENTRY, "2026-06-23 08:13", idx, self.BASE) is True
-
-    def test_matches_message_count_without_loading(self):
-        idx = _index_that_never_loads()
-        assert entry_matches(self.ENTRY, "42", idx, self.BASE) is True
+        assert entry_matches(self.ENTRY, needle, idx, self.BASE) is True
 
     def test_falls_through_to_content_index(self):
         history = _make_history("we talked about kubernetes pods today")

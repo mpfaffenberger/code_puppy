@@ -177,27 +177,21 @@ class TestGetModelDisplayMeta:
 
 
 class TestGetAgentDisplayMeta:
-    def test_with_pinned_model(self):
+    @pytest.mark.parametrize(
+        ("pinned", "expected"),
+        [("gpt-4", "→ gpt-4"), (None, "default")],
+        ids=["with_pinned_model", "without_pinned_model"],
+    )
+    def test_display_meta(self, pinned, expected):
         from code_puppy.command_line.pin_command_completion import (
             _get_agent_display_meta,
         )
 
         with patch(
             "code_puppy.command_line.pin_command_completion._get_pinned_model_for_agent",
-            return_value="gpt-4",
+            return_value=pinned,
         ):
-            assert _get_agent_display_meta("test") == "→ gpt-4"
-
-    def test_without_pinned_model(self):
-        from code_puppy.command_line.pin_command_completion import (
-            _get_agent_display_meta,
-        )
-
-        with patch(
-            "code_puppy.command_line.pin_command_completion._get_pinned_model_for_agent",
-            return_value=None,
-        ):
-            assert _get_agent_display_meta("test") == "default"
+            assert _get_agent_display_meta("test") == expected
 
 
 class TestLoadAgentNames:
@@ -294,64 +288,42 @@ class TestPinCompleter:
             completions = list(c.get_completions(self._make_doc("/pin_model "), None))
             assert len(completions) == 2
 
-    def test_partial_agent(self):
+    @pytest.mark.parametrize(
+        ("doc", "agent_names", "model_names", "expected_len", "expected_text"),
+        [
+            ("/pin_model ag", ["agent1", "bot1"], [], 1, "agent1"),
+            ("/pin_model agent1 ", [], ["gpt-4", "claude-3"], 3, "(unpin)"),
+            ("/pin_model agent1 gpt", [], ["gpt-4", "claude-3"], 1, "gpt-4"),
+        ],
+        ids=["partial_agent", "agent_then_space_shows_models", "partial_model"],
+    )
+    def test_agent_or_model_completions(
+        self, doc, agent_names, model_names, expected_len, expected_text
+    ):
         from code_puppy.command_line.pin_command_completion import PinCompleter
 
         c = PinCompleter()
         with (
             patch(
                 "code_puppy.command_line.pin_command_completion.load_agent_names",
-                return_value=["agent1", "bot1"],
+                return_value=agent_names,
+            ),
+            patch(
+                "code_puppy.command_line.pin_command_completion.load_model_names",
+                return_value=model_names,
             ),
             patch(
                 "code_puppy.command_line.pin_command_completion._get_agent_display_meta",
                 return_value="default",
             ),
-        ):
-            completions = list(c.get_completions(self._make_doc("/pin_model ag"), None))
-            assert len(completions) == 1
-            assert completions[0].text == "agent1"
-
-    def test_agent_then_space_shows_models(self):
-        from code_puppy.command_line.pin_command_completion import PinCompleter
-
-        c = PinCompleter()
-        with (
-            patch(
-                "code_puppy.command_line.pin_command_completion.load_model_names",
-                return_value=["gpt-4", "claude-3"],
-            ),
             patch(
                 "code_puppy.command_line.pin_command_completion._get_model_display_meta",
                 return_value="Model",
             ),
         ):
-            completions = list(
-                c.get_completions(self._make_doc("/pin_model agent1 "), None)
-            )
-            # (unpin) + 2 models
-            assert len(completions) == 3
-            assert completions[0].text == "(unpin)"
-
-    def test_partial_model(self):
-        from code_puppy.command_line.pin_command_completion import PinCompleter
-
-        c = PinCompleter()
-        with (
-            patch(
-                "code_puppy.command_line.pin_command_completion.load_model_names",
-                return_value=["gpt-4", "claude-3"],
-            ),
-            patch(
-                "code_puppy.command_line.pin_command_completion._get_model_display_meta",
-                return_value="Model",
-            ),
-        ):
-            completions = list(
-                c.get_completions(self._make_doc("/pin_model agent1 gpt"), None)
-            )
-            assert len(completions) == 1
-            assert completions[0].text == "gpt-4"
+            completions = list(c.get_completions(self._make_doc(doc), None))
+            assert len(completions) == expected_len
+            assert completions[0].text == expected_text
 
     def test_partial_model_unpin_match(self):
         from code_puppy.command_line.pin_command_completion import PinCompleter

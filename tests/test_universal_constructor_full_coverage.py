@@ -378,29 +378,17 @@ class TestHandleCallAction:
 
 
 class TestHandleCreateAction:
+    @pytest.mark.parametrize(
+        "code, marker",
+        [("", "required"), ("def f(", "Syntax"), ("x = 1", "No functions")],
+    )
     @pytest.mark.anyio
-    async def test_no_code(self):
+    async def test_create_rejects_bad_code(self, code, marker):
         with patch("code_puppy.tools.universal_constructor.get_message_bus"):
             result = await universal_constructor_impl(
-                MagicMock(), "create", python_code=""
+                MagicMock(), "create", python_code=code
             )
-            assert "required" in result.error
-
-    @pytest.mark.anyio
-    async def test_syntax_error(self):
-        with patch("code_puppy.tools.universal_constructor.get_message_bus"):
-            result = await universal_constructor_impl(
-                MagicMock(), "create", python_code="def f("
-            )
-            assert "Syntax" in result.error
-
-    @pytest.mark.anyio
-    async def test_no_functions(self):
-        with patch("code_puppy.tools.universal_constructor.get_message_bus"):
-            result = await universal_constructor_impl(
-                MagicMock(), "create", python_code="x = 1"
-            )
-            assert "No functions" in result.error
+            assert marker in result.error
 
     @pytest.mark.anyio
     async def test_create_with_tool_name(self, tmp_path):

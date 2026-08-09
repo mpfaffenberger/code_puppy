@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 MODULE = "code_puppy.command_line.mcp.install_command"
 UTILS = "code_puppy.command_line.mcp.utils"
 WIZARD = "code_puppy.command_line.mcp.wizard_utils"
@@ -175,36 +177,21 @@ class TestInstallFromCatalog:
                 result = cmd._install_from_catalog("test-server", "grp")
         assert result is True
 
-    @patch(f"{MESSAGING}.emit_prompt")
-    @patch(f"{MODULE}.emit_info")
-    def test_existing_server_override_declined(self, mock_info, mock_prompt):
-        cmd = make_cmd()
-        mock_catalog = MagicMock()
-        mock_catalog.get_by_id.return_value = FakeServer()
-        mock_prompt.side_effect = ["", "n"]  # default name, decline override
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "code_puppy.mcp_.server_registry_catalog": MagicMock(
-                    catalog=mock_catalog
-                )
-            },
-        ):
-            with patch(f"{UTILS}.find_server_id_by_name", return_value="existing"):
-                result = cmd._install_from_catalog("test-server", "grp")
-        assert result is False
-
+    @pytest.mark.parametrize(
+        ("answer", "expected"),
+        [("n", False), ("y", True)],
+        ids=["override_declined", "override_accepted"],
+    )
     @patch(f"{WIZARD}.install_server_from_catalog", return_value=True)
     @patch(f"{MESSAGING}.emit_prompt")
     @patch(f"{MODULE}.emit_info")
-    def test_existing_server_override_accepted(
-        self, mock_info, mock_prompt, mock_install
+    def test_existing_server_override(
+        self, mock_info, mock_prompt, mock_install, answer, expected
     ):
         cmd = make_cmd()
         mock_catalog = MagicMock()
         mock_catalog.get_by_id.return_value = FakeServer()
-        mock_prompt.side_effect = ["", "y"]
+        mock_prompt.side_effect = ["", answer]  # default name, then answer
 
         with patch.dict(
             "sys.modules",
@@ -216,7 +203,7 @@ class TestInstallFromCatalog:
         ):
             with patch(f"{UTILS}.find_server_id_by_name", return_value="existing"):
                 result = cmd._install_from_catalog("test-server", "grp")
-        assert result is True
+        assert result is expected
 
     @patch(f"{WIZARD}.install_server_from_catalog", return_value=True)
     @patch(f"{MESSAGING}.emit_prompt")
