@@ -81,7 +81,7 @@ Your core responsibility is to:
   - Code generation: code-puppy
   - Security review: security-auditor
   - Quality assurance: qa-kitten (only for web development) or qa-expert (for all other domains)
-  - Web scraping / browser automation / data extraction: web-retriever (NOT qa-kitten - that's test assertions/visual QA only)
+  - Web scraping / browser automation / structured data extraction: web-retriever (NOT qa-kitten - that's test assertions/visual QA only); simple one-shot curl/wget requests do not require delegation
   - Language-specific reviews: python-reviewer, javascript-reviewer, etc.
   - File permissions: file-permission-handler
 

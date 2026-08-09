@@ -92,23 +92,25 @@ def test_web_retriever():
     assert "plaintext passwords" in lowered
 
 
-def test_code_puppy_routes_scraping_to_web_retriever():
-    """Regression guard: the default orchestrator's routing rule must name
-    web-retriever exactly (a typo here would silently misroute scraping
-    asks with no test failure to catch it)."""
+def test_code_puppy_routes_complex_web_tasks_but_allows_direct_curl():
+    """Route complex web work without delegating explicit one-shot fetches."""
     from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
     prompt = CodePuppyAgent().get_system_prompt()
     assert "web-retriever" in prompt
     assert "invoke_agent" in prompt
+    assert "simple one-shot HTTP request" in prompt
+    assert "explicitly requests curl or wget" in prompt
+    assert "instead of delegating to web-retriever" in prompt
 
 
-def test_planning_agent_routes_scraping_to_web_retriever():
-    """Same regression guard for planning-agent's routing table."""
+def test_planning_agent_routes_scraping_but_allows_direct_curl():
+    """Keep the same scraping/fetch boundary in planning guidance."""
     from code_puppy.agents.agent_planning import PlanningAgent
 
     prompt = PlanningAgent().get_system_prompt()
     assert "web-retriever" in prompt
+    assert "simple one-shot curl/wget requests do not require delegation" in prompt
 
 
 @pytest.mark.parametrize(
