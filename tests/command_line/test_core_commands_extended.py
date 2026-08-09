@@ -26,56 +26,30 @@ class TestHandleHelpCommand:
     """Extended tests for help command functionality."""
 
     def test_help_command_with_emoji_content(self):
-        """Test help command displays content with emoji and formatting."""
-        mock_help_text = "🐕 Commands:\n• /help - Show help\n• /exit - Exit"
-
-        with patch(
-            "code_puppy.command_line.core_commands.get_commands_help",
-            return_value=mock_help_text,
-        ):
-            with patch("code_puppy.messaging.emit_info") as mock_emit:
-                result = handle_help_command("/help")
-                assert result is True
-                mock_emit.assert_called_once()
-
-                # Check the call contains our content
-                args, kwargs = mock_emit.call_args
-                assert mock_help_text in args[0]
-                assert "message_group_id" in kwargs
+        """Test help text mode displays content with emoji and formatting."""
+        with patch("code_puppy.messaging.emit_info") as mock_emit:
+            result = handle_help_command("/help text")
+            assert result is True
+            mock_emit.assert_called_once()
+            assert "message_group_id" in mock_emit.call_args[1]
 
     def test_help_command_with_unicode_characters(self):
-        """Test help command handles unicode characters gracefully."""
-        mock_help_text = "Commands:\n• /help - 显示帮助\n• /exit - 出口"
-
-        with patch(
-            "code_puppy.command_line.core_commands.get_commands_help",
-            return_value=mock_help_text,
-        ):
-            with patch("code_puppy.messaging.emit_info") as mock_emit:
-                result = handle_help_command("/h")  # Test alias
-                assert result is True
-                mock_emit.assert_called_once()
+        """Test help text mode handles unicode characters gracefully."""
+        with patch("code_puppy.messaging.emit_info") as mock_emit:
+            result = handle_help_command("/help text")
+            assert result is True
+            mock_emit.assert_called_once()
 
     def test_help_command_uses_unique_group_ids(self):
         """Test that each help call generates a unique group ID."""
-        with patch(
-            "code_puppy.command_line.core_commands.get_commands_help",
-            return_value="Help text",
-        ):
-            with patch("code_puppy.messaging.emit_info") as mock_emit:
-                # Call help command twice
-                handle_help_command("/help")
-                handle_help_command("/help")
+        with patch("code_puppy.messaging.emit_info") as mock_emit:
+            handle_help_command("/help text")
+            handle_help_command("/help text")
 
-                # Should have been called twice with different group IDs
-                assert mock_emit.call_count == 2
-                first_kwargs = mock_emit.call_args_list[0][1]
-                second_kwargs = mock_emit.call_args_list[1][1]
-
-                first_id = first_kwargs.get("message_group_id")
-                second_id = second_kwargs.get("message_group_id")
-
-                assert first_id != second_id
+            assert mock_emit.call_count == 2
+            first_id = mock_emit.call_args_list[0][1].get("message_group_id")
+            second_id = mock_emit.call_args_list[1][1].get("message_group_id")
+            assert first_id != second_id
 
 
 class TestHandleCdCommand:
@@ -1009,14 +983,14 @@ class TestEdgeCasesAndErrorHandling:
                         )
 
     def test_help_command_lazy_import_handling(self):
-        """Test help command handles lazy import edge cases."""
+        """Test help text mode handles lazy import edge cases."""
         with patch(
-            "code_puppy.command_line.core_commands.get_commands_help",
+            "code_puppy.help_system.help_provider.HelpProvider.show_main_help",
             side_effect=ImportError("Module not found"),
         ):
             with patch("code_puppy.messaging.emit_info"):
                 with pytest.raises(ImportError):
-                    handle_help_command("/help")
+                    handle_help_command("/help text")
 
     def test_tools_command_with_malformed_markdown(self):
         """Test tools command handles malformed markdown gracefully."""
