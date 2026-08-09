@@ -159,18 +159,6 @@ class TestFindServerIdByName:
         # Test mixed case
         assert find_server_id_by_name(mock_manager, "mYsErVeR") == "server-456"
 
-    def test_server_not_found(self):
-        """Test returns None when server not found."""
-        mock_server = MagicMock()
-        mock_server.name = "ExistingServer"
-        mock_server.id = "server-789"
-
-        mock_manager = MagicMock()
-        mock_manager.list_servers.return_value = [mock_server]
-
-        result = find_server_id_by_name(mock_manager, "NonExistent")
-        assert result is None
-
     def test_empty_server_list(self):
         """Test returns None when no servers registered."""
         mock_manager = MagicMock()

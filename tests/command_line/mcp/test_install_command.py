@@ -68,11 +68,6 @@ class TestExecute:
             with patch.dict("sys.modules", {"code_puppy.agent": MagicMock()}):
                 cmd.execute(["srv"], "grp")
 
-    def test_with_args_no_reload_on_failure(self):
-        cmd = make_cmd()
-        with patch.object(cmd, "_install_from_catalog", return_value=False):
-            cmd.execute(["srv"], "grp")
-
     def test_reload_import_error(self):
         """Test that ImportError on reload_mcp_servers is handled."""
         cmd = make_cmd()

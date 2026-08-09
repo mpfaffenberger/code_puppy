@@ -50,14 +50,10 @@ class TestMakeDirectoryTable:
 
 
 class TestResetWindowsConsole:
-    @patch("sys.platform", "linux")
-    def test_non_windows(self):
-        _reset_windows_console()  # Should return early
-
-    @patch("sys.platform", "win32")
-    def test_windows(self):
-        # Should not crash even though ctypes.windll won't exist on non-windows
-        _reset_windows_console()
+    @pytest.mark.parametrize("platform", ["linux", "win32"])
+    def test_no_crash(self, platform):
+        with patch("sys.platform", platform):
+            _reset_windows_console()  # returns early / shouldn't crash
 
     @patch("sys.platform", "win32")
     def test_windows_resets_console_mode(self):

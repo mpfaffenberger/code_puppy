@@ -54,25 +54,14 @@ class TestShouldShowOnboarding:
             os.environ.pop("CODE_PUPPY_SKIP_TUTORIAL", None)
             assert should_show_onboarding() is True
 
+    @pytest.mark.parametrize(
+        "env_value", ["1", "true", "yes"], ids=["one", "true", "yes"]
+    )
     @patch(f"{MODULE}.has_completed_onboarding", return_value=False)
-    def test_returns_false_when_env_skip_1(self, mock_completed):
+    def test_returns_false_when_env_skip(self, mock_completed, env_value):
         from code_puppy.command_line.onboarding_wizard import should_show_onboarding
 
-        with patch.dict(os.environ, {"CODE_PUPPY_SKIP_TUTORIAL": "1"}):
-            assert should_show_onboarding() is False
-
-    @patch(f"{MODULE}.has_completed_onboarding", return_value=False)
-    def test_returns_false_when_env_skip_true(self, mock_completed):
-        from code_puppy.command_line.onboarding_wizard import should_show_onboarding
-
-        with patch.dict(os.environ, {"CODE_PUPPY_SKIP_TUTORIAL": "true"}):
-            assert should_show_onboarding() is False
-
-    @patch(f"{MODULE}.has_completed_onboarding", return_value=False)
-    def test_returns_false_when_env_skip_yes(self, mock_completed):
-        from code_puppy.command_line.onboarding_wizard import should_show_onboarding
-
-        with patch.dict(os.environ, {"CODE_PUPPY_SKIP_TUTORIAL": "yes"}):
+        with patch.dict(os.environ, {"CODE_PUPPY_SKIP_TUTORIAL": env_value}):
             assert should_show_onboarding() is False
 
 
@@ -124,33 +113,12 @@ class TestOnboardingWizard:
         assert "●" in progress
         assert progress.count("○") == 4
 
-    def test_get_slide_content_slide_0(self):
+    @pytest.mark.parametrize(
+        "slide", [0, 1, 2, 3, 4], ids=["slide_0", "slide_1", "slide_2", "slide_3", "slide_4"]
+    )
+    def test_get_slide_content(self, slide):
         w = self._make_wizard()
-        w.current_slide = 0
-        content = w.get_slide_content()
-        assert isinstance(content, list)
-
-    def test_get_slide_content_slide_1(self):
-        w = self._make_wizard()
-        w.current_slide = 1
-        content = w.get_slide_content()
-        assert isinstance(content, list)
-
-    def test_get_slide_content_slide_2(self):
-        w = self._make_wizard()
-        w.current_slide = 2
-        content = w.get_slide_content()
-        assert isinstance(content, list)
-
-    def test_get_slide_content_slide_3(self):
-        w = self._make_wizard()
-        w.current_slide = 3
-        content = w.get_slide_content()
-        assert isinstance(content, list)
-
-    def test_get_slide_content_slide_4(self):
-        w = self._make_wizard()
-        w.current_slide = 4
+        w.current_slide = slide
         content = w.get_slide_content()
         assert isinstance(content, list)
 
@@ -360,9 +328,10 @@ class TestRunOnboardingWizardKeyBindings:
         handler(event)
         assert c["wizard"].current_slide == 1
 
-    def test_right_last_slide_completes(self):
+    @pytest.mark.parametrize("key", ["right", "enter"], ids=["right", "enter"])
+    def test_last_slide_completes(self, key):
         c = self._capture_kb()
-        handler = self._find_handler(c["kb"], "right")
+        handler = self._find_handler(c["kb"], key)
         event = MagicMock()
         c["wizard"].current_slide = c["wizard"].TOTAL_SLIDES - 1
         handler(event)
@@ -377,23 +346,19 @@ class TestRunOnboardingWizardKeyBindings:
         handler(event)
         assert c["wizard"].current_slide == 1
 
-    def test_down_next_option(self):
+    @pytest.mark.parametrize(
+        "key,selected_before,selected_after",
+        [("down", 0, 1), ("up", 1, 0)],
+        ids=["down_next_option", "up_prev_option"],
+    )
+    def test_move_option(self, key, selected_before, selected_after):
         c = self._capture_kb()
-        handler = self._find_handler(c["kb"], "down")
+        handler = self._find_handler(c["kb"], key)
         event = MagicMock()
         c["wizard"].current_slide = 1
-        c["wizard"].selected_option = 0
+        c["wizard"].selected_option = selected_before
         handler(event)
-        assert c["wizard"].selected_option == 1
-
-    def test_up_prev_option(self):
-        c = self._capture_kb()
-        handler = self._find_handler(c["kb"], "up")
-        event = MagicMock()
-        c["wizard"].current_slide = 1
-        c["wizard"].selected_option = 1
-        handler(event)
-        assert c["wizard"].selected_option == 0
+        assert c["wizard"].selected_option == selected_after
 
     def test_enter_select_and_next(self):
         c = self._capture_kb()
@@ -404,14 +369,6 @@ class TestRunOnboardingWizardKeyBindings:
         handler(event)
         assert c["wizard"].current_slide == 2
 
-    def test_enter_on_last_slide(self):
-        c = self._capture_kb()
-        handler = self._find_handler(c["kb"], "enter")
-        event = MagicMock()
-        c["wizard"].current_slide = c["wizard"].TOTAL_SLIDES - 1
-        handler(event)
-        assert c["wizard"].result == "completed"
-        event.app.exit.assert_called()
 
     def test_escape_skips(self):
         c = self._capture_kb()

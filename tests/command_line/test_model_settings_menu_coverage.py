@@ -1,6 +1,9 @@
 """Coverage tests for model_settings_menu.py - exercises all uncovered code paths."""
 
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from code_puppy.command_line.model_settings_menu import (
     MODELS_PER_PAGE,
     SETTING_DEFINITIONS,
@@ -78,17 +81,24 @@ class TestEditing:
         menu._start_editing()
         assert menu.edit_value is False
 
+    @pytest.mark.parametrize(
+        "setting,expected",
+        [("budget_tokens", 10000), ("seed", 42)],
+        ids=["budget_tokens", "seed"],
+    )
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
     @patch(
         "code_puppy.command_line.model_settings_menu.get_all_model_settings",
         return_value={},
     )
-    def test_start_editing_budget_tokens_default(self, mock_settings, mock_supports):
-        mock_supports.side_effect = lambda m, s: s == "budget_tokens"
+    def test_start_editing_integer_default(
+        self, mock_settings, mock_supports, setting, expected
+    ):
+        mock_supports.side_effect = lambda m, s: s == setting
         menu = _make_menu()
         menu._load_model_settings("gpt-5")
         menu._start_editing()
-        assert menu.edit_value == 10000
+        assert menu.edit_value == expected
 
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
     @patch(
@@ -148,41 +158,24 @@ class TestEditing:
         menu._start_editing()
         assert menu.editing_mode is False
 
+    @pytest.mark.parametrize(
+        "setting,expected",
+        [("temperature", 0.7), ("top_p", 0.9)],
+        ids=["temperature", "top_p"],
+    )
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
     @patch(
         "code_puppy.command_line.model_settings_menu.get_all_model_settings",
         return_value={},
     )
-    def test_start_editing_seed_default(self, mock_settings, mock_supports):
-        mock_supports.side_effect = lambda m, s: s == "seed"
+    def test_start_editing_float_default(
+        self, mock_settings, mock_supports, setting, expected
+    ):
+        mock_supports.side_effect = lambda m, s: s == setting
         menu = _make_menu()
         menu._load_model_settings("gpt-5")
         menu._start_editing()
-        assert menu.edit_value == 42
-
-    @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch(
-        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
-        return_value={},
-    )
-    def test_start_editing_temperature_default(self, mock_settings, mock_supports):
-        mock_supports.side_effect = lambda m, s: s == "temperature"
-        menu = _make_menu()
-        menu._load_model_settings("gpt-5")
-        menu._start_editing()
-        assert menu.edit_value == 0.7
-
-    @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch(
-        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
-        return_value={},
-    )
-    def test_start_editing_top_p_default(self, mock_settings, mock_supports):
-        mock_supports.side_effect = lambda m, s: s == "top_p"
-        menu = _make_menu()
-        menu._load_model_settings("gpt-5")
-        menu._start_editing()
-        assert menu.edit_value == 0.9
+        assert menu.edit_value == expected
 
 
 class TestFormatValue:

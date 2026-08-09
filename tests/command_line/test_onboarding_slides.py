@@ -1,5 +1,7 @@
 """Tests for code_puppy/command_line/onboarding_slides.py"""
 
+import pytest
+
 MODULE = "code_puppy.command_line.onboarding_slides"
 
 
@@ -89,21 +91,18 @@ class TestSlideModels:
         result = _plain(content)
         assert "Claude" in result
 
-    def test_api_keys_context(self):
+    @pytest.mark.parametrize(
+        "option,display,expected",
+        [("api_keys", "API Keys", "API Key"), ("openrouter", "OpenRouter", "OpenRouter")],
+        ids=["api_keys", "openrouter"],
+    )
+    def test_provider_context(self, option, display, expected):
         from code_puppy.command_line.onboarding_slides import slide_models
 
-        options = [("api_keys", "API Keys")]
+        options = [(option, display)]
         content = slide_models(0, options)
         result = _plain(content)
-        assert "API Key" in result
-
-    def test_openrouter_context(self):
-        from code_puppy.command_line.onboarding_slides import slide_models
-
-        options = [("openrouter", "OpenRouter")]
-        content = slide_models(0, options)
-        result = _plain(content)
-        assert "OpenRouter" in result
+        assert expected in result
 
     def test_skip_context(self):
         from code_puppy.command_line.onboarding_slides import slide_models
