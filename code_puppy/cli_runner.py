@@ -42,6 +42,7 @@ from code_puppy.keymap import (
     validate_cancel_agent_key,
 )
 from code_puppy.messaging import emit_info
+from code_puppy.platform_utils import startup_banner_text
 from code_puppy.terminal_utils import (
     print_truecolor_warning,
     reset_unix_terminal,
@@ -51,11 +52,6 @@ from code_puppy.terminal_utils import (
 from code_puppy.version_checker import default_version_mismatch_behavior
 
 plugins.load_plugin_callbacks()
-
-
-def _startup_banner_text() -> str:
-    """Return a compact banner label for narrow Android terminals."""
-    return "PUP" if sys.platform == "android" else "CODE PUPPY"
 
 
 def _render_turn_exception(exc: Exception) -> None:
@@ -250,7 +246,7 @@ async def main():
             import pyfiglet
 
             intro_lines = pyfiglet.figlet_format(
-                _startup_banner_text(), font="ansi_shadow"
+                startup_banner_text(), font="ansi_shadow"
             ).split("\n")
 
             # Simple blue to green gradient (top to bottom)
