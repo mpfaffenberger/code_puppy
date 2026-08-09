@@ -164,14 +164,9 @@ from code_puppy.plugins.shell_safety.register_callbacks import (  # noqa: E402
 
 
 class TestIsOauthModel:
-    def test_none_model(self):
-        assert is_oauth_model(None) is False
-
-    def test_empty_string(self):
-        assert is_oauth_model("") is False
-
-    def test_non_oauth(self):
-        assert is_oauth_model("gpt-4") is False
+    @pytest.mark.parametrize("model", [None, "", "gpt-4"])
+    def test_non_oauth_model(self, model):
+        assert is_oauth_model(model) is False
 
 
 # ============================================================
@@ -279,21 +274,17 @@ class TestMetadataMissingLines:
             result = parse_skill_metadata(tmp_path)
             assert result is None
 
-    def test_parse_skill_metadata_no_frontmatter(self, tmp_path):
-        """Lines 186-188: no valid frontmatter."""
-        (tmp_path / "SKILL.md").write_text("Just some content without frontmatter")
-        result = parse_skill_metadata(tmp_path)
-        assert result is None
-
-    def test_parse_skill_metadata_no_name(self, tmp_path):
-        """Lines 207-208: name missing from frontmatter."""
-        (tmp_path / "SKILL.md").write_text("---\ndescription: test\n---\n")
-        result = parse_skill_metadata(tmp_path)
-        assert result is None
-
-    def test_parse_skill_metadata_no_description(self, tmp_path):
-        """Lines 215-217: description missing from frontmatter."""
-        (tmp_path / "SKILL.md").write_text("---\nname: test\n---\n")
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "Just some content without frontmatter",  # no valid frontmatter
+            "---\ndescription: test\n---\n",  # name missing
+            "---\nname: test\n---\n",  # description missing
+        ],
+    )
+    def test_parse_skill_metadata_invalid_frontmatter(self, tmp_path, content):
+        """Invalid frontmatter makes parse_skill_metadata return None."""
+        (tmp_path / "SKILL.md").write_text(content)
         result = parse_skill_metadata(tmp_path)
         assert result is None
 
@@ -814,28 +805,26 @@ async def bar(x):
         assert result.valid  # warnings, not errors
         assert len(result.warnings) > 0
 
-    def test_check_dangerous_patterns_dangerous_call(self):
-        result = check_dangerous_patterns("eval('code')")
+    @pytest.mark.parametrize(
+        "source",
+        ["eval('code')", "from os import system"],
+    )
+    def test_check_dangerous_patterns_dangerous(self, source):
+        result = check_dangerous_patterns(source)
         assert len(result.warnings) > 0
 
-    def test_check_dangerous_patterns_dangerous_from_import(self):
-        result = check_dangerous_patterns("from os import system")
-        assert len(result.warnings) > 0
-
-    def test_get_call_name_attribute(self):
-        tree = ast.parse("os.system('ls')")
+    @pytest.mark.parametrize(
+        ("source", "expected"),
+        [
+            ("os.system('ls')", "system"),
+            ("print('hello')", "print"),
+            ("(lambda: 1)()", ""),
+        ],
+    )
+    def test_get_call_name(self, source, expected):
+        tree = ast.parse(source)
         call = tree.body[0].value
-        assert _get_call_name(call) == "system"
-
-    def test_get_call_name_name(self):
-        tree = ast.parse("print('hello')")
-        call = tree.body[0].value
-        assert _get_call_name(call) == "print"
-
-    def test_get_call_name_other(self):
-        tree = ast.parse("(lambda: 1)()")
-        call = tree.body[0].value
-        assert _get_call_name(call) == ""
+        assert _get_call_name(call) == expected
 
     def test_is_dangerous_open_call_write_mode(self):
         tree = ast.parse("open('file', 'w')")
@@ -872,12 +861,12 @@ TOOL_META = {
         assert meta is not None
         assert meta["name"] == "test"
 
-    def test_extract_tool_meta_not_found(self):
-        meta = _extract_tool_meta("x = 1")
-        assert meta is None
-
-    def test_extract_tool_meta_not_dict(self):
-        meta = _extract_tool_meta('TOOL_META = "string"')
+    @pytest.mark.parametrize(
+        "code",
+        ["x = 1", 'TOOL_META = "string"'],
+    )
+    def test_extract_tool_meta_invalid_source(self, code):
+        meta = _extract_tool_meta(code)
         assert meta is None
 
     def test_validate_tool_meta_valid(self):
@@ -904,15 +893,13 @@ def writer():
         assert result.valid
         assert file_path.exists()
 
-    def test_validate_and_write_tool_syntax_error(self, tmp_path):
+    @pytest.mark.parametrize(
+        ("code", "filename"),
+        [("def bad(", "bad.py"), ("x = 1", "nope.py")],
+    )
+    def test_validate_and_write_tool_invalid(self, tmp_path, code, filename):
         result = validate_and_write_tool(
-            "def bad(", tmp_path / "bad.py", safe_root=tmp_path
-        )
-        assert not result.valid
-
-    def test_validate_and_write_tool_no_meta(self, tmp_path):
-        result = validate_and_write_tool(
-            "x = 1", tmp_path / "nope.py", safe_root=tmp_path
+            code, tmp_path / filename, safe_root=tmp_path
         )
         assert not result.valid
 

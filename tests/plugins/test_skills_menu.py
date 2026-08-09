@@ -240,13 +240,13 @@ class TestSkillsMenuWrapText:
 
             return SkillsMenu()
 
-    def test_wrap_empty(self):
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [("", [""]), ("hello world", ["hello world"])],
+    )
+    def test_wrap_short_inputs(self, text, expected):
         menu = self._make_menu()
-        assert menu._wrap_text("", 40) == [""]
-
-    def test_wrap_short(self):
-        menu = self._make_menu()
-        assert menu._wrap_text("hello world", 40) == ["hello world"]
+        assert menu._wrap_text(text, 40) == expected
 
     def test_wrap_long(self):
         menu = self._make_menu()

@@ -347,20 +347,22 @@ class TestHandleSwitchAgent:
 
         return _handle_switch_agent
 
-    def test_returns_none_for_unrelated_command(self):
+    @pytest.mark.parametrize(
+        ("name", "command"),
+        [("agent", "/agent puppy"), ("help", "/help")],
+    )
+    def test_returns_none_for_other_commands(self, name, command):
         """Returns None for commands that aren't 'switch-agent' or 'sa'."""
         handler = self._import()
-        result = handler("/agent puppy", "agent")
+        result = handler(command, name)
         assert result is None
 
-    def test_returns_none_for_help_command(self):
-        """Returns None for the 'help' command name."""
-        handler = self._import()
-        result = handler("/help", "help")
-        assert result is None
-
-    def test_sa_alias_routes_through_same_handler(self):
-        """The /sa alias is handled identically to /switch-agent."""
+    @pytest.mark.parametrize(
+        ("name", "command"),
+        [("sa", "/sa wiggum"), ("switch-agent", "/switch-agent wiggum")],
+    )
+    def test_routes_to_do_switch(self, name, command):
+        """Valid /<name> <agent> calls _do_switch_and_resume."""
         handler = self._import()
 
         import code_puppy.plugins.switch_agent_resume.register_callbacks as plugin_mod
@@ -375,55 +377,17 @@ class TestHandleSwitchAgent:
                 plugin_mod, "_do_switch_and_resume", return_value=True
             ) as mock_switch,
         ):
-            result = handler("/sa wiggum", "sa")
+            result = handler(command, name)
 
         mock_switch.assert_called_once_with("wiggum")
         assert result is True
 
-    def test_switch_agent_routes_to_do_switch(self):
-        """Valid /switch-agent <name> calls _do_switch_and_resume."""
-        handler = self._import()
-
-        import code_puppy.plugins.switch_agent_resume.register_callbacks as plugin_mod
-
-        with (
-            patch.object(
-                _agents_mod,
-                "get_available_agents",
-                return_value={"wiggum": MagicMock()},
-            ),
-            patch.object(
-                plugin_mod, "_do_switch_and_resume", return_value=True
-            ) as mock_switch,
-        ):
-            result = handler("/switch-agent wiggum", "switch-agent")
-
-        mock_switch.assert_called_once_with("wiggum")
-        assert result is True
-
-    def test_unknown_agent_name_calls_interactive_picker(self):
-        """If the agent name is not in available agents, falls through to picker."""
-        handler = self._import()
-
-        import code_puppy.plugins.switch_agent_resume.register_callbacks as plugin_mod
-
-        mock_picker = AsyncMock(return_value="puppy")
-
-        with (
-            patch.object(
-                _agents_mod,
-                "get_available_agents",
-                return_value={"puppy": MagicMock()},  # "unknownagent" is not here
-            ),
-            patch.object(_agent_menu_mod, "interactive_agent_picker", mock_picker),
-            patch.object(plugin_mod, "_do_switch_and_resume", return_value=True),
-        ):
-            handler("/switch-agent unknownagent", "switch-agent")
-
-        mock_picker.assert_called_once()
-
-    def test_no_args_shows_interactive_picker(self):
-        """/switch-agent with no arguments shows the interactive picker."""
+    @pytest.mark.parametrize(
+        "command",
+        ["/switch-agent unknownagent", "/switch-agent"],
+    )
+    def test_falls_through_to_interactive_picker(self, command):
+        """When the target agent is missing/absent, uses the interactive picker."""
         handler = self._import()
 
         import code_puppy.plugins.switch_agent_resume.register_callbacks as plugin_mod
@@ -439,7 +403,7 @@ class TestHandleSwitchAgent:
             patch.object(_agent_menu_mod, "interactive_agent_picker", mock_picker),
             patch.object(plugin_mod, "_do_switch_and_resume", return_value=True),
         ):
-            handler("/switch-agent", "switch-agent")
+            handler(command, "switch-agent")
 
         mock_picker.assert_called_once()
 

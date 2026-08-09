@@ -760,21 +760,16 @@ def greet(name: str) -> str:
         assert meta["description"] == "A greeting tool"
         assert meta["version"] == "1.0.0"
 
-    def test_extract_no_meta(self):
-        """Test that missing TOOL_META returns None."""
-        code = "def foo(): pass"
-        meta = _extract_tool_meta(code)
-        assert meta is None
-
-    def test_extract_invalid_syntax(self):
-        """Test that invalid syntax returns None."""
-        code = "TOOL_META = {"
-        meta = _extract_tool_meta(code)
-        assert meta is None
-
-    def test_extract_non_dict_meta(self):
-        """Test that non-dict TOOL_META returns None."""
-        code = 'TOOL_META = "not a dict"'
+    @pytest.mark.parametrize(
+        "code",
+        [
+            "def foo(): pass",  # missing TOOL_META
+            "TOOL_META = {",  # invalid syntax
+            'TOOL_META = "not a dict"',  # non-dict meta
+        ],
+    )
+    def test_extract_missing_meta_returns_none(self, code):
+        """Test that missing/invalid/non-dict TOOL_META returns None."""
         meta = _extract_tool_meta(code)
         assert meta is None
 
@@ -788,19 +783,18 @@ class TestValidateToolMeta:
         errors = _validate_tool_meta(meta)
         assert len(errors) == 0
 
-    def test_missing_name(self):
-        """Test that missing name produces error."""
-        meta = {"description": "Test tool"}
+    @pytest.mark.parametrize(
+        ("meta", "missing"),
+        [
+            ({"description": "Test tool"}, "name"),
+            ({"name": "test"}, "description"),
+        ],
+    )
+    def test_missing_required_field(self, meta, missing):
+        """Test that a missing required field produces an error."""
         errors = _validate_tool_meta(meta)
         assert len(errors) > 0
-        assert any("name" in e for e in errors)
-
-    def test_missing_description(self):
-        """Test that missing description produces error."""
-        meta = {"name": "test"}
-        errors = _validate_tool_meta(meta)
-        assert len(errors) > 0
-        assert any("description" in e for e in errors)
+        assert any(missing in e for e in errors)
 
     def test_empty_name(self):
         """Test that empty name produces error."""
@@ -874,25 +868,22 @@ def greet(name: str = "World") -> str:
             assert result.valid is False
             assert any("not a file" in e.lower() for e in result.errors)
 
-    def test_validate_file_with_syntax_error(self):
-        """Test validation of file with syntax error."""
+    @pytest.mark.parametrize(
+        ("filename", "content", "err_pattern"),
+        [
+            ("broken.py", "def broken(", "syntax"),
+            ("no_meta.py", "def foo(): pass", "tool_meta"),
+        ],
+    )
+    def test_validate_file_invalid(self, filename, content, err_pattern):
+        """Test validation of an invalid tool file."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            tool_path = Path(tmpdir) / "broken.py"
-            tool_path.write_text("def broken(")
+            tool_path = Path(tmpdir) / filename
+            tool_path.write_text(content)
 
             result = validate_tool_file(tool_path)
             assert result.valid is False
-            assert any("syntax" in e.lower() for e in result.errors)
-
-    def test_validate_file_missing_tool_meta(self):
-        """Test validation of file without TOOL_META."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tool_path = Path(tmpdir) / "no_meta.py"
-            tool_path.write_text("def foo(): pass")
-
-            result = validate_tool_file(tool_path)
-            assert result.valid is False
-            assert any("tool_meta" in e.lower() for e in result.errors)
+            assert any(err_pattern in e.lower() for e in result.errors)
 
     def test_validate_file_incomplete_meta(self):
         """Test validation of file with incomplete TOOL_META."""
@@ -972,21 +963,17 @@ def tool(): pass
             assert result.valid is True
             assert tool_path.exists()
 
-    def test_write_invalid_syntax_no_file(self):
-        """Test that invalid syntax doesn't create file."""
+    @pytest.mark.parametrize(
+        ("filename", "code"),
+        [
+            ("broken.py", "def broken("),
+            ("no_meta.py", "def foo(): pass"),
+        ],
+    )
+    def test_write_invalid_code_no_file(self, filename, code):
+        """Test that invalid code doesn't create the file."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            tool_path = Path(tmpdir) / "broken.py"
-            code = "def broken("
-
-            result = validate_and_write_tool(code, tool_path, safe_root=Path(tmpdir))
-            assert result.valid is False
-            assert not tool_path.exists()
-
-    def test_write_missing_meta_no_file(self):
-        """Test that missing TOOL_META doesn't create file."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tool_path = Path(tmpdir) / "no_meta.py"
-            code = "def foo(): pass"
+            tool_path = Path(tmpdir) / filename
 
             result = validate_and_write_tool(code, tool_path, safe_root=Path(tmpdir))
             assert result.valid is False
@@ -1217,8 +1204,15 @@ class TestHandleUpdateAction:
             assert result.success is False
             assert "not found" in result.error
 
-    def test_update_invalid_syntax(self):
-        """Test update with invalid syntax code."""
+    @pytest.mark.parametrize(
+        ("new_code", "error_fragment"),
+        [
+            ("def broken(", "Syntax error"),
+            ("def foo(): pass", "TOOL_META"),
+        ],
+    )
+    def test_update_rejects_invalid_code(self, new_code, error_fragment):
+        """Test that updating with invalid code is rejected."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tools_dir = Path(tmpdir)
             tool_file = tools_dir / "test_tool.py"
@@ -1251,53 +1245,11 @@ def test_tool(): pass
                 mock_registry.get_tool.return_value = tool_info
                 mock_get_registry.return_value = mock_registry
 
-                # Try to update with invalid syntax
                 result = _handle_update_action(
-                    context, "test_tool", "def broken(", None
+                    context, "test_tool", new_code, None
                 )
                 assert result.success is False
-                assert "Syntax error" in result.error
-
-    def test_update_missing_tool_meta(self):
-        """Test update with code missing TOOL_META."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tools_dir = Path(tmpdir)
-            tool_file = tools_dir / "test_tool.py"
-            original_code = """
-TOOL_META = {"name": "test_tool", "description": "Test"}
-def test_tool(): pass
-"""
-            tool_file.write_text(original_code)
-
-            from unittest.mock import Mock, patch
-
-            from code_puppy.plugins.universal_constructor.models import (
-                ToolMeta,
-                UCToolInfo,
-            )
-            from code_puppy.tools.universal_constructor import _handle_update_action
-
-            meta = ToolMeta(name="test_tool", description="Test")
-            tool_info = UCToolInfo(
-                meta=meta,
-                signature="test_tool()",
-                source_path=str(tool_file),
-            )
-
-            context = Mock()
-            with patch(
-                "code_puppy.plugins.universal_constructor.registry.get_registry"
-            ) as mock_get_registry:
-                mock_registry = Mock()
-                mock_registry.get_tool.return_value = tool_info
-                mock_get_registry.return_value = mock_registry
-
-                # Try to update with code that has no TOOL_META
-                result = _handle_update_action(
-                    context, "test_tool", "def foo(): pass", None
-                )
-                assert result.success is False
-                assert "TOOL_META" in result.error
+                assert error_fragment in result.error
 
     def test_update_code_success(self):
         """Test successful code update."""
