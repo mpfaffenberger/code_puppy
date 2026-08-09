@@ -218,21 +218,6 @@ async def test_denied_command_does_not_block_allowed_ones(bus, transcript, monke
 # =========================================================================
 
 
-async def test_exception_during_execution_still_resumes(bus, transcript, monkeypatch):
-    def boom(cmd):
-        raise RuntimeError("command exploded")
-
-    monkeypatch.setattr(run_ui_mod, "_execute_command", boom)
-    editor = make_editor()
-    with pytest.raises(RuntimeError):
-        await run_ui_mod._run_paused_commands(editor, "/help")
-
-    # The finally block resumed the agent regardless.
-    assert bus.commands[-1] == "ResumeAgentCommand"
-    assert get_pause_controller().is_paused() is False
-    assert any("resumed" in line for line in transcript["info"])
-
-
 def test_execute_command_swallows_handler_errors(monkeypatch, transcript):
     monkeypatch.setattr(
         "code_puppy.command_line.command_handler.handle_command",

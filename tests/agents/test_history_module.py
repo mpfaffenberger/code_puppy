@@ -156,16 +156,13 @@ class TestEstimateTokensForMessage:
         assert boosted > baseline
         assert boosted == max(1, int(baseline * 1.35))
 
-    def test_unknown_model_no_multiplier(self):
+    @pytest.mark.parametrize(
+        "model_name", ["gpt-4o", None], ids=["unknown_model", "none_model"]
+    )
+    def test_unknown_or_none_model_no_multiplier(self, model_name):
         msg = ModelRequest([TextPart("hello world " * 50)])
         assert estimate_tokens_for_message(
-            msg, model_name="gpt-4o"
-        ) == estimate_tokens_for_message(msg)
-
-    def test_none_model_no_multiplier(self):
-        msg = ModelRequest([TextPart("hello world " * 50)])
-        assert estimate_tokens_for_message(
-            msg, model_name=None
+            msg, model_name=model_name
         ) == estimate_tokens_for_message(msg)
 
 

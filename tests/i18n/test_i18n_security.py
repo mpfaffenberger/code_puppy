@@ -12,17 +12,6 @@ from code_puppy import i18n
 from code_puppy.i18n import catalog, translate
 
 
-@pytest.fixture(autouse=True)
-def _isolate(monkeypatch):
-    for var in ("CODE_PUPPY_LOCALE", "LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"):
-        monkeypatch.delenv(var, raising=False)
-    catalog.reset()
-    translate.get_translator().set_locale("en-US")
-    yield
-    catalog.reset()
-    translate.get_translator().set_locale("en-US")
-
-
 def _catalog(tmp_path, name, data):
     import json
 

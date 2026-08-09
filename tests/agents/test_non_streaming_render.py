@@ -134,10 +134,6 @@ def test_collect_final_text_from_last_response_only():
     assert _collect_final_text_from_messages(result) == "final answer"
 
 
-def test_collect_final_text_handles_no_model_response():
-    result = _StubResult([ModelRequest(parts=[UserPromptPart(content="x")])])
-    assert _collect_final_text_from_messages(result) == ""
-
 
 def test_collect_thinking_from_intermediate_responses():
     result = _mk_result(

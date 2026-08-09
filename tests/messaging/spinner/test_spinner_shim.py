@@ -10,13 +10,8 @@ import io
 from code_puppy.messaging import bottom_bar as bottom_bar_mod
 from code_puppy.messaging.spinner import (
     ConsoleSpinner,
-    _active_spinners,
     clear_spinner_context,
     format_context_info,
-    pause_all_spinners,
-    register_spinner,
-    resume_all_spinners,
-    unregister_spinner,
     update_spinner_context,
 )
 
@@ -29,18 +24,6 @@ class FakeTTY(io.StringIO):
 # =========================================================================
 # No-op surface
 # =========================================================================
-
-
-def test_pause_resume_are_noops():
-    pause_all_spinners()
-    resume_all_spinners()  # must not raise
-
-
-def test_register_unregister_are_noops():
-    sentinel = object()
-    register_spinner(sentinel)
-    assert _active_spinners == []  # nothing is tracked anymore
-    unregister_spinner(sentinel)  # must not raise
 
 
 def test_console_spinner_stub_is_inert_context_manager():

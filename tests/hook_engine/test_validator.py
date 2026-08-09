@@ -1,125 +1,104 @@
 """Tests for hook configuration validator."""
 
+import pytest
+
 from code_puppy.hook_engine.validator import (
     format_validation_report,
     validate_hooks_config,
 )
 
+_CMD = {"type": "command", "command": "echo test"}
 
-class TestValidateHooksConfig:
-    def test_valid_pre_tool_use(self):
-        config = {
-            "PreToolUse": [
-                {"matcher": "*", "hooks": [{"type": "command", "command": "echo test"}]}
-            ]
-        }
-        is_valid, errors = validate_hooks_config(config)
-        assert is_valid is True
-        assert errors == []
 
-    def test_valid_post_tool_use(self):
-        config = {
+def _cfg(**event_map):
+    """Event map of {event: rules}; each rule may be a dict or list of hook dicts."""
+    out = {}
+    for event, rules in event_map.items():
+        if isinstance(rules, list) and rules and isinstance(rules[0], dict):
+            out[event] = [{"matcher": "*", "hooks": rules}]
+        else:
+            out[event] = rules
+    return out
+
+
+# (name, config, expected_valid, error-substring when invalid)
+_VALIDATION_CASES = [
+    ("valid_pre_tool_use", _cfg(PreToolUse=[_CMD]), True, None),
+    (
+        "valid_post_tool_use",
+        {
             "PostToolUse": [
                 {
                     "matcher": "Edit",
                     "hooks": [{"type": "command", "command": "black ${file}"}],
                 }
             ]
-        }
-        is_valid, errors = validate_hooks_config(config)
-        assert is_valid is True
-
-    def test_invalid_event_type(self):
-        config = {"BadEvent": []}
-        is_valid, errors = validate_hooks_config(config)
-        assert is_valid is False
-        assert any("BadEvent" in e for e in errors)
-
-    def test_missing_matcher(self):
-        config = {
-            "PreToolUse": [{"hooks": [{"type": "command", "command": "echo test"}]}]
-        }
-        is_valid, errors = validate_hooks_config(config)
-        assert is_valid is False
-        assert any("matcher" in e for e in errors)
-
-    def test_missing_hooks(self):
-        config = {"PreToolUse": [{"matcher": "*"}]}
-        is_valid, errors = validate_hooks_config(config)
-        assert is_valid is False
-        assert any("hooks" in e for e in errors)
-
-    def test_invalid_hook_type(self):
-        config = {
+        },
+        True,
+        None,
+    ),
+    ("invalid_event_type", {"BadEvent": []}, False, "BadEvent"),
+    ("missing_matcher", {"PreToolUse": [{"hooks": [_CMD]}]}, False, "matcher"),
+    ("missing_hooks", {"PreToolUse": [{"matcher": "*"}]}, False, "hooks"),
+    (
+        "invalid_hook_type",
+        {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "invalid", "command": "echo test"}]}]},
+        False,
+        "invalid",
+    ),
+    (
+        "missing_command",
+        {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command"}]}]},
+        False,
+        "command",
+    ),
+    (
+        "timeout_too_low",
+        {
             "PreToolUse": [
-                {"matcher": "*", "hooks": [{"type": "invalid", "command": "echo test"}]}
+                {"matcher": "*", "hooks": [{"type": "command", "command": "echo test", "timeout": 50}]}
             ]
-        }
-        is_valid, errors = validate_hooks_config(config)
-        assert is_valid is False
-        assert any("invalid" in e for e in errors)
-
-    def test_missing_command(self):
-        config = {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command"}]}]}
-        is_valid, errors = validate_hooks_config(config)
-        assert is_valid is False
-        assert any("command" in e for e in errors)
-
-    def test_timeout_too_low(self):
-        config = {
+        },
+        False,
+        "timeout",
+    ),
+    # A _comment key is skipped, the rest still validates.
+    ("skip_comment_keys", {"_comment": "This is a comment", **_cfg(PreToolUse=[_CMD])}, True, None),
+    ("non_dict_config", [], False, None),
+    (
+        "valid_prompt_hook",
+        {
             "PreToolUse": [
-                {
-                    "matcher": "*",
-                    "hooks": [
-                        {"type": "command", "command": "echo test", "timeout": 50}
-                    ],
-                }
+                {"matcher": "*", "hooks": [{"type": "prompt", "prompt": "validate this"}]}
             ]
-        }
-        is_valid, errors = validate_hooks_config(config)
-        assert is_valid is False
-        assert any("timeout" in e for e in errors)
-
-    def test_skip_comment_keys(self):
-        config = {
-            "_comment": "This is a comment",
-            "PreToolUse": [
-                {"matcher": "*", "hooks": [{"type": "command", "command": "echo test"}]}
-            ],
-        }
-        is_valid, errors = validate_hooks_config(config)
-        assert is_valid is True
-
-    def test_non_dict_config(self):
-        is_valid, errors = validate_hooks_config([])
-        assert is_valid is False
-
-    def test_valid_prompt_hook(self):
-        config = {
-            "PreToolUse": [
-                {
-                    "matcher": "*",
-                    "hooks": [{"type": "prompt", "prompt": "validate this"}],
-                }
-            ]
-        }
-        is_valid, errors = validate_hooks_config(config)
-        assert is_valid is True
-
-    def test_multiple_event_types(self):
-        config = {
-            "PreToolUse": [
-                {"matcher": "*", "hooks": [{"type": "command", "command": "echo pre"}]}
-            ],
+        },
+        True,
+        None,
+    ),
+    (
+        "multiple_event_types",
+        {
+            "PreToolUse": [{"matcher": "*", "hooks": [_CMD]}],
             "PostToolUse": [
-                {
-                    "matcher": "Edit",
-                    "hooks": [{"type": "command", "command": "echo post"}],
-                }
+                {"matcher": "Edit", "hooks": [{"type": "command", "command": "echo post"}]}
             ],
-        }
-        is_valid, errors = validate_hooks_config(config)
-        assert is_valid is True
+        },
+        True,
+        None,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "name,config,expected_valid,keyword",
+    _VALIDATION_CASES,
+    ids=[c[0] for c in _VALIDATION_CASES],
+)
+def test_validate_hooks_config(name, config, expected_valid, keyword):
+    is_valid, errors = validate_hooks_config(config)
+    assert is_valid is expected_valid
+    if keyword is not None:
+        assert any(keyword in e for e in errors)
 
 
 class TestFormatValidationReport:

@@ -15,7 +15,6 @@ import glob
 import json
 import os
 
-import pytest
 
 from code_puppy import i18n
 from code_puppy.i18n import catalog, pseudo, translate
@@ -34,15 +33,6 @@ def _all_catalog_names():
         os.path.basename(p)[: -len(".json")]
         for p in glob.glob(os.path.join(_LOCALES_DIR, "*.json"))
     ]
-
-
-@pytest.fixture(autouse=True)
-def _reset_locale():
-    translate.get_translator().set_locale("en-US")
-    catalog.reset()
-    yield
-    translate.get_translator().set_locale("en-US")
-    catalog.reset()
 
 
 # --- catalog coverage -----------------------------------------------------

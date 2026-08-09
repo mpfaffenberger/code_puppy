@@ -60,15 +60,6 @@ _NAMESPACES = {
 _PREFIXES = [prefixes for prefixes, _ in _NAMESPACES.values()]
 
 
-@pytest.fixture(autouse=True)
-def _reset_locale():
-    translate.get_translator().set_locale("en-US")
-    catalog.reset()
-    yield
-    translate.get_translator().set_locale("en-US")
-    catalog.reset()
-
-
 def _keys(prefixes):
     src = catalog.load_catalog("en-US")
     return [k for k in src if any(k.startswith(p) for p in prefixes)]

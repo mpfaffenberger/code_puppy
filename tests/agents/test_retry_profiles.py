@@ -86,17 +86,17 @@ class TestGuardrails:
         assert rp.make("main", "balanced", 0).max_attempts == rp.MIN_ATTEMPTS_FLOOR
         assert rp.make("main", "balanced", -5).max_attempts == rp.MIN_ATTEMPTS_FLOOR
 
-    def test_unknown_strategy_falls_back_to_balanced(self):
-        assert rp.make("main", "turbo-nonsense", 5).strategy == "balanced"
+    @pytest.mark.parametrize(
+        "strategy", ["turbo-nonsense", None], ids=["unknown", "none"]
+    )
+    def test_unknown_or_none_strategy_falls_back_to_balanced(self, strategy):
+        assert rp.make("main", strategy, 5).strategy == "balanced"
 
     def test_non_string_strategy_falls_back_not_crashes(self):
         # ``make`` is module-public; a caller passing a non-str strategy must
         # fall back gracefully rather than AttributeError on ``.lower()``.
         assert rp.make("main", 123, 5).strategy == "balanced"  # type: ignore[arg-type]
         assert rp.make("main", ["gentle"], 5).strategy == "balanced"  # type: ignore[arg-type]
-
-    def test_none_strategy_falls_back_to_role_default(self):
-        assert rp.make("main", None, 5).strategy == "balanced"
 
     def test_n_attempts_yields_n_minus_1_delays(self):
         assert len(rp.RetryProfile("main", "balanced", 1).compute_delays()) == 0

@@ -351,27 +351,16 @@ async def test_message_renderer_stop_cancelled_error(mq):
     assert not r._running
 
 
-def test_sync_renderer_human_input_request_no_prompt_id(mq):
+@pytest.mark.parametrize(
+    "metadata", [{}, None], ids=["no_prompt_id", "no_metadata"]
+)
+def test_sync_renderer_human_input_request_missing_prompt_id(mq, metadata):
     console = make_console()
     r = SynchronousInteractiveRenderer(mq, console=console)
-    msg = UIMessage(
-        type=MessageType.HUMAN_INPUT_REQUEST,
-        content="prompt",
-        metadata={},
-    )
-    r._render_message(msg)
-    output = console.file.getvalue()
-    assert "Error" in output
-
-
-def test_sync_renderer_human_input_request_no_metadata(mq):
-    console = make_console()
-    r = SynchronousInteractiveRenderer(mq, console=console)
-    msg = UIMessage(
-        type=MessageType.HUMAN_INPUT_REQUEST,
-        content="prompt",
-    )
-    msg.metadata = None
+    # Post-assignment on purpose: UIMessage.__post_init__ would otherwise
+    # normalize a None metadata to {} before the renderer can see it.
+    msg = UIMessage(type=MessageType.HUMAN_INPUT_REQUEST, content="prompt")
+    msg.metadata = metadata
     r._render_message(msg)
     output = console.file.getvalue()
     assert "Error" in output

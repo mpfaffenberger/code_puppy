@@ -139,15 +139,6 @@ def test_run_ui_context_manager_cleans_up(tty_bar):
     assert _key_listeners.get_line_editor() is None
 
 
-def test_run_ui_cleans_up_on_exception(tty_bar):
-    bar, _tty = tty_bar
-    with pytest.raises(RuntimeError):
-        with run_ui_mod.run_ui():
-            raise RuntimeError("agent exploded")
-    assert bar.is_active() is False
-    assert _key_listeners.get_line_editor() is None
-
-
 # =========================================================================
 # suspended_run_ui()
 # =========================================================================

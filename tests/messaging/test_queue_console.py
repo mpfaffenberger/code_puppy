@@ -229,38 +229,26 @@ def test_status(qc, mq):
 
 
 @patch("code_puppy.tools.command_runner.set_awaiting_user_input")
-@patch("builtins.input", return_value="user response")
-def test_input(mock_input, mock_set, qc, mq):
-    result = qc.input("Enter:")
-    assert result == "user response"
-
-
-@patch("code_puppy.tools.command_runner.set_awaiting_user_input")
-@patch("builtins.input", return_value="")
-def test_input_empty(mock_input, mock_set, qc, mq):
-    result = qc.input("Enter:")
-    assert result == ""
-
-
-@patch("code_puppy.tools.command_runner.set_awaiting_user_input")
-@patch("builtins.input", side_effect=KeyboardInterrupt)
-def test_input_keyboard_interrupt(mock_input, mock_set, qc, mq):
-    result = qc.input("Enter:")
-    assert result == ""
-
-
-@patch("code_puppy.tools.command_runner.set_awaiting_user_input")
-@patch("builtins.input", side_effect=EOFError)
-def test_input_eof(mock_input, mock_set, qc, mq):
-    result = qc.input("Enter:")
-    assert result == ""
-
-
-@patch("code_puppy.tools.command_runner.set_awaiting_user_input")
-@patch("builtins.input", return_value="val")
-def test_input_no_prompt(mock_input, mock_set, qc, mq):
-    result = qc.input()
-    assert result == "val"
+@pytest.mark.parametrize(
+    (
+        "mock_return",
+        "side_effect",
+        "prompt",
+        "expected",
+    ),
+    [
+        ("user response", None, "Enter:", "user response"),  # normal
+        ("", None, "Enter:", ""),  # empty input
+        (None, KeyboardInterrupt, "Enter:", ""),  # Ctrl+C
+        (None, EOFError, "Enter:", ""),  # EOF
+        ("val", None, None, "val"),  # no prompt
+    ],
+    ids=["normal", "empty", "keyboard_interrupt", "eof", "no_prompt"],
+)
+def test_input(mock_set, mock_return, side_effect, prompt, expected, qc, mq):
+    with patch("builtins.input", return_value=mock_return, side_effect=side_effect):
+        result = qc.input(prompt) if prompt is not None else qc.input()
+    assert result == expected
 
 
 # =========================================================================

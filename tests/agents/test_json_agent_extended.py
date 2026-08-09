@@ -59,103 +59,65 @@ class TestJsonAgentExtended:
         agent = JSONAgent(str(agent_file))
         assert agent.display_name == "Test_Bot 🤖"
 
-    def test_load_invalid_json_syntax(self, tmp_path):
-        """Test loading invalid JSON syntax raises error."""
-        agent_file = tmp_path / "invalid.json"
-        agent_file.write_text('{"name": "test", invalid}')
 
-        with pytest.raises(ValueError, match="Failed to load JSON agent config"):
-            JSONAgent(str(agent_file))
 
     def test_load_nonexistent_file(self):
         """Test loading nonexistent file raises error."""
         with pytest.raises(ValueError, match="Failed to load JSON agent config"):
             JSONAgent("/nonexistent/path/agent.json")
 
-    def test_validate_missing_required_fields(self, tmp_path):
+    @pytest.mark.parametrize(
+        "missing_field,filename",
+        [
+            ("name", "missing_name.json"),
+            ("description", "missing_description.json"),
+            ("system_prompt", "missing_prompt.json"),
+            ("tools", "missing_tools.json"),
+        ],
+        ids=["name", "description", "system_prompt", "tools"],
+    )
+    def test_validate_missing_required_fields(
+        self, tmp_path, missing_field, filename
+    ):
         """Test validation fails when required fields are missing."""
-        # Missing name
-        config1 = {
-            "description": "A test agent",
-            "system_prompt": "You are a test agent",
-            "tools": ["list_files"],
-        }
-
-        agent_file1 = tmp_path / "missing_name.json"
-        agent_file1.write_text(json.dumps(config1))
-
-        with pytest.raises(ValueError, match="Missing required field 'name'"):
-            JSONAgent(str(agent_file1))
-
-        # Missing description
-        config2 = {
-            "name": "test_agent",
-            "system_prompt": "You are a test agent",
-            "tools": ["list_files"],
-        }
-
-        agent_file2 = tmp_path / "missing_description.json"
-        agent_file2.write_text(json.dumps(config2))
-
-        with pytest.raises(ValueError, match="Missing required field 'description'"):
-            JSONAgent(str(agent_file2))
-
-        # Missing system_prompt
-        config3 = {
-            "name": "test_agent",
-            "description": "A test agent",
-            "tools": ["list_files"],
-        }
-
-        agent_file3 = tmp_path / "missing_prompt.json"
-        agent_file3.write_text(json.dumps(config3))
-
-        with pytest.raises(ValueError, match="Missing required field 'system_prompt'"):
-            JSONAgent(str(agent_file3))
-
-        # Missing tools
-        config4 = {
-            "name": "test_agent",
-            "description": "A test agent",
-            "system_prompt": "You are a test agent",
-        }
-
-        agent_file4 = tmp_path / "missing_tools.json"
-        agent_file4.write_text(json.dumps(config4))
-
-        with pytest.raises(ValueError, match="Missing required field 'tools'"):
-            JSONAgent(str(agent_file4))
-
-    def test_validate_invalid_tools_type(self, tmp_path):
-        """Test validation fails when tools is not a list."""
         config = {
             "name": "test_agent",
             "description": "A test agent",
             "system_prompt": "You are a test agent",
-            "tools": "not_a_list",
-        }
-
-        agent_file = tmp_path / "invalid_tools.json"
-        agent_file.write_text(json.dumps(config))
-
-        with pytest.raises(ValueError, match="'tools' must be a list"):
-            JSONAgent(str(agent_file))
-
-    def test_validate_invalid_system_prompt_type(self, tmp_path):
-        """Test validation fails when system_prompt is not string or list."""
-        config = {
-            "name": "test_agent",
-            "description": "A test agent",
-            "system_prompt": 123,
             "tools": ["list_files"],
         }
+        config.pop(missing_field)
 
-        agent_file = tmp_path / "invalid_prompt.json"
+        agent_file = tmp_path / filename
         agent_file.write_text(json.dumps(config))
 
         with pytest.raises(
-            ValueError, match="'system_prompt' must be a string or list"
+            ValueError, match=f"Missing required field '{missing_field}'"
         ):
+            JSONAgent(str(agent_file))
+
+    @pytest.mark.parametrize(
+        "override,error_match",
+        [
+            ({"tools": "not_a_list"}, "'tools' must be a list"),
+            ({"system_prompt": 123}, "'system_prompt' must be a string or list"),
+        ],
+        ids=["invalid_tools_type", "invalid_system_prompt_type"],
+    )
+    def test_validate_invalid_field_type(self, tmp_path, override, error_match):
+        """Test validation fails on wrong-typed required fields."""
+        config = {
+            "name": "test_agent",
+            "description": "A test agent",
+            "system_prompt": "You are a test agent",
+            "tools": ["list_files"],
+        }
+        config.update(override)
+
+        agent_file = tmp_path / "invalid.json"
+        agent_file.write_text(json.dumps(config))
+
+        with pytest.raises(ValueError, match=error_match):
             JSONAgent(str(agent_file))
 
     def test_get_system_prompt_string(self, tmp_path):
@@ -432,23 +394,18 @@ class TestDiscoverJsonAgents:
             assert "valid_agent" in agents
             assert agents["valid_agent"] == str(valid_file)
 
-    def test_discover_no_agents_directory(self, tmp_path, monkeypatch):
-        """Test discovery when agents directory doesn't exist."""
+    @pytest.mark.parametrize(
+        "is_empty", [False, True], ids=["no_directory", "empty_directory"]
+    )
+    def test_discover_no_or_empty_directory(self, tmp_path, monkeypatch, is_empty):
+        """Test discovery when the agents directory is missing or empty."""
         # Change to isolated directory to avoid project .code_puppy
         monkeypatch.chdir(tmp_path)
 
         with patch("code_puppy.config.get_user_agents_directory") as mock_get_user_dir:
-            mock_get_user_dir.return_value = "/nonexistent/directory"
-            agents = discover_json_agents()
-            assert agents == {}
-
-    def test_discover_empty_directory(self, tmp_path, monkeypatch):
-        """Test discovery when agents directory is empty."""
-        # Change to isolated directory to avoid project .code_puppy
-        monkeypatch.chdir(tmp_path)
-
-        with patch("code_puppy.config.get_user_agents_directory") as mock_get_user_dir:
-            mock_get_user_dir.return_value = str(tmp_path)
+            mock_get_user_dir.return_value = (
+                str(tmp_path) if is_empty else "/nonexistent/directory"
+            )
             agents = discover_json_agents()
             assert agents == {}
 

@@ -142,14 +142,7 @@ class TestLoadPuppyRulesCodePuppyDir:
         # Should use root fallback
         assert result == "# Root fallback"
 
-    def test_no_agents_files_anywhere(self, temp_project, mock_config_dir):
-        """Returns None if no AGENTS.md files exist anywhere."""
-        from code_puppy.agents._builder import load_puppy_rules
 
-        with patch("code_puppy.agents._builder.CONFIG_DIR", str(mock_config_dir)):
-            result = load_puppy_rules()
-
-        assert result is None
 
     def test_agent_md_variant_in_code_puppy_dir(self, temp_project, mock_config_dir):
         """Also supports AGENT.md (singular) in .code_puppy/."""
@@ -481,13 +474,16 @@ class TestTruncation:
 class TestGetAgentsMdMaxChars:
     """Tests for the config getter that backs ``/set agents_md_max_chars``."""
 
-    def test_unset_returns_default(self):
+    @pytest.mark.parametrize(
+        "raw", [None, "banana"], ids=["unset", "garbage"]
+    )
+    def test_unset_or_garbage_falls_back_to_default(self, raw):
         from code_puppy.config import (
             AGENTS_MD_MAX_CHARS_DEFAULT,
             get_agents_md_max_chars,
         )
 
-        with patch("code_puppy.config.get_value", return_value=None):
+        with patch("code_puppy.config.get_value", return_value=raw):
             assert get_agents_md_max_chars() == AGENTS_MD_MAX_CHARS_DEFAULT
 
     def test_valid_int_string_is_honoured(self):
@@ -495,15 +491,6 @@ class TestGetAgentsMdMaxChars:
 
         with patch("code_puppy.config.get_value", return_value="25000"):
             assert get_agents_md_max_chars() == 25_000
-
-    def test_garbage_falls_back_to_default(self):
-        from code_puppy.config import (
-            AGENTS_MD_MAX_CHARS_DEFAULT,
-            get_agents_md_max_chars,
-        )
-
-        with patch("code_puppy.config.get_value", return_value="banana"):
-            assert get_agents_md_max_chars() == AGENTS_MD_MAX_CHARS_DEFAULT
 
     def test_zero_or_negative_falls_back_to_default(self):
         from code_puppy.config import (

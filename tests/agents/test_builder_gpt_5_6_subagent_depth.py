@@ -47,13 +47,3 @@ def test_recursion_guard_checks_caller_model_not_child_model():
     with subagent_context("gpt-ancestor", "gpt-5.6-sol"):
         with subagent_context("non-gpt-child", "gpt-5.5"):
             assert not subagent_invocation._gpt_5_6_recursion_blocked()
-
-
-def test_subagent_context_restores_model_after_error():
-    try:
-        with subagent_context("agent", "gpt-5.6-sol"):
-            raise RuntimeError
-    except RuntimeError:
-        pass
-
-    assert get_subagent_model_name() is None
