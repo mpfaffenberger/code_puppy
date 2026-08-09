@@ -1,19 +1,18 @@
 """Comprehensive tests for browser_scripts.py module.
 
-Tests JavaScript execution, page manipulation, scrolling, viewport management,
-element highlighting, and waiting strategies. Achieves 70%+ coverage.
+Tests JavaScript execution, page manipulation, scrolling (page- and
+element-level in every direction), viewport management, element highlighting,
+and waiting strategies — plus every exception and no-active-page branch. The
+repetitive per-operation bodies are table-driven with the distinct assertions
+preserved.
 """
 
-# Import the module directly to avoid circular imports
-import sys
-from pathlib import Path
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "code_puppy"))
-
-from tools.browser.browser_scripts import (
+from code_puppy.tools.browser.browser_scripts import (
     clear_highlights,
     execute_javascript,
     highlight_element,
@@ -30,666 +29,369 @@ from tools.browser.browser_scripts import (
     wait_for_element,
 )
 
+MOD = "code_puppy.tools.browser.browser_scripts"
+
+
+@contextmanager
+def _mgr(manager):
+    with patch(f"{MOD}.get_session_browser_manager", return_value=manager):
+        yield
+
 
 class BrowserScriptsBaseTest:
-    """Base test class with common mocking for browser scripts."""
+    """Base fixtures for mocking the browser manager, page and locator."""
 
     @pytest.fixture
     def mock_browser_manager(self):
-        """Mock the browser manager and page."""
         manager = AsyncMock()
         page = AsyncMock()
-        # Make page.locator a regular MagicMock to return locator fixtures
         page.locator = MagicMock()
         manager.get_current_page.return_value = page
         return manager, page
 
     @pytest.fixture
     def mock_locator(self):
-        """Mock a Playwright locator with common methods.
-
-        Note: The locator.first property returns self to handle the .first
-        chaining pattern used in the browser tools for strict mode handling.
-        """
         locator = AsyncMock()
         locator.wait_for = AsyncMock()
         locator.scroll_into_view_if_needed = AsyncMock()
         locator.is_visible = AsyncMock(return_value=True)
         locator.evaluate = AsyncMock()
-        # Support .first chaining for strict mode handling
-        locator.first = locator
+        locator.first = locator  # support .first strict-mode chaining
         return locator
 
     @pytest.fixture
     def mock_context(self):
-        """Mock RunContext for testing registration functions."""
         return MagicMock()
 
 
 class TestExecuteJavaScript(BrowserScriptsBaseTest):
-    """Test execute_javascript function and its registration."""
+    """JavaScript execution result shapes and failure handling."""
 
     @pytest.mark.asyncio
-    async def test_execute_javascript_success(self, mock_browser_manager):
-        """Test successful JavaScript execution with result."""
+    @pytest.mark.parametrize(
+        "return_value,expected",
+        [
+            (
+                {"success": True, "data": "result"},
+                {"success": True, "script": "return document.title;",
+                 "result": {"success": True, "data": "result"}},
+            ),
+            (None, {"success": True, "script": "console.log('hello');",
+                    "result": None}),
+            ("Hello World", {"success": True, "script": "return 'Hello World';",
+                             "result": "Hello World"}),
+        ],
+        ids=["dict", "void", "string"],
+    )
+    async def test_execute_javascript_results(
+        self, mock_browser_manager, return_value, expected
+    ):
         manager, page = mock_browser_manager
-        page.evaluate.return_value = {"success": True, "data": "result"}
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            script = "return document.title;"
-            result = await execute_javascript(script, timeout=5000)
-
-            assert result["success"]
-            assert result["script"] == script
-            assert result["result"] == {"success": True, "data": "result"}
-
-            # Note: page.evaluate() does NOT accept timeout param in Playwright
-            page.evaluate.assert_called_once_with(script)
+        page.evaluate.return_value = return_value
+        with _mgr(manager):
+            result = await execute_javascript(expected["script"], timeout=5000)
+        assert result["success"] is expected["success"]
+        assert result["script"] == expected["script"]
+        assert result["result"] == expected["result"]
+        # page.evaluate() does not accept a timeout param in Playwright
+        page.evaluate.assert_called_once_with(expected["script"])
 
     @pytest.mark.asyncio
-    async def test_execute_javascript_void_result(self, mock_browser_manager):
-        """Test JavaScript execution that returns undefined."""
+    @pytest.mark.parametrize(
+        "error_message",
+        ["Syntax Error", "Timeout"],
+        ids=["syntax-error", "timeout"],
+    )
+    async def test_execute_javascript_exception(self, mock_browser_manager, error_message):
         manager, page = mock_browser_manager
-        page.evaluate.return_value = None
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            script = "console.log('hello');"
-            result = await execute_javascript(script)
-
-            assert result["success"]
-            assert result["result"] is None
-
-    @pytest.mark.asyncio
-    async def test_execute_javascript_string_result(self, mock_browser_manager):
-        """Test JavaScript execution returning a string."""
-        manager, page = mock_browser_manager
-        page.evaluate.return_value = "Hello World"
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            script = "return 'Hello World';"
-            result = await execute_javascript(script)
-
-            assert result["success"]
-            assert result["result"] == "Hello World"
-
-    @pytest.mark.asyncio
-    async def test_execute_javascript_exception(self, mock_browser_manager):
-        """Test exception handling during JavaScript execution."""
-        manager, page = mock_browser_manager
-        page.evaluate.side_effect = Exception("Syntax Error")
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            script = "invalid javaScript code"
-            result = await execute_javascript(script)
-
-            assert result["success"] is False
-            assert "Syntax Error" in result["error"]
-            assert result["script"] == script
-
-    @pytest.mark.asyncio
-    async def test_execute_javascript_timeout(self, mock_browser_manager):
-        """Test JavaScript execution with timeout."""
-        manager, page = mock_browser_manager
-        page.evaluate.side_effect = Exception("Timeout")
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            script = "while(true) { }"  # Infinite loop
+        page.evaluate.side_effect = Exception(error_message)
+        script = "invalid javaScript code" if "yntax" in error_message else "while(true) { }"
+        with _mgr(manager):
             result = await execute_javascript(script, timeout=1000)
-
-            assert result["success"] is False
-            assert "Timeout" in result["error"] or "exceeded" in result["error"]
+        assert result["success"] is False
+        assert error_message in result["error"] or "exceeded" in result["error"]
+        assert result["script"] == script
 
 
 class TestScrollPage(BrowserScriptsBaseTest):
-    """Test scroll_page function and its registration."""
+    """Page- and element-level scrolling in every direction."""
 
     @pytest.mark.asyncio
-    async def test_scroll_page_down(self, mock_browser_manager):
-        """Test scrolling page down."""
-        manager, page = mock_browser_manager
-        # Mock the sequence of evaluate calls:
-        # 1. Get viewport height: 600
-        # 2. Scroll by (no return value needed): None
-        # 3. Get scroll position: {"x": 0, "y": 200}
-        page.evaluate.side_effect = [600, None, {"x": 0, "y": 200}]
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            result = await scroll_page(direction="down", amount=3)
-
-            assert result["success"]
-            assert result["direction"] == "down"
-            assert result["amount"] == 3
-            assert result["target"] == "page"
-            assert result["scroll_position"] == {"x": 0, "y": 200}
-
-    @pytest.mark.asyncio
-    async def test_scroll_page_up(self, mock_browser_manager):
-        """Test scrolling page up."""
-        manager, page = mock_browser_manager
-        # Mock the sequence of evaluate calls:
-        # 1. Get viewport height: 600
-        # 2. Scroll by (no return value needed): None
-        # 3. Get scroll position: {"x": 0, "y": -100}
-        page.evaluate.side_effect = [600, None, {"x": 0, "y": -100}]
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            result = await scroll_page(direction="up", amount=2)
-
-            assert result["success"]
-            assert result["direction"] == "up"
-            # Should verify the scroll call uses negative amount
-            page.evaluate.assert_any_call("window.scrollBy(0, -400.0)")
-
-    @pytest.mark.asyncio
-    async def test_scroll_page_left_right(self, mock_browser_manager):
-        """Test horizontal scrolling."""
-        manager, page = mock_browser_manager
-        # Mock the sequence of evaluate calls:
-        # 1. Get viewport height: 600
-        # 2. Scroll by (no return value needed): None
-        # 3. Get scroll position: {"x": -150, "y": 0}
-        page.evaluate.side_effect = [600, None, {"x": -150, "y": 0}]
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            result = await scroll_page(direction="left", amount=3)
-
-            assert result["success"]
-            assert result["direction"] == "left"
-            # Horizontal scroll should use page width calculation
-
-    @pytest.mark.asyncio
-    async def test_scroll_page_element_scrolling(
-        self, mock_browser_manager, mock_locator
+    @pytest.mark.parametrize(
+        "direction,amount,position,scroll_by",
+        [
+            ("down", 3, {"x": 0, "y": 200}, "window.scrollBy(0, 600.0)"),
+            ("up", 2, {"x": 0, "y": -100}, "window.scrollBy(0, -400.0)"),
+            ("left", 3, {"x": -150, "y": 0}, "window.scrollBy(-600.0, 0)"),
+            ("right", 3, {"x": 150, "y": 0}, "window.scrollBy(600.0, 0)"),
+        ],
+        ids=["down", "up", "left", "right"],
+    )
+    async def test_scroll_page_directions(
+        self, mock_browser_manager, direction, amount, position, scroll_by
     ):
-        """Test scrolling within a specific element."""
+        manager, page = mock_browser_manager
+        page.evaluate.side_effect = [600, None, position]
+        with _mgr(manager):
+            result = await scroll_page(direction=direction, amount=amount)
+
+        assert result["success"]
+        assert result["direction"] == direction
+        assert result["amount"] == amount
+        assert result["target"] == "page"
+        assert result["scroll_position"] == position
+        page.evaluate.assert_any_call(scroll_by)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "direction", ["down", "up", "left", "right"], ids=lambda x: x
+    )
+    async def test_scroll_page_element_directions(
+        self, mock_browser_manager, mock_locator, direction
+    ):
         manager, page = mock_browser_manager
         locator = mock_locator
-
-        # Mock element scroll info
-        locator.evaluate.side_effect = [
-            {
-                "scrollTop": 0,
-                "scrollLeft": 0,
-                "scrollHeight": 1000,
-                "scrollWidth": 800,
-                "clientHeight": 200,
-                "clientWidth": 400,
-            },
-            None,  # The scroll operation itself (no return value)
-        ]
-        # Mock current page scroll position
+        scroll_info = {
+            "scrollTop": 0, "scrollLeft": 0, "scrollHeight": 1000,
+            "scrollWidth": 800, "clientHeight": 200, "clientWidth": 400,
+        }
+        locator.evaluate.side_effect = [scroll_info, None]
         page.evaluate.return_value = {"x": 0, "y": 0}
 
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
+        with _mgr(manager):
             page.locator.return_value = locator
-
             result = await scroll_page(
-                direction="down", amount=3, element_selector="#scrollable-div"
+                direction=direction, amount=3, element_selector="#scrollable-div"
             )
 
-            assert result["success"]
-            assert result["target"] == "element '#scrollable-div'"
-
-            # Verify element-specific operations
-            locator.scroll_into_view_if_needed.assert_called_once()
-            locator.evaluate.assert_called()  # Should be called for scroll info
+        assert result["success"]
+        assert result["target"] == "element '#scrollable-div'"
+        locator.scroll_into_view_if_needed.assert_called_once()
+        locator.evaluate.assert_called()
 
     @pytest.mark.asyncio
     async def test_scroll_page_exception(self, mock_browser_manager):
-        """Test exception handling during page scrolling."""
         manager, page = mock_browser_manager
         page.evaluate.side_effect = Exception("Scroll failed")
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
+        with _mgr(manager):
             result = await scroll_page("down", 3)
-
-            assert result["success"] is False
-            assert "Scroll failed" in result["error"]
+        assert result["success"] is False
+        assert "Scroll failed" in result["error"]
 
 
 class TestScrollToElement(BrowserScriptsBaseTest):
-    """Test scroll_to_element function and its registration."""
+    """scroll_to_element success, invisible, and failure branches."""
 
     @pytest.mark.asyncio
     async def test_scroll_to_element_success(self, mock_browser_manager, mock_locator):
-        """Test successful scrolling to bring element into view."""
         manager, page = mock_browser_manager
         locator = mock_locator
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
+        with _mgr(manager):
             page.locator.return_value = locator
-
             result = await scroll_to_element("#target-element", timeout=5000)
 
-            assert result["success"]
-            assert result["selector"] == "#target-element"
-            assert result["visible"] is True
-
-            locator.wait_for.assert_called_once_with(state="attached", timeout=5000)
-            locator.scroll_into_view_if_needed.assert_called_once()
-            locator.is_visible.assert_called_once()
+        assert result["success"]
+        assert result["selector"] == "#target-element"
+        assert result["visible"] is True
+        locator.wait_for.assert_called_once_with(state="attached", timeout=5000)
+        locator.scroll_into_view_if_needed.assert_called_once()
+        locator.is_visible.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_scroll_to_element_not_visible(
         self, mock_browser_manager, mock_locator
     ):
-        """Test scrolling to element but it's still not visible."""
         manager, page = mock_browser_manager
         locator = mock_locator
         locator.is_visible.return_value = False
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
+        with _mgr(manager):
             page.locator.return_value = locator
-
             result = await scroll_to_element("#hidden-element")
-
-            assert result["success"]
-            assert result["visible"] is False
+        assert result["success"]
+        assert result["visible"] is False
 
     @pytest.mark.asyncio
     async def test_scroll_to_element_exception(self, mock_browser_manager):
-        """Test exception handling during scroll to element."""
         manager, page = mock_browser_manager
         page.locator.side_effect = Exception("Element not found")
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
+        with _mgr(manager):
             result = await scroll_to_element("#nonexistent")
-
-            assert result["success"] is False
-            assert "Element not found" in result["error"]
+        assert result["success"] is False
+        assert "Element not found" in result["error"]
 
 
 class TestSetViewportSize(BrowserScriptsBaseTest):
-    """Test set_viewport_size function and its registration."""
+    """set_viewport_size success (desktop + mobile) and failure."""
 
     @pytest.mark.asyncio
-    async def test_set_viewport_size_success(self, mock_browser_manager):
-        """Test successful viewport size setting."""
+    @pytest.mark.parametrize(
+        "width,height",
+        [(1200, 800), (375, 667)],
+        ids=["desktop", "mobile"],
+    )
+    async def test_set_viewport_size_success(self, mock_browser_manager, width, height):
         manager, page = mock_browser_manager
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            result = await set_viewport_size(width=1200, height=800)
-
-            assert result["success"]
-            assert result["width"] == 1200
-            assert result["height"] == 800
-
-            page.set_viewport_size.assert_called_once_with(
-                {"width": 1200, "height": 800}
-            )
-
-    @pytest.mark.asyncio
-    async def test_set_viewport_size_mobile(self, mock_browser_manager):
-        """Test setting mobile viewport size."""
-        manager, page = mock_browser_manager
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            result = await set_viewport_size(width=375, height=667)
-
-            assert result["success"]
-            assert result["width"] == 375
-            assert result["height"] == 667
-
-            page.set_viewport_size.assert_called_once_with(
-                {"width": 375, "height": 667}
-            )
+        with _mgr(manager):
+            result = await set_viewport_size(width=width, height=height)
+        assert result["success"]
+        assert result["width"] == width
+        assert result["height"] == height
+        page.set_viewport_size.assert_called_once_with(
+            {"width": width, "height": height}
+        )
 
     @pytest.mark.asyncio
     async def test_set_viewport_size_exception(self, mock_browser_manager):
-        """Test exception handling during viewport setting."""
         manager, page = mock_browser_manager
         page.set_viewport_size.side_effect = Exception("Invalid viewport size")
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
+        with _mgr(manager):
             result = await set_viewport_size(-100, -100)
-
-            assert result["success"] is False
-            assert "Invalid viewport size" in result["error"]
-            assert result["width"] == -100
-            assert result["height"] == -100
+        assert result["success"] is False
+        assert "Invalid viewport size" in result["error"]
+        assert result["width"] == -100
+        assert result["height"] == -100
 
 
 class TestWaitForElement(BrowserScriptsBaseTest):
-    """Test wait_for_element function and its registration."""
+    """wait_for_element for every state plus timeout failure."""
 
     @pytest.mark.asyncio
-    async def test_wait_for_element_visible(self, mock_browser_manager, mock_locator):
-        """Test waiting for element to become visible."""
+    @pytest.mark.parametrize(
+        "state,timeout",
+        [("visible", 5000), ("hidden", 30000), ("attached", 30000),
+         ("detached", 30000)],
+        ids=["visible", "hidden", "attached", "detached"],
+    )
+    async def test_wait_for_element_states(
+        self, mock_browser_manager, mock_locator, state, timeout
+    ):
         manager, page = mock_browser_manager
         locator = mock_locator
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
+        selector = f"#element-{state}"
+        with _mgr(manager):
             page.locator.return_value = locator
-
-            result = await wait_for_element(
-                "#dynamic-element", state="visible", timeout=5000
-            )
-
-            assert result["success"]
-            assert result["selector"] == "#dynamic-element"
-            assert result["state"] == "visible"
-
-            locator.wait_for.assert_called_once_with(state="visible", timeout=5000)
-
-    @pytest.mark.asyncio
-    async def test_wait_for_element_hidden(self, mock_browser_manager, mock_locator):
-        """Test waiting for element to become hidden."""
-        manager, page = mock_browser_manager
-        locator = mock_locator
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            page.locator.return_value = locator
-
-            result = await wait_for_element("#hiding-element", state="hidden")
-
-            assert result["success"]
-            assert result["state"] == "hidden"
-
-            locator.wait_for.assert_called_once_with(state="hidden", timeout=30000)
-
-    @pytest.mark.asyncio
-    async def test_wait_for_element_attached(self, mock_browser_manager, mock_locator):
-        """Test waiting for element to be attached to DOM."""
-        manager, page = mock_browser_manager
-        locator = mock_locator
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            page.locator.return_value = locator
-
-            result = await wait_for_element("#future-element", state="attached")
-
-            assert result["success"]
-            assert result["state"] == "attached"
-
-            locator.wait_for.assert_called_once_with(state="attached", timeout=30000)
-
-    @pytest.mark.asyncio
-    async def test_wait_for_element_detached(self, mock_browser_manager, mock_locator):
-        """Test waiting for element to be detached from DOM."""
-        manager, page = mock_browser_manager
-        locator = mock_locator
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            page.locator.return_value = locator
-
-            result = await wait_for_element("#leaving-element", state="detached")
-
-            assert result["success"]
-            assert result["state"] == "detached"
-
-            locator.wait_for.assert_called_once_with(state="detached", timeout=30000)
+            result = await wait_for_element(selector, state=state, timeout=timeout)
+        assert result["success"]
+        assert result["selector"] == selector
+        assert result["state"] == state
+        locator.wait_for.assert_called_once_with(state=state, timeout=timeout)
 
     @pytest.mark.asyncio
     async def test_wait_for_element_timeout(self, mock_browser_manager, mock_locator):
-        """Test timeout when waiting for element."""
         manager, page = mock_browser_manager
         locator = mock_locator
         locator.wait_for.side_effect = Exception("Timeout exceeded")
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
+        with _mgr(manager):
             page.locator.return_value = locator
-
             result = await wait_for_element("#slow-element", timeout=1000)
-
-            assert result["success"] is False
-            assert "Timeout exceeded" in result["error"]
-            assert result["selector"] == "#slow-element"
+        assert result["success"] is False
+        assert "Timeout exceeded" in result["error"]
+        assert result["selector"] == "#slow-element"
 
 
 class TestHighlightElement(BrowserScriptsBaseTest):
-    """Test highlight_element function and its registration."""
+    """highlight_element in different colors plus failure."""
 
     @pytest.mark.asyncio
-    async def test_highlight_element_red(self, mock_browser_manager, mock_locator):
-        """Test highlighting an element with red color."""
-        manager, page = mock_browser_manager
-        locator = mock_locator
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            page.locator.return_value = locator
-
-            result = await highlight_element("#important", color="red", timeout=5000)
-
-            assert result["success"]
-            assert result["selector"] == "#important"
-            assert result["color"] == "red"
-
-            locator.wait_for.assert_called_once_with(state="visible", timeout=5000)
-            # Verify the highlight script was called with red color
-            locator.evaluate.assert_called_once()
-            highlight_script = locator.evaluate.call_args[0][0]
-            assert "red" in highlight_script
-            assert "data-highlighted" in highlight_script
-
-    @pytest.mark.asyncio
-    async def test_highlight_element_blue_color(
-        self, mock_browser_manager, mock_locator
+    @pytest.mark.parametrize("color", ["red", "blue"], ids=lambda c: c)
+    async def test_highlight_element_success(
+        self, mock_browser_manager, mock_locator, color
     ):
-        """Test highlighting with different color."""
         manager, page = mock_browser_manager
         locator = mock_locator
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
+        with _mgr(manager):
             page.locator.return_value = locator
+            result = await highlight_element("#target", color=color, timeout=5000)
 
-            result = await highlight_element("#target", color="blue")
-
-            assert result["success"]
-            assert result["color"] == "blue"
-
-            highlight_script = locator.evaluate.call_args[0][0]
-            assert "blue" in highlight_script
+        assert result["success"]
+        assert result["selector"] == "#target"
+        assert result["color"] == color
+        locator.wait_for.assert_called_once_with(state="visible", timeout=5000)
+        locator.evaluate.assert_called_once()
+        highlight_script = locator.evaluate.call_args[0][0]
+        assert color in highlight_script
+        assert "data-highlighted" in highlight_script
 
     @pytest.mark.asyncio
     async def test_highlight_element_exception(self, mock_browser_manager):
-        """Test exception handling during highlighting."""
         manager, page = mock_browser_manager
         page.locator.side_effect = Exception("Element not found")
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
+        with _mgr(manager):
             result = await highlight_element("#missing")
-
-            assert result["success"] is False
-            assert "Element not found" in result["error"]
+        assert result["success"] is False
+        assert "Element not found" in result["error"]
 
 
 class TestClearHighlights(BrowserScriptsBaseTest):
-    """Test clear_highlights function and its registration."""
+    """clear_highlights success (with/without highlights) and failure."""
 
     @pytest.mark.asyncio
-    async def test_clear_highlights_success(self, mock_browser_manager):
-        """Test successfully clearing all highlights."""
+    @pytest.mark.parametrize("count", [3, 0], ids=["some", "none"])
+    async def test_clear_highlights_success(self, mock_browser_manager, count):
         manager, page = mock_browser_manager
-        page.evaluate.return_value = 3  # 3 highlights cleared
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
+        page.evaluate.return_value = count
+        with _mgr(manager):
             result = await clear_highlights()
-
-            assert result["success"]
-            assert result["cleared_count"] == 3
-
-            # Verify the clear script was called
-            page.evaluate.assert_called_once()
-            clear_script = page.evaluate.call_args[0][0]
-            assert "data-highlighted" in clear_script
-            assert "removeAttribute" in clear_script
-
-    @pytest.mark.asyncio
-    async def test_clear_highlights_none(self, mock_browser_manager):
-        """Test clearing when no highlights exist."""
-        manager, page = mock_browser_manager
-        page.evaluate.return_value = 0  # No highlights to clear
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
-            result = await clear_highlights()
-
-            assert result["success"]
-            assert result["cleared_count"] == 0
+        assert result["success"]
+        assert result["cleared_count"] == count
+        page.evaluate.assert_called_once()
+        clear_script = page.evaluate.call_args[0][0]
+        assert "data-highlighted" in clear_script
+        assert "removeAttribute" in clear_script
 
     @pytest.mark.asyncio
     async def test_clear_highlights_exception(self, mock_browser_manager):
-        """Test exception handling during highlight clearing."""
         manager, page = mock_browser_manager
         page.evaluate.side_effect = Exception("JavaScript error")
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
+        with _mgr(manager):
             result = await clear_highlights()
-
-            assert result["success"] is False
-            assert "JavaScript error" in result["error"]
+        assert result["success"] is False
+        assert "JavaScript error" in result["error"]
 
 
 class TestIntegrationScenarios(BrowserScriptsBaseTest):
-    """Integration test scenarios combining multiple script functions."""
+    """Integration scenarios combining multiple script functions."""
 
     @pytest.mark.asyncio
     async def test_page_manipulation_workflow(self, mock_browser_manager, mock_locator):
-        """Test complete page manipulation workflow."""
         manager, page = mock_browser_manager
         locator = mock_locator
-
         page.evaluate.side_effect = [
-            {"success": True},  # JavaScript result from execute_javascript
-            600,  # Viewport height from scroll_page
-            None,  # scrollBy call from scroll_page
-            {"x": 0, "y": 300},  # Scroll position from scroll_page
+            {"success": True},  # execute_javascript
+            600,  # scroll_page viewport height
+            None,  # scrollBy
+            {"x": 0, "y": 300},  # scroll position
         ]
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
+        with _mgr(manager):
             page.locator.return_value = locator
-
-            # Set viewport, execute script, scroll, highlight element
             viewport_result = await set_viewport_size(1200, 800)
             js_result = await execute_javascript("document.title = 'Test'")
             scroll_result = await scroll_page("down", 3)
             highlight_result = await highlight_element("#main")
 
-            assert all(
-                r["success"]
-                for r in [viewport_result, js_result, scroll_result, highlight_result]
-            )
-
-            # Verify sequence of operations
-            page.set_viewport_size.assert_called_once()
-            page.evaluate.assert_called()  # Called for JS and scroll operations
-            locator.evaluate.assert_called()  # Called for highlighting
+        assert all(
+            r["success"]
+            for r in [viewport_result, js_result, scroll_result, highlight_result]
+        )
+        page.set_viewport_size.assert_called_once()
+        page.evaluate.assert_called()
+        locator.evaluate.assert_called()
 
     @pytest.mark.asyncio
-    async def test_highlight_and_clear_sequence(
-        self, mock_browser_manager, mock_locator
-    ):
-        """Test highlighting multiple elements then clearing them."""
+    async def test_highlight_and_clear_sequence(self, mock_browser_manager, mock_locator):
         manager, page = mock_browser_manager
         locator = mock_locator
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
+        with _mgr(manager):
             page.locator.return_value = locator
-            page.evaluate.return_value = 2  # 2 highlights cleared
-
-            # Highlight multiple elements
+            page.evaluate.return_value = 2
             result1 = await highlight_element("#element1", "red")
             result2 = await highlight_element("#element2", "blue")
-
-            # Clear all highlights
             clear_result = await clear_highlights()
 
-            assert result1["success"] and result2["success"] and clear_result["success"]
-            assert clear_result["cleared_count"] == 2
-
-            # Verify highlight and clear calls
-            assert locator.evaluate.call_count == 2  # Two highlight calls
-            page.evaluate.assert_called()  # Clear highlights call
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])
+        assert result1["success"] and result2["success"] and clear_result["success"]
+        assert clear_result["cleared_count"] == 2
+        assert locator.evaluate.call_count == 2
+        page.evaluate.assert_called()
 
 
 @pytest.mark.parametrize(
@@ -718,9 +420,7 @@ class TestToolRegistration:
 
     def test_register_tool(self, register_func, expected_tool):
         agent = MagicMock()
-
         register_func(agent)
-
         agent.tool.assert_called_once()
         tool_name = agent.tool.call_args[0][0]
         assert tool_name.__name__ == expected_tool
@@ -732,6 +432,7 @@ class TestToolRegistration:
     [
         (execute_javascript, ("return true;",)),
         (scroll_page, ("down", 3)),
+        (scroll_to_element, ("#element",)),
         (set_viewport_size, (800, 600)),
         (wait_for_element, ("#element",)),
         (highlight_element, ("#element",)),
@@ -740,6 +441,7 @@ class TestToolRegistration:
     ids=[
         "execute_javascript",
         "scroll_page",
+        "scroll_to_element",
         "set_viewport_size",
         "wait_for_element",
         "highlight_element",
@@ -752,12 +454,11 @@ class TestNoActivePage(BrowserScriptsBaseTest):
     async def test_no_active_page(self, mock_browser_manager, func, args):
         manager, page = mock_browser_manager
         manager.get_current_page.return_value = None
-
-        with patch(
-            "tools.browser.browser_scripts.get_session_browser_manager",
-            return_value=manager,
-        ):
+        with _mgr(manager):
             result = await func(*args)
+        assert result["success"] is False
+        assert "No active browser page available" in result["error"]
 
-            assert result["success"] is False
-            assert "No active browser page available" in result["error"]
+
+if __name__ == "__main__":
+    pytest.main([__file__])

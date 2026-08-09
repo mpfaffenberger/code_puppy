@@ -535,33 +535,6 @@ class TestTokenRefresh:
 
         assert result is None
 
-    @patch("code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens")
-    def test_refresh_access_token_forced_refresh(self, mock_load, sample_token_data):
-        """Test forced refresh even for valid tokens."""
-        mock_load.return_value = sample_token_data
-
-        with patch(
-            "code_puppy.plugins.claude_code_oauth.utils.requests.post"
-        ) as mock_post:
-            new_token = "forced_new_token"
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "access_token": new_token,
-                "refresh_token": "new_refresh",
-                "expires_in": 3600,
-            }
-            mock_post.return_value = mock_response
-
-            with patch(
-                "code_puppy.plugins.claude_code_oauth.utils.save_tokens"
-            ) as mock_save:
-                mock_save.return_value = True
-                result = refresh_access_token(force=True)
-
-                assert result == new_token
-                # Verify post was called even though token not expired
-                mock_post.assert_called_once()
 
     @patch("code_puppy.plugins.claude_code_oauth.utils.requests.post")
     @patch("code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens")

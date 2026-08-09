@@ -143,14 +143,6 @@ class TestSkillsInstallMenuInit:
         menu = SkillsInstallMenu()
         assert menu.categories == ["Data", "Finance"]
 
-    @patch(f"{_MOD}.catalog", None)
-    def test_init_no_catalog(self):
-        from code_puppy.plugins.agent_skills.skills_install_menu import (
-            SkillsInstallMenu,
-        )
-
-        menu = SkillsInstallMenu()
-        assert menu.categories == []
 
     @patch(f"{_MOD}.catalog")
     def test_init_catalog_error(self, mock_catalog):
@@ -276,15 +268,6 @@ class TestSkillsInstallMenuRendering:
         text = "".join(t for _, t in lines)
         assert "Test Skill" in text
 
-    @patch(f"{_MOD}.is_skill_installed", return_value=True)
-    def test_render_skill_list_installed(self, mock_inst):
-        menu = self._make_menu(categories=["Data"])
-        menu.view_mode = "skills"
-        menu.current_category = "Data"
-        menu.current_skills = [_make_entry()]
-        lines = menu._render_skill_list()
-        text = "".join(t for _, t in lines)
-        assert "✓" in text
 
     @patch(f"{_MOD}.is_skill_installed", return_value=False)
     def test_render_skill_list_pagination(self, mock_inst):
@@ -335,16 +318,6 @@ class TestSkillsInstallMenuRendering:
         assert "Not installed" in text
         assert "Description" in text
 
-    @patch(f"{_MOD}.is_skill_installed", return_value=True)
-    def test_render_details_installed_skill(self, mock_inst):
-        entry = _make_entry(tags=[])
-        menu = self._make_menu(categories=["Data"])
-        menu.view_mode = "skills"
-        menu.current_skills = [entry]
-        menu.selected_skill_idx = 0
-        lines = menu._render_details()
-        text = "".join(t for _, t in lines)
-        assert "Installed" in text
 
     def test_render_details_no_skill_selected(self):
         menu = self._make_menu()

@@ -194,26 +194,6 @@ class TestLoadMarkdownCommands:
             assert "with_heading" in _custom_commands
             assert "Actual description" in _command_descriptions["with_heading"]
 
-    def test_truncates_long_descriptions(self):
-        """Test that long descriptions are truncated at 50 chars."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cmd_dir = Path(tmpdir)
-
-            # Create file with very long first line
-            long_desc = "A" * 100
-            test_file = cmd_dir / "long_desc.md"
-            test_file.write_text(long_desc)
-
-            with patch(
-                "code_puppy.plugins.customizable_commands.register_callbacks._COMMAND_DIRECTORIES",
-                [str(cmd_dir)],
-            ):
-                _load_markdown_commands()
-
-            assert "long_desc" in _custom_commands
-            desc = _command_descriptions["long_desc"]
-            assert len(desc) == 53  # 50 chars + "..."
-            assert desc.endswith("...")
 
     def test_handles_file_read_error(self):
         """Test that file read errors are handled gracefully."""

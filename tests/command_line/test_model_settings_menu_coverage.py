@@ -83,15 +83,20 @@ class TestEditing:
 
     @pytest.mark.parametrize(
         "setting,expected",
-        [("budget_tokens", 10000), ("seed", 42)],
-        ids=["budget_tokens", "seed"],
+        [
+            ("budget_tokens", 10000),
+            ("seed", 42),
+            ("temperature", 0.7),
+            ("top_p", 0.9),
+        ],
+        ids=["budget_tokens", "seed", "temperature", "top_p"],
     )
     @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
     @patch(
         "code_puppy.command_line.model_settings_menu.get_all_model_settings",
         return_value={},
     )
-    def test_start_editing_integer_default(
+    def test_start_editing_numeric_default(
         self, mock_settings, mock_supports, setting, expected
     ):
         mock_supports.side_effect = lambda m, s: s == setting
@@ -158,24 +163,7 @@ class TestEditing:
         menu._start_editing()
         assert menu.editing_mode is False
 
-    @pytest.mark.parametrize(
-        "setting,expected",
-        [("temperature", 0.7), ("top_p", 0.9)],
-        ids=["temperature", "top_p"],
-    )
-    @patch("code_puppy.command_line.model_settings_menu.model_supports_setting")
-    @patch(
-        "code_puppy.command_line.model_settings_menu.get_all_model_settings",
-        return_value={},
-    )
-    def test_start_editing_float_default(
-        self, mock_settings, mock_supports, setting, expected
-    ):
-        mock_supports.side_effect = lambda m, s: s == setting
-        menu = _make_menu()
-        menu._load_model_settings("gpt-5")
-        menu._start_editing()
-        assert menu.edit_value == expected
+
 
 
 class TestFormatValue:

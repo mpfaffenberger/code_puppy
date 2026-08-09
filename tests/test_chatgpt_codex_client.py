@@ -357,16 +357,33 @@ class TestConvertStreamToResponse:
         assert body["id"] == "resp_abc123"
 
     @pytest.mark.asyncio
-    async def test_skip_empty_lines(self):
-        """Test that empty lines are skipped."""
-        sse_lines = [
-            "",
-            "   ",
-            'data: {"type": "response.output_text.delta", "delta": "Hi"}',
-            "",
-            "data: [DONE]",
-        ]
-
+    @pytest.mark.parametrize(
+        ("sse_lines", "expected_text"),
+        [
+            (
+                [
+                    "",
+                    "   ",
+                    'data: {"type": "response.output_text.delta", "delta": "Hi"}',
+                    "",
+                    "data: [DONE]",
+                ],
+                "Hi",
+            ),
+            (
+                [
+                    "event: message",
+                    "id: 123",
+                    'data: {"type": "response.output_text.delta", "delta": "Test"}',
+                    ": comment line",
+                    "data: [DONE]",
+                ],
+                "Test",
+            ),
+        ],
+    )
+    async def test_skip_noise_lines(self, sse_lines, expected_text):
+        """Test that empty and non-data lines are skipped."""
         async def mock_aiter_lines():
             for line in sse_lines:
                 yield line
@@ -381,34 +398,7 @@ class TestConvertStreamToResponse:
         result = await client._convert_stream_to_response(mock_response)
 
         body = json.loads(result.content)
-        assert body["output"][0]["content"][0]["text"] == "Hi"
-
-    @pytest.mark.asyncio
-    async def test_skip_non_data_lines(self):
-        """Test that non-data lines (like event: or id:) are skipped."""
-        sse_lines = [
-            "event: message",
-            "id: 123",
-            'data: {"type": "response.output_text.delta", "delta": "Test"}',
-            ": comment line",
-            "data: [DONE]",
-        ]
-
-        async def mock_aiter_lines():
-            for line in sse_lines:
-                yield line
-
-        mock_response = Mock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.headers = {}
-        mock_response.aiter_lines = mock_aiter_lines
-        mock_response.request = Mock()
-
-        client = ChatGPTCodexAsyncClient()
-        result = await client._convert_stream_to_response(mock_response)
-
-        body = json.loads(result.content)
-        assert body["output"][0]["content"][0]["text"] == "Test"
+        assert body["output"][0]["content"][0]["text"] == expected_text
 
     @pytest.mark.asyncio
     async def test_handle_json_decode_errors(self):

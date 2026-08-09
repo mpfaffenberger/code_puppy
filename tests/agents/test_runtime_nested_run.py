@@ -94,7 +94,14 @@ def _agent_that_explodes_at_build() -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_top_level_run_resets_pause_state():
+@pytest.mark.parametrize(
+    ("is_nested_run", "expect_reset"),
+    [
+        pytest.param(False, True, id="top_level"),
+        pytest.param(True, False, id="nested"),
+    ],
+)
+async def test_pause_state_reset_skipped_for_nested_runs(is_nested_run, expect_reset):
     agent = _agent_that_explodes_at_build()
     with (
         patch.object(_runtime, "reset_pause_state_at_run_start") as mock_reset,
@@ -103,21 +110,9 @@ async def test_top_level_run_resets_pause_state():
         ),
     ):
         with pytest.raises(RuntimeError):
-            await _runtime._run_with_mcp_impl(agent, "x", is_nested_run=False)
+            await _runtime._run_with_mcp_impl(agent, "x", is_nested_run=is_nested_run)
 
-    mock_reset.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_nested_run_never_drains_outer_runs_steers():
-    agent = _agent_that_explodes_at_build()
-    with (
-        patch.object(_runtime, "reset_pause_state_at_run_start") as mock_reset,
-        patch.object(
-            _runtime, "build_pydantic_agent", side_effect=RuntimeError("boom")
-        ),
-    ):
-        with pytest.raises(RuntimeError):
-            await _runtime._run_with_mcp_impl(agent, "x", is_nested_run=True)
-
-    mock_reset.assert_not_called()
+    if expect_reset:
+        mock_reset.assert_called_once()
+    else:
+        mock_reset.assert_not_called()

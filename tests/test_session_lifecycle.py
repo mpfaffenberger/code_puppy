@@ -213,16 +213,25 @@ class TestResolveOrCreateResumeTarget:
     catch a future re-ordering regression.
     """
 
-    def test_existing_pkl_path_resolves_directly(self, tmp_path):
-        target = tmp_path / "my-session.pkl"
+    @pytest.mark.parametrize(
+        ("target_name", "ctx_subdir", "resolved_name"),
+        [
+            ("my-session.pkl", "contexts_unused", "my-session"),
+            ("weird-name", "ctx_unused", "weird-name"),
+        ],
+    )
+    def test_existing_path_resolves_directly(
+        self, tmp_path, target_name, ctx_subdir, resolved_name
+    ):
+        target = tmp_path / target_name
         target.write_bytes(b"dummy")
 
         name, dir_, lazy = resolve_or_create_resume_target(
             str(target),
-            sessions_dir=tmp_path / "contexts_unused",
+            sessions_dir=tmp_path / ctx_subdir,
             allow_lazy_create=True,
         )
-        assert (name, dir_, lazy) == ("my-session", tmp_path, False)
+        assert (name, dir_, lazy) == (resolved_name, tmp_path, False)
 
     def test_existing_named_session_resolves_under_contexts_dir(self, tmp_path):
         contexts_dir = tmp_path / "ctx"
@@ -235,17 +244,6 @@ class TestResolveOrCreateResumeTarget:
             allow_lazy_create=True,
         )
         assert (name, dir_, lazy) == ("mywork", contexts_dir, False)
-
-    def test_existing_path_without_pkl_suffix_resolves(self, tmp_path):
-        target = tmp_path / "weird-name"
-        target.write_bytes(b"dummy")
-
-        name, dir_, lazy = resolve_or_create_resume_target(
-            str(target),
-            sessions_dir=tmp_path / "ctx_unused",
-            allow_lazy_create=True,
-        )
-        assert (name, dir_, lazy) == ("weird-name", tmp_path, False)
 
     def test_missing_target_raises_when_lazy_create_disabled(self, tmp_path):
         with pytest.raises(ResumeTargetError) as excinfo:

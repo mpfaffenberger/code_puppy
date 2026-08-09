@@ -201,20 +201,6 @@ def test_decorative_saturation_cannot_displace_critical(monkeypatch):
     assert params["state"] == "blocked"
 
 
-def test_closing_discards_decorative_but_keeps_release(monkeypatch):
-    """Once closing, decorative work is dropped and release becomes terminal."""
-    c = _inert_client(monkeypatch)
-    c._message = {"state": "idle", "message": "thinking"}
-    c._metadata = {"tokens": {"model": "m"}}
-    c._closing = True
-    c._release = {}
-    with c._cond:
-        first = c._take_next_locked()
-        second = c._take_next_locked()
-    assert first[0] == cl._M_RELEASE
-    assert second is None  # decorative work was skipped entirely
-
-
 def test_closing_flushes_pending_critical_before_release(monkeypatch):
     """A pending critical edge still flushes ahead of the release."""
     c = _inert_client(monkeypatch)

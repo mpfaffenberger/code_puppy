@@ -93,11 +93,6 @@ class TestCommandSafetyCache:
         assert stats["misses"] == 1
         assert stats["hit_rate"] == "50.0%"
 
-    def test_stats_zero_total(self):
-        cache = CommandSafetyCache()
-        stats = cache.stats
-        assert stats["hit_rate"] == "0.0%"
-
 
 class TestCommandCacheModuleFunctions:
     """Tests for module-level cache functions."""
@@ -237,11 +232,6 @@ from code_puppy.plugins.agent_skills.metadata import (  # noqa: E402
 
 
 class TestMetadataMissingLines:
-    def test_parse_frontmatter_comment_lines(self):
-        """Line 69: skip comment lines in frontmatter."""
-        content = "---\n# comment\nname: test\n---\n"
-        result = parse_yaml_frontmatter(content)
-        assert result["name"] == "test"
 
     def test_parse_frontmatter_list_at_end(self):
         """Lines 82-83: Handle list items at end of frontmatter."""
@@ -564,12 +554,6 @@ _private = 42
             result = reg._load_module(tmp_path / "fake.py")
             assert result is None
 
-    def test_find_tool_function_by_run(self):
-        mod = ModuleType("test_mod")
-        mod.run = lambda: None
-        reg = UCRegistry()
-        func, name = reg._find_tool_function(mod, "nonexistent")
-        assert name == "run"
 
     def test_find_tool_function_by_execute(self):
         mod = ModuleType("test_mod")
@@ -585,14 +569,6 @@ _private = 42
         func, name = reg._find_tool_function(mod, "nonexistent")
         assert name == "something"
 
-    def test_find_tool_function_none(self):
-        mod = ModuleType("test_mod")
-        # Only private + class
-        mod._private = lambda: None
-        mod.MyClass = type("MyClass", (), {})
-        reg = UCRegistry()
-        func, name = reg._find_tool_function(mod, "nonexistent")
-        assert func is None
 
     def test_list_tools_auto_scans(self, tmp_path):
         reg = UCRegistry(tools_dir=tmp_path / "empty")

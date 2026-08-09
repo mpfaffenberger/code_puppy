@@ -51,21 +51,15 @@ class TestAutostartBoundServers:
 
         mock_manager.start_server_sync.assert_called_once_with("srv-1")
 
-    def test_skips_when_already_running(self, mock_manager):
-        mock_manager.get_server_status.return_value = {
-            "state": ServerState.RUNNING.value
-        }
-        with patch(
-            "code_puppy.mcp_.agent_bindings.get_bound_servers",
-            return_value={"srv-1": {"auto_start": True}},
-        ):
-            _builder._autostart_bound_servers(mock_manager, "code-puppy")
-        mock_manager.start_server_sync.assert_not_called()
-
-    def test_skips_when_already_starting(self, mock_manager):
-        mock_manager.get_server_status.return_value = {
-            "state": ServerState.STARTING.value
-        }
+    @pytest.mark.parametrize(
+        "state",
+        [
+            pytest.param(ServerState.RUNNING, id="already_running"),
+            pytest.param(ServerState.STARTING, id="already_starting"),
+        ],
+    )
+    def test_skips_when_state_is_already_active(self, mock_manager, state):
+        mock_manager.get_server_status.return_value = {"state": state.value}
         with patch(
             "code_puppy.mcp_.agent_bindings.get_bound_servers",
             return_value={"srv-1": {"auto_start": True}},

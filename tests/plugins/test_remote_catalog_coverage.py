@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 
 from code_puppy.plugins.agent_skills.remote_catalog import (
     RemoteCatalogData,
@@ -22,17 +23,13 @@ from code_puppy.plugins.agent_skills.remote_catalog import (
 
 
 class TestSafeInt:
-    def test_none(self):
-        assert _safe_int(None) == 0
-
-    def test_valid(self):
-        assert _safe_int("42") == 42
-
-    def test_invalid(self):
-        assert _safe_int("abc", 5) == 5
-
-    def test_normal(self):
-        assert _safe_int(10) == 10
+    @pytest.mark.parametrize(
+        ("value", "default", "expected"),
+        [(None, 0, 0), ("42", 0, 42), ("abc", 5, 5), (10, 0, 10)],
+        ids=["none", "valid", "invalid", "normal"],
+    )
+    def test_safe_int(self, value, default, expected):
+        assert _safe_int(value, default) == expected
 
 
 class TestSafeBool:

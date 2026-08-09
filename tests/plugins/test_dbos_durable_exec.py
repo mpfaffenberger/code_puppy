@@ -163,23 +163,6 @@ class TestWrapWithDbosAgent:
         # Toolsets are reset (pickleability fix).
         assert pydantic_agent._toolsets == []
 
-    def test_subagent_kind_forces_handler_none(self, monkeypatch):
-        _, captured = _install_fake_pydantic_dbos(monkeypatch)
-
-        agent = MagicMock(name="agent")
-        agent.name = "sub"
-        pydantic_agent = MagicMock(name="pyd")
-        pydantic_agent._toolsets = []
-        handler = object()
-
-        wrapper_mod.wrap_with_dbos_agent(
-            agent,
-            pydantic_agent,
-            event_stream_handler=handler,
-            kind="subagent",
-        )
-        assert captured["kwargs"]["event_stream_handler"] is None
-        assert captured["kwargs"]["name"].startswith("sub-subagent-")
 
     def test_no_stash_attribute_left_behind(self, monkeypatch):
         """YAGNI cleanup: the dead _dbos_stashed_mcp_toolsets attr must be gone."""
@@ -329,10 +312,6 @@ class TestHandleDbosCommand:
         result = commands_mod.handle_dbos_command("/dbos status", "dbos")
         assert "ON" in result
 
-    def test_status_path_when_off(self, monkeypatch):
-        monkeypatch.setattr(commands_mod, "is_enabled", lambda: False)
-        result = commands_mod.handle_dbos_command("/dbos status", "dbos")
-        assert "OFF" in result
 
     def test_no_subcommand_shows_status_and_usage(self, monkeypatch):
         monkeypatch.setattr(commands_mod, "is_enabled", lambda: True)

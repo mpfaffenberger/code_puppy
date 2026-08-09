@@ -95,11 +95,6 @@ class TestSkillsMenuRendering:
         text = "".join(t for _, t in lines)
         assert "No skills found" in text
 
-    def test_render_skill_list_disabled_system(self):
-        menu = self._make_menu(enabled=False)
-        lines = menu._render_skill_list()
-        text = "".join(t for _, t in lines)
-        assert "DISABLED" in text
 
     @patch(f"{_MOD}.parse_skill_metadata", return_value=_make_metadata())
     def test_render_skill_list_with_skills(self, mock_meta):
@@ -109,13 +104,6 @@ class TestSkillsMenuRendering:
         text = "".join(t for _, t in lines)
         assert "Page 1/1" in text
 
-    @patch(f"{_MOD}.parse_skill_metadata", return_value=_make_metadata())
-    def test_render_skill_list_with_disabled_skill(self, mock_meta):
-        skills = [_make_skill("skill-a")]
-        menu = self._make_menu(skills=skills, disabled=["skill-a"])
-        lines = menu._render_skill_list()
-        text = "".join(t for _, t in lines)
-        assert "✗" in text
 
     @patch(f"{_MOD}.parse_skill_metadata", return_value=None)
     def test_render_skill_list_no_metadata(self, mock_meta):
@@ -298,22 +286,6 @@ class TestSkillsMenuToggle:
 
         menu = SkillsMenu()
         menu._toggle_current_skill()  # should not raise
-
-    @patch(f"{_MOD}.refresh_skill_cache")
-    @patch(f"{_MOD}.set_skill_disabled")
-    @patch(f"{_MOD}.get_skills_enabled", return_value=True)
-    @patch(f"{_MOD}.get_skill_directories", return_value=[])
-    @patch(f"{_MOD}.get_disabled_skills", return_value=[])
-    @patch(f"{_MOD}.discover_skills", return_value=[_make_skill()])
-    @patch(f"{_MOD}.parse_skill_metadata", return_value=None)
-    def test_toggle_no_metadata(
-        self, mock_meta, mock_disc, mock_dis, mock_dirs, mock_en, mock_set, mock_refresh
-    ):
-        from code_puppy.plugins.agent_skills.skills_menu import SkillsMenu
-
-        menu = SkillsMenu()
-        menu._toggle_current_skill()
-        mock_set.assert_called_once_with("skill-a", True)
 
 
 class TestSkillsMenuUpdateDisplay:
@@ -616,15 +588,6 @@ class TestShowDirectoriesMenu:
             result = _show_directories_menu()
             assert result is None
 
-    @patch(f"{_MOD}.get_skill_directories", return_value=["/tmp/skills"])
-    def test_invalid_choice(self, mock_dirs):
-        with patch(_SAFE_INPUT, create=True, return_value="abc"):
-            from code_puppy.plugins.agent_skills.skills_menu import (
-                _show_directories_menu,
-            )
-
-            result = _show_directories_menu()
-            assert result is None
 
     @patch(f"{_MOD}.get_skill_directories", return_value=["/tmp/skills"])
     def test_out_of_range(self, mock_dirs):

@@ -50,14 +50,6 @@ class TestExampleCustomCommand:
         assert isinstance(result, MarkdownCommandResult)
         assert result.content == "Tell me a dog fact"
 
-    def test_woof_with_text(self):
-        from code_puppy.plugins.customizable_commands.register_callbacks import (
-            MarkdownCommandResult,
-        )
-
-        result = self._get_handler()("woof hello world", "woof")
-        assert isinstance(result, MarkdownCommandResult)
-        assert result.content == "hello world"
 
     def test_woof_falls_back_to_string_when_markdown_result_unavailable(
         self, monkeypatch

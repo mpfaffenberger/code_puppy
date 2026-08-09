@@ -247,13 +247,9 @@ def test_drain_pending_steer_combines_both_queues_queued_first(controller):
     assert controller.has_pending_steer() is False
 
 
-def test_has_pending_steer_true_when_only_queued(controller):
-    controller.request_steer("q", mode="queue")
-    assert controller.has_pending_steer() is True
-
-
-def test_has_pending_steer_true_when_only_now(controller):
-    controller.request_steer("n", mode="now")
+@pytest.mark.parametrize("mode", ["queue", "now"])
+def test_has_pending_steer_true_when_only_one_mode(controller, mode):
+    controller.request_steer("s", mode=mode)
     assert controller.has_pending_steer() is True
 
 

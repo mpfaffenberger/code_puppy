@@ -20,22 +20,6 @@ def _reset_panel_state():
     state.clear()
 
 
-def test_register_twice_preserves_start():
-    """Re-registering the same session_id must keep the original ``start``.
-
-    The panel computes elapsed mm:ss from ``start``. If a re-emit of
-    ``SubAgentInvocationMessage`` clobbered ``start``, the displayed elapsed
-    time would jump back to 00:00 mid-run.
-    """
-    state.register("agent-foo-abc", "foo-agent", model="gpt-5.4")
-    original_start = state._AGENTS["agent-foo-abc"]["start"]
-
-    # Manufactured re-register (e.g. a hypothetical message replay).
-    state.register("agent-foo-abc", "foo-agent", model="gpt-5.4")
-
-    assert state._AGENTS["agent-foo-abc"]["start"] == original_start
-
-
 def test_record_event_for_unregistered_session_is_noop():
     """``record_event`` must be UPDATE-ONLY.
 

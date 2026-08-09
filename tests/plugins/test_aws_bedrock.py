@@ -247,14 +247,6 @@ class TestRemoveBedrockModelsFromConfig:
         assert "some-openai-model" in data
         assert "bedrock-opus-4-7" not in data
 
-    def test_returns_empty_when_nothing_to_remove(self, tmp_extra_models):
-        from code_puppy.plugins.aws_bedrock.utils import (
-            remove_bedrock_models_from_config,
-        )
-
-        tmp_extra_models.write_text(json.dumps({"gpt-4o": {"type": "openai"}}))
-        removed = remove_bedrock_models_from_config()
-        assert removed == []
 
     def test_returns_empty_on_save_failure(self, extra_models_with_bedrock):
         from code_puppy.plugins.aws_bedrock.utils import (

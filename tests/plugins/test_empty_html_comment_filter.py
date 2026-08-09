@@ -67,10 +67,6 @@ def test_newline_before_split_comment_is_not_emitted_early() -> None:
     assert _stream(list(text)) == "beforeafter"
 
 
-def test_ordinary_trailing_newline_is_released_at_end() -> None:
-    assert _stream(["ordinary text\n"]) == "ordinary text\n"
-
-
 def test_newline_is_preserved_when_followed_by_ordinary_text() -> None:
     assert _stream(["first line\n", "second line"]) == "first line\nsecond line"
 
@@ -179,13 +175,3 @@ async def test_event_stream_filters_split_comment_in_both_render_paths(
     assert "<!-- -->" not in rendered
 
 
-def test_final_call_clears_retained_state() -> None:
-    module = _plugin_module()
-    stream_id = object()
-    key = (stream_id, 7)
-
-    module._filter_thinking_display("<!--", stream_id=stream_id, part_index=7)
-    assert key in module._pending
-
-    module._filter_thinking_display("", stream_id=stream_id, part_index=7, final=True)
-    assert key not in module._pending

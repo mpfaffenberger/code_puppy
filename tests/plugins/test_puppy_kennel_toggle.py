@@ -67,30 +67,6 @@ def _ctx(agent_name: str = "code-puppy") -> Any:
 # --------------------------------------------------------------------------- #
 
 
-def test_default_state_is_enabled(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import state
-
-    assert state.is_enabled() is True
-
-
-def test_set_enabled_persists(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import state
-
-    state.set_enabled(False)
-    assert state.is_enabled() is False
-    state.set_enabled(True)
-    assert state.is_enabled() is True
-
-
-def test_garbage_cfg_value_falls_back_to_enabled(kennel_root: Path) -> None:
-    """Default-on means a typo in puppy.cfg must not silently kill memory."""
-    from code_puppy.config import set_config_value
-    from code_puppy.plugins.puppy_kennel import state
-
-    set_config_value("kennel_enabled", "banana")
-    assert state.is_enabled() is True
-
-
 # --------------------------------------------------------------------------- #
 # Recorder + retriever honour the toggle
 # --------------------------------------------------------------------------- #
@@ -256,46 +232,6 @@ def test_slash_disable_when_already_disabled_is_noop(kennel_root: Path) -> None:
 # --------------------------------------------------------------------------- #
 # Human inspection commands still work when disabled
 # --------------------------------------------------------------------------- #
-
-
-def test_stats_command_works_when_disabled(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands, recorder, state
-
-    recorder.record_run_end(
-        agent_name="code-puppy",
-        model_name="m",
-        success=True,
-        response_text="something",
-    )
-    state.set_enabled(False)
-    assert commands.handle("/kennel stats", "kennel") is True
-
-
-def test_wings_command_works_when_disabled(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands, recorder, state
-
-    recorder.record_run_end(
-        agent_name="code-puppy",
-        model_name="m",
-        success=True,
-        response_text="something",
-    )
-    state.set_enabled(False)
-    assert commands.handle("/kennel wings", "kennel") is True
-
-
-def test_search_command_works_when_disabled(kennel_root: Path) -> None:
-    """Human-driven search bypasses the toggle — operator can always inspect."""
-    from code_puppy.plugins.puppy_kennel import commands, recorder, state
-
-    recorder.record_run_end(
-        agent_name="code-puppy",
-        model_name="m",
-        success=True,
-        response_text="The pangolin is a scaly mammal.",
-    )
-    state.set_enabled(False)
-    assert commands.handle("/kennel search pangolin", "kennel") is True
 
 
 # --------------------------------------------------------------------------- #

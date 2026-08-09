@@ -59,40 +59,25 @@ def test_print_multiple_values_with_rich_object(qc, mq):
     assert msg is not None
 
 
-def test_print_with_green_style(qc, mq):
-    qc.print("ok", style="green")
+@pytest.mark.parametrize(
+    ("style", "text", "expected_type"),
+    [
+        pytest.param("green", "ok", MessageType.SUCCESS, id="green"),
+        pytest.param("yellow", "warn", MessageType.WARNING, id="yellow"),
+        pytest.param("blue", "info", MessageType.INFO, id="blue"),
+        pytest.param(
+            "purple", "think", MessageType.AGENT_REASONING, id="purple"
+        ),
+        pytest.param(
+            "magenta", "think", MessageType.AGENT_REASONING, id="magenta"
+        ),
+        pytest.param("dim", "sys", MessageType.SYSTEM, id="dim"),
+    ],
+)
+def test_print_with_style_maps_to_type(qc, mq, style, text, expected_type):
+    qc.print(text, style=style)
     msg = mq.get_nowait()
-    assert msg.type == MessageType.SUCCESS
-
-
-def test_print_with_yellow_style(qc, mq):
-    qc.print("warn", style="yellow")
-    msg = mq.get_nowait()
-    assert msg.type == MessageType.WARNING
-
-
-def test_print_with_blue_style(qc, mq):
-    qc.print("info", style="blue")
-    msg = mq.get_nowait()
-    assert msg.type == MessageType.INFO
-
-
-def test_print_with_purple_style(qc, mq):
-    qc.print("think", style="purple")
-    msg = mq.get_nowait()
-    assert msg.type == MessageType.AGENT_REASONING
-
-
-def test_print_with_magenta_style(qc, mq):
-    qc.print("think", style="magenta")
-    msg = mq.get_nowait()
-    assert msg.type == MessageType.AGENT_REASONING
-
-
-def test_print_with_dim_style(qc, mq):
-    qc.print("sys", style="dim")
-    msg = mq.get_nowait()
-    assert msg.type == MessageType.SYSTEM
+    assert msg.type == expected_type
 
 
 # =========================================================================

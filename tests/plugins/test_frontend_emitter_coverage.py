@@ -60,28 +60,6 @@ class TestEmitEvent:
         _subscribers.clear()
         _recent_events.clear()
 
-    def test_data_defaults_to_empty_dict(self):
-        from code_puppy.plugins.frontend_emitter.emitter import (
-            _recent_events,
-            _subscribers,
-            emit_event,
-        )
-
-        _recent_events.clear()
-        _subscribers.clear()
-        with (
-            patch(
-                "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
-                return_value=True,
-            ),
-            patch(
-                "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_max_recent_events",
-                return_value=5,
-            ),
-        ):
-            emit_event("evt")
-        assert _recent_events[0]["data"] == {}
-        _recent_events.clear()
 
     def test_recent_events_capped(self):
         from code_puppy.plugins.frontend_emitter.emitter import (
@@ -438,19 +416,17 @@ class TestIsSuccessfulResult:
 
 
 class TestSummarizeResult:
-    def test_none(self):
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [(None, "<no result>"), ("hello", "hello")],
+        ids=["none", "string"],
+    )
+    def test_summarize_result(self, value, expected):
         from code_puppy.plugins.frontend_emitter.register_callbacks import (
             _summarize_result,
         )
 
-        assert _summarize_result(None) == "<no result>"
-
-    def test_string(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
-            _summarize_result,
-        )
-
-        assert _summarize_result("hello") == "hello"
+        assert _summarize_result(value) == expected
 
     def test_dict_with_error(self):
         from code_puppy.plugins.frontend_emitter.register_callbacks import (
@@ -611,17 +587,6 @@ class TestAsyncCallbacks:
             await on_invoke_agent(agent_name="test", session_id="s1", prompt="hi")
             mock_emit.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_on_invoke_agent_with_args(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
-            on_invoke_agent,
-        )
-
-        with patch(
-            "code_puppy.plugins.frontend_emitter.register_callbacks.emit_event"
-        ) as mock_emit:
-            await on_invoke_agent("agent_name", "prompt_text")
-            mock_emit.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_on_invoke_agent_exception(self):

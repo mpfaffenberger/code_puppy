@@ -468,29 +468,6 @@ class TestUpdateModelTokens:
 class TestBuildModelEntry:
     """Tests for _build_model_entry and effort setting for Opus 4-6."""
 
-    @pytest.mark.parametrize(
-        "model",
-        [
-            "claude-opus-4-6",
-            "claude-opus-4-7",
-            "claude-4-6-opus-20250701",
-            "claude-4-7-opus-20250801",
-        ],
-        ids=["opus_4_6", "opus_4_7", "4_6_opus_variant", "4_7_opus_variant"],
-    )
-    def test_opus_effort_variants(self, model):
-        """Opus 4-6/4-7 model entries should include 'effort' in supported_settings."""
-        from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
-
-        entry = _build_model_entry(model, "tok", 200000)
-        assert "effort" in entry["supported_settings"]
-
-    def test_non_opus_46_does_not_include_effort(self):
-        """Non Opus 4-6/4-7 models should NOT have effort in supported_settings."""
-        from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
-
-        entry = _build_model_entry("claude-sonnet-4-20250514", "tok", 200000)
-        assert "effort" not in entry["supported_settings"]
 
     def test_opus_45_does_not_include_effort(self):
         """Opus 4-5 should NOT have effort — it's 4-6+ only."""

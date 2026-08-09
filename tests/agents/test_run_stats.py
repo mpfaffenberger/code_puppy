@@ -315,53 +315,48 @@ async def test_on_agent_run_start_skipped_in_subagent():
     assert AgentRunStats._stream_start_time == 0.0
 
 
-@pytest.mark.asyncio
-async def test_on_stream_event_part_start_with_text_records():
-    await _on_agent_run_start("agent", "model")
-
+def _text_part_start_payload():
     from pydantic_ai.messages import TextPart
 
-    part = TextPart(content="hello world from the puppy")
-    await _on_stream_event("part_start", {"part": part})
-
-    assert AgentRunStats._first_token_time > 0.0
-    assert AgentRunStats._output_tokens > 0
+    return {"part": TextPart(content="hello world from the puppy")}
 
 
-@pytest.mark.asyncio
-async def test_on_stream_event_part_delta_with_text_records():
-    await _on_agent_run_start("agent", "model")
-
+def _text_part_delta_payload():
     from pydantic_ai.messages import TextPartDelta
 
-    delta = TextPartDelta(content_delta="streaming chunk of text")
-    await _on_stream_event("part_delta", {"delta": delta})
-
-    assert AgentRunStats._first_token_time > 0.0
-    assert AgentRunStats._output_tokens > 0
+    return {"delta": TextPartDelta(content_delta="streaming chunk of text")}
 
 
-@pytest.mark.asyncio
-async def test_on_stream_event_thinking_delta_records():
-    await _on_agent_run_start("agent", "model")
-
+def _thinking_part_delta_payload():
     from pydantic_ai.messages import ThinkingPartDelta
 
-    delta = ThinkingPartDelta(content_delta="hmm thinking about this")
-    await _on_stream_event("part_delta", {"delta": delta})
+    return {"delta": ThinkingPartDelta(content_delta="hmm thinking about this")}
 
-    assert AgentRunStats._first_token_time > 0.0
-    assert AgentRunStats._output_tokens > 0
+
+def _tool_call_part_delta_payload():
+    from pydantic_ai.messages import ToolCallPartDelta
+
+    return {"delta": ToolCallPartDelta(args_delta='{"file": "foo.py"}')}
 
 
 @pytest.mark.asyncio
-async def test_on_stream_event_tool_call_delta_records():
+@pytest.mark.parametrize(
+    ("event_type", "make_payload"),
+    [
+        pytest.param("part_start", _text_part_start_payload, id="part_start_text"),
+        pytest.param("part_delta", _text_part_delta_payload, id="part_delta_text"),
+        pytest.param(
+            "part_delta", _thinking_part_delta_payload, id="part_delta_thinking"
+        ),
+        pytest.param(
+            "part_delta", _tool_call_part_delta_payload, id="part_delta_tool_call"
+        ),
+    ],
+)
+async def test_on_stream_event_records_tokens(event_type, make_payload):
     await _on_agent_run_start("agent", "model")
 
-    from pydantic_ai.messages import ToolCallPartDelta
-
-    delta = ToolCallPartDelta(args_delta='{"file": "foo.py"}')
-    await _on_stream_event("part_delta", {"delta": delta})
+    await _on_stream_event(event_type, make_payload())
 
     assert AgentRunStats._first_token_time > 0.0
     assert AgentRunStats._output_tokens > 0

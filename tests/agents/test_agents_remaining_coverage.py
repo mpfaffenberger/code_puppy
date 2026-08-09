@@ -111,20 +111,20 @@ def test_planning_agent_routes_scraping_to_web_retriever():
     assert "web-retriever" in prompt
 
 
-def test_helios_agent():
-    from code_puppy.agents.agent_helios import HeliosAgent
+@pytest.mark.parametrize(
+    ("module_path", "cls_name"),
+    [
+        pytest.param("code_puppy.agents.agent_helios", "HeliosAgent", id="helios"),
+        pytest.param(
+            "code_puppy.agents.agent_code_puppy", "CodePuppyAgent", id="code_puppy"
+        ),
+    ],
+)
+def test_agent_has_tools_and_prompt(module_path, cls_name):
+    import importlib
 
-    agent = HeliosAgent()
-    tools = agent.get_available_tools()
-    assert isinstance(tools, list)
-    prompt = agent.get_system_prompt()
-    assert isinstance(prompt, str)
-
-
-def test_code_puppy_agent():
-    from code_puppy.agents.agent_code_puppy import CodePuppyAgent
-
-    agent = CodePuppyAgent()
+    agent_cls = getattr(importlib.import_module(module_path), cls_name)
+    agent = agent_cls()
     tools = agent.get_available_tools()
     assert isinstance(tools, list)
     prompt = agent.get_system_prompt()
@@ -467,30 +467,27 @@ def test_creator_get_user_prompt():
 # ---------------------------------------------------------------------------
 
 
-def test_agent_manager_is_process_alive_dead_process():
-    """Cover ProcessLookupError branch in _is_process_alive."""
+@pytest.mark.parametrize(
+    ("side_effect", "expected"),
+    [
+        pytest.param(
+            ProcessLookupError, False, id="dead_process"
+        ),  # covers ProcessLookupError branch
+        pytest.param(
+            PermissionError, True, id="permission"
+        ),  # covers PermissionError branch
+    ],
+)
+def test_agent_manager_is_process_alive(side_effect, expected):
     import sys
 
     from code_puppy.agents.agent_manager import _is_process_alive
 
     if sys.platform == "win32":
         pytest.skip("Unix-only")
-    with patch("os.kill", side_effect=ProcessLookupError):
+    with patch("os.kill", side_effect=side_effect):
         result = _is_process_alive(999999999)
-        assert result is False
-
-
-def test_agent_manager_is_process_alive_permission():
-    """Cover PermissionError branch (process exists but no permission)."""
-    import sys
-
-    from code_puppy.agents.agent_manager import _is_process_alive
-
-    if sys.platform == "win32":
-        pytest.skip("Unix-only")
-    with patch("os.kill", side_effect=PermissionError):
-        result = _is_process_alive(999999999)
-        assert result is True
+        assert result is expected
 
 
 def test_agent_manager_discover_agents_error():

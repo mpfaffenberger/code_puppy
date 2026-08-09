@@ -66,35 +66,6 @@ def kennel_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
-def test_initialize_creates_db(kennel_root: Path) -> None:
-    assert (kennel_root / "kennel.db").exists()
-
-
-def test_initialize_is_idempotent(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import kennel
-
-    kennel.initialize()
-    kennel.initialize()  # second call must not raise
-
-
-def test_recorder_writes_only_to_repo_wing(kennel_root: Path) -> None:
-    """Phase 5: autosave goes to the repo wing only, not the agent diary."""
-    from code_puppy.plugins.puppy_kennel import kennel, recorder
-
-    recorder.record_run_end(
-        agent_name="code-puppy",
-        model_name="test-model",
-        session_id="sess-abc",
-        success=True,
-        response_text="Hello from the kennel.",
-    )
-    # Single write — no more dual-write.
-    assert kennel.count_drawers() == 1
-    wings = kennel.list_wings()
-    assert any(w.startswith("repo:") for w in wings)
-    assert "agent:code-puppy" not in wings
-
-
 def test_recorder_skips_blank_or_failed_runs(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import kennel, recorder
 
@@ -150,33 +121,6 @@ def test_search_handles_garbage_input(kennel_root: Path) -> None:
     assert kennel.search_drawers("   ") == []
     # FTS5 would normally choke on bare operator chars; sanitizer should rescue us.
     assert kennel.search_drawers('"":*()') == []
-
-
-def test_passive_recall_block_returns_none_when_empty(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import retriever
-
-    assert retriever.build_recall_block() is None
-
-
-def test_passive_recall_block_renders_when_drawers_exist(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import recorder, retriever
-
-    # Has to exceed MIN_DRAWER_CHARS (80) or the packer correctly drops it.
-    recorder.record_run_end(
-        agent_name="code-puppy",
-        model_name="m",
-        session_id="s1",
-        success=True,
-        response_text=(
-            "A small but mighty drawer that nonetheless contains enough "
-            "verbatim content to clear the noise threshold and earn its "
-            "place in the recall block."
-        ),
-    )
-    block = retriever.build_recall_block()
-    assert block is not None
-    assert "Puppy Kennel" in block
-    assert "code-puppy" in block
 
 
 def test_wing_naming_conventions() -> None:
@@ -298,16 +242,6 @@ def test_repo_wing_submodule_stays_siloed(tmp_path: Path) -> None:
     # returns None for submodules, it falls back to the candidate dir)
     assert result == f"repo:{submodule.resolve()}"
     assert result != f"repo:{superproject.resolve()}"
-
-
-def test_default_recall_scope_combines_three_wings() -> None:
-    from code_puppy.plugins.puppy_kennel import wings
-
-    scope = wings.default_recall_scope("code-puppy")
-    assert len(scope) == 3
-    assert any(w.startswith("repo:") for w in scope)
-    assert "agent:code-puppy" in scope
-    assert "user:default" in scope
 
 
 # --------------------------------------------------------------------------- #

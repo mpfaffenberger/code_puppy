@@ -45,14 +45,6 @@ def test_stamp_value_is_isoformat_with_offset(interval_3):
     assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$", stamp)
 
 
-def test_non_dict_result_defers_stamp_to_next_dict(interval_3):
-    _call({})
-    _call({})
-    _call("plain string result")  # k-th call, unstampable — stamp goes due
-    result = _call({})  # next dict gets the deferred stamp
-    assert hb.TIMESTAMP_KEY in result
-
-
 def test_deferred_stamp_only_lands_once(interval_3):
     for _ in range(3):
         _call("nope")

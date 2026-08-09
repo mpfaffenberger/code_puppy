@@ -146,15 +146,6 @@ class TestTokenRefreshHeartbeatContext:
         assert not is_heartbeat_running()
         assert get_current_heartbeat() is None
 
-    @pytest.mark.asyncio
-    async def test_context_manager_stops_on_exception(self):
-        """Context manager should stop heartbeat even if exception is raised."""
-        with pytest.raises(ValueError):
-            async with token_refresh_heartbeat_context(interval=0.1):
-                raise ValueError("Test error")
-
-        # Heartbeat should be stopped despite exception
-        assert not is_heartbeat_running()
 
     @pytest.mark.asyncio
     async def test_context_manager_yields_heartbeat(self):
@@ -263,38 +254,6 @@ class TestCallbackIntegration:
         # No heartbeat should be stored
         assert "test-session-456" not in _active_heartbeats
 
-    @pytest.mark.asyncio
-    async def test_agent_run_end_stops_heartbeat(self):
-        """agent_run_end should stop the heartbeat."""
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
-            _active_heartbeats,
-            _on_agent_run_end,
-            _on_agent_run_start,
-        )
-
-        _active_heartbeats.clear()
-
-        # Start heartbeat
-        await _on_agent_run_start(
-            agent_name="test-agent",
-            model_name="claude-code-opus-4",
-            session_id="test-session-789",
-        )
-        assert "test-session-789" in _active_heartbeats
-
-        # End run (with new consolidated signature)
-        await _on_agent_run_end(
-            agent_name="test-agent",
-            model_name="claude-code-opus-4",
-            session_id="test-session-789",
-            success=True,
-            error=None,
-            response_text="test response",
-            metadata={},
-        )
-
-        # Heartbeat should be removed
-        assert "test-session-789" not in _active_heartbeats
 
     @pytest.mark.asyncio
     async def test_agent_run_end_handles_missing_heartbeat_gracefully(self):

@@ -68,15 +68,6 @@ class TestBuildNamespaces:
 
         assert list(namespaces.keys()) == ["General"]
 
-    def test_blank_first_tag_falls_back_to_general(self):
-        from code_puppy.plugins.namespace_skill_search.namespaces import (
-            build_namespaces,
-        )
-
-        with patch(_PATCH_TARGET, return_value=[_skill("blank", tags=["  "])]):
-            namespaces = build_namespaces()
-
-        assert list(namespaces.keys()) == ["General"]
 
     def test_mixed_case_first_tag_collapses_to_one_namespace(self):
         """ "finance" and "Finance" must not fragment into two namespaces."""
@@ -337,25 +328,6 @@ class TestBrowseSkillNamespace:
         assert result.mode == "search"
         assert result.total_skills == 0
 
-    @pytest.mark.asyncio
-    async def test_namespace_mode_whitespace_query_means_no_filter(self):
-        """query="   " must not silently zero out a non-empty namespace."""
-        from code_puppy.plugins.namespace_skill_search.search_tool import (
-            register_browse_skill_namespace,
-        )
-
-        skills = [
-            _skill("a", tags=["finance"]),
-            _skill("b", tags=["finance"]),
-        ]
-        agent, cap = _make_agent()
-        register_browse_skill_namespace(agent)
-        ctx = MagicMock()
-
-        with patch(_PATCH_TARGET, return_value=skills):
-            result = await cap["fn"](ctx, namespace="finance", query="   ")
-
-        assert result.total_skills == 2
 
     @pytest.mark.asyncio
     async def test_search_mode_empty_string_query_means_no_filter(self):

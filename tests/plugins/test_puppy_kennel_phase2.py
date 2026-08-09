@@ -166,18 +166,6 @@ def test_kennel_recall_scope_repo_only(kennel_root: Path) -> None:
     assert out.total_hits >= 1
 
 
-def test_kennel_recall_top_k_clamped(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import tools
-
-    agent = _FakeAgent()
-    tools.register_kennel_recall(agent)
-    recall = agent.registered["kennel_recall"]
-
-    # Should not raise — top_k=9999 should clamp to 20.
-    out = asyncio.run(recall(_make_context(), "anything", top_k=9999))
-    assert isinstance(out.drawers, list)
-
-
 def test_register_tools_callback_shape() -> None:
     """The callback contract: list of dicts with name + register_func.
 

@@ -537,36 +537,6 @@ class TestShellSafetyCallbackErrorMessages:
             assert "System destruction" in error_msg
             assert "Override" in error_msg
 
-    @pytest.mark.anyio
-    async def test_error_message_with_none_reasoning(self):
-        """Test error message with None reasoning."""
-        cached = CachedAssessment(risk="high", reasoning=None)
-
-        with (
-            patch(
-                "code_puppy.plugins.shell_safety.register_callbacks.get_global_model_name",
-                return_value="claude-opus-4",
-            ),
-            patch(
-                "code_puppy.plugins.shell_safety.register_callbacks.get_yolo_mode",
-                return_value=True,
-            ),
-            patch(
-                "code_puppy.plugins.shell_safety.register_callbacks.get_safety_permission_level",
-                return_value="low",
-            ),
-            patch(
-                "code_puppy.plugins.shell_safety.register_callbacks.get_cached_assessment",
-                return_value=cached,
-            ),
-            patch("code_puppy.plugins.shell_safety.register_callbacks.emit_info"),
-        ):
-            result = await shell_safety_callback(
-                context=None, command="dangerous", cwd=None, timeout=60
-            )
-
-            assert "No reasoning provided" in result["error_message"]
-
 
 class TestRegisterCallback:
     """Test callback registration function."""

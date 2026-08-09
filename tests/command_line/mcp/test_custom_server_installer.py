@@ -35,21 +35,36 @@ class TestPromptAndInstallCustomServer:
         assert prompt_and_install_custom_server(MagicMock()) is False
 
     @pytest.mark.parametrize(
-        "response",
-        ["n", KeyboardInterrupt, EOFError],
-        ids=["declined", "keyboard_interrupt", "eof"],
+        "found,response",
+        [
+            ("existing", "n"),
+            ("existing", KeyboardInterrupt),
+            ("existing", EOFError),
+            (None, "9"),
+            (None, KeyboardInterrupt),
+            (None, EOFError),
+        ],
+        ids=[
+            "declined",
+            "existing_keyboard_interrupt",
+            "existing_eof",
+            "invalid_choice",
+            "no_existing_keyboard_interrupt",
+            "no_existing_eof",
+        ],
     )
-    @patch(f"{UTILS}.find_server_id_by_name", return_value="existing")
+    @patch(f"{UTILS}.find_server_id_by_name")
     @patch(f"{MODULE}.safe_input")
     @patch(f"{MODULE}.emit_warning")
     @patch(f"{MODULE}.emit_info")
-    def test_existing_server_handled(
-        self, mock_info, mock_warn, mock_input, mock_find, response
+    def test_existing_server_and_type_prompts_handled(
+        self, mock_info, mock_warn, mock_input, mock_find, response, found
     ):
         from code_puppy.command_line.mcp.custom_server_installer import (
             prompt_and_install_custom_server,
         )
 
+        mock_find.return_value = found
         mock_input.side_effect = ["my-server", response]
         assert prompt_and_install_custom_server(MagicMock()) is False
 
@@ -66,25 +81,6 @@ class TestPromptAndInstallCustomServer:
 
         # name, override=yes, type=invalid -> will fail at type
         mock_input.side_effect = ["my-server", "y", "9"]
-        assert prompt_and_install_custom_server(MagicMock()) is False
-
-    @pytest.mark.parametrize(
-        "response",
-        ["9", KeyboardInterrupt, EOFError],
-        ids=["invalid_choice", "keyboard_interrupt", "eof"],
-    )
-    @patch(f"{UTILS}.find_server_id_by_name", return_value=None)
-    @patch(f"{MODULE}.safe_input")
-    @patch(f"{MODULE}.emit_warning")
-    @patch(f"{MODULE}.emit_info")
-    def test_server_type_handled(
-        self, mock_info, mock_warn, mock_input, mock_find, response
-    ):
-        from code_puppy.command_line.mcp.custom_server_installer import (
-            prompt_and_install_custom_server,
-        )
-
-        mock_input.side_effect = ["my-server", response]
         assert prompt_and_install_custom_server(MagicMock()) is False
 
     @patch(f"{UTILS}.find_server_id_by_name", return_value=None)

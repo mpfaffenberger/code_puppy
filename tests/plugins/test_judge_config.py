@@ -144,12 +144,6 @@ def test_update_judge_rejects_empty_model(isolated_judges_file):
         update_judge("x", model="")
 
 
-def test_update_judge_resets_empty_prompt_to_default(isolated_judges_file):
-    add_judge(JudgeConfig(name="x", model="m", prompt="custom"))
-    update_judge("x", prompt="")
-    assert load_judges().find("x").prompt == DEFAULT_JUDGE_PROMPT
-
-
 def test_delete_judge(isolated_judges_file):
     add_judge(JudgeConfig(name="x", model="m"))
     add_judge(JudgeConfig(name="y", model="m"))

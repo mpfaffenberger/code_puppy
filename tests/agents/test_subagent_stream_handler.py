@@ -42,11 +42,6 @@ class TestEstimateTokens:
         """Empty string should return 0 tokens."""
         assert _estimate_tokens("") == 0
 
-    def test_none_like_empty_returns_zero(self):
-        """Falsy content should return 0 tokens."""
-        # Empty string is the only falsy case the function handles
-        assert _estimate_tokens("") == 0
-
     def test_short_content_returns_minimum_one(self):
         """Very short content (< 4 chars) should return minimum 1 token."""
         assert _estimate_tokens("a") == 1

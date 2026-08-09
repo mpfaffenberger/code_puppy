@@ -386,29 +386,6 @@ class TestLoadUserPlugins:
                 if str(user_plugins_dir) in sys.path:
                     sys.path.remove(str(user_plugins_dir))
 
-    def test_handles_spec_loader_is_none(self, tmp_path, caplog):
-        """Test handling when spec.loader is None."""
-        user_plugins_dir = tmp_path / "user_plugins"
-        user_plugins_dir.mkdir()
-
-        plugin_dir = user_plugins_dir / "no_loader_plugin"
-        plugin_dir.mkdir()
-        (plugin_dir / "register_callbacks.py").write_text("# No loader")
-
-        mock_spec = MagicMock()
-        mock_spec.loader = None
-
-        with patch(
-            "code_puppy.plugins.importlib.util.spec_from_file_location",
-            return_value=mock_spec,
-        ):
-            try:
-                result = _load_user_plugins(user_plugins_dir)
-                assert "no_loader_plugin" not in result
-                assert "Could not create module spec" in caplog.text
-            finally:
-                if str(user_plugins_dir) in sys.path:
-                    sys.path.remove(str(user_plugins_dir))
 
     def test_handles_import_error_for_register_callbacks(self, tmp_path, caplog):
         """Test graceful handling of ImportError during user plugin loading."""

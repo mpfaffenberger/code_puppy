@@ -97,23 +97,21 @@ async def test_detector_ignores_empty_text_part():
 # --- should_render_fallback -------------------------------------------------
 
 
-def test_should_render_fallback_skip_dbos_wins():
-    detector = SimpleNamespace(streamed_text=False)
-    assert should_render_fallback(detector, skip=True) is False
+@pytest.mark.parametrize(
+    ("streamed_text", "skip", "expected"),
+    [
+        pytest.param(False, True, False, id="skip_dbos_wins"),
+        pytest.param(True, False, False, id="streamed_text_means_skip"),
+        pytest.param(False, False, True, id="no_text_streamed_means_render"),
+    ],
+)
+def test_should_render_fallback(streamed_text, skip, expected):
+    detector = SimpleNamespace(streamed_text=streamed_text)
+    assert should_render_fallback(detector, skip=skip) is expected
 
 
 def test_should_render_fallback_no_detector_means_render():
     assert should_render_fallback(None, skip=False) is True
-
-
-def test_should_render_fallback_streamed_text_means_skip():
-    detector = SimpleNamespace(streamed_text=True)
-    assert should_render_fallback(detector, skip=False) is False
-
-
-def test_should_render_fallback_no_text_streamed_means_render():
-    detector = SimpleNamespace(streamed_text=False)
-    assert should_render_fallback(detector, skip=False) is True
 
 
 # --- Message walkers --------------------------------------------------------

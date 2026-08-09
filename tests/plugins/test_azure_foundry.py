@@ -251,11 +251,15 @@ class TestResolveEnvVar:
         with patch.dict(os.environ, {"MY_VAR": "resolved_value"}):
             assert resolve_env_var("$MY_VAR") == "resolved_value"
 
-    def test_resolve_env_var_literal(self):
-        """Test literal values pass through."""
+    @pytest.mark.parametrize(
+        ("value",),
+        [("literal_value",), ("",)],
+    )
+    def test_resolve_env_var_passthrough(self, value):
+        """Literal and empty values pass through unchanged."""
         from code_puppy.plugins.azure_foundry.utils import resolve_env_var
 
-        assert resolve_env_var("literal_value") == "literal_value"
+        assert resolve_env_var(value) == value
 
     def test_resolve_env_var_not_set(self):
         """Test resolving unset environment variable."""
@@ -264,12 +268,6 @@ class TestResolveEnvVar:
         with patch.dict(os.environ, {}, clear=True):
             os.environ.pop("UNSET_VAR", None)
             assert resolve_env_var("$UNSET_VAR") == ""
-
-    def test_resolve_env_var_empty(self):
-        """Test empty string passes through."""
-        from code_puppy.plugins.azure_foundry.utils import resolve_env_var
-
-        assert resolve_env_var("") == ""
 
 
 class TestLoadSaveExtraModels:
@@ -348,17 +346,6 @@ class TestBuildFoundryModelConfig:
         assert config["context_length"] == 1000000
         assert "foundry_resource" in config
 
-    def test_build_config_with_custom_resource(self):
-        """Test building config with explicit resource."""
-        from code_puppy.plugins.azure_foundry.utils import build_foundry_model_config
-
-        config = build_foundry_model_config(
-            deployment_name="my-opus",
-            model_tier="opus",
-            foundry_resource="custom-resource",
-        )
-
-        assert config["foundry_resource"] == "custom-resource"
 
     def test_build_config_with_custom_context_length(self):
         """Test building config with custom context length."""

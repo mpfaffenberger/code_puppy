@@ -819,68 +819,44 @@ class TestLegacyRendererOutputLevel:
 class TestEventStreamHandlerGates:
     """_suppress_thinking_stream / _suppress_tool_progress in event_stream_handler."""
 
-    def test_low_mode_suppresses_thinking(self):
+    @pytest.mark.parametrize(
+        ("level", "toggle", "expected"),
+        [
+            pytest.param("low", False, True, id="low_mode_suppresses"),
+            pytest.param("medium", False, False, id="medium_mode_does_not"),
+            pytest.param("medium", True, True, id="toggle_overrides"),
+        ],
+    )
+    def test_suppress_thinking_stream(self, level, toggle, expected):
         from code_puppy.agents.event_stream_handler import _suppress_thinking_stream
 
         with (
             patch(
                 "code_puppy.agents.event_stream_handler.get_output_level",
-                return_value="low",
+                return_value=level,
             ),
             patch(
                 "code_puppy.agents.event_stream_handler.get_suppress_thinking_messages",
-                return_value=False,
+                return_value=toggle,
             ),
         ):
-            assert _suppress_thinking_stream() is True
+            assert _suppress_thinking_stream() is expected
 
-    def test_medium_mode_does_not_suppress_thinking(self):
-        from code_puppy.agents.event_stream_handler import _suppress_thinking_stream
-
-        with (
-            patch(
-                "code_puppy.agents.event_stream_handler.get_output_level",
-                return_value="medium",
-            ),
-            patch(
-                "code_puppy.agents.event_stream_handler.get_suppress_thinking_messages",
-                return_value=False,
-            ),
-        ):
-            assert _suppress_thinking_stream() is False
-
-    def test_suppress_toggle_overrides(self):
-        from code_puppy.agents.event_stream_handler import _suppress_thinking_stream
-
-        with (
-            patch(
-                "code_puppy.agents.event_stream_handler.get_output_level",
-                return_value="medium",
-            ),
-            patch(
-                "code_puppy.agents.event_stream_handler.get_suppress_thinking_messages",
-                return_value=True,
-            ),
-        ):
-            assert _suppress_thinking_stream() is True
-
-    def test_low_mode_suppresses_tool_progress(self):
+    @pytest.mark.parametrize(
+        ("level", "expected"),
+        [
+            pytest.param("low", True, id="low_mode_suppresses"),
+            pytest.param("medium", False, id="medium_mode_shows"),
+        ],
+    )
+    def test_suppress_tool_progress(self, level, expected):
         from code_puppy.agents.event_stream_handler import _suppress_tool_progress
 
         with patch(
             "code_puppy.agents.event_stream_handler.get_output_level",
-            return_value="low",
+            return_value=level,
         ):
-            assert _suppress_tool_progress() is True
-
-    def test_medium_mode_shows_tool_progress(self):
-        from code_puppy.agents.event_stream_handler import _suppress_tool_progress
-
-        with patch(
-            "code_puppy.agents.event_stream_handler.get_output_level",
-            return_value="medium",
-        ):
-            assert _suppress_tool_progress() is False
+            assert _suppress_tool_progress() is expected
 
     def test_high_mode_unsuppresses_subagent(self):
         from code_puppy.agents.event_stream_handler import _should_suppress_output

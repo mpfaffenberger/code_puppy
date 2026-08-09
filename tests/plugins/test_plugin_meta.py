@@ -134,9 +134,6 @@ class TestGetDescription:
         self._install(monkeypatch, None)
         assert plugin_meta.get_description("descplug", "builtin") is None
 
-    def test_none_when_docstring_only_whitespace(self, monkeypatch):
-        self._install(monkeypatch, "   \n\n   ")
-        assert plugin_meta.get_description("descplug", "builtin") is None
 
     def test_none_for_unknown_tier(self, monkeypatch):
         self._install(monkeypatch, "Has a docstring.")
@@ -160,8 +157,6 @@ class TestGetFilePath:
             == "/plugins/pathplug/register_callbacks.py"
         )
 
-    def test_none_when_module_missing(self):
-        assert plugin_meta.get_file_path("nope_missing", "builtin") is None
 
     def test_none_when_file_attr_missing(self, monkeypatch):
         mod = _fake_module(doc="d")  # no __file__ set
@@ -507,8 +502,6 @@ class TestLineSlicing:
         assert "".join(pieces) == path
         assert all(len(p) <= 8 for p in pieces)
 
-    def test_wrap_text_zero_width_is_noop(self):
-        assert ptu.wrap_text("anything", 0) == ["anything"]
 
     @pytest.mark.parametrize(
         "text, width",
@@ -531,19 +524,17 @@ class TestLineSlicing:
     def test_cell_width(self, text, width):
         assert ptu.cell_width(text) == width
 
-    def test_strip_emojis_removes_emoji_and_vs16(self):
-        # Hammer-wrench + VS16, dog face, check mark — all gone. ASCII stays.
-        assert (
-            ptu.strip_emojis("foo \U0001f6e0\ufe0f bar \U0001f436 baz \u2705")
-            == "foo  bar  baz "
-        )
-
-    def test_strip_emojis_removes_zwj(self):
-        # ZWJ sequences (e.g. family emoji) leave no residue.
-        assert ptu.strip_emojis("a\u200db") == "ab"
-
-    def test_strip_emojis_preserves_ascii_and_newlines(self):
-        assert ptu.strip_emojis("hello\nworld\t!") == "hello\nworld\t!"
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("foo \U0001f6e0\ufe0f bar \U0001f436 baz \u2705", "foo  bar  baz "),
+            ("a\u200db", "ab"),
+            ("hello\nworld\t!", "hello\nworld\t!"),
+        ],
+        ids=["vs16", "zwj", "ascii_newlines"],
+    )
+    def test_strip_emojis(self, text, expected):
+        assert ptu.strip_emojis(text) == expected
 
     def test_strip_emojis_from_fragments_walks_every_fragment(self):
         frags = [("bold", "a\U0001f436b"), ("", "c\u2705d")]

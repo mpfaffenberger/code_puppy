@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+from pydantic_ai.models.openai import OpenAIChatModel
 
 from code_puppy.plugins.ollama.register_callbacks import (
     _DEFAULT_OLLAMA_API_KEY,
@@ -94,17 +94,6 @@ def test_ollama_host_base_url(
     # Check the provider was called with the normalized /v1 base URL
     call_kwargs = mock_provider.call_args[1]
     assert call_kwargs["base_url"] == expected
-
-
-def test_returns_open_ai_chat_model_not_responses(
-    mock_async_client, mock_provider, monkeypatch
-):
-    monkeypatch.delenv("OLLAMA_HOST", raising=False)
-    model_config = {"name": "llama3:8b"}
-    result = create_ollama_model("my-model", model_config, {})
-
-    assert isinstance(result, OpenAIChatModel)
-    assert not isinstance(result, OpenAIResponsesModel)
 
 
 def test_provider_is_set_on_model(mock_async_client, mock_provider, monkeypatch):

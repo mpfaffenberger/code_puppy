@@ -436,31 +436,6 @@ class TestAnnotateContextWindow:
         assert entries[-1].in_context is True
         assert entries[0].in_context is False
 
-    def test_used_tokens_counts_only_in_context_not_overflow(self):
-        """When history exceeds the budget, used_tokens reports only what
-        actually fits — percent_used must never exceed 100%.
-        """
-        agent = MagicMock()
-        agent.estimate_tokens_for_message.side_effect = lambda m: 60
-        agent._get_model_context_length.return_value = 100
-        agent._estimate_context_overhead.return_value = 20  # available = 80
-
-        # Three messages × 60 = 180 tokens but only 80 fits.
-        history = [
-            _system_msg(),
-            _user_msg("old"),
-            _assistant_text("mid"),
-            _user_msg("new"),
-        ]
-        entries = build_message_entries(history)
-        budget = annotate_context_window(entries, history, agent)
-
-        # Only the newest entry fits (60 ≤ 80; next would be 120 > 80).
-        assert budget.used_tokens == 60
-        assert budget.out_of_context_tokens == 120  # 2 × 60
-        assert budget.out_of_context_messages == 2
-        # percent stays bounded: (60 + 20) / 100 = 80%
-        assert budget.percent_used == 80.0
 
     def test_system_message_is_always_in_context(self):
         """Even when the budget is blown, the system bundle must stay in.

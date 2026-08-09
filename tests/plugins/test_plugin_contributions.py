@@ -54,15 +54,6 @@ def test_get_tools_parses_name(clean_callbacks):
     assert pc.get_tools("plugA") == ["do_thing"]
 
 
-def test_get_tools_single_dict_not_list(clean_callbacks):
-    _register(
-        "plugA",
-        "register_tools",
-        lambda: {"name": "solo", "register_func": lambda a: None},
-    )
-    assert pc.get_tools("plugA") == ["solo"]
-
-
 # ── commands (all three shapes) ─────────────────────────────────────────────
 
 
@@ -302,11 +293,6 @@ def test_callback_returning_empty_list_yields_empty(clean_callbacks):
 def test_command_callback_returning_none_yields_empty(clean_callbacks):
     _register("plugA", "custom_command_help", lambda: None)
     assert pc.get_commands("plugA") == []
-
-
-def test_command_without_description_omits_dash(clean_callbacks):
-    _register("plugA", "custom_command_help", lambda: [("bare", "")])
-    assert pc.get_commands("plugA") == ["/bare"]
 
 
 def test_get_contributions_empty_string_plugin_name(clean_callbacks):

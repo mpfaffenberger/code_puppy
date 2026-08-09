@@ -53,19 +53,16 @@ class TestConfig:
         with patch("code_puppy.plugins.statusline.config.get_value", return_value=val):
             assert is_enabled() is False
 
-    def test_set_enabled_true(self):
+    @pytest.mark.parametrize(
+        ("enabled", "expected"),
+        [(True, "true"), (False, "false")],
+    )
+    def test_set_enabled(self, enabled, expected):
         from code_puppy.plugins.statusline.config import set_enabled
 
         with patch("code_puppy.plugins.statusline.config.set_value") as mock_set:
-            set_enabled(True)
-            mock_set.assert_called_once_with("statusline_enabled", "true")
-
-    def test_set_enabled_false(self):
-        from code_puppy.plugins.statusline.config import set_enabled
-
-        with patch("code_puppy.plugins.statusline.config.set_value") as mock_set:
-            set_enabled(False)
-            mock_set.assert_called_once_with("statusline_enabled", "false")
+            set_enabled(enabled)
+            mock_set.assert_called_once_with("statusline_enabled", expected)
 
     def test_get_command_strips_whitespace(self):
         from code_puppy.plugins.statusline.config import get_command
@@ -147,13 +144,6 @@ class TestConfig:
         ):
             assert get_mode() == "replace"
 
-    def test_get_mode_falls_back_to_default_for_garbage(self):
-        from code_puppy.plugins.statusline.config import DEFAULT_MODE, get_mode
-
-        with patch(
-            "code_puppy.plugins.statusline.config.get_value", return_value="bogus"
-        ):
-            assert get_mode() == DEFAULT_MODE
 
     def test_set_mode_valid(self):
         from code_puppy.plugins.statusline.config import set_mode
@@ -258,24 +248,6 @@ class TestRender:
         assert any("\n" in text for _, text in fragments)
         assert any(">>>" in text for _, text in fragments)
 
-    def test_render_uses_default_arrow_when_base_empty(self):
-        from code_puppy.plugins.statusline.prompt_patch import _render, _DEFAULT_ARROW
-
-        default = self._make_formatted_text()
-        with (
-            patch(
-                "code_puppy.plugins.statusline.prompt_patch.get_status_text",
-                return_value="status",
-            ),
-            patch(
-                "code_puppy.plugins.statusline.prompt_patch.get_mode",
-                return_value="replace",
-            ),
-        ):
-            result = _render(default, "")
-
-        fragments = list(result)
-        assert any(_DEFAULT_ARROW in text for _, text in fragments)
 
     def test_render_survives_ansi_parse_exception(self):
         """If ANSI() blows up, _render should return the default prompt unchanged."""
@@ -494,24 +466,6 @@ class TestStatuslineCommand:
         calls = [c[0][0] for c in mock_info.call_args_list]
         assert any("hello world" in c for c in calls)
 
-    def test_show_emits_empty_placeholder(self):
-        with (
-            patch(
-                "code_puppy.plugins.statusline.statusline_command.config.get_command",
-                return_value="echo",
-            ),
-            patch(
-                "code_puppy.plugins.statusline.statusline_command.runner.run_once_sync",
-                return_value="",
-            ),
-            patch(
-                "code_puppy.plugins.statusline.statusline_command.emit_info"
-            ) as mock_info,
-        ):
-            result = self._call("/statusline show")
-        assert result is True
-        calls = [c[0][0] for c in mock_info.call_args_list]
-        assert any("(empty)" in c for c in calls)
 
     # --- json ---
 

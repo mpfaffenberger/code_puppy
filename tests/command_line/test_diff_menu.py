@@ -635,37 +635,20 @@ class TestInteractiveDiffPicker:
         mock_awaiting.assert_any_call(False)
 
     @pytest.mark.asyncio
-    @patch(
-        "code_puppy.command_line.diff_menu._split_panel_selector",
-        side_effect=KeyboardInterrupt(),
+    @pytest.mark.parametrize(
+        "exc",
+        [KeyboardInterrupt(), Exception("Unexpected error")],
+        ids=["keyboard_interrupt", "unexpected_error"],
     )
+    @patch("code_puppy.command_line.diff_menu._split_panel_selector")
     @patch("code_puppy.tools.command_runner.set_awaiting_user_input")
     @patch("sys.stdout.write")
     @patch("time.sleep")
-    async def test_keyboard_interrupt_handling(
-        self, mock_sleep, mock_stdout, mock_awaiting, mock_selector
+    async def test_error_handling(
+        self, mock_sleep, mock_stdout, mock_awaiting, mock_selector, exc
     ):
-        """Test handling of keyboard interrupt during interaction."""
-        result = await interactive_diff_picker()
-
-        # Should return None on interrupt
-        assert result is None
-
-        # Should cleanup properly
-        mock_awaiting.assert_any_call(False)
-
-    @pytest.mark.asyncio
-    @patch(
-        "code_puppy.command_line.diff_menu._split_panel_selector",
-        side_effect=Exception("Unexpected error"),
-    )
-    @patch("code_puppy.tools.command_runner.set_awaiting_user_input")
-    @patch("sys.stdout.write")
-    @patch("time.sleep")
-    async def test_unexpected_error_handling(
-        self, mock_sleep, mock_stdout, mock_awaiting, mock_selector
-    ):
-        """Test handling of unexpected errors during interaction."""
+        """Test handling of user-interrupt / unexpected errors during interaction."""
+        mock_selector.side_effect = exc
         result = await interactive_diff_picker()
 
         # Should return None on error

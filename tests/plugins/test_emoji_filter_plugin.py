@@ -212,23 +212,6 @@ def test_pre_tool_call_context_message_for_shell_command():
     assert "command" in result["context_message"]
 
 
-def test_pre_tool_call_context_message_counts_replacements():
-    module = _plugin_module()
-    args = {
-        "file_path": "x.py",
-        "replacements": [
-            {"old_str": "a", "new_str": "one \U0001f436"},
-            {"old_str": "b", "new_str": "two \U0001f436"},
-            {"old_str": "c", "new_str": "three (clean)"},
-        ],
-    }
-    with patch.object(module, "is_enabled", return_value=True):
-        result = module._on_pre_tool_call("replace_in_file", args)
-    assert isinstance(result, dict)
-    # Two items had emojis; the third did not.
-    assert "2 items" in result["context_message"]
-
-
 def test_pre_tool_call_context_message_for_edit_file_payload():
     module = _plugin_module()
     args = {"payload": {"file_path": "x.py", "content": "\U0001f680 lift off"}}

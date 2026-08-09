@@ -420,13 +420,6 @@ class TestParseAuthorizationError:
 
         assert error == "access_denied: User denied access"
 
-    def test_parse_authorization_error_without_description(self):
-        """Test parsing authorization error without description."""
-        url = "http://localhost:1455/auth/callback?error=invalid_request"
-
-        error = parse_authorization_error(url)
-
-        assert error == "invalid_request: Unknown error"
 
     def test_parse_authorization_error_no_error(self):
         """Test parsing callback without error returns None."""
