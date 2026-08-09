@@ -260,77 +260,52 @@ def test_advertise_tools_returns_empty_when_disabled(kennel_root: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_slash_disable_triggers_agent_reload(
-    kennel_root: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "command, initial_enabled, reload_raises, expected_calls, final_enabled",
+    [
+        # Disabling reloads the live agent so the tool list refreshes.
+        ("/kennel disable", True, False, ["reloaded"], False),
+        # Re-enabling reloads the live agent.
+        ("/kennel enable", False, False, ["reloaded"], True),
+        # Already-enabled + enable is a no-op that must NOT churn the agent.
+        ("/kennel enable", True, False, [], True),
+        # Reload errors are swallowed; the persisted toggle still flips.
+        ("/kennel disable", True, True, [], False),
+    ],
+    ids=["disable_reloads", "enable_reloads", "noop_no_reload", "reload_error_still_flips"],
+)
+def test_toggle_reload_behavior(
+    kennel_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    initial_enabled: bool,
+    reload_raises: bool,
+    expected_calls: list[str],
+    final_enabled: bool,
 ) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
-
-    calls: list[str] = []
-
-    class _StubAgent:
-        def reload_code_generation_agent(self) -> None:
-            calls.append("reloaded")
-
-    import code_puppy.agents.agent_manager as agent_manager
-
-    monkeypatch.setattr(agent_manager, "get_current_agent", lambda: _StubAgent())
-
-    assert commands.handle("/kennel disable", "kennel") is True
-    assert calls == ["reloaded"]
-
-
-def test_slash_enable_triggers_agent_reload(
-    kennel_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    """Toggle commands trigger a live agent reload so tools refresh; reload
+    failures are swallowed without blocking the toggle flip."""
     from code_puppy.plugins.puppy_kennel import commands, state
 
-    state.set_enabled(False)
+    state.set_enabled(initial_enabled)
     calls: list[str] = []
 
-    class _StubAgent:
-        def reload_code_generation_agent(self) -> None:
-            calls.append("reloaded")
-
     import code_puppy.agents.agent_manager as agent_manager
 
-    monkeypatch.setattr(agent_manager, "get_current_agent", lambda: _StubAgent())
+    if reload_raises:
 
-    assert commands.handle("/kennel enable", "kennel") is True
-    assert calls == ["reloaded"]
+        def _boom() -> None:
+            raise RuntimeError("agent manager unavailable")
 
+        monkeypatch.setattr(agent_manager, "get_current_agent", _boom)
+    else:
 
-def test_noop_toggle_does_not_reload(
-    kennel_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Already-enabled + /kennel enable should NOT churn the agent."""
-    from code_puppy.plugins.puppy_kennel import commands
+        class _StubAgent:
+            def reload_code_generation_agent(self) -> None:
+                calls.append("reloaded")
 
-    calls: list[str] = []
+        monkeypatch.setattr(agent_manager, "get_current_agent", lambda: _StubAgent())
 
-    class _StubAgent:
-        def reload_code_generation_agent(self) -> None:
-            calls.append("reloaded")
-
-    import code_puppy.agents.agent_manager as agent_manager
-
-    monkeypatch.setattr(agent_manager, "get_current_agent", lambda: _StubAgent())
-
-    commands.handle("/kennel enable", "kennel")  # already enabled by default
-    assert calls == []
-
-
-def test_reload_failure_does_not_break_toggle(
-    kennel_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Reload errors are swallowed; the persisted toggle still flips."""
-    from code_puppy.plugins.puppy_kennel import commands, state
-
-    def _boom() -> None:
-        raise RuntimeError("agent manager unavailable")
-
-    import code_puppy.agents.agent_manager as agent_manager
-
-    monkeypatch.setattr(agent_manager, "get_current_agent", _boom)
-
-    assert commands.handle("/kennel disable", "kennel") is True
-    assert state.is_enabled() is False
+    assert commands.handle(command, "kennel") is True
+    assert calls == expected_calls
+    assert state.is_enabled() is final_enabled

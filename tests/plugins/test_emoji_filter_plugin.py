@@ -299,30 +299,21 @@ def test_handle_command_ignores_unrelated():
     assert _plugin_module()._handle_command("/nope", "nope") is None
 
 
-def test_handle_command_toggles_on(tmp_path, monkeypatch):
+def test_handle_command_toggles(tmp_path, monkeypatch):
     cfg_file = tmp_path / "puppy.cfg"
     monkeypatch.setattr("code_puppy.config.CONFIG_FILE", str(cfg_file))
     module = _plugin_module()
     cfg = _config_module()
-    cfg.set_enabled(False)
 
-    with patch("code_puppy.messaging.emit_info"):
-        result = module._handle_command("/emoji-filter on", "emoji-filter")
-    assert result is True
-    assert cfg.is_enabled() is True
-
-
-def test_handle_command_toggles_off(tmp_path, monkeypatch):
-    cfg_file = tmp_path / "puppy.cfg"
-    monkeypatch.setattr("code_puppy.config.CONFIG_FILE", str(cfg_file))
-    module = _plugin_module()
-    cfg = _config_module()
-    cfg.set_enabled(True)
-
-    with patch("code_puppy.messaging.emit_info"):
-        result = module._handle_command("/emoji-filter off", "emoji-filter")
-    assert result is True
-    assert cfg.is_enabled() is False
+    for command, start, end in (
+        ("on", False, True),
+        ("off", True, False),
+    ):
+        cfg.set_enabled(start)
+        with patch("code_puppy.messaging.emit_info"):
+            result = module._handle_command(f"/emoji-filter {command}", "emoji-filter")
+        assert result is True
+        assert cfg.is_enabled() is end
 
 
 def test_handle_command_status(tmp_path, monkeypatch):
