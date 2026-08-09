@@ -90,14 +90,14 @@ export PATH="$HOME/.local/bin:$PATH"  # Makes pipx apps available immediately
 
 `ripgrep` provides the native `rg` executable used for file discovery.
 `libjpeg-turbo` provides the headers Pillow needs when pip builds it from source.
-The first install may spend 10–20 minutes compiling packages such as
-`pydantic-core` and `cryptography`; later launches reuse the installed environment.
+The first run may spend 10–20 minutes compiling packages such as
+`pydantic-core` and `cryptography`; later runs reuse pipx's cached environment for
+up to 14 days.
 
-Install the released package persistently:
+Run the released package:
 
 ```bash
-pipx install code-puppy
-code-puppy
+pipx run code-puppy
 ```
 
 To run a source checkout instead, use an editable persistent installation:
@@ -110,10 +110,8 @@ code-puppy
 ```
 
 After a `git pull`, Python source changes are available immediately. Run
-`pipx reinstall code-puppy` only when project dependencies change. Avoid
-`pipx run` for routine Android use: its temporary environment expires after 14
-days and can trigger another native rebuild. Playwright-backed browser tools are
-not installed on Android.
+`pipx reinstall code-puppy` only when project dependencies change.
+Playwright-backed browser tools are not installed on Android.
 
 #### Optional: DBOS durable execution
 

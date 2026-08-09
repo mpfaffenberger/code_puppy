@@ -195,7 +195,19 @@ class TestVersionHandling:
 
 
 class TestLogoDisplay:
-    """Test CODE PUPPY logo display."""
+    """Test platform-aware logo display."""
+
+    @patch("code_puppy.cli_runner.sys.platform", "android")
+    def test_android_uses_compact_banner(self):
+        from code_puppy.cli_runner import _startup_banner_text
+
+        assert _startup_banner_text() == "PUP"
+
+    @patch("code_puppy.cli_runner.sys.platform", "linux")
+    def test_non_android_uses_full_banner(self):
+        from code_puppy.cli_runner import _startup_banner_text
+
+        assert _startup_banner_text() == "CODE PUPPY"
 
     def test_logo_not_displayed_in_prompt_only_mode(self):
         """Test that logo is skipped in prompt-only mode (-p flag)."""

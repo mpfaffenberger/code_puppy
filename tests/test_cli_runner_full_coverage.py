@@ -220,6 +220,21 @@ class TestMain:
         mock_inter.assert_called_once()
 
     @pytest.mark.anyio
+    async def test_android_interactive_mode_uses_compact_banner(self):
+        mock_inter = AsyncMock()
+        mock_figlet = MagicMock(return_value="LOGO\n\n")
+        await self._run_main(
+            ["code-puppy"],
+            extra_patches={
+                "code_puppy.cli_runner.interactive_mode": mock_inter,
+                "code_puppy.cli_runner.sys.platform": "android",
+                "pyfiglet.figlet_format": mock_figlet,
+            },
+        )
+
+        mock_figlet.assert_called_once_with("PUP", font="ansi_shadow")
+
+    @pytest.mark.anyio
     async def test_with_command_args(self):
         mock_inter = AsyncMock()
         await self._run_main(
