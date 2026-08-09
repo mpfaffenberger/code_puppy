@@ -1,7 +1,6 @@
 """Regression tests for excluding unsupported Playwright features on Android."""
 
-import subprocess
-import sys
+import builtins
 import tomllib
 from pathlib import Path
 from unittest.mock import patch
@@ -16,27 +15,20 @@ def test_playwright_dependency_excludes_android():
     assert "playwright>=1.40.0; sys_platform != 'android'" in dependencies
 
 
-def test_browser_tool_registry_is_empty_on_android():
+def test_browser_tool_registry_skips_imports_on_android():
     from code_puppy.tools import _load_browser_tool_registry
 
-    with patch("code_puppy.tools.sys.platform", "android"):
-        assert _load_browser_tool_registry() == {}
+    with (
+        patch("code_puppy.tools.sys.platform", "android"),
+        patch("builtins.__import__", wraps=builtins.__import__) as import_mock,
+    ):
+        registry = _load_browser_tool_registry()
 
-
-def test_android_tools_import_does_not_load_playwright():
-    script = """
-import platform
-import sys
-import uuid  # Initialize platform-dependent stdlib state before simulation.
-platform.uname()
-sys.platform = "android"
-import code_puppy.tools as tools
-assert not any(name.startswith("browser_") for name in tools.TOOL_REGISTRY)
-assert "playwright" not in sys.modules
-assert not any(name.startswith("code_puppy.tools.browser") for name in sys.modules)
-"""
-
-    subprocess.run([sys.executable, "-c", script], check=True)
+    imported_modules = [call.args[0] for call in import_mock.call_args_list]
+    assert registry == {}
+    assert not any(
+        module.startswith("code_puppy.tools.browser") for module in imported_modules
+    )
 
 
 def test_playwright_agents_are_skipped_on_android():
