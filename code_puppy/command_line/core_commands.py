@@ -205,10 +205,12 @@ def handle_tutorial_command(command: str) -> bool:
 
     if result == "chatgpt":
         emit_info(t("cmd.tutorial.chatgpt_oauth"))
-        from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
+        # Decoupled: the chatgpt_oauth plugin owns this flow. Dispatch through
+        # its self-registered /chatgpt-auth custom command rather than
+        # importing the plugin module directly.
+        from code_puppy.callbacks import on_custom_command
 
-        run_oauth_flow()
-        set_model_and_reload_agent("codex-gpt-5.6-sol")
+        on_custom_command("/chatgpt-auth", "chatgpt-auth")
     elif result == "claude":
         emit_info(t("cmd.tutorial.claude_oauth"))
         from code_puppy.plugins.claude_code_oauth.register_callbacks import (
