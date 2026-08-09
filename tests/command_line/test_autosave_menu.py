@@ -515,7 +515,9 @@ class TestEdgeCasesAndErrorHandling:
                 entries = _get_session_entries(Path("/protected/path"))
                 # Should handle permission errors gracefully
                 assert len(entries) == 1
-                assert entries[0][1] == {}  # metadata should be empty due to error
+                # Real metadata failed to load; only the always-present pin
+                # flag remains (defaults to False when not pinned).
+                assert entries[0][1] == {"pinned": False}
 
     def test_console_output_and_ansi_sequences(self):
         """Test that console output includes proper ANSI sequences."""
