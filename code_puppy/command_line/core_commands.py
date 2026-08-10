@@ -213,12 +213,11 @@ def handle_tutorial_command(command: str) -> bool:
         on_custom_command("/chatgpt-auth", "chatgpt-auth")
     elif result == "claude":
         emit_info(t("cmd.tutorial.claude_oauth"))
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
-            _perform_authentication,
-        )
+        from code_puppy.callbacks import on_claude_oauth_authenticate
 
-        _perform_authentication()
-        set_model_and_reload_agent("claude-code-claude-opus-4-7")
+        auth_results = on_claude_oauth_authenticate()
+        if any(result is True for result in auth_results):
+            set_model_and_reload_agent("claude-code-claude-opus-4-7")
     elif result == "completed":
         emit_info(t("cmd.tutorial.complete"))
     elif result == "skipped":

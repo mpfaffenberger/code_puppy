@@ -41,9 +41,11 @@ from .utils import (
     exchange_code_for_tokens,
     fetch_claude_code_models,
     get_valid_access_token,
+    is_token_expired,
     load_claude_models_filtered,
     load_stored_tokens,
     prepare_oauth_context,
+    refresh_access_token,
     remove_claude_code_models,
     save_tokens,
 )
@@ -316,40 +318,41 @@ def _custom_help() -> List[Tuple[str, str]]:
     ]
 
 
-def _perform_authentication() -> None:
+def _perform_authentication() -> bool:
     context = prepare_oauth_context()
     code = _await_callback(context)
     if not code:
-        return
+        return False
 
     emit_info(t("oauth.auth.exchanging"))
     tokens = exchange_code_for_tokens(code, context)
     if not tokens:
         emit_error(t("oauth.auth.exchange_failed"))
-        return
+        return False
 
     if not save_tokens(tokens):
         emit_error(t("oauth.auth.save_failed"))
-        return
+        return False
 
     emit_success(t("oauth.claude.auth.success"))
 
     access_token = tokens.get("access_token")
     if not access_token:
         emit_warning(t("oauth.auth.no_access_token"))
-        return
+        return False
 
     emit_info(t("oauth.claude.auth.fetching_models"))
     models = fetch_claude_code_models(access_token)
     if not models:
         emit_warning(t("oauth.claude.auth.no_models"))
-        return
+        return True
 
     emit_info(
         t("oauth.auth.discovered_models", count=len(models), models=", ".join(models))
     )
     if add_models_to_extra_config(models):
         emit_success(t("oauth.claude.auth.models_added"))
+    return True
 
 
 def _reauthenticate_after_expired_oauth(model_name: str) -> Optional[str]:
@@ -671,8 +674,50 @@ async def _on_agent_run_end(
             logger.debug("Error stopping token refresh heartbeat: %s", exc)
 
 
+def _hook_check_token_expiry() -> bool:
+    """Hook: is the stored Claude Code OAuth token inside its refresh window?
+
+    Consumed by core's ``ClaudeCacheAsyncClient._check_stored_token_expiry``
+    (replacing a direct core->plugin import).
+    """
+    tokens = load_stored_tokens()
+    if not tokens:
+        return False
+    return is_token_expired(tokens)
+
+
+def _hook_refresh_token() -> Optional[str]:
+    """Hook: force a refresh-token exchange, returning the new access token.
+
+    Consumed by core's ``ClaudeCacheAsyncClient._refresh_claude_oauth_token``.
+    """
+    return refresh_access_token(force=True)
+
+
+def _hook_load_models() -> Dict[str, Any]:
+    """Hook: return this plugin's Claude models filtered to latest versions.
+
+    Consumed by core's ``ModelFactory.load_config`` (replacing a direct
+    ``load_claude_models_filtered`` import from ``.utils``).
+    """
+    return load_claude_models_filtered()
+
+
+def _hook_authenticate() -> bool:
+    """Hook: run the full interactive Claude Code OAuth flow.
+
+    Consumed by core's ``handle_tutorial_command`` (replacing a direct import
+    of ``_perform_authentication``).
+    """
+    return _perform_authentication()
+
+
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
+register_callback("check_claude_oauth_token_expiry", _hook_check_token_expiry)
+register_callback("refresh_claude_oauth_token", _hook_refresh_token)
+register_callback("load_claude_oauth_models", _hook_load_models)
+register_callback("claude_oauth_authenticate", _hook_authenticate)
 register_callback("register_model_type", _register_model_types)
 register_callback("prepare_model_prompt", prepare_claude_code_prompt)
 register_callback("agent_run_start", _on_agent_run_start)

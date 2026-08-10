@@ -49,6 +49,10 @@ PhaseType = Literal[
     "register_browser_types",
     "register_model_providers",
     "register_completion_provider",
+    "check_claude_oauth_token_expiry",
+    "refresh_claude_oauth_token",
+    "load_claude_oauth_models",
+    "claude_oauth_authenticate",
     "message_history_processor_start",
     "message_history_processor_end",
     "on_message",
@@ -130,6 +134,10 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_browser_types": [],
     "register_model_providers": [],
     "register_completion_provider": [],
+    "check_claude_oauth_token_expiry": [],
+    "refresh_claude_oauth_token": [],
+    "load_claude_oauth_models": [],
+    "claude_oauth_authenticate": [],
     "message_history_processor_start": [],
     "message_history_processor_end": [],
     "on_message": [],
@@ -334,6 +342,10 @@ def _trigger_callbacks_sync(
                     logger.warning(
                         f"Async callback {callback.__name__} called from async context in sync trigger"
                     )
+                    # The sync dispatcher cannot await while its event loop is
+                    # already running. Explicitly close the coroutine so this
+                    # safe fallback never leaks an unawaited-coroutine warning.
+                    result.close()
                     results.append(None)
                     continue
                 except RuntimeError:
@@ -1197,6 +1209,59 @@ def on_register_model_providers() -> List[Any]:
         List of dicts from all registered callbacks.
     """
     return _trigger_callbacks_sync("register_model_providers")
+
+
+def on_check_claude_oauth_token_expiry() -> List[Any]:
+    """Ask the claude_code_oauth plugin whether the stored token is expiring.
+
+    The plugin self-registers this capability; core consumes it so it never
+    imports the plugin directly. An empty result (plugin not loaded) means
+    ``False`` to callers.
+
+    Returns:
+        List of bool results from registered callbacks.
+    """
+    return _trigger_callbacks_sync("check_claude_oauth_token_expiry")
+
+
+async def on_check_claude_oauth_token_expiry_async() -> List[Any]:
+    """Async variant for consumers already running inside an event loop."""
+    return await _trigger_callbacks("check_claude_oauth_token_expiry")
+
+
+def on_refresh_claude_oauth_token() -> List[Any]:
+    """Ask the claude_code_oauth plugin to force a refresh-token exchange.
+
+    Returns:
+        List containing the refreshed access token (or ``None``) from
+        registered callbacks; empty when the plugin is not loaded.
+    """
+    return _trigger_callbacks_sync("refresh_claude_oauth_token")
+
+
+async def on_refresh_claude_oauth_token_async() -> List[Any]:
+    """Async variant for consumers already running inside an event loop."""
+    return await _trigger_callbacks("refresh_claude_oauth_token")
+
+
+def on_load_claude_oauth_models() -> List[Any]:
+    """Load the claude_code_oauth plugin's own Claude model configurations.
+
+    Returns:
+        List of model-config dicts from registered callbacks; empty when the
+        plugin is not loaded (core then falls back to plain JSON loading).
+    """
+    return _trigger_callbacks_sync("load_claude_oauth_models")
+
+
+def on_claude_oauth_authenticate() -> List[Any]:
+    """Run the claude_code_oauth plugin's interactive authentication flow.
+
+    Returns:
+        List of results from registered callbacks; empty when the plugin is
+        not loaded (core skips authentication).
+    """
+    return _trigger_callbacks_sync("claude_oauth_authenticate")
 
 
 def on_message_history_processor_start(
