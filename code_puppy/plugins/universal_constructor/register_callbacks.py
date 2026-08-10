@@ -14,6 +14,18 @@ from .registry import get_registry
 logger = logging.getLogger(__name__)
 
 
+def _register_tools() -> list[dict]:
+    """Contribute the Universal Constructor tool through the plugin hook."""
+    from code_puppy.tools.universal_constructor import register_universal_constructor
+
+    return [
+        {
+            "name": "universal_constructor",
+            "register_func": register_universal_constructor,
+        }
+    ]
+
+
 def _on_startup() -> None:
     """Initialize UC plugin on application startup."""
     from code_puppy.config import get_universal_constructor_enabled
@@ -41,7 +53,8 @@ def _on_startup() -> None:
     )
 
 
-# Register startup callback
+# Register plugin callbacks
 register_callback("startup", _on_startup)
+register_callback("register_tools", _register_tools)
 
 logger.debug("Universal Constructor plugin callbacks registered")

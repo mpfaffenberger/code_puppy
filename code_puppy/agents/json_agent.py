@@ -126,9 +126,9 @@ class JSONAgent(BaseAgent):
         # Also get UC tool names
         uc_tool_names = set()
         try:
-            from code_puppy.plugins.universal_constructor.registry import get_registry
+            from code_puppy.tools.universal_constructor import get_uc_registry
 
-            registry = get_registry()
+            registry = get_uc_registry()
             for tool in registry.list_tools():
                 if tool.meta.enabled:
                     uc_tool_names.add(tool.full_name)

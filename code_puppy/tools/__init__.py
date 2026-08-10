@@ -289,9 +289,9 @@ def _register_uc_tool_wrapper(agent, uc_tool_name: str):
 
     # Get tool info and function from registry
     try:
-        from code_puppy.plugins.universal_constructor.registry import get_registry
+        from code_puppy.tools.universal_constructor import get_uc_registry
 
-        registry = get_registry()
+        registry = get_uc_registry()
         tool_info = registry.get_tool(uc_tool_name)
         if not tool_info:
             emit_warning(f"Warning: UC tool '{uc_tool_name}' not found, skipping...")

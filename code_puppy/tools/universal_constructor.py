@@ -8,20 +8,55 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
-from typing import Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 from pydantic_ai import RunContext
 
 from code_puppy.messaging import get_message_bus
 from code_puppy.messaging.messages import UniversalConstructorMessage
-from code_puppy.plugins.universal_constructor.models import (
-    UCCallOutput,
-    UCCreateOutput,
-    UCInfoOutput,
-    UCListOutput,
-    UCUpdateOutput,
-)
+
+
+def get_uc_registry():
+    """Accessor for the shared UC registry singleton.
+
+    Lazily imports and returns the plugin's global registry on each call so
+    that this core module never pulls the plugin in at import time. The
+    plugin package can therefore live outside core.
+    """
+    from code_puppy.plugins.universal_constructor.registry import get_registry
+
+    return get_registry()
+
+
+if TYPE_CHECKING:
+    UCListOutput = UCCallOutput = UCCreateOutput = UCUpdateOutput = UCInfoOutput = Any
+
+
+# ``UniversalConstructorOutput`` references the UC plugin's response models
+# (UCListOutput, ...). Those are imported lazily: the model uses forward
+# references plus ``defer_build``, and ``_get_uc_models()`` imports the plugin
+# and triggers a pydantic rebuild the first time the schema is needed.
+_UC_MODELS_READY = False
+
+
+def _get_uc_models():
+    """Lazily import UC response models and return their module."""
+    global _UC_MODELS_READY
+    from code_puppy.plugins.universal_constructor import models
+
+    if not _UC_MODELS_READY:
+        UniversalConstructorOutput.model_rebuild(
+            _types_namespace={
+                "UCListOutput": models.UCListOutput,
+                "UCCallOutput": models.UCCallOutput,
+                "UCCreateOutput": models.UCCreateOutput,
+                "UCUpdateOutput": models.UCUpdateOutput,
+                "UCInfoOutput": models.UCInfoOutput,
+            }
+        )
+        _UC_MODELS_READY = True
+    return models
 
 
 class UniversalConstructorOutput(BaseModel):
@@ -34,24 +69,32 @@ class UniversalConstructorOutput(BaseModel):
     success: bool = Field(..., description="Whether the operation succeeded")
     error: Optional[str] = Field(default=None, description="Error message if failed")
 
-    # Action-specific results (only one will be populated based on action)
-    list_result: Optional[UCListOutput] = Field(
+    # Action-specific results (only one will be populated based on action).
+    # Forward references: the UC plugin's response models are resolved lazily
+    # by _get_uc_models() so this module has no import-time plugin dep.
+    list_result: Optional["UCListOutput"] = Field(
         default=None, description="Result of list action"
     )
-    call_result: Optional[UCCallOutput] = Field(
+    call_result: Optional["UCCallOutput"] = Field(
         default=None, description="Result of call action"
     )
-    create_result: Optional[UCCreateOutput] = Field(
+    create_result: Optional["UCCreateOutput"] = Field(
         default=None, description="Result of create action"
     )
-    update_result: Optional[UCUpdateOutput] = Field(
+    update_result: Optional["UCUpdateOutput"] = Field(
         default=None, description="Result of update action"
     )
-    info_result: Optional[UCInfoOutput] = Field(
+    info_result: Optional["UCInfoOutput"] = Field(
         default=None, description="Result of info action"
     )
 
-    model_config = {"arbitrary_types_allowed": True}
+    model_config = {"arbitrary_types_allowed": True, "defer_build": True}
+
+    def __init__(self, **data):
+        # Resolve the UC plugin's response models on first construction so
+        # instances can be built even if the plugin wasn't imported yet.
+        _get_uc_models()
+        super().__init__(**data)
 
 
 def _stub_not_implemented(action: str) -> UniversalConstructorOutput:
@@ -233,10 +276,8 @@ def _handle_list_action(context: RunContext) -> UniversalConstructorOutput:
     Returns:
         UniversalConstructorOutput with list_result containing all enabled tools.
     """
-    from code_puppy.plugins.universal_constructor.registry import get_registry
-
     try:
-        registry = get_registry()
+        registry = get_uc_registry()
         # Get all tools (including disabled for count)
         all_tools = registry.list_tools(include_disabled=True)
         enabled_tools = [t for t in all_tools if t.meta.enabled]
@@ -244,7 +285,7 @@ def _handle_list_action(context: RunContext) -> UniversalConstructorOutput:
         return UniversalConstructorOutput(
             action="list",
             success=True,
-            list_result=UCListOutput(
+            list_result=_get_uc_models().UCListOutput(
                 tools=enabled_tools,
                 total_count=len(all_tools),
                 enabled_count=len(enabled_tools),
@@ -255,7 +296,7 @@ def _handle_list_action(context: RunContext) -> UniversalConstructorOutput:
             action="list",
             success=False,
             error=f"Failed to list tools: {e}",
-            list_result=UCListOutput(
+            list_result=_get_uc_models().UCListOutput(
                 tools=[],
                 total_count=0,
                 enabled_count=0,
@@ -290,9 +331,7 @@ def _handle_call_action(
             error="tool_name is required for call action",
         )
 
-    from code_puppy.plugins.universal_constructor.registry import get_registry
-
-    registry = get_registry()
+    registry = get_uc_registry()
     tool = registry.get_tool(tool_name)
 
     if not tool:
@@ -360,7 +399,7 @@ def _handle_call_action(
         return UniversalConstructorOutput(
             action="call",
             success=True,
-            call_result=UCCallOutput(
+            call_result=_get_uc_models().UCCallOutput(
                 success=True,
                 tool_name=tool_name,
                 result=result,
@@ -421,7 +460,6 @@ def _handle_create_action(
     from pathlib import Path
 
     from code_puppy.plugins.universal_constructor import USER_UC_DIR
-    from code_puppy.plugins.universal_constructor.registry import get_registry
     from code_puppy.plugins.universal_constructor.sandbox import (
         _extract_tool_meta,
         _validate_tool_meta,
@@ -559,7 +597,7 @@ def _handle_create_action(
 
     # Reload registry to pick up the new tool
     try:
-        registry = get_registry()
+        registry = get_uc_registry()
         registry.reload()
     except Exception as e:
         # Tool was written but registry reload failed - still a partial success
@@ -571,7 +609,7 @@ def _handle_create_action(
     return UniversalConstructorOutput(
         action="create",
         success=True,
-        create_result=UCCreateOutput(
+        create_result=_get_uc_models().UCCreateOutput(
             success=True,
             tool_name=full_name,
             source_path=str(file_path),
@@ -607,7 +645,6 @@ def _handle_update_action(
     """
     from pathlib import Path
 
-    from code_puppy.plugins.universal_constructor.registry import get_registry
     from code_puppy.plugins.universal_constructor.sandbox import (
         _extract_tool_meta,
         _validate_tool_meta,
@@ -629,7 +666,7 @@ def _handle_update_action(
             error="python_code is required for update action",
         )
 
-    registry = get_registry()
+    registry = get_uc_registry()
     tool = registry.get_tool(tool_name)
 
     if not tool:
@@ -697,7 +734,7 @@ def _handle_update_action(
         return UniversalConstructorOutput(
             action="update",
             success=True,
-            update_result=UCUpdateOutput(
+            update_result=_get_uc_models().UCUpdateOutput(
                 success=True,
                 tool_name=tool_name,
                 source_path=source_path,
@@ -732,8 +769,6 @@ def _handle_info_action(
     """
     from pathlib import Path
 
-    from code_puppy.plugins.universal_constructor.registry import get_registry
-
     if not tool_name:
         return UniversalConstructorOutput(
             action="info",
@@ -741,7 +776,7 @@ def _handle_info_action(
             error="tool_name is required for info action",
         )
 
-    registry = get_registry()
+    registry = get_uc_registry()
     tool = registry.get_tool(tool_name)
 
     if not tool:
@@ -766,7 +801,7 @@ def _handle_info_action(
     return UniversalConstructorOutput(
         action="info",
         success=True,
-        info_result=UCInfoOutput(
+        info_result=_get_uc_models().UCInfoOutput(
             success=True,
             tool=tool,
             source_code=source_code,
@@ -780,6 +815,9 @@ def register_universal_constructor(agent):
     Args:
         agent: The pydantic-ai agent to register the tool with
     """
+    # Ensure the response model schema is built (importing the plugin lazily)
+    # before pydantic-ai introspects the tool's return type.
+    _get_uc_models()
 
     @agent.tool
     async def universal_constructor(
