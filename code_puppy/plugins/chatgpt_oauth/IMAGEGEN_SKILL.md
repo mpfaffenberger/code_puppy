@@ -3,6 +3,11 @@ name: codex-imagegen
 description: Generate raster images with gpt-image-2 through Codex OAuth. Activate when the user asks to create a photo, illustration, icon, sprite, texture, product image, banner, or other raster artwork.
 version: "1.0"
 author: code-puppy
+tags:
+  - image-generation
+  - codex
+  - gpt-image
+  - artwork
 ---
 
 # Codex Image Generation
