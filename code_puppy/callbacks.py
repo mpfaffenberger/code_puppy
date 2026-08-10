@@ -66,6 +66,20 @@ PhaseType = Literal[
 ]
 CallbackFunc = Callable[..., Any]
 
+
+class CustomCommandResult:
+    """Custom command content that should be processed as user input."""
+
+    def __init__(self, content: str):
+        self.content = content
+
+    def __str__(self) -> str:
+        return self.content
+
+    def __repr__(self) -> str:
+        return f"CustomCommandResult({len(self.content)} chars)"
+
+
 _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "startup": [],
     "shutdown": [],
