@@ -179,6 +179,11 @@ def clear_loading_context() -> None:
     _current_loading_plugin = None
 
 
+def get_loading_context() -> Optional[str]:
+    """Return the plugin currently being loaded, if any."""
+    return _current_loading_plugin
+
+
 def get_callback_owner(func: CallbackFunc) -> Optional[str]:
     """Return the plugin name that registered *func*, or ``None``."""
     return _callback_owners.get(func)
@@ -245,6 +250,11 @@ def clear_callbacks(phase: Optional[PhaseType] = None) -> None:
             logger.debug(f"Cleared async callbacks for phase '{phase}'")
 
 
+def is_callback_owner_enabled(owner: Optional[str]) -> bool:
+    """Return whether callbacks and providers owned by *owner* are enabled."""
+    return owner is None or owner not in _get_disabled_plugins()
+
+
 def get_callbacks(
     phase: PhaseType, *, include_disabled: bool = False
 ) -> List[CallbackFunc]:
@@ -257,11 +267,11 @@ def get_callbacks(
     if include_disabled:
         return all_cbs
 
-    disabled = _get_disabled_plugins()
-    if not disabled:
-        return all_cbs
-
-    return [cb for cb in all_cbs if _callback_owners.get(cb) not in disabled]
+    return [
+        callback
+        for callback in all_cbs
+        if is_callback_owner_enabled(_callback_owners.get(callback))
+    ]
 
 
 def get_completion_providers() -> List[Any]:
