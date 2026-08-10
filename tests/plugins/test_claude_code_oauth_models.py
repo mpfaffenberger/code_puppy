@@ -468,7 +468,6 @@ class TestUpdateModelTokens:
 class TestBuildModelEntry:
     """Tests for _build_model_entry and effort setting for Opus 4-6."""
 
-
     def test_opus_45_does_not_include_effort(self):
         """Opus 4-5 should NOT have effort — it's 4-6+ only."""
         from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry

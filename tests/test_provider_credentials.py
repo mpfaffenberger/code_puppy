@@ -21,6 +21,7 @@ from code_puppy.provider_credentials import (
 
 class TestExtractEnvVarFromModelConfig:
     """Extraction of ``$ENV`` references from a model config."""
+
     @pytest.mark.parametrize(
         "config,expected",
         [
@@ -51,6 +52,7 @@ class TestExtractEnvVarFromModelConfig:
 
 class TestMaskSecret:
     """mask_secret keeps only the last few characters visible."""
+
     @pytest.mark.parametrize(
         "value,expected",
         [
@@ -180,7 +182,10 @@ class TestGetCredentialValue(unittest.TestCase):
 
 class TestIsCredentialSet:
     """is_credential_set is true only for non-empty resolved values."""
-    @pytest.mark.parametrize("cred_value,expected", [("sk-abc", True), (None, False), ("", False)])
+
+    @pytest.mark.parametrize(
+        "cred_value,expected", [("sk-abc", True), (None, False), ("", False)]
+    )
     def test_is_credential_set(self, cred_value, expected):
         with patch(
             "code_puppy.provider_credentials.get_credential_value",

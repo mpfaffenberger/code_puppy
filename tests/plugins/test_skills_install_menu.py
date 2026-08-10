@@ -143,7 +143,6 @@ class TestSkillsInstallMenuInit:
         menu = SkillsInstallMenu()
         assert menu.categories == ["Data", "Finance"]
 
-
     @patch(f"{_MOD}.catalog")
     def test_init_catalog_error(self, mock_catalog):
         mock_catalog.list_categories.side_effect = RuntimeError("offline")
@@ -268,7 +267,6 @@ class TestSkillsInstallMenuRendering:
         text = "".join(t for _, t in lines)
         assert "Test Skill" in text
 
-
     @patch(f"{_MOD}.is_skill_installed", return_value=False)
     def test_render_skill_list_pagination(self, mock_inst):
         entries = [
@@ -317,7 +315,6 @@ class TestSkillsInstallMenuRendering:
         assert "Test Skill" in text
         assert "Not installed" in text
         assert "Description" in text
-
 
     def test_render_details_no_skill_selected(self):
         menu = self._make_menu()
@@ -437,7 +434,9 @@ class TestPromptAndInstall:
         mock_download.return_value = InstallResult(success=True, message="OK")
         assert _prompt_and_install(_make_entry()) is True
 
-    @pytest.mark.parametrize("exc", [KeyboardInterrupt, EOFError], ids=["keyboard_interrupt", "eof_error"])
+    @pytest.mark.parametrize(
+        "exc", [KeyboardInterrupt, EOFError], ids=["keyboard_interrupt", "eof_error"]
+    )
     @patch(f"{_MOD}.safe_input")
     def test_safe_input_abort(self, mock_input, exc):
         from code_puppy.plugins.agent_skills.skills_install_menu import (

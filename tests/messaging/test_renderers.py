@@ -351,9 +351,7 @@ async def test_message_renderer_stop_cancelled_error(mq):
     assert not r._running
 
 
-@pytest.mark.parametrize(
-    "metadata", [{}, None], ids=["no_prompt_id", "no_metadata"]
-)
+@pytest.mark.parametrize("metadata", [{}, None], ids=["no_prompt_id", "no_metadata"])
 def test_sync_renderer_human_input_request_missing_prompt_id(mq, metadata):
     console = make_console()
     r = SynchronousInteractiveRenderer(mq, console=console)

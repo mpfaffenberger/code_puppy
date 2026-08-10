@@ -106,7 +106,10 @@ class TestSlideModels:
 
     @pytest.mark.parametrize(
         "option,display,expected",
-        [("api_keys", "API Keys", "API Key"), ("openrouter", "OpenRouter", "OpenRouter")],
+        [
+            ("api_keys", "API Keys", "API Key"),
+            ("openrouter", "OpenRouter", "OpenRouter"),
+        ],
         ids=["api_keys", "openrouter"],
     )
     def test_provider_context(self, option, display, expected):

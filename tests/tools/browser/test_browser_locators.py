@@ -107,8 +107,11 @@ GET_BY = [
         "query": "Username",
         "page_attr": "get_by_label",
         "page_call": (("Username",), {"exact": False}),
-        "setup": {"evaluate": "input", "get_attribute": "text",
-                  "input_value": "user input"},
+        "setup": {
+            "evaluate": "input",
+            "get_attribute": "text",
+            "input_value": "user input",
+        },
         "result": {"label_text": "Username", "count": 1},
         "checks": [("tag", "input"), ("type", "text"), ("value", "user input")],
     },
@@ -118,11 +121,12 @@ GET_BY = [
         "query": "Enter your email",
         "page_attr": "get_by_placeholder",
         "page_call": (("Enter your email",), {"exact": False}),
-        "setup": {"get_attribute": "Enter your email",
-                  "input_value": "test@example.com"},
+        "setup": {
+            "get_attribute": "Enter your email",
+            "input_value": "test@example.com",
+        },
         "result": {"placeholder_text": "Enter your email", "count": 1},
-        "checks": [("placeholder", "Enter your email"),
-                   ("value", "test@example.com")],
+        "checks": [("placeholder", "Enter your email"), ("value", "test@example.com")],
     },
     {
         "name": "test_id",
@@ -170,7 +174,9 @@ class TestFindBySuccess(BrowserLocatorsBaseTest):
         for key, value in op.get("checks", []):
             assert result["elements"][0][key] == value
         call_args, call_kwargs = op["page_call"]
-        getattr(page, op["page_attr"]).assert_called_once_with(*call_args, **call_kwargs)
+        getattr(page, op["page_attr"]).assert_called_once_with(
+            *call_args, **call_kwargs
+        )
         locator.first.wait_for.assert_called_once_with(
             state="visible", timeout=op.get("wait_timeout", 10000)
         )
@@ -182,9 +188,18 @@ class TestFailureBranches(BrowserLocatorsBaseTest):
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "name,fn,args,page_attr", LOCATOR_OPS,
-        ids=["role", "text", "label", "placeholder", "test-id", "xpath",
-             "buttons", "links"],
+        "name,fn,args,page_attr",
+        LOCATOR_OPS,
+        ids=[
+            "role",
+            "text",
+            "label",
+            "placeholder",
+            "test-id",
+            "xpath",
+            "buttons",
+            "links",
+        ],
     )
     async def test_no_active_page(
         self, mock_browser_manager, name, fn, args, page_attr
@@ -198,9 +213,18 @@ class TestFailureBranches(BrowserLocatorsBaseTest):
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "name,fn,args,page_attr", LOCATOR_OPS,
-        ids=["role", "text", "label", "placeholder", "test-id", "xpath",
-             "buttons", "links"],
+        "name,fn,args,page_attr",
+        LOCATOR_OPS,
+        ids=[
+            "role",
+            "text",
+            "label",
+            "placeholder",
+            "test-id",
+            "xpath",
+            "buttons",
+            "links",
+        ],
     )
     async def test_locator_exception(self, name, fn, args, page_attr):
         manager = AsyncMock()
@@ -231,9 +255,7 @@ class TestGetByEdges(BrowserLocatorsBaseTest):
         assert len(result["elements"]) == 3
 
     @pytest.mark.asyncio
-    async def test_find_by_text_exact_match(
-        self, mock_browser_manager, mock_locator
-    ):
+    async def test_find_by_text_exact_match(self, mock_browser_manager, mock_locator):
         manager, page = mock_browser_manager
         locator, _ = mock_locator
         with _mgr(manager):
@@ -244,9 +266,7 @@ class TestGetByEdges(BrowserLocatorsBaseTest):
         page.get_by_text.assert_called_once_with("Submit", exact=True)
 
     @pytest.mark.asyncio
-    async def test_find_by_text_no_results(
-        self, mock_browser_manager, mock_locator
-    ):
+    async def test_find_by_text_no_results(self, mock_browser_manager, mock_locator):
         manager, page = mock_browser_manager
         locator, element = mock_locator
         locator.count.return_value = 0
@@ -275,9 +295,7 @@ class TestGetByEdges(BrowserLocatorsBaseTest):
         assert result["elements"][0]["value"] == "textarea content"
 
     @pytest.mark.asyncio
-    async def test_find_by_placeholder_exact(
-        self, mock_browser_manager, mock_locator
-    ):
+    async def test_find_by_placeholder_exact(self, mock_browser_manager, mock_locator):
         manager, page = mock_browser_manager
         locator, _ = mock_locator
         with _mgr(manager):
@@ -325,9 +343,7 @@ class TestXPathQuery(BrowserLocatorsBaseTest):
         page.locator.assert_called_once_with("xpath=//div[@class='container']")
 
     @pytest.mark.asyncio
-    async def test_xpath_query_with_long_text(
-        self, mock_browser_manager, mock_locator
-    ):
+    async def test_xpath_query_with_long_text(self, mock_browser_manager, mock_locator):
         manager, page = mock_browser_manager
         locator, element = mock_locator
         long_text = "x" * 150
@@ -360,7 +376,11 @@ class TestFindButtons(BrowserLocatorsBaseTest):
         locator, element = mock_locator
         locator.count.return_value = 5
         element.text_content.side_effect = [
-            "Submit", "Cancel", "Save", "Delete", "Close",
+            "Submit",
+            "Cancel",
+            "Save",
+            "Delete",
+            "Close",
         ]
         element.is_visible.return_value = True
         with _mgr(manager):
@@ -373,14 +393,14 @@ class TestFindButtons(BrowserLocatorsBaseTest):
         assert len(result["buttons"]) == 5
 
     @pytest.mark.asyncio
-    async def test_find_buttons_with_filter(
-        self, mock_browser_manager, mock_locator
-    ):
+    async def test_find_buttons_with_filter(self, mock_browser_manager, mock_locator):
         manager, page = mock_browser_manager
         locator, element = mock_locator
         locator.count.return_value = 3
         element.text_content.side_effect = [
-            "Submit Form", "Cancel Operation", "Submit Changes",
+            "Submit Form",
+            "Cancel Operation",
+            "Submit Changes",
         ]
         element.is_visible.return_value = True
         with _mgr(manager):
@@ -437,7 +457,8 @@ class TestFindLinks(BrowserLocatorsBaseTest):
         locator.count.return_value = 2
         element.text_content.side_effect = ["Home", "About"]
         element.get_attribute.side_effect = [
-            "https://example.com/home", "https://example.com/about",
+            "https://example.com/home",
+            "https://example.com/about",
         ]
         element.is_visible.return_value = True
         with _mgr(manager):

@@ -827,7 +827,6 @@ class TestPromptBuilder:
         block = build_available_skills_block([skill])
         assert "Tom & Jerry say: 'Use < & >'" in block
 
-
     def test_build_skills_guidance(self):
         """Guidance mentions the two tools the agent actually needs."""
         guidance = build_skills_guidance()

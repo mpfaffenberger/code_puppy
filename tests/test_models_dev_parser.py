@@ -197,16 +197,36 @@ class TestModelInfo:
     @pytest.mark.parametrize(
         "kwargs,match",
         [
-            ({"provider_id": "", "model_id": "claude-3", "name": "Claude 3"},
-             "Provider ID cannot be empty"),
-            ({"provider_id": "anthropic", "model_id": "", "name": "Claude 3"},
-             "Model ID cannot be empty"),
-            ({"provider_id": "anthropic", "model_id": "claude-3", "name": ""},
-             "Model name cannot be empty"),
-            ({"provider_id": "anthropic", "model_id": "claude-3", "name": "Claude 3",
-              "context_length": -100}, "Context length cannot be negative"),
-            ({"provider_id": "anthropic", "model_id": "claude-3", "name": "Claude 3",
-              "max_output": -50}, "Max output cannot be negative"),
+            (
+                {"provider_id": "", "model_id": "claude-3", "name": "Claude 3"},
+                "Provider ID cannot be empty",
+            ),
+            (
+                {"provider_id": "anthropic", "model_id": "", "name": "Claude 3"},
+                "Model ID cannot be empty",
+            ),
+            (
+                {"provider_id": "anthropic", "model_id": "claude-3", "name": ""},
+                "Model name cannot be empty",
+            ),
+            (
+                {
+                    "provider_id": "anthropic",
+                    "model_id": "claude-3",
+                    "name": "Claude 3",
+                    "context_length": -100,
+                },
+                "Context length cannot be negative",
+            ),
+            (
+                {
+                    "provider_id": "anthropic",
+                    "model_id": "claude-3",
+                    "name": "Claude 3",
+                    "max_output": -50,
+                },
+                "Max output cannot be negative",
+            ),
         ],
     )
     def test_model_validation_rejects_invalid(self, kwargs, match):

@@ -210,7 +210,6 @@ class TestCaptureFromContent:
         assert key in cache
         assert cache[key] == "encrypted_blob"
 
-
     def test_handles_bad_json(self):
         cache: dict[str, str] = {}
         _capture_from_content(b"not json", cache, "reasoning_text")

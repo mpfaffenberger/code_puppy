@@ -280,7 +280,6 @@ class TestHandleTruncateCommand:
             assert agent.set_message_history.call_args[0][0] == ["sys"]
 
 
-
 class TestHandleAutosaveLoadCommand:
     def test_returns_marker(self):
         from code_puppy.command_line.session_commands import (

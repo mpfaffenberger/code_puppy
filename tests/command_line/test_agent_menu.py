@@ -342,10 +342,30 @@ class TestRenderPreviewPanel:
     @pytest.mark.parametrize(
         ("entry", "current", "frag1", "frag2"),
         [
-            (("code_puppy", "Code Puppy ", "A friendly assistant."), "", "Name:", "code_puppy"),
-            (("code_puppy", "Code Puppy ", "A friendly assistant."), "", "Display Name:", "Code Puppy"),
-            (("code_puppy", "Code Puppy ", "A friendly coding assistant dog."), "", "Description:", "friendly"),
-            (("code_puppy", "Code Puppy ", "A friendly assistant."), "other_agent", "Status:", "Not active"),
+            (
+                ("code_puppy", "Code Puppy ", "A friendly assistant."),
+                "",
+                "Name:",
+                "code_puppy",
+            ),
+            (
+                ("code_puppy", "Code Puppy ", "A friendly assistant."),
+                "",
+                "Display Name:",
+                "Code Puppy",
+            ),
+            (
+                ("code_puppy", "Code Puppy ", "A friendly coding assistant dog."),
+                "",
+                "Description:",
+                "friendly",
+            ),
+            (
+                ("code_puppy", "Code Puppy ", "A friendly assistant."),
+                "other_agent",
+                "Status:",
+                "Not active",
+            ),
         ],
         ids=[
             "renders_agent_name",
@@ -382,9 +402,31 @@ class TestRenderPreviewPanel:
     @pytest.mark.parametrize(
         ("entry", "current", "frag1", "frag2", "frag3"),
         [
-            (("code_puppy", "Code Puppy ", "A friendly assistant."), "code_puppy", "Status:", "Currently Active", ""),
-            (("test_agent", "Test Agent", "First line of description.\nSecond line of description.\nThird line."), "", "First line", "Second line", "Third line"),
-            (("test_agent", "Test Agent", ""), "", "Name:", "test_agent", "Display Name:"),
+            (
+                ("code_puppy", "Code Puppy ", "A friendly assistant."),
+                "code_puppy",
+                "Status:",
+                "Currently Active",
+                "",
+            ),
+            (
+                (
+                    "test_agent",
+                    "Test Agent",
+                    "First line of description.\nSecond line of description.\nThird line.",
+                ),
+                "",
+                "First line",
+                "Second line",
+                "Third line",
+            ),
+            (
+                ("test_agent", "Test Agent", ""),
+                "",
+                "Name:",
+                "test_agent",
+                "Display Name:",
+            ),
         ],
         ids=[
             "renders_status_currently_active",
@@ -420,8 +462,18 @@ class TestRenderPreviewPanel:
         ("entry", "frag"),
         [
             (("agent1", "Agent One", "Description"), "AGENT DETAILS"),
-            (("emoji_agent", "Emoji Agent ", "An agent with emojis  and special chars: <>&"), "Emoji Agent"),
-            (("minimal_agent", "Minimal Agent", "No description available"), "No description available"),
+            (
+                (
+                    "emoji_agent",
+                    "Emoji Agent ",
+                    "An agent with emojis  and special chars: <>&",
+                ),
+                "Emoji Agent",
+            ),
+            (
+                ("minimal_agent", "Minimal Agent", "No description available"),
+                "No description available",
+            ),
         ],
         ids=[
             "renders_header",

@@ -346,7 +346,6 @@ class TestBuildFoundryModelConfig:
         assert config["context_length"] == 1000000
         assert "foundry_resource" in config
 
-
     def test_build_config_with_custom_context_length(self):
         """Test building config with custom context length."""
         from code_puppy.plugins.azure_foundry.utils import build_foundry_model_config

@@ -218,9 +218,7 @@ class TestOptionsAndEdges:
     async def test_hover_force(self, browser_page):
         manager, _, locator = browser_page
         with patch(f"{MOD}.get_session_browser_manager", return_value=manager):
-            result = await interactions.hover_element(
-                "#menu", timeout=2000, force=True
-            )
+            result = await interactions.hover_element("#menu", timeout=2000, force=True)
 
         assert result["success"] is True
         locator.hover.assert_called_once_with(force=True, timeout=2000)

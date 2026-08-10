@@ -115,9 +115,7 @@ class TestEventStreamHandler:
     @pytest.mark.parametrize(
         "part",
         [
-            pytest.param(
-                ThinkingPart(content="I am thinking..."), id="thinking_part"
-            ),
+            pytest.param(ThinkingPart(content="I am thinking..."), id="thinking_part"),
             pytest.param(TextPart(content="Hello world"), id="text_part"),
         ],
     )
@@ -235,7 +233,10 @@ class TestEventStreamHandler:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "delta_content",
-        [pytest.param("Hello ", id="plain"), pytest.param("Line 1\nLine 2", id="newlines")],
+        [
+            pytest.param("Hello ", id="plain"),
+            pytest.param("Line 1\nLine 2", id="newlines"),
+        ],
     )
     async def test_handles_text_part_delta_event(self, mock_ctx, delta_content):
         """Test handling PartDeltaEvent for TextPartDelta (plain + newlines)."""

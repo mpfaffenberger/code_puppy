@@ -173,5 +173,3 @@ async def test_event_stream_filters_split_comment_in_both_render_paths(
     rendered = output.getvalue()
     assert "beforeafter" in rendered
     assert "<!-- -->" not in rendered
-
-

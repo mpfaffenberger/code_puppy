@@ -35,7 +35,6 @@ from code_puppy.messaging.message_queue import (
 
 
 class TestMessageQueueStartStop:
-
     def test_start_when_already_running(self):
         queue = MessageQueue()
         queue.start()
@@ -73,7 +72,6 @@ class TestMessageQueueStartStop:
 
 
 class TestMessageQueueListeners:
-
     def test_add_listener(self):
         queue = MessageQueue()
         callback = MagicMock()
@@ -160,7 +158,6 @@ class TestMessageQueueListeners:
 
 
 class TestMessageQueueAsyncOperations:
-
     @pytest.mark.asyncio
     async def test_get_async_initializes_queue(self):
         queue = MessageQueue()
@@ -223,7 +220,6 @@ class TestMessageQueueAsyncOperations:
 
 
 class TestPromptRequestResponse:
-
     def test_create_prompt_request(self):
         queue = MessageQueue()
         queue.mark_renderer_active()
@@ -289,7 +285,6 @@ class TestPromptRequestResponse:
 
 
 class TestGlobalQueueFunctions:
-
     def test_get_global_queue_creates_queue(self):
         # Reset global state for test
         import code_puppy.messaging.message_queue as mq_module
@@ -364,7 +359,6 @@ class TestGlobalQueueFunctions:
 
 
 class TestEmitHelperFunctions:
-
     def setup_method(self):
         self.queue = get_global_queue()
         self.queue.mark_renderer_active()
@@ -460,7 +454,6 @@ class TestEmitHelperFunctions:
 
 
 class TestEmitPrompt:
-
     def test_emit_prompt(self):
         with patch(
             "code_puppy.command_line.utils.safe_input", return_value="user input"
@@ -474,7 +467,6 @@ class TestEmitPrompt:
 
 
 class TestProcessMessagesEdgeCases:
-
     def test_process_messages_with_async_queue_error(self):
         queue = MessageQueue()
         received = []
@@ -516,7 +508,6 @@ class TestProcessMessagesEdgeCases:
 
 
 class TestStartupBuffer:
-
     def test_clear_startup_buffer(self):
         mq = MessageQueue()
         msg = UIMessage(type=MessageType.INFO, content="buffered")
@@ -564,7 +555,6 @@ class TestStartupBuffer:
 
 
 class TestDrain:
-
     def test_drain_returns_true_when_already_empty(self):
         mq = MessageQueue()
         assert mq.drain(timeout=0.5) is True

@@ -114,7 +114,9 @@ class TestOnboardingWizard:
         assert progress.count("○") == 4
 
     @pytest.mark.parametrize(
-        "slide", [0, 1, 2, 3, 4], ids=["slide_0", "slide_1", "slide_2", "slide_3", "slide_4"]
+        "slide",
+        [0, 1, 2, 3, 4],
+        ids=["slide_0", "slide_1", "slide_2", "slide_3", "slide_4"],
     )
     def test_get_slide_content(self, slide):
         w = self._make_wizard()
@@ -368,7 +370,6 @@ class TestRunOnboardingWizardKeyBindings:
         c["wizard"].selected_option = 0
         handler(event)
         assert c["wizard"].current_slide == 2
-
 
     def test_escape_skips(self):
         c = self._capture_kb()

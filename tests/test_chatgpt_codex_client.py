@@ -384,6 +384,7 @@ class TestConvertStreamToResponse:
     )
     async def test_skip_noise_lines(self, sse_lines, expected_text):
         """Test that empty and non-data lines are skipped."""
+
         async def mock_aiter_lines():
             for line in sse_lines:
                 yield line

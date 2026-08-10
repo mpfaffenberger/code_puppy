@@ -58,8 +58,6 @@ class TestDrain:
             ("char", "b"),
         ]
 
-
-
     def test_first_key_read_despite_kbhit_lie(self):
         """The caller consumed the only kbhit() True; the drain must still
         read the first key (and its pushback-buffered pair tail)

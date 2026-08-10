@@ -535,7 +535,6 @@ class TestTokenRefresh:
 
         assert result is None
 
-
     @patch("code_puppy.plugins.claude_code_oauth.utils.requests.post")
     @patch("code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens")
     @patch("code_puppy.plugins.claude_code_oauth.utils.save_tokens")

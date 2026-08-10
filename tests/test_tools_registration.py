@@ -138,7 +138,9 @@ class TestRemovedReasoningToolBehavior:
         ],
     )
     @patch("code_puppy.config.get_effective_model_settings")
-    def test_has_extended_thinking_active(self, mock_settings, model, setting, expected):
+    def test_has_extended_thinking_active(
+        self, mock_settings, model, setting, expected
+    ):
         """Claude extended_thinking resolves per setting; defaults to enabled."""
         mock_settings.return_value = setting
         assert has_extended_thinking_active(model) is expected

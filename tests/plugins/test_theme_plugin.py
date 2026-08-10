@@ -138,7 +138,6 @@ class TestColorsFor:
             m = colors_for(resolved)
             assert isinstance(m, dict) and len(m) > 0, name
 
-
     def test_surprise_different_seeds_differ(self):
         a = colors_for("surprise", rng=random.Random(1))
         b = colors_for("surprise", rng=random.Random(999))

@@ -229,7 +229,9 @@ class TestListOrSearchSkills:
         ],
     )
     @pytest.mark.anyio
-    async def test_filter_by_query(self, name, description, tags, query, expected_count):
+    async def test_filter_by_query(
+        self, name, description, tags, query, expected_count
+    ):
         fn = _register_and_get(register_list_or_search_skills)
         ctx = MagicMock()
         mock_skill = MagicMock()

@@ -68,7 +68,6 @@ class TestBuildNamespaces:
 
         assert list(namespaces.keys()) == ["General"]
 
-
     def test_mixed_case_first_tag_collapses_to_one_namespace(self):
         """ "finance" and "Finance" must not fragment into two namespaces."""
         from code_puppy.plugins.namespace_skill_search.namespaces import (
@@ -327,7 +326,6 @@ class TestBrowseSkillNamespace:
 
         assert result.mode == "search"
         assert result.total_skills == 0
-
 
     @pytest.mark.asyncio
     async def test_search_mode_empty_string_query_means_no_filter(self):

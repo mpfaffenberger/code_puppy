@@ -134,7 +134,6 @@ class TestGetDescription:
         self._install(monkeypatch, None)
         assert plugin_meta.get_description("descplug", "builtin") is None
 
-
     def test_none_for_unknown_tier(self, monkeypatch):
         self._install(monkeypatch, "Has a docstring.")
         assert plugin_meta.get_description("descplug", "bogus_tier") is None
@@ -156,7 +155,6 @@ class TestGetFilePath:
             plugin_meta.get_file_path("user_pathplug", "user")
             == "/plugins/pathplug/register_callbacks.py"
         )
-
 
     def test_none_when_file_attr_missing(self, monkeypatch):
         mod = _fake_module(doc="d")  # no __file__ set
@@ -501,7 +499,6 @@ class TestLineSlicing:
         pieces = ptu.wrap_text(path, 8)
         assert "".join(pieces) == path
         assert all(len(p) <= 8 for p in pieces)
-
 
     @pytest.mark.parametrize(
         "text, width",

@@ -164,8 +164,6 @@ class TestEditing:
         assert menu.editing_mode is False
 
 
-
-
 class TestFormatValue:
     def test_format_boolean_enabled(self):
         menu = _make_menu()

@@ -65,12 +65,8 @@ def test_print_multiple_values_with_rich_object(qc, mq):
         pytest.param("green", "ok", MessageType.SUCCESS, id="green"),
         pytest.param("yellow", "warn", MessageType.WARNING, id="yellow"),
         pytest.param("blue", "info", MessageType.INFO, id="blue"),
-        pytest.param(
-            "purple", "think", MessageType.AGENT_REASONING, id="purple"
-        ),
-        pytest.param(
-            "magenta", "think", MessageType.AGENT_REASONING, id="magenta"
-        ),
+        pytest.param("purple", "think", MessageType.AGENT_REASONING, id="purple"),
+        pytest.param("magenta", "think", MessageType.AGENT_REASONING, id="magenta"),
         pytest.param("dim", "sys", MessageType.SYSTEM, id="dim"),
     ],
 )

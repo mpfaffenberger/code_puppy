@@ -103,7 +103,12 @@ class TestPromptAndInstallCustomServer:
             ("2", '{"command": "x"}'),
             ("3", '{"command": "x"}'),
         ],
-        ids=["invalid_json", "stdio_missing_command", "http_missing_url", "sse_missing_url"],
+        ids=[
+            "invalid_json",
+            "stdio_missing_command",
+            "http_missing_url",
+            "sse_missing_url",
+        ],
     )
     @patch(f"{UTILS}.find_server_id_by_name", return_value=None)
     @patch(f"{MODULE}.safe_input")

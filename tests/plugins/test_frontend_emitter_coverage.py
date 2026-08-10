@@ -60,7 +60,6 @@ class TestEmitEvent:
         _subscribers.clear()
         _recent_events.clear()
 
-
     def test_recent_events_capped(self):
         from code_puppy.plugins.frontend_emitter.emitter import (
             _recent_events,
@@ -586,7 +585,6 @@ class TestAsyncCallbacks:
         ) as mock_emit:
             await on_invoke_agent(agent_name="test", session_id="s1", prompt="hi")
             mock_emit.assert_called_once()
-
 
     @pytest.mark.asyncio
     async def test_on_invoke_agent_exception(self):

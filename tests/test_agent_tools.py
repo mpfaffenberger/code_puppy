@@ -239,7 +239,6 @@ class TestSessionIdValidation:
             with pytest.raises(ValueError, match="must be kebab-case"):
                 _validate_session_id(name)
 
-
     def test_invalid_special_characters(self):
         """Test that special characters are rejected."""
         with pytest.raises(ValueError, match="must be kebab-case"):
@@ -250,9 +249,6 @@ class TestSessionIdValidation:
             _validate_session_id("session.name")
         with pytest.raises(ValueError, match="must be kebab-case"):
             _validate_session_id("session#1")
-
-
-
 
     def test_invalid_empty_string(self):
         """Test that empty strings are rejected."""

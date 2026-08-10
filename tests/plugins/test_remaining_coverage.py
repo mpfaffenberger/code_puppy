@@ -232,7 +232,6 @@ from code_puppy.plugins.agent_skills.metadata import (  # noqa: E402
 
 
 class TestMetadataMissingLines:
-
     def test_parse_frontmatter_list_at_end(self):
         """Lines 82-83: Handle list items at end of frontmatter."""
         content = "---\ntags:\n  - foo\n  - bar\n---\n"
@@ -554,7 +553,6 @@ _private = 42
             result = reg._load_module(tmp_path / "fake.py")
             assert result is None
 
-
     def test_find_tool_function_by_execute(self):
         mod = ModuleType("test_mod")
         mod.execute = lambda: None
@@ -568,7 +566,6 @@ _private = 42
         reg = UCRegistry()
         func, name = reg._find_tool_function(mod, "nonexistent")
         assert name == "something"
-
 
     def test_list_tools_auto_scans(self, tmp_path):
         reg = UCRegistry(tools_dir=tmp_path / "empty")
@@ -874,9 +871,7 @@ def writer():
         [("def bad(", "bad.py"), ("x = 1", "nope.py")],
     )
     def test_validate_and_write_tool_invalid(self, tmp_path, code, filename):
-        result = validate_and_write_tool(
-            code, tmp_path / filename, safe_root=tmp_path
-        )
+        result = validate_and_write_tool(code, tmp_path / filename, safe_root=tmp_path)
         assert not result.valid
 
     def test_validate_and_write_tool_invalid_meta(self, tmp_path):

@@ -95,7 +95,6 @@ class TestSkillsMenuRendering:
         text = "".join(t for _, t in lines)
         assert "No skills found" in text
 
-
     @patch(f"{_MOD}.parse_skill_metadata", return_value=_make_metadata())
     def test_render_skill_list_with_skills(self, mock_meta):
         skills = [_make_skill(f"s{i}", f"/tmp/s{i}") for i in range(3)]
@@ -103,7 +102,6 @@ class TestSkillsMenuRendering:
         lines = menu._render_skill_list()
         text = "".join(t for _, t in lines)
         assert "Page 1/1" in text
-
 
     @patch(f"{_MOD}.parse_skill_metadata", return_value=None)
     def test_render_skill_list_no_metadata(self, mock_meta):
@@ -587,7 +585,6 @@ class TestShowDirectoriesMenu:
 
             result = _show_directories_menu()
             assert result is None
-
 
     @patch(f"{_MOD}.get_skill_directories", return_value=["/tmp/skills"])
     def test_out_of_range(self, mock_dirs):

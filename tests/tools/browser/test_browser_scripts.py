@@ -73,13 +73,24 @@ class TestExecuteJavaScript(BrowserScriptsBaseTest):
         [
             (
                 {"success": True, "data": "result"},
-                {"success": True, "script": "return document.title;",
-                 "result": {"success": True, "data": "result"}},
+                {
+                    "success": True,
+                    "script": "return document.title;",
+                    "result": {"success": True, "data": "result"},
+                },
             ),
-            (None, {"success": True, "script": "console.log('hello');",
-                    "result": None}),
-            ("Hello World", {"success": True, "script": "return 'Hello World';",
-                             "result": "Hello World"}),
+            (
+                None,
+                {"success": True, "script": "console.log('hello');", "result": None},
+            ),
+            (
+                "Hello World",
+                {
+                    "success": True,
+                    "script": "return 'Hello World';",
+                    "result": "Hello World",
+                },
+            ),
         ],
         ids=["dict", "void", "string"],
     )
@@ -102,10 +113,14 @@ class TestExecuteJavaScript(BrowserScriptsBaseTest):
         ["Syntax Error", "Timeout"],
         ids=["syntax-error", "timeout"],
     )
-    async def test_execute_javascript_exception(self, mock_browser_manager, error_message):
+    async def test_execute_javascript_exception(
+        self, mock_browser_manager, error_message
+    ):
         manager, page = mock_browser_manager
         page.evaluate.side_effect = Exception(error_message)
-        script = "invalid javaScript code" if "yntax" in error_message else "while(true) { }"
+        script = (
+            "invalid javaScript code" if "yntax" in error_message else "while(true) { }"
+        )
         with _mgr(manager):
             result = await execute_javascript(script, timeout=1000)
         assert result["success"] is False
@@ -152,8 +167,12 @@ class TestScrollPage(BrowserScriptsBaseTest):
         manager, page = mock_browser_manager
         locator = mock_locator
         scroll_info = {
-            "scrollTop": 0, "scrollLeft": 0, "scrollHeight": 1000,
-            "scrollWidth": 800, "clientHeight": 200, "clientWidth": 400,
+            "scrollTop": 0,
+            "scrollLeft": 0,
+            "scrollHeight": 1000,
+            "scrollWidth": 800,
+            "clientHeight": 200,
+            "clientWidth": 400,
         }
         locator.evaluate.side_effect = [scroll_info, None]
         page.evaluate.return_value = {"x": 0, "y": 0}
@@ -258,8 +277,12 @@ class TestWaitForElement(BrowserScriptsBaseTest):
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "state,timeout",
-        [("visible", 5000), ("hidden", 30000), ("attached", 30000),
-         ("detached", 30000)],
+        [
+            ("visible", 5000),
+            ("hidden", 30000),
+            ("attached", 30000),
+            ("detached", 30000),
+        ],
         ids=["visible", "hidden", "attached", "detached"],
     )
     async def test_wait_for_element_states(
@@ -378,7 +401,9 @@ class TestIntegrationScenarios(BrowserScriptsBaseTest):
         locator.evaluate.assert_called()
 
     @pytest.mark.asyncio
-    async def test_highlight_and_clear_sequence(self, mock_browser_manager, mock_locator):
+    async def test_highlight_and_clear_sequence(
+        self, mock_browser_manager, mock_locator
+    ):
         manager, page = mock_browser_manager
         locator = mock_locator
         with _mgr(manager):

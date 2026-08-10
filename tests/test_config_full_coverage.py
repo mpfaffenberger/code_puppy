@@ -167,9 +167,7 @@ class TestNumericGetters:
     def test_get_resume_message_count_default(self):
         assert cp_config.get_resume_message_count() == 50
 
-    @pytest.mark.parametrize(
-        "value, expected", [("30", 30), ("999", 100), ("bad", 50)]
-    )
+    @pytest.mark.parametrize("value, expected", [("30", 30), ("999", 100), ("bad", 50)])
     def test_get_resume_message_count(self, value, expected):
         cp_config.set_config_value("resume_message_count", value)
         assert cp_config.get_resume_message_count() == expected
@@ -189,7 +187,11 @@ class TestNumericGetters:
 
     @pytest.mark.parametrize(
         "value, expected",
-        [("summarization", "summarization"), ("truncation", "truncation"), ("invalid", "summarization")],
+        [
+            ("summarization", "summarization"),
+            ("truncation", "truncation"),
+            ("invalid", "summarization"),
+        ],
     )
     def test_get_compaction_strategy(self, value, expected):
         cp_config.set_config_value("compaction_strategy", value)
@@ -212,9 +214,7 @@ class TestNumericGetters:
         cp_config.reset_value("diff_context_lines")
         assert cp_config.get_diff_context_lines() == 6
 
-    @pytest.mark.parametrize(
-        "value, expected", [("10", 10), ("100", 50), ("bad", 6)]
-    )
+    @pytest.mark.parametrize("value, expected", [("10", 10), ("100", 50), ("bad", 6)])
     def test_get_diff_context_lines(self, value, expected):
         cp_config.set_config_value("diff_context_lines", value)
         assert cp_config.get_diff_context_lines() == expected

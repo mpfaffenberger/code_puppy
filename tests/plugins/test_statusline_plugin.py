@@ -144,7 +144,6 @@ class TestConfig:
         ):
             assert get_mode() == "replace"
 
-
     def test_set_mode_valid(self):
         from code_puppy.plugins.statusline.config import set_mode
 
@@ -247,7 +246,6 @@ class TestRender:
         fragments = list(result)
         assert any("\n" in text for _, text in fragments)
         assert any(">>>" in text for _, text in fragments)
-
 
     def test_render_survives_ansi_parse_exception(self):
         """If ANSI() blows up, _render should return the default prompt unchanged."""
@@ -465,7 +463,6 @@ class TestStatuslineCommand:
         assert result is True
         calls = [c[0][0] for c in mock_info.call_args_list]
         assert any("hello world" in c for c in calls)
-
 
     # --- json ---
 

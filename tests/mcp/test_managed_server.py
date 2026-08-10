@@ -44,15 +44,17 @@ def _stdio(inner=None, spec=True):
     with patch(STDIO, return_value=mock):
         server = ManagedMCPServer(
             ServerConfig(
-                id="test-id", name="test-server", type="stdio",
+                id="test-id",
+                name="test-server",
+                type="stdio",
                 config=inner or {"command": "python"},
             )
         )
     return server, mock
 
 
-
 # --- env-var expansion + tool prefixes ---
+
 
 @pytest.mark.asyncio
 async def test_managed_server_header_env_expansion_mocked():
@@ -90,11 +92,23 @@ async def test_managed_server_header_env_expansion_mocked():
 @pytest.mark.parametrize(
     "name,type,inner,target,prefix,env",
     [
-        ("filesystem", "stdio", {"command": "python", "tool_prefix": "repo"}, STDIO,
-         "filesystem_repo", None),
+        (
+            "filesystem",
+            "stdio",
+            {"command": "python", "tool_prefix": "repo"},
+            STDIO,
+            "filesystem_repo",
+            None,
+        ),
         ("docs", "sse", {"url": "http://localhost:8080/sse"}, SSE, "docs", None),
-        ("github", "http", {"url": "http://localhost:8080/mcp", "tool_prefix": "$MCP_SCOPE"},
-         HTTP, "github_issues", {"MCP_SCOPE": "issues"}),
+        (
+            "github",
+            "http",
+            {"url": "http://localhost:8080/mcp", "tool_prefix": "$MCP_SCOPE"},
+            HTTP,
+            "github_issues",
+            {"MCP_SCOPE": "issues"},
+        ),
     ],
 )
 def test_tool_prefix_nests_server_name(name, type, inner, target, prefix, env):
@@ -116,10 +130,22 @@ def test_tool_prefix_nests_server_name(name, type, inner, target, prefix, env):
         ("${MY_VAR}", "expanded_value"),
         ("Bearer $MY_VAR", "Bearer expanded_value"),
         ("plain text", "plain text"),
-        ({"Authorization": "Bearer $API_KEY", "Host": "$HOST", "Static": "no-change"},
-         {"Authorization": "Bearer secret123", "Host": "example.com", "Static": "no-change"}),
-        ({"headers": {"Auth": "Bearer $KEY"}, "args": ["--key=$KEY"]},
-         {"headers": {"Auth": "Bearer secret"}, "args": ["--key=secret"]}),
+        (
+            {
+                "Authorization": "Bearer $API_KEY",
+                "Host": "$HOST",
+                "Static": "no-change",
+            },
+            {
+                "Authorization": "Bearer secret123",
+                "Host": "example.com",
+                "Static": "no-change",
+            },
+        ),
+        (
+            {"headers": {"Auth": "Bearer $KEY"}, "args": ["--key=$KEY"]},
+            {"headers": {"Auth": "Bearer secret"}, "args": ["--key=secret"]},
+        ),
         (["$ARG1", "static", "$ARG2"], ["value1", "static", "value2"]),
         (42, 42),
         (3.14, 3.14),
@@ -131,8 +157,14 @@ def test_expand_env_vars(value, expected):
     """Env var expansion handles strings, dicts, lists and non-strings."""
     with patch.dict(
         os.environ,
-        {"MY_VAR": "expanded_value", "API_KEY": "secret123", "HOST": "example.com",
-         "ARG1": "value1", "ARG2": "value2", "KEY": "secret"},
+        {
+            "MY_VAR": "expanded_value",
+            "API_KEY": "secret123",
+            "HOST": "example.com",
+            "ARG1": "value1",
+            "ARG2": "value2",
+            "KEY": "secret",
+        },
     ):
         assert _expand_env_vars(value) == expected
 
@@ -171,8 +203,8 @@ class TestManagedMCPServerEnableFromConfig:
         assert server.is_enabled() is False
 
 
-
 # --- process_tool_call (also touches get_banner_color + coerce guards) ---
+
 
 class TestProcessToolCall:
     @pytest.mark.asyncio
@@ -213,8 +245,8 @@ class TestProcessToolCall:
         assert result == "result"
 
 
-
 # --- init / get_pydantic_server ---
+
 
 class TestManagedMCPServerInit:
     def test_init_handles_create_server_error(self):
@@ -257,8 +289,8 @@ class TestGetPydanticServer:
         assert server.get_pydantic_server() is mock_pydantic
 
 
-
 # --- _create_server option handling ---
+
 
 class TestCreateServerSSE:
     def test_requires_url(self):
@@ -325,7 +357,11 @@ class TestCreateServerStdio:
                 ["-m", "server", "--port", "8080"],
             ),
             ({"command": "python", "args": ["-m", "server"]}, "args", ["-m", "server"]),
-            ({"command": "python", "env": {"MY_VAR": "value"}}, "env", {"MY_VAR": "value"}),
+            (
+                {"command": "python", "env": {"MY_VAR": "value"}},
+                "env",
+                {"MY_VAR": "value"},
+            ),
             ({"command": "python", "cwd": "/some/path"}, "cwd", "/some/path"),
             ({"command": "python"}, "timeout", 60),
             ({"command": "python", "timeout": 120}, "timeout", 120),
@@ -410,8 +446,8 @@ class TestCreateServerUnsupported:
         assert "unsupported" in server._error_message.lower()
 
 
-
 # --- _get_http_client / enable / disable / quarantine ---
+
 
 class TestGetHttpClient:
     @pytest.mark.parametrize(
@@ -421,7 +457,10 @@ class TestGetHttpClient:
                 {"Authorization": "Bearer $TEST_TOKEN"},
                 {"Authorization": "Bearer secret123"},
             ),
-            ({"X-Count": 42, "X-String": "value"}, {"X-Count": 42, "X-String": "value"}),
+            (
+                {"X-Count": 42, "X-String": "value"},
+                {"X-Count": 42, "X-String": "value"},
+            ),
         ],
         ids=["expanded", "non-string-values"],
     )
@@ -435,7 +474,9 @@ class TestGetHttpClient:
             mock_create.return_value = MagicMock()
             server = ManagedMCPServer(
                 ServerConfig(
-                    id="test-id", name="test-server", type="sse",
+                    id="test-id",
+                    name="test-server",
+                    type="sse",
                     config={"url": "http://x", "headers": headers},
                 )
             )
@@ -451,7 +492,9 @@ class TestGetHttpClient:
             mock_create.return_value = MagicMock()
             server = ManagedMCPServer(
                 ServerConfig(
-                    id="test-id", name="test-server", type="sse",
+                    id="test-id",
+                    name="test-server",
+                    type="sse",
                     config={"url": "http://x", "headers": {}, "timeout": 60},
                 )
             )
@@ -488,8 +531,8 @@ class TestQuarantine:
         assert server._state == ServerState.STOPPED
 
 
-
 # --- stderr / ready / status ---
+
 
 class TestGetCapturedStderr:
     def test_returns_empty_for_non_stdio_server(self):

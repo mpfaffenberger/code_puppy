@@ -6,6 +6,7 @@ import pytest
 from code_puppy.command_line.command_handler import handle_command
 from code_puppy.command_line.command_registry import get_command
 
+
 # Function to create a test context with patched messaging functions
 def setup_messaging_mocks():
     """Set up mocks for all the messaging functions and return them in a dictionary."""
@@ -24,6 +25,7 @@ def setup_messaging_mocks():
 
     return mocks
 
+
 def test_help_outputs_help():
     mocks = setup_messaging_mocks()
     mock_emit_info = mocks["emit_info"].start()
@@ -38,6 +40,7 @@ def test_help_outputs_help():
         )
     finally:
         mocks["emit_info"].stop()
+
 
 def test_cd_show_lists_directories():
     mocks = setup_messaging_mocks()
@@ -55,6 +58,7 @@ def test_cd_show_lists_directories():
             mock_emit_info.assert_called()
     finally:
         mocks["emit_info"].stop()
+
 
 def test_cd_valid_change():
     """Successful /cd must chdir, emit success, and reload the agent."""
@@ -82,6 +86,7 @@ def test_cd_valid_change():
             mock_agent.reload_code_generation_agent.assert_called_once()
     finally:
         mocks["emit_success"].stop()
+
 
 def test_cd_valid_change_reload_failure_is_nonfatal():
     """A reload failure after /cd must not abort the directory change."""
@@ -117,6 +122,7 @@ def test_cd_valid_change_reload_failure_is_nonfatal():
         mocks["emit_success"].stop()
         mocks["emit_error"].stop()
 
+
 def test_cd_invalid_directory():
     mocks = setup_messaging_mocks()
     mock_emit_error = mocks["emit_error"].start()
@@ -133,6 +139,7 @@ def test_cd_invalid_directory():
     finally:
         mocks["emit_error"].stop()
 
+
 def test_m_sets_model():
     # Simplified test - just check that the command handler returns True
     with (
@@ -148,6 +155,7 @@ def test_m_sets_model():
     ):
         result = handle_command("/mgpt-9001")
         assert result is True
+
 
 def test_m_unrecognized_model_lists_options():
     mocks = setup_messaging_mocks()
@@ -179,6 +187,7 @@ def test_m_unrecognized_model_lists_options():
     finally:
         mocks["emit_warning"].stop()
 
+
 @pytest.mark.parametrize("command", ["/set pony=rainbow", "/set pony rainbow"])
 def test_set_config_value_equals_or_space(command):
     mocks = setup_messaging_mocks()
@@ -202,6 +211,7 @@ def test_set_config_value_equals_or_space(command):
     finally:
         mocks["emit_success"].stop()
 
+
 def test_set_config_only_key():
     mocks = setup_messaging_mocks()
     mock_emit_success = mocks["emit_success"].start()
@@ -221,6 +231,7 @@ def test_set_config_only_key():
             )
     finally:
         mocks["emit_success"].stop()
+
 
 def test_show_status():
     mocks = setup_messaging_mocks()
@@ -249,6 +260,7 @@ def test_show_status():
     finally:
         mocks["emit_info"].stop()
 
+
 def test_unknown_command():
     mocks = setup_messaging_mocks()
     mock_emit_warning = mocks["emit_warning"].start()
@@ -262,6 +274,7 @@ def test_unknown_command():
         )
     finally:
         mocks["emit_warning"].stop()
+
 
 @pytest.mark.parametrize(
     ("active_model", "command"),
@@ -286,6 +299,7 @@ def test_bare_slash_shows_current_model(active_model, command):
     finally:
         mocks["emit_info"].stop()
 
+
 def test_set_no_args_launches_menu():
     """`/set` with no args used to print a usage-help wall; it now
     launches the interactive picker. The picker is mocked to None so
@@ -296,6 +310,7 @@ def test_set_no_args_launches_menu():
     ):
         result = handle_command("/set")
         assert result is True
+
 
 def test_set_missing_key_errors():
     mocks = setup_messaging_mocks()
@@ -310,10 +325,12 @@ def test_set_missing_key_errors():
     finally:
         mocks["emit_error"].stop()
 
+
 def test_non_command_returns_false():
     # No need for mocks here since we're just testing the return value
     result = handle_command("echo hi")
     assert result is False
+
 
 def test_agent_switch_triggers_autosave_rotation():
     mocks = setup_messaging_mocks()
@@ -364,6 +381,7 @@ def test_agent_switch_triggers_autosave_rotation():
         mocks["emit_info"].stop()
         mocks["emit_success"].stop()
 
+
 def test_agent_switch_same_agent_skips_rotation():
     mocks = setup_messaging_mocks()
     mock_emit_info = mocks["emit_info"].start()
@@ -397,6 +415,7 @@ def test_agent_switch_same_agent_skips_rotation():
     finally:
         mocks["emit_info"].stop()
 
+
 def test_agent_switch_unknown_agent_skips_rotation():
     mocks = setup_messaging_mocks()
     mock_emit_warning = mocks["emit_warning"].start()
@@ -425,6 +444,7 @@ def test_agent_switch_unknown_agent_skips_rotation():
     finally:
         mocks["emit_warning"].stop()
 
+
 def test_tools_displays_tools_md():
     mocks = setup_messaging_mocks()
     mock_emit_info = mocks["emit_info"].start()
@@ -449,6 +469,7 @@ def test_tools_displays_tools_md():
     finally:
         mocks["emit_info"].stop()
 
+
 def test_tools_file_not_found():
     mocks = setup_messaging_mocks()
     mock_emit_info = mocks["emit_info"].start()
@@ -468,6 +489,7 @@ def test_tools_file_not_found():
             assert isinstance(call_args, Markdown)
     finally:
         mocks["emit_info"].stop()
+
 
 def test_tools_read_error():
     mocks = setup_messaging_mocks()
@@ -492,6 +514,7 @@ def test_tools_read_error():
     finally:
         mocks["emit_info"].stop()
 
+
 @pytest.mark.parametrize("command", ["/exit", "/quit"])
 def test_exit_or_quit_command(command):
     """Test that /exit and /quit work and show the Goodbye message."""
@@ -500,9 +523,11 @@ def test_exit_or_quit_command(command):
         assert result is True
         mock_success.assert_called_once_with("Goodbye!")
 
+
 # =============================================================================
 # TESTS FOR NEW REGISTERED COMMANDS
 # =============================================================================
+
 
 class TestRegistryIntegration:
     """Tests for command registry integration with handle_command()."""
@@ -526,6 +551,7 @@ class TestRegistryIntegration:
         """Test that text without / is not treated as command."""
         result = handle_command("hello world")
         assert result is False
+
 
 class TestSessionCommand:
     """Tests for /session command."""
@@ -598,6 +624,7 @@ class TestSessionCommand:
             result = handle_command("/s")
             assert result is True
             mock_emit.assert_called()
+
 
 class TestCompactCommand:
     """Tests for /compact command."""
@@ -678,6 +705,7 @@ class TestCompactCommand:
             result = handle_command("/compact")
             assert result is True
             mock_truncate.assert_called_once()
+
 
 class TestTruncateCommand:
     """Tests for /truncate command."""
@@ -763,6 +791,7 @@ class TestTruncateCommand:
             mock_info.assert_called_once()
             assert "Nothing to truncate" in str(mock_info.call_args)
 
+
 class TestAutosaveLoadCommand:
     """Tests for /autosave_load command."""
 
@@ -770,6 +799,7 @@ class TestAutosaveLoadCommand:
         """Test that /autosave_load returns special marker for async handling."""
         result = handle_command("/autosave_load")
         assert result == "__AUTOSAVE_LOAD__"
+
 
 class TestGetCommandsHelp:
     """Tests for get_commands_help() function."""
@@ -882,6 +912,7 @@ class TestGetCommandsHelp:
             help_text = str(get_commands_help())
             assert help_text  # Should still generate help text
 
+
 class TestCommandRegistry:
     """Tests verifying commands are properly registered."""
 
@@ -935,6 +966,7 @@ class TestCommandRegistry:
         assert get_command("reasoning") is None
         assert get_command("verbosity") is None
 
+
 @pytest.mark.parametrize(
     ("input_command", "expected_result", "expected_model", "expect_called"),
     [
@@ -983,10 +1015,12 @@ def test_m_command_case_insensitive(
         else:
             mock_set_model.assert_not_called()
 
+
 # Note: Tests for newly migrated commands (set, agent, model, mcp, pin_model,
 # generate-pr-description, dump_context, load_context, diff) already exist above
 # and in TestCommandRegistry. All logic has been verified to be identical to original.
 # See LOGIC_VERIFICATION.md for detailed verification.
+
 
 def test_pin_model_command_case_insensitive_agent():
     """Test that /pin_model works with uppercase agent name."""
@@ -1014,6 +1048,7 @@ def test_pin_model_command_case_insensitive_agent():
         mock_emit_success.assert_called_once()
         mock_emit_error.assert_not_called()
 
+
 def test_pin_model_unpin_case_insensitive():
     """Test that (unpin) option works case-insensitively."""
     test_agents = {"python_expert": "Python Expert", "code_reviewer": "Code Reviewer"}
@@ -1040,6 +1075,7 @@ def test_pin_model_unpin_case_insensitive():
         mock_emit_success.assert_not_called()
         mock_emit_error.assert_not_called()
 
+
 def test_unpin_command_case_insensitive_agent():
     """Test that /unpin works with uppercase agent name."""
     test_agents = {"python_expert": "Python Expert", "code_reviewer": "Code Reviewer"}
@@ -1061,6 +1097,7 @@ def test_unpin_command_case_insensitive_agent():
         mock_emit_success.assert_called_once()
         mock_emit_error.assert_not_called()
 
+
 def test_unpin_command_nonexistent_agent_case_insensitive():
     """Test that /unpin works case-insensitively with existing agents."""
     test_agents = {"python_expert": "Python Expert"}
@@ -1081,6 +1118,7 @@ def test_unpin_command_nonexistent_agent_case_insensitive():
         # Should work with uppercase agent that exists (case-insensitive match)
         mock_emit_success.assert_called_once()
         mock_emit_error.assert_not_called()
+
 
 def test_pin_model_completion_case_insensitive_agent():
     """Test that pin model completion works case-insensitively for agents."""
@@ -1109,6 +1147,7 @@ def test_pin_model_completion_case_insensitive_agent():
         completion_texts = [c.text for c in completions]
         assert "python_expert" in completion_texts
 
+
 def test_pin_model_completion_case_insensitive_model():
     """Test that pin model completion works case-insensitively for models."""
     from prompt_toolkit.document import Document
@@ -1135,6 +1174,7 @@ def test_pin_model_completion_case_insensitive_model():
         # Should find GPT-5 (case-insensitive match)
         completion_texts = [c.text for c in completions]
         assert "gpt-5" in completion_texts
+
 
 def test_unpin_completion_case_insensitive_agent():
     """Test that unpin completion works case-insensitively for agents."""

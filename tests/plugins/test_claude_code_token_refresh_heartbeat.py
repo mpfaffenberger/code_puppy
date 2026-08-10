@@ -146,7 +146,6 @@ class TestTokenRefreshHeartbeatContext:
         assert not is_heartbeat_running()
         assert get_current_heartbeat() is None
 
-
     @pytest.mark.asyncio
     async def test_context_manager_yields_heartbeat(self):
         """Context manager should yield the heartbeat instance."""
@@ -253,7 +252,6 @@ class TestCallbackIntegration:
 
         # No heartbeat should be stored
         assert "test-session-456" not in _active_heartbeats
-
 
     @pytest.mark.asyncio
     async def test_agent_run_end_handles_missing_heartbeat_gracefully(self):

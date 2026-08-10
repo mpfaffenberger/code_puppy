@@ -296,8 +296,6 @@ def test_azure_missing_field(model_key, config):
         ModelFactory.get_model(model_key, config)
 
 
-
-
 def test_extra_models_json_decode_error(tmp_path, monkeypatch):
     # Create a temporary extra_models.json file with invalid JSON
     extra_models_file = tmp_path / "extra_models.json"

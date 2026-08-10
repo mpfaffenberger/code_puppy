@@ -840,7 +840,9 @@ class TestRequestStream:
     @pytest.mark.parametrize(
         "chunks",
         [
-            ['data: {"candidates": [{"content": {"parts": [{"text": "thinking...", "thought": true}]}}]}'],
+            [
+                'data: {"candidates": [{"content": {"parts": [{"text": "thinking...", "thought": true}]}}]}'
+            ],
             ['data: {"usageMetadata": {"promptTokenCount": 5}}'],
         ],
     )

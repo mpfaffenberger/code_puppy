@@ -109,12 +109,55 @@ class TestAgentCreatorAgent:
     @pytest.mark.parametrize(
         "config,error_keyword",
         [
-            ({"name": "bad name", "description": "Test", "system_prompt": "ok", "tools": []}, "spaces"),
-            ({"name": "", "description": "Test", "system_prompt": "ok", "tools": []}, "non-empty"),
-            ({"name": "test", "description": "Test", "system_prompt": "ok", "tools": "not-a-list"}, "list"),
-            ({"name": "test", "description": "Test", "system_prompt": "ok", "tools": ["nonexistent_tool_xyz"]}, "Invalid"),
-            ({"name": "test", "description": "Test", "system_prompt": 123, "tools": []}, "string or list"),
-            ({"name": "test", "description": "Test", "system_prompt": ["ok", 123], "tools": []}, "strings"),
+            (
+                {
+                    "name": "bad name",
+                    "description": "Test",
+                    "system_prompt": "ok",
+                    "tools": [],
+                },
+                "spaces",
+            ),
+            (
+                {"name": "", "description": "Test", "system_prompt": "ok", "tools": []},
+                "non-empty",
+            ),
+            (
+                {
+                    "name": "test",
+                    "description": "Test",
+                    "system_prompt": "ok",
+                    "tools": "not-a-list",
+                },
+                "list",
+            ),
+            (
+                {
+                    "name": "test",
+                    "description": "Test",
+                    "system_prompt": "ok",
+                    "tools": ["nonexistent_tool_xyz"],
+                },
+                "Invalid",
+            ),
+            (
+                {
+                    "name": "test",
+                    "description": "Test",
+                    "system_prompt": 123,
+                    "tools": [],
+                },
+                "string or list",
+            ),
+            (
+                {
+                    "name": "test",
+                    "description": "Test",
+                    "system_prompt": ["ok", 123],
+                    "tools": [],
+                },
+                "strings",
+            ),
         ],
     )
     def test_validate_agent_json_invalid(self, config, error_keyword):

@@ -416,4 +416,3 @@ class TestUnpinCompleter:
         ):
             completions = list(c.get_completions(self._make_doc(doc_text), None))
             assert len(completions) == expected_len
-

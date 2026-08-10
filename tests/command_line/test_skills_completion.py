@@ -93,5 +93,3 @@ class TestSkillsCompleter:
         ):
             result = self.completer._get_skill_ids()
             assert result == ["new"]
-
-

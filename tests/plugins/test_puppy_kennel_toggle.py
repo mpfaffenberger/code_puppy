@@ -272,7 +272,12 @@ def test_advertise_tools_returns_empty_when_disabled(kennel_root: Path) -> None:
         # Reload errors are swallowed; the persisted toggle still flips.
         ("/kennel disable", True, True, [], False),
     ],
-    ids=["disable_reloads", "enable_reloads", "noop_no_reload", "reload_error_still_flips"],
+    ids=[
+        "disable_reloads",
+        "enable_reloads",
+        "noop_no_reload",
+        "reload_error_still_flips",
+    ],
 )
 def test_toggle_reload_behavior(
     kennel_root: Path,
