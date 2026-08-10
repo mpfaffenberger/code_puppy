@@ -30,13 +30,19 @@ from code_puppy.messaging import (  # Structured messaging types
     emit_warning,
     get_message_bus,
 )
+from code_puppy.tools import fs_access
 from code_puppy.tools.common import (
     _find_best_window,
     generate_group_id,
     resolve_path,
     write_project_file,
 )
-from code_puppy.tools import fs_access
+from code_puppy.tools.file_permission_state import (
+    clear_diff_shown_flag,
+    clear_user_feedback,
+    get_last_user_feedback,
+    was_diff_already_shown,
+)
 
 
 def _permission_denied(permission_results: List[Any]) -> bool:
@@ -57,18 +63,11 @@ def _create_rejection_response(file_path: str) -> Dict[str, Any]:
     Returns:
         Dict containing rejection details and any user feedback
     """
-    # Check for user feedback from permission handler
-    try:
-        from code_puppy.plugins.file_permission_handler.register_callbacks import (
-            clear_user_feedback,
-            get_last_user_feedback,
-        )
-
-        user_feedback = get_last_user_feedback()
-        # Clear feedback after reading it
-        clear_user_feedback()
-    except ImportError:
-        user_feedback = None
+    # Check for user feedback from the permission provider. Falls back to
+    # None when no provider (i.e. the file-permission plugin) is registered.
+    user_feedback = get_last_user_feedback()
+    # Clear feedback after reading it
+    clear_user_feedback()
 
     rejection_message = (
         "USER REJECTED: The user explicitly rejected these file changes."
@@ -186,19 +185,12 @@ def _emit_diff_message(
         old_content: Original file content (optional)
         new_content: New file content (optional)
     """
-    # Check if diff was already shown during permission prompt
-    try:
-        from code_puppy.plugins.file_permission_handler.register_callbacks import (
-            clear_diff_shown_flag,
-            was_diff_already_shown,
-        )
-
-        if was_diff_already_shown():
-            # Diff already displayed in permission panel, skip redundant display
-            clear_diff_shown_flag()
-            return
-    except ImportError:
-        pass  # Permission handler not available, emit anyway
+    # Check if diff was already shown during permission prompt. Defaults to
+    # False (emit anyway) when no permission provider is registered.
+    if was_diff_already_shown():
+        # Diff already displayed in permission panel, skip redundant display
+        clear_diff_shown_flag()
+        return
 
     if not diff_text or not diff_text.strip():
         return
