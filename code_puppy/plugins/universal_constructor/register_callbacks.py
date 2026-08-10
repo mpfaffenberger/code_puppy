@@ -7,11 +7,17 @@ Code Puppy. It ensures the plugin is properly loaded and initialized.
 import logging
 
 from code_puppy.callbacks import register_callback
+from code_puppy.universal_constructor_provider import (
+    register_universal_constructor_provider,
+)
 
 from . import USER_UC_DIR
+from .provider import provider
 from .registry import get_registry
 
 logger = logging.getLogger(__name__)
+
+register_universal_constructor_provider(provider)
 
 
 def _register_tools() -> list[dict]:

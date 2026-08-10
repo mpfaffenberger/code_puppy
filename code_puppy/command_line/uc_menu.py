@@ -83,11 +83,15 @@ def _get_tool_entries() -> List[UCToolInfo]:
     Returns:
         List of UCToolInfo sorted by full_name.
     """
-    from code_puppy.tools.universal_constructor import get_uc_registry
+    from code_puppy.universal_constructor_provider import (
+        get_universal_constructor_provider,
+    )
 
-    registry = get_uc_registry()
-    registry.scan()  # Force fresh scan
-    return registry.list_tools(include_disabled=True)
+    provider = get_universal_constructor_provider()
+    if provider is None:
+        return []
+    provider.reload()  # Force fresh scan
+    return provider.list_tools(include_disabled=True)
 
 
 def _toggle_tool_enabled(tool: UCToolInfo) -> bool:
@@ -159,9 +163,13 @@ def _delete_tool(tool: UCToolInfo) -> bool:
 
         # Try to clean up empty parent directories (namespace folders)
         parent = source_path.parent
-        from code_puppy.plugins.universal_constructor import USER_UC_DIR
+        from code_puppy.universal_constructor_provider import (
+            get_universal_constructor_provider,
+        )
 
-        while parent != USER_UC_DIR and parent.exists():
+        provider = get_universal_constructor_provider()
+        tools_dir = provider.tools_dir if provider else parent
+        while parent != tools_dir and parent.exists():
             try:
                 if not any(parent.iterdir()):
                     parent.rmdir()

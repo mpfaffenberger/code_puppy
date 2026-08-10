@@ -31,7 +31,6 @@ from code_puppy.tools.file_operations import (
 )
 from code_puppy.tools.image_tools import register_load_image
 from code_puppy.tools.model_tools import register_list_available_models
-from code_puppy.tools.universal_constructor import register_universal_constructor
 
 # Map of tool names to their individual registration functions
 TOOL_REGISTRY = {
@@ -57,8 +56,6 @@ TOOL_REGISTRY = {
     "ask_user_question": register_ask_user_question,
     # Image loading (used by browser/QA agents and friends)
     "load_image_for_analysis": register_load_image,
-    # Universal Constructor
-    "universal_constructor": register_universal_constructor,
 }
 
 
@@ -289,15 +286,20 @@ def _register_uc_tool_wrapper(agent, uc_tool_name: str):
 
     # Get tool info and function from registry
     try:
-        from code_puppy.tools.universal_constructor import get_uc_registry
+        from code_puppy.universal_constructor_provider import (
+            get_universal_constructor_provider,
+        )
 
-        registry = get_uc_registry()
-        tool_info = registry.get_tool(uc_tool_name)
+        provider = get_universal_constructor_provider()
+        if provider is None:
+            emit_warning("Warning: Universal Constructor provider is unavailable")
+            return
+        tool_info = provider.get_tool(uc_tool_name)
         if not tool_info:
             emit_warning(f"Warning: UC tool '{uc_tool_name}' not found, skipping...")
             return
 
-        func = registry.get_tool_function(uc_tool_name)
+        func = provider.get_tool_function(uc_tool_name)
         if not func:
             emit_warning(
                 f"Warning: UC tool '{uc_tool_name}' function not found, skipping..."
