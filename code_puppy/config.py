@@ -2556,9 +2556,9 @@ def get_quick_resume_location(
     branch: Optional[str] = None
     if git_root:
         try:
-            from code_puppy.plugins.statusline.payload import detect_git_branch
+            from code_puppy.callbacks import get_git_branch
 
-            branch = detect_git_branch(cwd)
+            branch = get_git_branch(cwd)
         except Exception:
             branch = None
     return os.path.realpath(cwd), branch

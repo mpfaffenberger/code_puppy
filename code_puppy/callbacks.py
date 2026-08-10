@@ -63,6 +63,7 @@ PhaseType = Literal[
     "post_autosave",
     "notification",
     "awaiting_user_input",
+    "git_branch_provider",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -126,6 +127,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "post_autosave": [],
     "notification": [],
     "awaiting_user_input": [],
+    "git_branch_provider": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -350,6 +352,14 @@ async def on_version_check(*args, **kwargs) -> List[Any]:
 
 def on_load_model_config(*args, **kwargs) -> List[Any]:
     return _trigger_callbacks_sync("load_model_config", *args, **kwargs)
+
+
+def get_git_branch(cwd: str) -> Optional[str]:
+    """Return a branch from the first plugin provider that can detect one."""
+    for branch in _trigger_callbacks_sync("git_branch_provider", cwd):
+        if branch:
+            return str(branch)
+    return None
 
 
 def on_load_models_config() -> List[Any]:

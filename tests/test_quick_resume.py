@@ -11,6 +11,7 @@ import pytest
 
 from code_puppy.cli_runner import apply_quick_resume
 from code_puppy.command_line.session_commands import _parse_quick_resume_target
+from code_puppy.config import get_quick_resume_location
 
 
 @pytest.mark.parametrize(
@@ -41,6 +42,43 @@ def _args(**kwargs):
     for key, value in kwargs.items():
         setattr(ns, key, value)
     return ns
+
+
+def test_git_branch_provider_returns_first_detected_branch(monkeypatch):
+    from code_puppy import callbacks
+
+    monkeypatch.setattr(
+        callbacks,
+        "_trigger_callbacks_sync",
+        lambda phase, cwd: [None, "feature/provider", "ignored"],
+    )
+
+    assert callbacks.get_git_branch("/repo") == "feature/provider"
+
+
+def test_git_branch_provider_safely_defaults_to_none(monkeypatch):
+    from code_puppy import callbacks
+
+    monkeypatch.setattr(callbacks, "_trigger_callbacks_sync", lambda phase, cwd: [])
+
+    assert callbacks.get_git_branch("/repo") is None
+
+
+def test_get_quick_resume_location_uses_registered_branch_provider(monkeypatch):
+    """Git scopes retain branch-specific quick-resume keys via the plugin seam."""
+    monkeypatch.setattr("code_puppy.config._detect_git_toplevel", lambda path: "/repo")
+    branch = "feature/statusline-decoupling"
+    monkeypatch.setattr("code_puppy.callbacks.get_git_branch", lambda cwd: branch)
+
+    assert get_quick_resume_location("/repo") == ("/repo", branch)
+
+
+def test_get_quick_resume_location_without_branch_provider(monkeypatch):
+    """Quick-resume safely falls back to an unbranched Git scope."""
+    monkeypatch.setattr("code_puppy.config._detect_git_toplevel", lambda path: "/repo")
+    monkeypatch.setattr("code_puppy.callbacks.get_git_branch", lambda cwd: None)
+
+    assert get_quick_resume_location("/repo") == ("/repo", None)
 
 
 def test_apply_quick_resume_noop_when_unset():
