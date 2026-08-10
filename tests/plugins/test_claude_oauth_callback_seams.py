@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
+import warnings
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
 
 from code_puppy import callbacks
@@ -293,3 +296,80 @@ def test_tutorial_authentication_seam(
 
     assert handle_tutorial_command("/tutorial") is True
     assert switch_model.called is should_switch
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("expiry_raises", "expected_token"),
+    [(False, "new-token"), (True, "old-token")],
+    ids=["async-provider-result", "async-provider-exception-fallback"],
+)
+async def test_real_send_awaits_async_oauth_providers_without_runtime_warning(
+    expiry_raises,
+    expected_token,
+    install_provider,
+    isolate_callback_phases,
+    monkeypatch,
+):
+    expiry_phase = "check_claude_oauth_token_expiry"
+    refresh_phase = "refresh_claude_oauth_token"
+    isolate_callback_phases(expiry_phase)
+    isolate_callback_phases(refresh_phase)
+
+    async def expiry_provider():
+        if expiry_raises:
+            raise RuntimeError("expiry provider exploded")
+        return True
+
+    async def refresh_provider():
+        return "new-token"
+
+    install_provider(expiry_phase, expiry_provider)
+    install_provider(refresh_phase, refresh_provider)
+
+    captured = {}
+
+    async def fake_send(self, request, *args, **kwargs):
+        captured["authorization"] = request.headers.get("Authorization")
+        return httpx.Response(200, request=request, json={})
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", fake_send)
+    client = ClaudeCacheAsyncClient(headers={"Authorization": "Bearer old-token"})
+    request = httpx.Request(
+        "GET",
+        "https://api.anthropic.com/health",
+        headers={"Authorization": "Bearer old-token"},
+    )
+
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            response = await client.send(request)
+            gc.collect()
+            await asyncio.sleep(0)
+    finally:
+        await client.aclose()
+
+    assert response.status_code == 200
+    assert captured["authorization"] == f"Bearer {expected_token}"
+    assert not [warning for warning in caught if warning.category is RuntimeWarning]
+
+
+@pytest.mark.asyncio
+async def test_sync_dispatcher_closes_async_provider_inside_running_loop(
+    install_provider,
+):
+    phase = "refresh_claude_oauth_token"
+
+    async def provider():
+        return "unused-token"
+
+    install_provider(phase, provider)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert callbacks.on_refresh_claude_oauth_token() == [None]
+        gc.collect()
+        await asyncio.sleep(0)
+
+    assert not [warning for warning in caught if warning.category is RuntimeWarning]

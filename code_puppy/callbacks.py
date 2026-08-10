@@ -332,6 +332,10 @@ def _trigger_callbacks_sync(
                     logger.warning(
                         f"Async callback {callback.__name__} called from async context in sync trigger"
                     )
+                    # The sync dispatcher cannot await while its event loop is
+                    # already running. Explicitly close the coroutine so this
+                    # safe fallback never leaks an unawaited-coroutine warning.
+                    result.close()
                     results.append(None)
                     continue
                 except RuntimeError:
@@ -1210,6 +1214,11 @@ def on_check_claude_oauth_token_expiry() -> List[Any]:
     return _trigger_callbacks_sync("check_claude_oauth_token_expiry")
 
 
+async def on_check_claude_oauth_token_expiry_async() -> List[Any]:
+    """Async variant for consumers already running inside an event loop."""
+    return await _trigger_callbacks("check_claude_oauth_token_expiry")
+
+
 def on_refresh_claude_oauth_token() -> List[Any]:
     """Ask the claude_code_oauth plugin to force a refresh-token exchange.
 
@@ -1218,6 +1227,11 @@ def on_refresh_claude_oauth_token() -> List[Any]:
         registered callbacks; empty when the plugin is not loaded.
     """
     return _trigger_callbacks_sync("refresh_claude_oauth_token")
+
+
+async def on_refresh_claude_oauth_token_async() -> List[Any]:
+    """Async variant for consumers already running inside an event loop."""
+    return await _trigger_callbacks("refresh_claude_oauth_token")
 
 
 def on_load_claude_oauth_models() -> List[Any]:
