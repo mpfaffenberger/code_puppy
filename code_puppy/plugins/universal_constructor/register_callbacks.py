@@ -7,11 +7,38 @@ Code Puppy. It ensures the plugin is properly loaded and initialized.
 import logging
 
 from code_puppy.callbacks import register_callback
+from code_puppy.universal_constructor_provider import (
+    register_universal_constructor_provider,
+    unregister_universal_constructor_provider,
+)
 
 from . import USER_UC_DIR
+from .provider import provider
 from .registry import get_registry
 
 logger = logging.getLogger(__name__)
+
+_PROVIDER_REGISTRATION = register_universal_constructor_provider(
+    provider,
+    owner="universal_constructor",
+)
+
+
+def unregister_provider(registration=_PROVIDER_REGISTRATION) -> bool:
+    """Unregister this plugin's provider during an explicit unload."""
+    return unregister_universal_constructor_provider(registration)
+
+
+def _register_tools() -> list[dict]:
+    """Contribute the Universal Constructor tool through the plugin hook."""
+    from code_puppy.tools.universal_constructor import register_universal_constructor
+
+    return [
+        {
+            "name": "universal_constructor",
+            "register_func": register_universal_constructor,
+        }
+    ]
 
 
 def _on_startup() -> None:
@@ -41,7 +68,8 @@ def _on_startup() -> None:
     )
 
 
-# Register startup callback
+# Register plugin callbacks
 register_callback("startup", _on_startup)
+register_callback("register_tools", _register_tools)
 
 logger.debug("Universal Constructor plugin callbacks registered")
