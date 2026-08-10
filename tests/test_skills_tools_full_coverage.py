@@ -1,5 +1,6 @@
-"""Full coverage tests for tools/skills_tools.py."""
+"""Coverage and seam tests for the optional skills tools."""
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,213 +12,154 @@ from code_puppy.tools.skills_tools import (
 
 
 def _register_and_get(register_func):
-    """Register tool on a mock agent and capture the inner function."""
     agent = MagicMock()
     captured = {}
 
-    def tool_decorator(f):
-        captured["fn"] = f
-        return f
+    def tool_decorator(func):
+        captured["fn"] = func
+        return func
 
     agent.tool = tool_decorator
     register_func(agent)
     return captured["fn"]
 
 
+@pytest.fixture
+def provider():
+    result = MagicMock()
+    result.is_enabled.return_value = True
+    result.get_disabled_skill_names.return_value = set()
+    result.list_enabled_skills.return_value = []
+    result.find_enabled_skill_path.return_value = None
+    result.load_skill_content.return_value = None
+    result.get_skill_resources.return_value = []
+    return result
+
+
 class TestActivateSkill:
     @pytest.mark.anyio
-    async def test_disabled(self):
+    async def test_no_plugin(self):
         fn = _register_and_get(register_activate_skill)
-        ctx = MagicMock()
         with patch(
-            "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-            return_value=False,
+            "code_puppy.tools.skills_tools.get_skill_provider", return_value=None
         ):
-            result = await fn(ctx, skill_name="test")
-            assert result.error is not None
-            assert "disabled" in result.error
+            result = await fn(MagicMock(), skill_name="test")
+        assert result.error == "Skills integration is unavailable."
 
     @pytest.mark.anyio
-    async def test_discovery_error(self):
+    async def test_globally_disabled(self, provider):
         fn = _register_and_get(register_activate_skill)
-        ctx = MagicMock()
-        with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skill_directories",
-                side_effect=Exception("boom"),
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.discovery.discover_skills",
-                side_effect=Exception("boom"),
-            ),
+        provider.is_enabled.return_value = False
+        with patch(
+            "code_puppy.tools.skills_tools.get_skill_provider", return_value=provider
         ):
-            result = await fn(ctx, skill_name="test")
-            assert result.error is not None
+            result = await fn(MagicMock(), skill_name="test")
+        assert "disabled" in result.error
 
     @pytest.mark.anyio
-    async def test_skill_not_found(self):
+    async def test_discovery_error(self, provider):
         fn = _register_and_get(register_activate_skill)
-        ctx = MagicMock()
-        with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skill_directories",
-                return_value=[],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.discovery.discover_skills",
-                return_value=[],
-            ),
+        provider.find_enabled_skill_path.side_effect = RuntimeError("boom")
+        with patch(
+            "code_puppy.tools.skills_tools.get_skill_provider", return_value=provider
         ):
-            result = await fn(ctx, skill_name="nonexistent")
-            assert "not found" in result.error
+            result = await fn(MagicMock(), skill_name="test")
+        assert result.error == "Failed to discover skills: boom"
 
     @pytest.mark.anyio
-    async def test_content_load_failure(self):
+    async def test_skill_not_found(self, provider):
         fn = _register_and_get(register_activate_skill)
-        ctx = MagicMock()
-        mock_skill = MagicMock()
-        mock_skill.name = "test"
-        mock_skill.has_skill_md = True
-        mock_skill.path = "/path"
-        with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skill_directories",
-                return_value=[],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.discovery.discover_skills",
-                return_value=[mock_skill],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.metadata.load_full_skill_content",
-                return_value=None,
-            ),
+        with patch(
+            "code_puppy.tools.skills_tools.get_skill_provider", return_value=provider
         ):
-            result = await fn(ctx, skill_name="test")
-            assert "Failed to load" in result.error
+            result = await fn(MagicMock(), skill_name="missing")
+        assert "not found or disabled" in result.error
 
     @pytest.mark.anyio
-    async def test_success(self):
+    async def test_content_load_failure(self, provider):
         fn = _register_and_get(register_activate_skill)
-        ctx = MagicMock()
-        mock_skill = MagicMock()
-        mock_skill.name = "test"
-        mock_skill.has_skill_md = True
-        mock_skill.path = "/path"
+        provider.find_enabled_skill_path.return_value = Path("/skill")
+        with patch(
+            "code_puppy.tools.skills_tools.get_skill_provider", return_value=provider
+        ):
+            result = await fn(MagicMock(), skill_name="test")
+        assert result.error == "Failed to load content for skill 'test'"
+
+    @pytest.mark.anyio
+    async def test_success(self, provider):
+        fn = _register_and_get(register_activate_skill)
+        provider.find_enabled_skill_path.return_value = Path("/skill")
+        provider.load_skill_content.return_value = "# Skill content"
+        provider.get_skill_resources.return_value = [Path("/skill/reference.md")]
         with (
             patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
+                "code_puppy.tools.skills_tools.get_skill_provider",
+                return_value=provider,
             ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skill_directories",
-                return_value=[],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.discovery.discover_skills",
-                return_value=[mock_skill],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.metadata.load_full_skill_content",
-                return_value="# Skill content",
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.metadata.get_skill_resources",
-                return_value=[],
-            ),
-            patch("code_puppy.tools.skills_tools.get_message_bus"),
+            patch("code_puppy.tools.skills_tools.get_message_bus") as bus,
         ):
-            result = await fn(ctx, skill_name="test")
-            assert result.error is None
-            assert result.content == "# Skill content"
+            result = await fn(MagicMock(), skill_name="test")
+        assert result.error is None
+        assert result.content == "# Skill content"
+        assert result.resources == ["/skill/reference.md"]
+        bus.return_value.emit.assert_called_once()
 
 
 class TestListOrSearchSkills:
     @pytest.mark.anyio
-    async def test_disabled(self):
+    async def test_no_plugin(self):
         fn = _register_and_get(register_list_or_search_skills)
-        ctx = MagicMock()
         with patch(
-            "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-            return_value=False,
+            "code_puppy.tools.skills_tools.get_skill_provider", return_value=None
         ):
-            result = await fn(ctx)
-            assert result.error is not None
+            result = await fn(MagicMock())
+        assert result.error == "Skills integration is unavailable."
 
     @pytest.mark.anyio
-    async def test_discovery_error(self):
+    async def test_globally_disabled(self, provider):
         fn = _register_and_get(register_list_or_search_skills)
-        ctx = MagicMock()
-        with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_disabled_skills",
-                return_value=set(),
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skill_directories",
-                side_effect=Exception("boom"),
-            ),
+        provider.is_enabled.return_value = False
+        with patch(
+            "code_puppy.tools.skills_tools.get_skill_provider", return_value=provider
         ):
-            result = await fn(ctx)
-            assert result.error is not None
+            result = await fn(MagicMock())
+        assert "disabled" in result.error
 
     @pytest.mark.anyio
-    async def test_list_all(self):
+    async def test_discovery_error(self, provider):
         fn = _register_and_get(register_list_or_search_skills)
-        ctx = MagicMock()
-        mock_skill = MagicMock()
-        mock_skill.name = "test"
-        mock_skill.has_skill_md = True
-        mock_skill.path = "/path"
-        mock_meta = MagicMock()
-        mock_meta.name = "test"
-        mock_meta.description = "A test skill"
-        mock_meta.path = "/path"
-        mock_meta.tags = ["testing"]
-        mock_meta.version = "1.0"
-        mock_meta.author = "me"
+        provider.list_enabled_skills.side_effect = RuntimeError("boom")
+        with patch(
+            "code_puppy.tools.skills_tools.get_skill_provider", return_value=provider
+        ):
+            result = await fn(MagicMock())
+        assert result.error == "Failed to discover skills: boom"
+
+    @pytest.mark.anyio
+    async def test_list_all(self, provider):
+        fn = _register_and_get(register_list_or_search_skills)
+        provider.list_enabled_skills.return_value = [
+            {
+                "name": "test",
+                "description": "A test skill",
+                "path": "/skill",
+                "tags": ["testing"],
+                "version": "1.0",
+                "author": "me",
+            }
+        ]
         with (
             patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
+                "code_puppy.tools.skills_tools.get_skill_provider",
+                return_value=provider,
             ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_disabled_skills",
-                return_value=set(),
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skill_directories",
-                return_value=[],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.discovery.discover_skills",
-                return_value=[mock_skill],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.metadata.parse_skill_metadata",
-                return_value=mock_meta,
-            ),
-            patch("code_puppy.tools.skills_tools.get_message_bus"),
+            patch("code_puppy.tools.skills_tools.get_message_bus") as bus,
         ):
-            result = await fn(ctx)
-            assert result.error is None
-            assert result.total_count == 1
+            result = await fn(MagicMock())
+        assert result.error is None
+        assert result.total_count == 1
+        assert result.skills[0]["name"] == "test"
+        bus.return_value.emit.assert_called_once()
 
     @pytest.mark.parametrize(
         "name,description,tags,query,expected_count",
@@ -226,113 +168,30 @@ class TestListOrSearchSkills:
             ("x", "Handles authentication", [], "auth", 1),
             ("x", "desc", ["database"], "database", 1),
             ("x", "desc", [], "zzzzz", 0),
+            ("code-puppy", "architecture", [], "code puppy architecture", 1),
         ],
     )
     @pytest.mark.anyio
     async def test_filter_by_query(
-        self, name, description, tags, query, expected_count
+        self, provider, name, description, tags, query, expected_count
     ):
         fn = _register_and_get(register_list_or_search_skills)
-        ctx = MagicMock()
-        mock_skill = MagicMock()
-        mock_skill.name = name
-        mock_skill.has_skill_md = True
-        mock_skill.path = "/path"
-        mock_meta = MagicMock()
-        mock_meta.name = name
-        mock_meta.description = description
-        mock_meta.path = "/path"
-        mock_meta.tags = tags
-        mock_meta.version = "1.0"
-        mock_meta.author = "me"
+        provider.list_enabled_skills.return_value = [
+            {
+                "name": name,
+                "description": description,
+                "path": "/skill",
+                "tags": tags,
+                "version": None,
+                "author": None,
+            }
+        ]
         with (
             patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_disabled_skills",
-                return_value=set(),
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skill_directories",
-                return_value=[],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.discovery.discover_skills",
-                return_value=[mock_skill],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.metadata.parse_skill_metadata",
-                return_value=mock_meta,
+                "code_puppy.tools.skills_tools.get_skill_provider",
+                return_value=provider,
             ),
             patch("code_puppy.tools.skills_tools.get_message_bus"),
         ):
-            result = await fn(ctx, query=query)
-            assert result.total_count == expected_count
-
-    @pytest.mark.anyio
-    async def test_skip_disabled_and_no_skill_md(self):
-        fn = _register_and_get(register_list_or_search_skills)
-        ctx = MagicMock()
-        disabled_skill = MagicMock()
-        disabled_skill.name = "disabled_one"
-        disabled_skill.has_skill_md = True
-        no_md_skill = MagicMock()
-        no_md_skill.name = "no_md"
-        no_md_skill.has_skill_md = False
-        with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_disabled_skills",
-                return_value={"disabled_one"},
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skill_directories",
-                return_value=[],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.discovery.discover_skills",
-                return_value=[disabled_skill, no_md_skill],
-            ),
-            patch("code_puppy.tools.skills_tools.get_message_bus"),
-        ):
-            result = await fn(ctx)
-            assert result.total_count == 0
-
-    @pytest.mark.anyio
-    async def test_skip_none_metadata(self):
-        fn = _register_and_get(register_list_or_search_skills)
-        ctx = MagicMock()
-        mock_skill = MagicMock()
-        mock_skill.name = "x"
-        mock_skill.has_skill_md = True
-        mock_skill.path = "/path"
-        with (
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skills_enabled",
-                return_value=True,
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_disabled_skills",
-                return_value=set(),
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.config.get_skill_directories",
-                return_value=[],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.discovery.discover_skills",
-                return_value=[mock_skill],
-            ),
-            patch(
-                "code_puppy.plugins.agent_skills.metadata.parse_skill_metadata",
-                return_value=None,
-            ),
-            patch("code_puppy.tools.skills_tools.get_message_bus"),
-        ):
-            result = await fn(ctx)
-            assert result.total_count == 0
+            result = await fn(MagicMock(), query=query)
+        assert result.total_count == expected_count

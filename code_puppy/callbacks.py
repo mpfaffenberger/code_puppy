@@ -896,8 +896,10 @@ def on_register_skills() -> List[Dict[str, Any]]:
     - "name": str, "skill_md_path": str | Path
     - "name": str, "skill_md": str
     - "name": str, "frontmatter": dict, "body": str
+    - "provider": object implementing the neutral SkillProvider contract
 
-    Optional keys on every variant:
+    Provider entries expose an optional skills integration to core and are not
+    materialized as skill files. Optional keys on every skill variant:
     - "tags": list[str]
     - "description": str
     - "version": str

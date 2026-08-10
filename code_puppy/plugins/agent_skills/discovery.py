@@ -198,6 +198,10 @@ def _iter_plugin_skill_registrations() -> Iterable[tuple[str, str, dict[str, Any
                     entry,
                 )
                 continue
+            # Provider registrations are consumed by core through the same
+            # hook; they are capabilities, not skills to materialize.
+            if "provider" in entry:
+                continue
             yield callback.__module__, callback.__name__, entry
 
 
