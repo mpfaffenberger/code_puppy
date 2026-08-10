@@ -246,7 +246,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             from code_puppy.callbacks import on_check_claude_oauth_token_expiry
 
             results = on_check_claude_oauth_token_expiry()
-            return bool(results and results[0])
+            return any(result is True for result in results)
         except Exception as exc:
             logger.debug("Error checking stored token expiry: %s", exc)
             return False
@@ -703,7 +703,10 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 return None
 
             logger.info("Attempting to refresh Claude Code OAuth token...")
-            refreshed_token = results[0]
+            refreshed_token = next(
+                (result for result in results if isinstance(result, str) and result),
+                None,
+            )
             if refreshed_token:
                 self._update_auth_headers(self.headers, refreshed_token)
                 self._notify_token_recovered(refreshed_token)

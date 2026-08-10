@@ -584,11 +584,13 @@ class ModelFactory:
                 # the 'load_claude_oauth_models' hook; fall back to standard JSON
                 # loading when it isn't loaded.
                 if use_filtered:
-                    load_hooks = callbacks.get_callbacks("load_claude_oauth_models")
-                    if load_hooks:
-                        extra_config = load_hooks[0]()
-                    else:
-                        # Plugin not available, fall back to standard JSON loading
+                    load_results = callbacks.on_load_claude_oauth_models()
+                    extra_config = next(
+                        (result for result in load_results if isinstance(result, dict)),
+                        None,
+                    )
+                    if extra_config is None:
+                        # Plugin unavailable or failed; fall back to plain JSON.
                         logging.getLogger(__name__).debug(
                             f"claude_code_oauth plugin not available, loading {label} as plain JSON"
                         )

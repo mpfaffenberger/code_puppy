@@ -318,40 +318,41 @@ def _custom_help() -> List[Tuple[str, str]]:
     ]
 
 
-def _perform_authentication() -> None:
+def _perform_authentication() -> bool:
     context = prepare_oauth_context()
     code = _await_callback(context)
     if not code:
-        return
+        return False
 
     emit_info(t("oauth.auth.exchanging"))
     tokens = exchange_code_for_tokens(code, context)
     if not tokens:
         emit_error(t("oauth.auth.exchange_failed"))
-        return
+        return False
 
     if not save_tokens(tokens):
         emit_error(t("oauth.auth.save_failed"))
-        return
+        return False
 
     emit_success(t("oauth.claude.auth.success"))
 
     access_token = tokens.get("access_token")
     if not access_token:
         emit_warning(t("oauth.auth.no_access_token"))
-        return
+        return False
 
     emit_info(t("oauth.claude.auth.fetching_models"))
     models = fetch_claude_code_models(access_token)
     if not models:
         emit_warning(t("oauth.claude.auth.no_models"))
-        return
+        return True
 
     emit_info(
         t("oauth.auth.discovered_models", count=len(models), models=", ".join(models))
     )
     if add_models_to_extra_config(models):
         emit_success(t("oauth.claude.auth.models_added"))
+    return True
 
 
 def _reauthenticate_after_expired_oauth(model_name: str) -> Optional[str]:
@@ -702,13 +703,13 @@ def _hook_load_models() -> Dict[str, Any]:
     return load_claude_models_filtered()
 
 
-def _hook_authenticate() -> None:
+def _hook_authenticate() -> bool:
     """Hook: run the full interactive Claude Code OAuth flow.
 
     Consumed by core's ``handle_tutorial_command`` (replacing a direct import
     of ``_perform_authentication``).
     """
-    _perform_authentication()
+    return _perform_authentication()
 
 
 register_callback("custom_command_help", _custom_help)
