@@ -238,20 +238,15 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         """Check if the stored token expires within TOKEN_MAX_AGE_SECONDS.
 
         This is a fallback for when JWT decoding fails or isn't available.
-        Uses the expires_at timestamp from the stored token file.
+        Uses the expires_at timestamp from the stored token file.  The
+        claude_code_oauth plugin self-registers this capability; when it
+        isn't loaded (or the check fails) we conservatively report ``False``.
         """
         try:
-            from code_puppy.plugins.claude_code_oauth.utils import (
-                is_token_expired,
-                load_stored_tokens,
-            )
+            from code_puppy.callbacks import on_check_claude_oauth_token_expiry
 
-            tokens = load_stored_tokens()
-            if not tokens:
-                return False
-
-            # is_token_expired already uses the configured refresh buffer window
-            return is_token_expired(tokens)
+            results = on_check_claude_oauth_token_expiry()
+            return bool(results and results[0])
         except Exception as exc:
             logger.debug("Error checking stored token expiry: %s", exc)
             return False
@@ -700,10 +695,15 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
     def _refresh_claude_oauth_token(self) -> str | None:
         try:
-            from code_puppy.plugins.claude_code_oauth.utils import refresh_access_token
+            from code_puppy.callbacks import on_refresh_claude_oauth_token
+
+            results = on_refresh_claude_oauth_token()
+            if not results:
+                # Plugin not loaded — nothing to refresh.
+                return None
 
             logger.info("Attempting to refresh Claude Code OAuth token...")
-            refreshed_token = refresh_access_token(force=True)
+            refreshed_token = results[0]
             if refreshed_token:
                 self._update_auth_headers(self.headers, refreshed_token)
                 self._notify_token_recovered(refreshed_token)
