@@ -9,6 +9,7 @@ import logging
 from code_puppy.callbacks import register_callback
 from code_puppy.universal_constructor_provider import (
     register_universal_constructor_provider,
+    unregister_universal_constructor_provider,
 )
 
 from . import USER_UC_DIR
@@ -17,7 +18,15 @@ from .registry import get_registry
 
 logger = logging.getLogger(__name__)
 
-register_universal_constructor_provider(provider)
+_PROVIDER_REGISTRATION = register_universal_constructor_provider(
+    provider,
+    owner="universal_constructor",
+)
+
+
+def unregister_provider(registration=_PROVIDER_REGISTRATION) -> bool:
+    """Unregister this plugin's provider during an explicit unload."""
+    return unregister_universal_constructor_provider(registration)
 
 
 def _register_tools() -> list[dict]:

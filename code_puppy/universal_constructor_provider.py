@@ -1,5 +1,6 @@
-"""Provider seam for the optional Universal Constructor plugin."""
+"""Ownership-aware provider seam for the optional Universal Constructor plugin."""
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -39,23 +40,58 @@ class UniversalConstructorProvider(Protocol):
         """Return non-blocking safety warnings for Python source."""
 
 
-_provider: UniversalConstructorProvider | None = None
+@dataclass(frozen=True)
+class UniversalConstructorProviderRegistration:
+    """Identity token for one provider registration and its plugin owner."""
+
+    provider: UniversalConstructorProvider
+    owner: str | None
+
+
+_registration: UniversalConstructorProviderRegistration | None = None
 
 
 def register_universal_constructor_provider(
     provider: UniversalConstructorProvider,
-) -> None:
-    """Register the process-wide Universal Constructor provider."""
-    global _provider
-    _provider = provider
+    *,
+    owner: str | None = None,
+) -> UniversalConstructorProviderRegistration:
+    """Install a provider and return an ownership-aware identity token.
+
+    Re-registering replaces the current provider. The returned token can be
+    explicitly unregistered; stale tokens cannot remove a newer registration.
+    When no owner is supplied, the plugin loader's current owner is captured.
+    """
+    from code_puppy.callbacks import get_loading_context
+
+    registration = UniversalConstructorProviderRegistration(
+        provider=provider,
+        owner=owner if owner is not None else get_loading_context(),
+    )
+    global _registration
+    _registration = registration
+    return registration
+
+
+def unregister_universal_constructor_provider(
+    registration: UniversalConstructorProviderRegistration,
+) -> bool:
+    """Unregister ``registration`` only if it is still active."""
+    global _registration
+    if _registration is not registration:
+        return False
+    _registration = None
+    return True
 
 
 def get_universal_constructor_provider() -> UniversalConstructorProvider | None:
-    """Return the registered provider, or ``None`` when the plugin is absent."""
-    return _provider
+    """Return the provider only while its owning plugin is enabled."""
+    registration = _registration
+    if registration is None:
+        return None
 
+    from code_puppy.callbacks import is_callback_owner_enabled
 
-def clear_universal_constructor_provider() -> None:
-    """Clear the provider, primarily for plugin unloads and isolated tests."""
-    global _provider
-    _provider = None
+    if not is_callback_owner_enabled(registration.owner):
+        return None
+    return registration.provider
