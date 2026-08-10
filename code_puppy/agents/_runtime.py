@@ -99,6 +99,7 @@ from code_puppy.config import (
 )
 from code_puppy.keymap import sigint_fallback_cancels
 from code_puppy.messaging import emit_error, emit_info, emit_warning
+from code_puppy.session_context import get_session_id, set_session_id
 from code_puppy.tools.command_runner import is_awaiting_user_input
 
 # ---- Streaming retry helpers ------------------------------------------------
@@ -642,6 +643,10 @@ async def run_with_mcp(
     global _active_run_depth
     is_nested_run = _active_run_depth > 0
     _active_run_depth += 1
+    # Restored on the way out so a nested run hands its parent's id back, and
+    # the outermost run leaves no stale id behind for code that runs between
+    # turns. The impl publishes this run's own id once it mints one.
+    previous_session_id = get_session_id()
     try:
         return await _run_with_mcp_impl(
             agent,
@@ -654,6 +659,7 @@ async def run_with_mcp(
         )
     finally:
         _active_run_depth -= 1
+        set_session_id(previous_session_id)
 
 
 async def _run_with_mcp_impl(
@@ -682,6 +688,11 @@ async def _run_with_mcp_impl(
 
     prompt = _sanitize_prompt(prompt)
     group_id = str(uuid.uuid4())
+
+    # Publish the run id before the agent task is created below, so the task
+    # inherits it and callbacks with no run-scoped argument — notably
+    # pre_tool_call / post_tool_call — can correlate their events with this run.
+    set_session_id(group_id)
 
     # Fire user_prompt_submit hooks BEFORE prompt is sent. Plugins (e.g. the
     # claude_code_hooks bridge) may return a string to replace the prompt —

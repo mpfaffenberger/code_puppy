@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 
 from code_puppy.callbacks import register_callback
 from code_puppy.hook_engine import EventData, HookEngine
+from code_puppy.session_context import get_session_id
 
 from .config import load_hooks_config
 
@@ -78,6 +79,46 @@ def _initialize_engine() -> Optional[HookEngine]:
 _hook_engine = _initialize_engine()
 
 
+def _event_context(
+    extra: Optional[Dict[str, Any]] = None,
+    session_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Build an ``EventData.context`` that carries the current run's session id.
+
+    ``_build_stdin_payload`` reads ``session_id`` from here. Without it every
+    event falls back to the placeholder ``"codepuppy-session"``, so a hook
+    script cannot tell one run from another.
+
+    An explicit *session_id* wins (the callback was handed one); otherwise we
+    fall back to the run-scoped ContextVar. The key is omitted entirely when
+    neither is available, so the payload builder's own default still applies.
+    """
+    ctx: Dict[str, Any] = dict(extra or {})
+    resolved = session_id or ctx.get("session_id") or get_session_id()
+    if resolved:
+        ctx["session_id"] = resolved
+    else:
+        ctx.pop("session_id", None)
+    return ctx
+
+
+def _blocked_prompt_replacement(reason: Optional[str]) -> str:
+    """The prompt substituted for one a ``UserPromptSubmit`` hook blocked.
+
+    The user's original text is deliberately dropped — that is the entire point
+    of a block — so it never reaches the model. ``run_with_mcp`` sends whatever
+    string this returns in place of the prompt.
+    """
+    detail = (reason or "").strip() or "No reason was provided by the hook."
+    return (
+        "[BLOCKED BY HOOK] The user's prompt was withheld by a UserPromptSubmit "
+        "policy hook and is not available to you.\n\n"
+        f"Reason: {detail}\n\n"
+        "Do not guess at, reconstruct, or act on the withheld prompt. Tell the "
+        "user their prompt was blocked, relay the reason above, and stop."
+    )
+
+
 def _collect_context_stdout(result: Any) -> List[str]:
     """Pull stdout from non-blocking, exit-0 hook results.
 
@@ -115,7 +156,7 @@ async def on_pre_tool_call_hook(
         event_type="PreToolUse",
         tool_name=tool_name,
         tool_args=tool_args,
-        context={"context": context} if context else {},
+        context=_event_context({"context": context} if context else None),
     )
 
     try:
@@ -158,7 +199,9 @@ async def on_post_tool_call_hook(
         event_type="PostToolUse",
         tool_name=tool_name,
         tool_args=tool_args,
-        context={"result": result, "duration_ms": duration_ms, "context": context},
+        context=_event_context(
+            {"result": result, "duration_ms": duration_ms, "context": context}
+        ),
     )
 
     try:
@@ -190,6 +233,7 @@ async def on_startup_hook() -> None:
         event_type="SessionStart",
         tool_name="session",
         tool_args={},
+        context=_event_context(),
     )
 
     try:
@@ -214,6 +258,7 @@ async def on_session_end_hook() -> None:
         event_type="SessionEnd",
         tool_name="session",
         tool_args={},
+        context=_event_context(),
     )
 
     try:
@@ -237,9 +282,35 @@ async def on_user_prompt_submit_hook(
     """Fire UserPromptSubmit hooks and inject their stdout (+ any pending
     SessionStart stdout) into the user prompt.
 
-    Returns the (possibly augmented) prompt, or ``None`` if there's nothing
-    to add. See issue #298.
+    A blocking hook (exit code 1, or a ``deny`` / ``block`` stdout control
+    payload) replaces the prompt outright with a block notice, so the original
+    text never reaches the model.
+
+    Returns the replacement prompt, the augmented prompt, or ``None`` if there's
+    nothing to add. See issue #298.
     """
+    hook_chunks: List[str] = []
+
+    if _hook_engine:
+        event_data = EventData(
+            event_type="UserPromptSubmit",
+            tool_name="user_prompt",
+            tool_args={"prompt": prompt},
+            context=_event_context(session_id=session_id),
+        )
+
+        try:
+            result = await _hook_engine.process_event("UserPromptSubmit", event_data)
+            if result.blocked:
+                logger.debug(f"Prompt blocked by hook: {result.blocking_reason}")
+                # _pending_session_context is deliberately left intact: this
+                # prompt never runs, so its SessionStart context still belongs
+                # to the next prompt that does.
+                return _blocked_prompt_replacement(result.blocking_reason)
+            hook_chunks = _collect_context_stdout(result)
+        except Exception as e:
+            logger.error(f"Error in UserPromptSubmit hook: {e}", exc_info=True)
+
     chunks: List[str] = []
 
     # Drain any pending SessionStart context first.
@@ -247,19 +318,7 @@ async def on_user_prompt_submit_hook(
         chunks.extend(_pending_session_context)
         _pending_session_context.clear()
 
-    if _hook_engine:
-        event_data = EventData(
-            event_type="UserPromptSubmit",
-            tool_name="user_prompt",
-            tool_args={"prompt": prompt},
-            context={"session_id": session_id} if session_id else {},
-        )
-
-        try:
-            result = await _hook_engine.process_event("UserPromptSubmit", event_data)
-            chunks.extend(_collect_context_stdout(result))
-        except Exception as e:
-            logger.error(f"Error in UserPromptSubmit hook: {e}", exc_info=True)
+    chunks.extend(hook_chunks)
 
     if not chunks:
         return None
@@ -295,6 +354,7 @@ async def on_pre_compact_hook(
             "message_count": message_count,
             "token_count": token_count,
         },
+        context=_event_context(),
     )
 
     try:
@@ -322,7 +382,7 @@ async def on_notification_hook(
         event_type="Notification",
         tool_name="notification",
         tool_args={"message": message, "level": level},
-        context={"context": context} if context else {},
+        context=_event_context({"context": context} if context else None),
     )
 
     try:
@@ -360,15 +420,17 @@ async def on_agent_run_end_hook(
         event_type=event_type,
         tool_name=agent_name or "agent",
         tool_args={},
-        context={
-            "agent_name": agent_name,
-            "model_name": model_name,
-            "session_id": session_id,
-            "success": success,
-            "error": str(error) if error else None,
-            "response_text": response_text,
-            "metadata": metadata,
-        },
+        context=_event_context(
+            {
+                "agent_name": agent_name,
+                "model_name": model_name,
+                "success": success,
+                "error": str(error) if error else None,
+                "response_text": response_text,
+                "metadata": metadata,
+            },
+            session_id=session_id,
+        ),
     )
 
     try:

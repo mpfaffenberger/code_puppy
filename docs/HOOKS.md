@@ -77,7 +77,7 @@ Every hook script receives a JSON object on **stdin**:
 
 ```json
 {
-  "session_id": "codepuppy-session",
+  "session_id": "0f9c1e7a-3d42-4b8e-9a11-6c5d8e2f7b30",
   "hook_event_name": "PreToolUse",
   "tool_name": "agent_run_shell_command",
   "tool_input": {
@@ -89,6 +89,10 @@ Every hook script receives a JSON object on **stdin**:
 ```
 
 For `PostToolUse`, the payload also includes `tool_result` and `tool_duration_ms`.
+
+`session_id` is the id of the agent run the event belongs to, so events from one
+run can be correlated. Sub-agent runs get their own id. Events fired outside any
+run — `SessionStart` at boot, for instance — fall back to `"codepuppy-session"`.
 
 ### Environment Variables
 
@@ -124,11 +128,37 @@ For `PostToolUse`, the payload also includes `tool_result` and `tool_duration_ms
 
 | Event | Fires | Can Block? |
 |-------|-------|-----------|
-| `PreToolUse` | Before any tool call | Yes (exit 1) |
+| `PreToolUse` | Before any tool call | Yes (exit 1) — tool never runs |
 | `PostToolUse` | After any tool call | No (observation only) |
+| `UserPromptSubmit` | Before a prompt is sent to the model | Yes (exit 1) — see below |
 | `SessionStart` | When a session begins | No |
-| `Stop` | When agent finishes a task | Yes |
-| `SubagentStop` | When a sub-agent finishes | Yes |
+| `SessionEnd` | When a session ends | No |
+| `PreCompact` | Before history compaction | No |
+| `Notification` | On a user-attention event | No |
+| `Stop` | When agent finishes a task | No (observation only) |
+| `SubagentStop` | When a sub-agent finishes | No (observation only) |
+
+### Blocking a prompt
+
+When a `UserPromptSubmit` hook blocks, the user's prompt is **replaced** with a
+block notice carrying your reason — the original text never reaches the model.
+The agent then reports the block to the user instead of acting on the prompt.
+
+```bash
+#!/bin/bash
+# Block prompts that mention production credentials
+input=$(cat)
+prompt=$(echo "$input" | jq -r '.tool_input.prompt // empty')
+
+if echo "$prompt" | grep -qiE 'prod.*(password|secret|api[_ -]?key)'; then
+  echo "Prompts referencing production credentials are not permitted." >&2
+  exit 1
+fi
+exit 0
+```
+
+Note that the turn still runs — on the replacement text, not the original.
+There is currently no way for a hook to cancel a turn outright.
 
 ---
 
