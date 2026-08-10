@@ -31,10 +31,6 @@ from code_puppy.tools.file_operations import (
 )
 from code_puppy.tools.image_tools import register_load_image
 from code_puppy.tools.model_tools import register_list_available_models
-from code_puppy.tools.skills_tools import (
-    register_activate_skill,
-    register_list_or_search_skills,
-)
 from code_puppy.tools.universal_constructor import register_universal_constructor
 
 # Map of tool names to their individual registration functions
@@ -61,9 +57,6 @@ TOOL_REGISTRY = {
     "ask_user_question": register_ask_user_question,
     # Image loading (used by browser/QA agents and friends)
     "load_image_for_analysis": register_load_image,
-    # Skills Tools
-    "activate_skill": register_activate_skill,
-    "list_or_search_skills": register_list_or_search_skills,
     # Universal Constructor
     "universal_constructor": register_universal_constructor,
 }

@@ -3,7 +3,7 @@
 This plugin:
 1. Injects available skills into system prompts
 2. Registers skill-related tools
-3. Exposes its filesystem skills via the ``register_skills`` hook
+3. Exposes a skills provider via the ``register_skills`` hook
 4. Provides /skills slash command (and alias /skill)
 """
 
@@ -92,76 +92,10 @@ def _register_skills_tools() -> List[Dict[str, Any]]:
 
 
 def _register_skills() -> List[Dict[str, Any]]:
-    """Expose this plugin's enabled filesystem skills via ``register_skills``.
+    """Expose the plugin through the neutral ``register_skills`` provider seam."""
+    from .provider import skill_provider
 
-    Peer plugins publish their own skills through the same hook and the
-    discovery layer materialises them; registering here makes *this* plugin's
-    on-disk skills visible through that channel too, so core (or peer
-    plugins) can enumerate what's available via ``on_register_skills()``
-    instead of importing this plugin's internals.
-
-    Deliberately scans the configured skill directories directly rather than
-    calling ``discover_skills`` / ``enabled_skills``: those are what trigger
-    ``register_skills`` callbacks, so calling back into them would recurse
-    (and deadlock the plugin-skills lock). It scans only the *configured*
-    directories — the exact set ``enabled_skills`` feeds to discovery — so
-    every registered entry deduplicates against a filesystem skill and the
-    discovered list stays unchanged. Entries are keyed by the on-disk
-    directory name (not the frontmatter name) so the filesystem copy always
-    wins.
-    """
-    from pathlib import Path
-
-    from code_puppy.plugins.agent_skills.config import (
-        get_disabled_skills,
-        get_skill_directories,
-        get_skills_enabled,
-    )
-    from code_puppy.plugins.agent_skills.discovery import is_valid_skill_directory
-    from code_puppy.plugins.agent_skills.metadata import parse_skill_metadata
-
-    if not get_skills_enabled():
-        return []
-
-    disabled = get_disabled_skills()
-    directories = [Path(d) for d in get_skill_directories()]
-
-    entries: List[Dict[str, Any]] = []
-    seen_names: set[str] = set()
-
-    for directory in directories:
-        if not directory.is_dir():
-            continue
-        try:
-            candidates = list(directory.iterdir())
-        except OSError:
-            continue
-        for child in candidates:
-            if not child.is_dir() or child.name.startswith("."):
-                continue
-            if child.name in disabled or child.name in seen_names:
-                continue
-            if not is_valid_skill_directory(child):
-                continue
-            meta = parse_skill_metadata(child)
-            if meta is None:
-                continue
-            seen_names.add(child.name)
-            entry: Dict[str, Any] = {
-                "name": child.name,
-                "skill_md_path": str(child / "SKILL.md"),
-                "description": meta.description,
-            }
-            if meta.tags:
-                entry["tags"] = meta.tags
-            if meta.version:
-                entry["version"] = meta.version
-            if meta.author:
-                entry["author"] = meta.author
-            entries.append(entry)
-
-    # Deterministic ordering keeps the plugin-skills cache signature stable.
-    return sorted(entries, key=lambda e: e["name"])
+    return [{"provider": skill_provider}]
 
 
 # ---------------------------------------------------------------------------
