@@ -564,7 +564,7 @@ async def handle_file_permission_async(
 # `file_permission` hook for the approval decision and reaches the shared
 # state (diff-already-shown flag, last user feedback) through this small
 # provider API instead of importing this plugin module.
-register_file_permission_state_provider(
+_STATE_PROVIDER_REGISTRATION = register_file_permission_state_provider(
     set_diff_already_shown=set_diff_already_shown,
     was_diff_already_shown=was_diff_already_shown,
     clear_diff_shown_flag=clear_diff_shown_flag,
