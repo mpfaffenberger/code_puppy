@@ -7,6 +7,7 @@ from typing import Any, List, Optional, Tuple
 
 from code_puppy.callbacks import register_callback
 
+from .payload import detect_git_branch
 from .prompt_patch import install_prompt_patch
 from .statusline_command import handle_statusline_command, statusline_command_help
 
@@ -32,6 +33,7 @@ def _handle_custom_command(command: str, name: str) -> Optional[Any]:
         return None
 
 
+register_callback("git_branch_provider", detect_git_branch)
 register_callback("startup", _on_startup)
 register_callback("custom_command_help", _custom_command_help)
 register_callback("custom_command", _handle_custom_command)
