@@ -47,6 +47,7 @@ PhaseType = Literal[
     "register_mcp_catalog_servers",
     "register_browser_types",
     "register_model_providers",
+    "register_completion_provider",
     "message_history_processor_start",
     "message_history_processor_end",
     "on_message",
@@ -110,6 +111,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_mcp_catalog_servers": [],
     "register_browser_types": [],
     "register_model_providers": [],
+    "register_completion_provider": [],
     "message_history_processor_start": [],
     "message_history_processor_end": [],
     "on_message": [],
@@ -242,6 +244,19 @@ def get_callbacks(
         return all_cbs
 
     return [cb for cb in all_cbs if _callback_owners.get(cb) not in disabled]
+
+
+def get_completion_providers() -> List[Any]:
+    """Build completers contributed by enabled plugins.
+
+    Provider failures are isolated by the normal callback machinery, and
+    ``None`` lets an optional provider decline registration at runtime.
+    """
+    return [
+        completer
+        for completer in _trigger_callbacks_sync("register_completion_provider")
+        if completer is not None
+    ]
 
 
 def count_callbacks(phase: Optional[PhaseType] = None) -> int:
