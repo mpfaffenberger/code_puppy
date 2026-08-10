@@ -23,6 +23,7 @@ PhaseType = Literal[
     "agent_reload",
     "custom_command",
     "custom_command_help",
+    "usage_status",
     "file_permission",
     "pre_tool_call",
     "post_tool_call",
@@ -100,6 +101,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "agent_reload": [],
     "custom_command": [],
     "custom_command_help": [],
+    "usage_status": [],
     "file_permission": [],
     "pre_tool_call": [],
     "post_tool_call": [],
@@ -472,6 +474,21 @@ def on_custom_command(command: str, name: str) -> List[Any]:
         - None to indicate not handled
     """
     return _trigger_callbacks_sync("custom_command", command, name)
+
+
+def get_usage_status() -> str:
+    """Return cached provider quota status supplied by plugins.
+
+    Plugins (e.g. ``chatgpt_oauth``) register a ``usage_status`` callback that
+    returns a short cached-quota string and never performs I/O. The first
+    non-empty result wins; ``""`` is returned when no handler is registered or
+    none produced output. Sync and error-isolated, so it is safe on rendering
+    hot paths and can never raise.
+    """
+    for result in _trigger_callbacks_sync("usage_status"):
+        if result:
+            return str(result)
+    return ""
 
 
 def on_file_permission(
