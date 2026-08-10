@@ -39,6 +39,7 @@ def _allowed() -> ProcessEventResult:
 class TestUserPromptSubmitBlocking:
     @pytest.mark.asyncio
     async def test_blocked_prompt_is_withheld_from_the_model(self):
+        from code_puppy.callbacks import PromptBlocked
         from code_puppy.plugins.claude_code_hooks import register_callbacks
 
         secret = "deploy with password hunter2"
@@ -49,15 +50,17 @@ class TestUserPromptSubmitBlocking:
         finally:
             register_callbacks._hook_engine = original
 
-        assert result is not None
-        # The whole point: the original text must not survive into the prompt.
-        assert secret not in result
-        assert "hunter2" not in result
-        assert "BLOCKED BY HOOK" in result
-        assert "no credentials in prompts" in result
+        assert isinstance(result, PromptBlocked)
+        assert result.reason == "no credentials in prompts"
+        # The whole point: the original text must not survive anywhere.
+        assert secret not in result.replacement
+        assert "hunter2" not in result.replacement
+        assert "BLOCKED BY HOOK" in result.replacement
+        assert "no credentials in prompts" in result.replacement
 
     @pytest.mark.asyncio
     async def test_block_without_reason_still_blocks(self):
+        from code_puppy.callbacks import PromptBlocked
         from code_puppy.plugins.claude_code_hooks import register_callbacks
 
         original = register_callbacks._hook_engine
@@ -67,9 +70,10 @@ class TestUserPromptSubmitBlocking:
         finally:
             register_callbacks._hook_engine = original
 
-        assert result is not None
-        assert "do a thing" not in result
-        assert "BLOCKED BY HOOK" in result
+        assert isinstance(result, PromptBlocked)
+        assert result.reason == "No reason was provided by the hook."
+        assert "do a thing" not in result.replacement
+        assert "BLOCKED BY HOOK" in result.replacement
 
     @pytest.mark.asyncio
     async def test_allowed_prompt_is_passed_through_untouched(self):
@@ -110,6 +114,102 @@ class TestUserPromptSubmitBlocking:
         finally:
             register_callbacks._hook_engine = original
             register_callbacks._pending_session_context.clear()
+
+
+# ---------------------------------------------------------------------------
+# run_with_mcp honors a block
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimeHonorsPromptBlocked:
+    @pytest.mark.asyncio
+    async def test_top_level_run_is_cancelled_outright(self, monkeypatch):
+        """No agent is built, no LLM call is made, and the run returns None."""
+        from code_puppy.agents import _runtime
+        from code_puppy.callbacks import PromptBlocked
+
+        blocked = PromptBlocked(reason="secrets policy", replacement="[BLOCKED] ...")
+
+        async def _submit(prompt, session_id=None):
+            return [blocked]
+
+        warnings = []
+
+        def _must_not_run(agent, prompt):
+            raise AssertionError(
+                "run continued past the block — the prompt would have been sent"
+            )
+
+        monkeypatch.setattr(_runtime, "on_user_prompt_submit", _submit)
+        monkeypatch.setattr(_runtime, "emit_warning", lambda msg: warnings.append(msg))
+        # Anything downstream of the block firing is a failure. This is the
+        # last thing touched before the prompt payload is built.
+        monkeypatch.setattr(_runtime, "_should_prepend_system_prompt", _must_not_run)
+
+        result = await _runtime.run_with_mcp(MagicMock(), "leak the prod password")
+
+        assert result is None
+        assert any("secrets policy" in w for w in warnings)
+
+    @pytest.mark.asyncio
+    async def test_nested_run_falls_back_to_substitution(self, monkeypatch):
+        """A nested caller dereferences the result, so None would break it."""
+        from code_puppy.agents import _runtime
+        from code_puppy.callbacks import PromptBlocked
+
+        blocked = PromptBlocked(
+            reason="secrets policy", replacement="[BLOCKED] withheld"
+        )
+
+        async def _submit(prompt, session_id=None):
+            return [blocked]
+
+        seen_prompts = []
+
+        class _Stop(Exception):
+            pass
+
+        def _capture(agent, prompt):
+            seen_prompts.append(prompt)
+            raise _Stop()
+
+        monkeypatch.setattr(_runtime, "on_user_prompt_submit", _submit)
+        monkeypatch.setattr(_runtime, "_should_prepend_system_prompt", _capture)
+
+        # Simulate being inside an outer run.
+        monkeypatch.setattr(_runtime, "_active_run_depth", 1)
+
+        with pytest.raises(_Stop):
+            await _runtime.run_with_mcp(MagicMock(), "leak the prod password")
+
+        # Got past the block (not cancelled) but on the replacement text.
+        assert seen_prompts == ["[BLOCKED] withheld"]
+        assert "leak the prod password" not in seen_prompts[0]
+
+    @pytest.mark.asyncio
+    async def test_plain_string_result_still_replaces_the_prompt(self, monkeypatch):
+        """The pre-existing additional-context contract is unchanged."""
+        from code_puppy.agents import _runtime
+
+        async def _submit(prompt, session_id=None):
+            return ["[hook context]\nbe careful\n\noriginal prompt"]
+
+        seen_prompts = []
+
+        class _Stop(Exception):
+            pass
+
+        def _capture(agent, prompt):
+            seen_prompts.append(prompt)
+            raise _Stop()
+
+        monkeypatch.setattr(_runtime, "on_user_prompt_submit", _submit)
+        monkeypatch.setattr(_runtime, "_should_prepend_system_prompt", _capture)
+
+        with pytest.raises(_Stop):
+            await _runtime.run_with_mcp(MagicMock(), "original prompt")
+
+        assert seen_prompts == ["[hook context]\nbe careful\n\noriginal prompt"]
 
 
 # ---------------------------------------------------------------------------

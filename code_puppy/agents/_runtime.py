@@ -83,6 +83,7 @@ from code_puppy.agents._run_signals import (
 )
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
+    PromptBlocked,
     on_agent_exception,
     on_agent_run_cancel,
     on_agent_run_context,
@@ -701,7 +702,21 @@ async def _run_with_mcp_impl(
     try:
         submit_results = await on_user_prompt_submit(prompt, group_id)
         for r in submit_results:
-            if isinstance(r, str) and r:
+            if isinstance(r, PromptBlocked):
+                if not is_nested_run:
+                    # Cancel the turn outright: return before the agent is
+                    # built, so the prompt never reaches the model and no LLM
+                    # call is made. Mirrors the None a cancelled run returns —
+                    # callers already handle that. on_agent_run_start has not
+                    # fired yet, so there is no run-end to pair with either.
+                    emit_warning(f"🚫 Prompt blocked by hook: {r.reason}")
+                    return None
+                # A nested run's caller dereferences the result (e.g. an
+                # internal assessment call passing output_type), so None would
+                # break it. Substitute instead — the prompt text is still
+                # withheld from the model.
+                prompt = r.replacement
+            elif isinstance(r, str) and r:
                 prompt = r
     except Exception:
         # Hook failures must never block the run.

@@ -140,9 +140,9 @@ run — `SessionStart` at boot, for instance — fall back to `"codepuppy-sessio
 
 ### Blocking a prompt
 
-When a `UserPromptSubmit` hook blocks, the user's prompt is **replaced** with a
-block notice carrying your reason — the original text never reaches the model.
-The agent then reports the block to the user instead of acting on the prompt.
+When a `UserPromptSubmit` hook blocks, the turn is **cancelled**: the prompt is
+never sent to the model, no LLM call is made, and your reason is shown to the
+user.
 
 ```bash
 #!/bin/bash
@@ -157,8 +157,10 @@ fi
 exit 0
 ```
 
-Note that the turn still runs — on the replacement text, not the original.
-There is currently no way for a hook to cancel a turn outright.
+One exception: a plugin making its own internal agent call (a nested run — the
+shell-safety assessment, or anything passing `output_type`) cannot be cancelled,
+because its caller needs a result back. A block there substitutes a notice for
+the prompt instead. The prompt text is withheld from the model either way.
 
 ---
 

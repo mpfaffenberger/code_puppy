@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import traceback
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Literal, Optional, Set
 
 PhaseType = Literal[
@@ -1451,6 +1452,29 @@ async def on_interactive_turn_cancel(
     )
 
 
+@dataclass(frozen=True)
+class PromptBlocked:
+    """Returned by a ``user_prompt_submit`` callback to stop a prompt entirely.
+
+    A top-level run handed one of these is **cancelled**: the prompt is never
+    sent to the model, no LLM call is made, and ``run_with_mcp`` returns
+    ``None`` — the same shape it already returns for a cancelled run.
+
+    Nested runs cannot be cancelled that way. A plugin making its own internal
+    ``run_with_mcp`` call (the shell-safety assessment, anything passing
+    ``output_type``) dereferences the result, so returning ``None`` there would
+    break the caller. Those fall back to ``replacement``, which is substituted
+    for the prompt instead.
+
+    Attributes:
+        reason: Why the prompt was blocked. Shown to the user.
+        replacement: Prompt text used instead when the run cannot be cancelled.
+    """
+
+    reason: str
+    replacement: str
+
+
 async def on_user_prompt_submit(
     prompt: str, session_id: str | None = None
 ) -> List[Any]:
@@ -1462,12 +1486,15 @@ async def on_user_prompt_submit(
     returns a non-None, non-empty string wins; all others are merged in order
     via concatenation. Returning None means "don't touch the prompt".
 
+    A callback may instead return a :class:`PromptBlocked` to stop the prompt
+    outright; see that class for how top-level and nested runs differ.
+
     Args:
         prompt: The raw user prompt about to be sent.
         session_id: Optional run/session identifier.
 
     Returns:
-        List of results from registered callbacks (str | None).
+        List of results from registered callbacks (str | PromptBlocked | None).
     """
     return await _trigger_callbacks("user_prompt_submit", prompt, session_id)
 

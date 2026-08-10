@@ -22,9 +22,9 @@ where Claude Code's spec says it should become "additional context"
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from code_puppy.callbacks import register_callback
+from code_puppy.callbacks import PromptBlocked, register_callback
 from code_puppy.hook_engine import EventData, HookEngine
 from code_puppy.session_context import get_session_id
 
@@ -278,15 +278,16 @@ register_callback("session_end", on_session_end_hook)
 
 async def on_user_prompt_submit_hook(
     prompt: str, session_id: Optional[str] = None
-) -> Optional[str]:
+) -> Optional[Union[str, PromptBlocked]]:
     """Fire UserPromptSubmit hooks and inject their stdout (+ any pending
     SessionStart stdout) into the user prompt.
 
     A blocking hook (exit code 1, or a ``deny`` / ``block`` stdout control
-    payload) replaces the prompt outright with a block notice, so the original
-    text never reaches the model.
+    payload) returns a :class:`PromptBlocked`, which cancels the turn on a
+    top-level run and substitutes a block notice on a nested one. Either way
+    the prompt text never reaches the model.
 
-    Returns the replacement prompt, the augmented prompt, or ``None`` if there's
+    Returns ``PromptBlocked``, the augmented prompt, or ``None`` if there's
     nothing to add. See issue #298.
     """
     hook_chunks: List[str] = []
@@ -302,11 +303,17 @@ async def on_user_prompt_submit_hook(
         try:
             result = await _hook_engine.process_event("UserPromptSubmit", event_data)
             if result.blocked:
-                logger.debug(f"Prompt blocked by hook: {result.blocking_reason}")
+                reason = (
+                    result.blocking_reason or ""
+                ).strip() or "No reason was provided by the hook."
+                logger.debug(f"Prompt blocked by hook: {reason}")
                 # _pending_session_context is deliberately left intact: this
                 # prompt never runs, so its SessionStart context still belongs
                 # to the next prompt that does.
-                return _blocked_prompt_replacement(result.blocking_reason)
+                return PromptBlocked(
+                    reason=reason,
+                    replacement=_blocked_prompt_replacement(reason),
+                )
             hook_chunks = _collect_context_stdout(result)
         except Exception as e:
             logger.error(f"Error in UserPromptSubmit hook: {e}", exc_info=True)
