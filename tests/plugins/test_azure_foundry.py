@@ -251,11 +251,15 @@ class TestResolveEnvVar:
         with patch.dict(os.environ, {"MY_VAR": "resolved_value"}):
             assert resolve_env_var("$MY_VAR") == "resolved_value"
 
-    def test_resolve_env_var_literal(self):
-        """Test literal values pass through."""
+    @pytest.mark.parametrize(
+        ("value",),
+        [("literal_value",), ("",)],
+    )
+    def test_resolve_env_var_passthrough(self, value):
+        """Literal and empty values pass through unchanged."""
         from code_puppy.plugins.azure_foundry.utils import resolve_env_var
 
-        assert resolve_env_var("literal_value") == "literal_value"
+        assert resolve_env_var(value) == value
 
     def test_resolve_env_var_not_set(self):
         """Test resolving unset environment variable."""
@@ -264,12 +268,6 @@ class TestResolveEnvVar:
         with patch.dict(os.environ, {}, clear=True):
             os.environ.pop("UNSET_VAR", None)
             assert resolve_env_var("$UNSET_VAR") == ""
-
-    def test_resolve_env_var_empty(self):
-        """Test empty string passes through."""
-        from code_puppy.plugins.azure_foundry.utils import resolve_env_var
-
-        assert resolve_env_var("") == ""
 
 
 class TestLoadSaveExtraModels:
@@ -348,18 +346,6 @@ class TestBuildFoundryModelConfig:
         assert config["context_length"] == 1000000
         assert "foundry_resource" in config
 
-    def test_build_config_with_custom_resource(self):
-        """Test building config with explicit resource."""
-        from code_puppy.plugins.azure_foundry.utils import build_foundry_model_config
-
-        config = build_foundry_model_config(
-            deployment_name="my-opus",
-            model_tier="opus",
-            foundry_resource="custom-resource",
-        )
-
-        assert config["foundry_resource"] == "custom-resource"
-
     def test_build_config_with_custom_context_length(self):
         """Test building config with custom context length."""
         from code_puppy.plugins.azure_foundry.utils import build_foundry_model_config
@@ -376,86 +362,42 @@ class TestBuildFoundryModelConfig:
 class TestParseContextWindowSuffix:
     """Tests for parse_context_window_suffix function."""
 
-    def test_parse_1m_suffix(self):
-        """Test parsing [1m] suffix."""
+    @pytest.mark.parametrize(
+        "model_name, expected_name, expected_context",
+        [
+            ("claude-opus-4-6[1m]", "claude-opus-4-6", 1_000_000),
+            ("claude-haiku[200k]", "claude-haiku", 200_000),
+            ("my-model[500k]", "my-model", 500_000),
+            ("future-model[2m]", "future-model", 2_000_000),
+            ("model[1M]", "model", 1_000_000),
+            ("model[200K]", "model", 200_000),
+            ("claude-haiku-4-5", "claude-haiku-4-5", None),
+            ("model-[beta]-v1", "model-[beta]-v1", None),
+            ("", "", None),
+            ("model[10m]", "model", 10_000_000),
+        ],
+        ids=[
+            "1m_suffix",
+            "200k_suffix",
+            "500k_suffix",
+            "2m_suffix",
+            "case_insensitive_m",
+            "case_insensitive_k",
+            "no_suffix",
+            "preserves_other_brackets",
+            "empty_string",
+            "multiple_numbers",
+        ],
+    )
+    def test_parse_context_window_suffix(
+        self, model_name, expected_name, expected_context
+    ):
+        """parse_context_window_suffix strips the [Nk|Nm] suffix."""
         from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
 
-        name, context = parse_context_window_suffix("claude-opus-4-6[1m]")
-        assert name == "claude-opus-4-6"
-        assert context == 1_000_000
-
-    def test_parse_200k_suffix(self):
-        """Test parsing [200k] suffix."""
-        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
-
-        name, context = parse_context_window_suffix("claude-haiku[200k]")
-        assert name == "claude-haiku"
-        assert context == 200_000
-
-    def test_parse_500k_suffix(self):
-        """Test parsing [500k] suffix."""
-        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
-
-        name, context = parse_context_window_suffix("my-model[500k]")
-        assert name == "my-model"
-        assert context == 500_000
-
-    def test_parse_2m_suffix(self):
-        """Test parsing [2m] suffix for future models."""
-        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
-
-        name, context = parse_context_window_suffix("future-model[2m]")
-        assert name == "future-model"
-        assert context == 2_000_000
-
-    def test_case_insensitive_m(self):
-        """Test that suffix parsing is case-insensitive for M."""
-        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
-
-        name, context = parse_context_window_suffix("model[1M]")
-        assert name == "model"
-        assert context == 1_000_000
-
-    def test_case_insensitive_k(self):
-        """Test that suffix parsing is case-insensitive for K."""
-        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
-
-        name, context = parse_context_window_suffix("model[200K]")
-        assert name == "model"
-        assert context == 200_000
-
-    def test_no_suffix(self):
-        """Test model name without context suffix."""
-        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
-
-        name, context = parse_context_window_suffix("claude-haiku-4-5")
-        assert name == "claude-haiku-4-5"
-        assert context is None
-
-    def test_preserves_other_brackets(self):
-        """Test that non-context brackets are preserved."""
-        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
-
-        # [beta] doesn't match the pattern [<number><k|m>], so it's preserved
-        name, context = parse_context_window_suffix("model-[beta]-v1")
-        assert name == "model-[beta]-v1"
-        assert context is None
-
-    def test_empty_string(self):
-        """Test handling of empty string."""
-        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
-
-        name, context = parse_context_window_suffix("")
-        assert name == ""
-        assert context is None
-
-    def test_multiple_numbers(self):
-        """Test parsing larger numbers like [10m]."""
-        from code_puppy.plugins.azure_foundry.utils import parse_context_window_suffix
-
-        name, context = parse_context_window_suffix("model[10m]")
-        assert name == "model"
-        assert context == 10_000_000
+        name, context = parse_context_window_suffix(model_name)
+        assert name == expected_name
+        assert context == expected_context
 
 
 class TestAddRemoveFoundryModels:

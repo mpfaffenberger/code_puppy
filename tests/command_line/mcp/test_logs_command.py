@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 MODULE = "code_puppy.command_line.mcp.logs_command"
 UTILS = "code_puppy.command_line.mcp.utils"
 
@@ -227,6 +229,11 @@ class TestExecuteShowLogs:
 
 
 class TestExecuteLinesParsing:
+    @pytest.mark.parametrize(
+        ("arg", "expected_lines"),
+        [("notanum", 50), ("-5", 50), ("100", 100)],
+        ids=["invalid_number", "negative_number", "custom_line_count"],
+    )
     @patch(f"{UTILS}.find_server_id_by_name", return_value="id")
     @patch(f"{MODULE}.read_logs", return_value=["x"])
     @patch(
@@ -240,54 +247,19 @@ class TestExecuteLinesParsing:
     )
     @patch(f"{MODULE}.get_log_file_path", return_value="/tmp/t.log")
     @patch(f"{MODULE}.emit_info")
-    def test_invalid_number(
-        self, mock_info, mock_path, mock_stats, mock_read, mock_find
+    def test_line_count_parsing(
+        self,
+        mock_info,
+        mock_path,
+        mock_stats,
+        mock_read,
+        mock_find,
+        arg,
+        expected_lines,
     ):
         cmd = _make_cmd()
-        cmd.execute(["srv", "notanum"])
-        # Should fall back to 50
-        mock_read.assert_called_once_with("srv", lines=50)
-
-    @patch(f"{UTILS}.find_server_id_by_name", return_value="id")
-    @patch(f"{MODULE}.read_logs", return_value=["x"])
-    @patch(
-        f"{MODULE}.get_log_stats",
-        return_value={
-            "line_count": 1,
-            "exists": True,
-            "total_size_bytes": 10,
-            "rotated_count": 0,
-        },
-    )
-    @patch(f"{MODULE}.get_log_file_path", return_value="/tmp/t.log")
-    @patch(f"{MODULE}.emit_info")
-    def test_negative_number(
-        self, mock_info, mock_path, mock_stats, mock_read, mock_find
-    ):
-        cmd = _make_cmd()
-        cmd.execute(["srv", "-5"])
-        # Should fall back to 50
-        mock_read.assert_called_once_with("srv", lines=50)
-
-    @patch(f"{UTILS}.find_server_id_by_name", return_value="id")
-    @patch(f"{MODULE}.read_logs", return_value=["x"])
-    @patch(
-        f"{MODULE}.get_log_stats",
-        return_value={
-            "line_count": 1,
-            "exists": True,
-            "total_size_bytes": 10,
-            "rotated_count": 0,
-        },
-    )
-    @patch(f"{MODULE}.get_log_file_path", return_value="/tmp/t.log")
-    @patch(f"{MODULE}.emit_info")
-    def test_custom_line_count(
-        self, mock_info, mock_path, mock_stats, mock_read, mock_find
-    ):
-        cmd = _make_cmd()
-        cmd.execute(["srv", "100"])
-        mock_read.assert_called_once_with("srv", lines=100)
+        cmd.execute(["srv", arg])
+        mock_read.assert_called_once_with("srv", lines=expected_lines)
 
 
 class TestGenerateGroupId:

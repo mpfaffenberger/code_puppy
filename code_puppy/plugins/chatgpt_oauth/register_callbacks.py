@@ -17,7 +17,7 @@ from code_puppy.model_switching import set_model_and_reload_agent
 
 from .config import CHATGPT_OAUTH_CONFIG, get_token_storage_path
 from .oauth_flow import run_oauth_flow
-from .usage import refresh_usage_in_background
+from .usage import get_usage_status, refresh_usage_in_background
 from .utils import (
     get_valid_access_token,
     load_chatgpt_models,
@@ -269,6 +269,7 @@ def _refresh_usage_on_agent_run(
 
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
+register_callback("usage_status", get_usage_status)
 register_callback("register_model_type", _register_model_types)
 register_callback("register_skills", _register_imagegen_skill)
 register_callback("register_tools", _register_imagegen_tools)

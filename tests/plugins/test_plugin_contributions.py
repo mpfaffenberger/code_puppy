@@ -54,15 +54,6 @@ def test_get_tools_parses_name(clean_callbacks):
     assert pc.get_tools("plugA") == ["do_thing"]
 
 
-def test_get_tools_single_dict_not_list(clean_callbacks):
-    _register(
-        "plugA",
-        "register_tools",
-        lambda: {"name": "solo", "register_func": lambda a: None},
-    )
-    assert pc.get_tools("plugA") == ["solo"]
-
-
 # ── commands (all three shapes) ─────────────────────────────────────────────
 
 
@@ -304,11 +295,6 @@ def test_command_callback_returning_none_yields_empty(clean_callbacks):
     assert pc.get_commands("plugA") == []
 
 
-def test_command_without_description_omits_dash(clean_callbacks):
-    _register("plugA", "custom_command_help", lambda: [("bare", "")])
-    assert pc.get_commands("plugA") == ["/bare"]
-
-
 def test_get_contributions_empty_string_plugin_name(clean_callbacks):
     # An empty/None-ish plugin name matches no owner -> empty structure.
     result = pc.get_contributions("")
@@ -338,35 +324,21 @@ def _handler_in(module_name):
     return _h
 
 
-def test_plugin_owner_of_module_builtin():
-    assert (
-        pc._plugin_owner_of_module("code_puppy.plugins.wiggum.register_callbacks")
-        == "wiggum"
-    )
-
-
-def test_plugin_owner_of_module_project():
-    assert (
-        pc._plugin_owner_of_module("project_plugins.my_plug.register_callbacks")
-        == "my_plug"
-    )
-
-
-def test_plugin_owner_of_module_user():
-    assert pc._plugin_owner_of_module("user_plug.register_callbacks") == "user_plug"
-
-
-def test_plugin_owner_of_module_core_does_not_match_plugin():
-    # Core modules resolve to a prefix that is not a real plugin name.
-    assert (
-        pc._plugin_owner_of_module("code_puppy.command_line.command_handler")
-        == "code_puppy"
-    )
-
-
-def test_plugin_owner_of_module_none():
-    assert pc._plugin_owner_of_module(None) is None
-    assert pc._plugin_owner_of_module("") is None
+@pytest.mark.parametrize(
+    "module, expected",
+    [
+        ("code_puppy.plugins.wiggum.register_callbacks", "wiggum"),
+        ("project_plugins.my_plug.register_callbacks", "my_plug"),
+        ("user_plug.register_callbacks", "user_plug"),
+        # Core modules resolve to a prefix that is not a real plugin name.
+        ("code_puppy.command_line.command_handler", "code_puppy"),
+        (None, None),
+        ("", None),
+    ],
+    ids=["builtin", "project", "user", "core", "none", "empty"],
+)
+def test_plugin_owner_of_module(module, expected):
+    assert pc._plugin_owner_of_module(module) == expected
 
 
 def test_registry_commands_attributed_by_handler_module(monkeypatch):

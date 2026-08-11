@@ -13,19 +13,6 @@ from code_puppy import i18n
 from code_puppy.i18n import catalog, formats, locale, plurals, pseudo, translate
 
 
-@pytest.fixture(autouse=True)
-def _isolate_i18n(tmp_path, monkeypatch):
-    """Reset catalog state + force a clean en-US translator per test."""
-    # Clear any env-based locale so detection tests are deterministic.
-    for var in ("CODE_PUPPY_LOCALE", "LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"):
-        monkeypatch.delenv(var, raising=False)
-    catalog.reset()
-    translate.get_translator().set_locale("en-US")
-    yield
-    catalog.reset()
-    translate.get_translator().set_locale("en-US")
-
-
 def _write_catalog(tmp_path, name, data):
     path = tmp_path / f"{name}.json"
     path.write_text(json.dumps(data), encoding="utf-8")

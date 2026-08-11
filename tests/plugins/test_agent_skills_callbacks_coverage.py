@@ -180,6 +180,14 @@ class TestRegisterSkillsTools:
         assert "activate_skill" in names
         assert "list_or_search_skills" in names
 
+    def test_registers_provider_without_traversing_discovery(self):
+        from code_puppy.plugins.agent_skills.provider import skill_provider
+        from code_puppy.plugins.agent_skills.register_callbacks import (
+            _register_skills,
+        )
+
+        assert _register_skills() == [{"provider": skill_provider}]
+
 
 class TestSkillsCommandHelp:
     def test_returns_entries(self):

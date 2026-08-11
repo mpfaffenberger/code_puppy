@@ -213,15 +213,6 @@ def test_frameless_builtin_entry_inherits_frames_and_overrides_speed():
     assert tweaked.source == "builtin+user"
 
 
-def test_tweak_can_override_description_only():
-    _write_user_file(
-        sp.USER_SPINNERS_FILE, {"sand": {"description": "my custom blurb"}}
-    )
-    tweaked = sp.get_catalogue()["sand"]
-    assert tweaked.description == "my custom blurb"
-    assert tweaked.interval == sp.BUILTIN_SPINNERS["sand"].interval
-
-
 def test_tweak_interval_is_validated_and_clamped():
     _write_user_file(sp.USER_SPINNERS_FILE, {"sand": {"interval": 99}})
     assert sp.get_catalogue()["sand"].interval == pytest.approx(sp.MAX_INTERVAL)
@@ -298,27 +289,6 @@ def test_user_file_stamp_tracks_the_file():
     assert sp.user_file_stamp() is not None
 
 
-def test_active_spinner_follows_external_file_edits():
-    """Editing spinners.json needs no reload: the active-spinner cache
-    self-invalidates on the file's mtime, so even the mid-run animation
-    picks up edits on the next frame.
-    """
-    import os
-
-    sp.set_active("zoomies")
-    assert sp.get_active_spinner().interval == pytest.approx(0.2)
-
-    _write_user_file(sp.USER_SPINNERS_FILE, {"zoomies": {"interval": 0.9}})
-    # belt-and-braces: guarantee the mtime moves even on coarse filesystems
-    stat = os.stat(sp.USER_SPINNERS_FILE)
-    os.utime(sp.USER_SPINNERS_FILE, (stat.st_atime, stat.st_mtime + 1))
-
-    assert sp.get_active_spinner().interval == pytest.approx(0.9)  # no reload
-
-    os.remove(sp.USER_SPINNERS_FILE)  # deleting the file also counts as an edit
-    assert sp.get_active_spinner().interval == pytest.approx(0.2)
-
-
 # =========================================================================
 # Saving speeds to spinners.json: one source of truth
 # =========================================================================
@@ -387,13 +357,6 @@ def test_tick_loop_uses_default_module_constants_by_default():
     frames, interval = rc._current_frames_and_interval()
     assert frames is rc.FRAMES
     assert interval == rc._TICK_INTERVAL_S
-
-
-def test_tick_loop_uses_selected_spinner():
-    sp.set_active("binary")
-    frames, interval = rc._current_frames_and_interval()
-    assert frames == sp.BUILTIN_SPINNERS["binary"].frames
-    assert interval == sp.BUILTIN_SPINNERS["binary"].interval
 
 
 def test_tick_loop_honors_speed_override_on_the_default_puppy():

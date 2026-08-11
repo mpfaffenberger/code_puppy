@@ -17,6 +17,8 @@ from typing import Iterable, List
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 
+from code_puppy.skill_provider import get_skill_provider
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,9 +26,8 @@ def load_catalog_skill_ids() -> List[str]:
     """Load skill ids from the remote catalog (lazy, cached)."""
 
     try:
-        from code_puppy.plugins.agent_skills.skill_catalog import catalog
-
-        return [entry.id for entry in catalog.get_all()]
+        provider = get_skill_provider()
+        return provider.get_catalog_skill_ids() if provider is not None else []
     except Exception as e:
         logger.debug(f"Could not load skill ids: {e}")
         return []

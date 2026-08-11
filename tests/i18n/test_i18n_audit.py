@@ -2,6 +2,8 @@
 
 import ast
 
+import pytest
+
 from code_puppy.i18n import audit
 
 
@@ -10,27 +12,38 @@ def _kinds(source: str):
 
 
 # --- classification -------------------------------------------------------
-def test_raw_string_literal_is_flagged():
-    assert _kinds('emit_info("hello world")') == ["raw"]
+# (source, expected kinds) — one entry per emit shape. Each case was a
+# separate one-line test before this was consolidated into a matrix.
+_CLASSIFICATION_CASES = [
+    # raw string literals / concatenations must be flagged
+    ('emit_info("hello world")', ["raw"]),
+    # f-strings with literal content are raw
+    ('emit_warning(f"hi {name}")', ["raw"]),
+    ('emit_error(f"Error: {e}")', ["raw"]),
+    # non-whitespace punctuation (an arrow) counts as literal content
+    ('emit_info(f"-> {item}")', ["raw"]),
+    ('emit_error("bad: " + detail)', ["raw"]),
+    # pure-variable / whitespace-only f-strings are not translatable
+    ('emit_info(f"{result}")', ["dynamic"]),
+    ('emit_info(f"   {msg}")', ["dynamic"]),
+    # t() / i18n.t() calls are the extracted path
+    ('emit_info(t("startup.welcome"))', ["extracted"]),
+    ('emit_info(i18n.t("startup.welcome"))', ["extracted"]),
+    # bare variables / no args have nothing to translate
+    ("emit_info(msg)", ["dynamic"]),
+    ("emit_info()", ["dynamic"]),
+    # qualified emit sinks and console printers are user-facing
+    ('messaging.emit_info("x")', ["raw"]),
+    ('console.print("boom")', ["raw"]),
+    ('self.console.print("boom")', ["raw"]),
+]
 
 
-def test_fstring_is_raw():
-    assert _kinds('emit_warning(f"hi {name}")') == ["raw"]
-
-
-def test_fstring_pure_variable_is_dynamic():
-    """f"{var}" has no literal content — must not be reported as raw."""
-    assert _kinds('emit_info(f"{result}")') == ["dynamic"]
-
-
-def test_fstring_whitespace_only_literal_is_dynamic():
-    """f"  {var}" has only whitespace in the constant part — not translatable."""
-    assert _kinds('emit_info(f"   {msg}")') == ["dynamic"]
-
-
-def test_fstring_with_content_and_variable_is_raw():
-    """f"Error: {e}" has a meaningful literal prefix — must stay raw."""
-    assert _kinds('emit_error(f"Error: {e}")') == ["raw"]
+@pytest.mark.parametrize("source,expected", _CLASSIFICATION_CASES)
+def test_classification(source: str, expected: list[str]) -> None:
+    """Every user-facing emit shape must be classified exactly once and
+    with the right kind (raw / dynamic / extracted)."""
+    assert _kinds(source) == expected
 
 
 def test_fstring_wrapped_literal_is_raw():
@@ -54,34 +67,9 @@ def test_fstring_wrapped_literal_is_raw():
     assert _kinds(src) == ["raw"]
 
 
-def test_fstring_with_only_arrow_is_raw():
-    """Non-whitespace punctuation like an arrow counts as a literal."""
-    assert _kinds('emit_info(f"-> {item}")') == ["raw"]
-
-
-def test_string_concat_is_raw():
-    assert _kinds('emit_error("bad: " + detail)') == ["raw"]
-
-
-def test_translation_call_is_extracted():
-    assert _kinds('emit_info(t("startup.welcome"))') == ["extracted"]
-
-
-def test_i18n_dotted_translation_call_is_extracted():
-    assert _kinds('emit_info(i18n.t("startup.welcome"))') == ["extracted"]
-
-
 def test_ngettext_and_lazy_are_extracted():
     src = 'emit_info(ngettext("files.deleted", n))\nemit_info(lazy("k"))'
     assert _kinds(src) == ["extracted", "extracted"]
-
-
-def test_bare_variable_is_dynamic():
-    assert _kinds("emit_info(msg)") == ["dynamic"]
-
-
-def test_no_args_is_dynamic():
-    assert _kinds("emit_info()") == ["dynamic"]
 
 
 # --- callee detection -----------------------------------------------------

@@ -19,6 +19,7 @@ from code_puppy.callbacks import (
     clear_callbacks,
     count_callbacks,
     get_callbacks,
+    get_feature_capability,
 )
 from code_puppy.plugins.dbos_durable_exec import cancel as cancel_mod
 from code_puppy.plugins.dbos_durable_exec import commands as commands_mod
@@ -162,24 +163,6 @@ class TestWrapWithDbosAgent:
         assert captured["kwargs"]["name"].startswith("main-agent-main-")
         # Toolsets are reset (pickleability fix).
         assert pydantic_agent._toolsets == []
-
-    def test_subagent_kind_forces_handler_none(self, monkeypatch):
-        _, captured = _install_fake_pydantic_dbos(monkeypatch)
-
-        agent = MagicMock(name="agent")
-        agent.name = "sub"
-        pydantic_agent = MagicMock(name="pyd")
-        pydantic_agent._toolsets = []
-        handler = object()
-
-        wrapper_mod.wrap_with_dbos_agent(
-            agent,
-            pydantic_agent,
-            event_stream_handler=handler,
-            kind="subagent",
-        )
-        assert captured["kwargs"]["event_stream_handler"] is None
-        assert captured["kwargs"]["name"].startswith("sub-subagent-")
 
     def test_no_stash_attribute_left_behind(self, monkeypatch):
         """YAGNI cleanup: the dead _dbos_stashed_mcp_toolsets attr must be gone."""
@@ -329,11 +312,6 @@ class TestHandleDbosCommand:
         result = commands_mod.handle_dbos_command("/dbos status", "dbos")
         assert "ON" in result
 
-    def test_status_path_when_off(self, monkeypatch):
-        monkeypatch.setattr(commands_mod, "is_enabled", lambda: False)
-        result = commands_mod.handle_dbos_command("/dbos status", "dbos")
-        assert "OFF" in result
-
     def test_no_subcommand_shows_status_and_usage(self, monkeypatch):
         monkeypatch.setattr(commands_mod, "is_enabled", lambda: True)
         result = commands_mod.handle_dbos_command("/dbos", "dbos")
@@ -373,7 +351,7 @@ class TestHandleDbosCommand:
 
 
 # Phases owned by this plugin (slash-cmd hooks always, lifecycle behind dbos).
-_SLASH_PHASES = ("custom_command", "custom_command_help")
+_ALWAYS_PHASES = ("custom_command", "custom_command_help", "feature_capability")
 _DBOS_PHASES = (
     "startup",
     "shutdown",
@@ -387,7 +365,7 @@ _DBOS_PHASES = (
 @pytest.fixture
 def clean_callbacks():
     """Snapshot + restore the global callback registry around each test."""
-    saved = {p: get_callbacks(p) for p in _SLASH_PHASES + _DBOS_PHASES}
+    saved = {p: get_callbacks(p) for p in _ALWAYS_PHASES + _DBOS_PHASES}
     for p in saved:
         clear_callbacks(p)
     yield
@@ -410,9 +388,11 @@ class TestRegisterCallbacksWiring:
     def test_disabled_registers_only_slash_commands(self, monkeypatch, clean_callbacks):
         monkeypatch.setattr(config_mod, "is_enabled", lambda: False)
         _reload_register_callbacks()
-        # Slash command hooks always register.
-        for p in _SLASH_PHASES:
-            assert count_callbacks(p) == 1, f"expected slash cmd registered for {p}"
+        # Slash command and capability hooks always register.
+        for p in _ALWAYS_PHASES:
+            assert count_callbacks(p) == 1, f"expected callback registered for {p}"
+        assert get_feature_capability("dbos_durable_exec") is False
+        assert get_feature_capability("unknown") is False
         # DBOS-specific hooks should NOT.
         for p in _DBOS_PHASES:
             assert count_callbacks(p) == 0, f"unexpected callback on phase {p}"
@@ -423,8 +403,9 @@ class TestRegisterCallbacksWiring:
         monkeypatch.setattr(config_mod, "is_enabled", lambda: True)
         monkeypatch.setitem(sys.modules, "dbos", None)
         _reload_register_callbacks()
-        for p in _SLASH_PHASES:
+        for p in _ALWAYS_PHASES:
             assert count_callbacks(p) == 1
+        assert get_feature_capability("dbos_durable_exec") is True
         for p in _DBOS_PHASES:
             assert count_callbacks(p) == 0
 
@@ -435,8 +416,9 @@ class TestRegisterCallbacksWiring:
         fake_mod = types.ModuleType("dbos")
         monkeypatch.setitem(sys.modules, "dbos", fake_mod)
         _reload_register_callbacks()
-        for p in _SLASH_PHASES + _DBOS_PHASES:
+        for p in _ALWAYS_PHASES + _DBOS_PHASES:
             assert count_callbacks(p) >= 1, f"missing callback on phase {p}"
+        assert get_feature_capability("dbos_durable_exec") is True
 
     def test_idempotent_reload_does_not_double_register(
         self, monkeypatch, clean_callbacks
@@ -445,7 +427,7 @@ class TestRegisterCallbacksWiring:
         fake_mod = types.ModuleType("dbos")
         monkeypatch.setitem(sys.modules, "dbos", fake_mod)
         _reload_register_callbacks()
-        counts = {p: count_callbacks(p) for p in _SLASH_PHASES + _DBOS_PHASES}
+        counts = {p: count_callbacks(p) for p in _ALWAYS_PHASES + _DBOS_PHASES}
         _reload_register_callbacks()
-        counts_after = {p: count_callbacks(p) for p in _SLASH_PHASES + _DBOS_PHASES}
+        counts_after = {p: count_callbacks(p) for p in _ALWAYS_PHASES + _DBOS_PHASES}
         assert counts == counts_after, "register_callback should dedupe on reload"

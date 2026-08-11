@@ -8,20 +8,72 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
-from typing import Literal, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 from pydantic_ai import RunContext
 
 from code_puppy.messaging import get_message_bus
 from code_puppy.messaging.messages import UniversalConstructorMessage
-from code_puppy.plugins.universal_constructor.models import (
-    UCCallOutput,
-    UCCreateOutput,
-    UCInfoOutput,
-    UCListOutput,
-    UCUpdateOutput,
+from code_puppy.universal_constructor_provider import (
+    get_universal_constructor_provider,
 )
+
+
+def _get_uc_provider():
+    """Return the registered UC provider without importing any plugin."""
+    return get_universal_constructor_provider()
+
+
+class UCListOutput(BaseModel):
+    """Neutral response contract for listing plugin-provided tools."""
+
+    tools: list[Any] = Field(default_factory=list)
+    total_count: int = 0
+    enabled_count: int = 0
+    error: Optional[str] = None
+
+
+class UCCallOutput(BaseModel):
+    """Neutral response contract for calling a plugin-provided tool."""
+
+    success: bool
+    tool_name: str
+    result: Any = None
+    error: Optional[str] = None
+    execution_time: Optional[float] = None
+    source_preview: Optional[str] = None
+
+
+class UCCreateOutput(BaseModel):
+    """Neutral response contract for creating a plugin-provided tool."""
+
+    success: bool
+    tool_name: str = ""
+    source_path: Optional[str] = None
+    preview: Optional[str] = None
+    error: Optional[str] = None
+    validation_warnings: list[str] = Field(default_factory=list)
+
+
+class UCUpdateOutput(BaseModel):
+    """Neutral response contract for updating a plugin-provided tool."""
+
+    success: bool
+    tool_name: str = ""
+    source_path: Optional[str] = None
+    preview: Optional[str] = None
+    error: Optional[str] = None
+    changes_applied: list[str] = Field(default_factory=list)
+
+
+class UCInfoOutput(BaseModel):
+    """Neutral response contract for plugin-provided tool details."""
+
+    success: bool
+    tool: Any = None
+    source_code: Optional[str] = None
+    error: Optional[str] = None
 
 
 class UniversalConstructorOutput(BaseModel):
@@ -34,22 +86,12 @@ class UniversalConstructorOutput(BaseModel):
     success: bool = Field(..., description="Whether the operation succeeded")
     error: Optional[str] = Field(default=None, description="Error message if failed")
 
-    # Action-specific results (only one will be populated based on action)
-    list_result: Optional[UCListOutput] = Field(
-        default=None, description="Result of list action"
-    )
-    call_result: Optional[UCCallOutput] = Field(
-        default=None, description="Result of call action"
-    )
-    create_result: Optional[UCCreateOutput] = Field(
-        default=None, description="Result of create action"
-    )
-    update_result: Optional[UCUpdateOutput] = Field(
-        default=None, description="Result of update action"
-    )
-    info_result: Optional[UCInfoOutput] = Field(
-        default=None, description="Result of info action"
-    )
+    # Action-specific results (only one will be populated based on action).
+    list_result: Any = Field(default=None, description="Result of list action")
+    call_result: Any = Field(default=None, description="Result of call action")
+    create_result: Any = Field(default=None, description="Result of create action")
+    update_result: Any = Field(default=None, description="Result of update action")
+    info_result: Any = Field(default=None, description="Result of info action")
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -163,8 +205,15 @@ async def universal_constructor_impl(
     Returns:
         UniversalConstructorOutput with action-specific results
     """
-    # Route to appropriate action handler
-    if action == "list":
+    # Route to appropriate action handler. Missing providers are expected when
+    # the optional plugin is not installed or has not registered yet.
+    if _get_uc_provider() is None:
+        result = UniversalConstructorOutput(
+            action=action,
+            success=False,
+            error="Universal Constructor provider is not available",
+        )
+    elif action == "list":
         result = _handle_list_action(context)
     elif action == "call":
         result = _handle_call_action(context, tool_name, tool_args)
@@ -233,10 +282,8 @@ def _handle_list_action(context: RunContext) -> UniversalConstructorOutput:
     Returns:
         UniversalConstructorOutput with list_result containing all enabled tools.
     """
-    from code_puppy.plugins.universal_constructor.registry import get_registry
-
     try:
-        registry = get_registry()
+        registry = _get_uc_provider()
         # Get all tools (including disabled for count)
         all_tools = registry.list_tools(include_disabled=True)
         enabled_tools = [t for t in all_tools if t.meta.enabled]
@@ -290,9 +337,7 @@ def _handle_call_action(
             error="tool_name is required for call action",
         )
 
-    from code_puppy.plugins.universal_constructor.registry import get_registry
-
-    registry = get_registry()
+    registry = _get_uc_provider()
     tool = registry.get_tool(tool_name)
 
     if not tool:
@@ -420,15 +465,7 @@ def _handle_create_action(
     from datetime import datetime
     from pathlib import Path
 
-    from code_puppy.plugins.universal_constructor import USER_UC_DIR
-    from code_puppy.plugins.universal_constructor.registry import get_registry
-    from code_puppy.plugins.universal_constructor.sandbox import (
-        _extract_tool_meta,
-        _validate_tool_meta,
-        check_dangerous_patterns,
-        extract_function_info,
-        validate_syntax,
-    )
+    provider = _get_uc_provider()
 
     # Validate python_code is provided
     if not python_code or not python_code.strip():
@@ -439,7 +476,7 @@ def _handle_create_action(
         )
 
     # Validate syntax
-    syntax_result = validate_syntax(python_code)
+    syntax_result = provider.validate_syntax(python_code)
     if not syntax_result.valid:
         error_msg = "; ".join(syntax_result.errors)
         return UniversalConstructorOutput(
@@ -449,7 +486,7 @@ def _handle_create_action(
         )
 
     # Extract function info
-    func_result = extract_function_info(python_code)
+    func_result = provider.extract_function_info(python_code)
     if not func_result.functions:
         return UniversalConstructorOutput(
             action="create",
@@ -461,7 +498,7 @@ def _handle_create_action(
     main_func = func_result.functions[0]
 
     # Try to extract TOOL_META from code
-    existing_meta = _extract_tool_meta(python_code)
+    existing_meta = provider.extract_tool_meta(python_code)
 
     # Determine final tool name and namespace
     if existing_meta and "name" in existing_meta:
@@ -492,9 +529,9 @@ def _handle_create_action(
     if final_namespace:
         # Convert dot notation to path (api.finance → api/finance/)
         namespace_path = Path(*final_namespace.split("."))
-        file_dir = USER_UC_DIR / namespace_path
+        file_dir = provider.tools_dir / namespace_path
     else:
-        file_dir = USER_UC_DIR
+        file_dir = provider.tools_dir
 
     file_path = file_dir / f"{final_name}.py"
 
@@ -503,7 +540,7 @@ def _handle_create_action(
 
     if existing_meta:
         # Validate existing TOOL_META has required fields
-        meta_errors = _validate_tool_meta(existing_meta)
+        meta_errors = provider.validate_tool_meta(existing_meta)
         if meta_errors:
             return UniversalConstructorOutput(
                 action="create",
@@ -535,7 +572,7 @@ def _handle_create_action(
         validation_warnings.extend(func_result.warnings)
 
     # Check for dangerous patterns (warning only, don't block)
-    safety_result = check_dangerous_patterns(python_code)
+    safety_result = provider.check_dangerous_patterns(python_code)
     validation_warnings.extend(safety_result.warnings)
 
     # Ensure directory exists and write file
@@ -559,7 +596,7 @@ def _handle_create_action(
 
     # Reload registry to pick up the new tool
     try:
-        registry = get_registry()
+        registry = _get_uc_provider()
         registry.reload()
     except Exception as e:
         # Tool was written but registry reload failed - still a partial success
@@ -607,12 +644,7 @@ def _handle_update_action(
     """
     from pathlib import Path
 
-    from code_puppy.plugins.universal_constructor.registry import get_registry
-    from code_puppy.plugins.universal_constructor.sandbox import (
-        _extract_tool_meta,
-        _validate_tool_meta,
-        validate_syntax,
-    )
+    provider = _get_uc_provider()
 
     if not tool_name:
         return UniversalConstructorOutput(
@@ -629,7 +661,7 @@ def _handle_update_action(
             error="python_code is required for update action",
         )
 
-    registry = get_registry()
+    registry = _get_uc_provider()
     tool = registry.get_tool(tool_name)
 
     if not tool:
@@ -650,7 +682,7 @@ def _handle_update_action(
 
     try:
         # Validate new code syntax
-        syntax_result = validate_syntax(python_code)
+        syntax_result = provider.validate_syntax(python_code)
         if not syntax_result.valid:
             error_msg = "; ".join(syntax_result.errors)
             return UniversalConstructorOutput(
@@ -660,7 +692,7 @@ def _handle_update_action(
             )
 
         # Validate TOOL_META exists in new code
-        new_meta = _extract_tool_meta(python_code)
+        new_meta = provider.extract_tool_meta(python_code)
         if new_meta is None:
             return UniversalConstructorOutput(
                 action="update",
@@ -669,7 +701,7 @@ def _handle_update_action(
             )
 
         # Validate TOOL_META has required fields
-        meta_errors = _validate_tool_meta(new_meta)
+        meta_errors = provider.validate_tool_meta(new_meta)
         if meta_errors:
             return UniversalConstructorOutput(
                 action="update",
@@ -732,8 +764,6 @@ def _handle_info_action(
     """
     from pathlib import Path
 
-    from code_puppy.plugins.universal_constructor.registry import get_registry
-
     if not tool_name:
         return UniversalConstructorOutput(
             action="info",
@@ -741,7 +771,7 @@ def _handle_info_action(
             error="tool_name is required for info action",
         )
 
-    registry = get_registry()
+    registry = _get_uc_provider()
     tool = registry.get_tool(tool_name)
 
     if not tool:

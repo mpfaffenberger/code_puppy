@@ -21,6 +21,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.text import Text
 from code_puppy.callbacks import on_prompt_toolkit_style
+from code_puppy.tools.file_permission_state import set_diff_already_shown
 
 # =============================================================================
 # Approval queueing locks
@@ -1276,15 +1277,9 @@ def _get_user_approval_impl(
 
         panel_content.append(preview_text)
 
-        # Mark that we showed a diff preview
-        try:
-            from code_puppy.plugins.file_permission_handler.register_callbacks import (
-                set_diff_already_shown,
-            )
-
-            set_diff_already_shown(True)
-        except ImportError:
-            pass
+        # Mark that we showed a diff preview (no-op when no permission
+        # provider is registered, i.e. the file-permission plugin is absent).
+        set_diff_already_shown(True)
 
     # Create panel
     panel = Panel(
@@ -1475,15 +1470,9 @@ async def _get_user_approval_async_impl(
 
         panel_content.append(preview_text)
 
-        # Mark that we showed a diff preview
-        try:
-            from code_puppy.plugins.file_permission_handler.register_callbacks import (
-                set_diff_already_shown,
-            )
-
-            set_diff_already_shown(True)
-        except ImportError:
-            pass
+        # Mark that we showed a diff preview (no-op when no permission
+        # provider is registered, i.e. the file-permission plugin is absent).
+        set_diff_already_shown(True)
 
     # Create panel
     panel = Panel(

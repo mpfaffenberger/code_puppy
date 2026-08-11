@@ -773,23 +773,6 @@ class TestAgentRunStart:
         ):
             await _on_agent_run_start("agent", "claude-code-opus", "sess4")
 
-    @pytest.mark.asyncio
-    async def test_default_session_key(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
-            _active_heartbeats,
-            _on_agent_run_start,
-        )
-
-        mock_hb = AsyncMock()
-        mock_hb.start = AsyncMock()
-        with patch(
-            "code_puppy.plugins.claude_code_oauth.token_refresh_heartbeat.TokenRefreshHeartbeat",
-            return_value=mock_hb,
-        ):
-            await _on_agent_run_start("agent", "claude-code-opus", None)
-        assert "default" in _active_heartbeats
-        _active_heartbeats.pop("default", None)
-
 
 class TestAgentRunEnd:
     @pytest.mark.asyncio

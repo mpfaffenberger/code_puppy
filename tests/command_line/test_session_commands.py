@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 class TestGetCommandsHelp:
     def test_lazy_import(self):
@@ -216,17 +218,14 @@ class TestHandleTruncateCommand:
 
         return handle_truncate_command(cmd)
 
-    def test_missing_arg(self):
+    @pytest.mark.parametrize(
+        "cmd",
+        ["/truncate", "/truncate abc", "/truncate -1", "/truncate 1 2"],
+        ids=["missing_arg", "invalid_n", "negative_n", "too_many_args"],
+    )
+    def test_invalid_args_return_true(self, cmd):
         with patch("code_puppy.messaging.emit_error"):
-            assert self._run("/truncate") is True
-
-    def test_invalid_n(self):
-        with patch("code_puppy.messaging.emit_error"):
-            assert self._run("/truncate abc") is True
-
-    def test_negative_n(self):
-        with patch("code_puppy.messaging.emit_error"):
-            assert self._run("/truncate -1") is True
+            assert self._run(cmd) is True
 
     def test_no_history(self):
         agent = MagicMock()
@@ -279,10 +278,6 @@ class TestHandleTruncateCommand:
         ):
             assert self._run("/truncate 1") is True
             assert agent.set_message_history.call_args[0][0] == ["sys"]
-
-    def test_too_many_args(self):
-        with patch("code_puppy.messaging.emit_error"):
-            assert self._run("/truncate 1 2") is True
 
 
 class TestHandleAutosaveLoadCommand:
@@ -390,7 +385,12 @@ class TestHandleLoadContextCommand:
         with patch("code_puppy.messaging.emit_warning"):
             assert self._run("/load_context") is True
 
-    def test_file_not_found_with_available(self):
+    @pytest.mark.parametrize(
+        "sessions,called",
+        [(["s1"], True), ([], False)],
+        ids=["with_available", "no_available"],
+    )
+    def test_file_not_found(self, sessions, called):
         with (
             patch(
                 "code_puppy.command_line.session_commands.load_session",
@@ -398,29 +398,16 @@ class TestHandleLoadContextCommand:
             ),
             patch(
                 "code_puppy.command_line.session_commands.list_sessions",
-                return_value=["s1"],
+                return_value=sessions,
             ),
             patch("code_puppy.messaging.emit_error"),
             patch("code_puppy.messaging.emit_info") as mi,
         ):
             assert self._run("/load_context missing") is True
-            mi.assert_called_once()
-
-    def test_file_not_found_no_available(self):
-        with (
-            patch(
-                "code_puppy.command_line.session_commands.load_session",
-                side_effect=FileNotFoundError(),
-            ),
-            patch(
-                "code_puppy.command_line.session_commands.list_sessions",
-                return_value=[],
-            ),
-            patch("code_puppy.messaging.emit_error"),
-            patch("code_puppy.messaging.emit_info") as mi,
-        ):
-            assert self._run("/load_context missing") is True
-            mi.assert_not_called()
+            if called:
+                mi.assert_called_once()
+            else:
+                mi.assert_not_called()
 
     def test_generic_exception(self):
         with (

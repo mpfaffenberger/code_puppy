@@ -5,6 +5,7 @@ import json
 import os
 import pkgutil
 import re
+import sys
 import threading
 import uuid
 from pathlib import Path
@@ -37,6 +38,16 @@ _DISCOVERY_LOCK = threading.RLock()
 # Python agents. Discovery runs constantly; warn once per process, not once
 # per pass.
 _WARNED_JSON_SHADOWED: set = set()
+
+_PLAYWRIGHT_AGENT_MODULES = {"agent_qa_kitten", "agent_web_retriever"}
+
+
+def _builtin_agent_modules_to_skip() -> set[str]:
+    """Return builtin agent modules unavailable on the current platform."""
+    modules = {"base_agent", "json_agent", "agent_manager"}
+    if sys.platform == "android":
+        modules.update(_PLAYWRIGHT_AGENT_MODULES)
+    return modules
 
 
 # Session persistence file path
@@ -254,12 +265,10 @@ def _discover_agents_locked(message_group_id: Optional[str] = None):
     import code_puppy.agents as agents_package
 
     # Iterate through all modules in the agents package
+    skip_modules = _builtin_agent_modules_to_skip()
+
     for _, modname, _ in pkgutil.iter_modules(agents_package.__path__):
-        if modname.startswith("_") or modname in [
-            "base_agent",
-            "json_agent",
-            "agent_manager",
-        ]:
+        if modname.startswith("_") or modname in skip_modules:
             continue
 
         try:

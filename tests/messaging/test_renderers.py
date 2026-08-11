@@ -351,27 +351,14 @@ async def test_message_renderer_stop_cancelled_error(mq):
     assert not r._running
 
 
-def test_sync_renderer_human_input_request_no_prompt_id(mq):
+@pytest.mark.parametrize("metadata", [{}, None], ids=["no_prompt_id", "no_metadata"])
+def test_sync_renderer_human_input_request_missing_prompt_id(mq, metadata):
     console = make_console()
     r = SynchronousInteractiveRenderer(mq, console=console)
-    msg = UIMessage(
-        type=MessageType.HUMAN_INPUT_REQUEST,
-        content="prompt",
-        metadata={},
-    )
-    r._render_message(msg)
-    output = console.file.getvalue()
-    assert "Error" in output
-
-
-def test_sync_renderer_human_input_request_no_metadata(mq):
-    console = make_console()
-    r = SynchronousInteractiveRenderer(mq, console=console)
-    msg = UIMessage(
-        type=MessageType.HUMAN_INPUT_REQUEST,
-        content="prompt",
-    )
-    msg.metadata = None
+    # Post-assignment on purpose: UIMessage.__post_init__ would otherwise
+    # normalize a None metadata to {} before the renderer can see it.
+    msg = UIMessage(type=MessageType.HUMAN_INPUT_REQUEST, content="prompt")
+    msg.metadata = metadata
     r._render_message(msg)
     output = console.file.getvalue()
     assert "Error" in output
@@ -389,8 +376,12 @@ def test_sync_renderer_human_input_request_success(mock_input, mq):
     r._render_message(msg)
 
 
-@patch("builtins.input", side_effect=EOFError)
-def test_sync_renderer_human_input_eof(mock_input, mq):
+@pytest.mark.parametrize(
+    "input_exc", [EOFError, KeyboardInterrupt], ids=["eof", "keyboard_interrupt"]
+)
+@patch("builtins.input")
+def test_sync_renderer_human_input_abort_exceptions(mock_input, mq, input_exc):
+    mock_input.side_effect = input_exc
     console = make_console()
     r = SynchronousInteractiveRenderer(mq, console=console)
     msg = UIMessage(
@@ -401,21 +392,6 @@ def test_sync_renderer_human_input_eof(mock_input, mq):
     # Bug in source: provide_prompt_response imported inside try, used in except
     # This will raise UnboundLocalError which is caught by the outer handler
     # We just verify it doesn't crash the renderer
-    try:
-        r._render_message(msg)
-    except UnboundLocalError:
-        pass  # Known bug in source
-
-
-@patch("builtins.input", side_effect=KeyboardInterrupt)
-def test_sync_renderer_human_input_keyboard_interrupt(mock_input, mq):
-    console = make_console()
-    r = SynchronousInteractiveRenderer(mq, console=console)
-    msg = UIMessage(
-        type=MessageType.HUMAN_INPUT_REQUEST,
-        content="prompt",
-        metadata={"prompt_id": "p1"},
-    )
     try:
         r._render_message(msg)
     except UnboundLocalError:

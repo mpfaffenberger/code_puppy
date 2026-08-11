@@ -3,7 +3,8 @@
 This plugin:
 1. Injects available skills into system prompts
 2. Registers skill-related tools
-3. Provides /skills slash command (and alias /skill)
+3. Exposes a skills provider via the ``register_skills`` hook
+4. Provides /skills slash command (and alias /skill)
 """
 
 import logging
@@ -88,6 +89,13 @@ def _register_skills_tools() -> List[Dict[str, Any]]:
             "register_func": register_list_or_search_skills,
         },
     ]
+
+
+def _register_skills() -> List[Dict[str, Any]]:
+    """Expose the plugin through the neutral ``register_skills`` provider seam."""
+    from .provider import skill_provider
+
+    return [{"provider": skill_provider}]
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +302,7 @@ def _handle_skills_command(command: str, name: str) -> Optional[Any]:
 # ---------------------------------------------------------------------------
 register_callback("get_model_system_prompt", _inject_skills_into_prompt)
 register_callback("register_tools", _register_skills_tools)
+register_callback("register_skills", _register_skills)
 register_callback("custom_command_help", _skills_command_help)
 register_callback("custom_command", _handle_skills_command)
 

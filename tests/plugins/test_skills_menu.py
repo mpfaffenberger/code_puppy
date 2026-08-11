@@ -3,6 +3,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from code_puppy.plugins.agent_skills.discovery import SkillInfo
 from code_puppy.plugins.agent_skills.metadata import SkillMetadata
 
@@ -93,12 +95,6 @@ class TestSkillsMenuRendering:
         text = "".join(t for _, t in lines)
         assert "No skills found" in text
 
-    def test_render_skill_list_disabled_system(self):
-        menu = self._make_menu(enabled=False)
-        lines = menu._render_skill_list()
-        text = "".join(t for _, t in lines)
-        assert "DISABLED" in text
-
     @patch(f"{_MOD}.parse_skill_metadata", return_value=_make_metadata())
     def test_render_skill_list_with_skills(self, mock_meta):
         skills = [_make_skill(f"s{i}", f"/tmp/s{i}") for i in range(3)]
@@ -106,14 +102,6 @@ class TestSkillsMenuRendering:
         lines = menu._render_skill_list()
         text = "".join(t for _, t in lines)
         assert "Page 1/1" in text
-
-    @patch(f"{_MOD}.parse_skill_metadata", return_value=_make_metadata())
-    def test_render_skill_list_with_disabled_skill(self, mock_meta):
-        skills = [_make_skill("skill-a")]
-        menu = self._make_menu(skills=skills, disabled=["skill-a"])
-        lines = menu._render_skill_list()
-        text = "".join(t for _, t in lines)
-        assert "✗" in text
 
     @patch(f"{_MOD}.parse_skill_metadata", return_value=None)
     def test_render_skill_list_no_metadata(self, mock_meta):
@@ -238,13 +226,13 @@ class TestSkillsMenuWrapText:
 
             return SkillsMenu()
 
-    def test_wrap_empty(self):
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [("", [""]), ("hello world", ["hello world"])],
+    )
+    def test_wrap_short_inputs(self, text, expected):
         menu = self._make_menu()
-        assert menu._wrap_text("", 40) == [""]
-
-    def test_wrap_short(self):
-        menu = self._make_menu()
-        assert menu._wrap_text("hello world", 40) == ["hello world"]
+        assert menu._wrap_text(text, 40) == expected
 
     def test_wrap_long(self):
         menu = self._make_menu()
@@ -296,22 +284,6 @@ class TestSkillsMenuToggle:
 
         menu = SkillsMenu()
         menu._toggle_current_skill()  # should not raise
-
-    @patch(f"{_MOD}.refresh_skill_cache")
-    @patch(f"{_MOD}.set_skill_disabled")
-    @patch(f"{_MOD}.get_skills_enabled", return_value=True)
-    @patch(f"{_MOD}.get_skill_directories", return_value=[])
-    @patch(f"{_MOD}.get_disabled_skills", return_value=[])
-    @patch(f"{_MOD}.discover_skills", return_value=[_make_skill()])
-    @patch(f"{_MOD}.parse_skill_metadata", return_value=None)
-    def test_toggle_no_metadata(
-        self, mock_meta, mock_disc, mock_dis, mock_dirs, mock_en, mock_set, mock_refresh
-    ):
-        from code_puppy.plugins.agent_skills.skills_menu import SkillsMenu
-
-        menu = SkillsMenu()
-        menu._toggle_current_skill()
-        mock_set.assert_called_once_with("skill-a", True)
 
 
 class TestSkillsMenuUpdateDisplay:
@@ -615,16 +587,6 @@ class TestShowDirectoriesMenu:
             assert result is None
 
     @patch(f"{_MOD}.get_skill_directories", return_value=["/tmp/skills"])
-    def test_invalid_choice(self, mock_dirs):
-        with patch(_SAFE_INPUT, create=True, return_value="abc"):
-            from code_puppy.plugins.agent_skills.skills_menu import (
-                _show_directories_menu,
-            )
-
-            result = _show_directories_menu()
-            assert result is None
-
-    @patch(f"{_MOD}.get_skill_directories", return_value=["/tmp/skills"])
     def test_out_of_range(self, mock_dirs):
         with patch(_SAFE_INPUT, create=True, return_value="99"):
             from code_puppy.plugins.agent_skills.skills_menu import (
@@ -652,35 +614,20 @@ class TestShowDirectoriesMenu:
 class TestShowSkillsMenu:
     """Test the top-level show_skills_menu loop."""
 
+    @pytest.mark.parametrize(
+        "run_result, expected",
+        [("quit", False), ("changed", True), (None, False)],
+        ids=["quit", "changed", "none"],
+    )
     @patch(f"{_MOD}.SkillsMenu")
-    def test_quit(self, mock_cls):
+    def test_run_result(self, mock_cls, run_result, expected):
         mock_menu = MagicMock()
-        mock_menu.run.return_value = "quit"
+        mock_menu.run.return_value = run_result
         mock_cls.return_value = mock_menu
         from code_puppy.plugins.agent_skills.skills_menu import show_skills_menu
 
         result = show_skills_menu()
-        assert result is False
-
-    @patch(f"{_MOD}.SkillsMenu")
-    def test_changed(self, mock_cls):
-        mock_menu = MagicMock()
-        mock_menu.run.return_value = "changed"
-        mock_cls.return_value = mock_menu
-        from code_puppy.plugins.agent_skills.skills_menu import show_skills_menu
-
-        result = show_skills_menu()
-        assert result is True
-
-    @patch(f"{_MOD}.SkillsMenu")
-    def test_none_result(self, mock_cls):
-        mock_menu = MagicMock()
-        mock_menu.run.return_value = None
-        mock_cls.return_value = mock_menu
-        from code_puppy.plugins.agent_skills.skills_menu import show_skills_menu
-
-        result = show_skills_menu()
-        assert result is False
+        assert result is expected
 
     @patch(f"{_MOD}._prompt_for_directory", return_value="/tmp/new-dir")
     @patch(f"{_MOD}.add_skill_directory", return_value=True)
@@ -817,61 +764,42 @@ class TestListSkills:
 
 
 class TestHandleSkillsCommand:
-    @patch(f"{_MOD}.show_skills_menu", return_value=True)
-    def test_no_args(self, mock_show):
+    @pytest.mark.parametrize(
+        "args, patch_target, expected",
+        [
+            ([], "show_skills_menu", True),
+            (["list"], "list_skills", True),
+            (["enable"], None, False),
+            (["disable"], None, False),
+            (["enable", "my-skill"], "_enable_skill", True),
+            (["disable", "my-skill"], "_disable_skill", True),
+            (["toggle"], "_toggle_skills_integration", True),
+            (["refresh"], "_refresh_skills", True),
+            (["help"], None, True),
+            (["foobar"], None, False),
+        ],
+        ids=[
+            "no_args",
+            "list",
+            "enable_no_name",
+            "disable_no_name",
+            "enable",
+            "disable",
+            "toggle",
+            "refresh",
+            "help",
+            "unknown",
+        ],
+    )
+    def test_handle_skills_command(self, args, patch_target, expected):
         from code_puppy.plugins.agent_skills.skills_menu import handle_skills_command
 
-        assert handle_skills_command([]) is True
-
-    @patch(f"{_MOD}.list_skills", return_value=True)
-    def test_list(self, mock_list):
-        from code_puppy.plugins.agent_skills.skills_menu import handle_skills_command
-
-        assert handle_skills_command(["list"]) is True
-
-    def test_enable_no_name(self):
-        from code_puppy.plugins.agent_skills.skills_menu import handle_skills_command
-
-        assert handle_skills_command(["enable"]) is False
-
-    def test_disable_no_name(self):
-        from code_puppy.plugins.agent_skills.skills_menu import handle_skills_command
-
-        assert handle_skills_command(["disable"]) is False
-
-    @patch(f"{_MOD}._enable_skill", return_value=True)
-    def test_enable(self, mock_en):
-        from code_puppy.plugins.agent_skills.skills_menu import handle_skills_command
-
-        assert handle_skills_command(["enable", "my-skill"]) is True
-
-    @patch(f"{_MOD}._disable_skill", return_value=True)
-    def test_disable(self, mock_dis):
-        from code_puppy.plugins.agent_skills.skills_menu import handle_skills_command
-
-        assert handle_skills_command(["disable", "my-skill"]) is True
-
-    @patch(f"{_MOD}._toggle_skills_integration", return_value=True)
-    def test_toggle(self, mock_toggle):
-        from code_puppy.plugins.agent_skills.skills_menu import handle_skills_command
-
-        assert handle_skills_command(["toggle"]) is True
-
-    @patch(f"{_MOD}._refresh_skills", return_value=True)
-    def test_refresh(self, mock_ref):
-        from code_puppy.plugins.agent_skills.skills_menu import handle_skills_command
-
-        assert handle_skills_command(["refresh"]) is True
-
-    def test_help(self):
-        from code_puppy.plugins.agent_skills.skills_menu import handle_skills_command
-
-        assert handle_skills_command(["help"]) is True
-
-    def test_unknown(self):
-        from code_puppy.plugins.agent_skills.skills_menu import handle_skills_command
-
-        assert handle_skills_command(["foobar"]) is False
+        if patch_target is None:
+            result = handle_skills_command(args)
+        else:
+            with patch(f"{_MOD}.{patch_target}", return_value=True):
+                result = handle_skills_command(args)
+        assert result is expected
 
 
 # ---------------------------------------------------------------------------

@@ -8,23 +8,6 @@ import code_puppy.command_line.uc_menu  # noqa: F401
 _PLUGINS_LOADED = False
 
 
-def _is_namespaced_custom_command(first_token: str) -> bool:
-    """True if ``first_token`` (e.g. ``/flux/status``) is a loaded custom command.
-
-    Namespaced custom commands legitimately contain multiple slashes, which
-    would otherwise trip the file-path disambiguation heuristic in
-    :func:`handle_command`. Fails closed (returns False) if the plugin isn't
-    available so genuine paths still fall through to normal input.
-    """
-    try:
-        from code_puppy.plugins.customizable_commands.register_callbacks import (
-            is_custom_command,
-        )
-    except ImportError:
-        return False
-    return is_custom_command(first_token.lstrip("/"))
-
-
 def get_commands_help():
     """Generate aligned commands help using Rich Text for safe markup.
 
@@ -179,6 +162,27 @@ def _ensure_plugins_loaded() -> None:
 # All command handlers moved to builtin_commands.py
 # The import above triggers their registration
 
+
+def _dispatch_custom_command(command: str, name: str):
+    """Dispatch through the plugin callback boundary.
+
+    Returns ``(handled, result)`` so namespaced commands can be distinguished
+    from file paths without knowing which plugin provides them.
+    """
+    from code_puppy import callbacks
+    from code_puppy.messaging import emit_info
+
+    for result in callbacks.on_custom_command(command=command, name=name):
+        if result is True:
+            return True, True
+        if isinstance(result, callbacks.CustomCommandResult):
+            return True, result.content
+        if isinstance(result, str):
+            emit_info(result)
+            return True, True
+    return False, None
+
+
 # ============================================================================
 # MAIN COMMAND DISPATCHER
 # ============================================================================
@@ -214,7 +218,15 @@ def handle_command(command: str):
     if command.startswith("/"):
         first_token = command.split()[0] if command.split() else command
         slash_count = first_token.count("/")
-        if slash_count > 1 and not _is_namespaced_custom_command(first_token):
+        if slash_count > 1:
+            name = first_token.lstrip("/")
+            try:
+                handled, result = _dispatch_custom_command(command, name)
+            except Exception as e:
+                emit_warning(f"Custom command hook error: {e}")
+                handled, result = False, None
+            if handled:
+                return result
             # This looks like a file path, not a command - let it be processed as normal input
             return False
 
@@ -271,33 +283,9 @@ def handle_command(command: str):
         # Extract command name without leading slash and arguments intact
         name = command[1:].split()[0] if len(command) > 1 else ""
         try:
-            from code_puppy import callbacks
-
-            # Import the special result class for markdown commands
-            try:
-                from code_puppy.plugins.customizable_commands.register_callbacks import (
-                    MarkdownCommandResult,
-                )
-            except ImportError:
-                MarkdownCommandResult = None
-
-            results = callbacks.on_custom_command(command=command, name=name)
-            # Iterate through callback results; treat str as handled (no model run)
-            for res in results:
-                if res is True:
-                    return True
-                if MarkdownCommandResult and isinstance(res, MarkdownCommandResult):
-                    # Special case: markdown command that should be processed as input
-                    # Replace the command with the markdown content and let it be processed
-                    # This is handled by the caller, so return the content as string
-                    return res.content
-                if isinstance(res, str):
-                    # Display returned text to the user and treat as handled
-                    try:
-                        emit_info(res)
-                    except Exception:
-                        pass
-                    return True
+            handled, result = _dispatch_custom_command(command, name)
+            if handled:
+                return result
         except Exception as e:
             # Log via emit_error but do not block default handling
             emit_warning(f"Custom command hook error: {e}")

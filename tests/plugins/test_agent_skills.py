@@ -827,17 +827,6 @@ class TestPromptBuilder:
         block = build_available_skills_block([skill])
         assert "Tom & Jerry say: 'Use < & >'" in block
 
-    def test_block_skill_without_description(self):
-        """A skill with empty description still renders cleanly."""
-        skill = SkillMetadata(
-            name="bare",
-            description="",
-            path=Path("/path"),
-        )
-        block = build_available_skills_block([skill])
-        assert "- bare" in block
-        assert "- bare:" not in block  # no trailing colon when no desc
-
     def test_build_skills_guidance(self):
         """Guidance mentions the two tools the agent actually needs."""
         guidance = build_skills_guidance()

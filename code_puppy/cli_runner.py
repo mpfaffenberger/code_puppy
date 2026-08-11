@@ -42,6 +42,7 @@ from code_puppy.keymap import (
     validate_cancel_agent_key,
 )
 from code_puppy.messaging import emit_info
+from code_puppy.platform_utils import startup_banner_text
 from code_puppy.terminal_utils import (
     print_truecolor_warning,
     reset_unix_terminal,
@@ -245,7 +246,7 @@ async def main():
             import pyfiglet
 
             intro_lines = pyfiglet.figlet_format(
-                "CODE PUPPY", font="ansi_shadow"
+                startup_banner_text(), font="ansi_shadow"
             ).split("\n")
 
             # Simple blue to green gradient (top to bottom)
@@ -485,6 +486,25 @@ async def main():
                         session=session_name,
                     )
                 )
+                # Re-render the recent conversation so an interactive resume
+                # shows where you left off -- matching /load, /load_context,
+                # and the interactive autosave picker, which all call this.
+                # ``-r`` was the one resume path that loaded history into
+                # context but never painted it, leaving a blank screen after
+                # e.g. a reboot-driven relaunch. Skipped in headless (-p) mode
+                # and when stdout isn't a TTY so scripted/piped runs don't get
+                # a wall of history on stdout. display_resumed_history already
+                # honors ``resume_message_count`` and no-ops on empty history.
+                # Best-effort: never let a rendering hiccup abort startup.
+                if not args.prompt and sys.stdout.isatty():
+                    try:
+                        from code_puppy.command_line.autosave_menu import (
+                            display_resumed_history,
+                        )
+
+                        display_resumed_history(history)
+                    except Exception:
+                        pass
         except Exception as e:
             emit_error(t("cli.resume.failed", target=resume_target, error=e))
             sys.exit(1)

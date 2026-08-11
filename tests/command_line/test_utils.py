@@ -2,7 +2,7 @@
 
 import os
 import tempfile
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -50,14 +50,23 @@ class TestMakeDirectoryTable:
 
 
 class TestResetWindowsConsole:
-    @patch("sys.platform", "linux")
-    def test_non_windows(self):
-        _reset_windows_console()  # Should return early
+    @pytest.mark.parametrize("platform", ["linux", "win32"])
+    def test_no_crash(self, platform):
+        with patch("sys.platform", platform):
+            _reset_windows_console()  # returns early / shouldn't crash
 
     @patch("sys.platform", "win32")
-    def test_windows(self):
-        # Should not crash even though ctypes.windll won't exist on non-windows
-        _reset_windows_console()
+    def test_windows_resets_console_mode(self):
+        kernel32 = MagicMock()
+        kernel32.GetStdHandle.return_value = 123
+        ctypes = MagicMock()
+        ctypes.windll.kernel32 = kernel32
+
+        with patch.dict("sys.modules", {"ctypes": ctypes}):
+            _reset_windows_console()
+
+        kernel32.GetStdHandle.assert_called_once_with(-10)
+        kernel32.SetConsoleMode.assert_called_once_with(123, 0x0007)
 
 
 class TestSafeInput:

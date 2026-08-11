@@ -7,6 +7,8 @@ list/detail render smoke tests over a representative menu.
 
 from __future__ import annotations
 
+import pytest
+
 from code_puppy.plugins.prune.prune_menu import PruneMenu
 from code_puppy.plugins.prune.prune_model import (
     ContextBudget,
@@ -42,26 +44,19 @@ def _flatten(formatted) -> str:
 
 
 class TestCtxIndicator:
-    def test_in_context(self):
-        e = MessageEntry(
-            history_index=1, role="user", preview="", full_text="", in_context=True
+    @pytest.mark.parametrize(
+        ("in_context", "codepoint"), [(True, 0x25CF), (False, 0x25CB), (None, 0xB7)]
+    )
+    def test_glyph(self, in_context, codepoint):
+        entry = MessageEntry(
+            history_index=1,
+            role="user",
+            preview="",
+            full_text="",
+            in_context=in_context,
         )
-        glyph, _style = ctx_indicator(e)
-        assert glyph == "●"
-
-    def test_out_of_context(self):
-        e = MessageEntry(
-            history_index=1, role="user", preview="", full_text="", in_context=False
-        )
-        glyph, _style = ctx_indicator(e)
-        assert glyph == "○"
-
-    def test_unknown(self):
-        e = MessageEntry(
-            history_index=1, role="user", preview="", full_text="", in_context=None
-        )
-        glyph, _style = ctx_indicator(e)
-        assert glyph == "·"
+        glyph, _style = ctx_indicator(entry)
+        assert glyph == chr(codepoint)
 
 
 class TestTokensStr:
@@ -119,26 +114,18 @@ class TestRenderBudgetLine:
         out = render_budget_line(b)
         assert "unavailable" in out[0][1]
 
-    def test_success_under_70(self):
-        b = ContextBudget(
-            used_tokens=10, overhead_tokens=10, context_length=100, available=True
-        )  # 20% used
-        out = render_budget_line(b)
-        assert out[0][0] == "class:tui.success"
-
-    def test_warning_70_to_90(self):
-        b = ContextBudget(
-            used_tokens=40, overhead_tokens=40, context_length=100, available=True
-        )  # 80%
-        out = render_budget_line(b)
-        assert out[0][0] == "class:tui.warning"
-
-    def test_error_over_90(self):
-        b = ContextBudget(
-            used_tokens=50, overhead_tokens=45, context_length=100, available=True
-        )  # 95%
-        out = render_budget_line(b)
-        assert out[0][0] == "class:tui.error"
+    @pytest.mark.parametrize(
+        ("used", "overhead", "style"),
+        [(10, 10, "success"), (40, 40, "warning"), (50, 45, "error")],
+    )
+    def test_usage_style_thresholds(self, used, overhead, style):
+        budget = ContextBudget(
+            used_tokens=used,
+            overhead_tokens=overhead,
+            context_length=100,
+            available=True,
+        )
+        assert render_budget_line(budget)[0][0] == f"class:tui.{style}"
 
     def test_shows_overflow_when_messages_dont_fit(self):
         b = ContextBudget(

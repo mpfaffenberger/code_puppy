@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from code_puppy.tools import (
     REMOVED_LEGACY_TOOLS,
     TOOL_REGISTRY,
@@ -123,47 +125,25 @@ class TestRemovedReasoningToolBehavior:
         assert has_extended_thinking_active("gemini-2.5-pro") is False
         assert has_extended_thinking_active("o3-mini") is False
 
+    @pytest.mark.parametrize(
+        "model,setting,expected",
+        [
+            ("claude-sonnet-4-20250514", {"extended_thinking": "enabled"}, True),
+            ("claude-sonnet-4-20250514", {"extended_thinking": "adaptive"}, True),
+            ("claude-sonnet-4-20250514", {"extended_thinking": "off"}, False),
+            ("claude-sonnet-4-20250514", {"extended_thinking": True}, True),
+            ("claude-sonnet-4-20250514", {"extended_thinking": False}, False),
+            ("anthropic-claude-sonnet", {"extended_thinking": "enabled"}, True),
+            ("claude-sonnet-4-20250514", {}, True),
+        ],
+    )
     @patch("code_puppy.config.get_effective_model_settings")
-    def testhas_extended_thinking_active_claude_enabled(self, mock_settings):
-        """Returns True for Claude models with extended_thinking='enabled'."""
-        mock_settings.return_value = {"extended_thinking": "enabled"}
-        assert has_extended_thinking_active("claude-sonnet-4-20250514") is True
-
-    @patch("code_puppy.config.get_effective_model_settings")
-    def testhas_extended_thinking_active_claude_adaptive(self, mock_settings):
-        """Returns True for Claude models with extended_thinking='adaptive'."""
-        mock_settings.return_value = {"extended_thinking": "adaptive"}
-        assert has_extended_thinking_active("claude-sonnet-4-20250514") is True
-
-    @patch("code_puppy.config.get_effective_model_settings")
-    def testhas_extended_thinking_active_claude_off(self, mock_settings):
-        """Returns False for Claude models with extended_thinking='off'."""
-        mock_settings.return_value = {"extended_thinking": "off"}
-        assert has_extended_thinking_active("claude-sonnet-4-20250514") is False
-
-    @patch("code_puppy.config.get_effective_model_settings")
-    def testhas_extended_thinking_active_legacy_bool_true(self, mock_settings):
-        """Returns True for legacy boolean True (backwards compat)."""
-        mock_settings.return_value = {"extended_thinking": True}
-        assert has_extended_thinking_active("claude-sonnet-4-20250514") is True
-
-    @patch("code_puppy.config.get_effective_model_settings")
-    def testhas_extended_thinking_active_legacy_bool_false(self, mock_settings):
-        """Returns False for legacy boolean False (backwards compat)."""
-        mock_settings.return_value = {"extended_thinking": False}
-        assert has_extended_thinking_active("claude-sonnet-4-20250514") is False
-
-    @patch("code_puppy.config.get_effective_model_settings")
-    def testhas_extended_thinking_active_anthropic_prefix(self, mock_settings):
-        """Also works for 'anthropic-' prefixed model names."""
-        mock_settings.return_value = {"extended_thinking": "enabled"}
-        assert has_extended_thinking_active("anthropic-claude-sonnet") is True
-
-    @patch("code_puppy.config.get_effective_model_settings")
-    def test_has_extended_thinking_default_is_enabled(self, mock_settings):
-        """When no extended_thinking setting exists, defaults to 'enabled'."""
-        mock_settings.return_value = {}  # No extended_thinking key
-        assert has_extended_thinking_active("claude-sonnet-4-20250514") is True
+    def test_has_extended_thinking_active(
+        self, mock_settings, model, setting, expected
+    ):
+        """Claude extended_thinking resolves per setting; defaults to enabled."""
+        mock_settings.return_value = setting
+        assert has_extended_thinking_active(model) is expected
 
     def test_legacy_reasoning_tool_remains_in_registry_for_custom_agents(self):
         """Custom JSON agents can still request the legacy reasoning tool."""

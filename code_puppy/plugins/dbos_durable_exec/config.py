@@ -21,6 +21,11 @@ def is_enabled() -> bool:
     return str(cfg_val).strip().lower() in ("true", "1", "yes", "on")
 
 
+def feature_capability(name: str) -> bool | None:
+    """Expose plugin state through the generic feature-capability callback."""
+    return is_enabled() if name == "dbos_durable_exec" else None
+
+
 def set_enabled(enabled: bool) -> None:
     """Persist the 'enable_dbos' switch to puppy.cfg."""
     set_config_value("enable_dbos", "true" if enabled else "false")

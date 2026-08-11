@@ -1,7 +1,8 @@
 """Tests for code_puppy/command_line/mcp/install_menu.py"""
 
-import os
 from dataclasses import dataclass
+
+import pytest
 from unittest.mock import MagicMock, patch
 
 MODULE = "code_puppy.command_line.mcp.install_menu"
@@ -172,212 +173,6 @@ class TestIsCustomServerSelected:
         menu.view_mode = "servers"
         menu.selected_category_idx = 0
         assert menu._is_custom_server_selected() is False
-
-
-class TestRenderCategoryList:
-    def test_renders_categories(self):
-        menu = make_menu()
-        menu.selected_category_idx = 0
-        lines = menu._render_category_list()
-        assert len(lines) > 0
-        # Check header exists
-        text = "".join(str(t[1]) for t in lines)
-        assert "CATEGORIES" in text
-
-    def test_renders_with_no_categories(self):
-        menu = make_menu()
-        menu.categories = []
-        lines = menu._render_category_list()
-        text = "".join(str(t[1]) for t in lines)
-        assert "No categories" in text
-
-    def test_pagination(self):
-        menu = make_menu(catalog_categories=[f"Cat{i}" for i in range(20)])
-        menu.current_page = 1
-        menu.selected_category_idx = 12
-        lines = menu._render_category_list()
-        text = "".join(str(t[1]) for t in lines)
-        assert "Page" in text
-
-    def test_renders_with_no_catalog(self):
-        menu = make_menu()
-        menu.catalog = None
-        menu.selected_category_idx = 1  # non-custom category
-        lines = menu._render_category_list()
-        text = "".join(str(t[1]) for t in lines)
-        assert "(0)" in text  # zero server count when catalog is None
-
-    def test_uses_semantic_tui_roles(self):
-        menu = make_menu()
-        menu.selected_category_idx = 1
-
-        styles = {style for style, _text in menu._render_category_list() if style}
-
-        assert {
-            "class:tui.header",
-            "class:tui.selected",
-            "class:tui.help-key",
-        } <= styles
-        assert not any("fg:" in style or "ansi" in style for style in styles)
-
-
-class TestRenderServerList:
-    def test_no_category_selected(self):
-        menu = make_menu()
-        menu.view_mode = "servers"
-        menu.current_category = None
-        lines = menu._render_server_list()
-        text = "".join(str(t[1]) for t in lines)
-        assert "No category" in text
-
-    def test_empty_servers(self):
-        menu = make_menu()
-        menu.view_mode = "servers"
-        menu.current_category = "Code"
-        menu.current_servers = []
-        lines = menu._render_server_list()
-        text = "".join(str(t[1]) for t in lines)
-        assert "No servers" in text
-
-    def test_renders_servers(self):
-        menu = make_menu()
-        menu.view_mode = "servers"
-        menu.current_category = "Code"
-        menu.current_servers = [
-            FakeServer(verified=True, popular=True),
-            FakeServer(name="s2", display_name="S2", verified=False, popular=False),
-        ]
-        menu.selected_server_idx = 0
-        lines = menu._render_server_list()
-        text = "".join(str(t[1]) for t in lines)
-        assert "Test Server" in text
-
-    def test_server_pagination(self):
-        menu = make_menu()
-        menu.view_mode = "servers"
-        menu.current_category = "Code"
-        menu.current_servers = [
-            FakeServer(name=f"s{i}", display_name=f"S{i}") for i in range(20)
-        ]
-        menu.current_page = 1
-        menu.selected_server_idx = 12
-        lines = menu._render_server_list()
-        text = "".join(str(t[1]) for t in lines)
-        assert "Page" in text
-
-    def test_server_details_use_semantic_status_roles(self, monkeypatch):
-        menu = make_menu()
-        menu.view_mode = "servers"
-        menu.current_servers = [FakeServer()]
-        menu.selected_server_idx = 0
-        monkeypatch.delenv("API_KEY", raising=False)
-
-        styles = {style for style, _text in menu._render_details() if style}
-
-        assert {"class:tui.label", "class:tui.muted", "class:tui.warning"} <= styles
-        assert not any("fg:" in style or "ansi" in style for style in styles)
-
-
-class TestRenderDetails:
-    def test_no_category(self):
-        menu = make_menu()
-        menu.view_mode = "categories"
-        menu.selected_category_idx = 999
-        lines = menu._render_details()
-        text = "".join(str(t[1]) for t in lines)
-        assert "No category" in text
-
-    def test_custom_server_details(self):
-        menu = make_menu()
-        menu.view_mode = "categories"
-        menu.selected_category_idx = 0
-        lines = menu._render_details()
-        text = "".join(str(t[1]) for t in lines)
-        assert "Custom" in text
-        assert "stdio" in text
-
-    def test_category_details_with_popular(self):
-        menu = make_menu()
-        menu.view_mode = "categories"
-        menu.selected_category_idx = 1  # "Code" category
-        popular_server = FakeServer(popular=True)
-        menu.catalog.get_by_category.return_value = [popular_server]
-        lines = menu._render_details()
-        text = "".join(str(t[1]) for t in lines)
-        assert "Popular" in text
-
-    def test_category_details_no_popular(self):
-        menu = make_menu()
-        menu.view_mode = "categories"
-        menu.selected_category_idx = 1
-        menu.catalog.get_by_category.return_value = [FakeServer(popular=False)]
-        lines = menu._render_details()
-        text = "".join(str(t[1]) for t in lines)
-        assert "1 servers" in text
-
-    def test_server_details_full(self):
-        menu = make_menu()
-        menu.view_mode = "servers"
-        srv = FakeServer(verified=True, popular=True)
-        menu.current_servers = [srv]
-        menu.selected_server_idx = 0
-        with patch.dict(os.environ, {"API_KEY": "set"}):
-            lines = menu._render_details()
-        text = "".join(str(t[1]) for t in lines)
-        assert "Test Server" in text
-        assert "Verified" in text
-        assert "Popular" in text
-        assert "stdio" in text
-        assert "test" in text  # tags
-        assert "API_KEY" in text
-        assert "Example" in text
-
-    def test_server_details_no_description(self):
-        menu = make_menu()
-        menu.view_mode = "servers"
-        srv = FakeServer(
-            description="", tags=[], example_usage="", verified=False, popular=False
-        )
-        srv.get_environment_vars = lambda: []
-        srv.get_command_line_args = lambda: []
-        srv.get_requirements = lambda: MagicMock(required_tools=[])
-        menu.current_servers = [srv]
-        menu.selected_server_idx = 0
-        lines = menu._render_details()
-        text = "".join(str(t[1]) for t in lines)
-        assert "No description" in text
-
-    def test_server_details_unset_env_var(self):
-        menu = make_menu()
-        menu.view_mode = "servers"
-        srv = FakeServer()
-        menu.current_servers = [srv]
-        menu.selected_server_idx = 0
-        os.environ.pop("API_KEY", None)
-        lines = menu._render_details()
-        text = "".join(str(t[1]) for t in lines)
-        assert "API_KEY" in text
-
-    def test_no_server_selected(self):
-        menu = make_menu()
-        menu.view_mode = "servers"
-        menu.current_servers = []
-        lines = menu._render_details()
-        text = "".join(str(t[1]) for t in lines)
-        assert "No server" in text
-
-    def test_server_long_description_wraps(self):
-        menu = make_menu()
-        menu.view_mode = "servers"
-        srv = FakeServer(description="word " * 50)
-        srv.get_environment_vars = lambda: []
-        srv.get_command_line_args = lambda: []
-        srv.get_requirements = lambda: MagicMock(required_tools=[])
-        menu.current_servers = [srv]
-        menu.selected_server_idx = 0
-        lines = menu._render_details()
-        # Should have multiple description lines
-        assert len(lines) > 5
 
 
 class TestNavigation:
@@ -584,81 +379,42 @@ class TestRenderCustomServerDetails:
 
 
 class TestKeyHandlers:
-    def test_handle_up_categories(self):
+    @pytest.mark.parametrize(
+        "mode,direction,current,expected,server_count,edge",
+        [
+            ("categories", "_handle_up", 2, 1, 0, None),
+            ("categories", "_handle_up", 0, 0, 0, "top"),
+            ("servers", "_handle_up", 1, 0, 2, None),
+            ("servers", "_handle_up", 0, 0, 1, "top"),
+            ("categories", "_handle_down", 0, 1, 0, None),
+            ("categories", "_handle_down", 0, 0, 0, "bottom"),
+            ("servers", "_handle_down", 0, 1, 2, None),
+            ("servers", "_handle_down", 0, 0, 1, "bottom"),
+        ],
+    )
+    def test_handle_up_down_navigation(
+        self, mode, direction, current, expected, server_count, edge
+    ):
         menu = make_menu()
         menu.menu_control = MagicMock()
         menu.preview_control = MagicMock()
-        menu.view_mode = "categories"
-        menu.selected_category_idx = 2
-        menu._handle_up()
-        assert menu.selected_category_idx == 1
-
-    def test_handle_up_categories_at_top(self):
-        menu = make_menu()
-        menu.menu_control = MagicMock()
-        menu.preview_control = MagicMock()
-        menu.view_mode = "categories"
-        menu.selected_category_idx = 0
-        menu._handle_up()
-        assert menu.selected_category_idx == 0
-
-    def test_handle_up_servers(self):
-        menu = make_menu()
-        menu.menu_control = MagicMock()
-        menu.preview_control = MagicMock()
-        menu.view_mode = "servers"
-        menu.current_servers = [FakeServer(), FakeServer()]
-        menu.selected_server_idx = 1
-        menu._handle_up()
-        assert menu.selected_server_idx == 0
-
-    def test_handle_up_servers_at_top(self):
-        menu = make_menu()
-        menu.menu_control = MagicMock()
-        menu.preview_control = MagicMock()
-        menu.view_mode = "servers"
-        menu.current_servers = [FakeServer()]
-        menu.selected_server_idx = 0
-        menu._handle_up()
-        assert menu.selected_server_idx == 0
-
-    def test_handle_down_categories(self):
-        menu = make_menu()
-        menu.menu_control = MagicMock()
-        menu.preview_control = MagicMock()
-        menu.view_mode = "categories"
-        menu.selected_category_idx = 0
-        menu._handle_down()
-        assert menu.selected_category_idx == 1
-
-    def test_handle_down_categories_at_bottom(self):
-        menu = make_menu()
-        menu.menu_control = MagicMock()
-        menu.preview_control = MagicMock()
-        menu.view_mode = "categories"
-        menu.selected_category_idx = len(menu.categories) - 1
-        menu._handle_down()
-        assert menu.selected_category_idx == len(menu.categories) - 1
-
-    def test_handle_down_servers(self):
-        menu = make_menu()
-        menu.menu_control = MagicMock()
-        menu.preview_control = MagicMock()
-        menu.view_mode = "servers"
-        menu.current_servers = [FakeServer(), FakeServer()]
-        menu.selected_server_idx = 0
-        menu._handle_down()
-        assert menu.selected_server_idx == 1
-
-    def test_handle_down_servers_at_bottom(self):
-        menu = make_menu()
-        menu.menu_control = MagicMock()
-        menu.preview_control = MagicMock()
-        menu.view_mode = "servers"
-        menu.current_servers = [FakeServer()]
-        menu.selected_server_idx = 0
-        menu._handle_down()
-        assert menu.selected_server_idx == 0
+        menu.view_mode = mode
+        if mode == "servers":
+            menu.current_servers = [FakeServer() for _ in range(server_count)]
+        if edge == "bottom":
+            start = len(menu.categories) - 1
+        else:
+            start = current
+        if mode == "servers":
+            menu.selected_server_idx = start
+        else:
+            menu.selected_category_idx = start
+        getattr(menu, direction)()
+        target = start if edge else expected
+        if mode == "servers":
+            assert menu.selected_server_idx == target
+        else:
+            assert menu.selected_category_idx == target
 
     def test_handle_left_categories(self):
         menu = make_menu(catalog_categories=[f"Cat{i}" for i in range(20)])

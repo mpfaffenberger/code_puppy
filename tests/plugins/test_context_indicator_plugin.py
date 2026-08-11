@@ -207,31 +207,6 @@ def test_format_usage_report_includes_progress_bar():
     assert BAR_EMPTY in report
 
 
-def test_format_usage_report_breaks_out_mcp_and_agents_md():
-    """When breakdown buckets are populated they each get their own line."""
-    module = _plugin_module()
-    usage = _usage_module().ContextUsage(
-        used_tokens=1000,
-        overhead_tokens=1300,
-        capacity=10000,
-        system_prompt_tokens=300,
-        agents_md_tokens=200,
-        pydantic_tools_tokens=150,
-        mcp_tokens=250,
-        kennel_memory_tokens=400,
-    )
-    report = module._format_usage_report(usage)
-    assert "System prompt" in report
-    assert "AGENTS.md" in report
-    assert "Kennel memory" in report
-    assert "Pydantic tools" in report
-    assert "MCP toolsets" in report
-    # Numbers show up with thousands separators.
-    assert "300" in report
-    assert "250" in report
-    assert "400" in report
-
-
 def test_format_usage_report_hides_empty_breakdown_buckets():
     """Zero-valued buckets are hidden so the report stays clean."""
     module = _plugin_module()

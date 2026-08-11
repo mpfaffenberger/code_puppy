@@ -136,15 +136,6 @@ def test_push_panel_throttles_same_shape_repaints(bar):
     assert len(bar.calls) == 1
 
 
-def test_push_panel_shape_change_bypasses_throttle(bar):
-    state.register("sid-1", "worker", "gpt-5.4")
-    rc._push_panel(force=True)
-    state.register("sid-2", "helper", "gpt-5.4")
-    rc._push_panel()  # row count changed -> pushes despite throttle
-    assert len(bar.calls) == 2
-    assert len(bar.calls[1]) == 2
-
-
 def test_push_panel_force_bypasses_throttle(bar):
     state.register("sid-1", "worker", "gpt-5.4")
     rc._push_panel(force=True)

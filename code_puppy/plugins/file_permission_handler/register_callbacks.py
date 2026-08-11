@@ -13,6 +13,9 @@ from rich.text import Text as RichText
 
 from code_puppy.callbacks import register_callback
 from code_puppy.config import get_diff_context_lines, get_yolo_mode
+from code_puppy.tools.file_permission_state import (
+    register_file_permission_state_provider,
+)
 from code_puppy.tools.common import (
     _find_best_window,
     get_user_approval,
@@ -556,6 +559,18 @@ async def handle_file_permission_async(
     _set_user_feedback(user_feedback)
     return confirmed
 
+
+# Expose the thread-local UX-state accessors to core. Core consumes the
+# `file_permission` hook for the approval decision and reaches the shared
+# state (diff-already-shown flag, last user feedback) through this small
+# provider API instead of importing this plugin module.
+_STATE_PROVIDER_REGISTRATION = register_file_permission_state_provider(
+    set_diff_already_shown=set_diff_already_shown,
+    was_diff_already_shown=was_diff_already_shown,
+    clear_diff_shown_flag=clear_diff_shown_flag,
+    get_last_user_feedback=get_last_user_feedback,
+    clear_user_feedback=clear_user_feedback,
+)
 
 # Register the async callback for file permission handling. The async
 # dispatcher (`on_file_permission_async`) awaits it directly; the sync

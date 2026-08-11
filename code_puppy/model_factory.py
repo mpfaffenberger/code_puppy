@@ -579,16 +579,18 @@ class ModelFactory:
             if not source_path.exists():
                 continue
             try:
-                # Use filtered loading for Claude Code OAuth models to show only latest versions
+                # Use filtered loading for Claude Code OAuth models to show only
+                # latest versions. The plugin self-registers this capability via
+                # the 'load_claude_oauth_models' hook; fall back to standard JSON
+                # loading when it isn't loaded.
                 if use_filtered:
-                    try:
-                        from code_puppy.plugins.claude_code_oauth.utils import (
-                            load_claude_models_filtered,
-                        )
-
-                        extra_config = load_claude_models_filtered()
-                    except ImportError:
-                        # Plugin not available, fall back to standard JSON loading
+                    load_results = callbacks.on_load_claude_oauth_models()
+                    extra_config = next(
+                        (result for result in load_results if isinstance(result, dict)),
+                        None,
+                    )
+                    if extra_config is None:
+                        # Plugin unavailable or failed; fall back to plain JSON.
                         logging.getLogger(__name__).debug(
                             f"claude_code_oauth plugin not available, loading {label} as plain JSON"
                         )

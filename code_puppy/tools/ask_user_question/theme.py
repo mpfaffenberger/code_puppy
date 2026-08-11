@@ -126,12 +126,15 @@ _DEFAULT_RICH = RichColors()
 
 def get_rich_colors() -> RichColors:
     """Return Rich styles backed by the shared prompt-toolkit palette."""
-    from code_puppy.plugins.theme.prompt_toolkit_theme import get_style_rules
+    from code_puppy.callbacks import on_prompt_toolkit_style
 
-    muted_rule = get_style_rules().get("tui.muted", "").removeprefix("fg:")
-    if not muted_rule:
+    style = on_prompt_toolkit_style()
+    if style is None:
         return _DEFAULT_RICH
-    muted = muted_rule.split(maxsplit=1)[0]
+
+    muted = style.get_attrs_for_style_str("class:tui.muted").color
+    if not muted or muted == "default":
+        return _DEFAULT_RICH
 
     muted_style = f"{muted} italic"
     return _DEFAULT_RICH._replace(

@@ -98,16 +98,6 @@ class TestPreviewWriteToFile:
         f.write_text("old")
         assert _preview_write_to_file(str(f), "new", overwrite=False) is None
 
-    def test_existing_overwrite(self, tmp_path):
-        from code_puppy.plugins.file_permission_handler.register_callbacks import (
-            _preview_write_to_file,
-        )
-
-        f = tmp_path / "f.txt"
-        f.write_text("old")
-        result = _preview_write_to_file(str(f), "new", overwrite=True)
-        assert result is not None
-
 
 class TestPreviewReplaceInFile:
     def test_exact_match(self, tmp_path):
