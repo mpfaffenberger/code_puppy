@@ -21,7 +21,7 @@ from code_puppy.messaging import (  # New structured messaging types
     GrepResultMessage,
     get_message_bus,
 )
-from code_puppy.tools.common import resolve_path
+from code_puppy.tools.common import resolve_path, _sanitize_string
 from code_puppy.tools import fs_access
 
 
@@ -631,33 +631,6 @@ def _finalize_read_output(
         )
     )
     return ReadFileOutput(content=content, num_tokens=num_tokens)
-
-
-def _sanitize_string(text: str) -> str:
-    """Sanitize a string to remove invalid Unicode surrogates.
-
-    This handles encoding issues common on Windows with copy-paste operations.
-    """
-    if not text:
-        return text
-    try:
-        # Try encoding - if it works, string is clean
-        text.encode("utf-8")
-        return text
-    except UnicodeEncodeError:
-        pass
-
-    try:
-        # Encode allowing surrogates, then decode replacing them
-        return text.encode("utf-8", errors="surrogatepass").decode(
-            "utf-8", errors="replace"
-        )
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        # Last resort: filter out surrogate characters
-        return "".join(
-            char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
-            for char in text
-        )
 
 
 # Ripgrep flags that change the output away from per-match JSON events.

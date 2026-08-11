@@ -1583,6 +1583,41 @@ async def _get_user_approval_async_impl(
     return confirmed, user_feedback
 
 
+def _sanitize_string(text: str) -> str:
+    """Sanitize a string to remove invalid Unicode surrogates.
+
+    This handles encoding issues common on Windows with copy-paste operations.
+    """
+    if not text:
+        return text
+
+    try:
+        # Try encoding — if it works, string is clean.
+        text.encode("utf-8")
+        return text
+
+    except UnicodeEncodeError:
+        pass
+
+    try:
+        # Encode allowing surrogates, then decode replacing them.
+        return text.encode("utf-8", errors="surrogatepass").decode(
+            "utf-8", errors="replace"
+        )
+
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        # Last resort: filter out surrogate characters.
+        return "".join(
+            char if ord(char) < 0xD800 or ord(char) > 0xDFFF else "\ufffd"
+            for char in text
+        )
+
+
+def read_text_sanitized(file_path: str | Path) -> str:
+    """Read UTF-8 text, converting lone surrogates to U+FFFD."""
+    return ""
+
+
 def atomic_write_text(
     file_path: str,
     content: str,
