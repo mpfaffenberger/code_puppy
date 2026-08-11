@@ -222,6 +222,27 @@ async def test_new_session_and_prompt_streams(wired_agent):
 
 
 @pytest.mark.asyncio
+async def test_new_session_resets_model_fallback_warnings(wired_agent, monkeypatch):
+    """``_warned_model_fallbacks`` (code_puppy/agents/_builder.py) is a
+    process-lifetime global whose only other reset hook is the CLI's
+    ``/clear``. A long-running ACP server hosting multiple concurrent client
+    sessions must not let session A's dead-pin warning silently suppress the
+    identical warning forever for session B, which never saw it -- so every
+    new/loaded/forked session must reset the dedup set.
+    """
+    agent, _ = wired_agent
+    calls = []
+    monkeypatch.setattr(
+        "code_puppy.agents._builder.reset_model_fallback_warnings",
+        lambda: calls.append(1),
+    )
+
+    await agent.new_session(cwd="/tmp")
+
+    assert calls == [1]
+
+
+@pytest.mark.asyncio
 async def test_prompt_absorbs_history_for_memory_and_persistence(monkeypatch):
     """A completed turn must fold result.all_messages() back into the agent.
 

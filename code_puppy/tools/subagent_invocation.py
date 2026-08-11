@@ -321,17 +321,49 @@ async def _invoke_agent_impl(
             if not requested_model_name:
                 raise ValueError("No model configured for sub-agent invocation")
 
-            # A pinned/overridden model that has since vanished from config
+            # A pinned/ambient model that has since vanished from config
             # (removed model entry, unsupported type, missing credentials, ...)
             # must degrade the same way the main agent does: warn and fall back
             # to the global default (then any other configured model) instead
             # of hard-failing the whole sub-agent invocation. See
             # ``load_model_with_fallback`` for the exact fallback order.
+            #
+            # An EXPLICIT override (``invoke_agent_with_model``'s ``model_name``
+            # argument) is a different contract: the caller said "run this one
+            # call on exactly this model", on purpose. Silently substituting a
+            # different model there -- possibly weaker/pricier, with no forced
+            # signal beyond a once-per-conversation warning -- would violate
+            # that contract for automated callers. So a bad explicit override
+            # stays a hard, per-call failure; only the ambient/pinned path
+            # (plain ``invoke_agent``, no override) gets the graceful fallback.
             from code_puppy.agents._builder import load_model_with_fallback
 
-            model, effective_model_name = load_model_with_fallback(
-                requested_model_name, models_config, group_id, agent_name=agent_name
-            )
+            if model_name:
+                try:
+                    model = ModelFactory.get_model(requested_model_name, models_config)
+                    if model is None:
+                        raise ValueError(
+                            f"Model '{requested_model_name}' is configured but "
+                            "could not be initialized. Check credentials, "
+                            "provider availability, and usage limits for that "
+                            "model."
+                        )
+                except ValueError as exc:
+                    available = list(models_config.keys())
+                    available_str = (
+                        ", ".join(sorted(available))
+                        if available
+                        else "no configured models"
+                    )
+                    raise ValueError(
+                        f"Explicit model override '{requested_model_name}' is "
+                        f"unavailable: {exc} Available models: {available_str}."
+                    ) from exc
+                effective_model_name = requested_model_name
+            else:
+                model, effective_model_name = load_model_with_fallback(
+                    requested_model_name, models_config, group_id, agent_name=agent_name
+                )
 
             # Create a temporary agent instance to avoid interfering with current agent state
             instructions = agent_config.get_full_system_prompt()

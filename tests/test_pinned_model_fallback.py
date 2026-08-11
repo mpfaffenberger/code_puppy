@@ -17,7 +17,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from code_puppy.agents._builder import reset_model_fallback_warnings
-from code_puppy.tools.subagent_invocation import register_invoke_agent
+from code_puppy.tools.subagent_invocation import (
+    register_invoke_agent,
+    register_invoke_agent_with_model,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +45,20 @@ def _capture_invoke_default():
 
     mock_agent.tool = capture_tool
     register_invoke_agent(mock_agent)
+    return captured["func"]
+
+
+def _capture_invoke_with_model():
+    """Capture the registered invoke_agent_with_model (explicit override) callable."""
+    mock_agent = MagicMock()
+    captured = {}
+
+    def capture_tool(func):
+        captured["func"] = func
+        return func
+
+    mock_agent.tool = capture_tool
+    register_invoke_agent_with_model(mock_agent)
     return captured["func"]
 
 
@@ -256,4 +273,129 @@ class TestPinnedModelFallback:
         await _invoke_with_dead_pin(agent_name="qa-expert")
         reset_model_fallback_warnings()
         _out, mock_warning = await _invoke_with_dead_pin(agent_name="qa-expert")
+        assert mock_warning.call_count == 1
+
+
+async def _invoke_with_dead_explicit_override(dead_model="dead-model"):
+    """Drive ``invoke_agent_with_model`` with an EXPLICIT ``model_name``
+    override that isn't in ``models_config``, and return the output.
+
+    Unlike the ambient/pinned path (``_invoke_with_dead_pin``), a bad explicit
+    override must hard-fail -- silently substituting a different model than
+    the one the caller explicitly asked for would violate that tool's
+    contract for automated callers.
+    """
+    invoke = _capture_invoke_with_model()
+    mock_context = MagicMock()
+    agent_config = _build_agent_config(dead_model)
+
+    def fake_get_model(model_name, config):
+        if model_name not in config:
+            raise ValueError(f"Model '{model_name}' not found in configuration.")
+        return MagicMock()
+
+    with ExitStack() as stack:
+        p = stack.enter_context
+        p(
+            patch(
+                "code_puppy.tools.subagent_invocation.generate_group_id",
+                return_value="test-group",
+            )
+        )
+        p(patch("code_puppy.tools.subagent_invocation.get_message_bus"))
+        p(
+            patch(
+                "code_puppy.tools.subagent_invocation.get_session_context",
+                return_value="parent",
+            )
+        )
+        p(patch("code_puppy.tools.subagent_invocation.set_session_context"))
+        p(patch("code_puppy.tools.subagent_invocation.emit_info"))
+        p(patch("code_puppy.tools.subagent_invocation.emit_error"))
+        p(patch("code_puppy.tools.subagent_invocation.emit_warning"))
+        p(patch("code_puppy.agents._builder.emit_warning"))
+        p(patch("code_puppy.tools.subagent_invocation._save_session_history"))
+        p(
+            patch(
+                "code_puppy.tools.subagent_invocation._load_session_history",
+                return_value=[],
+            )
+        )
+        p(
+            patch(
+                "code_puppy.tools.subagent_invocation._generate_session_hash_suffix",
+                return_value="abc123",
+            )
+        )
+        p(
+            patch(
+                "code_puppy.agents.agent_manager.load_agent",
+                return_value=agent_config,
+            )
+        )
+        p(
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value={"global-default-model": {}, "healthy-model": {}},
+            )
+        )
+        p(
+            patch(
+                "code_puppy.model_factory.ModelFactory.get_model",
+                side_effect=fake_get_model,
+            )
+        )
+        p(patch("code_puppy.model_factory.make_model_settings"))
+        p(
+            patch(
+                "code_puppy.agents._builder.get_global_model_name",
+                return_value="global-default-model",
+            )
+        )
+
+        return await invoke(
+            mock_context,
+            agent_name="test-agent",
+            prompt="Hello",
+            model_name=dead_model,
+        )
+
+
+class TestExplicitModelOverrideHardFails:
+    """``invoke_agent_with_model``'s ``model_name`` is an explicit, per-call
+    contract ("run this exactly on this model"), unlike the ambient pinned
+    model. A bad explicit override must raise immediately -- NOT silently
+    substitute a different model the caller never asked for.
+    """
+
+    @pytest.mark.asyncio
+    async def test_bad_explicit_override_raises_instead_of_falling_back(self):
+        out = await _invoke_with_dead_explicit_override()
+
+        # A hard failure surfaced through the tool's normal error contract,
+        # not a silently-substituted model reported as success.
+        assert out.response is None
+        assert out.error is not None
+        assert "dead-model" in out.error
+
+    @pytest.mark.asyncio
+    async def test_error_message_names_available_models(self):
+        out = await _invoke_with_dead_explicit_override()
+
+        assert "healthy-model" in out.error
+        assert "global-default-model" in out.error
+
+    @pytest.mark.asyncio
+    async def test_does_not_touch_the_ambient_fallback_warning_path(self):
+        """The explicit-override hard-fail must not route through, or
+        interfere with, ``load_model_with_fallback``'s dedup state -- it's a
+        different contract entirely.
+        """
+        await _invoke_with_dead_explicit_override(dead_model="another-dead-model")
+
+        # The ambient/pinned path for the same agent+model must still warn
+        # (not be marked "already warned" by the override's hard failure).
+        _out, mock_warning = await _invoke_with_dead_pin(
+            agent_name="test-agent", pinned_model="another-dead-model"
+        )
         assert mock_warning.call_count == 1
