@@ -73,7 +73,7 @@ def create_ollama_model(
     """
     try:
         if "custom_endpoint" in model_config:
-            url, headers, verify, api_key = get_custom_config(model_config)
+            url, headers, verify, api_key, _timeout = get_custom_config(model_config)
         else:
             # Derive base URL: OLLAMA_HOST env var → default
             ollama_host = os.environ.get("OLLAMA_HOST", "").rstrip("/")
