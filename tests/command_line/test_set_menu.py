@@ -47,6 +47,16 @@ def find_setting(key: str) -> Setting:
     raise AssertionError(f"Setting '{key}' not found in SETTINGS_CATEGORIES")
 
 
+def test_dbos_effective_value_uses_plugin_capability():
+    setting = find_setting("enable_dbos")
+    with patch(
+        "code_puppy.command_line.set_menu_catalog.get_feature_capability",
+        return_value=False,
+    ) as capability:
+        assert setting.effective_getter() is False
+    capability.assert_called_once_with("dbos_durable_exec")
+
+
 # ---------------------------------------------------------------------------
 # apply_setting validation
 # ---------------------------------------------------------------------------

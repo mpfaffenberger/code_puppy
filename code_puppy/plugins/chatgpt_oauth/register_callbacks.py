@@ -14,10 +14,11 @@ from code_puppy.callbacks import register_callback
 from code_puppy.i18n import t
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.model_switching import set_model_and_reload_agent
+from code_puppy.plugins.agent_skills.discovery import refresh_skill_cache
 
 from .config import CHATGPT_OAUTH_CONFIG, get_token_storage_path
 from .oauth_flow import run_oauth_flow
-from .usage import refresh_usage_in_background
+from .usage import get_usage_status, refresh_usage_in_background
 from .utils import (
     get_valid_access_token,
     load_chatgpt_models,
@@ -89,6 +90,10 @@ def _handle_chatgpt_logout() -> None:
 
     if was_authenticated:
         _reload_active_agent()
+        # Mirror the tool-unbinding reload above: the codex-imagegen skill is
+        # gated on auth too, so drop it from the skill cache immediately
+        # instead of leaving it visible until the next restart.
+        refresh_skill_cache()
 
 
 def _is_codex_oauth_authenticated() -> bool:
@@ -125,6 +130,10 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     if name in {"chatgpt-auth", "codex-auth"}:
         run_oauth_flow()
         set_model_and_reload_agent("codex-gpt-5.6-sol")
+        # Authentication may have just succeeded, so the codex-imagegen skill
+        # (gated the same way as the codex_imagegen tool) needs to be
+        # re-discovered rather than waiting for the next process restart.
+        refresh_skill_cache()
         return True
 
     if name in {"chatgpt-status", "codex-status"}:
@@ -228,6 +237,13 @@ def _create_chatgpt_oauth_model(
 
 
 def _register_imagegen_skill() -> list[dict[str, str]]:
+    # Gated the same way as _advertise_imagegen_tool below: the skill's own
+    # instructions tell the model to call codex_imagegen(...), which doesn't
+    # exist as an available tool for an unauthenticated user. Hiding the
+    # skill itself avoids the confusing case where a model activates it,
+    # tries the tool call, and only then discovers auth is missing.
+    if not _is_codex_oauth_authenticated():
+        return []
     return [
         {
             "name": "codex-imagegen",
@@ -269,6 +285,7 @@ def _refresh_usage_on_agent_run(
 
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
+register_callback("usage_status", get_usage_status)
 register_callback("register_model_type", _register_model_types)
 register_callback("register_skills", _register_imagegen_skill)
 register_callback("register_tools", _register_imagegen_tools)

@@ -216,14 +216,14 @@ def test_codex_imagegen_command():
 def test_imagegen_skill_and_tool_registration():
     from code_puppy.plugins.chatgpt_oauth import register_callbacks
 
-    skills = register_callbacks._register_imagegen_skill()
-    assert skills[0]["name"] == "codex-imagegen"
-    assert Path(skills[0]["skill_md_path"]).is_file()
     with patch.object(
         register_callbacks,
         "load_stored_tokens",
         return_value={"access_token": "token", "account_id": "account"},
     ):
+        skills = register_callbacks._register_imagegen_skill()
+        assert skills[0]["name"] == "codex-imagegen"
+        assert Path(skills[0]["skill_md_path"]).is_file()
         assert register_callbacks._advertise_imagegen_tool("code-puppy") == [
             "codex_imagegen"
         ]
@@ -231,6 +231,13 @@ def test_imagegen_skill_and_tool_registration():
     assert tools == [
         {"name": "codex_imagegen", "register_func": image_tool.register_codex_imagegen}
     ]
+
+
+def test_imagegen_skill_is_not_registered_when_logged_out():
+    from code_puppy.plugins.chatgpt_oauth import register_callbacks
+
+    with patch.object(register_callbacks, "load_stored_tokens", return_value=None):
+        assert register_callbacks._register_imagegen_skill() == []
 
 
 def test_imagegen_tool_is_not_advertised_when_logged_out():
@@ -258,11 +265,52 @@ def test_logout_reloads_agent_to_unbind_imagegen(tmp_path):
         patch.object(register_callbacks, "emit_info"),
         patch.object(register_callbacks, "emit_success"),
         patch.object(register_callbacks, "_reload_active_agent") as reload_agent,
+        patch.object(register_callbacks, "refresh_skill_cache") as refresh_skills,
     ):
         register_callbacks._handle_chatgpt_logout()
 
     assert not token_path.exists()
     reload_agent.assert_called_once_with()
+    refresh_skills.assert_called_once_with()
+
+
+def test_logout_does_not_refresh_skills_when_already_logged_out(tmp_path):
+    from code_puppy.plugins.chatgpt_oauth import register_callbacks
+
+    token_path = tmp_path / "tokens.json"
+    with (
+        patch.object(register_callbacks, "load_stored_tokens", return_value=None),
+        patch.object(
+            register_callbacks, "get_token_storage_path", return_value=token_path
+        ),
+        patch.object(register_callbacks, "remove_chatgpt_models", return_value=0),
+        patch.object(register_callbacks, "emit_info"),
+        patch.object(register_callbacks, "emit_success"),
+        patch.object(register_callbacks, "_reload_active_agent") as reload_agent,
+        patch.object(register_callbacks, "refresh_skill_cache") as refresh_skills,
+    ):
+        register_callbacks._handle_chatgpt_logout()
+
+    reload_agent.assert_not_called()
+    refresh_skills.assert_not_called()
+
+
+def test_auth_command_refreshes_skill_cache():
+    from code_puppy.plugins.chatgpt_oauth import register_callbacks
+
+    with (
+        patch.object(register_callbacks, "run_oauth_flow") as oauth_flow,
+        patch.object(register_callbacks, "set_model_and_reload_agent") as set_model,
+        patch.object(register_callbacks, "refresh_skill_cache") as refresh_skills,
+    ):
+        assert (
+            register_callbacks._handle_custom_command("/codex-auth", "codex-auth")
+            is True
+        )
+
+    oauth_flow.assert_called_once_with()
+    set_model.assert_called_once_with("codex-gpt-5.6-sol")
+    refresh_skills.assert_called_once_with()
 
 
 def test_codex_imagegen_agent_tool(tmp_path):

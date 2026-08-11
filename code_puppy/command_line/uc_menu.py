@@ -4,11 +4,13 @@ Provides a split-panel interface for browsing and managing UC tools
 with live preview of tool details and inline source code viewing.
 """
 
+from __future__ import annotations
+
 import asyncio
 import sys
 import unicodedata
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
@@ -24,10 +26,12 @@ from code_puppy.command_line.pagination import (
     get_total_pages,
 )
 from code_puppy.messaging import emit_error, emit_info, emit_success
-from code_puppy.plugins.universal_constructor.models import UCToolInfo
-from code_puppy.plugins.universal_constructor.registry import get_registry
 from code_puppy.tools.command_runner import set_awaiting_user_input
 from code_puppy.callbacks import on_prompt_toolkit_style
+
+if TYPE_CHECKING:
+    UCToolInfo = Any
+
 
 PAGE_SIZE = 10  # Tools per page
 SOURCE_PAGE_SIZE = 30  # Lines of source per page
@@ -79,9 +83,15 @@ def _get_tool_entries() -> List[UCToolInfo]:
     Returns:
         List of UCToolInfo sorted by full_name.
     """
-    registry = get_registry()
-    registry.scan()  # Force fresh scan
-    return registry.list_tools(include_disabled=True)
+    from code_puppy.universal_constructor_provider import (
+        get_universal_constructor_provider,
+    )
+
+    provider = get_universal_constructor_provider()
+    if provider is None:
+        return []
+    provider.reload()  # Force fresh scan
+    return provider.list_tools(include_disabled=True)
 
 
 def _toggle_tool_enabled(tool: UCToolInfo) -> bool:
@@ -153,9 +163,13 @@ def _delete_tool(tool: UCToolInfo) -> bool:
 
         # Try to clean up empty parent directories (namespace folders)
         parent = source_path.parent
-        from code_puppy.plugins.universal_constructor import USER_UC_DIR
+        from code_puppy.universal_constructor_provider import (
+            get_universal_constructor_provider,
+        )
 
-        while parent != USER_UC_DIR and parent.exists():
+        provider = get_universal_constructor_provider()
+        tools_dir = provider.tools_dir if provider else parent
+        while parent != tools_dir and parent.exists():
             try:
                 if not any(parent.iterdir()):
                     parent.rmdir()

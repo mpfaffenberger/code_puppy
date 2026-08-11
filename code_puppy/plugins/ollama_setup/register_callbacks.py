@@ -408,5 +408,13 @@ def _custom_help():
 
 # ── Register ────────────────────────────────────────────────────────────────
 
+
+def _completion_provider():
+    from code_puppy.plugins.ollama_setup.completer import OllamaSetupCompleter
+
+    return OllamaSetupCompleter()
+
+
+register_callback("register_completion_provider", _completion_provider)
 register_callback("custom_command", _handle_ollama_setup)
 register_callback("custom_command_help", _custom_help)

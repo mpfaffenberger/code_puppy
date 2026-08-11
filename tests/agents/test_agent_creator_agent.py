@@ -2,7 +2,7 @@
 
 from unittest.mock import patch
 
-from code_puppy.agents.agent_creator_agent import AgentCreatorAgent
+from code_puppy.agents.agent_creator_agent import AgentCreatorAgent, _validate_agent_creation
 
 
 class TestAgentCreatorAgent:
@@ -228,3 +228,51 @@ class TestAgentCreatorAgent:
         agent = AgentCreatorAgent()
         expected = "Hi! I'm the Agent Creator 🏗️ Let's build an awesome agent together!"
         assert agent.get_user_prompt() == expected
+
+    def test_validate_agent_creation_not_create_file(self):
+        """Test that it ignores tools other than create_file."""
+        result = _validate_agent_creation("read_file", {})
+        assert result is None
+
+    def test_validate_agent_creation_not_json_file(self):
+        """Test that it ignores non-JSON files."""
+        result = _validate_agent_creation("create_file", {"file_path": "test.txt", "content": "{}"})
+        assert result is None
+
+    def test_validate_agent_creation_not_agents_dir(self, monkeypatch):
+        """Test that it ignores files outside the agents directory."""
+        monkeypatch.setattr("code_puppy.agents.agent_creator_agent.get_user_agents_directory", lambda: "/mock/agents/dir")
+        result = _validate_agent_creation("create_file", {"file_path": "/some/other/dir/test.json", "content": "{}"})
+        assert result is None
+
+    def test_validate_agent_creation_invalid_json(self, monkeypatch):
+        """Test that invalid JSON blocks the tool call."""
+        monkeypatch.setattr("code_puppy.agents.agent_creator_agent.get_user_agents_directory", lambda: "/mock/agents/dir")
+        result = _validate_agent_creation("create_file", {"file_path": "/mock/agents/dir/test.json", "content": "{invalid json"})
+        assert result is not None
+        assert result.get("blocked") is True
+        assert "Syntax error: Invalid JSON payload" in result.get("error_message", "")
+
+    def test_validate_agent_creation_validation_error(self, monkeypatch):
+        """Test that valid JSON with schema errors blocks the tool call."""
+        monkeypatch.setattr("code_puppy.agents.agent_creator_agent.get_user_agents_directory", lambda: "/mock/agents/dir")
+        # Valid JSON but missing required fields
+        result = _validate_agent_creation("create_file", {"file_path": "/mock/agents/dir/test.json", "content": '{"name": "test"}'})
+        assert result is not None
+        assert result.get("blocked") is True
+        assert "Validation errors:" in result.get("error_message", "")
+        assert "Missing required field: 'description'" in result.get("error_message", "")
+
+    def test_validate_agent_creation_valid(self, monkeypatch):
+        """Test that perfectly valid agent config does not block the tool call."""
+        monkeypatch.setattr("code_puppy.agents.agent_creator_agent.get_user_agents_directory", lambda: "/mock/agents/dir")
+        monkeypatch.setattr("code_puppy.agents.agent_creator_agent.get_available_tool_names", lambda: ["tool1"])
+        
+        valid_json = '''{
+            "name": "test-agent",
+            "description": "desc",
+            "system_prompt": "prompt",
+            "tools": []
+        }'''
+        result = _validate_agent_creation("create_file", {"file_path": "/mock/agents/dir/test.json", "content": valid_json})
+        assert result is None

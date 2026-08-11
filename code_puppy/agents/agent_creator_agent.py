@@ -4,6 +4,7 @@ import json
 import os
 from typing import Dict, List, Optional
 
+from code_puppy.callbacks import register_callback
 from code_puppy.config import get_user_agents_directory
 from code_puppy.model_factory import ModelFactory
 from code_puppy.tools import get_available_tool_names
@@ -33,10 +34,12 @@ class AgentCreatorAgent(BaseAgent):
         # Also get Universal Constructor tools (custom tools created by users)
         uc_tools_info = []
         try:
-            from code_puppy.plugins.universal_constructor.registry import get_registry
+            from code_puppy.universal_constructor_provider import (
+                get_universal_constructor_provider,
+            )
 
-            registry = get_registry()
-            uc_tools = registry.list_tools(include_disabled=True)
+            provider = get_universal_constructor_provider()
+            uc_tools = provider.list_tools(include_disabled=True) if provider else []
             for tool in uc_tools:
                 status = "✅" if tool.meta.enabled else "❌"
                 uc_tools_info.append(
@@ -643,3 +646,47 @@ Your goal is to take users from idea to working agent in one smooth conversation
     def get_user_prompt(self) -> Optional[str]:
         """Get the initial user prompt."""
         return "Hi! I'm the Agent Creator 🏗️ Let's build an awesome agent together!"
+
+
+def _validate_agent_creation(tool_name: str, tool_args: dict, context=None) -> Optional[dict]:
+    """Intercept create_file to validate agent JSON configs before saving."""
+    if tool_name != "create_file":
+        return None
+
+    file_path = tool_args.get("file_path", "")
+    content = tool_args.get("content", "")
+
+    if not isinstance(file_path, str) or not file_path.endswith(".json"):
+        return None
+
+    agents_dir = get_user_agents_directory()
+    # Check if the path points into the agents directory
+    if agents_dir not in file_path:
+        return None
+
+    try:
+        agent_config = json.loads(content)
+        # Use an instance of AgentCreatorAgent to run validation
+        agent = AgentCreatorAgent()
+        errors = agent.validate_agent_json(agent_config)
+
+        if errors:
+            error_msg = "Validation errors:\n" + "\n".join(f"- {error}" for error in errors)
+            return {
+                "blocked": True,
+                "error_message": f"Invalid JSON agent config: {error_msg}"
+            }
+    except json.JSONDecodeError as e:
+        return {
+            "blocked": True,
+            "error_message": f"Syntax error: Invalid JSON payload. {str(e)}"
+        }
+    except Exception as e:
+        return {
+            "blocked": True,
+            "error_message": f"Validation failed: {str(e)}"
+        }
+    
+    return None
+
+register_callback("pre_tool_call", _validate_agent_creation)

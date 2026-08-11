@@ -27,31 +27,22 @@ class TestLoadCatalogSkillIds:
     def test_success(self):
         from code_puppy.command_line.skills_completion import load_catalog_skill_ids
 
-        mock_entry = MagicMock()
-        mock_entry.id = "skill-1"
-        mock_catalog = MagicMock()
-        mock_catalog.get_all.return_value = [mock_entry]
-        mock_module = MagicMock()
-        mock_module.catalog = mock_catalog
-
-        import sys
-
-        with patch.dict(
-            sys.modules, {"code_puppy.plugins.agent_skills.skill_catalog": mock_module}
+        provider = MagicMock()
+        provider.get_catalog_skill_ids.return_value = ["skill-1"]
+        with patch(
+            "code_puppy.command_line.skills_completion.get_skill_provider",
+            return_value=provider,
         ):
-            result = load_catalog_skill_ids()
-        assert result == ["skill-1"]
+            assert load_catalog_skill_ids() == ["skill-1"]
 
     def test_exception(self):
-        import sys
-
         from code_puppy.command_line.skills_completion import load_catalog_skill_ids
 
-        with patch.dict(
-            sys.modules, {"code_puppy.plugins.agent_skills.skill_catalog": None}
+        with patch(
+            "code_puppy.command_line.skills_completion.get_skill_provider",
+            side_effect=RuntimeError("boom"),
         ):
-            result = load_catalog_skill_ids()
-        assert result == []
+            assert load_catalog_skill_ids() == []
 
 
 class TestSkillsCompleterGetCompletions:

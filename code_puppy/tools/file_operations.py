@@ -438,35 +438,6 @@ def _list_files(
         else:
             return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
 
-    def get_file_icon(file_path):
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext in [".py", ".pyw"]:
-            return "\U0001f40d"
-        elif ext in [".js", ".jsx", ".ts", ".tsx"]:
-            return "\U0001f4dc"
-        elif ext in [".html", ".htm", ".xml"]:
-            return "\U0001f310"
-        elif ext in [".css", ".scss", ".sass"]:
-            return "\U0001f3a8"
-        elif ext in [".md", ".markdown", ".rst"]:
-            return "\U0001f4dd"
-        elif ext in [".json", ".yaml", ".yml", ".toml"]:
-            return "\u2699\ufe0f"
-        elif ext in [".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp"]:
-            return "\U0001f5bc\ufe0f"
-        elif ext in [".mp3", ".wav", ".ogg", ".flac"]:
-            return "\U0001f3b5"
-        elif ext in [".mp4", ".avi", ".mov", ".webm"]:
-            return "\U0001f3ac"
-        elif ext in [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"]:
-            return "\U0001f4c4"
-        elif ext in [".zip", ".tar", ".gz", ".rar", ".7z"]:
-            return "\U0001f4e6"
-        elif ext in [".exe", ".dll", ".so", ".dylib"]:
-            return "\u26a1"
-        else:
-            return "\U0001f4c4"
-
     # Count items in results
     dir_count = sum(1 for item in results if item.type == "directory")
     file_count = sum(1 for item in results if item.type == "file")

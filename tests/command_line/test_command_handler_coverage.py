@@ -182,6 +182,31 @@ class TestHandleCommand:
             # Result is either True or the markdown content string
             assert result is not None and result is not False
 
+    @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
+    @patch("code_puppy.callbacks.on_custom_command")
+    def test_namespaced_custom_command_dispatches_via_callback(
+        self, mock_custom, mock_plugins
+    ):
+        from code_puppy.callbacks import CustomCommandResult
+        from code_puppy.command_line.command_handler import handle_command
+
+        mock_custom.return_value = [CustomCommandResult("namespaced prompt")]
+
+        assert handle_command("/flux/status todo") == "namespaced prompt"
+        mock_custom.assert_called_once_with(
+            command="/flux/status todo", name="flux/status"
+        )
+
+    @patch("code_puppy.command_line.command_handler._ensure_plugins_loaded")
+    @patch("code_puppy.callbacks.on_custom_command", return_value=[None])
+    def test_namespaced_path_falls_through_callback(self, mock_custom, mock_plugins):
+        from code_puppy.command_line.command_handler import handle_command
+
+        assert handle_command("/Users/mike/project.py") is False
+        mock_custom.assert_called_once_with(
+            command="/Users/mike/project.py", name="Users/mike/project.py"
+        )
+
     def test_non_command(self):
         from code_puppy.command_line.command_handler import handle_command
 

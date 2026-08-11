@@ -199,33 +199,27 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             return auth_header[7:]  # Strip "Bearer " prefix
         return None
 
-    def _should_refresh_token(self, request: httpx.Request) -> bool:
-        """Check if the token should be refreshed (within the max-age window).
-
-        Uses two strategies:
-        1. Decode JWT to check token age (if possible)
-        2. Fall back to stored expires_at from token file
-
-        Returns True if token expires within TOKEN_MAX_AGE_SECONDS.
-        """
+    def _jwt_refresh_decision(self, request: httpx.Request) -> bool | None:
+        """Return a JWT-based refresh decision, or ``None`` for stored fallback."""
         token = self._extract_bearer_token(request)
         if not token:
             return False
 
-        # Strategy 1: Try to decode JWT age
         age = self._get_jwt_age_seconds(token)
-        if age is not None:
-            should_refresh = age >= TOKEN_MAX_AGE_SECONDS
-            if should_refresh:
-                logger.info(
-                    "JWT token is %.1f seconds old (>= %d), will refresh proactively",
-                    age,
-                    TOKEN_MAX_AGE_SECONDS,
-                )
-            return should_refresh
+        if age is None:
+            return None
 
-        # Strategy 2: Fall back to stored expires_at from token file
-        should_refresh = self._check_stored_token_expiry()
+        should_refresh = age >= TOKEN_MAX_AGE_SECONDS
+        if should_refresh:
+            logger.info(
+                "JWT token is %.1f seconds old (>= %d), will refresh proactively",
+                age,
+                TOKEN_MAX_AGE_SECONDS,
+            )
+        return should_refresh
+
+    @staticmethod
+    def _log_stored_token_refresh(should_refresh: bool) -> bool:
         if should_refresh:
             logger.info(
                 "Stored token expires within %d seconds, will refresh proactively",
@@ -233,25 +227,50 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             )
         return should_refresh
 
+    def _should_refresh_token(self, request: httpx.Request) -> bool:
+        """Synchronously check JWT age, then the stored-token callback."""
+        decision = self._jwt_refresh_decision(request)
+        if decision is not None:
+            return decision
+        return self._log_stored_token_refresh(self._check_stored_token_expiry())
+
+    async def _should_refresh_token_async(self, request: httpx.Request) -> bool:
+        """Check token expiry while awaiting async providers in ``send()``."""
+        decision = self._jwt_refresh_decision(request)
+        if decision is not None:
+            return decision
+        return self._log_stored_token_refresh(
+            await self._check_stored_token_expiry_async()
+        )
+
     @staticmethod
     def _check_stored_token_expiry() -> bool:
         """Check if the stored token expires within TOKEN_MAX_AGE_SECONDS.
 
         This is a fallback for when JWT decoding fails or isn't available.
-        Uses the expires_at timestamp from the stored token file.
+        Uses the expires_at timestamp from the stored token file.  The
+        claude_code_oauth plugin self-registers this capability; when it
+        isn't loaded (or the check fails) we conservatively report ``False``.
         """
         try:
-            from code_puppy.plugins.claude_code_oauth.utils import (
-                is_token_expired,
-                load_stored_tokens,
+            from code_puppy.callbacks import on_check_claude_oauth_token_expiry
+
+            results = on_check_claude_oauth_token_expiry()
+            return any(result is True for result in results)
+        except Exception as exc:
+            logger.debug("Error checking stored token expiry: %s", exc)
+            return False
+
+    @staticmethod
+    async def _check_stored_token_expiry_async() -> bool:
+        """Await stored-token expiry providers from an active event loop."""
+        try:
+            from code_puppy.callbacks import (
+                on_check_claude_oauth_token_expiry_async,
             )
 
-            tokens = load_stored_tokens()
-            if not tokens:
-                return False
-
-            # is_token_expired already uses the configured refresh buffer window
-            return is_token_expired(tokens)
+            results = await on_check_claude_oauth_token_expiry_async()
+            return any(result is True for result in results)
         except Exception as exc:
             logger.debug("Error checking stored token expiry: %s", exc)
             return False
@@ -359,8 +378,8 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         # Proactive token refresh: check JWT age before every request
         if not request.extensions.get("claude_oauth_proactive_refresh_attempted"):
             try:
-                if self._should_refresh_token(request):
-                    refreshed_token = self._refresh_claude_oauth_token()
+                if await self._should_refresh_token_async(request):
+                    refreshed_token = await self._refresh_claude_oauth_token_async()
                     if refreshed_token:
                         logger.info("Proactively refreshed token before request")
                         # Rebuild request with new token
@@ -625,10 +644,14 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         headers: MutableMapping[str, str], access_token: str
     ) -> None:
         bearer_value = f"Bearer {access_token}"
-        if "Authorization" in headers or "authorization" in headers:
+        if "Authorization" in headers:
             headers["Authorization"] = bearer_value
-        elif "x-api-key" in headers or "X-API-Key" in headers:
+        elif "authorization" in headers:
+            headers["authorization"] = bearer_value
+        elif "x-api-key" in headers:
             headers["x-api-key"] = access_token
+        elif "X-API-Key" in headers:
+            headers["X-API-Key"] = access_token
         else:
             headers["Authorization"] = bearer_value
 
@@ -698,19 +721,40 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         self._notify_token_recovered(reauthenticated_token)
         return reauthenticated_token
 
+    def _apply_token_refresh_results(self, results: list[Any]) -> str | None:
+        if not results:
+            # Plugin not loaded — nothing to refresh.
+            return None
+
+        logger.info("Attempting to refresh Claude Code OAuth token...")
+        refreshed_token = next(
+            (result for result in results if isinstance(result, str) and result),
+            None,
+        )
+        if refreshed_token:
+            self._update_auth_headers(self.headers, refreshed_token)
+            self._notify_token_recovered(refreshed_token)
+            logger.info("Successfully refreshed Claude Code OAuth token")
+        else:
+            logger.warning("Token refresh returned None")
+        return refreshed_token
+
     def _refresh_claude_oauth_token(self) -> str | None:
         try:
-            from code_puppy.plugins.claude_code_oauth.utils import refresh_access_token
+            from code_puppy.callbacks import on_refresh_claude_oauth_token
 
-            logger.info("Attempting to refresh Claude Code OAuth token...")
-            refreshed_token = refresh_access_token(force=True)
-            if refreshed_token:
-                self._update_auth_headers(self.headers, refreshed_token)
-                self._notify_token_recovered(refreshed_token)
-                logger.info("Successfully refreshed Claude Code OAuth token")
-            else:
-                logger.warning("Token refresh returned None")
-            return refreshed_token
+            return self._apply_token_refresh_results(on_refresh_claude_oauth_token())
+        except Exception as exc:
+            logger.error("Exception during token refresh: %s", exc)
+            return None
+
+    async def _refresh_claude_oauth_token_async(self) -> str | None:
+        """Await token-refresh providers from an active event loop."""
+        try:
+            from code_puppy.callbacks import on_refresh_claude_oauth_token_async
+
+            results = await on_refresh_claude_oauth_token_async()
+            return self._apply_token_refresh_results(results)
         except Exception as exc:
             logger.error("Exception during token refresh: %s", exc)
             return None

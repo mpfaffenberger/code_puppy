@@ -205,18 +205,19 @@ def handle_tutorial_command(command: str) -> bool:
 
     if result == "chatgpt":
         emit_info(t("cmd.tutorial.chatgpt_oauth"))
-        from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
+        # Decoupled: the chatgpt_oauth plugin owns this flow. Dispatch through
+        # its self-registered /chatgpt-auth custom command rather than
+        # importing the plugin module directly.
+        from code_puppy.callbacks import on_custom_command
 
-        run_oauth_flow()
-        set_model_and_reload_agent("codex-gpt-5.6-sol")
+        on_custom_command("/chatgpt-auth", "chatgpt-auth")
     elif result == "claude":
         emit_info(t("cmd.tutorial.claude_oauth"))
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
-            _perform_authentication,
-        )
+        from code_puppy.callbacks import on_claude_oauth_authenticate
 
-        _perform_authentication()
-        set_model_and_reload_agent("claude-code-claude-opus-4-7")
+        auth_results = on_claude_oauth_authenticate()
+        if any(result is True for result in auth_results):
+            set_model_and_reload_agent("claude-code-claude-opus-4-7")
     elif result == "completed":
         emit_info(t("cmd.tutorial.complete"))
     elif result == "skipped":

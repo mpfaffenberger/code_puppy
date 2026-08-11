@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from code_puppy.callbacks import register_callback
+from code_puppy.callbacks import CustomCommandResult, register_callback
 from code_puppy.config import CONFIG_DIR
 from code_puppy.messaging import emit_error, emit_info, emit_shell_line, emit_warning
 
@@ -70,17 +70,8 @@ def _is_trusted_exec_dir(dir_path: Path) -> bool:
     return False
 
 
-class MarkdownCommandResult:
-    """Special marker for markdown command results that should be processed as input."""
-
-    def __init__(self, content: str):
-        self.content = content
-
-    def __str__(self) -> str:
-        return self.content
-
-    def __repr__(self) -> str:
-        return f"MarkdownCommandResult({len(self.content)} chars)"
+# Backwards-compatible name for consumers that imported the plugin's marker.
+MarkdownCommandResult = CustomCommandResult
 
 
 # Namespace directories beginning with these prefixes are skipped entirely
