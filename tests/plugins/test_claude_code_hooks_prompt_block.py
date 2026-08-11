@@ -213,6 +213,156 @@ class TestRuntimeHonorsPromptBlocked:
 
 
 # ---------------------------------------------------------------------------
+# Stop vs SubagentStop, and the end-of-turn payload
+# ---------------------------------------------------------------------------
+
+
+class TestStopClassification:
+    @pytest.mark.asyncio
+    async def test_default_agent_ending_a_turn_fires_stop(self):
+        """``code-puppy`` is the DEFAULT agent — a top-level turn is a Stop."""
+        from code_puppy.plugins.claude_code_hooks import register_callbacks
+
+        engine = _engine(_allowed())
+        original = register_callbacks._hook_engine
+        register_callbacks._hook_engine = engine
+        try:
+            await register_callbacks.on_agent_run_end_hook(
+                agent_name="code-puppy",
+                model_name="some-model",
+                response_text="all done",
+            )
+        finally:
+            register_callbacks._hook_engine = original
+
+        assert engine.process_event.await_args.args[0] == "Stop"
+
+    @pytest.mark.asyncio
+    async def test_run_inside_subagent_context_fires_subagent_stop(self):
+        from code_puppy.plugins.claude_code_hooks import register_callbacks
+        from code_puppy.tools.subagent_context import subagent_context
+
+        engine = _engine(_allowed())
+        original = register_callbacks._hook_engine
+        register_callbacks._hook_engine = engine
+        try:
+            with subagent_context("retriever"):
+                await register_callbacks.on_agent_run_end_hook(
+                    agent_name="code-puppy",
+                    model_name="some-model",
+                    response_text="all done",
+                )
+        finally:
+            register_callbacks._hook_engine = original
+
+        assert engine.process_event.await_args.args[0] == "SubagentStop"
+
+    @pytest.mark.asyncio
+    async def test_known_subagent_name_still_fires_subagent_stop(self):
+        """Fallback for a run ended outside the context manager."""
+        from code_puppy.plugins.claude_code_hooks import register_callbacks
+
+        engine = _engine(_allowed())
+        original = register_callbacks._hook_engine
+        register_callbacks._hook_engine = engine
+        try:
+            await register_callbacks.on_agent_run_end_hook(
+                agent_name="bloodhound",
+                model_name="some-model",
+                response_text="all done",
+            )
+        finally:
+            register_callbacks._hook_engine = original
+
+        assert engine.process_event.await_args.args[0] == "SubagentStop"
+
+
+class TestEndOfTurnPayload:
+    def test_stop_payload_carries_the_agents_final_response(self):
+        """Without this a Stop hook has nothing to review."""
+        import json
+
+        from code_puppy.hook_engine.executor import _build_stdin_payload
+        from code_puppy.hook_engine.models import EventData
+
+        event = EventData(
+            event_type="Stop",
+            tool_name="code-puppy",
+            tool_args={},
+            context={"session_id": "run-1", "response_text": "the final answer"},
+        )
+        payload = json.loads(_build_stdin_payload(event).decode())
+
+        assert payload["response_text"] == "the final answer"
+        assert payload["hook_event_name"] == "Stop"
+        assert payload["session_id"] == "run-1"
+
+    def test_absent_response_text_adds_no_key(self):
+        import json
+
+        from code_puppy.hook_engine.executor import _build_stdin_payload
+        from code_puppy.hook_engine.models import EventData
+
+        event = EventData(event_type="PreToolUse", tool_name="Bash", tool_args={})
+        payload = json.loads(_build_stdin_payload(event).decode())
+
+        assert "response_text" not in payload
+
+
+class TestBlockReasonIsHumanFacing:
+    """The reason shown to a user must not be the internal diagnostic string."""
+
+    @pytest.mark.asyncio
+    async def test_hook_stderr_is_preferred_over_the_diagnostic_string(self):
+        from code_puppy.callbacks import PromptBlocked
+        from code_puppy.hook_engine.models import ExecutionResult, ProcessEventResult
+        from code_puppy.plugins.claude_code_hooks import register_callbacks
+
+        execution = ExecutionResult(
+            blocked=True,
+            hook_command="python3 /very/long/path/to/guard.py",
+            stderr="Onyx AI Guard: blocked by policy.",
+            exit_code=1,
+        )
+        result = ProcessEventResult(
+            blocked=True,
+            executed_hooks=1,
+            results=[execution],
+            blocking_reason=(
+                "Hook 'python3 /very/long/path/to/guard.py' failed: "
+                "Onyx AI Guard: blocked by policy."
+            ),
+        )
+
+        original = register_callbacks._hook_engine
+        register_callbacks._hook_engine = _engine(result)
+        try:
+            blocked = await register_callbacks.on_user_prompt_submit_hook("hi")
+        finally:
+            register_callbacks._hook_engine = original
+
+        assert isinstance(blocked, PromptBlocked)
+        assert blocked.reason == "Onyx AI Guard: blocked by policy."
+        assert "/very/long/path" not in blocked.reason
+        assert "failed" not in blocked.reason
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_blocking_reason_when_no_stderr(self):
+        from code_puppy.callbacks import PromptBlocked
+        from code_puppy.plugins.claude_code_hooks import register_callbacks
+
+        original = register_callbacks._hook_engine
+        register_callbacks._hook_engine = _engine(_blocked("terse reason"))
+        try:
+            blocked = await register_callbacks.on_user_prompt_submit_hook("hi")
+        finally:
+            register_callbacks._hook_engine = original
+
+        assert isinstance(blocked, PromptBlocked)
+        assert blocked.reason == "terse reason"
+
+
+# ---------------------------------------------------------------------------
 # Session id propagation
 # ---------------------------------------------------------------------------
 

@@ -30,12 +30,38 @@ from code_puppy.session_context import get_session_id
 
 from .config import load_hooks_config
 
-_SUBAGENT_NAMES = frozenset(
+
+def _is_subagent_run(agent_name: Optional[str]) -> bool:
+    """Whether the run that just ended was a sub-agent's.
+
+    Decided by the sub-agent depth ContextVar, which is what actually tracks
+    nesting. The name is only a fallback for a caller that ends a run outside
+    the ``subagent_context`` manager.
+
+    This deliberately does NOT guess from the agent's name alone: the DEFAULT
+    agent is called ``code-puppy``, so a name-matching list containing it
+    classified every top-level turn as a sub-agent and ``Stop`` never fired at
+    all. A sub-agent can also be named anything, so the name was never a sound
+    signal in either direction.
+    """
+    try:
+        from code_puppy.tools.subagent_context import is_subagent
+
+        if is_subagent():
+            return True
+    except Exception:
+        pass
+
+    lowered = (agent_name or "").lower()
+    return any(name in lowered for name in _FALLBACK_SUBAGENT_NAMES)
+
+
+# Names checked only when the depth ContextVar is unavailable. ``code-puppy``
+# and ``code_puppy`` are absent on purpose — that is the default agent.
+_FALLBACK_SUBAGENT_NAMES = frozenset(
     {
         "pack_leader",
         "bloodhound",
-        "code-puppy",
-        "code_puppy",
         "retriever",
         "shepherd",
         "terrier",
@@ -102,6 +128,26 @@ def _event_context(
     return ctx
 
 
+def _block_reason(result: Any) -> str:
+    """The human-facing reason a hook blocked, preferring the hook's own stderr.
+
+    ``ProcessEventResult.blocking_reason`` is a diagnostic string of the form
+    ``Hook '<full command line>' failed: <stderr>``. That is useful in a log and
+    poor in front of a user — it leaks the hook's path and says "failed" for a
+    hook that deliberately blocked. The individual result carries the stderr on
+    its own, so use that and fall back to the diagnostic form.
+    """
+    for r in getattr(result, "results", []) or []:
+        if not getattr(r, "blocked", False):
+            continue
+        for candidate in (getattr(r, "stderr", ""), getattr(r, "error", "")):
+            text = (candidate or "").strip()
+            if text:
+                return text
+    reason = (getattr(result, "blocking_reason", "") or "").strip()
+    return reason or "No reason was provided by the hook."
+
+
 def _blocked_prompt_replacement(reason: Optional[str]) -> str:
     """The prompt substituted for one a ``UserPromptSubmit`` hook blocked.
 
@@ -163,13 +209,12 @@ async def on_pre_tool_call_hook(
         result = await _hook_engine.process_event("PreToolUse", event_data)
 
         if result.blocked:
-            logger.debug(
-                f"Tool '{tool_name}' blocked by hook: {result.blocking_reason}"
-            )
+            reason = _block_reason(result)
+            logger.debug(f"Tool '{tool_name}' blocked by hook: {reason}")
             return {
                 "blocked": True,
-                "reason": result.blocking_reason,
-                "error_message": result.blocking_reason,
+                "reason": reason,
+                "error_message": reason,
             }
 
         # Exit code 0 hooks: propagate their stdout to the model context.
@@ -303,9 +348,7 @@ async def on_user_prompt_submit_hook(
         try:
             result = await _hook_engine.process_event("UserPromptSubmit", event_data)
             if result.blocked:
-                reason = (
-                    result.blocking_reason or ""
-                ).strip() or "No reason was provided by the hook."
+                reason = _block_reason(result)
                 logger.debug(f"Prompt blocked by hook: {reason}")
                 # _pending_session_context is deliberately left intact: this
                 # prompt never runs, so its SessionStart context still belongs
@@ -419,9 +462,7 @@ async def on_agent_run_end_hook(
     if not _hook_engine:
         return
 
-    agent_lower = (agent_name or "").lower()
-    is_subagent = any(name in agent_lower for name in _SUBAGENT_NAMES)
-    event_type = "SubagentStop" if is_subagent else "Stop"
+    event_type = "SubagentStop" if _is_subagent_run(agent_name) else "Stop"
 
     event_data = EventData(
         event_type=event_type,
