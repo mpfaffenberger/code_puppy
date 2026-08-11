@@ -39,6 +39,13 @@ def test_provider_listing_does_not_recurse_through_register_skills(
         lambda: [str(skills_root)],
     )
     monkeypatch.setattr(enabled_skills._config, "get_disabled_skills", set)
+    # discover_skills() resolves directories via its own bound names
+    # (imported at module load time from config), not via the config
+    # module attribute patched above -- pin those too so this test stays
+    # hermetic from whatever real default-directory skills exist on the
+    # machine running the suite.
+    monkeypatch.setattr(discovery, "get_skill_directories", lambda: [str(skills_root)])
+    monkeypatch.setattr(discovery, "get_default_skill_directories", lambda: [])
 
     try:
         assert provider.list_enabled_skills() == [
