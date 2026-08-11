@@ -863,8 +863,24 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             emit_info(f"{user_prompt}\n")
 
         try:
-            if persistent_prompt:
+            # Idle + queued prompts (a Discord / queue-mode steer, /queue, or
+            # a cancelled run's leftovers): consume the oldest as THIS turn
+            # instead of blocking on input. Checked for BOTH prompt modes so a
+            # message arriving while the REPL sits idle actually runs. Runs
+            # added mid-run drain inside _runtime's between-turns loop and
+            # never reach here.
+            from code_puppy.messaging.pause_controller import (
+                get_pause_controller as _get_pc,
+            )
+
+            queued_task = _get_pc().pop_next_steer_queued()
+            if queued_task is not None:
+                task = queued_task
+                emit_info(_prompt_echo_text(task))
+                emit_info(t("cli.queue.running"))
+            elif persistent_prompt:
                 from code_puppy.messaging.run_ui import (
+                    IDLE_WAKE,
                     set_idle_prompt_prefix,
                     wait_for_idle_submission,
                 )
@@ -872,30 +888,19 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Model/agent may have changed since last turn.
                 prompt_prefix, prompt_prefix_sgrs = _persistent_prompt_parts()
                 set_idle_prompt_prefix(prompt_prefix, prompt_prefix_sgrs)
-                # Idle + queued prompts (added via /queue, or a cancelled
-                # run's leftovers): consume the oldest as this turn instead
-                # of waiting for input. Runs added mid-run normally drain
-                # inside _runtime's between-turns loop and never get here.
-                from code_puppy.messaging.pause_controller import (
-                    get_pause_controller as _get_pc,
-                )
-
-                queued_task = _get_pc().pop_next_steer_queued()
-                if queued_task is not None:
-                    task = queued_task
-                    emit_info(_prompt_echo_text(task))
-                    emit_info(t("cli.queue.running"))
-                else:
-                    # Raises EOFError on Ctrl+D-with-empty-buffer, which the
-                    # existing quit branch below handles.
-                    task = await wait_for_idle_submission()
-                    # Echo into the transcript: the editor clears its row
-                    # on submit, so scrollback needs the record of what was
-                    # asked. JUST the user's text (bold, '> ' marker) --
-                    # repeating the whole prompt chrome doubled every
-                    # line's noise. Text() (not markup) so bracket-y input
-                    # renders as-is.
-                    emit_info(_prompt_echo_text(task))
+                # Raises EOFError on Ctrl+D-with-empty-buffer, which the
+                # existing quit branch below handles.
+                task = await wait_for_idle_submission()
+                # A queue-mode steer landed while we were parked: loop back so
+                # the pop_next_steer_queued() above runs it as a fresh turn.
+                if task is IDLE_WAKE:
+                    continue
+                # Echo into the transcript: the editor clears its row on
+                # submit, so scrollback needs the record of what was asked.
+                # JUST the user's text (bold, '> ' marker) -- repeating the
+                # whole prompt chrome doubled every line's noise. Text() (not
+                # markup) so bracket-y input renders as-is.
+                emit_info(_prompt_echo_text(task))
             else:
                 # Use prompt_toolkit for enhanced input with path completion
                 try:

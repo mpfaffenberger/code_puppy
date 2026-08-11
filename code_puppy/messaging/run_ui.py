@@ -76,6 +76,17 @@ def _get_loop() -> Optional[asyncio.AbstractEventLoop]:
 _listener_handle = None  # KeyListenerHandle owned by the persistent UI
 _EOF = object()  # idle-queue sentinel: Ctrl+D on an empty buffer
 
+#: idle-queue sentinel: a queue-mode steer (e.g. a Discord message from the
+#: cp_discord plugin) arrived while the REPL was parked at the idle prompt.
+#: Pushed by the pause-queue listener so the blocked ``wait_for_idle_submission``
+#: returns AT ONCE and the REPL loops back to drain ``pop_next_steer_queued``
+#: -- without it the message would sit unseen until the user typed something
+#: at the terminal.
+_WAKE = object()
+
+#: Public alias the REPL loop compares against (``task is IDLE_WAKE``).
+IDLE_WAKE = _WAKE
+
 #: How long the consumer waits for the agent to actually park at its
 #: pause boundary before running commands anyway (best-effort).
 _PARK_TIMEOUT_S = 2.0
@@ -270,6 +281,12 @@ def start_persistent_ui(
     editor.set_submit_router(_persistent_router)
     editor.set_eof_handler(_handle_eof)
     _spawn_persistent_listener()
+    try:
+        from code_puppy.messaging.pause_controller import get_pause_controller
+
+        get_pause_controller().add_steer_queue_listener(_on_steer_queue_change)
+    except Exception:
+        logger.debug("could not register idle steer wake listener", exc_info=True)
     return True
 
 
@@ -283,6 +300,12 @@ def stop_persistent_ui() -> None:
         _idle_queue = None
         handle = _listener_handle
         _listener_handle = None
+    try:
+        from code_puppy.messaging.pause_controller import get_pause_controller
+
+        get_pause_controller().remove_steer_queue_listener(_on_steer_queue_change)
+    except Exception:
+        logger.debug("could not remove idle steer wake listener", exc_info=True)
     if was_persistent:
         editor = get_run_editor()
         if editor is not None:
@@ -334,6 +357,10 @@ async def wait_for_idle_submission() -> str:
     item = await q.get()
     if item is _EOF:
         raise EOFError
+    if item is _WAKE:
+        # A queue-mode steer arrived while we were parked. Hand the sentinel
+        # back so the REPL loop re-checks pop_next_steer_queued() and runs it.
+        return _WAKE
     return item
 
 
@@ -415,6 +442,36 @@ def _handle_eof() -> None:
     if is_run_active():
         return
     _push_idle(_EOF)
+
+
+def wake_idle_for_queued_steer() -> None:
+    """Wake a REPL parked at the idle prompt so it drains a queued steer.
+
+    Called from the pause-queue listener, which may fire on the Discord
+    socket thread. Only meaningful when persistent + idle; ``_push_idle``
+    already no-ops safely when the loop/queue are gone, so this is a plain
+    delegation with nothing to guard here.
+    """
+    _push_idle(_WAKE)
+
+
+def _on_steer_queue_change(_count: int) -> None:
+    """Pause-queue listener: nudge the idle prompt when a queued steer lands.
+
+    Now-mode steers are drained by the running turn's history processor, so
+    we wake ONLY when a queue-mode steer is actually pending AND no run is in
+    flight -- i.e. a message that arrived while the REPL sits blocked on
+    input. Every other mutation (now-mode adds, drains to zero) is ignored.
+    """
+    try:
+        if is_run_active():
+            return
+        from code_puppy.messaging.pause_controller import get_pause_controller
+
+        if get_pause_controller().has_pending_steer_queued():
+            wake_idle_for_queued_steer()
+    except Exception:
+        logger.debug("idle steer wake failed", exc_info=True)
 
 
 def _push_idle(item) -> None:
@@ -691,6 +748,7 @@ def _suspended_key_listener():
 
 
 __all__ = [
+    "IDLE_WAKE",
     "MID_RUN_DENYLIST",
     "clear_idle_buffer",
     "get_run_editor",
@@ -705,4 +763,5 @@ __all__ = [
     "stop_run_ui",
     "suspended_run_ui",
     "wait_for_idle_submission",
+    "wake_idle_for_queued_steer",
 ]
