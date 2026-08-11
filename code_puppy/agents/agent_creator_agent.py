@@ -678,7 +678,7 @@ def _validate_agent_creation(
             )
             return {
                 "blocked": True,
-                "error_message": f"Invalid JSON agent config: {error_msg}"
+                "error_message": f"Invalid JSON agent config: {error_msg}",
             }
     except json.JSONDecodeError as e:
         return {
