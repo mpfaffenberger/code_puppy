@@ -97,11 +97,11 @@ async def _invoke_with_dead_pin(
     that's where ``load_model_with_fallback`` actually emits the fallback
     warning, not ``subagent_invocation.py``.
 
-    ``conversation_scope`` stands in for the parent conversation's session id
-    (``get_session_context()``, captured by ``_invoke_agent_impl`` BEFORE it
-    overwrites the context with this call's own transient sub-agent session
-    id) -- vary it across calls to simulate two independent conversations
-    (e.g. two concurrent ACP sessions) sharing one process.
+    ``conversation_scope`` stands in for this conversation's root identity
+    (``get_conversation_root_id()``, a ContextVar set once at the true
+    top-level conversation boundary -- e.g. an ACP session's prompt handler)
+    -- vary it across calls to simulate two independent conversations (e.g.
+    two concurrent ACP sessions) sharing one process.
     """
     invoke = _capture_invoke_default()
     mock_context = MagicMock()
@@ -132,10 +132,16 @@ async def _invoke_with_dead_pin(
         p(
             patch(
                 "code_puppy.tools.subagent_invocation.get_session_context",
-                return_value=conversation_scope,
+                return_value="parent",
             )
         )
         p(patch("code_puppy.tools.subagent_invocation.set_session_context"))
+        p(
+            patch(
+                "code_puppy.tools.subagent_invocation.get_conversation_root_id",
+                return_value=conversation_scope,
+            )
+        )
         p(patch("code_puppy.tools.subagent_invocation.emit_info"))
         p(patch("code_puppy.tools.subagent_invocation.emit_error"))
         p(patch("code_puppy.tools.subagent_invocation.emit_success"))

@@ -244,6 +244,33 @@ async def test_new_session_resets_model_fallback_warnings(wired_agent, monkeypat
 
 
 @pytest.mark.asyncio
+async def test_close_session_purges_its_own_fallback_warning_bucket(
+    wired_agent, monkeypatch
+):
+    """Sub-agent invocation scopes its dead-model-warning dedup by this
+    session's own conversation-root id (see subagent_context.py /
+    subagent_invocation.py) precisely so it never leaks into any OTHER
+    session -- but that also means nothing else will ever clean it up. A
+    long-running server churning through many short-lived sessions must not
+    accumulate one dangling bucket per closed session forever, so
+    close_session must purge exactly this session's own scope.
+    """
+    agent, _ = wired_agent
+    calls = []
+    monkeypatch.setattr(
+        "code_puppy.agents._builder.reset_model_fallback_warnings",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    session = await agent.new_session(cwd="/tmp")
+    calls.clear()  # drop the new_session's own scope=None reset call
+
+    await agent.close_session(session.session_id)
+
+    assert calls == [{"scope": session.session_id}]
+
+
+@pytest.mark.asyncio
 async def test_prompt_absorbs_history_for_memory_and_persistence(monkeypatch):
     """A completed turn must fold result.all_messages() back into the agent.
 

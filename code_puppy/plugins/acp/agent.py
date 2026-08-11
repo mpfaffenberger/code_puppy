@@ -340,11 +340,23 @@ class CodePuppyAgent(Agent):
         otherwise the session would resurrect in the next ``list_sessions``,
         which is exactly the "disappeared session that won't stay gone" bug in
         reverse.
+
+        Also purges this session's own bucket of
+        ``load_model_with_fallback``'s once-per-conversation dead-model-warning
+        dedup (keyed by the session's ``conversation_root_id`` -- see
+        ``subagent_invocation.py`` / ``subagent_context.py``). Sub-agent
+        warnings are scoped per session precisely so they never leak into any
+        OTHER session; without this, a long-running server churning through
+        many short-lived sessions would accumulate one dangling bucket per
+        closed session forever.
         """
+        from code_puppy.agents._builder import reset_model_fallback_warnings
+
         session = self._sessions.pop(session_id, None)
         if session is not None:
             session.cancel()
         persistence.delete(session_id)
+        reset_model_fallback_warnings(scope=session_id)
         return CloseSessionResponse()
 
     # ---- Prompt turn ------------------------------------------------------

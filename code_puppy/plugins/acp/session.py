@@ -106,8 +106,18 @@ class ACPSession:
             reset_working_directory,
             set_working_directory,
         )
+        from code_puppy.tools.subagent_context import (
+            reset_conversation_root_id,
+            set_conversation_root_id,
+        )
 
         cwd_token = set_working_directory(self.cwd) if self.cwd else None
+        # ContextVar, not set_session_context (see subagent_context.py) --
+        # this is what load_model_with_fallback's conversation_scope reads,
+        # and it needs real per-task isolation across concurrent ACP
+        # sessions / parallel tool calls, which set_session_context's shared
+        # mutable attribute cannot provide.
+        root_id_token = set_conversation_root_id(self.session_id)
 
         set_session_context(self.session_id)
         state.begin_run(self.session_id)
@@ -146,6 +156,7 @@ class ACPSession:
             self._task = None
             state.end_run()
             set_session_context(None)
+            reset_conversation_root_id(root_id_token)
             if cwd_token is not None:
                 reset_working_directory(cwd_token)
 

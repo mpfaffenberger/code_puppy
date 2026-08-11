@@ -45,6 +45,7 @@ from code_puppy.tools.agent_tools import (
 )
 from code_puppy.tools.common import generate_group_id
 from code_puppy.tools.subagent_context import (
+    get_conversation_root_id,
     get_subagent_chain,
     get_subagent_depth,
     get_subagent_model_name,
@@ -367,16 +368,25 @@ async def _invoke_agent_impl(
                     group_id,
                     agent_name=agent_name,
                     # Scope the warn-once-per-conversation dedup to the
-                    # PARENT conversation (captured above, before it was
-                    # overwritten with this sub-agent's own transient
-                    # session_id) -- not this call's own session_id, which
-                    # would make every invocation its own "conversation" and
-                    # defeat the dedup entirely. This also means independent
-                    # conversations sharing one process (concurrent ACP
-                    # sessions, notably) never share warning-dedup state in
-                    # the first place, so nothing needs to reset it between
-                    # them.
-                    conversation_scope=previous_session_id,
+                    # conversation's ROOT identity (a ContextVar set once at
+                    # the true top-level conversation boundary -- an ACP
+                    # session's prompt handler, or left None for the CLI's
+                    # one-conversation-per-process model) -- NOT this call's
+                    # own transient session_id, and NOT the message-bus's
+                    # get_session_context() (a shared mutable attribute with
+                    # no per-task isolation; see subagent_context.py's
+                    # docstring for why that's unsafe here). Using the root
+                    # id means:
+                    #   * concurrent conversations sharing one process (
+                    #     concurrent ACP sessions, parallel sibling tool
+                    #     calls) never share warning-dedup state, so nothing
+                    #     needs to reset it between them;
+                    #   * NESTED sub-agent invocations (A invokes B invokes
+                    #     C) all inherit the SAME root value instead of each
+                    #     level minting its own fresh id, so "once per
+                    #     conversation" holds through an entire call tree,
+                    #     not just one hop.
+                    conversation_scope=get_conversation_root_id(),
                 )
 
             # Create a temporary agent instance to avoid interfering with current agent state
