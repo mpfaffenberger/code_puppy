@@ -45,6 +45,7 @@ from code_puppy.tools.agent_tools import (
 )
 from code_puppy.tools.common import generate_group_id
 from code_puppy.tools.subagent_context import (
+    get_conversation_root_id,
     get_subagent_chain,
     get_subagent_depth,
     get_subagent_model_name,
@@ -315,24 +316,77 @@ async def _invoke_agent_impl(
 
             # Resolve the effective model through the agent so precedence lives
             # in one place: runtime override -> pinned model -> global default.
-            effective_model_name = agent_config.get_model_name()
+            requested_model_name = agent_config.get_model_name()
             models_config = ModelFactory.load_config()
 
-            if not effective_model_name:
+            if not requested_model_name:
                 raise ValueError("No model configured for sub-agent invocation")
 
-            # Only proceed if we have a valid model configuration
-            if effective_model_name not in models_config:
-                raise ValueError(
-                    f"Model '{effective_model_name}' not found in configuration"
-                )
+            # A pinned/ambient model that has since vanished from config
+            # (removed model entry, unsupported type, missing credentials, ...)
+            # must degrade the same way the main agent does: warn and fall back
+            # to the global default (then any other configured model) instead
+            # of hard-failing the whole sub-agent invocation. See
+            # ``load_model_with_fallback`` for the exact fallback order.
+            #
+            # An EXPLICIT override (``invoke_agent_with_model``'s ``model_name``
+            # argument) is a different contract: the caller said "run this one
+            # call on exactly this model", on purpose. Silently substituting a
+            # different model there -- possibly weaker/pricier, with no forced
+            # signal beyond a once-per-conversation warning -- would violate
+            # that contract for automated callers. So a bad explicit override
+            # stays a hard, per-call failure; only the ambient/pinned path
+            # (plain ``invoke_agent``, no override) gets the graceful fallback.
+            from code_puppy.agents._builder import load_model_with_fallback
 
-            model = ModelFactory.get_model(effective_model_name, models_config)
-            if model is None:
-                raise ValueError(
-                    f"Model '{effective_model_name}' is configured but could not be "
-                    "initialized. Check credentials, provider availability, and usage "
-                    "limits for that model."
+            if model_name:
+                try:
+                    model = ModelFactory.get_model(requested_model_name, models_config)
+                    if model is None:
+                        raise ValueError(
+                            f"Model '{requested_model_name}' is configured but "
+                            "could not be initialized. Check credentials, "
+                            "provider availability, and usage limits for that "
+                            "model."
+                        )
+                except ValueError as exc:
+                    available = list(models_config.keys())
+                    available_str = (
+                        ", ".join(sorted(available))
+                        if available
+                        else "no configured models"
+                    )
+                    raise ValueError(
+                        f"Explicit model override '{requested_model_name}' is "
+                        f"unavailable: {exc} Available models: {available_str}."
+                    ) from exc
+                effective_model_name = requested_model_name
+            else:
+                model, effective_model_name = load_model_with_fallback(
+                    requested_model_name,
+                    models_config,
+                    group_id,
+                    agent_name=agent_name,
+                    # Scope the warn-once-per-conversation dedup to the
+                    # conversation's ROOT identity (a ContextVar set once at
+                    # the true top-level conversation boundary -- an ACP
+                    # session's prompt handler, or left None for the CLI's
+                    # one-conversation-per-process model) -- NOT this call's
+                    # own transient session_id, and NOT the message-bus's
+                    # get_session_context() (a shared mutable attribute with
+                    # no per-task isolation; see subagent_context.py's
+                    # docstring for why that's unsafe here). Using the root
+                    # id means:
+                    #   * concurrent conversations sharing one process (
+                    #     concurrent ACP sessions, parallel sibling tool
+                    #     calls) never share warning-dedup state, so nothing
+                    #     needs to reset it between them;
+                    #   * NESTED sub-agent invocations (A invokes B invokes
+                    #     C) all inherit the SAME root value instead of each
+                    #     level minting its own fresh id, so "once per
+                    #     conversation" holds through an entire call tree,
+                    #     not just one hop.
+                    conversation_scope=get_conversation_root_id(),
                 )
 
             # Create a temporary agent instance to avoid interfering with current agent state

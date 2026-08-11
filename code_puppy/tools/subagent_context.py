@@ -48,8 +48,8 @@ print(is_subagent())  # False
 """
 
 from contextlib import contextmanager
-from contextvars import ContextVar
-from typing import Generator
+from contextvars import ContextVar, Token
+from typing import Generator, Optional
 
 __all__ = [
     "subagent_context",
@@ -58,6 +58,9 @@ __all__ = [
     "get_subagent_chain",
     "get_subagent_depth",
     "get_subagent_model_name",
+    "set_conversation_root_id",
+    "reset_conversation_root_id",
+    "get_conversation_root_id",
 ]
 
 # Track sub-agent depth (0 = main agent, 1+ = sub-agent)
@@ -74,6 +77,30 @@ _subagent_model_name: ContextVar[str | None] = ContextVar(
 # tuple is empty in the main-agent context and `(deepest_name,)` for a
 # single-level sub-agent. For ``code-puppy -> A -> B`` it is ``("A", "B")``.
 _subagent_chain: ContextVar[tuple[str, ...]] = ContextVar("subagent_chain", default=())
+
+# Identifies the single top-level conversation this call tree belongs to
+# (an ACP session id, or ``None`` for the CLI's one-conversation-at-a-time
+# process). Deliberately a plain ``ContextVar`` -- NOT the message-bus's
+# ``set_session_context``/``get_session_context``, which is a shared mutable
+# attribute on a process-wide singleton with no per-task isolation (see
+# ``code_puppy/messaging/bus.py``) and is unsafe to read for anything
+# correctness-sensitive under concurrent asyncio tasks (parallel tool calls,
+# concurrent ACP sessions). A ``ContextVar`` is copied into every child task
+# pydantic-ai spawns (``asyncio.create_task``/anyio ``to_thread``), so:
+#   * concurrent sibling tool calls / concurrent ACP sessions each see their
+#     own independent copy -- no cross-talk, no clobbering;
+#   * nested sub-agent invocations (A invokes B) all inherit the SAME root
+#     value set once at the true conversation root, rather than each level
+#     minting its own fresh transient id -- so "once per conversation"
+#     dedup keys (see ``_builder.load_model_with_fallback``'s
+#     ``conversation_scope``) stay stable across an entire nested call tree.
+# Set once per top-level conversation (ACP's session prompt handler); never
+# touched by ``subagent_context`` itself, so sub-agent nesting doesn't shift
+# it. ``None`` for the CLI, matching its single-conversation-per-process
+# model (unaffected by this scope).
+_conversation_root_id: ContextVar[Optional[str]] = ContextVar(
+    "conversation_root_id", default=None
+)
 
 
 @contextmanager
@@ -202,7 +229,36 @@ def get_subagent_chain() -> tuple[str, ...]:
         ...     get_subagent_chain()
         ('retriever',)
         ...     with subagent_context("terrier"):
-        ...         get_subagent_chain()
+            ...         get_subagent_chain()
         ('retriever', 'terrier')
     """
     return _subagent_chain.get()
+
+
+def set_conversation_root_id(value: Optional[str]) -> Token:
+    """Mark the current asyncio task as belonging to conversation ``value``.
+
+    Call once at the true root of a conversation (e.g. an ACP session's
+    prompt handler) -- NOT inside ``subagent_context``, so nested sub-agent
+    invocations inherit the same root rather than each minting their own.
+
+    Returns a token; pass it to :func:`reset_conversation_root_id` to restore
+    the previous value (typically in a ``finally`` block).
+    """
+    return _conversation_root_id.set(value)
+
+
+def reset_conversation_root_id(token: Token) -> None:
+    """Restore the conversation root id to its value before ``set``."""
+    _conversation_root_id.reset(token)
+
+
+def get_conversation_root_id() -> Optional[str]:
+    """Return the current task's conversation root id, or ``None``.
+
+    ``None`` both for the CLI (which never sets this -- single conversation
+    per process, matching its existing ``/clear``-driven reset model) and
+    for any code path that runs outside a ``set_conversation_root_id``
+    scope.
+    """
+    return _conversation_root_id.get()
