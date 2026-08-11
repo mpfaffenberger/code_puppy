@@ -315,25 +315,23 @@ async def _invoke_agent_impl(
 
             # Resolve the effective model through the agent so precedence lives
             # in one place: runtime override -> pinned model -> global default.
-            effective_model_name = agent_config.get_model_name()
+            requested_model_name = agent_config.get_model_name()
             models_config = ModelFactory.load_config()
 
-            if not effective_model_name:
+            if not requested_model_name:
                 raise ValueError("No model configured for sub-agent invocation")
 
-            # Only proceed if we have a valid model configuration
-            if effective_model_name not in models_config:
-                raise ValueError(
-                    f"Model '{effective_model_name}' not found in configuration"
-                )
+            # A pinned/overridden model that has since vanished from config
+            # (removed model entry, unsupported type, missing credentials, ...)
+            # must degrade the same way the main agent does: warn and fall back
+            # to the global default (then any other configured model) instead
+            # of hard-failing the whole sub-agent invocation. See
+            # ``load_model_with_fallback`` for the exact fallback order.
+            from code_puppy.agents._builder import load_model_with_fallback
 
-            model = ModelFactory.get_model(effective_model_name, models_config)
-            if model is None:
-                raise ValueError(
-                    f"Model '{effective_model_name}' is configured but could not be "
-                    "initialized. Check credentials, provider availability, and usage "
-                    "limits for that model."
-                )
+            model, effective_model_name = load_model_with_fallback(
+                requested_model_name, models_config, group_id, agent_name=agent_name
+            )
 
             # Create a temporary agent instance to avoid interfering with current agent state
             instructions = agent_config.get_full_system_prompt()

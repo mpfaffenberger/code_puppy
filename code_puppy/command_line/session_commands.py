@@ -109,6 +109,7 @@ def handle_session_command(command: str) -> bool:
 )
 def handle_clear_command(command: str) -> bool:
     """Clear conversation history and rotate autosave session."""
+    from code_puppy.agents._builder import reset_model_fallback_warnings
     from code_puppy.agents.agent_manager import get_current_agent
     from code_puppy.command_line.clipboard import get_clipboard_manager
     from code_puppy.config import finalize_autosave_session
@@ -117,6 +118,9 @@ def handle_clear_command(command: str) -> bool:
     agent = get_current_agent()
     new_session_id = finalize_autosave_session()
     agent.clear_message_history()
+    # New conversation: a stale pinned-model warning deserves to resurface
+    # rather than staying silenced from the previous conversation forever.
+    reset_model_fallback_warnings()
     emit_warning(t("cmd.clear.cleared"))
     emit_system_message(t("cmd.clear.agent_notice"))
     emit_info(t("cmd.clear.session_rotated", id=new_session_id))

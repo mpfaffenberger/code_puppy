@@ -307,15 +307,52 @@ def reload_mcp_servers(agent_name: Optional[str] = None) -> List[Any]:
     return manager.get_servers_for_agent(agent_name=agent_name)
 
 
+# (agent_name, requested_model_name) combos we've already warned about this
+# conversation. Deliberately NOT cleared when a model finally loads again --
+# only reset_model_fallback_warnings() (wired to /clear) resets it, so a
+# still-broken pin doesn't re-nag on every agent rebuild within one
+# conversation, but a fresh conversation gets the reminder again. We
+# deliberately do NOT auto-clear the pin itself -- see
+# config.clear_agent_pinned_model; that stays a human decision.
+_warned_model_fallbacks: Set[Tuple[Optional[str], str]] = set()
+
+
+def reset_model_fallback_warnings() -> None:
+    """Forget which (agent, model) fallback warnings have already fired.
+
+    Called when the user starts a fresh conversation (/clear) so a
+    persistently broken pin gets re-flagged instead of going silent forever.
+    """
+    _warned_model_fallbacks.clear()
+
+
+def _model_fallback_fix_hint(agent_name: Optional[str]) -> str:
+    """Build the how-to-fix tail appended to model fallback warnings."""
+    if agent_name:
+        return (
+            f"Fix it with `/pin {agent_name} <model>` once a working model is "
+            f"available, or `/unpin {agent_name}` to just track the global "
+            "default from now on. Run `/model` to see configured models."
+        )
+    return "Set a valid model with `/model`, or check your models configuration."
+
+
 def load_model_with_fallback(
     requested_model_name: str,
     models_config: Dict[str, Any],
     message_group: str,
+    agent_name: Optional[str] = None,
 ) -> Tuple[Any, str]:
     """Load the requested model, or fall back to a sensible alternative.
 
     Falls back in order: the globally configured model, then any other
     configured model. Raises ``ValueError`` only if nothing loads.
+
+    ``agent_name``, when given, scopes the model-unavailable warning to fire
+    once per (agent, requested model) combo per conversation (see
+    ``reset_model_fallback_warnings``) and tailors the fix instructions to
+    that agent's ``/pin``/``/unpin`` commands. The agent's pinned model is
+    never auto-cleared -- that stays a deliberate, human-initiated action.
     """
     try:
         model = ModelFactory.get_model(requested_model_name, models_config)
@@ -330,30 +367,38 @@ def load_model_with_fallback(
         available_str = (
             ", ".join(sorted(available)) if available else "no configured models"
         )
+        warn_key = (agent_name, requested_model_name)
+        already_warned = warn_key in _warned_model_fallbacks
+        _warned_model_fallbacks.add(warn_key)
+        fix_hint = _model_fallback_fix_hint(agent_name)
+
         # Distinguish between "key missing", "type unsupported", and "creation failed"
         exc_msg = str(exc)
-        if "not found in configuration" in exc_msg:
+        if already_warned:
+            pass
+        elif "not found in configuration" in exc_msg:
             emit_warning(
-                f"Model '{requested_model_name}' not found. Available models: {available_str}",
+                f"Model '{requested_model_name}' not found. Available models: "
+                f"{available_str}. {fix_hint}",
                 message_group=message_group,
             )
         elif "Unsupported model type" in exc_msg:
             model_type = models_config.get(requested_model_name, {}).get("type", "?")
             emit_warning(
                 f"Model type '{model_type}' is not supported (model '{requested_model_name}'). "
-                f"Available models: {available_str}",
+                f"Available models: {available_str}. {fix_hint}",
                 message_group=message_group,
             )
         elif "could not be instantiated" in exc_msg:
             emit_warning(
                 f"Model '{requested_model_name}' could not be instantiated. "
-                f"Available models: {available_str}",
+                f"Available models: {available_str}. {fix_hint}",
                 message_group=message_group,
             )
         else:
             emit_warning(
                 f"Model '{requested_model_name}' failed: {exc_msg}. "
-                f"Available models: {available_str}",
+                f"Available models: {available_str}. {fix_hint}",
                 message_group=message_group,
             )
 
@@ -526,7 +571,10 @@ def build_pydantic_agent(
 
     models_config = ModelFactory.load_config()
     model, resolved_model_name = load_model_with_fallback(
-        agent.get_model_name(), models_config, message_group
+        agent.get_model_name(),
+        models_config,
+        message_group,
+        agent_name=getattr(agent, "name", None),
     )
     instructions = _assemble_instructions(agent, resolved_model_name)
     mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
@@ -618,6 +666,7 @@ def build_tool_probe_for_agent(agent: Any) -> Optional[Any]:
             agent.get_model_name() or "",
             models_config,
             message_group=str(uuid.uuid4()),
+            agent_name=getattr(agent, "name", None),
         )
     except Exception:
         return None

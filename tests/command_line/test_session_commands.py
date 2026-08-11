@@ -533,3 +533,32 @@ class TestHandleClearCommand:
 
         names = {c.name for c in get_unique_commands()}
         assert "clear" in names
+
+    def test_clear_resets_model_fallback_warnings(self):
+        """A fresh conversation should re-arm any silenced pinned-model
+        fallback warning rather than leaving it suppressed forever."""
+        agent = MagicMock()
+        clipboard = MagicMock()
+        clipboard.get_pending_count.return_value = 0
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=agent,
+            ),
+            patch(
+                "code_puppy.command_line.clipboard.get_clipboard_manager",
+                return_value=clipboard,
+            ),
+            patch(
+                "code_puppy.config.finalize_autosave_session",
+                return_value="sid",
+            ),
+            patch("code_puppy.messaging.emit_warning"),
+            patch("code_puppy.messaging.emit_system_message"),
+            patch("code_puppy.messaging.emit_info"),
+            patch(
+                "code_puppy.agents._builder.reset_model_fallback_warnings"
+            ) as mock_reset,
+        ):
+            assert self._run() is True
+            mock_reset.assert_called_once_with()
