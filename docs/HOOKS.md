@@ -129,7 +129,7 @@ run — `SessionStart` at boot, for instance — fall back to `"codepuppy-sessio
 | Event | Fires | Can Block? |
 |-------|-------|-----------|
 | `PreToolUse` | Before any tool call | Yes (exit 1) — tool never runs |
-| `PostToolUse` | After any tool call | No (observation only) |
+| `PostToolUse` | After any tool call | Yes (exit 1) — withholds the output; see below |
 | `UserPromptSubmit` | Before a prompt is sent to the model | Yes (exit 1) — see below |
 | `SessionStart` | When a session begins | No |
 | `SessionEnd` | When a session ends | No |
@@ -161,6 +161,27 @@ One exception: a plugin making its own internal agent call (a nested run — the
 shell-safety assessment, or anything passing `output_type`) cannot be cancelled,
 because its caller needs a result back. A block there substitutes a notice for
 the prompt instead. The prompt text is withheld from the model either way.
+
+### Blocking a tool's output
+
+A `PostToolUse` hook runs after the tool has executed, so it cannot undo the
+call — but blocking there **withholds the output**. The model and the message
+history get a notice naming your reason instead of the real result, which keeps
+secrets in tool output out of the transcript and out of your provider's logs.
+
+```bash
+#!/bin/bash
+# Withhold any tool output containing what looks like an AWS key
+input=$(cat)
+if echo "$input" | jq -r '.tool_result // empty' | grep -qE 'AKIA[0-9A-Z]{16}'; then
+  echo "Tool output contained an AWS access key and was withheld." >&2
+  exit 1
+fi
+exit 0
+```
+
+To stop the call from happening at all, use `PreToolUse` — by `PostToolUse` the
+side effect has already occurred.
 
 ---
 

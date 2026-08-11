@@ -235,10 +235,15 @@ async def on_post_tool_call_hook(
     result: Any,
     duration_ms: float,
     context: Any = None,
-) -> None:
-    """Post-tool callback — executes hooks after tool completes."""
+) -> Optional[Dict[str, Any]]:
+    """Post-tool callback — executes hooks after a tool completes.
+
+    A blocking hook here withholds the tool's OUTPUT from the model; the tool
+    itself has already run. Returns the block verdict for ``_run_post_tool_call``
+    to act on, or ``None`` to pass the result through untouched.
+    """
     if not _hook_engine:
-        return
+        return None
 
     event_data = EventData(
         event_type="PostToolUse",
@@ -250,9 +255,15 @@ async def on_post_tool_call_hook(
     )
 
     try:
-        await _hook_engine.process_event("PostToolUse", event_data)
+        outcome = await _hook_engine.process_event("PostToolUse", event_data)
+        if outcome.blocked:
+            reason = _block_reason(outcome)
+            logger.debug(f"Output of '{tool_name}' withheld by hook: {reason}")
+            return {"blocked": True, "reason": reason, "error_message": reason}
+        return None
     except Exception as e:
         logger.error(f"Error in post-tool hook: {e}", exc_info=True)
+        return None
 
 
 register_callback("pre_tool_call", on_pre_tool_call_hook)

@@ -674,6 +674,12 @@ async def on_post_tool_call(
     This allows plugins to inspect tool results, log execution times,
     or perform post-processing.
 
+    A callback may return ``{"blocked": True, "reason": ...}`` to withhold the
+    tool's OUTPUT: the model and the message history receive a notice naming the
+    reason instead of the real result. The tool has already run by this point, so
+    this controls what the output reaches — not whether the side effect happened.
+    Use ``pre_tool_call`` to stop the call itself.
+
     Args:
         tool_name: Name of the tool that was called
         tool_args: Arguments that were passed to the tool
@@ -682,7 +688,7 @@ async def on_post_tool_call(
         context: Optional context data for the tool call
 
     Returns:
-        List of results from registered callbacks.
+        List of results from registered callbacks (dict | None).
     """
     return await _trigger_callbacks(
         "post_tool_call", tool_name, tool_args, result, duration_ms, context

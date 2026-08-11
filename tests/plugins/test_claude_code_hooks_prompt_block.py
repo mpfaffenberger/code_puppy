@@ -213,6 +213,88 @@ class TestRuntimeHonorsPromptBlocked:
 
 
 # ---------------------------------------------------------------------------
+# PostToolUse can withhold a tool's output
+# ---------------------------------------------------------------------------
+
+
+class TestPostToolUseWithholding:
+    @pytest.mark.asyncio
+    async def test_bridge_returns_a_block_verdict(self):
+        from code_puppy.plugins.claude_code_hooks import register_callbacks
+
+        original = register_callbacks._hook_engine
+        register_callbacks._hook_engine = _engine(_blocked("secret in output"))
+        try:
+            verdict = await register_callbacks.on_post_tool_call_hook(
+                "Bash", {"command": "cat s.txt"}, "AKIAIOSFODNN7EXAMPLE", 5.0
+            )
+        finally:
+            register_callbacks._hook_engine = original
+
+        assert verdict == {
+            "blocked": True,
+            "reason": "secret in output",
+            "error_message": "secret in output",
+        }
+
+    @pytest.mark.asyncio
+    async def test_bridge_passes_output_through_when_allowed(self):
+        from code_puppy.plugins.claude_code_hooks import register_callbacks
+
+        original = register_callbacks._hook_engine
+        register_callbacks._hook_engine = _engine(_allowed())
+        try:
+            verdict = await register_callbacks.on_post_tool_call_hook(
+                "Bash", {"command": "echo hi"}, "hi", 5.0
+            )
+        finally:
+            register_callbacks._hook_engine = original
+
+        assert verdict is None
+
+    @pytest.mark.asyncio
+    async def test_runtime_replaces_the_result_on_a_block(self, monkeypatch):
+        """The secret must not survive into what pydantic-ai receives."""
+        from code_puppy import callbacks as cb_module
+        from code_puppy.pydantic_patches import _run_post_tool_call as run
+
+        async def _fire(tool_name, tool_args, result, duration_ms):
+            return [{"blocked": True, "reason": "secret in output"}]
+
+        monkeypatch.setattr(cb_module, "on_post_tool_call", _fire)
+
+        out = await run("Bash", {"command": "cat s.txt"}, "AKIAIOSFODNN7EXAMPLE", 1.0)
+
+        assert "AKIAIOSFODNN7EXAMPLE" not in out
+        assert "withheld" in out
+        assert "secret in output" in out
+
+    @pytest.mark.asyncio
+    async def test_runtime_passes_the_result_through_when_allowed(self, monkeypatch):
+        from code_puppy import callbacks as cb_module
+        from code_puppy.pydantic_patches import _run_post_tool_call as run
+
+        async def _fire(tool_name, tool_args, result, duration_ms):
+            return [None]
+
+        monkeypatch.setattr(cb_module, "on_post_tool_call", _fire)
+
+        assert await run("Bash", {}, "untouched output", 1.0) == "untouched output"
+
+    @pytest.mark.asyncio
+    async def test_a_failing_hook_leaves_the_result_alone(self, monkeypatch):
+        from code_puppy import callbacks as cb_module
+        from code_puppy.pydantic_patches import _run_post_tool_call as run
+
+        async def _boom(tool_name, tool_args, result, duration_ms):
+            raise RuntimeError("hook exploded")
+
+        monkeypatch.setattr(cb_module, "on_post_tool_call", _boom)
+
+        assert await run("Bash", {}, "untouched output", 1.0) == "untouched output"
+
+
+# ---------------------------------------------------------------------------
 # Stop vs SubagentStop, and the end-of-turn payload
 # ---------------------------------------------------------------------------
 

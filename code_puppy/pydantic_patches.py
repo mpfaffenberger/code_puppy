@@ -205,6 +205,57 @@ def _writeback_tool_args(call: Any, tool_args: dict, mode: str | None) -> None:
         pass  # never block tool execution on writeback failure
 
 
+async def _run_post_tool_call(
+    tool_name: str,
+    tool_args: dict,
+    result: Any,
+    duration_ms: float,
+) -> Any:
+    """Fire ``post_tool_call`` and honour a withhold verdict.
+
+    Returns what pydantic-ai should receive: the original result, or a
+    replacement notice when a hook returned ``{"blocked": True}``.
+
+    Scope matters here. The tool has ALREADY executed and its side effects have
+    happened — a verdict at this point cannot undo them. It governs only what
+    reaches the model and the message history, which is what makes it useful for
+    keeping secrets in a tool's output out of the transcript and out of the
+    provider's logs. Use ``pre_tool_call`` to stop the call itself.
+
+    Never raises: a failing hook leaves the result untouched.
+    """
+    try:
+        from code_puppy import callbacks
+
+        callback_results = await callbacks.on_post_tool_call(
+            tool_name, tool_args, result, duration_ms
+        )
+    except Exception:
+        return result
+
+    for callback_result in callback_results or []:
+        if not isinstance(callback_result, dict):
+            continue
+        if not callback_result.get("blocked"):
+            continue
+        reason = (
+            callback_result.get("reason") or callback_result.get("error_message") or ""
+        ).strip() or "Withheld by hook policy"
+        try:
+            from code_puppy.messaging import emit_warning
+
+            emit_warning(f"🚫 Hook withheld this tool's output: {reason}")
+        except Exception:
+            pass
+        return (
+            "ERROR: The tool ran, but a PostToolUse hook withheld its output."
+            f"\n\nReason: {reason}\n\nThe output is not available to you. Do not "
+            "retry the call or try another route to read the same data — report "
+            "the block to the user instead."
+        )
+    return result
+
+
 def patch_tool_call_callbacks() -> None:
     """Patch pydantic-ai tool handling to support callbacks and Claude Code tool names.
 
@@ -402,6 +453,7 @@ def patch_tool_call_callbacks() -> None:
             start = time.perf_counter()
             error: Exception | None = None
             result = None
+            post_tool_call_fired = False
             try:
                 result = await _original_call_tool(
                     self,
@@ -424,21 +476,36 @@ def patch_tool_call_callbacks() -> None:
                         result = prefix + result
                     else:
                         result = prefix + str(result)
+                # PostToolUse runs here — BEFORE the result is handed back — so a
+                # hook can withhold it. Firing it from the `finally` below meant
+                # the return value was already decided and the hook's verdict was
+                # discarded, leaving PostToolUse purely observational.
+                post_tool_call_fired = True
+                result = await _run_post_tool_call(
+                    tool_name,
+                    tool_args,
+                    result,
+                    (time.perf_counter() - start) * 1000,
+                )
                 return result
             except Exception as exc:
                 error = exc
                 raise
             finally:
-                duration_ms = (time.perf_counter() - start) * 1000
-                final_result = result if error is None else {"error": str(error)}
-                try:
-                    from code_puppy import callbacks
+                # Error path only: there is no result to withhold, so this stays
+                # observational. Guarded so a tool that succeeded never notifies
+                # twice.
+                if not post_tool_call_fired:
+                    duration_ms = (time.perf_counter() - start) * 1000
+                    final_result = result if error is None else {"error": str(error)}
+                    try:
+                        from code_puppy import callbacks
 
-                    await callbacks.on_post_tool_call(
-                        tool_name, tool_args, final_result, duration_ms
-                    )
-                except Exception:
-                    pass  # never block tool execution
+                        await callbacks.on_post_tool_call(
+                            tool_name, tool_args, final_result, duration_ms
+                        )
+                    except Exception:
+                        pass  # never block tool execution
 
         ToolManager.get_tool_def = _patched_get_tool_def
         ToolManager.handle_call = _patched_handle_call
