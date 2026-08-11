@@ -383,20 +383,25 @@ class CodePuppyAgent(Agent):
         replayed into the agent so the model continues the real conversation.
         Client-injected ``mcp_servers`` are attached best-effort.
 
-        Also resets ``load_model_with_fallback``'s once-per-conversation
+        Also resets the SHARED/unscoped bucket of
+        ``load_model_with_fallback``'s once-per-conversation
         pinned-model-unavailable dedup (see ``_builder.reset_model_fallback_warnings``).
-        That dedup is process-lifetime global state whose only other reset hook
-        is the CLI's ``/clear`` -- without this, a long-running ACP server
-        hosting multiple concurrent client sessions would silently suppress a
-        dead-pin warning for every session after the first one that ever hit
-        it, even sessions from a different client/workspace that never saw the
-        first warning. Resetting on every new/loaded/forked session trades a
-        possible extra warning for a new session against that cross-session
-        silence, which is the safer direction to be wrong in.
+        Sub-agent invocations scope their own warning state to the parent
+        conversation's session id (see ``subagent_invocation.py``), so they
+        already can't leak across sessions and don't need this reset at all.
+        The *main* agent build path (``build_pydantic_agent``, used to build
+        each session's own top-level agent) still shares one unscoped bucket
+        across every session in this process, matching the pre-existing
+        single-main-agent-per-process model -- so without this reset, session
+        A hitting a dead pin during its own build could silently suppress the
+        identical warning for session B's build too. Resetting only the
+        ``scope=None`` bucket on every new/loaded/forked session avoids that
+        without touching any other session's already-scoped sub-agent
+        warnings.
         """
         from code_puppy.agents._builder import reset_model_fallback_warnings
 
-        reset_model_fallback_warnings()
+        reset_model_fallback_warnings(scope=None)
         agent = self._new_agent()
         if rehydrate:
             history = persistence.load_history(session_id)

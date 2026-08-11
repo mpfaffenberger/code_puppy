@@ -16,7 +16,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from code_puppy.agents._builder import reset_model_fallback_warnings
+from code_puppy.agents._builder import (
+    load_model_with_fallback,
+    reset_model_fallback_warnings,
+)
 from code_puppy.tools.subagent_invocation import (
     register_invoke_agent,
     register_invoke_agent_with_model,
@@ -84,13 +87,21 @@ def _passthrough_retry(*_args, **_kwargs):
     return _decorator
 
 
-async def _invoke_with_dead_pin(agent_name="test-agent", pinned_model="dead-model"):
+async def _invoke_with_dead_pin(
+    agent_name="test-agent", pinned_model="dead-model", conversation_scope="parent"
+):
     """Drive ``invoke_agent`` for ``agent_name`` pinned to a model that isn't
     in ``models_config``, and return ``(output, mock_warning)``.
 
     ``mock_warning`` is the patched ``emit_warning`` in ``_builder.py`` --
     that's where ``load_model_with_fallback`` actually emits the fallback
     warning, not ``subagent_invocation.py``.
+
+    ``conversation_scope`` stands in for the parent conversation's session id
+    (``get_session_context()``, captured by ``_invoke_agent_impl`` BEFORE it
+    overwrites the context with this call's own transient sub-agent session
+    id) -- vary it across calls to simulate two independent conversations
+    (e.g. two concurrent ACP sessions) sharing one process.
     """
     invoke = _capture_invoke_default()
     mock_context = MagicMock()
@@ -121,7 +132,7 @@ async def _invoke_with_dead_pin(agent_name="test-agent", pinned_model="dead-mode
         p(
             patch(
                 "code_puppy.tools.subagent_invocation.get_session_context",
-                return_value="parent",
+                return_value=conversation_scope,
             )
         )
         p(patch("code_puppy.tools.subagent_invocation.set_session_context"))
@@ -275,6 +286,46 @@ class TestPinnedModelFallback:
         _out, mock_warning = await _invoke_with_dead_pin(agent_name="qa-expert")
         assert mock_warning.call_count == 1
 
+    @pytest.mark.asyncio
+    async def test_independent_conversations_do_not_share_warning_state(self):
+        """Two independent conversations (e.g. two concurrent ACP sessions)
+        sharing one process must each get their own warning for the exact
+        same (agent, dead-model) combo -- one conversation's warning must
+        NOT silently suppress the identical warning for a totally unrelated
+        conversation that never saw it.
+        """
+        _out_a, warning_a = await _invoke_with_dead_pin(
+            agent_name="qa-expert", conversation_scope="acp-session-a"
+        )
+        assert warning_a.call_count == 1
+
+        _out_b, warning_b = await _invoke_with_dead_pin(
+            agent_name="qa-expert", conversation_scope="acp-session-b"
+        )
+        assert warning_b.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_unscoped_reset_does_not_wipe_other_conversations(self):
+        """``reset_model_fallback_warnings(scope=None)`` (what ACP's
+        ``_make_session`` calls on every new/loaded/forked session) must only
+        clear the shared/unscoped bucket -- it must NOT wipe a different,
+        already-scoped conversation's warning state. Otherwise creating an
+        unrelated ACP session would re-open a warning for a conversation
+        that's still live and already saw it once.
+        """
+        await _invoke_with_dead_pin(
+            agent_name="qa-expert", conversation_scope="acp-session-a"
+        )
+
+        reset_model_fallback_warnings(scope=None)
+
+        # Session A's own warning state must have survived the scope=None
+        # reset triggered by session B's creation.
+        _out, mock_warning_again = await _invoke_with_dead_pin(
+            agent_name="qa-expert", conversation_scope="acp-session-a"
+        )
+        assert mock_warning_again.call_count == 0
+
 
 async def _invoke_with_dead_explicit_override(dead_model="dead-model"):
     """Drive ``invoke_agent_with_model`` with an EXPLICIT ``model_name``
@@ -399,3 +450,82 @@ class TestExplicitModelOverrideHardFails:
             agent_name="test-agent", pinned_model="another-dead-model"
         )
         assert mock_warning.call_count == 1
+
+
+class TestLoadModelWithFallbackScopingUnit:
+    """Fast, direct unit tests on ``load_model_with_fallback`` itself (no
+    sub-agent-invocation mock stack) pinning down the exact
+    ``conversation_scope`` dedup-key and ``reset_model_fallback_warnings``
+    semantics the integration-style tests above exercise indirectly.
+    """
+
+    @staticmethod
+    def _fake_get_model(model_name, config):
+        if model_name not in config:
+            raise ValueError(f"Model '{model_name}' not found in configuration.")
+        return MagicMock()
+
+    def _call(self, *, agent_name="qa-expert", conversation_scope=None):
+        models_config = {"global-default-model": {}}
+        with (
+            patch(
+                "code_puppy.agents._builder.ModelFactory.get_model",
+                side_effect=self._fake_get_model,
+            ),
+            patch(
+                "code_puppy.agents._builder.get_global_model_name",
+                return_value="global-default-model",
+            ),
+            patch("code_puppy.agents._builder.emit_info"),
+            patch("code_puppy.agents._builder.emit_error"),
+            patch("code_puppy.agents._builder.emit_warning") as mock_warning,
+        ):
+            load_model_with_fallback(
+                "dead-model",
+                models_config,
+                "group-id",
+                agent_name=agent_name,
+                conversation_scope=conversation_scope,
+            )
+        return mock_warning
+
+    def test_same_scope_warns_once(self):
+        assert self._call(conversation_scope="session-a").call_count == 1
+        assert self._call(conversation_scope="session-a").call_count == 0
+
+    def test_different_scope_warns_independently(self):
+        assert self._call(conversation_scope="session-a").call_count == 1
+        assert self._call(conversation_scope="session-b").call_count == 1
+
+    def test_none_scope_is_its_own_bucket(self):
+        """``conversation_scope=None`` (the main-agent-build default) is a
+        distinct bucket from any named scope, not "no dedup at all".
+        """
+        assert self._call(conversation_scope=None).call_count == 1
+        assert self._call(conversation_scope=None).call_count == 0
+        assert self._call(conversation_scope="session-a").call_count == 1
+
+    def test_full_reset_clears_every_scope(self):
+        self._call(conversation_scope="session-a")
+        self._call(conversation_scope=None)
+
+        reset_model_fallback_warnings()
+
+        assert self._call(conversation_scope="session-a").call_count == 1
+        assert self._call(conversation_scope=None).call_count == 1
+
+    def test_scoped_reset_only_clears_that_scope(self):
+        """This is the exact property ACP's ``_make_session`` relies on:
+        ``reset_model_fallback_warnings(scope=None)`` must clear ONLY the
+        unscoped bucket, leaving a different named scope's already-earned
+        warning state untouched.
+        """
+        self._call(conversation_scope="session-a")
+        self._call(conversation_scope=None)
+
+        reset_model_fallback_warnings(scope=None)
+
+        # The unscoped bucket was cleared -> warns again.
+        assert self._call(conversation_scope=None).call_count == 1
+        # session-a's bucket was untouched -> stays silent.
+        assert self._call(conversation_scope="session-a").call_count == 0

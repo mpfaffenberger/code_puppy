@@ -223,23 +223,24 @@ async def test_new_session_and_prompt_streams(wired_agent):
 
 @pytest.mark.asyncio
 async def test_new_session_resets_model_fallback_warnings(wired_agent, monkeypatch):
-    """``_warned_model_fallbacks`` (code_puppy/agents/_builder.py) is a
-    process-lifetime global whose only other reset hook is the CLI's
-    ``/clear``. A long-running ACP server hosting multiple concurrent client
-    sessions must not let session A's dead-pin warning silently suppress the
-    identical warning forever for session B, which never saw it -- so every
-    new/loaded/forked session must reset the dedup set.
+    """``_warned_model_fallbacks``'s shared/unscoped bucket (code_puppy/
+    agents/_builder.py) backs the main-agent-build warning, which -- unlike
+    sub-agent invocation's own per-session-scoped warnings -- has no
+    per-session identity of its own. Every new/loaded/forked session must
+    reset that shared bucket (scope=None only) so session A's dead-pin
+    warning during its own agent build can't silently suppress the identical
+    warning for session B's build.
     """
     agent, _ = wired_agent
     calls = []
     monkeypatch.setattr(
         "code_puppy.agents._builder.reset_model_fallback_warnings",
-        lambda: calls.append(1),
+        lambda **kwargs: calls.append(kwargs),
     )
 
     await agent.new_session(cwd="/tmp")
 
-    assert calls == [1]
+    assert calls == [{"scope": None}]
 
 
 @pytest.mark.asyncio

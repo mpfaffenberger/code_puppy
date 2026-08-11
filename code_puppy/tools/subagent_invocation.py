@@ -362,7 +362,21 @@ async def _invoke_agent_impl(
                 effective_model_name = requested_model_name
             else:
                 model, effective_model_name = load_model_with_fallback(
-                    requested_model_name, models_config, group_id, agent_name=agent_name
+                    requested_model_name,
+                    models_config,
+                    group_id,
+                    agent_name=agent_name,
+                    # Scope the warn-once-per-conversation dedup to the
+                    # PARENT conversation (captured above, before it was
+                    # overwritten with this sub-agent's own transient
+                    # session_id) -- not this call's own session_id, which
+                    # would make every invocation its own "conversation" and
+                    # defeat the dedup entirely. This also means independent
+                    # conversations sharing one process (concurrent ACP
+                    # sessions, notably) never share warning-dedup state in
+                    # the first place, so nothing needs to reset it between
+                    # them.
+                    conversation_scope=previous_session_id,
                 )
 
             # Create a temporary agent instance to avoid interfering with current agent state
