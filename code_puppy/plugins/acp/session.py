@@ -207,6 +207,11 @@ class ACPSession:
         Besides cancelling the asyncio task, force-kill any local shell
         processes the run spawned so they don't orphan. (Shells delegated to
         the client run client-side and are unaffected.)
+
+        Only *requests* cancellation -- delivery happens at the task's next
+        await point, whenever that is, not immediately. Callers that need
+        the run to have actually finished unwinding (its ``finally`` block
+        included) before they act should use :meth:`cancel_and_wait` instead.
         """
         task = self._task
         if task is not None and not task.done():
@@ -219,6 +224,36 @@ class ACPSession:
             kill_all_running_shell_processes()
         except Exception:  # noqa: BLE001
             logger.debug("ACP: shell kill on cancel failed", exc_info=True)
+
+    async def cancel_and_wait(self, timeout: float = 2.0) -> None:
+        """Cancel the in-flight run and wait for it to actually unwind.
+
+        ``cancel()`` alone only *requests* cancellation; asyncio only
+        delivers it at the task's next await point, with no guarantee of
+        when that is. A caller that needs the run's own cleanup to have
+        genuinely finished first -- notably ``close_session`` purging this
+        session's warn-dedup bucket, which would otherwise race a
+        still-in-flight ``_invoke_agent_impl`` synchronously writing into
+        that same bucket a moment later -- must await this instead of the
+        bare ``cancel()``.
+
+        Bounded by ``timeout`` so a run stuck ignoring cancellation (blocked
+        in genuinely non-cancellable I/O, say) can't hang session close
+        forever; on timeout we give up waiting and return anyway -- the task
+        is still cancelled, just not confirmed finished.
+        """
+        task = self._task
+        self.cancel()
+        if task is None:
+            return
+        try:
+            await asyncio.wait_for(task, timeout=timeout)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+        except Exception:  # noqa: BLE001
+            # prompt()'s own except block already logs/handles run failures;
+            # a close shouldn't raise because the run it interrupted failed.
+            logger.debug("ACP: cancel_and_wait observed run failure", exc_info=True)
 
     async def _send_error_notice(self, error: Optional[BaseException]) -> None:
         """Tell the client a turn failed, so it isn't a silent empty response.

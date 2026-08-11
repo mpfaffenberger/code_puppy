@@ -343,18 +343,25 @@ class CodePuppyAgent(Agent):
 
         Also purges this session's own bucket of
         ``load_model_with_fallback``'s once-per-conversation dead-model-warning
-        dedup (keyed by the session's ``conversation_root_id`` -- see
+        dedup (keyed by the session's conversation root id -- see
         ``subagent_invocation.py`` / ``subagent_context.py``). Sub-agent
         warnings are scoped per session precisely so they never leak into any
         OTHER session; without this, a long-running server churning through
         many short-lived sessions would accumulate one dangling bucket per
         closed session forever.
+
+        Waits for any in-flight run to actually finish unwinding
+        (``cancel_and_wait``, not the bare ``cancel``) before purging --
+        otherwise a run still mid-flight inside ``_invoke_agent_impl`` could
+        write a fresh warning into this session's bucket a moment *after*
+        the purge, leaking that one entry forever (nothing will call
+        ``close_session`` for this id a second time).
         """
         from code_puppy.agents._builder import reset_model_fallback_warnings
 
         session = self._sessions.pop(session_id, None)
         if session is not None:
-            session.cancel()
+            await session.cancel_and_wait()
         persistence.delete(session_id)
         reset_model_fallback_warnings(scope=session_id)
         return CloseSessionResponse()
@@ -398,12 +405,14 @@ class CodePuppyAgent(Agent):
         Also resets the SHARED/unscoped bucket of
         ``load_model_with_fallback``'s once-per-conversation
         pinned-model-unavailable dedup (see ``_builder.reset_model_fallback_warnings``).
-        Sub-agent invocations scope their own warning state to the parent
-        conversation's session id (see ``subagent_invocation.py``), so they
-        already can't leak across sessions and don't need this reset at all.
-        The *main* agent build path (``build_pydantic_agent``, used to build
-        each session's own top-level agent) still shares one unscoped bucket
-        across every session in this process, matching the pre-existing
+        Sub-agent invocations scope their own warning state to the
+        conversation's ROOT id (a ContextVar -- see
+        ``subagent_context.get_conversation_root_id``/``session.py``'s prompt
+        handler), so they already can't leak across sessions and don't need
+        this reset at all. The *main* agent build path
+        (``build_pydantic_agent``, used to build each session's own
+        top-level agent) still shares one unscoped bucket across every
+        session in this process, matching the pre-existing
         single-main-agent-per-process model -- so without this reset, session
         A hitting a dead pin during its own build could silently suppress the
         identical warning for session B's build too. Resetting only the
