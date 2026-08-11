@@ -7,6 +7,7 @@ import os
 import pathlib
 from typing import Any, Optional
 
+from code_puppy.config_file import load_config, mutate_config
 from code_puppy.session_storage import save_session
 
 logger = logging.getLogger(__name__)
@@ -307,6 +308,11 @@ _default_vision_model_cache = None
 _warned_no_model = False
 
 
+def _load_config() -> configparser.ConfigParser:
+    """Load ``CONFIG_FILE`` through the bounded, recoverable I/O layer."""
+    return load_config(CONFIG_FILE)
+
+
 def ensure_config_exists():
     """
     Ensure that XDG directories and puppy.cfg exist, prompting if needed.
@@ -317,15 +323,17 @@ def ensure_config_exists():
         if not os.path.exists(directory):
             os.makedirs(directory, mode=0o700, exist_ok=True)
     exists = os.path.isfile(CONFIG_FILE)
-    config = configparser.ConfigParser()
-    if exists:
-        config.read(CONFIG_FILE)
+    # Skip the read entirely when we already know there's nothing to read --
+    # matches configparser's own no-op-on-missing-file behavior and avoids an
+    # unnecessary open() attempt during first-run setup.
+    config = _load_config() if exists else configparser.ConfigParser()
     missing = []
     if DEFAULT_SECTION not in config:
         config[DEFAULT_SECTION] = {}
     for key in REQUIRED_KEYS:
         if not config[DEFAULT_SECTION].get(key):
             missing.append(key)
+    prompted_values: dict[str, str] = {}
     if missing:
         # Note: Using sys.stdout here for initial setup before messaging system is available
         import sys
@@ -341,22 +349,33 @@ def ensure_config_exists():
                 ).strip()
             else:
                 val = input(f"Enter {key}: ").strip()
+            prompted_values[key] = val
             config[DEFAULT_SECTION][key] = val
 
     # Set default values for important config keys if they don't exist
     if not config[DEFAULT_SECTION].get("auto_save_session"):
         config[DEFAULT_SECTION]["auto_save_session"] = "true"
 
-    # Write the config if we made any changes
+    # Write the config if we made any changes. Re-reads under the config lock
+    # and re-applies the prompted values on top of that fresh snapshot, so a
+    # file that was corrupted or replaced between the read above and now is
+    # quarantined and recovered from rather than blindly overwritten.
     if missing or not exists:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            config.write(f)
+
+        def _apply(cfg: configparser.ConfigParser) -> None:
+            if DEFAULT_SECTION not in cfg:
+                cfg[DEFAULT_SECTION] = {}
+            for key, val in prompted_values.items():
+                cfg[DEFAULT_SECTION][key] = val
+            if not cfg[DEFAULT_SECTION].get("auto_save_session"):
+                cfg[DEFAULT_SECTION]["auto_save_session"] = "true"
+
+        config = mutate_config(CONFIG_FILE, _apply)
     return config
 
 
 def get_value(key: str):
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
+    config = _load_config()
     val = config.get(DEFAULT_SECTION, key, fallback=None)
     return val
 
@@ -492,8 +511,7 @@ def get_config_keys():
     default_keys.append("retry_subagent_strategy")
     default_keys.append("retry_subagent_max_attempts")
 
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
+    config = _load_config()
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
     keys.update(default_keys)
     return sorted(keys)
@@ -503,13 +521,13 @@ def set_config_value(key: str, value: str):
     """
     Sets a config value in the persistent config file.
     """
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-    if DEFAULT_SECTION not in config:
-        config[DEFAULT_SECTION] = {}
-    config[DEFAULT_SECTION][key] = value
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        config.write(f)
+
+    def _apply(config: configparser.ConfigParser) -> None:
+        if DEFAULT_SECTION not in config:
+            config[DEFAULT_SECTION] = {}
+        config[DEFAULT_SECTION][key] = value
+
+    mutate_config(CONFIG_FILE, _apply)
 
 
 # Alias for API compatibility
@@ -520,12 +538,14 @@ def set_value(key: str, value: str) -> None:
 
 def reset_value(key: str) -> None:
     """Remove a key from the config file, resetting it to default."""
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-    if DEFAULT_SECTION in config and key in config[DEFAULT_SECTION]:
-        del config[DEFAULT_SECTION][key]
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            config.write(f)
+
+    def _apply(config: configparser.ConfigParser) -> bool:
+        if DEFAULT_SECTION in config and key in config[DEFAULT_SECTION]:
+            del config[DEFAULT_SECTION][key]
+            return True
+        return False  # nothing to remove -- skip the write entirely
+
+    mutate_config(CONFIG_FILE, _apply)
 
 
 # --- MODEL STICKY EXTENSION STARTS HERE ---
@@ -854,13 +874,12 @@ def set_model_name(model: str):
     _SESSION_MODEL = model
 
     # Also persist to file for new terminal sessions
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-    if DEFAULT_SECTION not in config:
-        config[DEFAULT_SECTION] = {}
-    config[DEFAULT_SECTION]["model"] = model or ""
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        config.write(f)
+    def _apply(config: configparser.ConfigParser) -> None:
+        if DEFAULT_SECTION not in config:
+            config[DEFAULT_SECTION] = {}
+        config[DEFAULT_SECTION]["model"] = model or ""
+
+    mutate_config(CONFIG_FILE, _apply)
 
     # Clear model cache when switching models to ensure fresh validation
     clear_model_cache()
@@ -1056,13 +1075,10 @@ def get_all_model_settings(model_name: str) -> dict:
     Returns:
         Dictionary of setting_name -> value for all configured settings.
     """
-    import configparser
-
     sanitized_name = _sanitize_model_name_for_key(model_name)
     prefix = f"model_settings_{sanitized_name}_"
 
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
+    config = _load_config()
 
     settings = {}
     if DEFAULT_SECTION in config:
@@ -1130,23 +1146,20 @@ def clear_model_settings(model_name: str) -> None:
     Args:
         model_name: The model name
     """
-    import configparser
-
     sanitized_name = _sanitize_model_name_for_key(model_name)
     prefix = f"model_settings_{sanitized_name}_"
 
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-
-    if DEFAULT_SECTION in config:
+    def _apply(config: configparser.ConfigParser) -> bool:
+        if DEFAULT_SECTION not in config:
+            return False
         keys_to_remove = [
             key for key in config[DEFAULT_SECTION] if key.startswith(prefix)
         ]
         for key in keys_to_remove:
             del config[DEFAULT_SECTION][key]
+        return bool(keys_to_remove)  # nothing matched -- skip the write entirely
 
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            config.write(f)
+    mutate_config(CONFIG_FILE, _apply)
 
 
 def get_effective_model_settings(model_name: Optional[str] = None) -> dict:
@@ -1772,8 +1785,7 @@ def get_all_agent_pinned_models() -> dict:
         Dict mapping agent names to their pinned model names.
         Only includes agents that have a pinned model (non-empty value).
     """
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
+    config = _load_config()
 
     pinnings = {}
     if DEFAULT_SECTION in config:
