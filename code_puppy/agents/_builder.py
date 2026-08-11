@@ -307,15 +307,86 @@ def reload_mcp_servers(agent_name: Optional[str] = None) -> List[Any]:
     return manager.get_servers_for_agent(agent_name=agent_name)
 
 
+# (conversation_scope, agent_name, requested_model_name) combos we've
+# already warned about this conversation. ``conversation_scope`` lets
+# independent conversations sharing one process (concurrent ACP sessions,
+# notably) keep separate warning state, so one session's warning can't
+# silently suppress -- or a reset silently un-suppress -- another's; see
+# ``subagent_invocation.py`` (passes the parent conversation's session id)
+# and ``build_pydantic_agent``/``build_tool_probe_for_agent`` (leave it
+# ``None``, matching the pre-existing single-main-agent-per-process model).
+# Deliberately NOT cleared when a model finally loads again -- only
+# reset_model_fallback_warnings() resets it, so a still-broken pin doesn't
+# re-nag on every agent rebuild within one conversation, but a fresh
+# conversation gets the reminder again. We deliberately do NOT auto-clear
+# the pin itself -- see config.clear_agent_pinned_model; that stays a human
+# decision.
+_warned_model_fallbacks: Set[Tuple[Optional[str], Optional[str], str]] = set()
+
+# Sentinel distinguishing "reset() called with no args" (nuke everything --
+# the CLI's /clear, a genuinely fresh process-wide start) from
+# "reset(scope=X)" (clear only that conversation's bucket -- e.g. ACP session
+# creation clearing just the shared main-agent-build bucket without touching
+# other live sessions' own scoped sub-agent warnings). ``None`` is itself a
+# valid, meaningful scope (the unscoped/main-agent bucket), so it can't
+# double as "unset".
+_UNSET = object()
+
+
+def reset_model_fallback_warnings(scope: Any = _UNSET) -> None:
+    """Forget which fallback warnings have already fired.
+
+    Called with no arguments on a genuinely fresh conversation (the CLI's
+    ``/clear``) to clear every scope's warning state.
+
+    Called with an explicit ``scope`` (e.g. an ACP session boundary) to
+    clear only that conversation's bucket -- notably ``scope=None`` clears
+    just the shared main-agent-build bucket without wiping the per-session
+    warning state other live conversations already earned via
+    ``load_model_with_fallback(..., conversation_scope=<their own id>)``.
+    """
+    if scope is _UNSET:
+        _warned_model_fallbacks.clear()
+        return
+    stale = {key for key in _warned_model_fallbacks if key[0] == scope}
+    _warned_model_fallbacks.difference_update(stale)
+
+
+def _model_fallback_fix_hint(agent_name: Optional[str]) -> str:
+    """Build the how-to-fix tail appended to model fallback warnings."""
+    if agent_name:
+        return (
+            f"Fix it with `/pin {agent_name} <model>` once a working model is "
+            f"available, or `/unpin {agent_name}` to just track the global "
+            "default from now on. Run `/model` to see configured models."
+        )
+    return "Set a valid model with `/model`, or check your models configuration."
+
+
 def load_model_with_fallback(
     requested_model_name: str,
     models_config: Dict[str, Any],
     message_group: str,
+    agent_name: Optional[str] = None,
+    conversation_scope: Optional[str] = None,
 ) -> Tuple[Any, str]:
     """Load the requested model, or fall back to a sensible alternative.
 
     Falls back in order: the globally configured model, then any other
     configured model. Raises ``ValueError`` only if nothing loads.
+
+    ``agent_name``, when given, scopes the model-unavailable warning to fire
+    once per (conversation, agent, requested model) combo per conversation
+    (see ``reset_model_fallback_warnings``) and tailors the fix instructions
+    to that agent's ``/pin``/``/unpin`` commands. The agent's pinned model is
+    never auto-cleared -- that stays a deliberate, human-initiated action.
+
+    ``conversation_scope`` identifies the conversation this call belongs to
+    (e.g. an ACP session id) so independent conversations sharing one
+    process don't share warning-dedup state -- one session's warning must
+    not silently suppress the identical warning for a completely different
+    session. Leave ``None`` for the single main-agent-per-process case
+    (default; unaffected by this parameter).
     """
     try:
         model = ModelFactory.get_model(requested_model_name, models_config)
@@ -330,30 +401,38 @@ def load_model_with_fallback(
         available_str = (
             ", ".join(sorted(available)) if available else "no configured models"
         )
+        warn_key = (conversation_scope, agent_name, requested_model_name)
+        already_warned = warn_key in _warned_model_fallbacks
+        _warned_model_fallbacks.add(warn_key)
+        fix_hint = _model_fallback_fix_hint(agent_name)
+
         # Distinguish between "key missing", "type unsupported", and "creation failed"
         exc_msg = str(exc)
-        if "not found in configuration" in exc_msg:
+        if already_warned:
+            pass
+        elif "not found in configuration" in exc_msg:
             emit_warning(
-                f"Model '{requested_model_name}' not found. Available models: {available_str}",
+                f"Model '{requested_model_name}' not found. Available models: "
+                f"{available_str}. {fix_hint}",
                 message_group=message_group,
             )
         elif "Unsupported model type" in exc_msg:
             model_type = models_config.get(requested_model_name, {}).get("type", "?")
             emit_warning(
                 f"Model type '{model_type}' is not supported (model '{requested_model_name}'). "
-                f"Available models: {available_str}",
+                f"Available models: {available_str}. {fix_hint}",
                 message_group=message_group,
             )
         elif "could not be instantiated" in exc_msg:
             emit_warning(
                 f"Model '{requested_model_name}' could not be instantiated. "
-                f"Available models: {available_str}",
+                f"Available models: {available_str}. {fix_hint}",
                 message_group=message_group,
             )
         else:
             emit_warning(
                 f"Model '{requested_model_name}' failed: {exc_msg}. "
-                f"Available models: {available_str}",
+                f"Available models: {available_str}. {fix_hint}",
                 message_group=message_group,
             )
 
@@ -526,7 +605,10 @@ def build_pydantic_agent(
 
     models_config = ModelFactory.load_config()
     model, resolved_model_name = load_model_with_fallback(
-        agent.get_model_name(), models_config, message_group
+        agent.get_model_name(),
+        models_config,
+        message_group,
+        agent_name=getattr(agent, "name", None),
     )
     instructions = _assemble_instructions(agent, resolved_model_name)
     mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
@@ -618,6 +700,7 @@ def build_tool_probe_for_agent(agent: Any) -> Optional[Any]:
             agent.get_model_name() or "",
             models_config,
             message_group=str(uuid.uuid4()),
+            agent_name=getattr(agent, "name", None),
         )
     except Exception:
         return None

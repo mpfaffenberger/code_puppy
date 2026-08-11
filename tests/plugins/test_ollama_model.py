@@ -56,9 +56,7 @@ def test_custom_endpoint_passes_headers_and_tls_config(mock_client):
     model = create_ollama_model("ollama-qwen3", model_config, {})
 
     assert model is not None
-    mock_client.assert_called_once_with(
-        headers={"X-Test": "value"}, verify=False
-    )
+    mock_client.assert_called_once_with(headers={"X-Test": "value"}, verify=False)
     asyncio.run(model._provider._client.close())
 
 

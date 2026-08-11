@@ -648,7 +648,9 @@ Your goal is to take users from idea to working agent in one smooth conversation
         return "Hi! I'm the Agent Creator 🏗️ Let's build an awesome agent together!"
 
 
-def _validate_agent_creation(tool_name: str, tool_args: dict, context=None) -> Optional[dict]:
+def _validate_agent_creation(
+    tool_name: str, tool_args: dict, context=None
+) -> Optional[dict]:
     """Intercept create_file to validate agent JSON configs before saving."""
     if tool_name != "create_file":
         return None
@@ -671,22 +673,22 @@ def _validate_agent_creation(tool_name: str, tool_args: dict, context=None) -> O
         errors = agent.validate_agent_json(agent_config)
 
         if errors:
-            error_msg = "Validation errors:\n" + "\n".join(f"- {error}" for error in errors)
+            error_msg = "Validation errors:\n" + "\n".join(
+                f"- {error}" for error in errors
+            )
             return {
                 "blocked": True,
-                "error_message": f"Invalid JSON agent config: {error_msg}"
+                "error_message": f"Invalid JSON agent config: {error_msg}",
             }
     except json.JSONDecodeError as e:
         return {
             "blocked": True,
-            "error_message": f"Syntax error: Invalid JSON payload. {str(e)}"
+            "error_message": f"Syntax error: Invalid JSON payload. {str(e)}",
         }
     except Exception as e:
-        return {
-            "blocked": True,
-            "error_message": f"Validation failed: {str(e)}"
-        }
-    
+        return {"blocked": True, "error_message": f"Validation failed: {str(e)}"}
+
     return None
+
 
 register_callback("pre_tool_call", _validate_agent_creation)

@@ -222,6 +222,55 @@ async def test_new_session_and_prompt_streams(wired_agent):
 
 
 @pytest.mark.asyncio
+async def test_new_session_resets_model_fallback_warnings(wired_agent, monkeypatch):
+    """``_warned_model_fallbacks``'s shared/unscoped bucket (code_puppy/
+    agents/_builder.py) backs the main-agent-build warning, which -- unlike
+    sub-agent invocation's own per-session-scoped warnings -- has no
+    per-session identity of its own. Every new/loaded/forked session must
+    reset that shared bucket (scope=None only) so session A's dead-pin
+    warning during its own agent build can't silently suppress the identical
+    warning for session B's build.
+    """
+    agent, _ = wired_agent
+    calls = []
+    monkeypatch.setattr(
+        "code_puppy.agents._builder.reset_model_fallback_warnings",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    await agent.new_session(cwd="/tmp")
+
+    assert calls == [{"scope": None}]
+
+
+@pytest.mark.asyncio
+async def test_close_session_purges_its_own_fallback_warning_bucket(
+    wired_agent, monkeypatch
+):
+    """Sub-agent invocation scopes its dead-model-warning dedup by this
+    session's own conversation-root id (see subagent_context.py /
+    subagent_invocation.py) precisely so it never leaks into any OTHER
+    session -- but that also means nothing else will ever clean it up. A
+    long-running server churning through many short-lived sessions must not
+    accumulate one dangling bucket per closed session forever, so
+    close_session must purge exactly this session's own scope.
+    """
+    agent, _ = wired_agent
+    calls = []
+    monkeypatch.setattr(
+        "code_puppy.agents._builder.reset_model_fallback_warnings",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    session = await agent.new_session(cwd="/tmp")
+    calls.clear()  # drop the new_session's own scope=None reset call
+
+    await agent.close_session(session.session_id)
+
+    assert calls == [{"scope": session.session_id}]
+
+
+@pytest.mark.asyncio
 async def test_prompt_absorbs_history_for_memory_and_persistence(monkeypatch):
     """A completed turn must fold result.all_messages() back into the agent.
 
@@ -412,6 +461,65 @@ async def test_cancel_stops_run(monkeypatch):
         await agent.cancel(new.session_id)
         resp = await task
         assert resp.stop_reason == "cancelled"
+    finally:
+        permissions.uninstall()
+        io_delegation.uninstall()
+        state.set_connection(None, None)
+
+
+@pytest.mark.asyncio
+async def test_close_session_waits_for_in_flight_run_before_purging(monkeypatch):
+    """Round-4 adversarial review finding: closing a session while a prompt
+    is still running against it raced ``reset_model_fallback_warnings``
+    against that prompt's own (synchronous) write into the same bucket --
+    ``cancel()`` alone only *requests* cancellation, it doesn't wait for the
+    run to actually unwind, so the purge could complete before the write
+    ever happens, leaking that one warning-bucket entry forever (nothing
+    else will ever purge it once the session is closed).
+
+    ``close_session`` must use ``cancel_and_wait`` -- confirmed here by
+    hanging a slow run just past the point where it (would) write into the
+    dedup bucket, and asserting ``close_session`` only returns once that run
+    has actually finished, not merely been asked to stop.
+    """
+    monkeypatch.setattr(
+        "code_puppy.agents.agent_manager.get_current_agent_name", lambda: "code-puppy"
+    )
+    run_finished = asyncio.Event()
+
+    class SlowAgent:
+        _message_history: list = []
+
+        async def run_with_mcp(self, prompt, **_):
+            try:
+                await asyncio.sleep(30)
+                return SimpleNamespace(output="never")
+            finally:
+                # Stands in for the point deep inside _invoke_agent_impl
+                # where load_model_with_fallback synchronously writes into
+                # _warned_model_fallbacks -- if close_session's purge can
+                # race ahead of this, the entry leaks.
+                run_finished.set()
+
+    monkeypatch.setattr(
+        "code_puppy.agents.agent_manager.load_agent", lambda name: SlowAgent()
+    )
+    conn = FakeConnection()
+    agent = CodePuppyAgent()
+    agent.on_connect(conn)
+    try:
+        new = await agent.new_session(cwd="/tmp")
+        prompt_task = asyncio.ensure_future(
+            agent.prompt([SimpleNamespace(type="text", text="go")], new.session_id)
+        )
+        await asyncio.sleep(0.05)  # let the run actually start
+
+        await agent.close_session(new.session_id)
+
+        # close_session must not have returned until the run's own cleanup
+        # (here standing in for the warn-dedup write) had already happened.
+        assert run_finished.is_set()
+        prompt_task.cancel()
     finally:
         permissions.uninstall()
         io_delegation.uninstall()
