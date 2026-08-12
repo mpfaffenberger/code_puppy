@@ -386,7 +386,7 @@ def _write_to_file(
             # Sanitize any surrogate characters from reading.
             old_content = read_text_sanitized(file_path)
             old_lines = old_content.splitlines(keepends=True)
-        
+
         else:
             old_lines = []
 
@@ -742,7 +742,7 @@ def _delete_file(
     try:
         if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
-            
+
         else:
             # Sanitize any surrogate characters from reading.
             original = read_text_sanitized(file_path)
