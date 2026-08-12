@@ -78,6 +78,15 @@ def _initialize_engine() -> Optional[HookEngine]:
 _hook_engine = _initialize_engine()
 
 
+def _on_agent_reload() -> None:
+    """Hot-reload callback to re-initialize hooks when plugins/agents change."""
+    global _hook_engine
+    _hook_engine = _initialize_engine()
+
+
+register_callback("agent_reload", _on_agent_reload)
+
+
 def _collect_context_stdout(result: Any) -> List[str]:
     """Pull stdout from non-blocking, exit-0 hook results.
 

@@ -116,6 +116,20 @@ def load_hooks_config() -> Optional[Dict[str, Any]]:
         logger.debug("No hooks configuration found")
         return None
 
+    # Expand CLAUDE_PLUGIN_ROOT in command strings (for claude plugin adapter)
+    plugin_root = os.path.expanduser("~/.code_puppy/claude_plugins")
+    if os.path.exists(plugin_root):
+        def _expand(val: Any) -> Any:
+            if isinstance(val, dict):
+                return {k: _expand(v) for k, v in val.items()}
+            elif isinstance(val, list):
+                return [_expand(v) for v in val]
+            elif isinstance(val, str):
+                return val.replace("${CLAUDE_PLUGIN_ROOT}", plugin_root).replace("$CLAUDE_PLUGIN_ROOT", plugin_root)
+            return val
+        
+        merged_config = _expand(merged_config)
+
     event_count = len(
         [event for event in merged_config.keys() if not event.startswith("_")]
     )
