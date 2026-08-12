@@ -1,7 +1,7 @@
 """Tests for code_puppy/command_line/mcp/custom_server_form.py"""
 
 import json
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, patch
 
 MODULE = "code_puppy.command_line.mcp.custom_server_form"
 
@@ -398,43 +398,41 @@ class TestInstallServer:
         assert form._install_server() is False
         assert form.status_is_error is True
 
-    @patch(f"{MODULE}.os.path.exists", return_value=False)
-    @patch(f"{MODULE}.os.makedirs")
-    @patch("builtins.open", new_callable=mock_open)
-    def test_install_new_server_success(self, m_open, m_makedirs, m_exists):
+    def test_install_new_server_success(self, tmp_path):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
 
+        mcp_file = tmp_path / "mcp_servers.json"
         mgr = MagicMock()
         mgr.register_server.return_value = "new-id"
         form = CustomServerForm(mgr)
         form.server_name = "my-server"
         form.json_config = json.dumps({"command": "npx", "args": []})
-        assert form._install_server() is True
 
-    @patch(f"{MODULE}.os.path.exists", return_value=False)
-    @patch(f"{MODULE}.os.makedirs")
-    @patch("builtins.open", new_callable=mock_open)
-    def test_install_new_server_register_fails(self, m_open, m_makedirs, m_exists):
+        with patch("code_puppy.config.MCP_SERVERS_FILE", str(mcp_file)):
+            assert form._install_server() is True
+
+        data = json.loads(mcp_file.read_text())
+        assert "my-server" in data["mcp_servers"]
+
+    def test_install_new_server_register_fails(self, tmp_path):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
 
+        mcp_file = tmp_path / "mcp_servers.json"
         mgr = MagicMock()
         mgr.register_server.return_value = None
         form = CustomServerForm(mgr)
         form.server_name = "my-server"
         form.json_config = json.dumps({"command": "npx"})
-        assert form._install_server() is False
+
+        with patch("code_puppy.config.MCP_SERVERS_FILE", str(mcp_file)):
+            assert form._install_server() is False
         assert form.status_is_error is True
 
-    @patch(f"{MODULE}.os.path.exists", return_value=True)
-    @patch(f"{MODULE}.os.makedirs")
-    @patch(
-        "builtins.open",
-        new_callable=mock_open,
-        read_data=json.dumps({"mcp_servers": {"old": {}}}),
-    )
-    def test_install_edit_mode_existing_found(self, m_open, m_makedirs, m_exists):
+    def test_install_edit_mode_existing_found(self, tmp_path):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
 
+        mcp_file = tmp_path / "mcp_servers.json"
+        mcp_file.write_text(json.dumps({"mcp_servers": {"old": {}}}))
         mgr = MagicMock()
         existing = MagicMock()
         existing.id = "old-id"
@@ -448,14 +446,14 @@ class TestInstallServer:
         )
         form.server_name = "new-name"
         form.json_config = json.dumps({"command": "npx"})
-        assert form._install_server() is True
 
-    @patch(f"{MODULE}.os.path.exists", return_value=False)
-    @patch(f"{MODULE}.os.makedirs")
-    @patch("builtins.open", new_callable=mock_open)
-    def test_install_edit_mode_existing_not_found(self, m_open, m_makedirs, m_exists):
+        with patch("code_puppy.config.MCP_SERVERS_FILE", str(mcp_file)):
+            assert form._install_server() is True
+
+    def test_install_edit_mode_existing_not_found(self, tmp_path):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
 
+        mcp_file = tmp_path / "mcp_servers.json"
         mgr = MagicMock()
         mgr.get_server_by_name.return_value = None
         mgr.register_server.return_value = "new-id"
@@ -466,18 +464,15 @@ class TestInstallServer:
         )
         form.server_name = "my-server"
         form.json_config = json.dumps({"command": "npx"})
-        assert form._install_server() is True
 
-    @patch(f"{MODULE}.os.path.exists", return_value=True)
-    @patch(f"{MODULE}.os.makedirs")
-    @patch(
-        "builtins.open",
-        new_callable=mock_open,
-        read_data=json.dumps({"mcp_servers": {}}),
-    )
-    def test_install_edit_mode_update_fails(self, m_open, m_makedirs, m_exists):
+        with patch("code_puppy.config.MCP_SERVERS_FILE", str(mcp_file)):
+            assert form._install_server() is True
+
+    def test_install_edit_mode_update_fails(self, tmp_path):
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
 
+        mcp_file = tmp_path / "mcp_servers.json"
+        mcp_file.write_text(json.dumps({"mcp_servers": {}}))
         mgr = MagicMock()
         existing = MagicMock()
         existing.id = "old-id"
@@ -490,35 +485,38 @@ class TestInstallServer:
         )
         form.server_name = "my-server"
         form.json_config = json.dumps({"command": "npx"})
-        assert form._install_server() is False
 
-    @patch(f"{MODULE}.os.path.exists", return_value=True)
-    @patch(f"{MODULE}.os.makedirs")
-    @patch("builtins.open", side_effect=PermissionError("no access"))
-    def test_install_exception_during_save(self, m_open, m_makedirs, m_exists):
+        with patch("code_puppy.config.MCP_SERVERS_FILE", str(mcp_file)):
+            assert form._install_server() is False
+
+    def test_install_exception_during_save(self, tmp_path):
+        """_install_server must report failure (not raise) if persisting to
+        mcp_servers.json blows up -- the underlying I/O failure modes
+        themselves are covered by test_atomic_io.py / test_atomic_json.py,
+        this just pins _install_server's own error handling."""
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
 
+        mcp_file = tmp_path / "mcp_servers.json"
         mgr = MagicMock()
         mgr.register_server.return_value = "new-id"
         form = CustomServerForm(mgr)
         form.server_name = "my-server"
         form.json_config = json.dumps({"command": "npx"})
-        assert form._install_server() is False
+
+        with patch("code_puppy.config.MCP_SERVERS_FILE", str(mcp_file)):
+            with patch(
+                "code_puppy.command_line.mcp.mcp_servers_store.upsert_mcp_server",
+                side_effect=PermissionError("no access"),
+            ):
+                assert form._install_server() is False
         assert form.status_is_error is True
 
-    @patch(f"{MODULE}.os.path.exists", return_value=True)
-    @patch(f"{MODULE}.os.makedirs")
-    @patch(
-        "builtins.open",
-        new_callable=mock_open,
-        read_data=json.dumps({"mcp_servers": {"old-name": {}}}),
-    )
-    def test_install_edit_mode_name_changed_removes_old(
-        self, m_open, m_makedirs, m_exists
-    ):
+    def test_install_edit_mode_name_changed_removes_old(self, tmp_path):
         """When editing and name changes, old entry should be removed from persisted file."""
         from code_puppy.command_line.mcp.custom_server_form import CustomServerForm
 
+        mcp_file = tmp_path / "mcp_servers.json"
+        mcp_file.write_text(json.dumps({"mcp_servers": {"old-name": {}}}))
         mgr = MagicMock()
         existing = MagicMock()
         existing.id = "old-id"
@@ -531,11 +529,11 @@ class TestInstallServer:
         )
         form.server_name = "new-name"
         form.json_config = json.dumps({"command": "npx"})
-        assert form._install_server() is True
-        # Verify JSON written includes new name and not old
-        written = m_open().write.call_args_list
-        written_str = "".join(c[0][0] for c in written)
-        data = json.loads(written_str)
+
+        with patch("code_puppy.config.MCP_SERVERS_FILE", str(mcp_file)):
+            assert form._install_server() is True
+
+        data = json.loads(mcp_file.read_text())
         assert "new-name" in data["mcp_servers"]
         assert "old-name" not in data["mcp_servers"]
 

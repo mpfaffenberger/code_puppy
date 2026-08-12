@@ -18,6 +18,7 @@ from .config import (
     get_extra_models_path,
     get_openai_context_length,
 )
+from code_puppy import atomic_io, atomic_json
 
 logger = logging.getLogger(__name__)
 
@@ -102,18 +103,18 @@ def resolve_env_var(value: str) -> str:
 def load_extra_models() -> dict[str, Any]:
     """Load the extra_models.json configuration file.
 
+    Bounded and lock-aware via :mod:`code_puppy.atomic_json` -- a large or
+    concurrently-being-written file can no longer balloon memory or read a
+    torn write.
+
     Returns:
         Dictionary containing model configurations, or empty dict if file
         doesn't exist or is invalid.
     """
-    extra_models_path = get_extra_models_path()
-    if not extra_models_path.exists():
-        return {}
-
+    extra_models_path = str(get_extra_models_path())
     try:
-        with open(extra_models_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except json.JSONDecodeError as e:
+        return atomic_json.load_json(extra_models_path, default={})
+    except atomic_json.JsonFileCorrupt as e:
         logger.error(f"Invalid JSON in extra_models.json: {e}")
         return {}
     except Exception as e:
@@ -130,17 +131,14 @@ def save_extra_models(models: dict[str, Any]) -> bool:
     Returns:
         True if save succeeded, False otherwise.
     """
-    extra_models_path = get_extra_models_path()
+    extra_models_path = str(get_extra_models_path())
 
     try:
-        # Ensure directory exists
-        extra_models_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Atomic write using temp file
-        temp_path = extra_models_path.with_suffix(".tmp")
-        with open(temp_path, "w", encoding="utf-8") as f:
-            json.dump(models, f, indent=2, ensure_ascii=False)
-        temp_path.replace(extra_models_path)
+        with atomic_io.path_lock(extra_models_path):
+            atomic_io.atomic_write_bytes(
+                extra_models_path,
+                json.dumps(models, indent=2, ensure_ascii=False).encode("utf-8"),
+            )
 
         logger.info(f"Saved {len(models)} models to extra_models.json")
         return True

@@ -43,6 +43,7 @@ from typing import Dict, Optional, Tuple
 
 from rich.cells import cell_len
 
+from code_puppy import atomic_io, atomic_json
 from code_puppy.config import CONFIG_DIR, get_value, set_value
 
 from .builtin_frames import EXTRA_SPECS
@@ -240,14 +241,20 @@ def _parse_user_spinner(name: str, spec: object) -> Optional[Spinner]:
     )
 
 
+class _SpinnersNotADict(Exception):
+    """Sentinel: spinners.json parsed to something other than a dict."""
+
+
 def load_user_spinners() -> Dict[str, Spinner]:
-    """Read + validate the user spinner file. Missing/broken file = {}."""
-    if not os.path.isfile(USER_SPINNERS_FILE):
-        return {}
+    """Read + validate the user spinner file. Missing/broken file = {}.
+
+    Bounded and lock-aware via :mod:`code_puppy.atomic_json` -- a large or
+    concurrently-being-written file can no longer balloon memory or read a
+    torn write.
+    """
     try:
-        with open(USER_SPINNERS_FILE, encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, json.JSONDecodeError) as exc:
+        data = atomic_json.load_json(USER_SPINNERS_FILE, default={})
+    except (OSError, atomic_json.JsonFileCorrupt) as exc:
         logger.warning("Could not read %s: %s", USER_SPINNERS_FILE, exc)
         return {}
     if not isinstance(data, dict):
@@ -291,35 +298,28 @@ def save_interval_tweak(name: str, interval: float) -> bool:
     description) are preserved; only ``interval`` changes.
 
     Returns False (and logs) when the file can't be read or written --
-    we never overwrite a file we couldn't parse.
+    we never overwrite a file we couldn't parse. Uses
+    :func:`code_puppy.atomic_json.mutate_json` for a bounded, locked,
+    atomically-written read-modify-write.
     """
     interval = clamp_interval(interval)
-    data: dict = {}
-    if os.path.isfile(USER_SPINNERS_FILE):
-        try:
-            with open(USER_SPINNERS_FILE, encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (OSError, json.JSONDecodeError) as exc:
-            logger.warning(
-                "Not saving speed: %s is unreadable (%s)", USER_SPINNERS_FILE, exc
-            )
-            return False
+
+    def _mutate(data):
         if not isinstance(data, dict):
-            logger.warning(
-                "Not saving speed: %s is not a JSON object", USER_SPINNERS_FILE
-            )
-            return False
-    entry = data.get(name)
-    if not isinstance(entry, dict):
-        entry = {}
-    entry["interval"] = interval
-    data[name] = entry
+            raise _SpinnersNotADict()
+        entry = data.get(name)
+        if not isinstance(entry, dict):
+            entry = {}
+        entry["interval"] = interval
+        data[name] = entry
+        return data
+
     try:
-        os.makedirs(CONFIG_DIR, exist_ok=True)
-        with open(USER_SPINNERS_FILE, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2)
-            fh.write("\n")
-    except OSError as exc:
+        atomic_json.mutate_json(USER_SPINNERS_FILE, _mutate, default={})
+    except _SpinnersNotADict:
+        logger.warning("Not saving speed: %s is not a JSON object", USER_SPINNERS_FILE)
+        return False
+    except (OSError, atomic_json.JsonFileCorrupt) as exc:
         logger.warning("Could not save speed to %s: %s", USER_SPINNERS_FILE, exc)
         return False
     return True
@@ -432,11 +432,16 @@ _TEMPLATE = {
 
 
 def write_template() -> bool:
-    """Write a starter spinners.json. Returns False if one already exists."""
-    if os.path.isfile(USER_SPINNERS_FILE):
-        return False
-    os.makedirs(CONFIG_DIR, exist_ok=True)
-    with open(USER_SPINNERS_FILE, "w", encoding="utf-8") as fh:
-        json.dump(_TEMPLATE, fh, indent=2)
-        fh.write("\n")
+    """Write a starter spinners.json. Returns False if one already exists.
+
+    Locked so two concurrent first-runs (e.g. two terminals) can't both
+    pass the existence check and race each other's write.
+    """
+    with atomic_io.path_lock(USER_SPINNERS_FILE):
+        if os.path.isfile(USER_SPINNERS_FILE):
+            return False
+        atomic_io.atomic_write_bytes(
+            USER_SPINNERS_FILE,
+            (json.dumps(_TEMPLATE, indent=2) + "\n").encode("utf-8"),
+        )
     return True

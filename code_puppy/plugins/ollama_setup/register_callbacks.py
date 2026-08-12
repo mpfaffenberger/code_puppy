@@ -9,13 +9,12 @@ Cloud models supported (the Ollama "Recommended Models" cloud tier):
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 import subprocess
-from pathlib import Path
 from typing import Any, Optional
 
+from code_puppy import atomic_json
 from code_puppy.callbacks import register_callback
 from code_puppy.config import EXTRA_MODELS_FILE
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
@@ -103,54 +102,55 @@ def _pull_model(model_tag: str) -> bool:
         return False
 
 
+class _ExtraModelsNotADict(Exception):
+    """Sentinel: extra_models.json parsed to something other than a dict."""
+
+
 def _register_model(model_tag: str) -> bool:
     """Write (or update) the model entry in extra_models.json.
 
-    Uses atomic-write via a temp file, same pattern as add_model_menu.py.
+    Uses :func:`code_puppy.atomic_json.mutate_json` for a bounded, locked,
+    atomically-written read-modify-write -- this file is also touched by
+    add_model_menu.py and the aws_bedrock/azure_foundry plugins, so an
+    unlocked write here could lose one of those concurrent updates.
     Returns True on success.
     """
     meta = CLOUD_MODELS[model_tag]
     key = _model_key(model_tag)
+    already_registered = False
 
-    extra_path = Path(EXTRA_MODELS_FILE)
-    extra_models: dict[str, Any] = {}
+    def _mutate(current: Any) -> dict[str, Any]:
+        nonlocal already_registered
+        if not isinstance(current, dict):
+            raise _ExtraModelsNotADict()
+        already_registered = key in current
+        current[key] = {
+            "type": "custom_openai",
+            "name": model_tag,
+            "custom_endpoint": {
+                "url": OLLAMA_ENDPOINT,
+                "api_key": OLLAMA_API_KEY,
+            },
+            "context_length": meta["context_length"],
+            "supported_settings": ["temperature", "top_p"],
+        }
+        return current
 
-    if extra_path.exists():
-        try:
-            with open(extra_path, "r", encoding="utf-8") as fh:
-                extra_models = json.load(fh)
-                if not isinstance(extra_models, dict):
-                    emit_error("extra_models.json must be a dict, not a list")
-                    return False
-        except json.JSONDecodeError as exc:
-            emit_error(f"Corrupt extra_models.json: {exc}")
-            return False
-
-    if key in extra_models:
-        emit_info(f"Model {key} already registered — updating entry")
-
-    extra_models[key] = {
-        "type": "custom_openai",
-        "name": model_tag,
-        "custom_endpoint": {
-            "url": OLLAMA_ENDPOINT,
-            "api_key": OLLAMA_API_KEY,
-        },
-        "context_length": meta["context_length"],
-        "supported_settings": ["temperature", "top_p"],
-    }
-
-    extra_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = extra_path.with_suffix(".tmp")
     try:
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(extra_models, fh, indent=4, ensure_ascii=False)
-        tmp.replace(extra_path)
+        atomic_json.mutate_json(EXTRA_MODELS_FILE, _mutate, default={})
+    except _ExtraModelsNotADict:
+        emit_error("extra_models.json must be a dict, not a list")
+        return False
+    except atomic_json.JsonFileCorrupt as exc:
+        emit_error(f"Corrupt extra_models.json: {exc}")
+        return False
     except Exception as exc:
         emit_error(f"Failed to write extra_models.json: {exc}")
         return False
 
-    emit_success(f"✅ Registered {key} in extra_models.json")
+    if already_registered:
+        emit_info(f"Model {key} already registered \u2014 updating entry")
+    emit_success(f"Registered {key} in extra_models.json")
     return True
 
 

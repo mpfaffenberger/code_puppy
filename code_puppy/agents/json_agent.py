@@ -1,9 +1,10 @@
 """JSON-based agent configuration system."""
 
-import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from code_puppy import atomic_json
 
 from .base_agent import BaseAgent
 
@@ -25,14 +26,24 @@ class JSONAgent(BaseAgent):
         self._validate_config()
 
     def _load_config(self) -> Dict:
-        """Load configuration from JSON file."""
+        """Load configuration from JSON file.
+
+        Bounded via :mod:`code_puppy.atomic_json` -- a pathologically large
+        agent file dropped in ``~/.code_puppy/agents/`` can no longer
+        balloon memory the way the original ``configparser`` bug did.
+        """
         try:
-            with open(self.json_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError) as e:
+            data = atomic_json.load_json(self.json_path)
+        except (atomic_json.JsonFileCorrupt, OSError) as e:
             raise ValueError(
                 f"Failed to load JSON agent config from {self.json_path}: {e}"
             ) from e
+        if data is None:
+            raise ValueError(
+                f"Failed to load JSON agent config from {self.json_path}: "
+                "file not found or empty"
+            )
+        return data
 
     def _validate_config(self) -> None:
         """Validate required fields in configuration."""

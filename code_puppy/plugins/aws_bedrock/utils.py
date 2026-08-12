@@ -6,6 +6,8 @@ import json
 import logging
 from typing import Any
 
+from code_puppy import atomic_io, atomic_json
+
 from .config import (
     MODELS,
     get_extra_models_path,
@@ -15,29 +17,32 @@ logger = logging.getLogger(__name__)
 
 
 def load_extra_models() -> dict[str, Any]:
-    """Load the extra_models.json configuration file."""
-    extra_models_path = get_extra_models_path()
-    if not extra_models_path.exists():
-        return {}
+    """Load the extra_models.json configuration file.
 
+    Bounded and lock-aware via :mod:`code_puppy.atomic_json` -- a large or
+    concurrently-being-written file can no longer balloon memory or read a
+    torn write. Preserves the original never-raise contract: any failure
+    (missing file, invalid JSON, oversized file, I/O error) logs and
+    returns ``{}`` rather than propagating.
+    """
+    extra_models_path = str(get_extra_models_path())
     try:
-        with open(extra_models_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
+        return atomic_json.load_json(extra_models_path, default={})
+    except (atomic_json.JsonFileCorrupt, OSError) as e:
         logger.error("Error loading extra_models.json: %s", e)
         return {}
 
 
 def save_extra_models(models: dict[str, Any]) -> bool:
-    """Save model configurations to extra_models.json (atomic write)."""
-    extra_models_path = get_extra_models_path()
+    """Save model configurations to extra_models.json (atomic, locked write)."""
+    extra_models_path = str(get_extra_models_path())
 
     try:
-        extra_models_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = extra_models_path.with_suffix(".tmp")
-        with open(temp_path, "w", encoding="utf-8") as f:
-            json.dump(models, f, indent=2, ensure_ascii=False)
-        temp_path.replace(extra_models_path)
+        with atomic_io.path_lock(extra_models_path):
+            atomic_io.atomic_write_bytes(
+                extra_models_path,
+                json.dumps(models, indent=2, ensure_ascii=False).encode("utf-8"),
+            )
         return True
     except Exception as e:
         logger.error("Error saving extra_models.json: %s", e)

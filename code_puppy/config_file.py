@@ -1,7 +1,8 @@
 """Bounded, recoverable I/O for Code Puppy's INI configuration file.
 
 The public helpers in this module keep config-file safety concerns out of the
-already-large :mod:`code_puppy.config` module:
+already-large :mod:`code_puppy.config` module. Built on the generic
+primitives in :mod:`code_puppy.atomic_io`:
 
 * reads are size-bounded before parsing, preventing pathological lines from
   exhausting memory;
@@ -15,113 +16,38 @@ already-large :mod:`code_puppy.config` module:
 from __future__ import annotations
 
 import configparser
-import contextlib
 import io
 import logging
-import os
-import tempfile
-import time
-import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
+
+from code_puppy import atomic_io
 
 logger = logging.getLogger(__name__)
 
-MAX_CONFIG_BYTES = 10 * 1024 * 1024
-_LOCK_TIMEOUT_SECONDS = 30.0
-_LOCK_POLL_SECONDS = 0.05
+MAX_CONFIG_BYTES = atomic_io.DEFAULT_MAX_BYTES
+_LOCK_TIMEOUT_SECONDS = atomic_io.DEFAULT_LOCK_TIMEOUT_SECONDS
 
-try:  # POSIX
-    import fcntl
-except ImportError:  # pragma: no cover - Windows
-    fcntl = None  # type: ignore[assignment]
-
-try:  # Windows
-    import msvcrt
-except ImportError:  # pragma: no cover - POSIX
-    msvcrt = None  # type: ignore[assignment]
+# Re-exported for backwards compatibility -- callers (and this module's own
+# tests) historically imported the lock timeout error from here.
+ConfigLockTimeout = atomic_io.LockTimeout
 
 
 class ConfigFileCorrupt(Exception):
     """The file was read successfully but its contents are not safe INI."""
 
 
-class ConfigLockTimeout(TimeoutError):
-    """Another process held the config lock beyond the bounded wait."""
-
-
-def _try_lock(fd: int) -> bool:
-    if fcntl is not None:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return True
-        except BlockingIOError:
-            return False
-    if msvcrt is not None:
-        try:
-            os.lseek(fd, 0, os.SEEK_SET)
-            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-            return True
-        except OSError:
-            return False
-    return True
-
-
-def _unlock(fd: int) -> None:
-    if fcntl is not None:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-    elif msvcrt is not None:
-        os.lseek(fd, 0, os.SEEK_SET)
-        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-
-
-@contextlib.contextmanager
-def _config_lock(path: str) -> Iterator[None]:
+def _config_lock(path: str):
     """Serialize recovery and read-modify-write operations across processes."""
-    lock_path = f"{path}.lock"
-    os.makedirs(os.path.dirname(os.path.abspath(lock_path)), exist_ok=True)
-    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-    acquired = False
-    try:
-        if msvcrt is not None:
-            os.write(fd, b"\0")
-        deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
-        while not (acquired := _try_lock(fd)):
-            if time.monotonic() >= deadline:
-                raise ConfigLockTimeout(
-                    f"Timed out waiting for config lock: {lock_path}"
-                )
-            time.sleep(_LOCK_POLL_SECONDS)
-        yield
-    finally:
-        if acquired:
-            try:
-                _unlock(fd)
-            except OSError:
-                logger.debug(
-                    "Failed to release config lock %s", lock_path, exc_info=True
-                )
-        os.close(fd)
+    return atomic_io.path_lock(path, timeout=_LOCK_TIMEOUT_SECONDS)
 
 
 def _read_unlocked(path: str) -> configparser.ConfigParser:
     """Read and parse a bounded snapshot; propagate filesystem failures."""
     parser = configparser.ConfigParser()
     try:
-        size = os.path.getsize(path)
-    except FileNotFoundError:
-        return parser
-    if size > MAX_CONFIG_BYTES:
-        raise ConfigFileCorrupt(
-            f"config is {size} bytes; maximum is {MAX_CONFIG_BYTES} bytes"
-        )
-
-    try:
-        with open(path, "rb") as file:
-            raw = file.read(MAX_CONFIG_BYTES + 1)
-    except FileNotFoundError:
-        return parser
-    if len(raw) > MAX_CONFIG_BYTES:
-        raise ConfigFileCorrupt(f"config exceeds {MAX_CONFIG_BYTES} bytes")
+        raw = atomic_io.read_bounded_bytes(path, max_bytes=MAX_CONFIG_BYTES)
+    except atomic_io.ContentTooLarge as exc:
+        raise ConfigFileCorrupt(str(exc)) from exc
 
     try:
         text = raw.decode("utf-8")
@@ -133,26 +59,7 @@ def _read_unlocked(path: str) -> configparser.ConfigParser:
 
 
 def _quarantine_unlocked(path: str) -> str:
-    """Move a confirmed-corrupt file aside without overwriting prior backups."""
-    for _ in range(10):
-        quarantine_path = f"{path}.corrupted-{time.time_ns()}-{uuid.uuid4().hex}"
-        try:
-            # Hard-link creation is atomic and refuses to overwrite an existing
-            # destination. Unlink only after the backup exists, so any failure
-            # leaves the original user data in place.
-            os.link(path, quarantine_path)
-        except FileExistsError:
-            continue
-        try:
-            os.unlink(path)
-        except BaseException:
-            try:
-                os.unlink(quarantine_path)
-            except OSError:
-                pass
-            raise
-        return quarantine_path
-    raise FileExistsError("Could not allocate a unique config quarantine path")
+    return atomic_io.quarantine_file(path)
 
 
 def load_config(path: str) -> configparser.ConfigParser:
@@ -185,31 +92,7 @@ def _atomic_write_unlocked(path: str, parser: configparser.ConfigParser) -> None
     """Durably replace ``path`` with serialized config from a temp file."""
     buffer = io.StringIO()
     parser.write(buffer)
-    target = os.path.realpath(path)
-    directory = os.path.dirname(target) or "."
-    os.makedirs(directory, exist_ok=True)
-
-    mode = None
-    try:
-        mode = os.stat(target).st_mode
-    except OSError:
-        pass
-
-    fd, temp_path = tempfile.mkstemp(dir=directory, prefix=".puppy.cfg-", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as file:
-            file.write(buffer.getvalue())
-            file.flush()
-            os.fsync(file.fileno())
-        if mode is not None:
-            os.chmod(temp_path, mode)
-        os.replace(temp_path, target)
-    except BaseException:
-        try:
-            os.unlink(temp_path)
-        except OSError:
-            pass
-        raise
+    atomic_io.atomic_write_bytes(path, buffer.getvalue().encode("utf-8"))
 
 
 def mutate_config(

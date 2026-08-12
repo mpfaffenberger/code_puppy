@@ -26,7 +26,7 @@ from unittest.mock import patch
 import configparser
 import pytest
 
-from code_puppy import config as cp_config
+from code_puppy import atomic_io, config as cp_config
 from code_puppy import config_file
 
 
@@ -105,12 +105,13 @@ class TestOversizedConfigIsBoundedNotBallooned:
         call itself must still be bounded rather than pulling the whole
         pathological file into memory. This directly targets the field
         report's failure mode: stdlib configparser's buffered readline
-        ballooning memory on a giant unterminated line."""
+        ballooning memory on a giant unterminated line. The bound now lives
+        in the shared ``code_puppy.atomic_io`` primitive."""
         monkeypatch.setattr(config_file, "MAX_CONFIG_BYTES", 1024)
         cfg_path.write_bytes(b"y" * (5 * 1024 * 1024))
         # Make the pre-flight os.path.getsize check lie about the size so
         # execution reaches the actual bounded read() call below.
-        monkeypatch.setattr(config_file.os.path, "getsize", lambda _p: 10)
+        monkeypatch.setattr(atomic_io.os.path, "getsize", lambda _p: 10)
 
         real_open = open
         captured_sizes = []
@@ -136,7 +137,7 @@ class TestOversizedConfigIsBoundedNotBallooned:
                 return _TrackingFile(real_open(path, mode))
             return real_open(path, mode)
 
-        with patch("code_puppy.config_file.open", _tracking_open, create=True):
+        with patch("code_puppy.atomic_io.open", _tracking_open, create=True):
             config_file.load_config(str(cfg_path))
 
         assert captured_sizes, "expected the bounded read to be exercised"
