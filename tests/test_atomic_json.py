@@ -28,7 +28,6 @@ class TestLoadJson:
         json_path.write_text('{"mcp_servers": {"foo": {"type": "stdio"}}}')
 
         data = atomic_json.load_json(str(json_path), default={})
-
         assert data == {"mcp_servers": {"foo": {"type": "stdio"}}}
 
     def test_malformed_json_raises_corrupt_not_silently_discarded(self, json_path):
@@ -127,3 +126,31 @@ class TestMutateJson:
 
         final = atomic_json.load_json(str(json_path), default={})
         assert set(final["mcp_servers"]) == {f"server_{i}" for i in range(8)}
+
+
+class TestNullIsNotConflatedWithMissing:
+    """A file containing the literal JSON ``null`` is a real (if unusual)
+    parsed value, not the same thing as "file doesn't exist" -- conflating
+    the two would mean a hand-edited file legitimately containing ``null``
+    gets silently swapped for the caller's ``default`` instead of the
+    actual on-disk content."""
+
+    def test_missing_file_returns_default(self, json_path):
+        assert atomic_json.load_json(str(json_path), default={"x": 1}) == {"x": 1}
+
+    def test_null_file_returns_none_even_with_a_different_default(self, json_path):
+        json_path.write_text("null")
+
+        assert atomic_json.load_json(str(json_path), default={"x": 1}) is None
+
+    def test_mutate_json_sees_null_content_not_the_default(self, json_path):
+        json_path.write_text("null")
+        seen = []
+
+        def _mutate(current):
+            seen.append(current)
+            return {"replaced": True}
+
+        atomic_json.mutate_json(str(json_path), _mutate, default={"x": 1})
+
+        assert seen == [None]

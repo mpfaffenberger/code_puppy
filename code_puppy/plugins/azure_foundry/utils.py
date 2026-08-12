@@ -117,7 +117,7 @@ def load_extra_models() -> dict[str, Any]:
     except atomic_json.JsonFileCorrupt as e:
         logger.error(f"Invalid JSON in extra_models.json: {e}")
         return {}
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Error loading extra_models.json: {e}")
         return {}
 
@@ -210,34 +210,46 @@ def add_foundry_models_to_config(
 
     Returns:
         List of model keys that were added.
-    """
-    models = load_extra_models()
-    added_models: list[str] = []
 
+    Uses :func:`code_puppy.atomic_json.mutate_json` so the read and write
+    happen inside one locked transaction -- extra_models.json is also
+    touched by add_model_menu.py and the ollama_setup/aws_bedrock plugins,
+    so a read-then-write split across two unlocked calls could lose one of
+    those concurrent updates.
+    """
     deployments = [
         ("opus", opus_deployment, "foundry-claude-opus"),
         ("sonnet", sonnet_deployment, "foundry-claude-sonnet"),
         ("haiku", haiku_deployment, "foundry-claude-haiku"),
     ]
 
+    entries: dict[str, dict[str, Any]] = {}
     for tier, deployment, model_key in deployments:
         if deployment:
             # Parse context window suffix (Claude Code format: [200k], [1m], etc.)
             actual_deployment, context_length = parse_context_window_suffix(deployment)
-
-            config = build_foundry_model_config(
+            entries[model_key] = build_foundry_model_config(
                 deployment_name=actual_deployment,
                 model_tier=tier,
                 foundry_resource=resource_name,
                 context_length=context_length,
             )
-            models[model_key] = config
-            added_models.append(model_key)
 
-    if added_models and save_extra_models(models):
-        return added_models
+    if not entries:
+        return []
 
-    return []
+    def _mutate(models: dict[str, Any]) -> dict[str, Any]:
+        models.update(entries)
+        return models
+
+    extra_models_path = str(get_extra_models_path())
+    try:
+        atomic_json.mutate_json(extra_models_path, _mutate, default={})
+    except (atomic_json.JsonFileCorrupt, OSError) as e:
+        logger.error(f"Error saving extra_models.json: {e}")
+        return []
+
+    return list(entries.keys())
 
 
 FOUNDRY_TYPES = {"azure_foundry", "azure_foundry_openai"}
@@ -270,11 +282,13 @@ def add_discovered_models_to_config(
 
     Classifies each deployment by model format (Anthropic vs OpenAI)
     and creates the appropriate model config.
+
+    Uses :func:`code_puppy.atomic_json.mutate_json` so the read and write
+    happen inside one locked transaction (see :func:`add_foundry_models_to_config`).
     """
     from .discovery import AzureDeployment
 
-    models = load_extra_models()
-    added: list[str] = []
+    entries: dict[str, dict[str, Any]] = {}
 
     for d in deployments:
         if not isinstance(d, AzureDeployment):
@@ -288,15 +302,14 @@ def add_discovered_models_to_config(
                 if t in d.model_name.lower():
                     tier = t
                     break
-            models[key] = build_foundry_model_config(
+            entries[key] = build_foundry_model_config(
                 deployment_name=d.name,
                 model_tier=tier,
                 foundry_resource=resource_name,
             )
-            added.append(key)
 
         elif d.model_format == "OpenAI":
-            models[key] = {
+            entries[key] = {
                 "type": "azure_foundry_openai",
                 "provider": "azure_foundry_openai",
                 "name": d.name,
@@ -306,32 +319,49 @@ def add_discovered_models_to_config(
                     d.model_name
                 ),
             }
-            added.append(key)
 
-    if added and save_extra_models(models):
-        return added
-    return []
+    if not entries:
+        return []
+
+    def _mutate(models: dict[str, Any]) -> dict[str, Any]:
+        models.update(entries)
+        return models
+
+    extra_models_path = str(get_extra_models_path())
+    try:
+        atomic_json.mutate_json(extra_models_path, _mutate, default={})
+    except (atomic_json.JsonFileCorrupt, OSError) as e:
+        logger.error(f"Error saving extra_models.json: {e}")
+        return []
+
+    return list(entries.keys())
 
 
 def remove_foundry_models_from_config() -> list[str]:
-    """Remove all Azure Foundry model configurations from extra_models.json."""
-    models = load_extra_models()
+    """Remove all Azure Foundry model configurations from extra_models.json.
+
+    Uses :func:`code_puppy.atomic_json.mutate_json` so the read and write
+    happen inside one locked transaction (see :func:`add_foundry_models_to_config`).
+    """
+    extra_models_path = str(get_extra_models_path())
     removed_models: list[str] = []
 
-    keys_to_remove = [
-        key
-        for key, config in models.items()
-        if isinstance(config, dict) and config.get("type") in FOUNDRY_TYPES
-    ]
+    def _mutate(models: dict[str, Any]) -> dict[str, Any]:
+        keys_to_remove = [
+            key
+            for key, config in models.items()
+            if isinstance(config, dict) and config.get("type") in FOUNDRY_TYPES
+        ]
+        for key in keys_to_remove:
+            del models[key]
+            removed_models.append(key)
+        return models
 
-    for key in keys_to_remove:
-        del models[key]
-        removed_models.append(key)
-
-    if removed_models:
-        if not save_extra_models(models):
-            logger.error("Failed to persist model removal")
-            return []
+    try:
+        atomic_json.mutate_json(extra_models_path, _mutate, default={})
+    except (atomic_json.JsonFileCorrupt, OSError) as e:
+        logger.error(f"Failed to persist model removal: {e}")
+        return []
 
     return removed_models
 

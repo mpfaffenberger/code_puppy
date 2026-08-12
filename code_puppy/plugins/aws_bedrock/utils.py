@@ -88,10 +88,15 @@ def add_bedrock_models_to_config(
     aws_region: str | None = None,
     aws_profile: str | None = None,
 ) -> list[str]:
-    """Add Bedrock model configurations (with effort variants) to extra_models.json."""
-    models = load_extra_models()
-    added: list[str] = []
+    """Add Bedrock model configurations (with effort variants) to extra_models.json.
 
+    Uses :func:`code_puppy.atomic_json.mutate_json` so the read and write
+    happen inside one locked transaction -- extra_models.json is also
+    touched by add_model_menu.py and the ollama_setup/azure_foundry
+    plugins, so a read-then-write split across two unlocked calls could
+    lose one of those concurrent updates.
+    """
+    entries: dict[str, dict[str, Any]] = {}
     for spec in MODELS:
         base_key = spec["base_key"]
         model_id = spec["model_id"]
@@ -107,7 +112,7 @@ def add_bedrock_models_to_config(
                     key = f"{base_key}-{variant}"
                     effort = variant
 
-                models[key] = _build_model_entry(
+                entries[key] = _build_model_entry(
                     model_id=model_id,
                     context_length=context_length,
                     has_effort=True,
@@ -115,36 +120,57 @@ def add_bedrock_models_to_config(
                     aws_region=aws_region,
                     aws_profile=aws_profile,
                 )
-                added.append(key)
         else:
-            models[base_key] = _build_model_entry(
+            entries[base_key] = _build_model_entry(
                 model_id=model_id,
                 context_length=context_length,
                 has_effort=False,
                 aws_region=aws_region,
                 aws_profile=aws_profile,
             )
-            added.append(base_key)
 
-    if added and save_extra_models(models):
-        return added
-    return []
+    if not entries:
+        return []
+
+    def _mutate(models: dict[str, Any]) -> dict[str, Any]:
+        models.update(entries)
+        return models
+
+    extra_models_path = str(get_extra_models_path())
+    try:
+        atomic_json.mutate_json(extra_models_path, _mutate, default={})
+    except (atomic_json.JsonFileCorrupt, OSError) as e:
+        logger.error("Error saving extra_models.json: %s", e)
+        return []
+
+    return list(entries.keys())
 
 
 def remove_bedrock_models_from_config() -> list[str]:
-    """Remove all Bedrock model configurations from extra_models.json."""
-    models = load_extra_models()
-    removed = [
-        key
-        for key, cfg in models.items()
-        if isinstance(cfg, dict) and cfg.get("type") == "aws_bedrock"
-    ]
+    """Remove all Bedrock model configurations from extra_models.json.
 
-    for key in removed:
-        del models[key]
+    Uses :func:`code_puppy.atomic_json.mutate_json` so the read and write
+    happen inside one locked transaction (see :func:`add_bedrock_models_to_config`).
+    """
+    extra_models_path = str(get_extra_models_path())
+    removed: list[str] = []
 
-    if removed and not save_extra_models(models):
-        logger.error("Failed to save extra_models.json after removing Bedrock models")
+    def _mutate(models: dict[str, Any]) -> dict[str, Any]:
+        removed[:] = [
+            key
+            for key, cfg in models.items()
+            if isinstance(cfg, dict) and cfg.get("type") == "aws_bedrock"
+        ]
+        for key in removed:
+            del models[key]
+        return models
+
+    try:
+        atomic_json.mutate_json(extra_models_path, _mutate, default={})
+    except (atomic_json.JsonFileCorrupt, OSError) as e:
+        logger.error(
+            "Failed to save extra_models.json after removing Bedrock models: %s", e
+        )
         return []
 
     return removed

@@ -37,13 +37,29 @@ class JsonFileCorrupt(Exception):
     """The file was read successfully but its contents aren't valid JSON."""
 
 
+class _Missing:
+    """Sentinel distinguishing \"file missing/empty\" from a file that
+    legitimately parses to the JSON literal ``null``. ``None`` can't serve
+    as that sentinel here the way it does elsewhere, since ``None`` is
+    itself a valid parsed JSON value.
+    """
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid only
+        return "<MISSING>"
+
+
+_MISSING = _Missing()
+
+
 def _lock(path: str):
     """Serialize read-modify-write operations on ``path`` across processes."""
     return atomic_io.path_lock(path, timeout=_LOCK_TIMEOUT_SECONDS)
 
 
 def _read_unlocked(path: str, max_bytes: int) -> Any:
-    """Return ``None`` for a missing file, or the parsed JSON value.
+    """Return :data:`_MISSING` for a missing/empty file, else the parsed
+    JSON value -- which may legitimately be ``None`` if the file contains
+    the literal ``null``.
 
     Raises :class:`JsonFileCorrupt` for oversize/decode/parse failures;
     propagates genuine filesystem errors untouched.
@@ -53,7 +69,7 @@ def _read_unlocked(path: str, max_bytes: int) -> Any:
     except atomic_io.ContentTooLarge as exc:
         raise JsonFileCorrupt(str(exc)) from exc
     if not raw:
-        return None
+        return _MISSING
     try:
         text = raw.decode("utf-8")
         return json.loads(text)
@@ -77,7 +93,7 @@ def load_json(path: str, default: Any = None, max_bytes: int | None = None) -> A
     if max_bytes is None:
         max_bytes = MAX_JSON_BYTES
     parsed = _read_unlocked(path, max_bytes)
-    return default if parsed is None else parsed
+    return default if parsed is _MISSING else parsed
 
 
 def mutate_json(
@@ -104,7 +120,7 @@ def mutate_json(
         max_bytes = MAX_JSON_BYTES
     with _lock(path):
         current = _read_unlocked(path, max_bytes)
-        if current is None:
+        if current is _MISSING:
             current = default
         updated = mutation(current)
         atomic_io.atomic_write_bytes(
