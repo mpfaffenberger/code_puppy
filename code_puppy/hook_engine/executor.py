@@ -72,6 +72,14 @@ def _build_stdin_payload(event_data: EventData) -> bytes:
         payload["tool_result"] = _make_serializable(event_data.context["result"])
     if "duration_ms" in event_data.context:
         payload["tool_duration_ms"] = event_data.context["duration_ms"]
+    # Stop / SubagentStop: the agent's final text. Claude Code hands end-of-turn
+    # hooks a transcript_path to read; code puppy has no transcript file, so the
+    # response itself is the equivalent. Without it a Stop hook fires with
+    # nothing to inspect and cannot do end-of-turn review at all.
+    if event_data.context.get("response_text") is not None:
+        payload["response_text"] = _make_serializable(
+            event_data.context["response_text"]
+        )
 
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 

@@ -83,6 +83,7 @@ from code_puppy.agents._run_signals import (
 )
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
+    PromptBlocked,
     on_agent_exception,
     on_agent_run_cancel,
     on_agent_run_context,
@@ -99,6 +100,7 @@ from code_puppy.config import (
 )
 from code_puppy.keymap import sigint_fallback_cancels
 from code_puppy.messaging import emit_error, emit_info, emit_warning
+from code_puppy.session_context import get_session_id, set_session_id
 from code_puppy.tools.command_runner import is_awaiting_user_input
 
 # ---- Streaming retry helpers ------------------------------------------------
@@ -642,6 +644,10 @@ async def run_with_mcp(
     global _active_run_depth
     is_nested_run = _active_run_depth > 0
     _active_run_depth += 1
+    # Restored on the way out so a nested run hands its parent's id back, and
+    # the outermost run leaves no stale id behind for code that runs between
+    # turns. The impl publishes this run's own id once it mints one.
+    previous_session_id = get_session_id()
     try:
         return await _run_with_mcp_impl(
             agent,
@@ -654,6 +660,7 @@ async def run_with_mcp(
         )
     finally:
         _active_run_depth -= 1
+        set_session_id(previous_session_id)
 
 
 async def _run_with_mcp_impl(
@@ -683,6 +690,11 @@ async def _run_with_mcp_impl(
     prompt = _sanitize_prompt(prompt)
     group_id = str(uuid.uuid4())
 
+    # Publish the run id before the agent task is created below, so the task
+    # inherits it and callbacks with no run-scoped argument — notably
+    # pre_tool_call / post_tool_call — can correlate their events with this run.
+    set_session_id(group_id)
+
     # Fire user_prompt_submit hooks BEFORE prompt is sent. Plugins (e.g. the
     # claude_code_hooks bridge) may return a string to replace the prompt —
     # this is how Claude Code-style ``UserPromptSubmit`` hooks inject
@@ -690,7 +702,21 @@ async def _run_with_mcp_impl(
     try:
         submit_results = await on_user_prompt_submit(prompt, group_id)
         for r in submit_results:
-            if isinstance(r, str) and r:
+            if isinstance(r, PromptBlocked):
+                if not is_nested_run:
+                    # Cancel the turn outright: return before the agent is
+                    # built, so the prompt never reaches the model and no LLM
+                    # call is made. Mirrors the None a cancelled run returns —
+                    # callers already handle that. on_agent_run_start has not
+                    # fired yet, so there is no run-end to pair with either.
+                    emit_warning(f"🚫 Prompt blocked by hook: {r.reason}")
+                    return None
+                # A nested run's caller dereferences the result (e.g. an
+                # internal assessment call passing output_type), so None would
+                # break it. Substitute instead — the prompt text is still
+                # withheld from the model.
+                prompt = r.replacement
+            elif isinstance(r, str) and r:
                 prompt = r
     except Exception:
         # Hook failures must never block the run.

@@ -77,7 +77,7 @@ Every hook script receives a JSON object on **stdin**:
 
 ```json
 {
-  "session_id": "codepuppy-session",
+  "session_id": "0f9c1e7a-3d42-4b8e-9a11-6c5d8e2f7b30",
   "hook_event_name": "PreToolUse",
   "tool_name": "agent_run_shell_command",
   "tool_input": {
@@ -89,6 +89,10 @@ Every hook script receives a JSON object on **stdin**:
 ```
 
 For `PostToolUse`, the payload also includes `tool_result` and `tool_duration_ms`.
+
+`session_id` is the id of the agent run the event belongs to, so events from one
+run can be correlated. Sub-agent runs get their own id. Events fired outside any
+run — `SessionStart` at boot, for instance — fall back to `"codepuppy-session"`.
 
 ### Environment Variables
 
@@ -124,11 +128,60 @@ For `PostToolUse`, the payload also includes `tool_result` and `tool_duration_ms
 
 | Event | Fires | Can Block? |
 |-------|-------|-----------|
-| `PreToolUse` | Before any tool call | Yes (exit 1) |
-| `PostToolUse` | After any tool call | No (observation only) |
+| `PreToolUse` | Before any tool call | Yes (exit 1) — tool never runs |
+| `PostToolUse` | After any tool call | Yes (exit 1) — withholds the output; see below |
+| `UserPromptSubmit` | Before a prompt is sent to the model | Yes (exit 1) — see below |
 | `SessionStart` | When a session begins | No |
-| `Stop` | When agent finishes a task | Yes |
-| `SubagentStop` | When a sub-agent finishes | Yes |
+| `SessionEnd` | When a session ends | No |
+| `PreCompact` | Before history compaction | No |
+| `Notification` | On a user-attention event | No |
+| `Stop` | When agent finishes a task | No (observation only) |
+| `SubagentStop` | When a sub-agent finishes | No (observation only) |
+
+### Blocking a prompt
+
+When a `UserPromptSubmit` hook blocks, the turn is **cancelled**: the prompt is
+never sent to the model, no LLM call is made, and your reason is shown to the
+user.
+
+```bash
+#!/bin/bash
+# Block prompts that mention production credentials
+input=$(cat)
+prompt=$(echo "$input" | jq -r '.tool_input.prompt // empty')
+
+if echo "$prompt" | grep -qiE 'prod.*(password|secret|api[_ -]?key)'; then
+  echo "Prompts referencing production credentials are not permitted." >&2
+  exit 1
+fi
+exit 0
+```
+
+One exception: a plugin making its own internal agent call (a nested run — the
+shell-safety assessment, or anything passing `output_type`) cannot be cancelled,
+because its caller needs a result back. A block there substitutes a notice for
+the prompt instead. The prompt text is withheld from the model either way.
+
+### Blocking a tool's output
+
+A `PostToolUse` hook runs after the tool has executed, so it cannot undo the
+call — but blocking there **withholds the output**. The model and the message
+history get a notice naming your reason instead of the real result, which keeps
+secrets in tool output out of the transcript and out of your provider's logs.
+
+```bash
+#!/bin/bash
+# Withhold any tool output containing what looks like an AWS key
+input=$(cat)
+if echo "$input" | jq -r '.tool_result // empty' | grep -qE 'AKIA[0-9A-Z]{16}'; then
+  echo "Tool output contained an AWS access key and was withheld." >&2
+  exit 1
+fi
+exit 0
+```
+
+To stop the call from happening at all, use `PreToolUse` — by `PostToolUse` the
+side effect has already occurred.
 
 ---
 
