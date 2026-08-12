@@ -210,6 +210,13 @@ class JSONAgent(BaseAgent):
         if override:
             return override
 
+        # A ``model_select`` hook choice outranks the JSON ``model`` field so
+        # per-turn routing works for JSON agents too (see get_model_name in
+        # BaseAgent for the full precedence ladder).
+        auto = self.get_auto_model_override()
+        if auto:
+            return auto
+
         result = self._config.get("model")
         if result is None or (isinstance(result, str) and not result.strip()):
             result = super().get_model_name()
