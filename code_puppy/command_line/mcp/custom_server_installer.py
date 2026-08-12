@@ -5,7 +5,6 @@ custom MCP servers with JSON configuration.
 """
 
 import json
-import os
 
 from code_puppy.command_line.utils import safe_input
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
@@ -49,7 +48,7 @@ def prompt_and_install_custom_server(manager) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    from code_puppy.config import MCP_SERVERS_FILE
+    from code_puppy.command_line.mcp.mcp_servers_store import upsert_mcp_server
     from code_puppy.mcp_.managed_server import ServerConfig
 
     from .utils import find_server_id_by_name
@@ -168,25 +167,11 @@ def prompt_and_install_custom_server(manager) -> bool:
             return False
 
         # Save to mcp_servers.json for persistence
-        if os.path.exists(MCP_SERVERS_FILE):
-            with open(MCP_SERVERS_FILE, "r") as f:
-                data = json.load(f)
-                servers = data.get("mcp_servers", {})
-        else:
-            servers = {}
-            data = {"mcp_servers": servers}
-
-        # Add new server with type
         save_config = config_dict.copy()
         save_config["type"] = server_type
-        servers[server_name] = save_config
+        upsert_mcp_server(server_name, save_config)
 
-        # Save back
-        os.makedirs(os.path.dirname(MCP_SERVERS_FILE), exist_ok=True)
-        with open(MCP_SERVERS_FILE, "w") as f:
-            json.dump(data, f, indent=2)
-
-        emit_success(f"\n  ✅ Successfully added custom server '{server_name}'!")
+        emit_success(f"\nSuccessfully added custom server '{server_name}'!")
         emit_info(f"  Use '/mcp start {server_name}' to start the server.\n")
 
         # Strict opt-in: prompt the user to bind this server to agents.

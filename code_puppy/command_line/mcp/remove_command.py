@@ -2,9 +2,7 @@
 MCP Remove Command - Removes an MCP server.
 """
 
-import json
 import logging
-import os
 from typing import List, Optional
 
 from code_puppy.messaging import emit_error, emit_info
@@ -70,23 +68,14 @@ class RemoveCommand(MCPCommandBase):
                     )
 
                 # Also remove from mcp_servers.json
-                from code_puppy.config import MCP_SERVERS_FILE
+                from code_puppy.command_line.mcp.mcp_servers_store import (
+                    remove_mcp_server,
+                )
 
-                if os.path.exists(MCP_SERVERS_FILE):
-                    try:
-                        with open(MCP_SERVERS_FILE, "r") as f:
-                            data = json.load(f)
-                            servers = data.get("mcp_servers", {})
-
-                        # Remove the server if it exists
-                        if server_name in servers:
-                            del servers[server_name]
-
-                            # Save back
-                            with open(MCP_SERVERS_FILE, "w") as f:
-                                json.dump(data, f, indent=2)
-                    except Exception as e:
-                        logger.warning(f"Could not update mcp_servers.json: {e}")
+                try:
+                    remove_mcp_server(server_name)
+                except Exception as e:
+                    logger.warning(f"Could not update mcp_servers.json: {e}")
             else:
                 emit_info(
                     f"✗ Failed to remove server: {server_name}", message_group=group_id

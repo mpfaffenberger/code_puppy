@@ -6,6 +6,8 @@ import json
 import logging
 from typing import Any
 
+from code_puppy import atomic_io, atomic_json
+
 from .config import (
     MODELS,
     get_extra_models_path,
@@ -15,29 +17,32 @@ logger = logging.getLogger(__name__)
 
 
 def load_extra_models() -> dict[str, Any]:
-    """Load the extra_models.json configuration file."""
-    extra_models_path = get_extra_models_path()
-    if not extra_models_path.exists():
-        return {}
+    """Load the extra_models.json configuration file.
 
+    Bounded and lock-aware via :mod:`code_puppy.atomic_json` -- a large or
+    concurrently-being-written file can no longer balloon memory or read a
+    torn write. Preserves the original never-raise contract: any failure
+    (missing file, invalid JSON, oversized file, I/O error) logs and
+    returns ``{}`` rather than propagating.
+    """
+    extra_models_path = str(get_extra_models_path())
     try:
-        with open(extra_models_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
+        return atomic_json.load_json(extra_models_path, default={})
+    except (atomic_json.JsonFileCorrupt, OSError) as e:
         logger.error("Error loading extra_models.json: %s", e)
         return {}
 
 
 def save_extra_models(models: dict[str, Any]) -> bool:
-    """Save model configurations to extra_models.json (atomic write)."""
-    extra_models_path = get_extra_models_path()
+    """Save model configurations to extra_models.json (atomic, locked write)."""
+    extra_models_path = str(get_extra_models_path())
 
     try:
-        extra_models_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = extra_models_path.with_suffix(".tmp")
-        with open(temp_path, "w", encoding="utf-8") as f:
-            json.dump(models, f, indent=2, ensure_ascii=False)
-        temp_path.replace(extra_models_path)
+        with atomic_io.path_lock(extra_models_path):
+            atomic_io.atomic_write_bytes(
+                extra_models_path,
+                json.dumps(models, indent=2, ensure_ascii=False).encode("utf-8"),
+            )
         return True
     except Exception as e:
         logger.error("Error saving extra_models.json: %s", e)
@@ -83,10 +88,15 @@ def add_bedrock_models_to_config(
     aws_region: str | None = None,
     aws_profile: str | None = None,
 ) -> list[str]:
-    """Add Bedrock model configurations (with effort variants) to extra_models.json."""
-    models = load_extra_models()
-    added: list[str] = []
+    """Add Bedrock model configurations (with effort variants) to extra_models.json.
 
+    Uses :func:`code_puppy.atomic_json.mutate_json` so the read and write
+    happen inside one locked transaction -- extra_models.json is also
+    touched by add_model_menu.py and the ollama_setup/azure_foundry
+    plugins, so a read-then-write split across two unlocked calls could
+    lose one of those concurrent updates.
+    """
+    entries: dict[str, dict[str, Any]] = {}
     for spec in MODELS:
         base_key = spec["base_key"]
         model_id = spec["model_id"]
@@ -102,7 +112,7 @@ def add_bedrock_models_to_config(
                     key = f"{base_key}-{variant}"
                     effort = variant
 
-                models[key] = _build_model_entry(
+                entries[key] = _build_model_entry(
                     model_id=model_id,
                     context_length=context_length,
                     has_effort=True,
@@ -110,36 +120,57 @@ def add_bedrock_models_to_config(
                     aws_region=aws_region,
                     aws_profile=aws_profile,
                 )
-                added.append(key)
         else:
-            models[base_key] = _build_model_entry(
+            entries[base_key] = _build_model_entry(
                 model_id=model_id,
                 context_length=context_length,
                 has_effort=False,
                 aws_region=aws_region,
                 aws_profile=aws_profile,
             )
-            added.append(base_key)
 
-    if added and save_extra_models(models):
-        return added
-    return []
+    if not entries:
+        return []
+
+    def _mutate(models: dict[str, Any]) -> dict[str, Any]:
+        models.update(entries)
+        return models
+
+    extra_models_path = str(get_extra_models_path())
+    try:
+        atomic_json.mutate_json(extra_models_path, _mutate, default={})
+    except (atomic_json.JsonFileCorrupt, OSError) as e:
+        logger.error("Error saving extra_models.json: %s", e)
+        return []
+
+    return list(entries.keys())
 
 
 def remove_bedrock_models_from_config() -> list[str]:
-    """Remove all Bedrock model configurations from extra_models.json."""
-    models = load_extra_models()
-    removed = [
-        key
-        for key, cfg in models.items()
-        if isinstance(cfg, dict) and cfg.get("type") == "aws_bedrock"
-    ]
+    """Remove all Bedrock model configurations from extra_models.json.
 
-    for key in removed:
-        del models[key]
+    Uses :func:`code_puppy.atomic_json.mutate_json` so the read and write
+    happen inside one locked transaction (see :func:`add_bedrock_models_to_config`).
+    """
+    extra_models_path = str(get_extra_models_path())
+    removed: list[str] = []
 
-    if removed and not save_extra_models(models):
-        logger.error("Failed to save extra_models.json after removing Bedrock models")
+    def _mutate(models: dict[str, Any]) -> dict[str, Any]:
+        removed[:] = [
+            key
+            for key, cfg in models.items()
+            if isinstance(cfg, dict) and cfg.get("type") == "aws_bedrock"
+        ]
+        for key in removed:
+            del models[key]
+        return models
+
+    try:
+        atomic_json.mutate_json(extra_models_path, _mutate, default={})
+    except (atomic_json.JsonFileCorrupt, OSError) as e:
+        logger.error(
+            "Failed to save extra_models.json after removing Bedrock models: %s", e
+        )
         return []
 
     return removed
