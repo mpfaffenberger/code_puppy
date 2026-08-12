@@ -21,6 +21,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.text import Text
 from code_puppy.callbacks import on_prompt_toolkit_style
+from code_puppy.tools import fs_access
 from code_puppy.tools.file_permission_state import set_diff_already_shown
 
 # =============================================================================
@@ -1613,9 +1614,12 @@ def _sanitize_string(text: str) -> str:
         )
 
 
-def read_text_sanitized(file_path: str | Path) -> str:
-    """Read UTF-8 text, converting lone surrogates to U+FFFD."""
-    return ""
+def read_text_sanitized(
+    path: str, line: int | None = None, limit: int | None = None
+) -> str:
+    """Read text via fs_access (backend-aware), then sanitize surrogates."""
+    text = fs_access.read_text(path, line=line, limit=limit)
+    return _sanitize_string(text)
 
 
 def atomic_write_text(

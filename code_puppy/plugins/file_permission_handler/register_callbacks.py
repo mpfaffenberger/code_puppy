@@ -17,6 +17,7 @@ from code_puppy.tools.file_permission_state import (
     register_file_permission_state_provider,
 )
 from code_puppy.tools.common import (
+    read_text_sanitized,
     _find_best_window,
     get_user_approval,
     get_user_approval_async,
@@ -80,16 +81,8 @@ def _preview_delete_snippet(file_path: str, snippet: str) -> str | None:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
             return None
 
-        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-            original = f.read()
-
-        # Sanitize any surrogate characters
-        try:
-            original = original.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
+        # Sanitize any surrogate characters from reading.
+        original = read_text_sanitized(file_path)
 
         if snippet not in original:
             return None
@@ -105,6 +98,7 @@ def _preview_delete_snippet(file_path: str, snippet: str) -> str | None:
             )
         )
         return diff_text
+
     except Exception:
         return None
 
@@ -139,16 +133,8 @@ def _preview_replace_in_file(
     try:
         file_path = os.path.abspath(file_path)
 
-        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-            original = f.read()
-
-        # Sanitize any surrogate characters
-        try:
-            original = original.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
+        # Sanitize any surrogate characters from reading.
+        original = read_text_sanitized(file_path)
 
         modified = original
         for rep in replacements:
@@ -204,16 +190,8 @@ def _preview_delete_file(file_path: str) -> str | None:
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
             return None
 
-        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-            original = f.read()
-
-        # Sanitize any surrogate characters
-        try:
-            original = original.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
+        # Sanitize any surrogate characters from reading.
+        original = read_text_sanitized(file_path)
 
         diff_text = "".join(
             difflib.unified_diff(
@@ -225,6 +203,7 @@ def _preview_delete_file(file_path: str) -> str | None:
             )
         )
         return diff_text
+
     except Exception:
         return None
 

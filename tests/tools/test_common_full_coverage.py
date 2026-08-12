@@ -33,7 +33,7 @@ class TestSanitizeString:
 
     def test_none_like_empty(self):
         """Test falsy string values."""
-        # The function checks 'if not text' first
+        # Function checks 'if not text' first.
         result = _sanitize_string("")
         assert result == ""
 
@@ -45,11 +45,12 @@ class TestSanitizeString:
 
     def test_surrogate_characters_replaced(self):
         """Test that surrogate characters are replaced."""
-        # Create a string with surrogate characters (invalid standalone)
-        # Surrogates are in range 0xD800 to 0xDFFF
+        # Create a string with surrogate characters (invalid standalone).
+        # Surrogates are in range 0xD800 to 0xDFFF.
         surrogate_str = "Hello" + chr(0xD800) + "World"
         result = _sanitize_string(surrogate_str)
-        # Should replace surrogate with replacement character
+
+        # Should replace surrogate with replacement character.
         assert "\ufffd" in result or result == "HelloWorld"
         assert chr(0xD800) not in result
 
@@ -57,7 +58,8 @@ class TestSanitizeString:
         """Test string with mix of valid and invalid characters."""
         mixed = "Valid" + chr(0xDC00) + "Text" + chr(0xDFFF) + "End"
         result = _sanitize_string(mixed)
-        # Surrogates should be replaced
+
+        # Surrogates should be replaced.
         assert chr(0xDC00) not in result
         assert chr(0xDFFF) not in result
         assert "Valid" in result
