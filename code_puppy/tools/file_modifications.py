@@ -23,7 +23,7 @@ from pydantic import BaseModel, BeforeValidator, WithJsonSchema
 from pydantic_ai import RunContext
 
 from code_puppy.callbacks import on_delete_file, on_edit_file
-from code_puppy.messaging import (  # Structured messaging types
+from code_puppy.messaging import (  # Structured messaging types.
     DiffLine,
     DiffMessage,
     emit_error,

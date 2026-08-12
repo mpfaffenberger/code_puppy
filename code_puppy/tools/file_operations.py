@@ -13,7 +13,7 @@ from pydantic_ai import RunContext
 # ---------------------------------------------------------------------------
 # Module-level helper functions (exposed for unit tests _and_ used as tools)
 # ---------------------------------------------------------------------------
-from code_puppy.messaging import (  # New structured messaging types
+from code_puppy.messaging import (  # New structured messaging types.
     FileContentMessage,
     FileEntry,
     FileListingMessage,
@@ -21,7 +21,7 @@ from code_puppy.messaging import (  # New structured messaging types
     GrepResultMessage,
     get_message_bus,
 )
-from code_puppy.tools.common import resolve_path, _sanitize_string
+from code_puppy.tools.common import resolve_path, _sanitize_string, read_text_sanitized
 from code_puppy.tools import fs_access
 
 
@@ -507,80 +507,30 @@ def _read_file(
 ) -> ReadFileOutput:
     file_path = resolve_path(file_path)
 
-    # When a filesystem backend is installed (e.g. an editor host), read
-    # through it so we see unsaved buffers and the host's view of the file.
-    # The backend owns existence/permission semantics, so we skip the local
-    # disk checks on this path.
-    from code_puppy.tools.io_backends import get_filesystem_backend
+    if start_line is not None and start_line < 1:
+        error_msg = "start_line must be >= 1 (1-based indexing)"
+        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
 
-    backend = get_filesystem_backend()
-    if backend is not None:
-        if start_line is not None and start_line < 1:
-            error_msg = "start_line must be >= 1 (1-based indexing)"
-            return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-        if num_lines is not None and num_lines < 1:
-            error_msg = "num_lines must be >= 1"
-            return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-        # Push the slice down to the host (ACP fs/read supports line+limit) so a
-        # chunked read doesn't drag the whole file across the wire. Matches the
-        # local path: only slice when BOTH bounds are given.
-        want_slice = start_line is not None and num_lines is not None
-        try:
-            if want_slice:
-                raw = backend.read_text_file(
-                    file_path, line=start_line, limit=num_lines
-                )
-            else:
-                raw = backend.read_text_file(file_path)
-        except FileNotFoundError:
-            error_msg = f"File {file_path} does not exist"
-            return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-        except Exception as e:
-            message = f"An error occurred trying to read the file: {e}"
-            return ReadFileOutput(content=message, num_tokens=0, error=message)
-        return _finalize_read_output(file_path, raw, start_line, num_lines)
+    if num_lines is not None and num_lines < 1:
+        error_msg = "num_lines must be >= 1"
+        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
 
-    if not os.path.exists(file_path):
+    try:
+        content = read_text_sanitized(file_path, line=start_line, limit=num_lines)
+
+    except FileNotFoundError:
         error_msg = f"File {file_path} does not exist"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-    if not os.path.isfile(file_path):
-        error_msg = f"{file_path} is not a file"
-        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-    try:
-        # Use errors="surrogateescape" to handle files with invalid UTF-8 sequences
-        # This is common on Windows when files contain emojis or were created by
-        # applications that don't properly encode Unicode
-        with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
-            if start_line is not None and start_line < 1:
-                error_msg = "start_line must be >= 1 (1-based indexing)"
-                return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-            if num_lines is not None and num_lines < 1:
-                error_msg = "num_lines must be >= 1"
-                return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-            if start_line is not None and num_lines is not None:
-                # Read only the specified lines efficiently using itertools.islice
-                # to avoid loading the entire file into memory
-                import itertools
 
-                start_idx = start_line - 1
-                selected_lines = list(
-                    itertools.islice(f, start_idx, start_idx + num_lines)
-                )
-                content = "".join(selected_lines)
-            else:
-                # Read the entire file
-                content = f.read()
-
-        return _finalize_read_output(file_path, content, start_line, num_lines)
-    except FileNotFoundError:
-        error_msg = "FILE NOT FOUND"
-        return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
     except PermissionError:
         error_msg = "PERMISSION DENIED"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
+
     except Exception as e:
         message = f"An error occurred trying to read the file: {e}"
         return ReadFileOutput(content=message, num_tokens=0, error=message)
+
+    return _finalize_read_output(file_path, content, start_line, num_lines)
 
 
 def _finalize_read_output(
