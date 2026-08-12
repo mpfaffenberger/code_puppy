@@ -17,9 +17,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-# The instruction override Anthropic's Claude Code CLI expects as the system
-# prompt. When using OAuth-authenticated claude-code models, the *real* system
-# prompt has to move into the user turn instead (see the callback below).
+# System-prompt override the Claude Code CLI expects. For OAuth claude-code models the
+# real system prompt moves into the user turn instead (see the callback below).
 CLAUDE_CODE_INSTRUCTIONS = "You are Claude Code, Anthropic's official CLI for Claude."
 
 # Prefix used by every claude-code-* model (as registered by this plugin).

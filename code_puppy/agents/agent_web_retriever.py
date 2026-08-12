@@ -78,9 +78,8 @@ class WebRetrieverAgent(BaseAgent):
             # Visual fallback (rendering issues, JS-only content, debugging)
             "browser_screenshot_analyze",
             "load_image_for_analysis",
-            # Persisting extracted data (no delete_file/delete_snippet by
-            # design - this agent writes new extraction output, it doesn't
-            # need to clean up or edit unrelated files)
+            # Persisting only (no delete/edit tools by design — this agent
+            # writes new extraction output, it never cleans up files).
             "list_files",
             "read_file",
             "grep",

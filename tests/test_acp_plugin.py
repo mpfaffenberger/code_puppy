@@ -495,10 +495,8 @@ async def test_close_session_waits_for_in_flight_run_before_purging(monkeypatch)
                 await asyncio.sleep(30)
                 return SimpleNamespace(output="never")
             finally:
-                # Stands in for the point deep inside _invoke_agent_impl
-                # where load_model_with_fallback synchronously writes into
-                # _warned_model_fallbacks -- if close_session's purge can
-                # race ahead of this, the entry leaks.
+                # Stands in for where load_model_with_fallback syncs into
+                # _warned_model_fallbacks — if close_session's purge races ahead, it leaks.
                 run_finished.set()
 
     monkeypatch.setattr(

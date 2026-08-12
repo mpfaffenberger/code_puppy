@@ -31,9 +31,7 @@ from code_puppy.callbacks import register_callback
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# References to originals (set during startup)
-# ---------------------------------------------------------------------------
+# Original references, populated during startup.
 
 _original_estimate_tokens = None
 _original_estimate_tokens_for_message = None
@@ -41,9 +39,7 @@ _original_run_with_mcp = None
 _original_subagent_estimate_tokens = None
 
 
-# ---------------------------------------------------------------------------
 # Patched ``estimate_tokens`` (root text-level)
-# ---------------------------------------------------------------------------
 
 
 def _patched_estimate_tokens(text: str) -> int:
@@ -57,9 +53,7 @@ def _patched_estimate_tokens(text: str) -> int:
     return count_tokens(text, model=None)
 
 
-# ---------------------------------------------------------------------------
 # Patched ``estimate_tokens_for_message``
-# ---------------------------------------------------------------------------
 
 
 def _patched_estimate_tokens_for_message(
@@ -85,9 +79,7 @@ def _patched_estimate_tokens_for_message(
     return max(1, total)
 
 
-# ---------------------------------------------------------------------------
-# Patched ``run_with_mcp`` — records token ratios after each API call
-# ---------------------------------------------------------------------------
+# Patched ``run_with_mcp`` records ratios after each API call.
 
 
 def _compute_input_char_count(
@@ -168,9 +160,7 @@ async def _patched_run_with_mcp(
     return result
 
 
-# ---------------------------------------------------------------------------
 # Patched subagent ``_estimate_tokens``
-# ---------------------------------------------------------------------------
 
 
 def _patched_subagent_estimate_tokens(content: str) -> int:
@@ -180,9 +170,7 @@ def _patched_subagent_estimate_tokens(content: str) -> int:
     return count_tokens(content, model=None)
 
 
-# ---------------------------------------------------------------------------
 # Startup hook
-# ---------------------------------------------------------------------------
 
 
 def _on_startup() -> None:
@@ -210,9 +198,8 @@ def _on_startup() -> None:
     logger.info("token_ratio_learner: patched _runtime.run_with_mcp")
 
     # 4. Patch subagent_stream_handler._estimate_tokens
-    # NOTE: ``code_puppy.agents.subagent_stream_handler`` re-exports the
-    # *function* ``subagent_stream_handler``, not the module.  We must
-    # reach the actual module via ``importlib``.
+    # NOTE: ``subagent_stream_handler`` re-exports a function, not its module;
+    # import the actual module via ``importlib`` before patching.
     import importlib
 
     ssh_mod = importlib.import_module("code_puppy.agents.subagent_stream_handler")

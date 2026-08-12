@@ -87,21 +87,12 @@ if not _DISABLED:
 
     from . import coalesce_patch, resume_repaint, state
 
-# Async-safe parent-session pointer. The bus's _current_session_id is ONE
-# global shared across every asyncio task, so two invoke_agent calls running
-# concurrently clobber it (root B reads root A as its parent -> a bogus deep
-# chain). A ContextVar is COPIED into each task at create_task time, so
-# concurrent siblings each see their own correct parent. We mirror
-# set_session_context into this var (see _install_parent_tracking) and read it
-# in the emit hook.
+# ContextVar isolates each task's parent session; the bus's global pointer lets
+# concurrent siblings clobber one another's parent.
 _PARENT_SID: ContextVar = ContextVar("subagent_panel_parent_sid", default=None)
 
 
-# ---------------------------------------------------------------------------
-# Shared rendering helpers (moved to panel_render.py; re-exported here for
-# backwards compatibility -- tests and out-of-tree code import these names
-# from register_callbacks)
-# ---------------------------------------------------------------------------
+# Shared rendering helpers are re-exported from panel_render for compatibility.
 from .panel_render import (  # noqa: E402
     _model_short as _model_short,  # noqa: F401  (re-export)
     _model_variant as _model_variant,  # noqa: F401  (re-export)
@@ -128,24 +119,13 @@ def _resolve_model(agent_name, override):
         return override
 
 
-# ---------------------------------------------------------------------------
-# Live panel rendering (event-driven, pushed to the bottom bar)
-# ---------------------------------------------------------------------------
-#
-# The live format is one aligned, information-complete row per agent
-# (badge/elbow + name + model + spin/check + elapsed + status). Render every
-# tracked agent in DFS order; a summary row would hide active work.
-# Rows are rendered via the shared _row_lines() (same as the transcript)
-# and pushed as rich.text.Text — the bottom bar paints styled Text rows in
-# full color (SGRs regenerated from trusted Style objects; content still
-# sanitized per-segment), so the live rows match the frozen record.
+# Live panel rendering: one aligned, complete row per tracked agent, rendered via
+# _row_lines() and pushed as styled Text to match the frozen transcript.
 
 #: Same-shape repaints (spin frame / elapsed churn) at most 10x/second.
 _PUSH_MIN_INTERVAL = 0.1
-# NOTE: deliberately unsynchronized. Multiple threads may race on these
-# two scalar slots, but the worst outcome is one extra (or one skipped)
-# throttled repaint — the next event self-heals. A lock here would buy
-# nothing except contention on the hot stream-event path.
+# NOTE: Deliberately unsynchronized; a race causes only one extra/skipped repaint,
+# while locking would add contention on the hot stream-event path.
 _push_state = {"t": 0.0, "count": -1}
 
 
@@ -159,18 +139,8 @@ def _panel_lines():
     return list(_row_lines(_ordered_tree(rows), state.spinner_frame()))
 
 
-# ---------------------------------------------------------------------------
-# 4 Hz elapsed-clock ticker (asyncio task — zero new threads)
-# ---------------------------------------------------------------------------
-#
-# The panel repaint is event-driven, so during a long SILENT model call
-# no stream events arrive and the mm:ss column would freeze. The ticker
-# repaints ~4x/second while any sub-agent is tracked — fast enough that
-# the wall-clock-derived braille spin frame animates smoothly during
-# silence, still comfortably above the 10fps same-shape throttle in
-# _push_panel (0.25s > 0.1s), so a plain (non-force) push is sufficient.
-# Flicker-safe: each repaint is ONE atomic bottom-bar write (CUP + EL +
-# text per row) — the same machinery the puppy spinner drives at 20fps.
+# 4 Hz ticker keeps elapsed clocks/spin frames moving during silent model calls;
+# atomic bottom-bar writes keep repaints flicker-safe.
 
 _TICK_INTERVAL_S = 0.25
 _ticker_task: "asyncio.Task | None" = None
@@ -241,9 +211,7 @@ def _push_panel(force: bool = False) -> None:
         pass
 
 
-# ---------------------------------------------------------------------------
 # Frozen (persistent) completion record
-# ---------------------------------------------------------------------------
 def _handle_frozen(console, session_id):
     """A sub-agent finished. Mark it done but KEEP it grouped in the live panel
     (rendered as 'completed'). The ENTIRE panel flushes to the transcript as one
@@ -280,9 +248,7 @@ def _maybe_flush_group(console):
     _push_panel(force=True)  # collapse the panel rows
 
 
-# ---------------------------------------------------------------------------
 # Monkeypatch installers
-# ---------------------------------------------------------------------------
 def _install_parent_tracking() -> None:
     """Mirror set_session_context() into an async-safe ContextVar.
 
@@ -423,10 +389,8 @@ def _install_suppress_completion() -> None:
     sai.emit_success = _filtered
 
 
-# TODO(deferred): replace this pile of monkeypatches (MessageBus.emit,
-# renderer seams, emit_success, set_session_context, coalesce wrapper)
-# with real core hooks — e.g. subagent_registered / subagent_completed
-# callbacks — so the plugin stops depending on private call signatures.
+# TODO(deferred): replace monkeypatches with subagent lifecycle hooks so this
+# plugin no longer depends on private call signatures.
 def _install() -> None:
     if _DISABLED:
         return
@@ -445,9 +409,7 @@ def _install() -> None:
             pass
 
 
-# ---------------------------------------------------------------------------
 # Status callback
-# ---------------------------------------------------------------------------
 async def _on_stream_event(event_type, event_data, agent_session_id=None):
     if not _runtime_enabled():
         return
@@ -455,8 +417,8 @@ async def _on_stream_event(event_type, event_data, agent_session_id=None):
         state.record_event(agent_session_id, event_type, event_data)
     except Exception:
         pass
-    # Event-driven animation: the spin frame + elapsed columns advance on
-    # every repaint; _push_panel throttles same-shape churn to ~10fps.
+    # Event-driven animation advances frame/elapsed on each repaint; _push_panel
+    # throttles same-shape churn to ~10 fps.
     _push_panel()
 
 
@@ -552,10 +514,8 @@ async def _on_post_tool_call(tool_name, tool_args, result, duration_ms, context=
     if not sid:
         return
     try:
-        # Ordinary tool invocations stay frozen until their foreground root
-        # flushes, preserving nested tree structure. A detached /fork has no
-        # foreground root, so keeping it would leave a completed row hitched to
-        # every subsequent prompt. Remove detached forks at their own boundary.
+        # Keep ordinary calls until their foreground root flushes; detached forks
+        # have no root, so finish them at their own boundary.
         if isinstance(context, dict) and context.get("detached_fork"):
             state.finish(sid)
         else:

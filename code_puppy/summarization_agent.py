@@ -160,9 +160,8 @@ def reload_summarization_agent():
         retries=1,  # Fewer retries for summarization
         model_settings=model_settings,
     )
-    # NOTE: We intentionally DON'T wrap in DBOSAgent here.
-    # Summarization is a simple one-shot call that doesn't need durable execution,
-    # and DBOSAgent causes async event loop conflicts with run_sync().
+    # NOTE: NOT wrapped in DBOSAgent — one-shot call, no durable execution,
+    # and DBOSAgent conflicts with run_sync()'s event loop.
     return agent
 
 

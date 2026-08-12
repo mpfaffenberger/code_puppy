@@ -37,14 +37,8 @@ from .search_tool import register_browse_skill_namespace
 
 logger = logging.getLogger(__name__)
 
-# Dedicated marker so we can tell "this plugin already performed its
-# one-time frontmatter migration" apart from "the shared flag happens to
-# be True right now". Without this marker we can't distinguish "user
-# explicitly re-enabled frontmatter after we turned it off" from "we
-# haven't run yet" — both look like `get_frontmatter_in_system_prompt()
-# == True`. Storing our own marker lets us flip the shared flag exactly
-# once, ever, and never again fight a user's later `/skills frontmatter
-# on`.
+# Own marker distinguishes this plugin's one-time migration from a user's later
+# `/skills frontmatter on`; flip the shared flag once, then never override it.
 _MIGRATION_MARKER_KEY = "namespace_skill_search_frontmatter_migrated"
 
 

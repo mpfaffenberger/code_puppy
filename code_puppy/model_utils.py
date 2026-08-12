@@ -75,14 +75,8 @@ def prepare_prompt_for_model(
                 is_claude_code=bool(result.get("is_claude_code", False)),
             )
 
-    # 2) Fall back to the legacy per-model system-prompt hook. Two flavours
-    #    of plugin live here:
-    #      * "taker-over" plugins return ``handled=True`` — first one wins
-    #        outright, exactly like ``prepare_model_prompt``.
-    #      * "augmenter" plugins (e.g. agent_skills) return ``handled=False``
-    #        with mutated ``instructions`` / ``user_prompt``. We thread those
-    #        mutations forward so the caller actually sees them, instead of
-    #        silently dropping every augmentation on the floor.
+    # 2) Legacy per-model hook: "taker-over" plugins return handled=True (first
+    #    wins); "augmenters" (e.g. agent_skills) mutate prompts — thread those through.
     augmented_instructions = system_prompt
     augmented_user_prompt = user_prompt
     for result in callbacks.on_get_model_system_prompt(

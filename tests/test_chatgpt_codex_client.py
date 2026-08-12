@@ -753,9 +753,8 @@ class TestCreateCodexAsyncClient:
 
     def test_creates_client_with_custom_verify_path(self):
         """Test that factory accepts verify as string (cert path)."""
-        # Just verify the function accepts the parameter without error
-        # The actual SSL context creation happens on first request
-        # Using verify=False to avoid file not found errors
+        # Only verify the param is accepted — SSL context builds on first request
+        # (verify=False avoids file-not-found errors).
         client = create_codex_async_client(verify=False)
 
         assert isinstance(client, ChatGPTCodexAsyncClient)

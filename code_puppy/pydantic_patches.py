@@ -227,15 +227,10 @@ def patch_tool_call_callbacks() -> None:
         _original_get_tool_def = ToolManager.get_tool_def
         _original_handle_call = ToolManager.handle_call
 
-        # Tool name prefix used by Claude Code OAuth - tools are prefixed on
-        # outgoing requests, so we need to unprefix them when they come back.
-        # This prefix MUST only be stripped when a claude-code OAuth model is
-        # active. Stripping unconditionally would corrupt legitimate tool names
-        # that happen to begin with ``cp_`` when other model types are in use
-        # (e.g. ``custom_anthropic``, ``custom_openai``, etc.).
+        # Strip the cp_ prefix on return only while a claude-code model is active;
+        # unconditional stripping would corrupt legit ``cp_`` names from other types.
         TOOL_PREFIX = "cp_"
-        # Match the prefix used by the claude_code_oauth plugin's model name
-        # convention (see plugins/claude_code_oauth/prompt_handler.py).
+        # Matches claude_code_oauth's model-name convention (prompt_handler.py).
         _CLAUDE_CODE_MODEL_PREFIX = "claude-code"
 
         def _is_claude_code_model_active() -> bool:
@@ -275,8 +270,7 @@ def patch_tool_call_callbacks() -> None:
             return normalized_name, call
 
         # -- Early normalization patches -----------------------------------------
-        # These run *before* pydantic-ai classifies the tool as function/output/
-        # unknown, so prefixed names resolve correctly.
+        # Run before classification so prefixed names resolve correctly.
 
         def _patched_get_tool_def(self, name: str):
             return _original_get_tool_def(self, _normalize_tool_name(name))
@@ -313,19 +307,8 @@ def patch_tool_call_callbacks() -> None:
         ):
             tool_name, call = _normalize_call_tool_name(call)
 
-            # Normalise args to a dict for the callback contract.
-            #
-            # We also remember the *shape* of ``call.args`` so we can write
-            # mutations back in the same shape after pre_tool_call hooks run.
-            # Without this, hooks mutating ``tool_args`` in place have zero
-            # effect when ``call.args`` is a JSON string (the common case for
-            # LLM-emitted tool calls): ``json.loads`` returns a fresh dict and
-            # the original ``call.args`` string is what the tool actually sees.
-            #
-            # ``_args_writeback_mode`` values:
-            #   "str"  → re-serialize ``tool_args`` to JSON and assign
-            #   "dict" → assign the (possibly mutated) dict directly
-            #   None   → do not write back (unparseable / unknown shape)
+            # Normalise args for hooks, but remember the original shape so in-place
+            # mutations survive a JSON-string call.args. Mode: "str"/"dict"/None.
             tool_args: dict = {}
             _args_writeback_mode: str | None = None
             if isinstance(call.args, dict):
@@ -346,9 +329,8 @@ def patch_tool_call_callbacks() -> None:
             hook_context_messages: list[str] = []
 
             # --- pre_tool_call (with blocking support) ---
-            # Returns a string tool-result on block so pydantic-ai sees a clean
-            # "BLOCKED: ..." message and the agent can react gracefully, without
-            # triggering UnexpectedModelBehavior crashes.
+            # Block returns a string result so pydantic-ai sees a clean "BLOCKED: ..."
+            # instead of crashing with UnexpectedModelBehavior.
             try:
                 from code_puppy import callbacks
                 from code_puppy.messaging import emit_warning
@@ -357,10 +339,8 @@ def patch_tool_call_callbacks() -> None:
                     tool_name, tool_args
                 )
 
-                # Collect any non-blocking hook context messages (e.g. stdout
-                # from Claude Code-style PreToolUse hooks) so we can inject
-                # them into the tool's result and the model can actually see
-                # them. Without this, hook stdout is captured-and-lost.
+                # Collect non-blocking hook context messages (e.g. PreToolUse
+                # stdout) so the model sees them — otherwise they're lost.
                 for callback_result in callback_results:
                     if isinstance(callback_result, dict) and not callback_result.get(
                         "blocked"
@@ -394,9 +374,8 @@ def patch_tool_call_callbacks() -> None:
             except Exception:
                 pass  # other errors don't block tool execution
 
-            # Persist pre_tool_call mutations back onto call.args so the
-            # downstream tool dispatch (and the conversation history) sees
-            # the modified args. See ``_writeback_tool_args`` for the why.
+            # Write pre_tool_call mutations back to call.args so dispatch and
+            # history see them. See ``_writeback_tool_args``.
             _writeback_tool_args(call, tool_args, _args_writeback_mode)
 
             start = time.perf_counter()

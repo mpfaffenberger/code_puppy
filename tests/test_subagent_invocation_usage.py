@@ -316,9 +316,8 @@ class TestExtractUsageMetrics:
         }
 
     def test_openai_shape_cache_read_only(self):
-        # OpenAI prompt_tokens already includes cached tokens; cached_tokens is
-        # NOT copied into details (it lives in nested prompt_tokens_details), so
-        # the cache read surfaces only via the first-class cache_read_tokens.
+        # OpenAI prompt_tokens already includes cached tokens; cached_tokens isn't copied
+        # into details (nested prompt_tokens_details) — reads surface via cache_read_tokens.
         usage = _usage(
             input_tokens=120,  # 80 non-cached + 40 cached
             output_tokens=60,
@@ -338,9 +337,8 @@ class TestExtractUsageMetrics:
         }
 
     def test_openai_genuine_zero_cache_read_is_none(self):
-        # OpenAI reports cache_read=0 only via the attribute default, which is
-        # indistinguishable from "not reported", so we surface None (never a
-        # fabricated 0) for that provider.
+        # OpenAI's cache_read=0 is only the attribute default (indistinguishable from
+        # "not reported"), so surface None — never a fabricated 0.
         usage = _usage(
             input_tokens=120,
             output_tokens=60,

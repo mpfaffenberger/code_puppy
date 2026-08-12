@@ -325,11 +325,8 @@ def save_interval_tweak(name: str, interval: float) -> bool:
     return True
 
 
-# --- Active spinner (persisted + cached) -------------------------------------
-# The cache exists so the tick loop isn't parsing config + JSON dozens of
-# times a second. It self-invalidates when spinners.json's mtime moves,
-# so external edits are picked up on the next animation frame -- no
-# reload command, no restart.
+# Active spinner cache avoids parsing config/JSON every tick and invalidates on
+# spinners.json mtime changes, so external edits apply without a reload.
 _active_cache: Optional[Spinner] = None
 _active_cache_stamp: Optional[float] = None
 

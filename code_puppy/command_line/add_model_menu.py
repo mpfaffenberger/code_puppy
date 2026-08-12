@@ -96,9 +96,8 @@ def derive_provider_identity(provider: ProviderInfo) -> str:
 class AddModelMenu:
     """Interactive TUI for browsing and adding models."""
 
-    # Class-level default so the attribute is always present, even when the
-    # instance is constructed via ``__new__`` (e.g. in tests that bypass
-    # ``__init__``). ``run()`` reads this in its event loop.
+    # Class-level default so the attribute exists even when built via
+    # ``__new__`` (e.g. tests bypass ``__init__``); ``run()`` reads it.
     pending_credentials_edit: Optional[ProviderInfo] = None
 
     def __init__(self):

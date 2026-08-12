@@ -11,9 +11,8 @@ def _kinds(source: str):
     return [s.kind for s in audit.audit_source(source, "x.py")]
 
 
-# --- classification -------------------------------------------------------
-# (source, expected kinds) — one entry per emit shape. Each case was a
-# separate one-line test before this was consolidated into a matrix.
+# classification: (source, expected kinds), one per emit shape — was one test
+# per case before consolidating into this matrix.
 _CLASSIFICATION_CASES = [
     # raw string literals / concatenations must be flagged
     ('emit_info("hello world")', ["raw"]),

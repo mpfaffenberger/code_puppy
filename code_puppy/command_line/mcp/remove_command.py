@@ -49,8 +49,7 @@ class RemoveCommand(MCPCommandBase):
                 return
 
             # Capture binding info BEFORE removal so we can report what got
-            # cleaned up. The manager itself wipes bindings inside
-            # remove_server(), but the user deserves to see it.
+            # cleaned up (remove_server wipes bindings itself).
             try:
                 from code_puppy.mcp_.agent_bindings import get_agents_for_server
 

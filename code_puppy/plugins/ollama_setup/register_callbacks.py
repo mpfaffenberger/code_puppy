@@ -22,9 +22,8 @@ from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warni
 
 logger = logging.getLogger(__name__)
 
-# ── Cloud model catalogue ───────────────────────────────────────────────────
-# The `:cloud` models from the Ollama recommended list.
-# Each entry maps the ollama tag → extra_models.json config metadata.
+# Cloud model catalogue: Ollama recommended ``:cloud`` tags mapped to
+# ``extra_models.json`` metadata.
 
 CLOUD_MODELS: dict[str, dict[str, Any]] = {
     "kimi-k2.6:cloud": {

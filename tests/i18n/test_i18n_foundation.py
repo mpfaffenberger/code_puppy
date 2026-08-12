@@ -73,9 +73,8 @@ def test_fallback_chain():
 
 
 def test_fallback_chain_latin_american_spanish():
-    # es-419 is deprecated (folded into base es), so Latin American Spanish
-    # now truncates straight to es -- keeping its own regional override file
-    # on top and never probing the removed es-419 catalog.
+    # es-419 is deprecated (folded into es): Latin American Spanish truncates straight
+    # to es — its own regional override stays on top, es-419 catalog never probed.
     assert locale.fallback_chain("es-AR") == ["es-AR", "es", "en-US"]
     assert locale.fallback_chain("es-MX") == ["es-MX", "es", "en-US"]
     # An explicit es-419 request still degrades gracefully to base es.

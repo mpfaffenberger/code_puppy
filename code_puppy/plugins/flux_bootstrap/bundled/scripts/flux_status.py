@@ -252,10 +252,8 @@ def render(base: Path, sections: set[str], theme: Theme) -> str:
         for sev in SEVERITIES:
             head += theme(SEVERITY_COLOR[sev], sev.upper().ljust(SEV_COL_WIDTH[sev]))
         lines.append(head)
-        # Underline width is derived from the ACTUAL review columns (name +
-        # every severity column), not the generic section total_w -- otherwise
-        # the rule is short by a few cols and drifts whenever SEV_COL_WIDTH
-        # changes.
+        # Underline width = ACTUAL review columns (name + severities), not total_w,
+        # or the rule drifts short whenever SEV_COL_WIDTH changes.
         review_w = max(name_w + sum(SEV_COL_WIDTH[s] for s in SEVERITIES), _MIN_PANEL_W)
         lines.append(rule(review_w, "\u2500", GREY, theme))
         for name, sev in reviews:
@@ -306,9 +304,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-color", action="store_true", help="Disable ANSI color")
     args = parser.parse_args(argv)
 
-    # valid_sections is defined by hand rather than via argparse `choices=`:
-    # combining choices with nargs='*' rejects the empty-list default. The
-    # resolved set is validated below, after merging both input paths.
+    # valid_sections by hand, not argparse `choices=`: choices + nargs='*' rejects the
+    # empty-list default. Validated below after merging both input paths.
     valid_sections = {"todo", "done", "review"}
 
     base = derive_base(args.base)
@@ -328,11 +325,9 @@ def main(argv: list[str] | None = None) -> int:
             f"(choose from {', '.join(sorted(valid_sections))})"
         )
 
-    # The code-puppy exec runner captures stdout via a pipe and injects
-    # FORCE_COLOR=1 (see _run_exec_directive), so color stays on in that
-    # environment even though isatty() is False. flux_about.py documents the
-    # same contract via Rich's force_terminal=True -- keep the FORCE_COLOR branch
-    # so colorized panels don't silently degrade to monochrome under the runner.
+    # The exec runner pipes stdout + injects FORCE_COLOR=1 (see _run_exec_directive), so
+    # color stays on despite isatty()==False. Keep the FORCE_COLOR branch so panels
+    # don't silently go monochrome under the runner.
     color_on = not args.no_color and (
         sys.stdout.isatty() or os.environ.get("FORCE_COLOR")
     )

@@ -62,10 +62,8 @@ def test_clipboard_pil_import_failure():
             sys.modules[mod_name] = saved
         else:
             saved = importlib.import_module(mod_name)
-        # ALSO restore the package attribute: ``import a.b`` rebinds
-        # ``a.b`` on every import, so without this the package attr
-        # points at the throwaway module and later string-target
-        # monkeypatches hit the wrong object.
+        # ALSO restore the package attribute: ``import a.b`` rebinds it every import,
+        # so string-target monkeypatches would otherwise hit the throwaway module.
         import code_puppy.command_line as _pkg
 
         _pkg.clipboard = saved

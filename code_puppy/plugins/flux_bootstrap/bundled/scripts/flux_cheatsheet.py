@@ -212,11 +212,9 @@ def main(argv: list[str] | None = None) -> int:
     docs_dir = Path(args.docs).expanduser()
     pipeline_md = docs_dir / "pipeline.md"
 
-    # The code-puppy exec runner captures stdout via a pipe and injects
-    # FORCE_COLOR=1 (see _run_exec_directive), so color stays on in that
-    # environment even though isatty() is False. flux_about.py documents the
-    # same contract via Rich's force_terminal=True -- keep the FORCE_COLOR branch
-    # so the cheatsheet doesn't silently degrade to monochrome under the runner.
+    # The exec runner pipes stdout + injects FORCE_COLOR=1 (see _run_exec_directive), so
+    # color stays on despite isatty()==False. Keep the FORCE_COLOR branch so the
+    # cheatsheet doesn't silently go monochrome under the runner.
     color_on = not args.no_color and (
         sys.stdout.isatty() or os.environ.get("FORCE_COLOR")
     )

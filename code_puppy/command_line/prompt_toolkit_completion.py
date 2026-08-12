@@ -1,6 +1,5 @@
-# ANSI color codes are no longer necessary because prompt_toolkit handles
-# styling via the `Style` class. We keep them here commented-out in case
-# someone needs raw ANSI later, but they are unused in the current code.
+# ANSI codes kept commented-out in case raw styling is needed later
+# (prompt_toolkit styles via the `Style` class now).
 # RESET = '\033[0m'
 # GREEN = '\033[1;32m'
 # CYAN = '\033[1;36m'
@@ -102,10 +101,8 @@ class SafeFileHistory(FileHistory):
         try:
             super().store_string(sanitized)
         except (UnicodeEncodeError, UnicodeDecodeError, OSError) as e:
-            # If we still can't write, log the error but don't crash
-            # This can happen with particularly malformed input
-            # Note: Using sys.stderr here intentionally - this is a low-level
-            # warning that shouldn't use the messaging system
+            # Can't write — log (via sys.stderr intentionally: this low-level
+            # warning shouldn't use the messaging system) but don't crash.
             sys.stderr.write(f"Warning: Could not save to command history: {e}\n")
 
 
@@ -309,9 +306,8 @@ class CDCompleter(Completer):
         start_position = -(len(dir_path))
 
         try:
-            # Treat a bare `~` as `~/` for lookup so we complete inside the
-            # user's home directory (not the parent directory containing their
-            # username folder).
+            # Treat a bare `~` as `~/` so we complete inside the home
+            # directory, not the parent containing the username folder.
             lookup_path = "~/" if dir_path == "~" else dir_path
             expanded_lookup = os.path.expanduser(lookup_path)
 
@@ -512,10 +508,8 @@ class SlashCompleter(Completer):
         # Sort all completions alphabetically
         all_completions.sort(key=lambda x: x["sort_key"])
 
-        # Yield the sorted completions.
-        # Strip variation selectors (U+FE00-FE0F) from display strings to avoid
-        # width-calculation mismatches between prompt_toolkit and the terminal,
-        # which manifest as phantom spaces in the input line (e.g. /judges ⚖️).
+        # Strip variation selectors (U+FE00-FE0F) from display strings: they
+        # cause width mismatches → phantom spaces (e.g. in the /judges menu).
         for completion in all_completions:
             yield Completion(
                 completion["text"],
@@ -556,12 +550,10 @@ def _normalize_emoji_spacing(text: str) -> str:
     return "".join(result)
 
 
-# Classic prompt palette (single source of truth — the persistent bottom-bar
-# prompt converts these to raw SGR codes via messaging.prompt_prefix_style).
-# IMPORTANT: use `ansi*`-prefixed names — bare names like "magenta" resolve to
-# truecolor hex (#ff00ff) in prompt_toolkit and would IGNORE the terminal
-# palette. The ansi names emit real ANSI codes, so the /theme plugin's OSC
-# palette remap (Level 3) restyles the prompt to the chosen theme.
+# Classic prompt palette (source of truth — the bottom-bar prompt converts
+# these to raw SGR via messaging.prompt_prefix_style). IMPORTANT: use
+# `ansi*` names — bare names resolve to truecolor hex and IGNORE the terminal
+# palette, so /theme's OSC remap couldn't restyle the prompt.
 PROMPT_STYLES = {
     "puppy": "bold ansimagenta",
     "agent": "bold ansiblue",
@@ -757,10 +749,9 @@ async def get_input_with_combined_completion(
             # Ignore "Return value already set" errors when exit was already called
             pass
 
-    # NOTE: We intentionally do NOT override Ctrl+C here.
-    # prompt_toolkit's default Ctrl+C handler properly resets the terminal state on Windows.
-    # Overriding it with event.app.exit(exception=KeyboardInterrupt) can leave the terminal
-    # in a bad state where characters cannot be typed. Let prompt_toolkit handle Ctrl+C natively.
+    # NOTE: deliberately no Ctrl+C override — prompt_toolkit's default resets
+    # the terminal on Windows; an exit(KeyboardInterrupt) override can leave it
+    # in a state where no characters can be typed.
 
     # Toggle multiline with Alt+M
     @bindings.add(Keys.Escape, "m")
@@ -796,27 +787,21 @@ async def get_input_with_combined_completion(
     except Exception:
         pass
 
-    # Enter behavior depends on multiline mode AND completion-menu state.
-    # Priority order:
-    #   1. If the completion menu is open with a highlighted item that would
-    #      actually CHANGE the buffer, accept that completion and close the
-    #      menu (don't submit). This matches how editors like VSCode/Helix
-    #      behave — Enter on a popup = pick, not commit.
-    #   2. If the highlighted completion is a no-op (you've already typed the
-    #      whole word, so applying it changes nothing), don't swallow the
-    #      keystroke — close the menu and fall through to submit. Otherwise
-    #      you'd have to press Enter twice for a fully-typed command.
-    #   3. Multiline mode: insert a newline.
-    #   4. Default: submit the prompt.
+    # Enter behavior (depends on multiline mode AND menu state), in priority:
+    #   1. Menu open, highlighted item would CHANGE the buffer → accept it and
+    #      close (editor convention: Enter on a popup = pick, not commit).
+    #   2. Highlighted completion is a no-op (whole word already typed) → close
+    #      and fall through to submit (else Enter is needed twice).
+    #   3. Multiline mode: insert a newline.  4. Default: submit.
     @bindings.add("enter", filter=~is_searching, eager=True)
     def _(event):
         buffer = event.current_buffer
         complete_state = buffer.complete_state
         completion = complete_state.current_completion if complete_state else None
         if completion is not None:
-            # The fragment this completion would overwrite (start_position is
-            # a <= 0 offset from the cursor). If it already equals the
-            # completion text, applying it is a no-op -> treat Enter as submit.
+            # The fragment this completion overwrites (start_position is a
+            # <= 0 cursor offset). If it already equals the completion text,
+            # applying it is a no-op → treat Enter as submit.
             before = buffer.document.text_before_cursor
             overwritten = before[len(before) + completion.start_position :]
             if overwritten != completion.text:
@@ -835,14 +820,10 @@ async def get_input_with_combined_completion(
     def handle_tab_completion(event):
         _complete_or_cycle(event.app.current_buffer)
 
-    # Backspace/Delete: trigger completions after deletion.
-    # By default, complete_while_typing only triggers on character insertion,
-    # not deletion — so the menu vanishes the moment you backspace. We
-    # unconditionally restart completion after a delete and let each
-    # individual Completer decide whether it has anything to yield for the
-    # new buffer state (no-yield = menu naturally closes). This keeps `@`
-    # file completions, `/model <name>` sub-completions, etc. alive while
-    # editing — not just bare `/` slash commands.
+    # Backspace/Delete: complete_while_typing only fires on insertion, so the
+    # menu vanishes on backspace. Restart completion after a delete and let
+    # each Completer decide if it still has anything (no-yield = menu closes),
+    # keeping `@` file and `/model <name>` sub-completions alive while editing.
     def _restart_completion(buffer) -> None:
         if buffer.text:
             buffer.start_completion(select_first=False)
@@ -860,10 +841,8 @@ async def get_input_with_combined_completion(
         buffer.delete(count=1)
         _restart_completion(buffer)
 
-    # Handle bracketed paste - smart detection for text vs images.
-    # Most terminals (Windows included!) send Ctrl+V through bracketed paste.
-    # - If there's meaningful text content → paste as text (drag-and-drop file paths, copied text)
-    # - If text is empty/whitespace → check for clipboard image (image paste on Windows)
+    # Bracketed paste (most terminals, Windows included, send Ctrl+V this way):
+    # meaningful text → paste as text; empty/whitespace → check clipboard image.
     @bindings.add(Keys.BracketedPaste)
     def handle_bracketed_paste(event):
         """Handle bracketed paste - smart text vs image detection."""
@@ -877,10 +856,9 @@ async def get_input_with_combined_completion(
             event.app.current_buffer.insert_text(sanitized_data)
             return
 
-        # No meaningful text - try capturing a clipboard image directly
-        # (Windows image paste!). Single clipboard read: a separate
-        # "has image?" probe would double the (slow, osascript-backed on
-        # macOS) clipboard round-trip and make the keypress feel dead.
+        # No meaningful text — capture a clipboard image directly. Single read:
+        # a separate "has image?" probe would double the osascript-backed
+        # round-trip and make the keypress feel dead.
         try:
             placeholder = capture_clipboard_image_to_pending()
             if placeholder:
@@ -900,10 +878,9 @@ async def get_input_with_combined_completion(
     def handle_smart_paste(event):
         """Handle Ctrl+V - auto-detect image vs text in clipboard."""
         try:
-            # Try capturing an image directly — ONE clipboard read. The old
-            # has_image_in_clipboard() probe + capture did two full reads
-            # (each an osascript round-trip on macOS), freezing the prompt
-            # long enough that users pressed Ctrl+V twice.
+            # Capture an image directly — ONE clipboard read. The old probe +
+            # capture did two reads (each an osascript round-trip on macOS),
+            # freezing the prompt so long users pressed Ctrl+V twice.
             placeholder = capture_clipboard_image_to_pending()
             if placeholder:
                 event.app.current_buffer.insert_text(placeholder + " ")
@@ -999,14 +976,12 @@ async def get_input_with_combined_completion(
     default_input_style = f"fg:{prompt_text_color}" if prompt_text_color else ""
     local_style = Style.from_dict(
         {
-            # Keep the prompt useful without the theme plugin. With the plugin
-            # active, its semantic root supplies the palette underneath these
-            # structural rules while an explicit prompt-text override still wins.
+            # Keep the prompt useful without the theme plugin; when active, its
+            # semantic root supplies the palette and overrides still win.
             "": default_input_style,
             "attachment-placeholder": "italic",
-            # Suppress prompt_toolkit's fixed white/grey/reverse completion
-            # presentation. Colors now inherit from the semantic theme root;
-            # only hierarchy and emphasis belong to this local component.
+            # Suppress prompt_toolkit's fixed white/grey/reverse presentation;
+            # colors inherit from the semantic theme root.
             "completion-menu": "noreverse",
             "completion-menu.completion": "noreverse",
             "completion-menu.completion.current": "noreverse bold underline",
@@ -1019,10 +994,9 @@ async def get_input_with_combined_completion(
     )
     style = on_prompt_toolkit_style(local_style)
     text = await session.prompt_async(prompt_str, style=style)
-    # NOTE: We used to call update_model_in_input(text) here to handle /model and /m
-    # commands at the prompt level, but that prevented the command handler from running
-    # and emitting success messages. Now we let all /model commands fall through to
-    # the command handler in main.py for consistent handling.
+    # NOTE: was update_model_in_input() to handle /model at the prompt level,
+    # but that blocked the command handler's success messages; /model commands
+    # now fall through to the handler in main.py.
     return text
 
 

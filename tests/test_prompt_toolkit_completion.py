@@ -620,9 +620,8 @@ async def test_get_input_with_combined_completion_defaults(
     )
     assert "style" in mock_session_instance.prompt_async.call_args[1]
 
-    # NOTE: update_model_in_input is no longer called from the prompt layer.
-    # Instead, /model commands are handled by the command handler.
-    # The prompt layer now just returns the input as-is.
+    # NOTE: the prompt layer no longer calls update_model_in_input — /model commands
+    # live in the command handler; the layer just returns input as-is.
     assert result == "test input"
     mock_file_history.assert_not_called()
 
@@ -870,9 +869,8 @@ def _buffer_with_completion(text, completion):
 
 @pytest.mark.asyncio
 async def test_enter_submits_when_completion_is_a_noop():
-    # Regression: typing a whole command ("/help") leaves the menu open with a
-    # highlighted completion whose text == what's already typed. Applying it is
-    # a no-op, so Enter must SUBMIT, not just re-close the menu (double-Enter).
+    # Regression: menu open with a highlighted completion == already-typed text; applying
+    # is a no-op, so Enter must SUBMIT rather than just re-close (double-Enter footgun).
     handler = await _get_enter_handler()
     buffer = _buffer_with_completion("/help", Completion("/help", start_position=-5))
     event = MagicMock()

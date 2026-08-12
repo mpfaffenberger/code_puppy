@@ -134,12 +134,9 @@ def main(argv: list[str] | None = None) -> int:
     raw = source.read_text(encoding="utf-8", errors="replace")
     cleaned = drop_ai_preamble(extract_body(raw))
 
-    # ``force_terminal=True`` makes Rich emit ANSI even though our stdout is a
-    # pipe (the code-puppy exec runner captures it). ``no_color`` honors --no-color.
-    # ``legacy_windows=False`` keeps Rich off the win32 LegacyWindowsTerm path:
-    # our stdout is a pipe, not a console handle, so that path both loses the
-    # ANSI the runner re-renders AND crashes encoding emoji on cp1252. Plain
-    # ANSI bytes through the pipe are exactly what the runner contract wants.
+    # force_terminal=True makes Rich emit ANSI to our piped stdout (the exec runner
+    # captures it); legacy_windows=False stays off the win32 LegacyWindowsTerm path,
+    # which both loses that ANSI and crashes encoding emoji on cp1252.
     console = Console(
         force_terminal=True,
         legacy_windows=False,

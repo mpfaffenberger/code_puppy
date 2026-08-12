@@ -44,9 +44,8 @@ def build_key_bindings(menu: "PluginsMenu") -> KeyBindings:
     """
     kb = KeyBindings()
 
-    # Every list binding is gated on the trust popup being CLOSED —
-    # single-letter shortcuts (j/k/g/q...) must not fire while the user
-    # is typing the accept word into the popup's text field.
+    # Disable list bindings while the trust popup is open so accept-word typing
+    # cannot trigger shortcuts.
     no_modal = ~menu._modal_open
 
     # -- Selection (j = up, k = down -- inspect_history convention) ---
@@ -159,10 +158,8 @@ def build_layout(menu: "PluginsMenu") -> Layout:
     menu_frame = Frame(menu_window, title="Plugins")
     detail_frame = Frame(detail_window, title="Details")
 
-    # Trust popup: a centered float over the panes, only rendered while
-    # a ceremony is in progress. The FormattedTextControl re-renders via
-    # its callable, and the TextArea receives focus (and thus all
-    # printable keys — the list shortcuts are filter-disabled).
+    # Render the centered popup only during the ceremony; its focused TextArea
+    # owns printable keys while list shortcuts stay disabled.
     from code_puppy.plugins.plugin_list.plugins_menu_render import (
         render_trust_modal,
     )

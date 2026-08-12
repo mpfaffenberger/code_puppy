@@ -56,10 +56,9 @@ class JSONAgent(BaseAgent):
                 f"'system_prompt' must be a string or list in JSON agent config: {self.json_path}"
             )
 
-        # Validate optional mcp_servers field. Accept either:
-        #   - list[str]  -> shorthand, each defaults to auto_start=True
-        #   - dict[str, dict]  -> per-server options (e.g. {"auto_start": false})
-        # Anything else is a config error so users get a clear message.
+        # mcp_servers: list[str] (shorthand, auto_start=True) or dict[str, dict]
+        # (per-server options). Anything else is a config error with a clear
+        # message.
         if "mcp_servers" in self._config:
             mcp_servers = self._config["mcp_servers"]
             if isinstance(mcp_servers, list):

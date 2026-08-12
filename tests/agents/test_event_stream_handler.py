@@ -396,9 +396,8 @@ class TestEventStreamHandler:
                     with patch("termflow.Renderer"):
                         await event_stream_handler(mock_ctx, event_stream())
 
-        # The function checks: if next_kind not in ("text", "thinking", "tool-call")
-        # So if next is "text", it should NOT call resume
-        # finalize should have been called for cleanup
+        # next_kind "text" is not a continuation kind, so resume must NOT be called;
+        # finalize should already have run for cleanup.
         assert mock_parser.finalize.called
 
     @pytest.mark.asyncio

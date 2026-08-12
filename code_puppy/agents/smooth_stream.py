@@ -94,13 +94,11 @@ class SteadyDrainer:
             while True:
                 if self._is_paused():
                     if not was_paused:
-                        # Pause just began (user steering). Flush the tail in
-                        # ONE atomic write — it lands before the steering
-                        # prompt renders, and an empty buffer means close()
-                        # returns immediately instead of stalling the agent
-                        # pipeline inside the model's HTTP stream (held-open
-                        # connections get killed upstream → RemoteProtocolError
-                        # on the very next model call).
+                        # Pause just began (user steering): flush the tail in ONE
+                        # atomic write so it lands before the steer prompt and
+                        # close() returns immediately instead of stalling the
+                        # model's HTTP stream (held-open connections get killed
+                        # upstream → RemoteProtocolError next call).
                         self._flush_all()
                     was_paused = True
                     if self._closed and self._remaining_units() <= 0:

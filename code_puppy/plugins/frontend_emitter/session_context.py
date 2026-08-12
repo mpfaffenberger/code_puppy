@@ -39,16 +39,9 @@ from __future__ import annotations
 from contextvars import ContextVar
 from typing import Optional
 
-# The session_id of the currently running agent invocation, if any.
-#
-# Set by embedders (e.g. a backend WebSocket session handler) before
-# kicking off agent work, and read by ``emit_event()`` (and helpers
-# in ``register_callbacks``) to tag every emitted event with the
-# current session.
-#
-# ``None`` is the legitimate "no session context" value -- callers
-# should treat it as "this event is not associated with any particular
-# session" rather than as an error.
+# session_id of the currently running agent invocation, if any. Set by embedders
+# before agent work; read by emit_event()/register_callbacks to tag events. ``None``
+# is the legitimate "no session context" value, not an error.
 current_emitter_session_id: ContextVar[Optional[str]] = ContextVar(
     "code_puppy_frontend_emitter_session_id", default=None
 )

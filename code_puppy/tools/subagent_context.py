@@ -72,32 +72,15 @@ _subagent_model_name: ContextVar[str | None] = ContextVar(
     "subagent_model_name", default=None
 )
 
-# Track the full call chain of sub-agent names. Stored as an
-# immutable tuple so each context-manager push is a cheap snapshot. The
-# tuple is empty in the main-agent context and `(deepest_name,)` for a
-# single-level sub-agent. For ``code-puppy -> A -> B`` it is ``("A", "B")``.
+# Full sub-agent name chain as an immutable tuple (cheap per-push snapshot):
+# empty for main agent; ``("A", "B")`` for code-puppy -> A -> B.
 _subagent_chain: ContextVar[tuple[str, ...]] = ContextVar("subagent_chain", default=())
 
-# Identifies the single top-level conversation this call tree belongs to
-# (an ACP session id, or ``None`` for the CLI's one-conversation-at-a-time
-# process). Deliberately a plain ``ContextVar`` -- NOT the message-bus's
-# ``set_session_context``/``get_session_context``, which is a shared mutable
-# attribute on a process-wide singleton with no per-task isolation (see
-# ``code_puppy/messaging/bus.py``) and is unsafe to read for anything
-# correctness-sensitive under concurrent asyncio tasks (parallel tool calls,
-# concurrent ACP sessions). A ``ContextVar`` is copied into every child task
-# pydantic-ai spawns (``asyncio.create_task``/anyio ``to_thread``), so:
-#   * concurrent sibling tool calls / concurrent ACP sessions each see their
-#     own independent copy -- no cross-talk, no clobbering;
-#   * nested sub-agent invocations (A invokes B) all inherit the SAME root
-#     value set once at the true conversation root, rather than each level
-#     minting its own fresh transient id -- so "once per conversation"
-#     dedup keys (see ``_builder.load_model_with_fallback``'s
-#     ``conversation_scope``) stay stable across an entire nested call tree.
-# Set once per top-level conversation (ACP's session prompt handler); never
-# touched by ``subagent_context`` itself, so sub-agent nesting doesn't shift
-# it. ``None`` for the CLI, matching its single-conversation-per-process
-# model (unaffected by this scope).
+# Identifies the top-level conversation this tree belongs to (ACP session id,
+# or None for the CLI). Deliberately a plain ContextVar, NOT the message-bus's
+# shared, per-task-unsafe session context: it copies into child tasks, so
+# siblings stay independent and nested A→B inherits the SAME root value (stable
+# "once per conversation" dedup). Set by ACP's prompt handler; never subagent_context.
 _conversation_root_id: ContextVar[Optional[str]] = ContextVar(
     "conversation_root_id", default=None
 )

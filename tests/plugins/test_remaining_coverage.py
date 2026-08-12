@@ -467,9 +467,8 @@ class TestSkillsInstallMenuSizeFormat:
         """Line 60: the final return that's after the loop."""
         from code_puppy.plugins.agent_skills.skills_install_menu import _format_bytes
 
-        # The loop goes B, KB, MB, GB - GB always returns inside loop
-        # So line 60 (return after loop) is unreachable in normal flow
-        # But we still test large values to ensure GB branch works
+        # Loop covers B→GB and GB returns inside it, so the post-loop return (line 60)
+        # is normally unreachable — but test it anyway with huge values.
         result = _format_bytes(5 * 1024 * 1024 * 1024)
         assert "GB" in result
 

@@ -44,14 +44,11 @@ def _do_switch_and_resume(agent_name: str) -> bool:
         )
         return True
 
-    # Capture the terminal's last real saved session before finalize can rotate and
-    # record a fresh empty autosave id. This preserves cross-restart resume when
-    # the newly started process has no history yet.
+    # Capture the last saved session before finalize rotates to a fresh empty ID.
     last_session_to_resume = get_last_terminal_session()
 
-    # Force-save the current session before switching (regardless of auto-save settings)
-    # This ensures users without auto-save don't lose their conversation context.
-    # When a current conversation is actually saved, resume that just-saved context.
+    # Force-save before switching so users without auto-save keep context; resume the
+    # conversation just saved.
     try:
         history = current_agent.get_message_history()
         if history:  # Only save if there's something to save
@@ -183,9 +180,8 @@ def _handle_switch_agent(command: str, name: str) -> object:
         except Exception:
             agent_name = None
 
-        # Drain any deferred pin-reloads queued from inside the picker.
-        # These MUST run here on the main loop --- doing them inside the
-        # picker's worker thread deadlocks MCP autostart on loop shutdown.
+        # Apply picker-deferred pin reloads on the main loop; worker-thread reloads
+        # can deadlock MCP autostart during loop shutdown.
         try:
             from code_puppy.command_line.agent_menu import (
                 apply_pending_pin_reload,
@@ -251,8 +247,8 @@ def _cleanup_orphaned_tty_sessions() -> None:
                 if session_file.name == current_filename:
                     continue
 
-                # Reconstruct TTY device path from filename
-                # Filename: "dev_ttys057.txt" → tty_key: "dev_ttys057" → TTY: "/dev/ttys057"
+                # Rebuild the TTY path from the session filename (e.g. dev_ttys057 ->
+                # /dev/ttys057).
                 tty_key = session_file.stem  # Remove .txt extension
                 tty_path = "/" + tty_key.replace("_", "/")
 

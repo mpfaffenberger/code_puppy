@@ -42,9 +42,8 @@ def emit_inline_image(path: str | Path) -> bool:
             encoded_path = base64.b64encode(str(image_path.resolve()).encode()).decode(
                 "ascii"
             )
-            # Direct file transmission avoids stuffing a full screenshot into
-            # the terminal stream. q=2 suppresses protocol responses, c/r bound
-            # the placement to a compact picture-in-picture style preview.
+            # Direct file transmission keeps the full screenshot out of the terminal
+            # stream; q=2 suppresses replies, c/r bound it to a compact PiP preview.
             sequence = f"\033_Ga=T,t=f,f=100,q=2,c=64,r=22;{encoded_path}\033\\\n"
 
         from code_puppy.messaging.run_ui import suspended_run_ui

@@ -13,12 +13,9 @@ from code_puppy.messaging import emit_error, emit_info
 from .config import _DEFAULT_SQLITE_FILE, DBOS_DATABASE_URL
 from .startup_lock import enable_sqlite_wal, interprocess_lock
 
-# Module-level flag flipped True only after a successful DBOS.launch().
-# Other plugin modules (e.g. wrapper.py, runtime.py) MUST check this before
-# attempting to use DBOS — having `dbos` importable is not the same as
-# having DBOS launched. In test environments where the plugin is imported
-# but on_startup() is never called (pytest process, not the spawned CLI),
-# this stays False and the wrapper passes through unmodified.
+# Flipped True only after a successful DBOS.launch(). Other modules (wrapper/runtime)
+# MUST check this — `dbos` importable != launched. Stays False in pytest (import w/o
+# on_startup), so the wrapper passes through unmodified.
 _LAUNCHED = False
 
 
@@ -33,9 +30,8 @@ def on_startup() -> None:
     try:
         from dbos import DBOS, DBOSConfig
     except ImportError:
-        # Should not happen — register_callbacks.py only registers this hook
-        # when dbos is importable. Kept defensive in case install state
-        # changes between module-load and startup.
+        # Shouldn't happen — hook only registers when dbos is importable; kept
+        # defensive in case install state shifts between module-load and startup.
         emit_error(
             "[dbos_durable_exec] dbos package not installed; durable exec disabled."
         )
@@ -54,14 +50,11 @@ def on_startup() -> None:
     }
     try:
         emit_info(f"Initializing DBOS with database at: {DBOS_DATABASE_URL}")
-        # Multiple instances (e.g. several Zellij panes) share one SQLite
-        # system database. DBOS.launch() runs schema migration + recovery,
-        # which take SQLite's single-writer lock. Without serialization the
-        # racers collide on the lock and all-but-one fail to launch. We:
-        #   1) flip the DB to WAL mode (persistent) so concurrent access is
-        #      far less likely to block once initialized, and
-        #   2) hold a cross-process file lock so launch/migration runs one
-        #      process at a time. Late starters wait instead of crashing.
+        # Multiple instances share one SQLite system DB; DBOS.launch() migration +
+        # recovery take SQLite's single-writer lock, so racers collide unless serialized.
+        # We: (1) flip to WAL (persistent) so concurrent access rarely blocks, and
+        # (2) hold a cross-process file lock so launch/migration runs one process at a
+        # time — late starters wait instead of crashing.
         if DBOS_DATABASE_URL.startswith("sqlite"):
             enable_sqlite_wal(_DEFAULT_SQLITE_FILE)
         launch_lock = os.path.join(DATA_DIR, "dbos_store.launch.lock")

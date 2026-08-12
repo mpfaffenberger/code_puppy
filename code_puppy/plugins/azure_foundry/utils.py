@@ -174,9 +174,8 @@ def build_foundry_model_config(
         foundry_resource if foundry_resource else f"${ENV_FOUNDRY_RESOURCE}"
     )
 
-    # All Anthropic models need extended_thinking + budget_tokens for the
-    # request body, plus interleaved_thinking for the beta header.
-    # Opus additionally supports effort (hand-in-hand with adaptive thinking).
+    # All Anthropic models need extended_thinking + budget_tokens in the request body,
+    # plus interleaved_thinking for the beta header; Opus additionally adds effort.
     supported_settings = [
         "temperature",
         "extended_thinking",

@@ -130,9 +130,8 @@ class TestColorsFor:
         assert len(m) > 0
 
     def test_all_menu_themes_produce_mappings(self):
-        # "reset"/"defaults" are aliases for "default"; colors_for only
-        # handles them via the literal "default" check, so use
-        # resolve_theme_arg first (as the real command handler does).
+        # "reset"/"defaults" alias "default", but colors_for only matches the
+        # literal — resolve_theme_arg first, like the real command handler.
         for name in MENU_BY_NAME:
             resolved = resolve_theme_arg(name) or name
             m = colors_for(resolved)

@@ -59,9 +59,8 @@ def _bar():
     return get_bottom_bar()
 
 
-# NOTE: the callback dispatcher passes hook arguments POSITIONALLY
-# (``callback(*args, **kwargs)`` -- agent_run_end sends 7 of them), and
-# this plugin uses none of them. Swallow everything, stay signature-proof.
+# Dispatcher passes hook args positionally (up to seven for agent_run_end); this
+# plugin ignores them, so swallow all args to stay signature-proof.
 async def _on_run_start(*_args, **_kw):
     global _active_runs
     with _lock:
@@ -158,9 +157,7 @@ def _current_frames_and_interval():
     return FRAMES, _TICK_INTERVAL_S
 
 
-#: Breathing room between the spinner frame and whatever the status bar
-#: renders next. Applied at paint time so every spinner -- builtin or
-#: user-authored -- gets the same gap without baking spaces into frames.
+#: Paint-time gap after every spinner frame, including user-authored frames.
 _PREFIX_GAP = "  "
 
 

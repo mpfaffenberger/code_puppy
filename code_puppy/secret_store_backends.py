@@ -38,9 +38,8 @@ from keyring.backend import KeyringBackend
 
 from code_puppy.config import CONFIG_DIR
 
-# All secrets for a given service live under this single, fixed account.
-# The service name is supplied per call by secret_store, so different
-# distributions (with distinct service names) get distinct blob items.
+# All secrets for a service live under this fixed account; the service name is
+# supplied per call, so distinct distributions get distinct blob items.
 _BLOB_ACCOUNT = "__code_puppy_secret_blob__"
 
 # Cross-process lock file guarding the read-modify-write of the blob.
@@ -92,17 +91,14 @@ class ConsolidatedKeychainBackend(KeyringBackend):
     for when consolidation is active.
     """
 
-    # Below the stock macOS backend (5) so keyring's auto-discovery never
-    # selects this backend on any platform. Selection is explicit via
-    # set_keyring. Still positive so secret_store.keyring_available()
-    # treats it as usable once installed.
+    # Below stock macOS backend (5) so auto-discovery never picks this; explicit
+    # via set_keyring. Positive so keyring_available() treats it as usable.
     priority = 0.5
 
     def __init__(self) -> None:
         super().__init__()
-        # Delegate is created lazily (see _get_delegate) rather than here,
-        # so merely constructing this class during keyring's cross-platform
-        # backend discovery never touches the macOS-only backend.
+        # Lazy delegate (see _get_delegate): constructing this class during
+        # cross-platform discovery never touches the macOS-only backend.
         self._delegate_cache = None
 
     def _get_delegate(self):

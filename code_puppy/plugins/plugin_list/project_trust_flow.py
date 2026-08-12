@@ -110,9 +110,7 @@ def try_enable_project_plugin(plugin_name: str) -> bool:
     status = plugin_trust.get_trust_status(project_root, plugin_name, plugin_dir)
 
     if status != plugin_trust.TRUSTED:
-        # Don't tell the user where the ceremony lives — take them there,
-        # preselected with the popup already open. Text fallback only if
-        # the TUI can't run (headless/non-tty).
+        # Open the preselected TUI; use text fallback only when headless/non-TTY.
         try:
             from code_puppy.plugins.plugin_list.plugins_menu import (
                 run_plugins_menu,

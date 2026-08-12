@@ -124,10 +124,8 @@ class TestWiggumCommand:
         import code_puppy.plugins.wiggum.register_callbacks as wiggum_plugin
         from code_puppy.command_line.wiggum_state import stop_wiggum
 
-        # Wiggum commands live in the plugin now. Other tests (e.g. the
-        # command_registry suite) call clear_registry(), and the plugin loader
-        # is idempotent via _PLUGINS_LOADED, so we re-run the registrations by
-        # reloading the module. Decorators re-fire on reload.
+        # Wiggum commands live in the plugin; other suites call clear_registry(), so
+        # re-run the idempotent registrations by reloading — decorators re-fire.
         importlib.reload(wiggum_plugin)
         stop_wiggum()
 

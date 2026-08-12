@@ -15,9 +15,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Config paths are resolved while code_puppy.config is imported, before any
-# fixture can run. Point every XDG category at one session-scoped temp root now
-# so collection, plugin imports, and tests cannot touch the developer's config.
+# Config paths resolve at import time, before fixtures run - point every XDG category
+# at one session-scoped temp root so collection/tests never touch the dev's config.
 _XDG_TEMP_DIR = tempfile.TemporaryDirectory(prefix="code_puppy_pytest_xdg_")
 _XDG_ENV_VARS = (
     "XDG_CONFIG_HOME",

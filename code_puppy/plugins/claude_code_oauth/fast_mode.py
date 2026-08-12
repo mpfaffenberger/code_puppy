@@ -21,15 +21,9 @@ from typing import Any, Callable, Dict, MutableMapping
 # there's one source of truth for both header setup and tests.
 FAST_MODE_BETA = "fast-mode-2026-02-01"
 
-# The per-model setting key. Stored via code_puppy.config.set_model_setting
-# as "true"/"false" strings and read back via get_all_model_settings.
-#
-# We intentionally DO NOT use get_effective_model_settings here: that helper
-# filters values through model_supports_setting(), whose default allowlist for
-# claude-* models is {temperature, extended_thinking, budget_tokens, effort}.
-# ``fast`` is a plugin-owned setting, not a core setting, so it would be
-# silently dropped. get_all_model_settings returns the raw per-model config,
-# which is exactly what a plugin should own and read.
+# Per-model setting key, stored/read via get_all_model_settings. Deliberately NOT
+# get_effective_model_settings: it filters through model_supports_setting(), whose
+# claude-* allowlist lacks plugin-owned keys like ``fast``, silently dropping them.
 FAST_SETTING_KEY = "fast"
 
 

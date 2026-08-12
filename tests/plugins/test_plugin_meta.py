@@ -506,11 +506,8 @@ class TestLineSlicing:
             ("hello", 5),
             # \U0001F436 is the dog-face emoji (1 Python char, 2 terminal cells).
             ("\U0001f436", 2),
-            # U+1F6E0 + U+FE0F (variation selector). prompt_toolkit's get_cwidth
-            # under-reports the hammer-wrench at 1 cell; our emoji-range override
-            # forces it to 2. VS16 stays at 0. This is the exact bug that surfaces
-            # in agent_skills contributions, where every /skill is labelled with
-            # this glyph and the undercount bled into the divider.
+            # U+1F6E0+FE0F hammer-wrench: get_cwidth under-reports at 1 cell; our emoji
+            # override forces 2 (VS16 stays 0). Same bug agent_skills hit on /skill glyphs.
             ("\U0001f6e0\ufe0f", 2),
             # U+2705 (white heavy check mark) sits in the Dingbats range our
             # override covers; terminals render it at 2 cells.
@@ -615,9 +612,8 @@ class TestDetailScroll:
         menu._pane_rows = 0
         menu.menu_control = FormattedTextControl(text="")
         menu.detail_control = FormattedTextControl(text="")
-        # Patch the name as it's bound inside plugins_menu (which imported
-        # ``render_detail`` at module-load time) so update_display() picks
-        # up the stub.
+        # Patch the name bound inside plugins_menu (imported render_detail at module
+        # load) so update_display() sees the stub.
         with patch(
             "code_puppy.plugins.plugin_list.plugins_menu.render_detail",
             return_value=[("", "l0\n"), ("", "l1\n"), ("", "l2\n")],

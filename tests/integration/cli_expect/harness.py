@@ -30,9 +30,8 @@ model = lilac-zai-org-glm-5.1
 enable_dbos = true
 """
 
-# models.json now ships empty, so integration tests provision their model the
-# same way a real user would: via ~/.code_puppy/extra_models.json. This is the
-# "lilac synthetic GLM-5.1" model used for live LLM coverage.
+# models.json ships empty, so tests provision the "lilac synthetic GLM-5.1"
+# model via ~/.code_puppy/extra_models.json, like a real user would.
 EXTRA_MODELS_TEMPLATE: Final[str] = """{
   "lilac-zai-org-glm-5.1": {
     "type": "custom_openai",
@@ -295,10 +294,8 @@ class CliHarness:
             (config_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
             (code_puppy_dir / "puppy.cfg").write_text(CONFIG_TEMPLATE, encoding="utf-8")
 
-        # Provision the lilac model into extra_models.json since models.json
-        # ships EMPTY — without this the spawned CLI resolves the active model
-        # to [None]. Written UNCONDITIONALLY (idempotent) so that reused-home
-        # spawns (write_config=False) can never end up "model not added".
+        # Provision lilac into extra_models.json (models.json ships empty; else the CLI
+        # resolves active model to [None]). Idempotent so reused-home spawns can't miss it.
         extra_models_path = code_puppy_dir / "extra_models.json"
         if not extra_models_path.exists():
             extra_models_path.write_text(EXTRA_MODELS_TEMPLATE, encoding="utf-8")

@@ -389,9 +389,8 @@ def test_sync_renderer_human_input_abort_exceptions(mock_input, mq, input_exc):
         content="prompt",
         metadata={"prompt_id": "p1"},
     )
-    # Bug in source: provide_prompt_response imported inside try, used in except
-    # This will raise UnboundLocalError which is caught by the outer handler
-    # We just verify it doesn't crash the renderer
+    # Source bug: provide_prompt_response imported in try, used in except → raises
+    # UnboundLocalError (caught outside); just verify the renderer doesn't crash.
     try:
         r._render_message(msg)
     except UnboundLocalError:

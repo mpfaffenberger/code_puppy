@@ -572,9 +572,8 @@ class TestInteractiveMode:
                 "code_puppy.cli_runner.get_current_agent": MagicMock(
                     return_value=agent
                 ),
-                # /clear is handled by session_commands now; it lazy-imports
-                # the clipboard manager and autosave rotation, so patch at
-                # the source modules.
+                # /clear lives in session_commands and lazy-imports the clipboard
+                # manager + autosave rotation — patch at the source modules.
                 "code_puppy.command_line.clipboard.get_clipboard_manager": MagicMock(
                     return_value=_mock_clipboard([b"img"])
                 ),
@@ -1573,9 +1572,8 @@ class TestImportErrorFallbacks:
         which is impractical to test without breaking the test infrastructure.
         Marking as known-uncoverable (Windows/missing-dep edge case).
         """
-        # This test documents that lines 449-470 and 542-546 are
-        # ImportError fallback paths that can't be easily covered
-        # in a test environment where prompt_toolkit is installed.
+        # Documents that lines 449-470/542-546 are ImportError fallbacks unreachable
+        # where prompt_toolkit is installed.
         pass
 
     @pytest.mark.anyio

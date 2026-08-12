@@ -230,10 +230,8 @@ class BlockingMCPServerStdio(SimpleCapturedMCPServerStdio):
     async def __aenter__(self):
         """Enter context and track initialization."""
         try:
-            # Start initialization
             result = await super().__aenter__()
 
-            # Mark as initialized
             self._initialized.set()
 
             # Success message removed to reduce console spam
@@ -259,10 +257,8 @@ class BlockingMCPServerStdio(SimpleCapturedMCPServerStdio):
 
             self._initialized.set()
 
-            # Gentle one-liner pointing the user to /mcp logs for details.
-            # The full error_details are intentionally NOT included here —
-            # they're already in the persistent log file. We don't want to
-            # spam the prompt with stack traces every time the agent runs.
+            # Point the user to /mcp logs; error_details stay out of the prompt
+            # (already in the log file — no stack-trace spam on every run).
             server_name = getattr(self, "tool_prefix", self.command)
             emit_info(
                 f"⚠  MCP server '{server_name}' didn't start. "

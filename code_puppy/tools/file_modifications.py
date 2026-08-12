@@ -402,9 +402,8 @@ def _write_to_file(
         )
         diff_text = "".join(diff_lines)
 
-        # Only create local directories when writing locally; when a filesystem
-        # backend owns the write it manages its own topology (the ACP host, for
-        # instance, creates parents on the local disk it shares).
+        # Create local dirs only for local writes; a FS backend (e.g. ACP host)
+        # manages its own topology.
         fs_access.make_dirs(os.path.dirname(file_path) or ".")
         write_project_file(file_path, content)
 
@@ -944,11 +943,9 @@ def register_delete_file(agent):
         return result
 
 
-# Module-level aliases captured before registration functions are defined.
-# Inside register_replace_in_file, the @agent.tool decorator creates a local
-# function named 'replace_in_file' which shadows the module-level helper of the
-# same name for the entire enclosing scope (Python scoping rules).  We capture
-# a reference here so the registration function can call the helper.
+# Module-level alias captured before registration: the @agent.tool decorator's
+# local 'replace_in_file' shadows the module helper inside the registration
+# function (Python scoping), so we capture a reference here.
 _replace_in_file_helper = replace_in_file_async
 
 
@@ -986,9 +983,8 @@ def register_create_file(agent):
         return result
 
 
-# Inline JSON schema for Replacement objects — avoids $defs/$ref that many
-# LLM providers misinterpret, causing frequent validation errors and
-# fallback to full-file rewrites.
+# Inline Replacement schema — avoids $defs/$ref that many LLM providers
+# misinterpret (frequent validation errors / fallback to full-file rewrites).
 _REPLACEMENT_ITEM_SCHEMA = {
     "type": "object",
     "properties": {
@@ -1031,9 +1027,8 @@ def _coerce_replacements_arg(v: Any) -> Any:
     return _try_json_repair(v)
 
 
-# List type that tolerates JSON-string-encoded arrays coming from the wire.
-# BeforeValidator runs prior to type validation, so the advertised JSON schema
-# (array of InlineReplacement) is unchanged — only inbound coercion is widened.
+# List type tolerating JSON-string-encoded arrays from the wire. BeforeValidator
+# widens only inbound coercion — the advertised schema stays an array.
 RepairableReplacementsList = Annotated[
     List[InlineReplacement],
     BeforeValidator(_coerce_replacements_arg),
@@ -1056,14 +1051,12 @@ def register_replace_in_file(agent):
         """
         group_id = generate_group_id("replace_in_file", file_path)
         try:
-            # Validate replacements up front so a malformed payload from the
-            # model returns a clean error instead of bubbling a KeyError up
-            # through pydantic_ai and tearing down the whole agent run.
+            # Validate up front so a malformed payload returns a clean error
+            # instead of tearing down the whole agent run via pydantic_ai.
             normalized: List[Dict[str, str]] = []
             for idx, raw in enumerate(replacements):
                 # Per-item json_repair: some models stringify each replacement
-                # individually (e.g. ["{\"old_str\": ...}", ...]). Heal those
-                # before strict validation so we don't reject recoverable input.
+                # individually — heal before strict validation.
                 r = _try_json_repair(raw)
                 if not isinstance(r, dict):
                     return {

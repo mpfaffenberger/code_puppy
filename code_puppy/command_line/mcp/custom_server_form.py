@@ -618,10 +618,9 @@ class CustomServerForm:
 
         # Create application - start focused on name input
         layout = Layout(root_container, focused_element=self.name_area)
-        # mouse_support stays False like every other TUI component: it was
-        # the only True in the codebase, and if cleanup is interrupted the
-        # terminal's mouse-tracking modes stay armed — every click/scroll
-        # then floods stdin with escape garbage (#244).
+        # mouse_support stays False like every other TUI: it was the only True
+        # in the codebase, and if cleanup is interrupted the mouse-tracking
+        # modes stay armed — every click/scroll floods stdin with escapes (#244).
         app = Application(
             layout=layout,
             key_bindings=kb,

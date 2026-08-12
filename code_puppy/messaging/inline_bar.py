@@ -107,10 +107,8 @@ class InlineBottomBar(BottomBar):
         if not self._active or self._suspend_depth > 0 or self._output_depth > 0:
             return
         if not self._displayed_rows:
-            # Hidden: transcript output owns the cursor. Painting HERE
-            # would land mid-stream at an arbitrary position -- the
-            # JediTerm corruption bug. Cache only; the quiescence timer
-            # repaints once output settles.
+            # Hidden: cursor owned by transcript output; painting here lands
+            # mid-stream (JediTerm bug). Cache; quiescence timer repaints.
             self._schedule_repaint(_REPAINT_QUIET_S)
             return
         self._ensure_inline_geometry()
@@ -186,22 +184,12 @@ class InlineBottomBar(BottomBar):
         self._cols, self._rows = cols, rows
 
     def _inline_lines(self) -> list[str]:
-        # Clip every row to one cell LESS than the terminal width.  The
-        # pinned bar can trust DECAWM-off to stop overlong rows from
-        # wrapping, but the whole reason this surface exists is that
-        # JediTerm fumbles exactly this kind of VT state (double-width
-        # emoji at the margin still wrap).  A wrapped row makes the block
-        # one row taller than ``_displayed_rows`` believes, the cursor-up
-        # count goes off by one, and every 5fps spinner tick strands a
-        # stale copy in scrollback -- the keystroke bug reborn as a
-        # spinner bug.  Hard-clipping is the only defence JediTerm can't
-        # sabotage.
+        # Clip to width-1: JediTerm mishandles wraps (double-width emoji), so a
+        # wrapped row desyncs the cursor-up count and strands stale scrollback.
         max_cells = max(1, self._cols - 1)
         lines: list[str] = []
-        # Height-relative clamp (shared with the DECSTBM path via
-        # BarPainterMixin): the block must never exceed the viewport, or
-        # the cursor-up repaint count in ``_paint_inline`` goes off and
-        # strands stale copies in scrollback every spinner tick.
+        # Height clamp (shared via BarPainterMixin): block must fit the viewport
+        # or the cursor-up repaint count breaks, stranding stale scrollback.
         panel = self._visible_panel_lines()
         for line in panel:
             plain = sanitize(line.plain if hasattr(line, "plain") else str(line))
@@ -279,23 +267,20 @@ class InlineBottomBar(BottomBar):
                 self._erase_inline()
             try:
                 stream.write(text)
-                # Keep terminal ordering deterministic: bar paints go to
-                # ``sys.__stdout__`` with an immediate flush, so foreign
-                # text must never linger in this stream's buffer.
+                # Bar paints use sys.__stdout__ + immediate flush; keep foreign
+                # text from lingering in this stream's buffer.
                 stream.flush()
             except Exception:
                 pass
             self._track_line_state(text)
             self._last_foreign_write = time.monotonic()
             if self._active and self._suspend_depth == 0:
-                # JediTerm occasionally forgets DECTCEM across unrelated
-                # output. Reassert it so the real cursor never blinks at
-                # the transcript position; the prompt paints a pseudo-cursor.
+                # JediTerm forgets DECTCEM across output; reassert so the real
+                # cursor never blinks (the prompt paints a pseudo-cursor).
                 self._write(CURSOR_HIDE)
                 if self._output_depth == 0 and self._at_line_start:
-                    # Safe boundary: CLEAR_LINE cannot destroy transcript
-                    # content here, so keep the prompt continuously visible
-                    # instead of waiting out the debounce after every line.
+                    # Safe boundary: CLEAR_LINE can't destroy transcript content
+                    # here, so paint immediately instead of debouncing.
                     self._cancel_repaint_timer()
                     self._ensure_inline_geometry()
                     self._paint_inline()

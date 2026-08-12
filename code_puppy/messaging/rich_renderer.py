@@ -151,10 +151,8 @@ class RichConsoleRenderer:
 
         self._bus = bus
         self._console = console or Console(highlight=False)
-        # ReprHighlighter is useful in a Python REPL, but this is a themed
-        # message bus: it unpredictably recolors numbers, parentheses, paths,
-        # and shell/grep output. Explicit markup and syntax renderables still
-        # carry their own styles, so disable only the console's implicit pass.
+        # Themed message bus: ReprHighlighter unpredictably recolors numbers/paths/
+        # grep output. Explicit markup keeps its own styles — disable the implicit pass.
         self._console.highlighter = None
         self._styles = styles or DEFAULT_STYLES.copy()
         self._running = False
@@ -207,9 +205,8 @@ class RichConsoleRenderer:
 
     # -- Output-level density helpers ----------------------------------------
 
-    # Types that render fully even in low mode: interactive prompts,
-    # structural controls, and signal messages (invocations, responses).
-    # StatusPanelMessage excluded — it’s multi-line, gets a peek instead.
+    # Fully rendered even in low mode: prompts, structural controls, signal
+    # messages. StatusPanelMessage excluded (multi-line → gets a peek).
     _NEVER_COLLAPSE = (
         UserInputRequest,
         ConfirmationRequest,
@@ -934,11 +931,8 @@ class RichConsoleRenderer:
 
         from rich.text import Text
 
-        # Strip trailing CRLF first. On Windows, subprocess output ends in
-        # CRLF; a lone trailing CR must NOT be mistaken for an interior
-        # progress-bar redraw, or the line is routed through the raw stdout
-        # bypass below and leaks literal ANSI when the console has not
-        # enabled VT processing (the Windows ANSI-leak bug).
+        # Strip trailing CRLF: a lone CR would be mistaken for an interior
+        # progress-bar redraw and leak literal ANSI via the raw bypass (Win bug).
         line = msg.line.rstrip("\r\n")
 
         # Only an *interior* carriage return signals a progress-bar redraw
@@ -1076,11 +1070,8 @@ class RichConsoleRenderer:
         # Format banner
         banner = self._format_banner("universal_constructor", "UNIVERSAL CONSTRUCTOR")
 
-        # Build the header line with action and optional tool name
-        # Escape user-controlled strings to prevent Rich markup injection
-        # Disable Rich's auto-highlighter on these prints — we already apply
-        # explicit markup, and the ReprHighlighter regexes mangle things like
-        # 'uuid-gen' (stops at the hyphen) and '0.00s' (no word boundary).
+        # Build the header: escape user strings (markup injection), and disable
+        # auto-highlighting — its regexes mangle 'uuid-gen' and '0.00s'.
         header_parts = [f"\n{banner} [bold cyan]{msg.action.upper()}[/bold cyan]"]
         if msg.tool_name:
             safe_tool_name = escape_rich_markup(msg.tool_name)
@@ -1211,9 +1202,8 @@ class RichConsoleRenderer:
 
     def _render_spinner_control(self, msg: SpinnerControl) -> None:
         """Handle spinner control messages."""
-        # Note: Rich's spinner/status is typically used as a context manager.
-        # For full spinner support, we'd need a more complex implementation.
-        # For now, we just print the status text.
+        # Note: Rich's spinner is normally a context manager; we only print the
+        # status text here (full support would need a more complex implementation).
         if msg.action == "start" and msg.text:
             self._console.print(f"[dim]⠋ {msg.text}[/dim]")
         elif msg.action == "update" and msg.text:
