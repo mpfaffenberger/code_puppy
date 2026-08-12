@@ -80,9 +80,8 @@ def get_style_rules() -> dict[str, str]:
         "tui.error": f"fg:{ansi[9]} bold",
         "tui.input": f"fg:{foreground}",
         "tui.input.focused": f"fg:{background} bg:{ansi[12]} bold noreverse",
-        # prompt_toolkit's defaults hard-code grey on white for completion
-        # menus. Root semantic rules cannot beat those more-specific selectors,
-        # so adapt the standard widget classes here as part of the shared theme.
+        # Override prompt_toolkit's more-specific grey-on-white completion rules
+        # so the shared theme applies to menus too.
         "completion-menu": f"fg:{muted} bg:{background} noreverse",
         "completion-menu.completion": f"fg:{muted} bg:{background} noreverse",
         "completion-menu.completion.current": (

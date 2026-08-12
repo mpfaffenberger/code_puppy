@@ -23,9 +23,8 @@ class UndoManager:
             self.history: List[FileChange] = []
 
     def record_change(self, file_path: str, action: str):
-        # Route through the filesystem facade + resolve the path so undo stays
-        # coherent with whatever filesystem the tools actually wrote to (local
-        # disk by default, or an installed backend such as an editor host).
+        # Route via the fs facade + resolve_path so undo matches whatever
+        # filesystem the tools wrote to (local disk or an installed backend).
         from code_puppy.tools import fs_access
         from code_puppy.tools.common import resolve_path
 

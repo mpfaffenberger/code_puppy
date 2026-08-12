@@ -5,7 +5,6 @@ with inline JSON editing and live validation.
 """
 
 import json
-import os
 import sys
 import time
 from typing import List, Optional
@@ -355,7 +354,7 @@ class CustomServerForm:
         Returns:
             True if successful, False otherwise
         """
-        from code_puppy.config import MCP_SERVERS_FILE
+        from code_puppy.command_line.mcp.mcp_servers_store import upsert_mcp_server
         from code_puppy.mcp_.managed_server import ServerConfig
 
         # Validate server name first
@@ -431,32 +430,16 @@ class CustomServerForm:
                     return False
 
             # Save to mcp_servers.json for persistence
-            if os.path.exists(MCP_SERVERS_FILE):
-                with open(MCP_SERVERS_FILE, "r") as f:
-                    data = json.load(f)
-                    servers = data.get("mcp_servers", {})
-            else:
-                servers = {}
-                data = {"mcp_servers": servers}
-
-            # If editing and name changed, remove the old entry
+            save_config = config_dict.copy()
+            save_config["type"] = server_type
+            replace_name = None
             if (
                 self.edit_mode
                 and self.original_name
                 and self.original_name != server_name
             ):
-                if self.original_name in servers:
-                    del servers[self.original_name]
-
-            # Add/update server with type
-            save_config = config_dict.copy()
-            save_config["type"] = server_type
-            servers[server_name] = save_config
-
-            # Save back
-            os.makedirs(os.path.dirname(MCP_SERVERS_FILE), exist_ok=True)
-            with open(MCP_SERVERS_FILE, "w") as f:
-                json.dump(data, f, indent=2)
+                replace_name = self.original_name
+            upsert_mcp_server(server_name, save_config, replace_name=replace_name)
 
             return True
 
@@ -618,10 +601,9 @@ class CustomServerForm:
 
         # Create application - start focused on name input
         layout = Layout(root_container, focused_element=self.name_area)
-        # mouse_support stays False like every other TUI component: it was
-        # the only True in the codebase, and if cleanup is interrupted the
-        # terminal's mouse-tracking modes stay armed — every click/scroll
-        # then floods stdin with escape garbage (#244).
+        # mouse_support stays False like every other TUI: it was the only True
+        # in the codebase, and if cleanup is interrupted the mouse-tracking
+        # modes stay armed — every click/scroll floods stdin with escapes (#244).
         app = Application(
             layout=layout,
             key_bindings=kb,

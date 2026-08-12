@@ -62,9 +62,8 @@ class TestToolRegistration:
         # Test registering file operations tools
         register_tools_for_agent(mock_agent, ["list_files", "read_file"])
 
-        # The mock agent should have had registration functions called
-        # (We can't easily test the exact behavior since it depends on decorators)
-        # But we can test that no exceptions were raised
+        # Can't assert exact registration behavior (decorator-driven) — just that
+        # nothing raised.
         assert True  # If we get here, no exception was raised
 
     def test_register_tools_invalid_tool(self):

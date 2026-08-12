@@ -4,9 +4,8 @@ import pytest
 
 from code_puppy.hook_engine.matcher import _extract_file_path, matches
 
-# One row per branch: (matcher, tool_name, tool_args, expected). Each case
-# was a separate test function before this was folded into a matrix — the
-# same branches, less boilerplate.
+# One row per branch: (matcher, tool_name, tool_args, expected) — folded from one
+# test per case into a matrix: same branches, less boilerplate.
 _MATCH_CASES = [
     # wildcard matches all
     ("*", "Edit", {}, True),

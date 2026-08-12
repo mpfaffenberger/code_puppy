@@ -297,10 +297,8 @@ def test_steer_processor_is_wired_into_builder_after_compaction():
     # Both processors must be referenced in the builder.
     assert "make_steer_history_processor" in src
     assert "make_history_processor" in src
-    # And they must appear in that order in the history_processors list.
-    # We rely on a textual check of the list literal here; the wiring test
-    # `test_steer_processor_appended_after_compaction` (below) verifies
-    # the actual list ordering on a built agent.
+    # Order is checked textually against the list literal; the wiring test below
+    # (test_steer_processor_appended_after_compaction) verifies real ordering.
     history_processors_line = next(
         line for line in src.splitlines() if "history_processors=" in line
     )

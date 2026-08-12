@@ -23,10 +23,8 @@ from code_puppy.tools.common import (
     get_user_approval_async,
 )
 
-# NOTE: The previous module-level ``_FILE_CONFIRMATION_LOCK`` was
-# removed -- queueing of parallel approval prompts now lives inside
-# ``get_user_approval`` itself, so multiple parallel file ops will line
-# up behind one another instead of being silently auto-rejected.
+# NOTE: module-level ``_FILE_CONFIRMATION_LOCK`` removed — queueing of parallel
+# approvals now lives inside ``get_user_approval`` (they line up, never auto-rejected).
 
 # Thread-local storage for user feedback from permission prompts
 _thread_local = threading.local()
@@ -243,9 +241,8 @@ def prompt_for_file_permission(
     panel_content.append("📄 ", style="dim")
     panel_content.append(file_path, style="bold white")
 
-    # Use the common approval function.
-    # Internal queueing means parallel callers wait their turn here
-    # rather than getting silently auto-rejected.
+    # Use the common approval function; internal queueing makes parallel callers
+    # wait their turn here rather than being silently auto-rejected.
     return get_user_approval(
         title="File Operation",
         content=panel_content,
@@ -539,10 +536,8 @@ async def handle_file_permission_async(
     return confirmed
 
 
-# Expose the thread-local UX-state accessors to core. Core consumes the
-# `file_permission` hook for the approval decision and reaches the shared
-# state (diff-already-shown flag, last user feedback) through this small
-# provider API instead of importing this plugin module.
+# Expose the thread-local UX-state accessors to core via this small provider API
+# (avoids core importing this plugin module to reach diff-shown flag / feedback).
 _STATE_PROVIDER_REGISTRATION = register_file_permission_state_provider(
     set_diff_already_shown=set_diff_already_shown,
     was_diff_already_shown=was_diff_already_shown,
@@ -551,10 +546,8 @@ _STATE_PROVIDER_REGISTRATION = register_file_permission_state_provider(
     clear_user_feedback=clear_user_feedback,
 )
 
-# Register the async callback for file permission handling. The async
-# dispatcher (`on_file_permission_async`) awaits it directly; the sync
-# dispatcher (`on_file_permission`) runs it via ``asyncio.run`` when
-# triggered from a worker thread with no running loop.
+# Register the async callback: awaited directly by the async dispatcher; the sync
+# dispatcher runs it via ``asyncio.run`` when triggered from a thread without a loop.
 register_callback("file_permission", handle_file_permission_async)
 
 # Register the prompt hook for file permission instructions

@@ -484,9 +484,8 @@ class TestMaybeDisableFrontmatter:
         source = inspect.getsource(mod)
         assert 'register_callback("startup", _maybe_disable_frontmatter)' in source
 
-        # And the migration function itself must not appear as a bare,
-        # unconditional call at module scope (i.e. it's only ever invoked
-        # through the registry, never eagerly on import).
+        # The migration function must never be called bare at module scope — only
+        # through the registry, never eagerly on import.
         for line in source.splitlines():
             stripped = line.strip()
             assert stripped != "_maybe_disable_frontmatter()"

@@ -25,11 +25,8 @@ from .status_tracker import ServerStatusTracker
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Module-level dedupe set: ``(server_name, agent_name)`` pairs we've already
-# warned about for the "registered but not bound to this agent" orphan state.
-# Lives for the lifetime of the process — a fresh process resets it, which
-# matches "warn at most once per session per (server, agent) pair". Cleared
-# in tests via :func:`_reset_unbound_warning_cache`.
+# Dedupe set of ``(server_name, agent_name)`` pairs already warned about for
+# the "registered but not bound" orphan state — once per session (tests reset it).
 _WARNED_UNBOUND: set = set()
 
 
@@ -174,10 +171,8 @@ class MCPManager:
 
             for name, conf in configs.items():
                 try:
-                    # The config loader is the single chokepoint for wrapper-key
-                    # normalization (it accepts both mcp_servers and mcpServers
-                    # and never returns wrapper keys as server names). Sync only
-                    # guards against per-entry garbage.
+                    # Config loader already normalizes wrapper keys (mcp_servers/
+                    # mcpServers); sync only guards against per-entry garbage.
                     if not isinstance(conf, dict):
                         logger.warning(
                             "Skipping MCP server '%s': config must be a dictionary",
@@ -348,9 +343,8 @@ class MCPManager:
                         managed_server.config.name,
                         agent_name,
                     )
-                    # Only warn for servers the user could actually use —
-                    # disabled / quarantined servers are skipped for other
-                    # reasons and the binding warning would be misleading.
+                    # Warn only for usable servers — disabled/quarantined ones are
+                    # skipped elsewhere; a binding warning would mislead.
                     if (
                         managed_server.is_enabled()
                         and not managed_server.is_quarantined()

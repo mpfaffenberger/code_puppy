@@ -39,9 +39,7 @@ def _emit_warning(message: str) -> None:
     emit_warning(message)
 
 
-# ---------------------------------------------------------------------------
 # /steer
-# ---------------------------------------------------------------------------
 def _handle_steer(command: str) -> bool:
     text = command.split(" ", 1)[1].strip() if " " in command else ""
     if not text:
@@ -59,16 +57,12 @@ def _handle_steer(command: str) -> bool:
 
     from code_puppy.messaging.pause_controller import get_pause_controller
 
-    # mode='now': drained by the steer history processor at the next
-    # model call. The processor announces the injection in the
-    # transcript, so no ack here (acking twice was the old bug).
+    # ``mode='now'`` is announced by the history processor; no duplicate ack.
     get_pause_controller().request_steer(text, mode="now")
     return True
 
 
-# ---------------------------------------------------------------------------
 # /queue
-# ---------------------------------------------------------------------------
 def _handle_queue(command: str) -> bool:
     from .queue_menu import open_queue_menu_blocking
 
@@ -87,9 +81,7 @@ def _emit_queue_summary() -> None:
         _emit_info("Queue is empty")
 
 
-# ---------------------------------------------------------------------------
 # Status suffix: '(N queued)'
-# ---------------------------------------------------------------------------
 def _update_status_suffix(count: int) -> None:
     """Steer-queue listener: paint/clear the pending-count tag.
 
@@ -116,9 +108,7 @@ def _on_startup() -> None:
         logger.debug("steer_queue startup failed", exc_info=True)
 
 
-# ---------------------------------------------------------------------------
 # Registration
-# ---------------------------------------------------------------------------
 def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     if name == _STEER:
         return _handle_steer(command)

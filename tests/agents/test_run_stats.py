@@ -115,9 +115,8 @@ def test_snapshot_cycle_into_aggregates_folds_and_resets():
     assert AgentRunStats._first_token_time == 0.0
     assert AgentRunStats._stream_start_time == 0.0
     assert AgentRunStats._output_tokens == 0
-    # Last-known + conversation totals populated. Only the SECOND event's
-    # tokens are timed (the first anchors the burst -- its decode time is
-    # unknown, so its tokens stay out of the TG numerator).
+    # Only the SECOND event's tokens count as timed — the first anchors the burst, so
+    # its decode-time-unknown tokens stay out of the throughput numerator.
     assert AgentRunStats._last_ttft_seconds > 0
     assert AgentRunStats._last_gen_tps > 0
     assert AgentRunStats._ttft_sample_count == 1
@@ -178,9 +177,8 @@ def test_gen_time_excludes_stalls_between_stream_events(monkeypatch):
     gen_after_burst = AgentRunStats._gen_seconds
     assert gen_after_burst == pytest.approx(0.5)
 
-    # Stall (e.g. tool execution) wider than the threshold -- excluded,
-    # AND the stalled event's tokens stay out of the timed numerator
-    # (they were 'generated' during time we refused to measure).
+    # Stall wider than the threshold is excluded, and its tokens stay out of the timed
+    # numerator (generated during time we refused to measure).
     clock[0] += AgentRunStats._MAX_INTER_EVENT_GAP_SECONDS + 1.0
     AgentRunStats.record_output_tokens(10)
     assert AgentRunStats._gen_seconds == gen_after_burst

@@ -154,16 +154,8 @@ class TestEnabledSkillsHelper:
 
 
 class TestEnabledSkillsDirectoryPassthrough:
-    # Regression coverage for the additive-directory bug: discover_skills()
-    # only performs its configured-plus-default directory merge when it
-    # receives directories=None. The enabled-skills iterators must forward
-    # an omitted `directories` argument as None unchanged -- pre-resolving
-    # it into an explicit configured-only list silently hides every skill
-    # living in a default directory (~/.code_puppy/skills, ./skills, etc).
-    #
-    # These tests exercise the real discover_skills (not a mock) against
-    # real temp directories, so a regression here is caught independently
-    # of the mocked-discover_skills tests above.
+    # Regression: iterators must forward omitted `directories` as None, else the
+    # default-dir merge is skipped and those skills hide (real fn + temp dirs, no mock).
 
     @pytest.fixture(autouse=True)
     def _isolate_plugin_skills(self):

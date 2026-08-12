@@ -41,9 +41,7 @@ SPINNER_FRAMES = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Registration / teardown (driven by the invocation + response banners)
-# ---------------------------------------------------------------------------
+# Registration / teardown (invocation + response banners)
 def register(
     session_id: Optional[str],
     name: str,
@@ -117,9 +115,7 @@ def clear() -> None:
         _AGENTS.clear()
 
 
-# ---------------------------------------------------------------------------
-# Live status (driven by stream_event) -- UPDATE ONLY
-# ---------------------------------------------------------------------------
+# Live status (stream_event updates only)
 def record_event(session_id: Optional[str], event_type: str, event_data: Any) -> None:
     if not session_id:
         return
@@ -134,9 +130,7 @@ def record_event(session_id: Optional[str], event_type: str, event_data: Any) ->
             entry["status"] = status
 
 
-# ---------------------------------------------------------------------------
 # Reads
-# ---------------------------------------------------------------------------
 def snapshot() -> List[Dict[str, Any]]:
     """Return active sub-agents (oldest first), pruning idle/stale ones.
 
@@ -169,16 +163,8 @@ def snapshot() -> List[Dict[str, Any]]:
         ids = set(_AGENTS)
         # session_ids still referenced as someone's parent == busy (awaiting kids).
         busy_parents = {e.get("parent") for e in _AGENTS.values() if e.get("parent")}
-        # Prune entries that are ALL of:
-        #   - not done
-        #   - not a parent of anything (else pruning orphans their subtree)
-        #   - NOT a root (parent is not None) -- roots have explicit lifecycle
-        #     handling; silent idle-eviction of a live root is never correct
-        #     (see docstring). Without this guard, a childless root awaiting a
-        #     slow tool would be misclassified as a disconnected orphan because
-        #     ``None not in ids`` trivially holds.
-        #   - whose own parent is gone from the tree (a true orphan)
-        #   - has been silent longer than IDLE_PRUNE_S
+        # Prune only non-done, childless, non-root orphan leaves whose parent is
+        # gone and whose silence exceeds IDLE_PRUNE_S; roots need explicit cleanup.
         stale = [
             s
             for s, e in _AGENTS.items()
@@ -198,9 +184,7 @@ def has_active() -> bool:
         return bool(_AGENTS)
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 def _derive_status(event_type: str, event_data: Any) -> Optional[str]:
     """Map a sub-agent stream event to a short status. None = no change."""
     if not isinstance(event_data, dict):

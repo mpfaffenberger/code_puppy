@@ -34,9 +34,8 @@ class TestBindingsRoundTrip:
         assert ab.get_agents_for_server("filesystem") == ["python"]
 
     def test_set_binding_default_is_auto_start_true(self, tmp_bindings):
-        # Locks in the "binding implies auto-start" UX default. If you ever
-        # need to flip this back, make sure you also update toggle_binding
-        # and the post-install bind menu.
+        # Locks in "binding implies auto-start"; flipping it means updating
+        # toggle_binding and the post-install bind menu too.
         ab.set_binding("python", "fs")
         assert ab.get_auto_start("python", "fs") is True
 
@@ -260,10 +259,8 @@ class TestUnboundOrphanWarning:
             manager.get_servers_for_agent(agent_name="python")
             manager.get_servers_for_agent(agent_name="rust")
 
-        # One consolidated warning per fresh (agent, set-of-unbound-servers)
-        # batch: python's first build emits one block listing nu+mu, rust's
-        # first build emits one block listing nu+mu, python's second build
-        # is fully deduped. Total: 2 warning blocks.
+        # One consolidated warning per fresh (agent, server-set) batch: python+rust
+        # first builds each emit a block (nu+mu); python's second is deduped — 2 blocks.
         assert mock_warn.call_count == 2
         # Each emitted message reports the count of unbound servers and the
         # specific agent it was built for (names are omitted by design).

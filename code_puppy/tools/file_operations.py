@@ -231,9 +231,8 @@ def _list_files(
             )
             recursive = False
 
-    # When a filesystem backend is installed it owns the whole FS surface, so
-    # we compose the listing from it (fs_access.walk / list_dir) instead of
-    # shelling out to the local ripgrep -- keeping every operation coherent.
+    # With a FS backend installed it owns the whole FS surface — compose the
+    # listing from it (fs_access.walk / list_dir) instead of local ripgrep.
     from code_puppy.tools.io_backends import get_filesystem_backend
 
     _use_backend = get_filesystem_backend() is not None
@@ -677,9 +676,8 @@ def _build_grep_args(search_string: str) -> tuple[list[str], str | None]:
     return tokens, None
 
 
-# ripgrep --type name -> file extensions, for the backend grep path. Covers the
-# common types; unknown types raise a clear error rather than silently matching
-# nothing (ripgrep itself owns the full list on the local path).
+# ripgrep --type name → extensions for the backend grep path; unknown types
+# error loudly (ripgrep owns the full list on the local path).
 _RG_TYPE_EXTS: dict[str, set[str]] = {
     "py": {".py", ".pyi", ".pyw"},
     "js": {".js", ".jsx", ".mjs", ".cjs", ".vue"},
@@ -861,9 +859,8 @@ def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
     """
     from code_puppy.tools.common import should_ignore_dir_path, should_ignore_path
 
-    # Report a missing/non-directory target as an error, matching the local
-    # ripgrep path (rather than silently returning zero matches for a typo'd
-    # directory). ``walk`` itself tolerates a bad root by yielding nothing.
+    # Missing/non-directory target = error (matches local ripgrep, not silent
+    # zero matches); ``walk`` itself tolerates a bad root.
     if not fs_access.is_dir(directory):
         error_msg = (
             f"Error: Directory '{directory}' does not exist"
@@ -934,13 +931,8 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     # Create a temporary ignore file with our ignore patterns
     ignore_file = None
     try:
-        # Use ripgrep to search for the string
-        # Use absolute path to ensure it works from any directory
-        # --json for structured output
-        # --max-count 50 to limit results
-        # --max-filesize 5M to avoid huge files (increased from 1M)
-        # --type=all to search across all recognized text file types
-        # --ignore-file to obey our ignore list
+        # ripgrep: absolute path, --json output, --max-count 50, --max-filesize 5M,
+        # --type=all, --ignore-file for our ignore list.
 
         # Find ripgrep executable - first check system PATH, then virtual environment
         rg_path = shutil.which("rg")
@@ -1086,9 +1078,8 @@ def register_list_files(agent):
         if warning:
             result.error = warning
 
-        # Context guard: if the listing is too chonky to dump straight into
-        # the agent's context window, spill it to a temp file and hand the
-        # agent a pointer instead. Keeps token usage sane on huge repos.
+        # Oversized listing → spill to a temp file and hand the agent a pointer
+        # (keeps token usage sane on huge repos).
         _LIST_FILES_CONTEXT_LIMIT = 20_000
         if len(result.content) > _LIST_FILES_CONTEXT_LIMIT:
             from tempfile import NamedTemporaryFile, gettempdir

@@ -146,9 +146,8 @@ async def _invoke_with_dead_pin(
         p(patch("code_puppy.tools.subagent_invocation.emit_error"))
         p(patch("code_puppy.tools.subagent_invocation.emit_success"))
         p(patch("code_puppy.tools.subagent_invocation.emit_warning"))
-        # load_model_with_fallback (where the actual fallback + warning
-        # happens) imports emit_warning directly into its own module
-        # namespace, so that's the one to assert against.
+        # load_model_with_fallback imports emit_warning into its own module
+        # namespace — that's the one to assert against.
         mock_warning = p(patch("code_puppy.agents._builder.emit_warning"))
         p(patch("code_puppy.tools.subagent_invocation._save_session_history"))
         p(

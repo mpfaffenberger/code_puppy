@@ -112,9 +112,8 @@ class TestGeminiCodeAssistModel:
             def __str__(self):
                 return "weird-obj"
 
-        # This object's json.dumps with default=str should work,
-        # but let's test with something that makes json.dumps raise TypeError
-        # Actually default=str handles most things. Let's test int (primitive passthrough)
+        # Ints pass through json.dumps untouched (default=str handles the rest) —
+        # covers the primitive-passthrough branch.
         msgs = [
             ModelRequest(
                 parts=[

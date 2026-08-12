@@ -23,35 +23,23 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Constants
-# ---------------------------------------------------------------------------
 
-# Default chars-per-token ratio when nothing has been learned yet.
-# 2.5 is the classic heuristic — a reasonable baseline that leans slightly
-# toward overestimating tokens (safer for compaction decisions).
+# Default 2.5 chars/token slightly overestimates for safer compaction.
 _DEFAULT_RATIO = 2.5
 
-# Bounds for chars-per-token ratios.  Real tokenizers produce roughly
-# 2–3.5 chars/token.  Values below 1.5 imply absurdly many tokens per
-# character (a single character = multiple tokens).  Values above 3.5
-# would produce dangerously low token estimates, risking context overflow.
-# We clamp to [1.5, 3.5] so that a poison value (e.g. 95.0 from a
-# corrupted file) cannot silently collapse token estimates to near-zero.
+# Clamp learned ratios to [1.5, 3.5]; extremes imply implausible tokenization and
+# can collapse estimates or risk context overflow.
 _MIN_RATIO = 1.5
 _MAX_RATIO = 3.5
 
-# ---------------------------------------------------------------------------
-# In-memory cache — populated lazily by ``_ensure_ratios_loaded()``.
-# ---------------------------------------------------------------------------
+# Lazy in-memory cache, populated by ``_ensure_ratios_loaded()``.
 
 _LEARNED_RATIOS: dict[str, float] = {}
 _ratios_loaded: bool = False
 _ratios_lock = threading.Lock()
 
-# ---------------------------------------------------------------------------
-# Path to the learned-ratios store.
-# ---------------------------------------------------------------------------
+# Learned-ratio storage path.
 
 _TOKEN_RATIOS_PATH: Path = Path(
     os.path.expanduser(
@@ -63,9 +51,7 @@ _TOKEN_RATIOS_PATH: Path = Path(
 )
 
 
-# ---------------------------------------------------------------------------
 # Internal helpers
-# ---------------------------------------------------------------------------
 
 
 def _ensure_ratios_loaded() -> None:
@@ -96,7 +82,6 @@ def _load_learned_ratios() -> dict[str, float]:
                 for k, v in data.items():
                     if isinstance(v, (int, float)) and v > 0:
                         # Lowercase keys for case-insensitive matching.
-                        # Old files may have mixed-case keys.
                         clamped[k.lower()] = max(_MIN_RATIO, min(_MAX_RATIO, float(v)))
                 return clamped
     except (OSError, json.JSONDecodeError, ValueError):
@@ -139,8 +124,7 @@ def _record_token_ratio(model: str, char_count: int, token_count: int) -> None:
     if char_count <= 0 or token_count <= 0:
         return
 
-    # Extract bare model name: "wafer:glm5.1" → "glm5.1",
-    # "anthropic:Claude-Sonnet" → "claude-sonnet" (lowercased)
+    # Strip the provider prefix and lowercase the model name.
     model_name = model.split(":", 1)[1] if ":" in model else model
     model_name = model_name.lower()
 
@@ -159,9 +143,7 @@ def _record_token_ratio(model: str, char_count: int, token_count: int) -> None:
         _save_learned_ratios(_LEARNED_RATIOS)
 
 
-# ---------------------------------------------------------------------------
 # Public API
-# ---------------------------------------------------------------------------
 
 
 def count_tokens(text: str, model: str | None = None) -> int:
@@ -214,9 +196,7 @@ def list_known_ratios() -> dict[str, float]:
         return dict(_LEARNED_RATIOS)
 
 
-# ---------------------------------------------------------------------------
 # Storage path override (for tests)
-# ---------------------------------------------------------------------------
 
 
 def set_ratios_path(path: str | Path) -> None:

@@ -35,9 +35,7 @@ from rich.style import Style
 from code_puppy.config import get_value, set_config_value
 from code_puppy.messaging import rich_renderer
 
-# --- Remap registry ---------------------------------------------------------
-# Per-console bookkeeping: original get_style + current remap dict.
-# WeakKeyDictionary so we don't keep dead consoles alive.
+# Remap registry: weak per-console records retain no dead consoles.
 _PATCHED: "weakref.WeakKeyDictionary[Console, Callable]" = weakref.WeakKeyDictionary()
 
 _CONFIG_KEY = "rich_color_remap_json"

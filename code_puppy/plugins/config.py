@@ -19,10 +19,9 @@ from code_puppy.config import get_value, set_value
 
 logger = logging.getLogger(__name__)
 
-# Hidden config key. When truthy, builtin plugins cannot be disabled and are
-# hidden from the /plugins menu. A general-purpose deployment lock: managed
-# distributions (corporate forks, kiosk installs) can flip it to protect the
-# shipped plugin set from being switched off by end users.
+# Hidden config key: when truthy, builtins can't be disabled and are hidden from
+# the /plugins menu — a deployment lock for managed distributions to protect the
+# shipped plugin set from end users.
 LOCK_BUILTIN_KEY = "lock_builtin_plugins"
 
 

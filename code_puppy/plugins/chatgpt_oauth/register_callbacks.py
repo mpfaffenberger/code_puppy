@@ -90,9 +90,8 @@ def _handle_chatgpt_logout() -> None:
 
     if was_authenticated:
         _reload_active_agent()
-        # Mirror the tool-unbinding reload above: the codex-imagegen skill is
-        # gated on auth too, so drop it from the skill cache immediately
-        # instead of leaving it visible until the next restart.
+        # Mirror the tool-unbinding reload above: the codex-imagegen skill is auth-gated
+        # too, so drop it from the skill cache instead of leaving it visible until restart.
         refresh_skill_cache()
 
 
@@ -130,9 +129,8 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     if name in {"chatgpt-auth", "codex-auth"}:
         run_oauth_flow()
         set_model_and_reload_agent("codex-gpt-5.6-sol")
-        # Authentication may have just succeeded, so the codex-imagegen skill
-        # (gated the same way as the codex_imagegen tool) needs to be
-        # re-discovered rather than waiting for the next process restart.
+        # Auth just succeeded: re-discover the auth-gated codex-imagegen skill now
+        # rather than waiting for the next process restart.
         refresh_skill_cache()
         return True
 
@@ -237,11 +235,8 @@ def _create_chatgpt_oauth_model(
 
 
 def _register_imagegen_skill() -> list[dict[str, str]]:
-    # Gated the same way as _advertise_imagegen_tool below: the skill's own
-    # instructions tell the model to call codex_imagegen(...), which doesn't
-    # exist as an available tool for an unauthenticated user. Hiding the
-    # skill itself avoids the confusing case where a model activates it,
-    # tries the tool call, and only then discovers auth is missing.
+    # Same auth gate as _advertise_imagegen_tool: hide the skill so a model can't
+    # activate it, attempt codex_imagegen(...), and only then discover it's unavailable.
     if not _is_codex_oauth_authenticated():
         return []
     return [

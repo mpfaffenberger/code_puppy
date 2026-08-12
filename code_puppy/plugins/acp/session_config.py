@@ -43,10 +43,9 @@ _STREAMING_ID = "enable_streaming"
 _STREAMING_ON = "on"
 _STREAMING_OFF = "off"
 
-# Code Puppy has exactly one operating mode. We still advertise it as a
-# category="mode" select so the client's mode dropdown shows "Default" rather
-# than an empty "Unknown" control. (Model selection is the separate
-# category="model" option; ACP clients bind each dropdown to its category.)
+# Exactly one operating mode, but advertised as a category="mode" select so the
+# client's dropdown shows "Default" rather than an empty "Unknown" control.
+# (Model selection is the separate category="model" option.)
 _DEFAULT_MODE_ID = "default"
 
 

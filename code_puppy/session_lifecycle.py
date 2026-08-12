@@ -28,14 +28,12 @@ from code_puppy.session_storage import SessionMetadata, save_session
 if TYPE_CHECKING:
     from code_puppy.agents.base_agent import BaseAgent
 
-# Write-side validator. Read-side path resolution stays permissive so users
-# can keep passing absolute paths to existing ``.pkl`` files -- the lazy-create
-# path is the only place we create files from user-supplied strings.
+# Write-side validator. Read-side stays permissive (absolute paths to existing
+# ``.pkl``); lazy-create is the only place we create files from user input.
 _SESSION_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
-# Reserved prefix for system-generated auto-flavored names. User input matching
-# this is rejected so users can never squat on the auto-generated namespace and
-# confuse the autosave-menu UX or break TTY-keyed resume.
+# Reserved prefix for system-generated names. User input matching it is
+# rejected so users can't squat on the namespace or break TTY-keyed resume.
 _RESERVED_PREFIX = "auto_session_"
 
 # Matches the headroom used by ``config.auto_save_session_if_enabled`` so
@@ -109,10 +107,8 @@ def persist_named_session(
         auto_saved=auto_saved,
     )
     if success_message_key is not None:
-        # Safe seam: t() interpolates via the hardened {identifier} grammar,
-        # so a missing/renamed placeholder leaves the token intact rather
-        # than raising -- no need for the old defensive try/except that
-        # str.format required.
+        # t() interpolates via hardened {identifier} grammar: a missing
+        # placeholder leaves the token intact — no try/except needed.
         from code_puppy.i18n import t
         from code_puppy.messaging import emit_success
 
@@ -126,14 +122,8 @@ def persist_named_session(
                 session_name=session_name,
             )
         )
-    # NOTE: deliberately does NOT fire ``fire_post_autosave_callback``.
-    # The ``post_autosave`` hook is reserved for the periodic background
-    # auto-save path (``config.auto_save_session_if_enabled``); firing it
-    # from /dump_context and headless ``-r NAME -p ...`` save-back too
-    # would change plugin-visible behavior for callers that registered
-    # against the hook (e.g. ``a downstream token-quota plugin``
-    # would print the quota line after every explicit /dump_context).
-    # Pre-unification semantics: only periodic auto-save fires the hook.
+    # NOTE: deliberately skips ``fire_post_autosave_callback`` — that hook is
+    # reserved for the periodic auto-save path only (pre-unification semantics).
     return metadata
 
 
@@ -211,9 +201,8 @@ def resolve_or_create_resume_target(
             resume_path.stem, resume_path.parent, False, sessions_dir
         )
 
-    # Branch 4: bare-name normalization. "foo.pkl" with no path separator
-    # and a valid bare-name slug after suffix strip --> treat as "foo".
-    # Avoids the historical ``foo.pkl.pkl`` lazy-create bug.
+    # Branch 4: "foo.pkl" with no separator + valid slug -> "foo" (avoids
+    # the historical ``foo.pkl.pkl`` lazy-create bug).
     normalized_target = resume_target
     if (
         resume_path.suffix == ".pkl"
@@ -228,10 +217,8 @@ def resolve_or_create_resume_target(
             f"Resume target not found: {resume_target}",
         )
 
-    # Lazy-create gate: user-input reserved-prefix protection. The
-    # post-creation validation below uses allow_reserved_prefix=True
-    # (stored-name semantics) so the same name we just allowed in passes
-    # the resolver's output guard.
+    # Lazy-create gate: reject reserved prefix up front; the output guard below
+    # uses allow_reserved_prefix=True (stored-name semantics) for allowed names.
     if not is_valid_session_name(normalized_target, allow_reserved_prefix=False):
         raise ResumeTargetError(
             f"Invalid session name for lazy-create: {normalized_target!r}",

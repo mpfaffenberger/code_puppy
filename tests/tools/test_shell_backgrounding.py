@@ -23,10 +23,8 @@ SLOW_SCRIPT = (
 
 
 def _spawn_slow_process():
-    # start_new_session mirrors production (command_runner spawns with
-    # os.setsid) so the child gets its OWN process group. Without it the
-    # child inherits pytest's group and _kill_process_group's killpg would
-    # nuke pytest -- and, in CI, the runner's step shell (cancels the job).
+    # start_new_session mirrors production (os.setsid): own process group, else killpg
+    # nukes pytest and, in CI, the runner's step shell.
     return subprocess.Popen(
         [sys.executable, "-u", "-c", SLOW_SCRIPT],
         stdout=subprocess.PIPE,

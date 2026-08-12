@@ -71,22 +71,18 @@ def _load_browser_tool_registry() -> dict[str, object]:
 
 TOOL_REGISTRY.update(_load_browser_tool_registry())
 
-# Tools that expand into multiple tools for backward compatibility.
-# When an agent requests a tool listed here, all the expansion tools
-# are registered instead (the original tool is NOT registered).
+# Tools that expand into multiple tools for backward compat: requesting one
+# registers the expansions INSTEAD (the original is not registered).
 TOOL_EXPANSIONS: dict[str, list[str]] = {
     "edit_file": ["create_file", "replace_in_file", "delete_snippet"],
 }
 
-# Legacy tool names we silently ignore instead of warning about.
-# Keep this for truly removed tools only; backward-compatible tool aliases
-# that still work should stay in TOOL_REGISTRY.
+# Legacy tool names we silently ignore. Truly removed tools only — working
+# aliases belong in TOOL_REGISTRY.
 REMOVED_LEGACY_TOOLS: set[str] = set()
 
-# Process-wide tool kill-switch (issue #182). Set by the builtin ``no_tools``
-# plugin when ``--no-tools`` is passed, or directly by wrappers that spawn
-# Code Puppy as a subprocess. An env var (not puppy.cfg) on purpose: it's
-# scoped to this process and never persists.
+# Process-wide tool kill-switch (issue #182), set by the no_tools plugin or
+# subprocess wrappers. Env var on purpose: process-scoped, never persists.
 NO_TOOLS_ENV_VAR = "CODE_PUPPY_NO_TOOLS"
 
 
@@ -132,9 +128,8 @@ def _load_plugin_tools() -> None:
         pass
 
 
-# Appended to the system prompt when extended thinking is active and
-# the share_your_reasoning tool is removed.  Encourages the model to
-# use its native thinking blocks between tool calls instead.
+# System-prompt note for extended thinking when share_your_reasoning is removed:
+# encourages native thinking blocks between tool calls.
 EXTENDED_THINKING_PROMPT_NOTE = (
     "\n\nIMPORTANT: You have extended thinking enabled. "
     "Always think between tool calls or waves of tool calls "
@@ -210,10 +205,8 @@ def register_tools_for_agent(
 
     _load_plugin_tools()
 
-    # Plugin-advertised tools get unioned into the requested list. This is
-    # the companion to the ``register_tools`` hook that defines them — this
-    # one decides which agent gets which. Keeping it here means every
-    # ``register_tools_for_agent`` call site benefits without duplication.
+    # Union plugin-advertised tools in (companion to the register_tools hook:
+    # this decides which agent gets which) — one shared place, no duplication.
     plugin_extras = on_register_agent_tools(agent_name)
     if plugin_extras:
         seen = set(tool_names)

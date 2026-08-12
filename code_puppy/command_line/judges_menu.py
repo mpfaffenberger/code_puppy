@@ -731,11 +731,10 @@ async def interactive_judges_menu() -> None:
             pending_target[0] = judge.name
             event.app.exit()
 
-    # Esc and Ctrl+C both close the menu. Esc is the natural "I'm done"
-    # gesture; Ctrl+C is the universal escape hatch. eager=False (the
-    # default) is fine here because the list view has no Esc-chord, so
-    # there's nothing to wait for — prompt_toolkit fires the handler as
-    # soon as the chord timeout expires (immediate in practice).
+    # Esc and Ctrl+C both close (Esc = natural "I'm done"; Ctrl+C = escape
+    # hatch). eager=False is fine: no Esc-chord in the list view, so the
+    # handler fires as soon as the chord timeout expires (immediate in
+    # practice).
     @kb.add("escape")
     @kb.add("c-c")
     def _(event):

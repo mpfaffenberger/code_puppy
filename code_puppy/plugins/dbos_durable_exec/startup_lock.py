@@ -30,9 +30,8 @@ import sys
 import time
 from typing import Iterator
 
-# Platform-specific locking primitives. We deliberately avoid adding a
-# third-party dependency (filelock/portalocker) since the stdlib already
-# gives us everything on both POSIX and Windows.
+# Platform-specific locking primitives; deliberately no third-party dep
+# (filelock/portalocker) — the stdlib covers both POSIX and Windows.
 try:  # POSIX
     import fcntl
 

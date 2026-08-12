@@ -15,14 +15,8 @@ from code_puppy.tools.browser import browser_interactions as interactions
 
 MOD = interactions.__name__
 
-# Operation table: one entry per public interaction function.
-#   fn, args, kwargs        -> how to invoke the operation
-#   wait_timeout            -> expected wait_for() timeout on success
-#   method, method_args, method_kwargs
-#                           -> expected locator invocation on success
-#   pre                     -> extra expected invocation (e.g. clear before fill)
-#   ret                     -> mocked return value for the locator method
-#   result                  -> expected key/values in the success dict
+# Operation table legend: fn/args/kwargs to invoke, wait_timeout, expected locator
+# method+args, pre-invocations, mocked ret, and expected result keys/dict.
 OPS = [
     {
         "name": "click",

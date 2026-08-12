@@ -18,11 +18,8 @@ KENNEL_ROOT = Path(
 # The SQLite database file lives inside the kennel root.
 DB_PATH = KENNEL_ROOT / "kennel.db"
 
-# --------------------------------------------------------------------------- #
-# Prompt-packing budget — how much of the system prompt we get to fill.
-# --------------------------------------------------------------------------- #
-# Total token budget for the recall block. A token is roughly 4 chars for
-# Anglo-Saxon text; we use that ratio everywhere as a zero-dep estimator.
+# Prompt-packing budget for the recall block; estimate tokens at ~4 chars each
+# to avoid a tokenizer dependency.
 PROMPT_BUDGET_TOKENS = int(os.environ.get("PUPPY_KENNEL_PROMPT_BUDGET", "1500"))
 CHARS_PER_TOKEN = 4
 PROMPT_BUDGET_CHARS = PROMPT_BUDGET_TOKENS * CHARS_PER_TOKEN

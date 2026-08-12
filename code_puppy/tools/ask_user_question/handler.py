@@ -100,9 +100,8 @@ def ask_user_question(
             "if user input is required."
         )
 
-    # Validate input before environment/mode checks so callers get useful schema
-    # errors. Otherwise an invalid request during autonomous mode gets a spooky
-    # unrelated Wiggum error, which is technically true but deeply unhelpful.
+    # Validate first so callers get real schema errors — not a spooky unrelated
+    # Wiggum error when autonomous mode would otherwise reject the request.
     try:
         validated_input = _validate_input(questions)
     except ValidationError as e:
@@ -160,9 +159,8 @@ def _run_interactive_picker(
     # "coroutine was never awaited" warnings on the error path.
     try:
         asyncio.get_running_loop()
-        # Already in async context - fail fast with helpful message
-        # Note: We avoid nest_asyncio.apply() as it globally patches the event loop,
-        # which can break other async code in the process and is not thread-safe.
+        # Already in async context - fail fast. No nest_asyncio.apply(): it
+        # globally patches the loop (breaks other async code, not thread-safe).
         raise AsyncContextError(
             "Cannot run interactive TUI from within an async context. "
             "Either call from synchronous code, or use "

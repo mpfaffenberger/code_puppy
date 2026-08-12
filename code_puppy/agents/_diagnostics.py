@@ -37,12 +37,10 @@ USEFUL_ATTRS = ("response", "body", "message", "detail", "errors")
 _MAX_CHAIN_DEPTH = 5
 _MAX_GROUP_LEAVES = 10
 
-# AnyIO / MCP teardown noise. These ``RuntimeError``s bubble out of MCP client
-# task-group cleanup (typically SSE/HTTP streams yielding inside a cancel
-# scope) *after* the underlying tool call has already succeeded and surfaced
-# its result to the user. They aren't actionable, the user can't fix them,
-# and showing them as ``Unexpected error:`` is straight-up misleading. We
-# still log to file for forensics; we just refuse to scream on the terminal.
+# AnyIO/MCP teardown noise: RuntimeErrors from MCP task-group cleanup (SSE/HTTP
+# streams yielding inside a cancel scope) after the tool call already surfaced
+# its result. Not actionable and misleading as ``Unexpected error:`` — log to
+# file for forensics, don't scream on the terminal.
 _MCP_TEARDOWN_SNIPPETS = (
     "cancel scope",
     "different task than it was entered in",

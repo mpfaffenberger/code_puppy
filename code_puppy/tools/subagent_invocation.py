@@ -59,12 +59,9 @@ from code_puppy.tools.subagent_usage_metrics import (
 # Set to track active subagent invocation tasks
 _active_subagent_tasks: Set[asyncio.Task] = set()
 
-# Records of sub-agents interrupted by cancellation, drained into the parent
-# agent's message history at the next run start so the model learns a delegated
-# run was stopped and where to resume it. Populated on the event loop (the
-# cancel raises inside the coroutine), drained on the same loop -- a plain list
-# is safe. Both foreground ``invoke_agent`` and detached ``/fork`` share
-# ``_invoke_agent_impl``, so this single seam covers both.
+# Sub-agents interrupted by cancellation, drained into the parent's history at
+# the next run start (single seam shared by invoke_agent and /fork). Same-loop
+# populate/drain makes a plain list safe.
 _interrupted_subagents: list[dict] = []
 
 
@@ -238,9 +235,7 @@ async def _invoke_agent_impl(
                 error=str(e),
             )
 
-    # Check if this is an existing session or a new one
-    # For user-provided session_id, check if it exists
-    # For None, we'll generate a new one below
+    # Existing user-provided session, or new (None → generated below)?
     if session_id is not None:
         message_history = _load_session_history(session_id)
         is_new_session = len(message_history) == 0
@@ -250,18 +245,14 @@ async def _invoke_agent_impl(
 
     # Generate or finalize session_id
     if session_id is None:
-        # Auto-generate a session ID with hash suffix for uniqueness
-        # Example: "qa-expert-session-a3f2b1"
-        # Sanitize agent_name to kebab-case so capitalised names like
-        # "LPZ-Main-Coder" don't produce invalid session IDs.
+        # Auto-generate a kebab-cased ``<agent>-session-<hash>`` ID (capitalised
+        # names like "LPZ-Main-Coder" would otherwise produce invalid IDs).
         hash_suffix = _generate_session_hash_suffix()
         safe_agent_name = _sanitize_for_session_id(agent_name) or "agent"
         session_id = f"{safe_agent_name}-session-{hash_suffix}"
     elif is_new_session:
-        # User provided a base name for a NEW session - append hash suffix
-        # Example: "review-auth" -> "review-auth-a3f2b1"
-        # Sanitize the user-provided base to be forgiving of casing/
-        # underscores while still producing a valid kebab-case ID.
+        # New session with user base name: append hash suffix, sanitized to a
+        # valid kebab-case ID (forgiving of casing/underscores).
         hash_suffix = _generate_session_hash_suffix()
         safe_base = _sanitize_for_session_id(session_id) or "session"
         session_id = f"{safe_base}-{hash_suffix}"
@@ -307,11 +298,9 @@ async def _invoke_agent_impl(
         agent_config = load_agent(agent_name)
 
         with agent_config.temporary_model_name_override(model_name):
-            # Seed the wrapper's message history with the loaded session so that
-            # ``make_history_processor(agent_config)`` — wired into the temp
-            # agent's ``history_processors`` — mutates ``agent_config._message_history``
-            # in place as the run progresses. That means on a mid-run crash we
-            # can read partial progress straight off the wrapper below.
+            # Seed history so make_history_processor (wired into history_processors)
+            # mutates ``agent_config._message_history`` in place — letting us read
+            # partial progress off the wrapper after a mid-run crash.
             agent_config.set_message_history(list(message_history))
 
             # Resolve the effective model through the agent so precedence lives
@@ -322,21 +311,10 @@ async def _invoke_agent_impl(
             if not requested_model_name:
                 raise ValueError("No model configured for sub-agent invocation")
 
-            # A pinned/ambient model that has since vanished from config
-            # (removed model entry, unsupported type, missing credentials, ...)
-            # must degrade the same way the main agent does: warn and fall back
-            # to the global default (then any other configured model) instead
-            # of hard-failing the whole sub-agent invocation. See
-            # ``load_model_with_fallback`` for the exact fallback order.
-            #
-            # An EXPLICIT override (``invoke_agent_with_model``'s ``model_name``
-            # argument) is a different contract: the caller said "run this one
-            # call on exactly this model", on purpose. Silently substituting a
-            # different model there -- possibly weaker/pricier, with no forced
-            # signal beyond a once-per-conversation warning -- would violate
-            # that contract for automated callers. So a bad explicit override
-            # stays a hard, per-call failure; only the ambient/pinned path
-            # (plain ``invoke_agent``, no override) gets the graceful fallback.
+            # A pinned/ambient model that has vanished from config (removed entry,
+            # unsupported type, missing creds) degrades like the main agent: warn +
+            # fall back via ``load_model_with_fallback``. An EXPLICIT override is a
+            # different contract — a bad one stays a hard per-call failure.
             from code_puppy.agents._builder import load_model_with_fallback
 
             if model_name:
@@ -367,25 +345,11 @@ async def _invoke_agent_impl(
                     models_config,
                     group_id,
                     agent_name=agent_name,
-                    # Scope the warn-once-per-conversation dedup to the
-                    # conversation's ROOT identity (a ContextVar set once at
-                    # the true top-level conversation boundary -- an ACP
-                    # session's prompt handler, or left None for the CLI's
-                    # one-conversation-per-process model) -- NOT this call's
-                    # own transient session_id, and NOT the message-bus's
-                    # get_session_context() (a shared mutable attribute with
-                    # no per-task isolation; see subagent_context.py's
-                    # docstring for why that's unsafe here). Using the root
-                    # id means:
-                    #   * concurrent conversations sharing one process (
-                    #     concurrent ACP sessions, parallel sibling tool
-                    #     calls) never share warning-dedup state, so nothing
-                    #     needs to reset it between them;
-                    #   * NESTED sub-agent invocations (A invokes B invokes
-                    #     C) all inherit the SAME root value instead of each
-                    #     level minting its own fresh id, so "once per
-                    #     conversation" holds through an entire call tree,
-                    #     not just one hop.
+                    # Scope warn-once dedup to the conversation's ROOT identity
+                    # (ContextVar set at the top-level boundary), NOT this call's
+                    # session_id or the shared message-bus context: concurrent
+                    # conversations stay separate, and nested A→B→C invocations
+                    # share one id so "once per conversation" holds tree-wide.
                     conversation_scope=get_conversation_root_id(),
                 )
 
@@ -393,18 +357,12 @@ async def _invoke_agent_impl(
             instructions = agent_config.get_full_system_prompt()
             instructions += f"\n\n{_subagent_identity_prompt(agent_name)}"
 
-            # AGENTS.md (puppy rules) is deliberately NOT injected into
-            # sub-agents. Those files are user-facing steering for the MAIN
-            # agent; feeding them to sub-agents creates anti-patterns — e.g.
-            # a rule like "always invoke the xyz agent for abc" makes the
-            # xyz sub-agent (which has ``invoke_agent``) re-invoke itself in
-            # an infinite recursion trap. Sub-agents get only their own
-            # authored prompt + the identity note above.
+            # AGENTS.md deliberately NOT injected into sub-agents: those are
+            # user-facing steering for the MAIN agent and would create recursion
+            # traps (e.g. "always invoke xyz" makes xyz invoke itself).
 
-            # NOTE: ``load_prompt`` fragments (file-permission handling, kennel
-            # memory, ...) are already baked into ``get_full_system_prompt``
-            # via BaseAgent, so we must NOT append them again here — doing so
-            # double-injected them for class-based agents.
+            # NOTE: load_prompt fragments are already baked into get_full_system_prompt
+            # via BaseAgent — appending again would double-inject them.
             from code_puppy.model_utils import prepare_prompt_for_model
 
             # Handle claude-code models: swap instructions, and prepend system prompt only on first message
@@ -419,20 +377,10 @@ async def _invoke_agent_impl(
 
             model_settings = make_model_settings(effective_model_name)
 
-            # Get MCP servers bound to this sub-agent and warm up any with
-            # ``auto_start=True``. We MUST use the async autostart variant
-            # here (NOT ``start_server_sync``/``load_mcp_servers``) because
-            # ``temp_agent.run(...)`` below is wrapped in
-            # ``asyncio.create_task``, so pydantic-ai opens the MCP toolset's
-            # anyio cancel scopes inside *that* task. The fire-and-forget
-            # sync variant returns before the lifecycle task has entered
-            # the MCP singleton's context, which races pydantic-ai's entry
-            # and produces ``Attempted to exit a cancel scope that isn't
-            # the current task's current cancel scope`` on unwind.
-            # ``autostart_bound_servers_async`` awaits readiness, so by the
-            # time we hand the toolsets to pydantic-ai the lifecycle task
-            # already owns each cancel scope and pydantic-ai's re-entry
-            # hits the ``_running_count > 0`` no-op fast-path.
+            # Warm up bound MCP servers with the ASYNC autostart variant: the run
+            # is wrapped in create_task, and the sync variant races pydantic-ai's
+            # cancel-scope entry ("Attempted to exit a cancel scope..."). Awaiting
+            # readiness ensures the lifecycle task owns scopes before handoff.
             from code_puppy.agents._builder import autostart_bound_servers_async
             from code_puppy.config import get_value
             from code_puppy.mcp_ import get_mcp_manager
@@ -450,10 +398,8 @@ async def _invoke_agent_impl(
 
             from code_puppy.agents._compaction import make_history_processor
 
-            # Build the pydantic-ai agent. MCP servers are always included in
-            # the constructor; plugins (e.g. DBOS) may swap them out at run
-            # time via the ``agent_run_context`` hook if their wrapper can't
-            # handle them directly.
+            # Build the pydantic-ai agent. MCP servers always included; plugins
+            # (e.g. DBOS) may swap them via the agent_run_context hook.
             temp_agent = Agent(
                 model=model,
                 instructions=instructions,
@@ -481,15 +427,9 @@ async def _invoke_agent_impl(
                 kind="subagent",
             )
 
-            # Always use subagent_stream_handler to silence output and update console manager
-            # This ensures all sub-agent output goes through the aggregated dashboard.
-            # Exception: high output mode streams subagent activity inline so
-            # the user sees thinking, tool calls, and responses in real time.
-            #
-            # In high mode we wrap the handler in a StreamingTextDetector so
-            # we know whether the backend actually emitted text tokens. If it
-            # didn't (buffered response), we fall back to a one-shot render
-            # so the user always sees the result.
+            # subagent_stream_handler silences sub-agent output (aggregated
+            # dashboard); high mode streams it inline via a StreamingTextDetector,
+            # falling back to one-shot render if no text tokens were emitted.
             from code_puppy.config import get_output_level
 
             is_high_mode = get_output_level() == "high"
@@ -515,18 +455,9 @@ async def _invoke_agent_impl(
                 async with AsyncExitStack() as stack:
                     for cm in run_ctxs:
                         await stack.enter_async_context(cm)
-                    # Wrap the model stream in streaming_retry so a transient
-                    # provider hiccup (gateway 5xx delivered as an in-band SSE
-                    # error, a dropped SSE socket, an overloaded upstream) gets
-                    # the same slow spaced-out retry the top-level agent loop
-                    # gets -- except sub-agents get their own selectable retry
-                    # profile (SUBAGENT role), honouring any per-model override,
-                    # because losing a sub-agent's accumulated work to a
-                    # transient blip is never acceptable --
-                    # instead of crashing the whole sub-agent invocation. This
-                    # path was previously the ONLY unprotected model-stream
-                    # call -- run_agent_task uses @streaming_retry, but a raw
-                    # temp_agent.run() here surfaced the 5xx straight to the REPL.
+                    # streaming_retry on the model stream (5xx SSE / dropped socket)
+                    # with the SUBAGENT retry profile — this raw temp_agent.run()
+                    # was the only unprotected stream call; 5xx surfaced to the REPL.
                     from code_puppy.agents.retry_profiles import (
                         make_streaming_retry,
                     )
@@ -534,18 +465,15 @@ async def _invoke_agent_impl(
                     @make_streaming_retry(
                         "subagent",
                         effective_model_name,
-                        # The history processor checkpoints completed steps into
-                        # agent_config._message_history in place, so a growing
-                        # history means real forward progress -> refresh the
-                        # no-progress retry budget.
+                        # Growing history = real progress -> refresh the no-progress
+                        # retry budget (completed steps are checkpointed in place).
                         progress_fn=lambda: len(
                             agent_config.get_message_history() or []
                         ),
                     )
                     async def _run_subagent():
-                        # Resume from the live checkpoint, not the stale pre-run
-                        # snapshot, so a retried turn picks up completed steps
-                        # instead of redoing them (matches the main-agent loop).
+                        # Resume from live checkpoint so a retried turn reuses
+                        # completed steps instead of redoing them.
                         return await temp_agent.run(
                             prompt,
                             message_history=agent_config.get_message_history(),
@@ -553,15 +481,9 @@ async def _invoke_agent_impl(
                             event_stream_handler=stream_handler,
                         )
 
-                    # Time the full run (including streaming retries) so the
-                    # returned timestamps and duration_ms reflect honest
-                    # user-observed latency, not just a single attempt.
-                    # start_time/end_time are timezone-aware UTC ISO-8601
-                    # strings; duration_ms uses a monotonic clock so it is
-                    # immune to wall-clock adjustments during the run. This
-                    # instrumentation only runs for invoke_agent_with_model
-                    # (include_usage_metrics=True) -- invoke_agent skips it
-                    # entirely so its behavior/performance is unchanged.
+                    # Time the full run (incl. retries) so duration_ms reflects real
+                    # latency: UTC ISO-8601 start/end + monotonic duration. Only for
+                    # invoke_agent_with_model (include_usage_metrics=True).
                     run_started = time.perf_counter() if include_usage_metrics else None
                     start_time = (
                         datetime.now(timezone.utc).isoformat()
@@ -617,10 +539,8 @@ async def _invoke_agent_impl(
                 initial_prompt=prompt if is_new_session else None,
             )
 
-            # Emit structured response message via MessageBus.
-            # In high mode, skip the emit when streaming already rendered the
-            # response to avoid a double-render if any future subscriber
-            # starts rendering SubAgentResponseMessage.
+            # Emit via MessageBus; skip in high mode when streaming already
+            # rendered the response (avoids future double-render).
             if emit_response_message and not (is_high_mode and streamed_text):
                 bus.emit(
                     SubAgentResponseMessage(
@@ -654,11 +574,9 @@ async def _invoke_agent_impl(
         ) or _contains_cancellation(e)
 
         if interrupted:
-            # Ctrl-C raises CancelledError, which derives from BaseException and
-            # therefore slipped past the old ``except Exception`` save path --
-            # so an interrupted subagent lost both its partial history and its
-            # session ID. Persist progress, tell the user how to resume, then
-            # re-raise: persistence must not convert cancellation into success.
+            # CancelledError derives from BaseException, so it slipped past the
+            # old ``except Exception`` save path. Persist progress, tell the user
+            # how to resume, then re-raise (persistence must not mask cancel).
             saved = _save_partial_session(
                 agent_config=agent_config,
                 session_id=session_id,
@@ -671,11 +589,8 @@ async def _invoke_agent_impl(
                 if saved is not None
                 else "no new messages to save"
             )
-            # Leave a durable breadcrumb for the parent agent: its awaited
-            # tool call is about to be pruned from history as a dangling
-            # (return-less) call, so without this the model would forget the
-            # delegation ever happened. Drained + injected at the next run
-            # start.
+            # Durable breadcrumb for the parent: the awaited call would be pruned
+            # as dangling, so note the delegation; injected at the next run start.
             record_interrupted_subagent(
                 agent_name=agent_name,
                 session_id=session_id,
@@ -689,8 +604,7 @@ async def _invoke_agent_impl(
             raise
 
         if not isinstance(e, Exception):
-            # A non-cancellation BaseException (e.g. SystemExit): don't swallow
-            # it into a failure result.
+            # Non-cancellation BaseException (e.g. SystemExit): don't swallow.
             raise
 
         # Emit clean failure summary
@@ -768,10 +682,8 @@ def register_invoke_agent(agent):
             model_name=None,
         )
 
-    # Keep the pydantic-ai tool schema intentionally free of **kwargs/model_name
-    # while preserving Python-call compatibility with older tests/callers that
-    # passed extra keywords directly. The explicit model override affordance is
-    # register_invoke_agent_with_model; don't smuggle it back into invoke_agent.
+    # Keep the schema free of **kwargs/model_name (Python-call compat only); the
+    # explicit model override is register_invoke_agent_with_model — not here.
     invoke_agent.__signature__ = inspect.Signature(
         parameter
         for parameter in inspect.signature(invoke_agent).parameters.values()

@@ -87,14 +87,12 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
         except Exception as e:
             logger.debug("Failed to inject Codex fields into request: %s", e)
 
-        # The OpenAI SDK replaces the client's User-Agent while building each
-        # request. ChatGPT's Codex backend uses the Codex User-Agent for model
-        # routing, so newer models can otherwise return a misleading 404.
+        # SDK replaces User-Agent per request; Codex routes models by it, so
+        # re-apply ours or newer models hit a misleading 404.
         configured_user_agent = self.headers.get("User-Agent")
         if configured_user_agent:
             request.headers["User-Agent"] = configured_user_agent
 
-        # Make the actual request
         response = await super().send(request, *args, **kwargs)
 
         # If we forced streaming, convert the SSE stream to a regular response
@@ -148,9 +146,8 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
             data["store"] = False
             modified = True
 
-        # CRITICAL: ChatGPT Codex backend requires stream=true
-        # If stream is already true (e.g., pydantic-ai with event_stream_handler),
-        # don't force conversion - let streaming events flow through naturally
+        # CRITICAL: Codex requires stream=true; don't convert if already true
+        # (let pydantic-ai's event_stream_handler flow naturally).
         if data.get("stream") is not True:
             data["stream"] = True
             forced_stream = True  # Only convert if WE forced streaming
@@ -165,10 +162,8 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
             }
             modified = True
 
-        # When `store=false` (Codex requirement), the backend does NOT persist input items.
-        # That means any later request that tries to reference a previous item by id will 404.
-        # We defensively strip reference-style items (especially reasoning_content) to avoid:
-        #   "Item with id 'rs_...' not found. Items are not persisted when store is false."
+        # store=false: backend doesn't persist input items, so referencing one by id
+        # 404s. Strip reference-style items (esp. reasoning_content) to avoid that.
         input_items = data.get("input")
         if data.get("store") is False and isinstance(input_items, list):
             original_len = len(input_items)
@@ -242,14 +237,10 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
         final_response_data = None
         collected_text: list[str] = []
         collected_tool_calls: list[dict] = []
-        # Capture full output items from `response.output_item.done` events.
-        # When `store=false`, the `response.completed` event's `output` array
-        # is EMPTY — the only place the full items show up is in the
-        # output_item.done events. Without this we drop all model output on the
-        # floor and pydantic_ai retries forever.
+        # Capture output_item.done events: with store=false, response.completed's
+        # output is empty — these are the only source of model output.
         completed_output_items: list[dict] = []
 
-        # Read the entire stream
         async for line in response.aiter_lines():
             if not line or not line.startswith("data:"):
                 continue
@@ -269,11 +260,8 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
                         collected_text.append(delta)
 
                 elif event_type == "response.output_item.done":
-                    # This event carries the *complete* item (message,
-                    # reasoning, function_call, etc.) with full content.
-                    # Codex's `response.completed` event returns an empty
-                    # `output` array when `store=false`, so these are the
-                    # only reliable source of model output.
+                    # Complete item (message/reasoning/function_call) with full
+                    # content — only reliable output source when store=false.
                     item = event.get("item")
                     if isinstance(item, dict):
                         completed_output_items.append(item)
@@ -306,11 +294,8 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
                 f"Got final response data with keys: {list(final_response_data.keys())}"
             )
 
-        # Build the final response body.
-        # Strategy: start with the `response.completed` envelope (metadata,
-        # id, usage, etc.) and overwrite its `output` field with the items
-        # we collected from `response.output_item.done` events. This handles
-        # the store=false case where `response.completed.output` is empty.
+        # Build the body: take the response.completed envelope and overwrite its
+        # (empty when store=false) output with the collected output_item.done items.
         if final_response_data:
             response_body = dict(final_response_data)
             existing_output = response_body.get("output") or []

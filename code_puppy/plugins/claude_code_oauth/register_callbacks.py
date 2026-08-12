@@ -505,11 +505,9 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         )
         return None
 
-    # Check if interleaved thinking is enabled (defaults to True for OAuth models).
-    # NOTE: we read via get_all_model_settings (not get_effective_model_settings)
-    # because these are plugin-owned settings that aren't in the core
-    # supported_settings allowlist and would otherwise be filtered out.
-    # See fast_mode.FAST_SETTING_KEY for the full rationale.
+    # Interleaved thinking (defaults True for OAuth models). NOTE: read via
+    # get_all_model_settings — these plugin-owned settings aren't in core's
+    # supported_settings allowlist (see fast_mode.FAST_SETTING_KEY).
     from code_puppy.config import get_all_model_settings
 
     per_model_settings = get_all_model_settings(model_name)
@@ -549,16 +547,13 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
     if verify is None:
         verify = get_cert_bundle_path()
 
-    # Claude Code OAuth includes 1-hour prompt caching for free, so
-    # claude-code-* models ALWAYS request the extended TTL. Anything else
-    # (hand-rolled claude_code configs without the prefix) keeps Anthropic's
-    # default 5-minute TTL — this is deliberately NOT applied to plain
-    # anthropic/custom_anthropic models.
+    # claude-code-* OAuth models get 1-hour prompt caching free, so they ALWAYS
+    # request the extended TTL; plain anthropic/custom_anthropic models keep the
+    # default 5-minute TTL — deliberately not applied to those.
     cache_ttl = _resolve_cache_ttl(model_name)
 
-    # Disable HTTP/2 for Claude Code OAuth - the UnprefixingStream wrapper
-    # that transforms tool names in streaming responses doesn't play well
-    # with HTTP/2's compression handling, causing zlib decompression errors.
+    # No HTTP/2 for OAuth: the UnprefixingStream tool-name rewrite breaks under
+    # HTTP/2's compression handling, causing zlib decompression errors.
     client = ClaudeCacheAsyncClient(
         headers=headers,
         verify=verify,

@@ -63,14 +63,10 @@ class MessageEntry:
     full_text: str
     tool_calls: List[ToolCallInfo] = field(default_factory=list)
     tool_return_ids: List[str] = field(default_factory=list)
-    # Thinking / chain-of-thought content from the model. These are
-    # ``ThinkingPart`` instances that live inside a ``ModelResponse``
-    # alongside the regular ``TextPart`` reply. They're stored separately
-    # so the preview line stays focused on the user-facing answer while
-    # the detail pane can still surface what the model was thinking.
+    # Keep ThinkingPart content separate so previews show the user-facing answer
+    # while detail panes can still expose the model's reasoning.
     thinking_segments: List[str] = field(default_factory=list)
-    # Context-window analysis. Filled in by annotate_context_window().
-    # Both default to None when no estimator is available.
+    # Context-window annotations; None when no estimator is available.
     tokens: Optional[int] = None
     in_context: Optional[bool] = None
 
@@ -266,13 +262,8 @@ def _extract_message(message: Any) -> Optional[MessageEntry]:
                 content_str = str(part.content) if part.content is not None else ""
                 text_fragments.append(f"[tool-return: {part.tool_name}] {content_str}")
             elif RetryPromptPart is not None and isinstance(part, RetryPromptPart):
-                # pydantic-ai emits a RetryPromptPart when the model's tool
-                # call args fail validation — it's a tool-side response
-                # (carries tool_call_id + tool_name) telling the model
-                # "your args were wrong, here's the validation error".
-                # Treat it like ToolReturnPart so the parent tool call
-                # registers as having a return, and surface it with a
-                # distinctive label so users can spot wasted retry turns.
+                # RetryPromptPart reports tool-argument validation failures; treat it
+                # like ToolReturnPart so the parent call pairs and the retry is visible.
                 saw_tool_return = True
                 tcid = getattr(part, "tool_call_id", None)
                 if tcid:
@@ -284,10 +275,8 @@ def _extract_message(message: Any) -> Optional[MessageEntry]:
         if saw_system and not (saw_user or saw_tool_return):
             return None  # system-only prompt — never show, never prunable
 
-        # Role precedence: system > user > tool-return. pydantic-ai bundles
-        # the system prompt with the first user message into a single
-        # ModelRequest, so we need to call out that bundle as "system" — it
-        # is always in context and must never be toggled.
+        # System > user > tool-return: bundled system+user requests stay locked
+        # because the system prompt is always in context.
         if saw_system:
             role = "system"
         elif saw_user:
@@ -298,9 +287,8 @@ def _extract_message(message: Any) -> Optional[MessageEntry]:
             role = "unknown"
 
         text = "\n".join(text_fragments).strip() or "<empty request>"
-        # When system content is bundled with user content, prefer the
-        # user content for the preview line — that's what a human wants
-        # to scan when triaging an old turn.
+        # For system+user bundles, preview user text—the useful part when scanning
+        # old turns.
         if saw_system and user_text_fragments:
             preview_source = "\n".join(user_text_fragments)
         else:
@@ -396,9 +384,7 @@ def build_message_entries(raw_history: List[Any]) -> List[MessageEntry]:
         except Exception:  # pragma: no cover — older pydantic-ai
             RetryPromptPart = None  # type: ignore[assignment]
 
-        # Both ToolReturnPart and RetryPromptPart count as "the tool side
-        # responded" — they tie back to a parent ToolCallPart via
-        # ``tool_call_id`` and mean the call has a matching reply.
+        # ToolReturnPart and RetryPromptPart both satisfy a parent ToolCallPart.
         tool_reply_kinds: tuple = (ToolReturnPart,)
         if RetryPromptPart is not None:
             tool_reply_kinds = (ToolReturnPart, RetryPromptPart)
@@ -458,8 +444,7 @@ def annotate_context_window(
     except Exception:
         overhead = 0
 
-    # Map history_index -> raw message so we can hand the original object
-    # back to the estimator (entries don't carry the raw message).
+    # Map history indices to raw messages for the estimator.
     raw_by_idx = {i: msg for i, msg in enumerate(raw_history)}
 
     # Per-entry token count
@@ -474,20 +459,16 @@ def annotate_context_window(
             entry.tokens = None
             continue
 
-    # System messages (e.g. a system+user bundle at history[0]) are sent
-    # on every turn — always in context. Reserve their tokens upfront so
-    # the remaining budget is what non-system messages actually compete
-    # for in the contiguous-tail walk below.
+    # System messages are always sent; reserve their tokens before the
+    # contiguous non-system tail walk.
     system_tokens = 0
     for entry in entries:
         if entry.role == "system" and entry.tokens is not None:
             entry.in_context = True
             system_tokens += entry.tokens
 
-    # Walk newest → oldest, marking in_context until the budget runs
-    # out. The context window is a CONTIGUOUS tail: the ``overflowed``
-    # latch ensures that once any message fails to fit, every older
-    # message is also marked out-of-context, regardless of its size.
+    # Walk newest to oldest until the budget is exhausted; once one message
+    # overflows, all older messages are out of context.
     available_budget = max(0, context_length - overhead - system_tokens)
     non_system_cumulative = 0
     out_of_context_total = 0
@@ -510,10 +491,8 @@ def annotate_context_window(
 
     in_context_total = system_tokens + non_system_cumulative
 
-    # ``used_tokens`` reflects only the in-context tail (what would
-    # actually be sent next turn); messages that overflowed are
-    # reported separately via ``out_of_context_tokens`` so the budget
-    # percentage stays bounded at 100%.
+    # Report only the in-context tail in used_tokens; overflowed messages are
+    # separate so the percentage stays <=100%.
     budget.used_tokens = in_context_total
     budget.overhead_tokens = overhead
     budget.context_length = context_length if context_length > 0 else None

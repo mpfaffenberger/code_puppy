@@ -122,6 +122,5 @@ AZURE_FOUNDRY_CONFIG: dict[str, Any] = {
     "token_refresh_buffer": TOKEN_REFRESH_BUFFER,
 }
 
-# Note: supported_settings is determined per-tier in build_foundry_model_config():
-# - Opus 4.6: ["temperature", "extended_thinking", "effort"]
-# - Sonnet/Haiku: ["temperature", "interleaved_thinking", "thinking_budget"]
+# Per-tier supported_settings (see build_foundry_model_config()):
+# Opus 4.6 -> [temperature, extended_thinking, effort]; Sonnet/Haiku -> [temperature, interleaved_thinking, thinking_budget]

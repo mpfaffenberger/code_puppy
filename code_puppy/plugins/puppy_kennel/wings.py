@@ -48,10 +48,8 @@ def _resolve_worktree_root(git_path: Path) -> Path | None:
     except (OSError, ValueError):
         return None
 
-    # Only resolve worktrees, not submodules. Worktree gitdir paths contain
-    # a "worktrees" component (e.g. <main>/.git/worktrees/<name>), whereas
-    # submodules point to <superproject>/.git/modules/<name>. Submodules are
-    # distinct repos and should keep their own wing.
+    # Resolve worktrees (``.git/worktrees``), not submodules (``.git/modules``);
+    # submodules are separate repos and keep their own wing.
     if "worktrees" not in gitdir_path.parts:
         return None
 

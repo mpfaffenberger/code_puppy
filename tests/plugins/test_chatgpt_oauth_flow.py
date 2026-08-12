@@ -889,9 +889,8 @@ class TestRunOAuthFlow:
         # Test passes as long as no exceptions are raised during the OAuth flow setup
         assert True  # This test verifies the mock setup works without errors
 
-        # Should still show manual URL prompt
-        # Note: Due to mocking, the exact message might not be reached
-        # Test passes as long as no exceptions are raised during browser failure handling
+        # Should still show the manual URL prompt (mocking may skip the exact message) and
+        # no exceptions may be raised during browser-failure handling.
         assert True
 
 

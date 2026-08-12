@@ -22,9 +22,8 @@ import pytest
 
 @pytest.fixture
 def kennel_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    # ``PUPPY_KENNEL_ROOT`` now ONLY controls where the SQLite DB lives;
-    # it has nothing to do with the on/off toggle, which lives in
-    # puppy.cfg (isolated to a temp file by the root tests/conftest.py).
+    # ``PUPPY_KENNEL_ROOT`` only sets the SQLite DB location, NOT the on/off
+    # toggle (that lives in puppy.cfg, isolated by tests/conftest.py).
     root = tmp_path / "kennel"
     monkeypatch.setenv("PUPPY_KENNEL_ROOT", str(root))
 

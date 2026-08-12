@@ -20,18 +20,16 @@ from code_puppy.plugins.agent_skills.metadata import (
 # Global cache for loaded commands
 _custom_commands: Dict[str, str] = {}
 _command_descriptions: Dict[str, str] = {}
-# Commands whose frontmatter declares `exec: <shell command>` are executed
-# directly instead of being forwarded to the agent. The value is the raw
-# shell command string (run with shell=True so ``~`` / pipes / env vars work).
+# Commands whose frontmatter declares `exec: <shell command>` run directly instead of
+# being agent-forwarded; value is the raw shell string (shell=True => ~/pipes/env work).
 _command_exec_directives: Dict[str, str] = {}
 _commands_loaded: bool = False  # Sentinel to track if commands have been loaded
 
 # Soft cap so a runaway script can't wedge the prompt forever.
 _EXEC_TIMEOUT_SECONDS = 30
 
-# Directories to scan for commands (in priority order - later directories override earlier)
-# The global commands dir reuses CONFIG_DIR (the canonical ~/.code_puppy resolver,
-# XDG-aware) so it stays in lockstep with the rest of code-puppy's file layout.
+# Scan dirs (priority order; later overrides earlier). The global dir reuses the
+# XDG-aware CONFIG_DIR so it stays in lockstep with code-puppy's file layout.
 _GLOBAL_COMMANDS_DIR = os.path.join(CONFIG_DIR, "commands")
 _COMMAND_DIRECTORIES = [
     _GLOBAL_COMMANDS_DIR,  # Global commands (all projects)
@@ -40,13 +38,9 @@ _COMMAND_DIRECTORIES = [
     ".agents/commands",
 ]
 
-# `exec:` directives run arbitrary shell, so we only honor them from the global,
-# user-owned config dir. Project-relative dirs (``.claude/commands``,
-# ``.github/prompts``, ``.agents/commands``) live inside whatever repo you
-# happen to be standing in -- a cloned hostile repo could otherwise drop an
-# ``exec:`` command that runs the moment you invoke it, bypassing the plugin
-# trust ceremony entirely. Bodies from those dirs still load as normal
-# (agent-forwarded) commands; only the exec fast-path is gated.
+# `exec:` runs arbitrary shell, so honor it only from the global user-owned dir; a hostile
+# repo could otherwise drop an exec: command that runs on invocation, bypassing the trust
+# ceremony. Bodies still load from project dirs; only the exec fast-path is gated.
 _TRUSTED_EXEC_DIRECTORIES = frozenset({_GLOBAL_COMMANDS_DIR})
 
 
@@ -90,12 +84,9 @@ def _is_in_skipped_namespace(md_file: Path, root: Path) -> bool:
     return any(part.startswith(_SKIP_DIR_PREFIXES) for part in namespace_parts)
 
 
-# Wibey authors commands with a double-slash prefix (//flux/new), but code-puppy
-# slash-commands use a single slash (/flux/new). Collapse a leading "//" that
-# begins a line (optionally indented) at LOAD time so the source .md files stay
-# untouched. Anchoring to line start leaves real URLs -- including
-# whitespace-preceded protocol-relative ones like ``fetch //cdn.example.com`` --
-# completely alone; only a ``//command`` at the start of a line is rewritten.
+# Wibey uses a "//" prefix for commands; code-puppy uses "/". Collapse a line-leading
+# (optionally indented) "//" at load time, leaving URLs like ``fetch //cdn.example.com``
+# alone — only a ``//command`` at line start is rewritten.
 _DOUBLE_SLASH_PREFIX_RE = re.compile(r"(?m)^(\s*)//(?=[\w-])")
 
 
@@ -193,28 +184,23 @@ def _load_markdown_commands() -> None:
                 # -> "flux/new"); top-level files stay un-namespaced.
                 base_name = _command_name_from_path(md_file, dir_path)
 
-                # Read raw content, then separate frontmatter from the body.
-                # NB: do NOT strip `raw` before parsing -- FRONTMATTER_PATTERN
-                # requires a trailing newline after the closing `---`, so a
-                # body-less (exec-only) command file would otherwise fail to
-                # parse: its exec: directive would be silently dropped and the
-                # raw YAML leaked to the model as the command body.
+                # NB: do NOT strip `raw` before parsing -- FRONTMATTER_PATTERN needs a
+                # trailing newline after `---`, so a body-less exec-only file would
+                # otherwise drop its exec: directive and leak raw YAML as the body.
                 raw = md_file.read_text(encoding="utf-8")
                 if not raw.strip():
                     continue
 
-                # The name/description frontmatter is metadata for the command
-                # system -- strip it so the agent receives clean instructions
-                # (otherwise the model treats the YAML block as context noise).
+                # Strip the name/description frontmatter so the agent gets clean
+                # instructions (else the model treats the YAML block as context noise).
                 meta = parse_yaml_frontmatter(raw)
                 body = FRONTMATTER_PATTERN.sub("", raw, count=1).strip()
                 exec_directive = meta.get("exec")
                 has_exec = isinstance(exec_directive, str) and bool(
                     exec_directive.strip()
                 )
-                # Skip only when there's genuinely nothing to register: no body
-                # AND no exec directive. An exec-only command (frontmatter only)
-                # is legitimate and must still load.
+                # Skip only when there's no body AND no exec directive — an exec-only
+                # (frontmatter only) command is legitimate and must still load.
                 if not body and not has_exec:
                     continue
 
@@ -229,11 +215,9 @@ def _load_markdown_commands() -> None:
                 _custom_commands[base_name] = body
                 _command_descriptions[base_name] = description
 
-                # Optional: `exec: <shell command>` runs a script instead of
-                # forwarding the body to the agent. Used for things like
-                # /flux/status that render their own colored output. Only
-                # honored from trusted (user-owned) dirs -- an exec directive
-                # from a project-relative dir is downgraded to a normal command.
+                # Optional `exec:` runs a script instead of forwarding the body (e.g.
+                # /flux/status renders its own colored output). Only honored from trusted
+                # user-owned dirs; a project-relative directive is downgraded to normal.
                 if has_exec:
                     if exec_allowed:
                         _command_exec_directives[base_name] = exec_directive.strip()

@@ -223,11 +223,46 @@ class TestAddBedrockModelsToConfig:
         from code_puppy.plugins.aws_bedrock.utils import add_bedrock_models_to_config
 
         with patch(
-            "code_puppy.plugins.aws_bedrock.utils.save_extra_models",
-            return_value=False,
+            "code_puppy.plugins.aws_bedrock.utils.atomic_json.mutate_json",
+            side_effect=OSError("disk full"),
         ):
             result = add_bedrock_models_to_config()
             assert result == []
+
+    def test_concurrent_calls_do_not_lose_updates(self, tmp_extra_models):
+        """Pins the adversarial-review finding: add/remove used to split the
+        read and write across two unlocked calls, so a concurrent writer to
+        the same extra_models.json (e.g. ollama-setup) could lose an update.
+        add_bedrock_models_to_config now goes through one locked
+        atomic_json.mutate_json transaction, same as the other writers.
+        """
+        import threading
+
+        from code_puppy.plugins.aws_bedrock.utils import add_bedrock_models_to_config
+
+        def _add_other_entry(name):
+            from code_puppy import atomic_json
+
+            def _mutate(data):
+                data[name] = {"type": "custom_openai"}
+                return data
+
+            atomic_json.mutate_json(str(tmp_extra_models), _mutate, default={})
+
+        threads = [
+            threading.Thread(target=_add_other_entry, args=(f"other_{i}",))
+            for i in range(8)
+        ]
+        for t in threads:
+            t.start()
+        add_bedrock_models_to_config(aws_region="us-east-1")
+        for t in threads:
+            t.join(timeout=10)
+
+        data = json.loads(tmp_extra_models.read_text())
+        assert "bedrock-opus-4-7" in data
+        for i in range(8):
+            assert f"other_{i}" in data
 
 
 class TestRemoveBedrockModelsFromConfig:
@@ -253,8 +288,8 @@ class TestRemoveBedrockModelsFromConfig:
         )
 
         with patch(
-            "code_puppy.plugins.aws_bedrock.utils.save_extra_models",
-            return_value=False,
+            "code_puppy.plugins.aws_bedrock.utils.atomic_json.mutate_json",
+            side_effect=OSError("disk full"),
         ):
             result = remove_bedrock_models_from_config()
             assert result == []

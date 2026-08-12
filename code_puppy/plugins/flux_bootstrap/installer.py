@@ -39,9 +39,8 @@ try:
 except ImportError:  # pragma: no cover - Windows has no fcntl
     fcntl = None  # type: ignore[assignment]
 
-# Best-effort cross-process lock so two code-puppy instances launched during the
-# one-time install window don't both walk/copy the tree at once (torn reads,
-# spurious .bak files). Dot-file so the command loader ignores it.
+# Best-effort cross-process lock so two instances can't both walk/copy the tree during
+# the one-time install window (torn reads, spurious .bak). Dot-file -> loader ignores it.
 LOCK_NAME = ".flux_bootstrap.lock"
 
 # Directory holding the shipped payload (``bundled/commands`` + ``bundled/scripts``).
@@ -200,19 +199,11 @@ def _install_pass(config_dir: Path, current_version: str) -> InstallReport:
             continue
 
         # Content differs from what we ship. Two cases:
-        #
-        #   1. We never installed this file (``rel not in manifest``). It's a
-        #      pre-existing, user-owned file that merely shares a name with our
-        #      payload. Preserve it *in place* -- do NOT back it up, overwrite
-        #      it, or claim it in the manifest. The user's file wins, forever,
-        #      unless they delete it. This is what stops a fresh Flux install
-        #      from stomping a user's own global command of the same name.
-        #
-        #   2. We installed it before (``rel in manifest``). It's ours to
-        #      update. If the on-disk hash matches what the manifest says we
-        #      wrote, it's untouched -> overwrite freely. Otherwise the user
-        #      hand-edited our copy -> preserve theirs as a uniquely-named
-        #      ``.bak`` before laying down the fresh version.
+        #   1) ``rel not in manifest``: a pre-existing user-owned file with the same
+        #      name — preserve it in place forever (never back up/overwrite/claim it),
+        #      so a fresh install can't stomp the user's own global command.
+        #   2) ``rel in manifest``: ours. Untouched (hash matches) -> overwrite freely;
+        #      otherwise the user hand-edited it -> keep theirs as a unique ``.bak``.
         if rel not in manifest:
             report.skipped.append(rel)
             continue

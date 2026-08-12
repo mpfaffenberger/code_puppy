@@ -24,22 +24,10 @@ from typing import TYPE_CHECKING
 
 from code_puppy.callbacks import register_callback
 
-# NOTE: Sibling module imports (.themes, .picker, .content_styles, .osc_palette,
-# .rich_themes, .prompt_toolkit_theme) and heavier code_puppy imports
-# (colors_menu, config, messaging) live inside the functions that use them
-# rather than at module scope. This keeps `.picker` (TUI widgets), `.themes`
-# (large color-menu tables), and `.prompt_toolkit_theme` off the plugin-
-# discovery critical path. Combined with the deferred _prompt_toolkit_style
-# shim below, importing this module adds ~10 ms warm / ~30 ms cold on top
-# of the theme package itself.
-#
-# Caveat: this file is NOT the complete picture. code_puppy/plugins/theme/
-# __init__.py still eagerly imports .content_styles / .osc_palette /
-# .rich_themes and calls reapply_from_config() on each, which transitively
-# pulls in ~115 prompt_toolkit modules via code_puppy.messaging.rich_renderer.
-# A follow-up would need to defer the __init__.py sweep too (probably by
-# registering a startup callback that runs the reapply). See the PR discussion
-# for scope rationale.
+# NOTE: Keep heavy theme/TUI imports inside callers so plugin discovery stays
+# fast; the deferred style import saves startup time. Caveat: theme/__init__.py
+# still eagerly imports style modules/reapplies config, so prompt_toolkit remains
+# on the startup path until that sweep is deferred too.
 
 _INTERACTIVE_TIMEOUT_SECONDS = 300  # 5 min — generous; user is browsing
 _ACTIVE_THEME_CONFIG_KEY = "theme_active_theme"
@@ -53,10 +41,7 @@ def _custom_help():
     ]
 
 
-# --- Rendering helpers ------------------------------------------------------
-# Note: emit_info escapes Rich markup for safety, so these helpers emit
-# plain text only. Pretty visual previews live in the picker (which uses
-# Rich directly).
+# Rendering helpers: emit_info escapes Rich markup, while picker previews use Rich.
 def _format_banner_mapping(mapping: dict[str, str]) -> str:
     from code_puppy.command_line.colors_menu import BANNER_DISPLAY_INFO
 
@@ -278,9 +263,8 @@ def _prompt_toolkit_style(style: "BaseStyle | None" = None) -> "BaseStyle":
     return merge_with_active_style(style)
 
 
-# Preserve the real callback's name for observability. code_puppy.callbacks
-# logs callback.__name__ on failure; without this the log would read
-# "_prompt_toolkit_style failed" which is less useful than the real symbol.
+# Preserve the callback name for failure logs; the real symbol is more useful than
+# "_prompt_toolkit_style failed".
 _prompt_toolkit_style.__name__ = "merge_with_active_style"
 
 

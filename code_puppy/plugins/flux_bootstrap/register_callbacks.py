@@ -61,9 +61,8 @@ def _install_flux_commands() -> None:
                     "Backed up locally-modified Flux files (see *.bak): "
                     + ", ".join(report.backed_up)
                 )
-            # The command cache was populated at plugin import time -- before we
-            # just wrote these files. Force a rescan so /flux/... is
-            # dispatchable *this* session instead of after a restart.
+            # Command cache was populated at import time, before we wrote these files —
+            # rescan so /flux/... dispatches this session instead of after a restart.
             _reload_command_cache()
     except Exception as exc:  # never let bootstrap break startup
         emit_warning(f"Flux bootstrap skipped (install failed): {exc}")

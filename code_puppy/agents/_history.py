@@ -78,10 +78,9 @@ def estimate_tokens(text: str) -> int:
     return max(1, math.floor(len(text) / 2.5))
 
 
-# Models whose tokenizer the char/2.5 heuristic systematically *under*counts.
-# Bump these by a calibration factor so context-usage math stops lying to us.
-# Substring match is case-insensitive; both naming orders are accepted because
-# vendor naming is a coin flip.
+# Models whose tokenizer the char/2.5 heuristic systematically *under*counts;
+# bump by a calibration factor. Case-insensitive substring match — vendor
+# naming order is a coin flip.
 _TOKEN_MULTIPLIER_RULES: tuple[tuple[tuple[str, ...], float], ...] = (
     (("opus-4-7", "4-7-opus"), 1.35),
 )
@@ -250,16 +249,10 @@ def estimate_context_overhead(
     return _apply_multiplier(total, model_name)
 
 
-# Pydantic-AI has FOUR part kinds that carry a tool_call_id:
-#   * tool-call            -> ToolCallPart            (regular tool call)
-#   * tool-return          -> ToolReturnPart          (regular tool response)
-#   * builtin-tool-call    -> BuiltinToolCallPart     (claude extended-thinking, etc.)
-#   * builtin-tool-return  -> BuiltinToolReturnPart   (builtin tool response)
-#   * retry-prompt         -> RetryPromptPart         (assistant told to retry; acts as a response)
-#
-# Treating only `tool-call` / `tool-return` (and ignoring the others) caused
-# subtle bugs: e.g. builtin tool calls on Claude Opus were counted as pending
-# forever, deferring summarization on every turn.
+# Pydantic-AI has FIVE part kinds carrying a tool_call_id: tool-call/-return,
+# builtin-tool-call/-return (claude extended-thinking), and retry-prompt (acts
+# as a response). Counting only tool-call/-return caused bugs: e.g. builtin
+# calls on Claude Opus stayed "pending" forever, deferring summarization.
 _TOOL_CALL_PART_KINDS: frozenset[str] = frozenset({"tool-call", "builtin-tool-call"})
 _TOOL_RETURN_PART_KINDS: frozenset[str] = frozenset(
     {"tool-return", "builtin-tool-return", "retry-prompt"}
@@ -355,10 +348,9 @@ def filter_huge_messages(
     return prune_interrupted_tool_calls(filtered)
 
 
-# Anthropic's API requires tool_use IDs to match this pattern.
-# Other providers (Kimi, etc.) may generate IDs with dots, colons, etc.
-# that violate this constraint. When switching models mid-conversation,
-# those dirty IDs persist in the message history and cause 400 errors.
+# Anthropic requires tool_use IDs to match this pattern; other providers
+# (Kimi, etc.) may emit IDs with dots/colons that violate it. Those dirty IDs
+# persist through mid-conversation model switches and cause 400 errors.
 _ANTHROPIC_TOOL_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 # Character-level replacement: swap any character NOT in the allowed set.
 _BAD_TOOL_ID_CHAR_RE = re.compile(r"[^a-zA-Z0-9_-]")
@@ -390,21 +382,18 @@ def sanitize_tool_call_ids(
     for msg in messages:
         for part in getattr(msg, "parts", []) or []:
             tcid = getattr(part, "tool_call_id", None)
-            # Gemini's native API puts thoughtSignature on FunctionCall as a
-            # separate field. The OpenAI-compat schema has no such field, so
-            # LiteLLM smuggles it into tool_call_id: `<id>__thought__<base64>`.
-            # Gemini requires this to round-trip intact — even the `_<6digit>`
-            # collision-guard suffix below corrupts it and causes a 400 on the
-            # next tool turn. The collision guard isn't needed here anyway: the
-            # embedded signature makes each id globally unique. _LITELLM_THOUGHT_RE
-            # matches the exact suffix so only genuine carrier ids are exempted.
+            # Gemini puts thoughtSignature on FunctionCall; the OpenAI-compat
+            # schema has no such field, so LiteLLM smuggles it into tool_call_id
+            # as `<id>__thought__<base64>`. It must round-trip intact — even the
+            # collision-guard suffix corrupts it (400 next turn), and it's
+            # unneeded anyway (the signature makes ids globally unique).
+            # _LITELLM_THOUGHT_RE matches the exact suffix to exempt carriers.
             if tcid and _LITELLM_THOUGHT_RE.search(tcid):
                 continue
             if tcid and not _ANTHROPIC_TOOL_ID_RE.match(tcid):
                 if tcid not in bad_ids:
-                    # Replace non-matching chars with '_' and append a short
-                    # hash suffix to avoid collisions from different dirty IDs
-                    # that sanitize to the same string.
+                    # Replace non-matching chars with '_' plus a short hash
+                    # suffix to avoid collisions between IDs that sanitize alike.
                     sanitized_base = _BAD_TOOL_ID_CHAR_RE.sub("_", tcid)
                     collision_guard = format(abs(hash(tcid)) % (10**6), "06d")
                     candidate = f"{sanitized_base}_{collision_guard}"

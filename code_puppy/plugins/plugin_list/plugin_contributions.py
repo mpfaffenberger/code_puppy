@@ -28,9 +28,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from code_puppy.callbacks import get_callback_owner, get_callbacks
 
-# ---------------------------------------------------------------------------
-# Category keys (stable identifiers the preview renderer can key off).
-# ---------------------------------------------------------------------------
+# Category keys (stable identifiers used by the preview renderer).
 CATEGORY_TOOLS = "tools"
 CATEGORY_COMMANDS = "commands"
 CATEGORY_AGENTS = "agents"
@@ -42,9 +40,7 @@ CATEGORY_BROWSER_TYPES = "browser_types"
 CATEGORY_AGENT_TOOLS = "agent_tools"
 
 
-# ---------------------------------------------------------------------------
 # Owner-filtered invocation primitives
-# ---------------------------------------------------------------------------
 def _owned_callbacks(plugin_name: str, phase: str) -> List[Callable[..., Any]]:
     """Return *phase*'s callbacks attributed to *plugin_name*."""
     return [
@@ -93,9 +89,7 @@ def _dict_key(entry: Any, key: str) -> str:
     return ""
 
 
-# ---------------------------------------------------------------------------
-# Direct-registry attribution (commands / tools that bypass callback hooks)
-# ---------------------------------------------------------------------------
+# Direct-registry attribution (commands/tools bypassing callback hooks)
 def _plugin_owner_of_module(module_name: Optional[str]) -> Optional[str]:
     """Map a callable's ``__module__`` to the plugin name that defines it.
 
@@ -123,9 +117,7 @@ def _owns_callable(plugin_name: str, func: Any) -> bool:
     return _plugin_owner_of_module(module_name) == plugin_name
 
 
-# ---------------------------------------------------------------------------
 # Per-category extraction helpers
-# ---------------------------------------------------------------------------
 def _collect_dict_field(
     plugin_name: str, phase: str, field: str, *args: Any
 ) -> List[str]:
@@ -330,9 +322,7 @@ def _dict_keys(result: Any) -> List[str]:
     return [k for k in result.keys() if isinstance(k, str) and k]
 
 
-# ---------------------------------------------------------------------------
 # Public aggregate API
-# ---------------------------------------------------------------------------
 _EXTRACTORS: Dict[str, Callable[[str], List[str]]] = {
     CATEGORY_TOOLS: get_tools,
     CATEGORY_COMMANDS: get_commands,

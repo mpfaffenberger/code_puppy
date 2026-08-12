@@ -146,14 +146,10 @@ def _has_string_literal(node: ast.expr) -> bool:
     if isinstance(node, ast.Constant):
         return isinstance(node.value, str)
     if isinstance(node, ast.JoinedStr):  # f-string
-        # An f-string is only "raw" when it has at least one constant part
-        # with meaningful (non-whitespace) text, e.g. f"Error: {e}".
-        # Pure-variable forms like f"{var}" or f"  {var}" are dynamic.
-        #
-        # Also recurse into ``FormattedValue.value`` so a wrapped literal
-        # like ``f"{'Error: connection refused'}"`` (which parses as
-        # ``JoinedStr([FormattedValue(Constant('...'))])``) is still
-        # classified as raw instead of being dropped as dynamic.
+        # An f-string is "raw" only with a non-whitespace constant part (e.g.
+        # f"Error: {e}"); pure-variable forms like f"{var}" are dynamic.
+        # Recurse into ``FormattedValue.value`` too, so a wrapped literal like
+        # `f"{'Error: connection refused'}"` stays classified as raw.
         return any(
             (
                 isinstance(v, ast.Constant)
@@ -245,10 +241,9 @@ def _iter_py_files(root: str) -> Iterable[str]:
 def audit_tree(root: str) -> Report:
     """Audit every Python module under ``root``, or ``root`` itself when it is a ``.py`` file."""
     if not os.path.isdir(root) and not os.path.isfile(root):
-        # Silent-zero is worse than useless — an empty Report has
-        # coverage == 100.0, so a typo'd path would sail past
-        # ``--fail-under`` and tell CI everything is fine. Fail loud:
-        # this is a config/programming error, not a data condition.
+        # Silent-zero is worse than useless: an empty Report has coverage==100,
+        # so a typo'd path would sail past ``--fail-under``. Fail loud — this
+        # is a config/programming error, not a data condition.
         raise FileNotFoundError(f"audit root does not exist: {root!r}")
     report = Report()
     for path in sorted(_iter_py_files(root)):

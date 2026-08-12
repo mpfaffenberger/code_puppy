@@ -454,6 +454,54 @@ class TestAddRemoveFoundryModels:
                 remaining = json.load(f)
             assert "foundry-claude-opus" not in remaining
 
+    def test_add_foundry_models_concurrent_with_another_writer_does_not_lose_updates(
+        self, tmp_path
+    ):
+        """Pins the adversarial-review finding: add_foundry_models_to_config
+        used to split the read and write across two unlocked calls, so a
+        concurrent writer to the same extra_models.json (e.g. ollama-setup,
+        or the aws_bedrock plugin) could lose an update. It now goes
+        through one locked atomic_json.mutate_json transaction.
+        """
+        import threading
+
+        from code_puppy.plugins.azure_foundry.utils import (
+            add_foundry_models_to_config,
+        )
+
+        models_path = tmp_path / "models.json"
+
+        def _add_other_entry(name):
+            from code_puppy import atomic_json
+
+            def _mutate(data):
+                data[name] = {"type": "custom_openai"}
+                return data
+
+            atomic_json.mutate_json(str(models_path), _mutate, default={})
+
+        threads = [
+            threading.Thread(target=_add_other_entry, args=(f"other_{i}",))
+            for i in range(8)
+        ]
+        with patch(
+            "code_puppy.plugins.azure_foundry.utils.get_extra_models_path",
+            return_value=models_path,
+        ):
+            for t in threads:
+                t.start()
+            add_foundry_models_to_config(
+                resource_name="my-resource",
+                opus_deployment="it-entra-claude-opus-4-6",
+            )
+            for t in threads:
+                t.join(timeout=10)
+
+        data = json.loads(models_path.read_text())
+        assert "foundry-claude-opus" in data
+        for i in range(8):
+            assert f"other_{i}" in data
+
 
 class TestGetFoundryModelsFromConfig:
     """Test getting Foundry models from configuration."""

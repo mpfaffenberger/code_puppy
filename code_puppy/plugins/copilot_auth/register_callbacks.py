@@ -379,9 +379,8 @@ def _create_copilot_model(model_name: str, model_config: Dict, config: Dict) -> 
         )
         return None
 
-    # Build HTTP client with Copilot-required headers and dynamic token refresh.
-    # The CopilotAuth flow replaces the Authorization header before every request,
-    # so the session token is always fresh even for long-running conversations.
+    # Client with Copilot-required headers + per-request token refresh: _CopilotAuth
+    # swaps the Authorization header every request, keeping long convos fresh.
     copilot_headers = {
         "Editor-Version": COPILOT_AUTH_CONFIG["editor_version"],
         "Editor-Plugin-Version": COPILOT_AUTH_CONFIG["editor_plugin_version"],
@@ -421,9 +420,8 @@ def _create_copilot_model(model_name: str, model_config: Dict, config: Dict) -> 
         http_client=client,
     )
 
-    # Build a model profile that tells pydantic-ai how to handle thinking.
-    # Claude models behind the Copilot API return thinking in a custom field
-    # called "reasoning_text" (and encrypted round-trip data in "reasoning_opaque").
+    # Profile telling pydantic-ai how to handle thinking: Copilot Claude models return
+    # it in custom fields "reasoning_text" / encrypted "reasoning_opaque".
     profile = None
     underlying_name = model_config.get("name", "").lower()
     if underlying_name.startswith("claude-"):
@@ -431,10 +429,9 @@ def _create_copilot_model(model_name: str, model_config: Dict, config: Dict) -> 
 
         from .reasoning_client import patch_client_for_reasoning_opaque
 
-        # Enable field-mode so thinking persists across tool calls.
-        # The reasoning_opaque round-trip interceptor (patched onto the
-        # httpx client below) captures the encrypted blob from responses
-        # and re-injects it into subsequent requests, preventing 400s.
+        # Field-mode so thinking persists across tool calls; the reasoning_opaque
+        # interceptor (patched onto the httpx client) re-injects the encrypted blob
+        # into subsequent requests, preventing 400s.
         profile = OpenAIModelProfile(
             openai_chat_thinking_field="reasoning_text",
             openai_supports_reasoning=True,

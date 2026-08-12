@@ -27,16 +27,9 @@ from code_puppy.tools.file_permission_state import set_diff_already_shown
 # =============================================================================
 # Approval queueing locks
 # =============================================================================
-#
-# When multiple parallel tool calls request user approval simultaneously
-# (e.g. four ``rm -rf`` shell commands fired in parallel, or several
-# destructive file ops), we MUST serialize the prompts -- the user can
-# only answer one at a time, and prompt_toolkit can only own stdin once.
-#
-# These module-level locks turn ``get_user_approval`` /
-# ``get_user_approval_async`` into queues: callers wait their turn
-# instead of being silently auto-rejected. The async lock is created
-# lazily so it binds to whatever event loop is actually running.
+# Parallel tool calls must serialize approval prompts (one answer at a time;
+# prompt_toolkit owns stdin once). These locks queue callers; the async lock
+# is created lazily to bind to the running event loop.
 
 _APPROVAL_SYNC_LOCK = threading.Lock()
 _APPROVAL_ASYNC_LOCK: Optional[asyncio.Lock] = None
@@ -82,19 +75,10 @@ def _deny_noninteractive_approval(title: str) -> tuple[bool, None]:
 # =============================================================================
 # Pluggable approval backend
 # =============================================================================
-#
-# By default, user approval is collected via an interactive stdin prompt
-# (see ``get_user_approval`` / ``get_user_approval_async``). Frontends that
-# have no stdin to prompt on -- a GUI, a web UI, or an editor speaking the
-# Agent Client Protocol -- would otherwise fail closed (auto-deny) via
-# ``_deny_noninteractive_approval`` above.
-#
-# An embedder can instead register an approval *backend*: a callable that
-# renders the request in its own UI and returns the user's decision. When a
-# backend is registered it takes precedence over the stdin prompt in BOTH the
-# sync and async approval paths. The backend is a plain synchronous callable
-# (an async backend would have to bridge two event loops); the async path
-# runs it in a worker thread so it never blocks the running loop.
+# Frontends without stdin (GUI/web/ACP editor) would otherwise fail closed.
+# An embedder registers a sync ``ApprovalBackend`` callable, which takes
+# precedence over stdin in BOTH sync and async paths (async runs it in a
+# worker thread to avoid bridging event loops).
 
 ApprovalBackend = Callable[[str, str, Optional[str]], Tuple[bool, Optional[str]]]
 _APPROVAL_BACKEND: Optional[ApprovalBackend] = None
@@ -125,17 +109,9 @@ def _approval_message_text(content) -> str:
 # =============================================================================
 # Active working directory (async-safe base for relative path resolution)
 # =============================================================================
-#
-# Tools resolve relative paths against a base directory. By default that base is
-# the process CWD (``os.getcwd()``). An embedder that runs Code Puppy against a
-# workspace it did not ``cd`` into -- e.g. an editor speaking the Agent Client
-# Protocol, where each session carries its own ``cwd`` -- can override the base
-# *without mutating process-global state* (``os.chdir`` would corrupt the SDK's
-# own I/O, subprocesses, and any concurrent session).
-#
-# This uses a ``ContextVar`` so the override is isolated per asyncio task and
-# propagates into sync tools (pydantic-ai runs them via anyio ``to_thread``,
-# which copies the context to the worker thread). ``None`` means "use os.getcwd".
+# Default base is os.getcwd(); embedders (ACP editor sessions carry their own
+# cwd) can override WITHOUT os.chdir (would corrupt SDK I/O + concurrent
+# sessions). ContextVar isolates per task and propagates to to_thread workers.
 
 _WORKING_DIR: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
     "code_puppy_working_dir", default=None
@@ -252,9 +228,8 @@ def should_suppress_browser() -> bool:
 
 # -------------------
 # Shared ignore patterns/helpers
-# Split into directory vs file patterns so tools can choose appropriately
-# - list_files should ignore only directories (still show binary files inside non-ignored dirs)
-# - grep should ignore both directories and files (avoid grepping binaries)
+# Directory vs file patterns: list_files ignores dirs only; grep ignores both
+# (to avoid binary files).
 # -------------------
 DIR_IGNORE_PATTERNS = [
     # Version control
@@ -1095,9 +1070,8 @@ async def arrow_select_async(
     sys.stdout.flush()
     sys.stderr.flush()
 
-    # Suspend the background key listener so prompt_toolkit has
-    # exclusive ownership of stdin -- otherwise CPR replies get eaten
-    # and arrow keys behave erratically (two readers, one stdin).
+    # Suspend the key listener so prompt_toolkit owns stdin exclusively —
+    # otherwise CPR replies get eaten and arrow keys behave erratically.
     from code_puppy.agents._key_listeners import suspended_key_listener
 
     with suspended_key_listener():
@@ -1290,10 +1264,8 @@ def _get_user_approval_impl(
         padding=(1, 2),
     )
 
-    # This approval prompt takes over the terminal: suspend the run UI
-    # (bottom-bar scroll region + key-listener stdin ownership) so the
-    # panel and arrow selector render on a normal full-height screen.
-    # Exception-safe: __exit__ runs in the finally block below.
+    # Approval prompt takes over the terminal: suspend the run UI (scroll
+    # region + stdin ownership) so the panel renders full-height. Exception-safe.
     from code_puppy.messaging.run_ui import suspended_run_ui
 
     set_awaiting_user_input(True)
@@ -1483,10 +1455,8 @@ async def _get_user_approval_async_impl(
         padding=(1, 2),
     )
 
-    # This approval prompt takes over the terminal: suspend the run UI
-    # (bottom-bar scroll region + key-listener stdin ownership) so the
-    # panel and arrow selector render on a normal full-height screen.
-    # Exception-safe: __exit__ runs in the finally block below.
+    # Approval prompt takes over the terminal: suspend the run UI (scroll
+    # region + stdin ownership) so the panel renders full-height. Exception-safe.
     from code_puppy.messaging.run_ui import suspended_run_ui
 
     set_awaiting_user_input(True)
@@ -1530,10 +1500,8 @@ async def _get_user_approval_async_impl(
             confirmed = False
             emit_info("")
             emit_info(f"Tell {puppy_name} what to change:")
-            # Rich's Prompt.ask reads stdin -- suspend the key listener
-            # so it doesn't fight us for keystrokes. Without this, the
-            # key-listener thread eats roughly half the user's keypresses
-            # and the feedback box appears "broken."
+            # Prompt.ask reads stdin — suspend the key listener or it eats
+            # roughly half the keystrokes (feedback box looks "broken").
             from code_puppy.agents._key_listeners import suspended_key_listener
 
             with suspended_key_listener():
