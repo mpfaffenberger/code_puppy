@@ -95,8 +95,6 @@ _PARENT_SID: ContextVar = ContextVar("subagent_panel_parent_sid", default=None)
 # Shared rendering helpers are re-exported from panel_render for compatibility.
 from .panel_render import (  # noqa: E402
     _model_short as _model_short,  # noqa: F401  (re-export)
-    _model_variant as _model_variant,  # noqa: F401  (re-export)
-    _model_version as _model_version,  # noqa: F401  (re-export)
     _ordered_tree,
     _row_lines,
 )
