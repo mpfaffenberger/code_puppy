@@ -281,21 +281,15 @@ def _live_mcp_servers_for(agent):
 def _kennel_memory_block() -> str:
     """Return the kennel's current recall block, or an empty string.
 
-    We call the kennel retriever directly — same code path the prompt
+    Goes through the neutral provider seam — same code path the prompt
     assembly uses on ``load_prompt`` — so the token count we report here
     matches the block actually shipped to the model. Returns ``""`` when
     the kennel plugin isn't installed, is disabled, or has nothing to
     surface this turn.
     """
-    try:
-        from code_puppy.plugins.puppy_kennel.retriever import build_recall_block
-    except Exception:
-        return ""
-    try:
-        block = build_recall_block()
-    except Exception:
-        return ""
-    return block or ""
+    from code_puppy.kennel_provider import get_kennel_recall_block
+
+    return get_kennel_recall_block()
 
 
 def _agent_tools(agent):
