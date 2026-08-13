@@ -394,6 +394,31 @@ def should_fallback_to_non_streaming(exc: Exception) -> bool:
     return False
 
 
+def _retry_status_message(
+    exc: Exception, delay: float, total: int, streak: int, max_attempts: int
+) -> str:
+    """Build an accurate, concise PowerShell retry message.
+
+    A retry does not prove that a completed agent step exists, so the old
+    "last completed step" banner was misleading. Show the actual provider or
+    transport failure instead, while retaining the retry timing and budget.
+    """
+    message = " ".join(str(exc).split())
+    if len(message) > 300:
+        message = f"{message[:297]}..."
+    lowered = message.lower()
+    if "rate limit" in lowered or "too many requests" in lowered or "429" in lowered:
+        reason = f"Model provider rate limit: {message}"
+    elif should_fallback_to_non_streaming(exc):
+        reason = f"Streaming protocol error: {message}"
+    else:
+        reason = f"Transient model request failure ({type(exc).__name__}): {message}"
+    return (
+        f"{reason}. Retrying in {delay}s "
+        f"(attempt {total}, retry streak {streak}/{max_attempts})."
+    )
+
+
 # Default retry budget for the raw ``streaming_retry`` mechanism when called
 # with no explicit policy. Gentle, *escalating* backoff -- deliberately not a
 # tight boom-boom-boom burst. In normal operation the main loop and sub-agents
@@ -529,9 +554,9 @@ def streaming_retry(
 
                         delay = MIN_DELAY_SECONDS
                     emit_warning(
-                        "\u26a1 Turn interrupted mid-stream, re-running from the "
-                        f"last completed step in {delay}s... "
-                        f"(attempt {total}, streak {streak}/{max_attempts})"
+                        _retry_status_message(
+                            exc, delay, total, streak, max_attempts
+                        )
                     )
                     await asyncio.sleep(delay)
 

@@ -13,7 +13,10 @@ import httpx
 import pytest
 from pydantic_ai import UnexpectedModelBehavior
 
-from code_puppy.agents._runtime import should_fallback_to_non_streaming
+from code_puppy.agents._runtime import (
+    _retry_status_message,
+    should_fallback_to_non_streaming,
+)
 from code_puppy.agents.base_agent import should_retry_streaming_exception
 
 try:
@@ -338,6 +341,33 @@ class TestStreamingTransportFallbackClassifier:
         )
         assert should_retry_streaming_exception(err)
         assert not should_fallback_to_non_streaming(err)
+
+
+class TestStreamingRetryStatusMessage:
+    def test_rate_limit_shows_the_actual_provider_error(self):
+        err = _make_openai_api_error(
+            "Your requests to gpt-5.4 for gpt-5.4 in eastus2 have exceeded rate limit."
+        )
+
+        message = _retry_status_message(err, 5, 1, 1, 5)
+
+        assert message.startswith("Model provider rate limit:")
+        assert "gpt-5.4 in eastus2" in message
+        assert "Retrying in 5s" in message
+        assert "Turn interrupted mid-stream" not in message
+        assert "last completed step" not in message
+
+    def test_protocol_error_shows_the_actual_transport_error(self):
+        err = UnexpectedModelBehavior(
+            "Malformed streamed SSE event: extra JSON data in SSE payload"
+        )
+
+        message = _retry_status_message(err, 15, 2, 2, 5)
+
+        assert message.startswith("Streaming protocol error:")
+        assert "Malformed streamed SSE event" in message
+        assert "Retrying in 15s" in message
+        assert "Turn interrupted mid-stream" not in message
 
 
 class TestWrappedTransientErrors:
