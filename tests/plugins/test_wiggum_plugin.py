@@ -95,7 +95,7 @@ def test_judges_command_invokes_menu():
             return_value=_ExecCtx(),
         ),
         patch(
-            "code_puppy.command_line.judges_menu.interactive_judges_menu"
+            "code_puppy.plugins.wiggum.judges_menu.interactive_judges_menu"
         ) as mock_menu,
     ):
         mock_asyncio.run.return_value = None
@@ -177,3 +177,19 @@ def test_usage_hint_mentions_aliases():
     joined = " ".join(captured)
     assert "/kibble" in joined
     assert "/chow" in joined
+
+
+def test_autonomous_loop_capability_tracks_state():
+    """The feature_capability seam mirrors live wiggum state (no core import)."""
+    from code_puppy.plugins.wiggum import state
+    from code_puppy.plugins.wiggum.register_callbacks import (
+        _autonomous_loop_capability,
+    )
+
+    assert _autonomous_loop_capability("something_else") is None
+    state.start("loop it")
+    try:
+        assert _autonomous_loop_capability("autonomous_loop") is True
+    finally:
+        state.stop()
+    assert _autonomous_loop_capability("autonomous_loop") is False

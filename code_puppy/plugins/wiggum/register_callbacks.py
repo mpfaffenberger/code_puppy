@@ -136,7 +136,7 @@ def handle_judges_command(command: str) -> bool:
     del command
     import concurrent.futures
 
-    from code_puppy.command_line.judges_menu import interactive_judges_menu
+    from .judges_menu import interactive_judges_menu
 
     # The menu is async; run it in a fresh event loop on a worker thread so
     # we don't collide with whatever loop the CLI is using.
@@ -553,5 +553,17 @@ def _on_interactive_turn_cancel(prompt: str, *, reason: str = "cancelled") -> No
             emit_info(f"Resume it with: /goal resume {run_id}")
 
 
+def _autonomous_loop_capability(name: str) -> bool | None:
+    """Advertise the autonomous-loop state through ``feature_capability``.
+
+    Core (e.g. ask_user_question) checks ``autonomous_loop`` to decide
+    whether interactive tools should be blocked, without importing wiggum.
+    """
+    if name != "autonomous_loop":
+        return None
+    return state.is_active()
+
+
 register_callback("interactive_turn_end", _on_interactive_turn_end)
 register_callback("interactive_turn_cancel", _on_interactive_turn_cancel)
+register_callback("feature_capability", _autonomous_loop_capability)

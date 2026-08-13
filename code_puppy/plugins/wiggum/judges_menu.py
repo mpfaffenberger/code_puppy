@@ -41,7 +41,7 @@ from code_puppy.command_line.pagination import (
     get_total_pages,
 )
 from code_puppy.messaging import emit_info, emit_success, emit_warning
-from code_puppy.plugins.wiggum.judge_config import (
+from .judge_config import (
     DEFAULT_JUDGE_PROMPT,
     JudgeConfig,
     add_judge,
