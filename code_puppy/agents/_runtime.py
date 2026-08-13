@@ -360,6 +360,40 @@ def should_retry_streaming(exc: Exception) -> bool:
     return False
 
 
+def should_fallback_to_non_streaming(exc: Exception) -> bool:
+    """Return True when the streaming transport itself is the problem.
+
+    This is deliberately *narrower* than :func:`should_retry_streaming`.
+    Rate limits and provider 5xx responses are transient, but replaying them as
+    an immediate non-streaming request just burns another request and can make a
+    hot rate-limit window worse. Transport fallback is reserved for cases where
+    the SSE channel/protocol is corrupted or ended early, and a one-shot render
+    over non-streaming is meaningfully different.
+    """
+    seen: set[int] = set()
+    stack: list[BaseException] = [exc]
+    while stack:
+        node = stack.pop()
+        if node is None or id(node) in seen:
+            continue
+        for link in _walk_cause_chain(node):
+            if id(link) in seen:
+                continue
+            seen.add(id(link))
+            if isinstance(link, (httpx.RemoteProtocolError, httpcore.RemoteProtocolError)):
+                return True
+            if isinstance(link, UnexpectedModelBehavior):
+                msg = str(link).lower()
+                if (
+                    "malformed streamed sse event" in msg
+                    or "extra json data in sse payload" in msg
+                    or ("stream" in msg and "ended" in msg)
+                ):
+                    return True
+            stack.extend(_group_members(link))
+    return False
+
+
 # Default retry budget for the raw ``streaming_retry`` mechanism when called
 # with no explicit policy. Gentle, *escalating* backoff -- deliberately not a
 # tight boom-boom-boom burst. In normal operation the main loop and sub-agents
@@ -732,15 +766,69 @@ async def _run_with_mcp_impl(
             progress_fn=lambda: len(agent._message_history or []),
         )
 
+        stream_failed = False
+        stream_recovery_announced = False
+
+        async def _call_once() -> Any:
+            """Call once; switch transport only for broken streaming protocols."""
+            nonlocal stream_failed, stream_recovery_announced
+            handler = None if stream_failed else stream_handler
+            try:
+                return await pydantic_agent.run(
+                    prompt_to_use,
+                    message_history=agent._message_history,
+                    usage_limits=usage_limits,
+                    event_stream_handler=handler,
+                    **kwargs,
+                )
+            except Exception as exc:
+                if (
+                    not stream_handler
+                    or stream_failed
+                    or not should_fallback_to_non_streaming(exc)
+                ):
+                    raise
+
+                # The stream transport itself is corrupted. Retrying the same
+                # SSE path unchanged is cargo cult; switch to one-shot render.
+                stream_failed = True
+                import logging as _logging
+
+                _logging.getLogger(__name__).exception(
+                    "stream_recovery model=%s provider=%s mode=stream "
+                    "first_event=unknown expected=response.created retries=0 "
+                    "fallback=non_stream reason=%s",
+                    agent.get_model_name(),
+                    type(getattr(pydantic_agent, "model", None)).__name__,
+                    type(exc).__name__,
+                )
+                if not stream_recovery_announced:
+                    stream_recovery_announced = True
+                    emit_warning(" Stream transport broke — retrying without SSE.")
+                try:
+                    result = await pydantic_agent.run(
+                        prompt_to_use,
+                        message_history=agent._message_history,
+                        usage_limits=usage_limits,
+                        event_stream_handler=None,
+                        **kwargs,
+                    )
+                except Exception as fallback_exc:
+                    _logging.getLogger(__name__).exception(
+                        "stream_recovery model=%s provider=%s mode=non_stream "
+                        "fallback=non_stream final_failure=%s",
+                        agent.get_model_name(),
+                        type(getattr(pydantic_agent, "model", None)).__name__,
+                        type(fallback_exc).__name__,
+                    )
+                    emit_warning(" Stream recovery failed — user action required.")
+                    raise
+                emit_info("Recovered by switching to non-streaming mode.")
+                return result
+
         @_main_retry
         async def _call() -> Any:
-            return await pydantic_agent.run(
-                prompt_to_use,
-                message_history=agent._message_history,
-                usage_limits=usage_limits,
-                event_stream_handler=stream_handler,
-                **kwargs,
-            )
+            return await _call_once()
 
         async def _call_with_exception_recovery() -> Any:
             """Run ``_call`` and let plugins request one exception retry."""
@@ -778,7 +866,7 @@ async def _run_with_mcp_impl(
                     follow_up_prompt,
                     message_history=agent._message_history,
                     usage_limits=usage_limits,
-                    event_stream_handler=stream_handler,
+                    event_stream_handler=None if stream_failed else stream_handler,
                     **kwargs,
                 )
 

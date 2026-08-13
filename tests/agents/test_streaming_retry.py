@@ -13,6 +13,7 @@ import httpx
 import pytest
 from pydantic_ai import UnexpectedModelBehavior
 
+from code_puppy.agents._runtime import should_fallback_to_non_streaming
 from code_puppy.agents.base_agent import should_retry_streaming_exception
 
 try:
@@ -312,6 +313,31 @@ class TestExpandedRetryClassifier:
             "upstream stream ended unexpectedly",
         ):
             assert should_retry_streaming_exception(UnexpectedModelBehavior(phrasing))
+
+
+class TestStreamingTransportFallbackClassifier:
+    def test_accepts_malformed_sse_artifacts(self):
+        assert should_fallback_to_non_streaming(
+            UnexpectedModelBehavior(
+                "Malformed streamed SSE event: extra JSON data in SSE payload"
+            )
+        )
+
+    def test_accepts_protocol_errors(self):
+        assert should_fallback_to_non_streaming(
+            httpx.RemoteProtocolError("peer closed connection")
+        )
+
+    def test_rejects_rate_limit_errors(self):
+        err = _make_openai_api_error(
+            "Your requests to gpt-5.4 for gpt-5.4 in eastus2 have exceeded rate limit.",
+            body={
+                "message": "Your requests to gpt-5.4 for gpt-5.4 in eastus2 have exceeded rate limit.",
+                "type": "rate_limit_error",
+            },
+        )
+        assert should_retry_streaming_exception(err)
+        assert not should_fallback_to_non_streaming(err)
 
 
 class TestWrappedTransientErrors:
