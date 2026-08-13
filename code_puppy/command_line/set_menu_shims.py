@@ -27,7 +27,7 @@ def get_max_pause_seconds_effective() -> float:
 
 
 def get_goal_max_iterations_effective() -> int:
-    """Mirrors :func:`code_puppy.plugins.wiggum.register_callbacks._get_goal_max_iterations`."""
+    """Mirrors the goal-iteration clamp owned by the wiggum plugin."""
     val = get_value("goal_max_iterations")
     try:
         n = int(val) if val else 10  # GOAL_MAX_ITERATIONS_DEFAULT

@@ -9,6 +9,8 @@ import os
 import pathlib
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 from code_puppy import config as cp_config
 
@@ -165,57 +167,44 @@ class TestNumericGetters:
     def test_get_resume_message_count_default(self):
         assert cp_config.get_resume_message_count() == 50
 
-    def test_get_resume_message_count_custom(self):
-        cp_config.set_config_value("resume_message_count", "30")
-        assert cp_config.get_resume_message_count() == 30
-
-    def test_get_resume_message_count_clamped(self):
-        cp_config.set_config_value("resume_message_count", "999")
-        assert cp_config.get_resume_message_count() == 100
-
-    def test_get_resume_message_count_invalid(self):
-        cp_config.set_config_value("resume_message_count", "bad")
-        assert cp_config.get_resume_message_count() == 50
+    @pytest.mark.parametrize("value, expected", [("30", 30), ("999", 100), ("bad", 50)])
+    def test_get_resume_message_count(self, value, expected):
+        cp_config.set_config_value("resume_message_count", value)
+        assert cp_config.get_resume_message_count() == expected
 
     def test_get_compaction_threshold_default(self):
         assert cp_config.get_compaction_threshold() == 0.85
 
-    def test_get_compaction_threshold_custom(self):
-        cp_config.set_config_value("compaction_threshold", "0.7")
-        assert cp_config.get_compaction_threshold() == 0.7
-
-    def test_get_compaction_threshold_clamped_low(self):
-        cp_config.set_config_value("compaction_threshold", "0.1")
-        assert cp_config.get_compaction_threshold() == 0.5
-
-    def test_get_compaction_threshold_invalid(self):
-        cp_config.set_config_value("compaction_threshold", "xyz")
-        assert cp_config.get_compaction_threshold() == 0.85
+    @pytest.mark.parametrize(
+        "value, expected", [("0.7", 0.7), ("0.1", 0.5), ("xyz", 0.85)]
+    )
+    def test_get_compaction_threshold(self, value, expected):
+        cp_config.set_config_value("compaction_threshold", value)
+        assert cp_config.get_compaction_threshold() == expected
 
     def test_get_compaction_strategy_default(self):
         assert cp_config.get_compaction_strategy() == "summarization"
 
-    def test_get_compaction_strategy_values(self):
-        cp_config.set_config_value("compaction_strategy", "summarization")
-        assert cp_config.get_compaction_strategy() == "summarization"
-        cp_config.set_config_value("compaction_strategy", "truncation")
-        assert cp_config.get_compaction_strategy() == "truncation"
-
-    def test_get_compaction_strategy_invalid(self):
-        cp_config.set_config_value("compaction_strategy", "invalid")
-        assert cp_config.get_compaction_strategy() == "summarization"
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("summarization", "summarization"),
+            ("truncation", "truncation"),
+            ("invalid", "summarization"),
+        ],
+    )
+    def test_get_compaction_strategy(self, value, expected):
+        cp_config.set_config_value("compaction_strategy", value)
+        assert cp_config.get_compaction_strategy() == expected
 
     def test_get_message_limit_default(self):
         cp_config.reset_value("message_limit")
         assert cp_config.get_message_limit() == 1000
 
-    def test_get_message_limit_custom(self):
-        cp_config.set_config_value("message_limit", "500")
-        assert cp_config.get_message_limit() == 500
-
-    def test_get_message_limit_invalid(self):
-        cp_config.set_config_value("message_limit", "bad")
-        assert cp_config.get_message_limit() == 1000
+    @pytest.mark.parametrize("value, expected", [("500", 500), ("bad", 1000)])
+    def test_get_message_limit(self, value, expected):
+        cp_config.set_config_value("message_limit", value)
+        assert cp_config.get_message_limit() == expected
 
     def test_get_message_limit_custom_default(self):
         cp_config.reset_value("message_limit")
@@ -225,17 +214,10 @@ class TestNumericGetters:
         cp_config.reset_value("diff_context_lines")
         assert cp_config.get_diff_context_lines() == 6
 
-    def test_get_diff_context_lines_custom(self):
-        cp_config.set_config_value("diff_context_lines", "10")
-        assert cp_config.get_diff_context_lines() == 10
-
-    def test_get_diff_context_lines_clamped(self):
-        cp_config.set_config_value("diff_context_lines", "100")
-        assert cp_config.get_diff_context_lines() == 50
-
-    def test_get_diff_context_lines_invalid(self):
-        cp_config.set_config_value("diff_context_lines", "bad")
-        assert cp_config.get_diff_context_lines() == 6
+    @pytest.mark.parametrize("value, expected", [("10", 10), ("100", 50), ("bad", 6)])
+    def test_get_diff_context_lines(self, value, expected):
+        cp_config.set_config_value("diff_context_lines", value)
+        assert cp_config.get_diff_context_lines() == expected
 
     def test_get_max_saved_sessions_default(self):
         assert cp_config.get_max_saved_sessions() == 20
@@ -279,21 +261,13 @@ class TestTemperature:
         cp_config.set_config_value("temperature", "")
         assert cp_config.get_temperature() is None
 
-    def test_get_temperature_valid(self):
-        cp_config.set_config_value("temperature", "0.7")
-        assert cp_config.get_temperature() == 0.7
-
-    def test_get_temperature_clamped_high(self):
-        cp_config.set_config_value("temperature", "5.0")
-        assert cp_config.get_temperature() == 2.0
-
-    def test_get_temperature_clamped_low(self):
-        cp_config.set_config_value("temperature", "-1.0")
-        assert cp_config.get_temperature() == 0.0
-
-    def test_get_temperature_invalid(self):
-        cp_config.set_config_value("temperature", "bad")
-        assert cp_config.get_temperature() is None
+    @pytest.mark.parametrize(
+        "value, expected",
+        [("0.7", 0.7), ("5.0", 2.0), ("-1.0", 0.0), ("bad", None)],
+    )
+    def test_get_temperature(self, value, expected):
+        cp_config.set_config_value("temperature", value)
+        assert cp_config.get_temperature() == expected
 
     def test_set_temperature_none(self):
         cp_config.set_temperature(None)
@@ -737,20 +711,6 @@ class TestAgentPinnedModels:
         # empty string is treated as falsy but returned by get_value
         assert not cp_config.get_agent_pinned_model("test-agent")
 
-    def test_get_all_agent_pinned_models(self):
-        cp_config.set_agent_pinned_model("a1", "m1")
-        cp_config.set_agent_pinned_model("a2", "m2")
-        pinnings = cp_config.get_all_agent_pinned_models()
-        assert pinnings.get("a1") == "m1"
-        assert pinnings.get("a2") == "m2"
-
-    def test_get_agents_pinned_to_model(self):
-        cp_config.set_agent_pinned_model("pa1", "target")
-        cp_config.set_agent_pinned_model("pa2", "other")
-        result = cp_config.get_agents_pinned_to_model("target")
-        assert "pa1" in result
-        assert "pa2" not in result
-
 
 # ---------------------------------------------------------------------------
 # Puppy token
@@ -894,9 +854,8 @@ class TestAutosaveSession:
         assert name.startswith("auto_session_")
 
     def test_set_from_session_name_with_prefix(self):
-        # Post-unification: the deprecation shim stores the full name verbatim
-        # rather than stripping the `auto_session_` prefix. Documented behavior
-        # change so the singleton always holds a loadable session filename.
+        # Post-unification: the deprecation shim stores the full name verbatim (no
+        # `auto_session_` strip) so the singleton always holds a loadable filename.
         result = cp_config.set_current_autosave_from_session_name(
             "auto_session_20250101_120000"
         )

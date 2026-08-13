@@ -89,8 +89,7 @@ def _approval_backend(
         return False, None
 
     # Guard against being called on the loop thread itself: blocking on
-    # run_coroutine_threadsafe there would deadlock. File tools run off-loop,
-    # so this is belt-and-suspenders.
+    # run_coroutine_threadsafe there would deadlock (file tools run off-loop).
     try:
         running = asyncio.get_running_loop()
     except RuntimeError:

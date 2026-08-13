@@ -254,10 +254,9 @@ def install_server_from_catalog(
     Returns True if successful, False otherwise.
     """
     try:
-        import json
         import os
 
-        from code_puppy.config import MCP_SERVERS_FILE
+        from code_puppy.command_line.mcp.mcp_servers_store import upsert_mcp_server
         from code_puppy.mcp_.managed_server import ServerConfig
 
         # Set environment variables in the current environment
@@ -296,24 +295,9 @@ def install_server_from_catalog(
             return False
 
         # Save to mcp_servers.json for persistence
-        if os.path.exists(MCP_SERVERS_FILE):
-            with open(MCP_SERVERS_FILE, "r") as f:
-                data = json.load(f)
-                servers = data.get("mcp_servers", {})
-        else:
-            servers = {}
-            data = {"mcp_servers": servers}
-
-        # Add new server
-        # Copy the config dict and add type before saving
         save_config = config_dict.copy()
         save_config["type"] = selected_server.type
-        servers[server_name] = save_config
-
-        # Save back
-        os.makedirs(os.path.dirname(MCP_SERVERS_FILE), exist_ok=True)
-        with open(MCP_SERVERS_FILE, "w") as f:
-            json.dump(data, f, indent=2)
+        upsert_mcp_server(server_name, save_config)
 
         emit_info(
             Text.from_markup(

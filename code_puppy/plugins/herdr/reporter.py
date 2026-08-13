@@ -63,9 +63,8 @@ class HerdrReporter:
         # Latest working activity (``thinking`` / ``running <tool>``). Only
         # surfaces while WORKING; BLOCKED and IDLE derive their own message.
         self._activity: Optional[str] = None
-        # Durable session reference (name, pickle_path) -- NOT the per-run
-        # group_id UUID, which changes every turn and can't identify a
-        # resumable session.
+        # Durable session reference (name, pickle_path) — NOT the per-run group_id UUID,
+        # which changes every turn and can't identify a resumable session.
         self._session_ref: Optional[Tuple[str, str]] = None
 
     @property
@@ -153,9 +152,8 @@ class HerdrReporter:
     def on_run_end(self, *_ignored) -> None:
         with self._lock:
             self._run_depth = max(0, self._run_depth - 1)
-        # At depth 0 the model has stopped. The interactive turn boundary is
-        # the canonical idle signal, but headless (`-p`) runs never fire it,
-        # so falling idle at depth 0 keeps non-interactive panes honest too.
+        # Depth 0 = model stopped. The turn boundary is the canonical idle signal but
+        # headless (`-p`) runs never fire it, so depth-0 idle keeps panes honest too.
         self._sync()
 
     def on_run_cancel(self) -> None:
@@ -186,11 +184,9 @@ class HerdrReporter:
             self._awaiting = False
             self._activity = None
         self._sync()
-        # A completed interactive turn is the canonical place to refresh pane
-        # metadata: the token payload is computed once, OUTSIDE the reporter
-        # lock, and enqueued on the decorative lane. Sending every turn also
-        # refreshes the metadata TTL even when the formatted values are
-        # unchanged. Tool callbacks and blocked edges do no token math.
+        # A completed turn is the canonical metadata refresh point: payload computed
+        # once, outside the reporter lock, on the decorative lane. Sending every turn
+        # also refreshes the TTL; tool callbacks / blocked edges do no token math.
         self._emit_metadata()
 
     def _emit_metadata(self) -> None:
@@ -207,10 +203,9 @@ class HerdrReporter:
         self._sync()
 
     def on_shutdown(self) -> None:
-        # Release pane authority directly -- no intermediate idle report.
-        # release_and_close() is idempotent and bounded, so calling it from
-        # both session_end and shutdown (and against an unavailable herdr)
-        # can never delay process exit.
+        # Release pane authority directly (no intermediate idle report).
+        # release_and_close() is idempotent and bounded, so calling it from both
+        # session_end and shutdown can never delay process exit.
         self._client.release_and_close()
 
 

@@ -38,9 +38,7 @@ _CONTRIB_LABELS: List[Tuple[str, str]] = [
 ]
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 def _registers_command_handler(name: str) -> bool:
     """Whether *name* registered a ``custom_command`` hook.
 
@@ -64,9 +62,7 @@ def _append_wrapped(
         lines.append(("", "\n"))
 
 
-# ---------------------------------------------------------------------------
 # List pane (left)
-# ---------------------------------------------------------------------------
 def render_list(menu: "PluginsMenu") -> Fragments:
     lines: Fragments = []
 
@@ -133,9 +129,8 @@ def render_list(menu: "PluginsMenu") -> Fragments:
 
 
 def _render_hints(lines: Fragments) -> None:
-    # Keys mirror the inspect_history plugin so muscle memory carries over
-    # across both split-pane inspectors. See _build_key_bindings docstring
-    # for the full mental model.
+    # Match inspect_history bindings so muscle memory carries across split-pane
+    # inspectors; see _build_key_bindings for the full mapping.
     hints: List[Tuple[str, str, str]] = [
         ("class:tui.help-key", "  up/down or j/k ", "Navigate"),
         ("class:tui.help-key", "  PgUp/PgDn      ", "Page"),
@@ -150,9 +145,7 @@ def _render_hints(lines: Fragments) -> None:
         lines.append(("", label if i == len(hints) - 1 else f"{label}\n"))
 
 
-# ---------------------------------------------------------------------------
 # Detail pane (right)
-# ---------------------------------------------------------------------------
 
 # Status line + explanation for project plugins the trust gate held back.
 # ``{name}`` is substituted with the plugin name in the hint text.
@@ -346,9 +339,7 @@ def render_detail(menu: "PluginsMenu") -> Fragments:
 
     if menu._changed:
         lines.append(("", "\n\n"))
-        # Let the shared wrapper decide whether this fits on one line --
-        # hard-coding a two-line split made the warning look broken on
-        # any pane wider than ~50 cols (which is the common case).
+        # Let wrap_text choose the split; hard-coding one broke wider panes.
         inner = max(20, menu._detail_cols - 4)  # -2 indent, -2 frame border
         _append_wrapped(
             lines,
@@ -391,11 +382,8 @@ def _render_contributions(
 
     lines.append(("bold", "  Contributes:"))
     lines.append(("", "\n"))
-    # Pre-wrap contribution items to the pane's inner width. Without this,
-    # long entries (e.g. agent_skills /<skill-name> entries with trimmed
-    # 80-char descriptions) extend past our padding cap and leave stale
-    # tail glyphs (a literal "...") when the user switches to a plugin
-    # whose detail content doesn't reach those columns.
+    # Pre-wrap long contributions so stale tail glyphs cannot bleed into the
+    # divider when switching to a shorter plugin.
     bullet_prefix = "      • "
     cont_prefix = "        "  # aligns continuation lines under the text
     inner = max(20, menu._detail_cols - 2 - len(bullet_prefix))
@@ -414,9 +402,7 @@ def _render_contributions(
     lines.append(("", "\n"))
 
 
-# ---------------------------------------------------------------------------
 # Pane post-processing (cell padding + blank-row fill)
-# ---------------------------------------------------------------------------
 def fill_pane(fragments: Fragments, pane_cols: int, pane_rows: int) -> Fragments:
     """Strip emojis, pad to pane width, fill to *pane_rows* rows.
 

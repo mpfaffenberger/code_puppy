@@ -37,15 +37,12 @@ _COMMAND_NAME = "widemenu"
 _PATCH_FLAG = "_wide_completion_menu_patched"
 _ORIGINAL_ATTR = "_wide_completion_menu_original_preferred_width"
 
-# Module-level state so the /widemenu command can flip behavior without
-# uninstalling the patch. When False the patched preferred_width delegates
-# back to the original implementation.
+# Module state lets /widemenu toggle without uninstalling; disabled mode delegates
+# ``preferred_width`` to upstream.
 _state = {"enabled": True}
 
 
-# ---------------------------------------------------------------------------
-# Messaging helpers (lazy-imported to dodge boot-time circular imports)
-# ---------------------------------------------------------------------------
+# Messaging helpers (lazy-imported to avoid boot-time cycles)
 def _emit_info(message: str) -> None:
     from code_puppy.messaging import emit_info
 
@@ -58,9 +55,7 @@ def _emit_error(message: str) -> None:
     emit_error(message)
 
 
-# ---------------------------------------------------------------------------
 # Patching
-# ---------------------------------------------------------------------------
 def _patch_menu_class(cls) -> None:
     """Replace ``cls.preferred_width`` with a screen-filling variant.
 
@@ -78,9 +73,7 @@ def _patch_menu_class(cls) -> None:
         if not _state["enabled"]:
             return original(self, max_available_width)
 
-        # Only stretch when there's actually a completion menu to show;
-        # otherwise upstream returns 0 and we should too (avoids reserving
-        # a full-width strip for an empty menu).
+        # Stretch only when a completion menu exists; upstream returns 0 when empty.
         try:
             from prompt_toolkit.application.current import get_app
 
@@ -115,9 +108,7 @@ def _on_startup() -> None:
         _emit_error(f"wide_completion_menu: failed to install patch — {exc}")
 
 
-# ---------------------------------------------------------------------------
 # /widemenu slash command
-# ---------------------------------------------------------------------------
 _USAGE = "Usage: /widemenu [on|off|toggle|status]"
 
 
@@ -159,9 +150,7 @@ def _handle_custom_command(command: str, name: str):
     return _handle_widemenu_command(command)
 
 
-# ---------------------------------------------------------------------------
 # Registration
-# ---------------------------------------------------------------------------
 register_callback("startup", _on_startup)
 register_callback("custom_command", _handle_custom_command)
 register_callback("custom_command_help", _custom_help)

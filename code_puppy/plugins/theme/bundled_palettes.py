@@ -85,9 +85,8 @@ TOKYO_NIGHT = {
 }
 
 GREEN_SCREEN = {
-    # Ported from llxprt-code's canonical Green Screen theme: black glass,
-    # green phosphor, and one eye-searing highlight. Yes, it is meant to be
-    # this green.
+    # llxprt-code's Green Screen palette: black glass, green phosphor, and one
+    # intentionally eye-searing highlight.
     "bg": "#000000",
     "fg": "#6a9955",
     "ansi": [
@@ -299,9 +298,8 @@ VAPORWAVE = {
 }
 
 PURPLE_PUPPY = {
-    # Colors lifted straight off the purple puppy mascot: vivid violet fur
-    # (#8408b0), lighter highlight fur, deep shade purple, white muzzle,
-    # pink tongue, and an inky outline for the background.
+    # Purple puppy mascot colors: violet fur, lavender muzzle, pink tongue, and
+    # an inky background.
     "bg": "#1c0630",
     "fg": "#f0e3ff",
     "ansi": [

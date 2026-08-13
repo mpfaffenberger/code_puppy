@@ -298,9 +298,8 @@ class TestCompact:
         The user-visible symptom was "Summarization deferred: pending tool
         call(s) detected" firing on every turn, with history growing unbounded.
         """
-        # Build a huge history with a permanent orphan tool_call at the start —
-        # the kind of thing that lives in a long-running session after a
-        # cancelled command.
+        # Huge history with a permanent orphan tool_call at the start — what a
+        # long-running session keeps after a cancelled command.
         msgs = _build_long_history(n_turns=20)
         # Inject an orphan tool_call after the system message (no matching return)
         orphan = _tool_call("read_file", {"path": "/cancelled.txt"}, "orphan_ctrl_c")
@@ -340,9 +339,8 @@ class TestCompact:
         sys_msg = _sys_msg()
         msgs = [sys_msg, _user_msg("q"), _tool_call("read_file", {}, "live_orphan")]
 
-        # Force filter_huge_messages to return the messages unchanged (simulating
-        # a hypothetical bug where pruning doesnt run). Then the deferral
-        # safety net should kick in.
+        # Force filter_huge_messages to pass messages through unchanged (simulating a
+        # pruning bug) and verify the deferral safety net kicks in.
         with patch.multiple(
             cm,
             get_compaction_threshold=lambda: 0.001,

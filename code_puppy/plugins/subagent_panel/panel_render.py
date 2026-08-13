@@ -8,7 +8,6 @@ the frozen transcript records. No I/O, no state mutation — that lives in
 
 from __future__ import annotations
 
-import re
 
 from . import state
 
@@ -22,9 +21,7 @@ def _banner_color():
         return "blue"
 
 
-# ---------------------------------------------------------------------------
 # Hierarchy helpers (true parent -> child tree)
-# ---------------------------------------------------------------------------
 def _ordered_tree(rows):
     """Return [(entry, depth), ...] in DFS order. A row whose parent is not in
     the set (e.g. the main agent, or None) is a root (depth 0); descendants are
@@ -55,78 +52,20 @@ def _ordered_tree(rows):
     return out
 
 
-# Tier/variant qualifiers that distinguish models sharing a version number
-# (e.g. gpt-5.4 vs gpt-5.4-nano vs gpt-5.4-mini). Without these, three distinct
-# models all collapse to "GPT 5.4" in the panel -- the exact confusion this maps
-# away. key (lowercased token in the id) -> Display label.
-_MODEL_VARIANTS = (
-    ("nano", "Nano"),
-    ("mini", "Mini"),
-    ("micro", "Micro"),
-    ("lite", "Lite"),
-    ("turbo", "Turbo"),
-    ("flash", "Flash"),
-    ("instant", "Instant"),
-    ("sol", "Sol"),
-    ("terra", "Terra"),
-    ("luna", "Luna"),
-    ("codex", "Codex"),
-    ("thinking", "Thinking"),
-    ("reasoning", "Reasoning"),
-    ("preview", "Preview"),
-    ("pro", "Pro"),
-)
-
-
-def _model_variant(m):
-    """Extract a tier/variant qualifier (Nano, Mini, Flash, ...) from a lowercased
-    model id. Matched ONLY as a hyphen/underscore/dot/space-delimited token, so
-    'mini' inside 'gemini' (or 'pro' inside another word) can never false-fire.
-    Returns '' when the id carries no recognised variant."""
-    for key, label in _MODEL_VARIANTS:
-        if re.search(rf"(?:^|[-_. ]){re.escape(key)}(?:$|[-_. ])", m):
-            return label
-    return ""
-
-
-def _model_version(m):
-    """Extract a 'major.minor' version from a lowercased model id, tolerating
-    BOTH separators in the wild: a contiguous decimal ('gpt-5.4' -> '5.4') OR a
-    dash-separated pair ('gpt-5-4', 'claude-4-8-opus' -> '5.4'/'4.8'). Only joins
-    two integer groups when both are short (<=2 digits) so date/snapshot ids like
-    'gpt-4-0125' don't get mangled into '4.0125'. Returns '' when no number."""
-    dec = re.search(r"\d+\.\d+", m)
-    if dec:
-        return dec.group(0)
-    nums = re.findall(r"\d+", m)
-    if not nums:
-        return ""
-    if len(nums) >= 2 and len(nums[0]) <= 2 and len(nums[1]) <= 2:
-        return f"{nums[0]}.{nums[1]}"
-    return nums[0]
-
-
 def _model_short(model):
-    """Human-readable shorthand for a model id, for live readability.
-    e.g. 'claude-4-8-opus' -> 'Opus 4.8', 'claude-sonnet-4-6' -> 'Sonnet 4.6',
-    'gpt-5.5' -> 'GPT 5.5', 'gpt-5.4-nano' -> 'GPT 5.4-Nano'. The tier qualifier
-    is preserved so same-version-different-tier models stay distinct. Falls back
-    to the raw id if unrecognised."""
-    if not model:
-        return ""
+    """Return the model identifier verbatim for the panel display.
 
-    m = str(model).lower()
-    variant = _model_variant(m)
-    suffix = f"-{variant}" if variant else ""
-    ver = _model_version(m)
-    for key, label in (("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku")):
-        if key in m:
-            return f"{label} {ver}{suffix}".strip()
-    if "gpt" in m:
-        return (f"GPT {ver}{suffix}" if ver else f"GPT{suffix}").strip()
-    if "gemini" in m:
-        return (f"Gemini {ver}{suffix}" if ver else f"Gemini{suffix}").strip()
-    return str(model)
+    Deliberately a passthrough: whatever the user picked with ``/model <key>``
+    is what shows up in the subagent panel. No parsing, no title-casing, no
+    tier/env extraction -- previous versions built a curated shorthand from
+    a hard-coded allowlist of tier tokens (nano/mini/flash/...) plus an env
+    allowlist ('stage'), which silently dropped any suffix outside the lists
+    (e.g. -stage). Users would rather see the raw config key and trust their
+    own eyes; that also removes an allowlist maintenance chore forever.
+    Empty / None inputs collapse to an empty string so the panel column
+    doesn't render the literal 'None'.
+    """
+    return str(model) if model else ""
 
 
 def _row_lines(ordered, frame):
@@ -170,10 +109,8 @@ def _row_lines(ordered, frame):
         done = bool(e.get("done"))
         failed = bool(e.get("failed"))
         line = left.copy()
-        # These rows are deliberately one-line status rows: the live panel
-        # rows are truncated to the terminal width by the bottom bar, and
-        # transcript records must not wrap mid-column. Crop visually;
-        # preserve full status in state.
+        # Keep status rows single-line; crop visually for the terminal but retain
+        # full status in state.
         line.no_wrap = True
         line.overflow = "ellipsis"
         line.append(" " * (name_w - left.cell_len + 2))
@@ -203,8 +140,6 @@ def _row_lines(ordered, frame):
 __all__ = [
     "_banner_color",
     "_model_short",
-    "_model_variant",
-    "_model_version",
     "_ordered_tree",
     "_row_lines",
 ]

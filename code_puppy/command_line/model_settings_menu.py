@@ -168,9 +168,9 @@ SETTING_DEFINITIONS: Dict[str, Dict] = {
     },
     "effort": {
         "name": "Effort",
-        "description": "Controls how much effort the model spends on its response (Opus 4-6 only). Low = fast, Max = most thorough.",
+        "description": "Controls how much effort adaptive models spend on their response. Low = fast, Max = most thorough.",
         "type": "choice",
-        "choices": ["low", "medium", "high", "max"],
+        "choices": ["low", "medium", "high", "xhigh", "max"],
         "default": "high",
     },
     "retry_main_strategy": {

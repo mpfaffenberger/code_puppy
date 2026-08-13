@@ -41,9 +41,11 @@ from .utils import (
     exchange_code_for_tokens,
     fetch_claude_code_models,
     get_valid_access_token,
+    is_token_expired,
     load_claude_models_filtered,
     load_stored_tokens,
     prepare_oauth_context,
+    refresh_access_token,
     remove_claude_code_models,
     save_tokens,
 )
@@ -160,6 +162,48 @@ def _parse_pasted_callback(context: OAuthContext, raw_input: str) -> Optional[st
     return parsed.code
 
 
+def _read_pasted_callback_line() -> Optional[str]:
+    """Return one pasted callback line from whichever input the UI owns.
+
+    The trap: under the persistent TUI a *live agent run* owns stdin via the
+    key-listener thread (this is the mid-run re-auth path — an expired token
+    triggers ``_reauthenticate_after_expired_oauth`` from inside the HTTP
+    client while the run is in flight). A pasted callback URL is therefore
+    routed onto the PauseController steer queues, NOT ``sys.stdin`` — so a
+    naive ``select()`` on stdin here would spin until timeout while the paste
+    sits on the queue, unread until the run ends. Pull it off the queue.
+
+    Every other context keeps reading stdin directly:
+      * classic / headless mode — nothing owns stdin;
+      * the idle ``/claude-code-auth`` command — dispatched inside
+        ``suspended_run_ui()``, which releases the key-listener, so stdin is
+        free and ``is_run_active()`` is False.
+    """
+    try:
+        from code_puppy.messaging import run_ui
+
+        if run_ui.is_persistent() and run_ui.is_run_active():
+            from code_puppy.messaging.pause_controller import get_pause_controller
+
+            pc = get_pause_controller()
+            # Alt+Enter (queue mode) → oldest queued line first.
+            queued = pc.pop_next_steer_queued()
+            if queued is not None:
+                return queued
+            # Plain Enter mid-run lands on the now-queue. Take the oldest
+            # line and hand the rest back so genuine steers aren't swallowed.
+            drained = pc.drain_pending_steer_now()
+            if not drained:
+                return None
+            for leftover in drained[1:]:
+                pc.request_steer(leftover, mode="now")
+            return drained[0]
+    except Exception:  # noqa: BLE001 - never let UI plumbing break auth
+        logger.debug("queue paste read failed; falling back to stdin", exc_info=True)
+
+    return read_available_stdin_line()
+
+
 def _wait_for_callback_or_paste(
     *,
     context: OAuthContext,
@@ -182,7 +226,7 @@ def _wait_for_callback_or_paste(
 
             return result.code
 
-        pasted = read_available_stdin_line()
+        pasted = _read_pasted_callback_line()
         if pasted is not None and pasted.strip():
             code = _parse_pasted_callback(context, pasted)
             if code:
@@ -274,40 +318,41 @@ def _custom_help() -> List[Tuple[str, str]]:
     ]
 
 
-def _perform_authentication() -> None:
+def _perform_authentication() -> bool:
     context = prepare_oauth_context()
     code = _await_callback(context)
     if not code:
-        return
+        return False
 
     emit_info(t("oauth.auth.exchanging"))
     tokens = exchange_code_for_tokens(code, context)
     if not tokens:
         emit_error(t("oauth.auth.exchange_failed"))
-        return
+        return False
 
     if not save_tokens(tokens):
         emit_error(t("oauth.auth.save_failed"))
-        return
+        return False
 
     emit_success(t("oauth.claude.auth.success"))
 
     access_token = tokens.get("access_token")
     if not access_token:
         emit_warning(t("oauth.auth.no_access_token"))
-        return
+        return False
 
     emit_info(t("oauth.claude.auth.fetching_models"))
     models = fetch_claude_code_models(access_token)
     if not models:
         emit_warning(t("oauth.claude.auth.no_models"))
-        return
+        return True
 
     emit_info(
         t("oauth.auth.discovered_models", count=len(models), models=", ".join(models))
     )
     if add_models_to_extra_config(models):
         emit_success(t("oauth.claude.auth.models_added"))
+    return True
 
 
 def _reauthenticate_after_expired_oauth(model_name: str) -> Optional[str]:
@@ -460,11 +505,9 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
         )
         return None
 
-    # Check if interleaved thinking is enabled (defaults to True for OAuth models).
-    # NOTE: we read via get_all_model_settings (not get_effective_model_settings)
-    # because these are plugin-owned settings that aren't in the core
-    # supported_settings allowlist and would otherwise be filtered out.
-    # See fast_mode.FAST_SETTING_KEY for the full rationale.
+    # Interleaved thinking (defaults True for OAuth models). NOTE: read via
+    # get_all_model_settings — these plugin-owned settings aren't in core's
+    # supported_settings allowlist (see fast_mode.FAST_SETTING_KEY).
     from code_puppy.config import get_all_model_settings
 
     per_model_settings = get_all_model_settings(model_name)
@@ -504,16 +547,13 @@ def _create_claude_code_model(model_name: str, model_config: Dict, config: Dict)
     if verify is None:
         verify = get_cert_bundle_path()
 
-    # Claude Code OAuth includes 1-hour prompt caching for free, so
-    # claude-code-* models ALWAYS request the extended TTL. Anything else
-    # (hand-rolled claude_code configs without the prefix) keeps Anthropic's
-    # default 5-minute TTL — this is deliberately NOT applied to plain
-    # anthropic/custom_anthropic models.
+    # claude-code-* OAuth models get 1-hour prompt caching free, so they ALWAYS
+    # request the extended TTL; plain anthropic/custom_anthropic models keep the
+    # default 5-minute TTL — deliberately not applied to those.
     cache_ttl = _resolve_cache_ttl(model_name)
 
-    # Disable HTTP/2 for Claude Code OAuth - the UnprefixingStream wrapper
-    # that transforms tool names in streaming responses doesn't play well
-    # with HTTP/2's compression handling, causing zlib decompression errors.
+    # No HTTP/2 for OAuth: the UnprefixingStream tool-name rewrite breaks under
+    # HTTP/2's compression handling, causing zlib decompression errors.
     client = ClaudeCacheAsyncClient(
         headers=headers,
         verify=verify,
@@ -629,8 +669,50 @@ async def _on_agent_run_end(
             logger.debug("Error stopping token refresh heartbeat: %s", exc)
 
 
+def _hook_check_token_expiry() -> bool:
+    """Hook: is the stored Claude Code OAuth token inside its refresh window?
+
+    Consumed by core's ``ClaudeCacheAsyncClient._check_stored_token_expiry``
+    (replacing a direct core->plugin import).
+    """
+    tokens = load_stored_tokens()
+    if not tokens:
+        return False
+    return is_token_expired(tokens)
+
+
+def _hook_refresh_token() -> Optional[str]:
+    """Hook: force a refresh-token exchange, returning the new access token.
+
+    Consumed by core's ``ClaudeCacheAsyncClient._refresh_claude_oauth_token``.
+    """
+    return refresh_access_token(force=True)
+
+
+def _hook_load_models() -> Dict[str, Any]:
+    """Hook: return this plugin's Claude models filtered to latest versions.
+
+    Consumed by core's ``ModelFactory.load_config`` (replacing a direct
+    ``load_claude_models_filtered`` import from ``.utils``).
+    """
+    return load_claude_models_filtered()
+
+
+def _hook_authenticate() -> bool:
+    """Hook: run the full interactive Claude Code OAuth flow.
+
+    Consumed by core's ``handle_tutorial_command`` (replacing a direct import
+    of ``_perform_authentication``).
+    """
+    return _perform_authentication()
+
+
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
+register_callback("check_claude_oauth_token_expiry", _hook_check_token_expiry)
+register_callback("refresh_claude_oauth_token", _hook_refresh_token)
+register_callback("load_claude_oauth_models", _hook_load_models)
+register_callback("claude_oauth_authenticate", _hook_authenticate)
 register_callback("register_model_type", _register_model_types)
 register_callback("prepare_model_prompt", prepare_claude_code_prompt)
 register_callback("agent_run_start", _on_agent_run_start)

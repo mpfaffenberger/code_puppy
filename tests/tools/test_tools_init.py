@@ -4,6 +4,20 @@ from unittest.mock import MagicMock, patch
 
 
 class TestLoadPluginTools:
+    def test_no_plugin_does_not_expose_skill_tools(self):
+        from code_puppy.tools import TOOL_REGISTRY, _load_plugin_tools
+
+        names = ("activate_skill", "list_or_search_skills")
+        previous = {name: TOOL_REGISTRY.pop(name, None) for name in names}
+        try:
+            with patch("code_puppy.tools.on_register_tools", return_value=[]):
+                _load_plugin_tools()
+            assert all(name not in TOOL_REGISTRY for name in names)
+        finally:
+            TOOL_REGISTRY.update(
+                {name: func for name, func in previous.items() if func is not None}
+            )
+
     def test_loads_tools(self):
         from code_puppy.tools import TOOL_REGISTRY, _load_plugin_tools
 

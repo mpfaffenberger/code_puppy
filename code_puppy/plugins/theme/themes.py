@@ -22,10 +22,8 @@ PALETTE: list[str] = sorted(set(BANNER_COLORS.values()))
 BANNER_KEYS: list[str] = list(BANNER_DISPLAY_INFO.keys())
 
 
-# A smaller palette suited to *foreground* text (the full PALETTE includes some
-# very dark colors that are unreadable as text on a dark terminal, and a
-# couple of names like ``cyan4`` / ``dark_orchid`` that Rich can't even parse
-# as standalone Colors despite working as background tags).
+# Foreground-safe palette: exclude dark or unparseable Rich colors that work only
+# as background tags.
 def _parseable(name: str) -> bool:
     from rich.color import Color
 
@@ -45,9 +43,7 @@ TEXT_PALETTE: list[str] = sorted(
     }
 )
 
-# --- Curated themes ---------------------------------------------------------
-# Each curated theme is just an ordered list of palette colors; we cycle
-# through them to color every banner. Keep it small + opinionated.
+# Curated themes cycle a small, opinionated color list across banners.
 CURATED_THEMES: dict[str, dict] = {
     "ocean": {
         "icon": "🌊",
@@ -252,10 +248,8 @@ CURATED_THEMES: dict[str, dict] = {
         ),
         "terminal_palette": bp.PURPLE_PUPPY,
     },
-    # --- Mure-port "palette-first" themes ---------------------------------
-    # These rely primarily on the OSC ANSI palette swap (slot 6 = cyan, etc.)
-    # so Rich's own [cyan]/[blue]/[magenta] tags automatically render in the
-    # new palette. Rich-level color_remap stays empty for these.
+    # Palette-first themes use OSC ANSI slots so Rich tags follow the new palette;
+    # their Rich-level color_remap remains empty.
     "catppuccin-mocha": {
         "icon": "🐱",
         "label": "Catppuccin Mocha",
@@ -411,9 +405,7 @@ CURATED_THEMES: dict[str, dict] = {
         ),
         "terminal_palette": bp.DEEP_BLACK,
     },
-    # --- Light-mode themes ------------------------------------------------
-    # For light themes, `debug` uses dim *black* (not white) so dim text stays
-    # visible against a light background.
+    # Light themes use dim black for debug text so it remains visible.
     "solarized-light": {
         "icon": "☀️",
         "label": "Solarized Light",

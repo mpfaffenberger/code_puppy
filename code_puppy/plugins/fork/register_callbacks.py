@@ -244,10 +244,9 @@ async def _run_fork(
         )
         return result
     finally:
-        # /fork deliberately calls the shared implementation directly rather than
-        # entering through pydantic-ai's tool wrapper. Publish the same completion
-        # lifecycle event so observers (notably the sub-agent panel) can retire
-        # the row instead of displaying "writing response" forever.
+        # /fork calls the shared implementation directly (not via pydantic-ai's tool
+        # wrapper); still publish the completion event so the sub-agent panel can
+        # retire the row instead of showing "writing response" forever.
         if result is not None:
             await on_post_tool_call(
                 "invoke_agent",

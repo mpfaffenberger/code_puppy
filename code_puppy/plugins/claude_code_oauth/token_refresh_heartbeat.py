@@ -20,9 +20,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Heartbeat interval in seconds - check token every 2 minutes
-# This is frequent enough to catch expiring tokens before they cause issues
-# but not so frequent as to spam the token endpoint
+# Heartbeat every 2 minutes: frequent enough to catch expiring tokens before they
+# cause issues, not so frequent as to spam the token endpoint.
 HEARTBEAT_INTERVAL_SECONDS = 120
 
 # Minimum time between refresh attempts to avoid hammering the endpoint

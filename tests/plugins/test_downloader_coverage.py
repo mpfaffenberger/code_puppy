@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 
 from code_puppy.plugins.agent_skills.downloader import (
     _determine_extracted_root,
@@ -353,29 +354,20 @@ def test_stage_normalized_install_exception(tmp_path):
 # ── download_and_install_skill ──
 
 
-def test_empty_skill_name():
-    r = download_and_install_skill("", "http://x")
-    assert not r.success and "required" in r.message
-
-
-def test_whitespace_skill_name():
-    r = download_and_install_skill("  ", "http://x")
-    assert not r.success and "required" in r.message
-
-
-def test_traversal_skill_name():
-    r = download_and_install_skill("../evil", "http://x")
-    assert not r.success and "simple directory" in r.message
-
-
-def test_dot_skill_name():
-    r = download_and_install_skill(".", "http://x")
-    assert not r.success and "simple directory" in r.message
-
-
-def test_dotdot_skill_name():
-    r = download_and_install_skill("..", "http://x")
-    assert not r.success and "simple directory" in r.message
+@pytest.mark.parametrize(
+    "name, message",
+    [
+        ("", "required"),
+        ("  ", "required"),
+        ("../evil", "simple directory"),
+        (".", "simple directory"),
+        ("..", "simple directory"),
+    ],
+    ids=["empty", "whitespace", "traversal", "dot", "dotdot"],
+)
+def test_invalid_skill_name(name, message):
+    r = download_and_install_skill(name, "http://x")
+    assert not r.success and message in r.message
 
 
 def test_already_installed_no_force(tmp_path):

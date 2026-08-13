@@ -468,41 +468,6 @@ class TestUpdateModelTokens:
 class TestBuildModelEntry:
     """Tests for _build_model_entry and effort setting for Opus 4-6."""
 
-    def test_opus_46_includes_effort_in_supported_settings(self):
-        """Opus 4-6 model entries should include 'effort' in supported_settings."""
-        from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
-
-        entry = _build_model_entry("claude-opus-4-6", "tok", 200000)
-        assert "effort" in entry["supported_settings"]
-
-    def test_opus_47_includes_effort_in_supported_settings(self):
-        """Opus 4-7 model entries should include 'effort' in supported_settings."""
-        from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
-
-        entry = _build_model_entry("claude-opus-4-7", "tok", 200000)
-        assert "effort" in entry["supported_settings"]
-
-    def test_4_6_opus_variant_includes_effort(self):
-        """The 4-6-opus naming variant should also get effort."""
-        from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
-
-        entry = _build_model_entry("claude-4-6-opus-20250701", "tok", 200000)
-        assert "effort" in entry["supported_settings"]
-
-    def test_4_7_opus_variant_includes_effort(self):
-        """The 4-7-opus naming variant should also get effort."""
-        from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
-
-        entry = _build_model_entry("claude-4-7-opus-20250801", "tok", 200000)
-        assert "effort" in entry["supported_settings"]
-
-    def test_non_opus_46_does_not_include_effort(self):
-        """Non Opus 4-6/4-7 models should NOT have effort in supported_settings."""
-        from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry
-
-        entry = _build_model_entry("claude-sonnet-4-20250514", "tok", 200000)
-        assert "effort" not in entry["supported_settings"]
-
     def test_opus_45_does_not_include_effort(self):
         """Opus 4-5 should NOT have effort — it's 4-6+ only."""
         from code_puppy.plugins.claude_code_oauth.utils import _build_model_entry

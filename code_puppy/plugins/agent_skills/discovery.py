@@ -15,23 +15,14 @@ logger = logging.getLogger(__name__)
 
 _PLUGIN_SKILLS_CACHE_DIR = Path(CACHE_DIR) / "plugin-skills"
 
-# Serialises the wipe-and-rebuild of the shared plugin-skills cache dir.
-# ``discover_skills`` (and thus ``_collect_plugin_skills``) is called from both
-# the main loop (prompt assembly, statusline, the /skills menu) AND from worker
-# threads (pydantic-ai runs the sync ``list_or_search_skills`` tool via anyio
-# ``to_thread``; a /steer re-triggers prompt assembly mid-run). Without this
-# lock two threads race on the same directory -- one ``rmtree``s it while the
-# other is ``mkdir``-ing/writing into it -- which on macOS surfaces as
-# ``OSError: [Errno 22] Invalid argument``.
+# Serialises the wipe-and-rebuild of the shared plugin-skills cache dir: called from
+# both the main loop and worker threads (anyio to_thread), so without the lock two
+# threads race -- one rmtree's it while the other mkdir's/writes (macOS: OSError 22).
 _PLUGIN_SKILLS_LOCK = threading.Lock()
 
-# Memoised result of the last successful build, keyed by a signature of the
-# plugin skill registrations. Registrations are deterministic within a process,
-# so the cache dir is rebuilt only when they actually change. This keeps the
-# lock's producers serialised AND stops the wipe-and-rebuild from tearing the
-# shared dir out from under lock-free readers of ``SkillInfo.path`` (e.g.
-# ``parse_skill_metadata`` on the prompt path, ``load_full_skill_content`` in
-# the /skills command) that consume the returned paths after the lock releases.
+# Memoised last successful build, keyed by a signature of the (process-deterministic)
+# registrations, so the cache dir is rebuilt only when they change. Also stops a rebuild
+# from tearing the dir out from under lock-free readers of returned SkillInfo.path.
 _plugin_skills_cache: Optional[List["SkillInfo"]] = None
 _plugin_skills_signature: Optional[tuple] = None
 
@@ -198,6 +189,10 @@ def _iter_plugin_skill_registrations() -> Iterable[tuple[str, str, dict[str, Any
                     entry,
                 )
                 continue
+            # Provider registrations are consumed by core through the same
+            # hook; they are capabilities, not skills to materialize.
+            if "provider" in entry:
+                continue
             yield callback.__module__, callback.__name__, entry
 
 
@@ -223,10 +218,9 @@ def _collect_plugin_skills() -> List[SkillInfo]:
         registrations = list(_iter_plugin_skill_registrations())
         signature = _plugin_registration_signature(registrations)
 
-        # Reuse the already-materialised cache when the registrations are
-        # unchanged and the files are still on disk. Skipping the wipe here is
-        # what prevents a concurrent rebuild from deleting a SKILL.md while a
-        # lock-free reader is consuming a path returned by an earlier call.
+        # Reuse the materialised cache when registrations are unchanged and files are
+        # still on disk. Skipping the wipe prevents a concurrent rebuild from deleting
+        # a SKILL.md while a lock-free reader is consuming an earlier returned path.
         if (
             _plugin_skills_cache is not None
             and signature == _plugin_skills_signature

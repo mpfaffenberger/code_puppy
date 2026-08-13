@@ -24,9 +24,8 @@ class DestructiveCommandMatch:
 # Shell-operator regex — same approach as force_push_guard
 # ---------------------------------------------------------------------------
 
-# Matches shell operators that precede a new command in a pipeline/chain.
-# E.g. "cd foo && rm -rf /" or "true || git reset --hard"
-# The capture ensures the command keyword follows a real shell boundary.
+# Shell operators preceding a new command in a chain ("cd foo && rm -rf /", "true ||
+# git reset --hard"); capture ensures the keyword follows a real shell boundary.
 _SHELL_OPERATOR_RE = re.compile(r"(?:^|&&|\|\||;|\|)\s*\w+", re.MULTILINE)
 
 

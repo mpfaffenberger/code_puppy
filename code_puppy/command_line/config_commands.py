@@ -140,11 +140,9 @@ def handle_set_command(command: str) -> bool:
         emit_success(t("cfg.set.yolo_config_unchanged"))
     else:
         emit_success(t("cfg.set.success", key=key, value=display))
-    # Restart notices (warning) and the reload-success/failure signal
-    # are independent: a restart-required key like ``enable_dbos``
-    # should still report whether the live agent reload happened. The
-    # original ``/set`` always emitted "Agent reloaded with updated
-    # config" alongside the restart notice; preserve that contract.
+    # Restart notice and reload-success/failure signal are independent (e.g.
+    # ``enable_dbos`` must still report whether the live reload happened);
+    # preserve the old /set contract of emitting both.
     if result.warning:
         emit_warning(result.warning)
     if result.reload_error:
@@ -185,9 +183,8 @@ def _launch_interactive_set_menu() -> None:
         emitter = _LEVEL_EMITTERS.get(level, emit_info)
         emitter(message)
 
-    # Coalesce all agent reloads into a single one at the end, but only
-    # when the user actually changed something. Failures here mirror the
-    # behaviour of the per-key path: warn, don't crash.
+    # Coalesce reloads into one at the end, but only when something changed;
+    # failures mirror the per-key path: warn, don't crash.
     if result.changed_settings:
         from code_puppy.agents import get_current_agent
 

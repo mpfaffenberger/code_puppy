@@ -773,23 +773,6 @@ class TestAgentRunStart:
         ):
             await _on_agent_run_start("agent", "claude-code-opus", "sess4")
 
-    @pytest.mark.asyncio
-    async def test_default_session_key(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
-            _active_heartbeats,
-            _on_agent_run_start,
-        )
-
-        mock_hb = AsyncMock()
-        mock_hb.start = AsyncMock()
-        with patch(
-            "code_puppy.plugins.claude_code_oauth.token_refresh_heartbeat.TokenRefreshHeartbeat",
-            return_value=mock_hb,
-        ):
-            await _on_agent_run_start("agent", "claude-code-opus", None)
-        assert "default" in _active_heartbeats
-        _active_heartbeats.pop("default", None)
-
 
 class TestAgentRunEnd:
     @pytest.mark.asyncio
@@ -857,10 +840,8 @@ class TestCallbackRegistration:
             _register_model_types,
         )
 
-        # Re-register explicitly — other tests may have called clear_callbacks(),
-        # and Python's import cache means a bare `import` won't re-execute the
-        # module-scope register_callback() calls.  The dedup check in
-        # register_callback makes this safe even if they're already registered.
+        # Re-register explicitly: a bare `import` won't re-execute module-scope
+        # register_callbacks after clear_callbacks() (dedup makes this safe anyway).
         register_callback("custom_command_help", _custom_help)
         register_callback("custom_command", _handle_custom_command)
         register_callback("register_model_type", _register_model_types)

@@ -30,11 +30,8 @@ CURSOR_HIDE = "\x1b[?25l"  # DECTCEM: the prompt row paints its own
 CURSOR_SHOW = "\x1b[?25h"  # pseudo-cursor; the hardware one must not blink
 PASTE_ON = "\x1b[?2004h"  # bracketed paste while the bar owns input
 PASTE_OFF = "\x1b[?2004l"
-# xterm modifyOtherKeys level 1: encodes otherwise-ambiguous modified
-# keys (Shift+Enter!) as CSI 27;m;13~ without touching normal typing,
-# Ctrl+letters or arrows; unsupporting terminals ignore it. Level 2 /
-# kitty CSI >1u are deliberately NOT used — they re-encode ESC itself
-# and would fight the editor's ESC state machine.
+# xterm modifyOtherKeys level 1: encodes ambiguous modified keys (Shift+Enter!)
+# as CSI 27;m;13~; level 2 / kitty unused — they'd re-encode ESC and fight the editor.
 MODKEYS_ON = "\x1b[>4;1m"
 MODKEYS_OFF = "\x1b[>4;0m"
 

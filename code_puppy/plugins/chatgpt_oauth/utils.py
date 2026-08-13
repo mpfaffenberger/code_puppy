@@ -340,9 +340,8 @@ def exchange_code_for_tokens(
     return None
 
 
-# Default models available via ChatGPT Codex API
-# These are the known models that work with ChatGPT OAuth tokens
-# Based on codex-rs CLI and shell-scripts/codex-call.sh
+# Models known to work with ChatGPT OAuth tokens (sourced from codex-rs CLI
+# and shell-scripts/codex-call.sh).
 DEFAULT_CODEX_MODELS = [
     "gpt-5.6-sol",
     "gpt-5.6-terra",
@@ -481,16 +480,14 @@ def add_models_to_extra_config(models: List[str]) -> bool:
         for model_name in models:
             prefixed = f"{CHATGPT_OAUTH_CONFIG['prefix']}{model_name}"
 
-            # Determine supported settings based on model type.
-            # ChatGPT OAuth models use the Responses API, so they support
-            # reasoning effort, reasoning summaries, and text verbosity.
+            # Responses-API models always support reasoning effort, summaries,
+            # and text verbosity; per-model extras are added below.
             supported_settings = ["reasoning_effort", "summary", "verbosity"]
             if model_name.lower().startswith("gpt-5.6"):
                 supported_settings.extend(["reasoning_context", "reasoning_mode"])
 
-            # xhigh is supported by codex and GPT-5.4+ variants; max is
-            # narrower and starts with GPT-5.6. Keep separate capabilities so
-            # adding a stronger effort never leaks into older model menus.
+            # xhigh: codex + GPT-5.4+; max: GPT-5.6+. Separate flags so a stronger
+            # effort never leaks into older model menus.
             supports_xhigh_reasoning = _supports_xhigh_reasoning(model_name)
             supports_max_reasoning = _supports_max_reasoning(model_name)
 

@@ -371,9 +371,8 @@ def test_panel_grow_scrolls_then_shrinks_region(bar, tty):
     assert "\x1b[2S" in out
     # Region shrinks: 24 rows - (2 base + 2 panel) = 1..20.
     assert "\x1b[1;20r" in out
-    # Cursor restored to the transcript position and moved up with the
-    # scrolled content (2 rows) — never blind-parked at ``top;1``, which
-    # used to overwrite half-typed streaming lines.
+    # Cursor restored to the transcript position, moved up with the 2 scrolled rows —
+    # never blind-parked at ``top;1`` (it overwrote half-typed streaming lines).
     assert "\x1b7\x1b[2S\x1b[1;20r\x1b8\x1b[2A" in out
     assert "\x1b[20;1H" not in out
     # Panel rows painted at rows 22-23 (above the prompt row 24).

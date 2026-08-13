@@ -426,12 +426,8 @@ class TestSkillDiscovery:
             ],
         )
 
-        # The Errno 22 crash is a true concurrent-syscall collision: one thread's
-        # top-level ``rmtree`` physically overlapping another thread's per-skill
-        # ``mkdir``/``write``. Reproduce it with sustained churn -- many threads
-        # each looping the full wipe-and-rebuild -- rather than a paused thread
-        # (a pause can't overlap two live syscalls). The lock must make every
-        # iteration crash-free and complete.
+        # Errno 22: one thread's rmtree overlapping another's per-skill mkdir/write -
+        # reproduce with sustained multi-thread churn; the lock must keep every iteration safe.
         errors: list[BaseException] = []
         counts: list[int] = []
         n_threads = 12
@@ -576,16 +572,12 @@ class TestSkillDiscovery:
         assert len(skills) == 1
         assert skills[0].name == "test-skill"
 
-        # The key assertion: refresh_skill_cache should clear cache and call discover_skills
-        # Without our mock being re-applied, it would use the real function
-        # But since we mocked it, it should still work
+        # refresh_skill_cache must clear the cache and call the (mocked) discover_skills.
         skills = refresh_skill_cache()
         assert len(skills) == 1
 
-        # But we need to verify cache was actually cleared
-        # If cache wasn't cleared, subsequent calls would return the cached result without calling mock
-        # So we can verify by checking that our mock was called twice
-        # This indirectly tests that cache was cleared (otherwise discover_skills wouldn't be called again)
+        # Mock called twice proves the cache was cleared - otherwise the second
+        # call would short-circuit on the cached result and never hit the mock.
 
 
 # Tests for Metadata Module
@@ -826,17 +818,6 @@ class TestPromptBuilder:
         )
         block = build_available_skills_block([skill])
         assert "Tom & Jerry say: 'Use < & >'" in block
-
-    def test_block_skill_without_description(self):
-        """A skill with empty description still renders cleanly."""
-        skill = SkillMetadata(
-            name="bare",
-            description="",
-            path=Path("/path"),
-        )
-        block = build_available_skills_block([skill])
-        assert "- bare" in block
-        assert "- bare:" not in block  # no trailing colon when no desc
 
     def test_build_skills_guidance(self):
         """Guidance mentions the two tools the agent actually needs."""

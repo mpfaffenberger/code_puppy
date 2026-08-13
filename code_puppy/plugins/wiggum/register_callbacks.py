@@ -19,9 +19,8 @@ from . import goal_runs, state
 from .judge import GoalJudgement, judge_goal
 from .judge_config import JudgeConfig, get_enabled_judges_or_default, load_judges
 
-# Default cap on /goal iterations. Override per-user with:
-#   /set goal_max_iterations=<int>
-# Clamped to [1, 1000] in _get_goal_max_iterations to avoid pathological values.
+# /goal iterations default to 10; /set goal_max_iterations overrides, clamped to
+# [1, 1000].
 GOAL_MAX_ITERATIONS_DEFAULT = 10
 GOAL_MAX_ITERATIONS_FLOOR = 1
 GOAL_MAX_ITERATIONS_CEILING = 1000
@@ -37,9 +36,7 @@ def _get_goal_max_iterations() -> int:
     return max(GOAL_MAX_ITERATIONS_FLOOR, min(n, GOAL_MAX_ITERATIONS_CEILING))
 
 
-# ---------------------------------------------------------------------------
 # Slash commands
-# ---------------------------------------------------------------------------
 
 
 @register_command(
@@ -139,7 +136,7 @@ def handle_judges_command(command: str) -> bool:
     del command
     import concurrent.futures
 
-    from code_puppy.command_line.judges_menu import interactive_judges_menu
+    from .judges_menu import interactive_judges_menu
 
     # The menu is async; run it in a fresh event loop on a worker thread so
     # we don't collide with whatever loop the CLI is using.
@@ -155,9 +152,7 @@ def handle_judges_command(command: str) -> bool:
     return True
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 
 def _emit_configured_judges_summary() -> None:
@@ -325,9 +320,7 @@ def _format_remediation_block(verdicts: list[GoalJudgement]) -> str:
     return "\n".join(lines).rstrip()
 
 
-# ---------------------------------------------------------------------------
 # Judge orchestration (parallel)
-# ---------------------------------------------------------------------------
 
 
 async def _run_single_judge(
@@ -358,9 +351,8 @@ async def _run_single_judge(
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except Exception as exc:
-        # judge_goal() already catches model exceptions and returns an
-        # abstain-verdict. Anything that escapes here is an unexpected bug
-        # in OUR plumbing — still abstain so one bad judge can't block /goal.
+        # judge_goal handles model errors; unexpected plumbing errors still abstain
+        # so one broken judge cannot block /goal.
         from code_puppy.error_logging import log_error
 
         log_error(exc, context=f"Goal judge failed ({judge_config.name})")
@@ -426,12 +418,8 @@ async def _run_goal_judges(
             )
         )
     except (asyncio.CancelledError, KeyboardInterrupt):
-        # Display the banner so the user sees WHY the panel bailed, then
-        # re-raise. The caller (_on_interactive_turn_end) catches at the
-        # plugin boundary so the REPL stays alive. Letting cancellation
-        # propagate here is what stops the goal loop cleanly — if we
-        # returned a sentinel tuple instead, the caller would treat it as
-        # "goal incomplete" and request another retry.
+        # Show why judges bailed, then re-raise so the caller keeps the REPL alive
+        # and stops the loop; a sentinel would trigger another retry.
         _display_llm_judge("⛔ Judges cancelled (Ctrl+C). Stopping goal loop.")
         raise
 
@@ -444,11 +432,8 @@ async def _run_goal_judges(
         summary = v.notes.strip().splitlines()[0] if v.notes.strip() else "(no notes)"
         _display_llm_judge(f"  [{v.judge_name}] {glyph} — {summary}")
 
-    # Abstaining judges (endpoint errors, misconfigured models, etc.) are
-    # excluded from the tally — they don't get a vote because they couldn't
-    # actually render one. The goal completes when every NON-abstaining
-    # judge says PASS. If every judge abstained, we can't decide — treat
-    # that as incomplete with a clear warning.
+    # Abstentions do not vote; completion requires every non-abstaining judge to
+    # pass. If all abstain, report incomplete because completion is undecidable.
     voting = [v for v in verdicts if not v.abstained]
     if not voting:
         all_complete = False
@@ -461,9 +446,7 @@ async def _run_goal_judges(
     return all_complete, notes, verdicts
 
 
-# ---------------------------------------------------------------------------
-# Turn-end hook (drives the /goal and /wiggum loops)
-# ---------------------------------------------------------------------------
+# Turn-end hook (drives /goal and /wiggum loops)
 
 
 async def _on_interactive_turn_end(
@@ -570,5 +553,17 @@ def _on_interactive_turn_cancel(prompt: str, *, reason: str = "cancelled") -> No
             emit_info(f"Resume it with: /goal resume {run_id}")
 
 
+def _autonomous_loop_capability(name: str) -> bool | None:
+    """Advertise the autonomous-loop state through ``feature_capability``.
+
+    Core (e.g. ask_user_question) checks ``autonomous_loop`` to decide
+    whether interactive tools should be blocked, without importing wiggum.
+    """
+    if name != "autonomous_loop":
+        return None
+    return state.is_active()
+
+
 register_callback("interactive_turn_end", _on_interactive_turn_end)
 register_callback("interactive_turn_cancel", _on_interactive_turn_cancel)
+register_callback("feature_capability", _autonomous_loop_capability)

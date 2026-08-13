@@ -185,7 +185,7 @@ jobs:
         run: uv pip install -e .
 
       - name: Run Windows encoding regression tests
-        run: uv run pytest tests/plugins/test_customizable_commands_callbacks.py -v --no-cov
+        run: uv run pytest tests/test_windows_encoding.py -v --no-cov
 
   quality:
     runs-on: ubuntu-latest

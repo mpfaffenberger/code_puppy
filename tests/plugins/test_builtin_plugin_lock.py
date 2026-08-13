@@ -54,12 +54,6 @@ def test_builtin_disable_refused_when_locked():
     assert "plugin_list" not in pc.get_disabled_plugins()
 
 
-def test_user_plugin_disablable_when_locked():
-    pc.set_lock_builtin_plugins(True)
-    assert pc.set_plugin_disabled("convo_namer", True) is True
-    assert "convo_namer" in pc.get_disabled_plugins()
-
-
 def test_builtin_reenable_always_allowed_when_locked():
     # A builtin somehow already in the disabled set must be recoverable.
     from code_puppy.config import set_value

@@ -8,12 +8,15 @@ from code_puppy.callbacks import register_callback
 
 from .cancel import cancel_workflow
 from .commands import dbos_command_help, handle_dbos_command
-from .config import is_enabled
+from .config import feature_capability, is_enabled
 from .lifecycle import on_shutdown, on_startup
 from .runtime import dbos_run_context, skip_fallback_render
 from .wrapper import wrap_with_dbos_agent
 
 logger = logging.getLogger(__name__)
+
+
+register_callback("feature_capability", feature_capability)
 
 
 # Slash command is always available so users can /dbos on even when the
@@ -26,9 +29,8 @@ if is_enabled():
     try:
         import dbos  # noqa: F401  -- early import check
     except ImportError:
-        # Use logger.info (not debug) so it surfaces by default — silently
-        # skipping a feature the user enabled is bad UX. Install with
-        # `pip install code-puppy[durable]` to fix.
+        # logger.info (not debug) so a silently-skipped enabled feature surfaces;
+        # install with `pip install code-puppy[durable]` to fix.
         logger.info(
             "DBOS plugin enabled but `dbos` package not installed; "
             "durable-exec hooks not registered. "

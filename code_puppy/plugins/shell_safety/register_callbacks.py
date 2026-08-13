@@ -45,9 +45,7 @@ def is_oauth_model(model_name: str | None) -> bool:
     return model_name.startswith(OAUTH_MODEL_PREFIXES)
 
 
-# Risk level hierarchy for numeric comparison
-# Lower numbers = safer commands, higher numbers = more dangerous
-# This mapping allows us to compare risk levels as integers
+# Numeric risk hierarchy: lower values are safer.
 RISK_LEVELS: Dict[str, int] = {
     "none": 0,
     "low": 1,
@@ -72,7 +70,7 @@ def compare_risk_levels(assessed_risk: Optional[str], threshold: str) -> bool:
     if assessed_risk is None:
         assessed_risk = "high"
 
-    # Convert risk levels to numeric values for comparison
+    # Map risk names to numeric values; unknown defaults are conservative.
     assessed_level = RISK_LEVELS.get(assessed_risk, 4)  # Default to critical if unknown
     threshold_level = RISK_LEVELS.get(threshold, 2)  # Default to medium if unknown
 

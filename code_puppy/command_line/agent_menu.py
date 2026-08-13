@@ -49,22 +49,13 @@ PAGE_SIZE = 10  # Agents per page
 # ---------------------------------------------------------------------------
 # Deferred-reload queue
 # ---------------------------------------------------------------------------
-# ``interactive_agent_picker`` is intentionally executed inside a worker
-# thread + transient ``asyncio.run`` loop by callers (see
-# ``handle_agent_command`` and the ``switch_agent_resume`` plugin). That
-# transient loop dies as soon as the picker coroutine returns.
-#
-# If we trigger ``reload_code_generation_agent()`` from inside the picker,
-# its MCP autostart path schedules long-lived lifecycle tasks on the
-# transient loop. When ``asyncio.run`` enters cleanup it cancels and awaits
-# those tasks, which deadlock on anyio task-group / subprocess teardown ---
-# the worker future never completes and the main thread hangs in
-# ``future.result(timeout=300)``. Symptom: pressing Enter after pinning a
-# model freezes the whole app.
-#
-# Solution: queue the reload here and let the caller drain the queue on the
-# main event loop *after* ``future.result()`` returns. That way MCP tasks
-# live on the main loop where they belong.
+# ``interactive_agent_picker`` runs in a worker thread + transient
+# asyncio.run loop (see handle_agent_command / switch_agent_resume) that dies
+# when the picker returns. Reloading inside would schedule MCP autostart tasks
+# on that loop; its cleanup deadlocks on anyio teardown and the main thread
+# hangs in future.result(timeout=300) — Enter after pinning a model freezes
+# the app. Solution: queue the reload; the caller drains it on the main loop
+# afterwards, where the MCP tasks belong.
 _PENDING_PIN_RELOADS: List[Tuple[str, Optional[str]]] = []
 
 
@@ -105,24 +96,10 @@ def _sanitize_display_text(text: str) -> str:
     for char in text:
         # Get unicode category
         cat = unicodedata.category(char)
-        # Categories to KEEP:
-        # - L* (Letters): Lu, Ll, Lt, Lm, Lo
-        # - N* (Numbers): Nd, Nl, No
-        # - P* (Punctuation): Pc, Pd, Ps, Pe, Pi, Pf, Po
-        # - Zs (Space separator)
-        # - Sm (Math symbols like +, -, =)
-        # - Sc (Currency symbols like $, €)
-        # - Sk (Modifier symbols)
-        #
-        # Categories to SKIP (cause rendering issues):
-        # - So (Symbol, other) - emojis
-        # - Cf (Format) - ZWJ, etc.
-        # - Mn (Mark, nonspacing) - combining characters
-        # - Mc (Mark, spacing combining)
-        # - Me (Mark, enclosing)
-        # - Cn (Not assigned)
-        # - Co (Private use)
-        # - Cs (Surrogate)
+        # Categories to KEEP: L* (letters), N* (numbers), P* (punctuation),
+        # Zs (space), Sm (math), Sc (currency), Sk (modifier).
+        # Categories to SKIP (cause rendering issues): So (emojis), Cf (ZWJ),
+        # Mn/Mc/Me (marks), Cn (unassigned), Co (private use), Cs (surrogate).
         safe_categories = (
             "Lu",
             "Ll",
@@ -267,10 +244,9 @@ def _apply_pinned_model(agent_name: str, model_choice: str) -> None:
                 emit_success(f"Pinned '{model_choice}' to '{agent_name}'")
                 pinned_model = model_choice
 
-        # Defer the reload to the main event loop --- doing it here would
-        # schedule MCP autostart tasks on the picker's transient asyncio
-        # loop and deadlock the worker on shutdown (see
-        # ``_PENDING_PIN_RELOADS`` for the gory details).
+        # Defer the reload to the main loop — doing it here would schedule MCP
+        # autostart on the picker's transient loop and deadlock on shutdown
+        # (see ``_PENDING_PIN_RELOADS``).
         _PENDING_PIN_RELOADS.append((agent_name, pinned_model))
     except Exception as exc:
         emit_warning(f"Failed to apply pinned model: {exc}")

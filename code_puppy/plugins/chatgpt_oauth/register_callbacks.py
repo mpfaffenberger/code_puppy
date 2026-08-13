@@ -14,10 +14,11 @@ from code_puppy.callbacks import register_callback
 from code_puppy.i18n import t
 from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 from code_puppy.model_switching import set_model_and_reload_agent
+from code_puppy.plugins.agent_skills.discovery import refresh_skill_cache
 
 from .config import CHATGPT_OAUTH_CONFIG, get_token_storage_path
 from .oauth_flow import run_oauth_flow
-from .usage import refresh_usage_in_background
+from .usage import get_usage_status, refresh_usage_in_background
 from .utils import (
     get_valid_access_token,
     load_chatgpt_models,
@@ -89,6 +90,9 @@ def _handle_chatgpt_logout() -> None:
 
     if was_authenticated:
         _reload_active_agent()
+        # Mirror the tool-unbinding reload above: the codex-imagegen skill is auth-gated
+        # too, so drop it from the skill cache instead of leaving it visible until restart.
+        refresh_skill_cache()
 
 
 def _is_codex_oauth_authenticated() -> bool:
@@ -125,6 +129,9 @@ def _handle_custom_command(command: str, name: str) -> Optional[bool]:
     if name in {"chatgpt-auth", "codex-auth"}:
         run_oauth_flow()
         set_model_and_reload_agent("codex-gpt-5.6-sol")
+        # Auth just succeeded: re-discover the auth-gated codex-imagegen skill now
+        # rather than waiting for the next process restart.
+        refresh_skill_cache()
         return True
 
     if name in {"chatgpt-status", "codex-status"}:
@@ -228,6 +235,10 @@ def _create_chatgpt_oauth_model(
 
 
 def _register_imagegen_skill() -> list[dict[str, str]]:
+    # Same auth gate as _advertise_imagegen_tool: hide the skill so a model can't
+    # activate it, attempt codex_imagegen(...), and only then discover it's unavailable.
+    if not _is_codex_oauth_authenticated():
+        return []
     return [
         {
             "name": "codex-imagegen",
@@ -269,6 +280,7 @@ def _refresh_usage_on_agent_run(
 
 register_callback("custom_command_help", _custom_help)
 register_callback("custom_command", _handle_custom_command)
+register_callback("usage_status", get_usage_status)
 register_callback("register_model_type", _register_model_types)
 register_callback("register_skills", _register_imagegen_skill)
 register_callback("register_tools", _register_imagegen_tools)

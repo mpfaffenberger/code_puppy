@@ -221,9 +221,8 @@ class BrowserManager:
         emit_info(f"Using persistent profile: {self.profile_dir}")
 
         pw = await async_playwright().start()
-        # Track the driver instance so ``_cleanup`` can ``.stop()`` it (and,
-        # if it hangs, SIGKILL the driver subprocess). Without this reference
-        # the node driver leaks until Python GC eventually reaps it.
+        # Track the driver so ``_cleanup`` can .stop() it (SIGKILL if hung);
+        # without this the node driver leaks until GC.
         self._playwright = pw
         # Use persistent context directory for Chromium to preserve browser state
         context = await pw.chromium.launch_persistent_context(
@@ -304,10 +303,8 @@ class BrowserManager:
                 except Exception as e:
                     _emit_warning(f"Could not save storage state: {e}")
 
-            # Auto-dismiss any beforeunload dialog Playwright might raise during
-            # context.close(). Without this, a page that registered a
-            # ``beforeunload`` handler causes context.close() to await a
-            # dialog handler that was never installed -> hang.
+            # Auto-dismiss beforeunload dialogs: without a handler, context.close()
+            # awaits a dialog that was never installed -> hang.
             if self._context:
                 self._install_dialog_dismisser(silent=silent)
 
@@ -326,11 +323,9 @@ class BrowserManager:
                     pass  # Ignore other errors during context close
                 self._context = None
 
-            # Close the browser. If it wedges (unresponsive CDP), we can only
-            # emit a warning here -- current Python Playwright does NOT expose
-            # a subprocess handle on ``Browser``. The browser process is a
-            # child of the node driver, so ``_force_kill_playwright_process``
-            # below transitively reaps it via SIGKILL to the parent driver.
+            # Playwright's Browser exposes no subprocess handle, so a wedged
+            # browser is only warn-able; the driver SIGKILL below reaps it
+            # transitively (browser is the driver's child).
             if self._browser:
                 try:
                     await asyncio.wait_for(

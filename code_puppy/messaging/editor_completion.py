@@ -41,6 +41,7 @@ def build_completer():
     """
     from prompt_toolkit.completion import merge_completers
 
+    from code_puppy.callbacks import get_completion_providers
     from code_puppy.command_line.file_path_completion import FilePathCompleter
     from code_puppy.command_line.load_context_completion import LoadContextCompleter
     from code_puppy.command_line.mcp_completion import MCPCompleter
@@ -56,7 +57,6 @@ def build_completer():
         SlashCompleter,
     )
     from code_puppy.command_line.skills_completion import SkillsCompleter
-    from code_puppy.plugins.ollama_setup.completer import OllamaSetupCompleter
 
     return merge_completers(
         [
@@ -76,7 +76,7 @@ def build_completer():
             ModelNameCompleter(trigger="/fork", prefix="@"),
             MCPCompleter(trigger="/mcp"),
             SkillsCompleter(trigger="/skills"),
-            OllamaSetupCompleter(),
+            *get_completion_providers(),
             SlashCompleter(),
         ]
     )

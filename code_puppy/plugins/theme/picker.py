@@ -153,9 +153,8 @@ def _render_preview(theme_name: str, surprise_seed: int) -> ANSI:
         ansi = tp.get("ansi") or []
         ansi_note = f" + {len(ansi)}-color ANSI palette" if ansi else ""
 
-        # Big swatch block: shows the actual bg/fg combo so the user can
-        # judge readability BEFORE applying. The OSC isn't fired live
-        # (would flicker the whole terminal on every arrow keypress).
+        # Preview the bg/fg combo without firing OSC live; arrow-key previews
+        # must not flicker the terminal.
         console.print("[bold dim]terminal palette preview:[/bold dim]")
         sample_bg = bg if bg.startswith("#") else "#000000"
         sample_fg = fg if fg.startswith("#") else "#ffffff"

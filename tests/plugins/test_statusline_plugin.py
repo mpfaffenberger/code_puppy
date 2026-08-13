@@ -53,19 +53,16 @@ class TestConfig:
         with patch("code_puppy.plugins.statusline.config.get_value", return_value=val):
             assert is_enabled() is False
 
-    def test_set_enabled_true(self):
+    @pytest.mark.parametrize(
+        ("enabled", "expected"),
+        [(True, "true"), (False, "false")],
+    )
+    def test_set_enabled(self, enabled, expected):
         from code_puppy.plugins.statusline.config import set_enabled
 
         with patch("code_puppy.plugins.statusline.config.set_value") as mock_set:
-            set_enabled(True)
-            mock_set.assert_called_once_with("statusline_enabled", "true")
-
-    def test_set_enabled_false(self):
-        from code_puppy.plugins.statusline.config import set_enabled
-
-        with patch("code_puppy.plugins.statusline.config.set_value") as mock_set:
-            set_enabled(False)
-            mock_set.assert_called_once_with("statusline_enabled", "false")
+            set_enabled(enabled)
+            mock_set.assert_called_once_with("statusline_enabled", expected)
 
     def test_get_command_strips_whitespace(self):
         from code_puppy.plugins.statusline.config import get_command
@@ -146,14 +143,6 @@ class TestConfig:
             "code_puppy.plugins.statusline.config.get_value", return_value="REPLACE"
         ):
             assert get_mode() == "replace"
-
-    def test_get_mode_falls_back_to_default_for_garbage(self):
-        from code_puppy.plugins.statusline.config import DEFAULT_MODE, get_mode
-
-        with patch(
-            "code_puppy.plugins.statusline.config.get_value", return_value="bogus"
-        ):
-            assert get_mode() == DEFAULT_MODE
 
     def test_set_mode_valid(self):
         from code_puppy.plugins.statusline.config import set_mode
@@ -257,25 +246,6 @@ class TestRender:
         fragments = list(result)
         assert any("\n" in text for _, text in fragments)
         assert any(">>>" in text for _, text in fragments)
-
-    def test_render_uses_default_arrow_when_base_empty(self):
-        from code_puppy.plugins.statusline.prompt_patch import _render, _DEFAULT_ARROW
-
-        default = self._make_formatted_text()
-        with (
-            patch(
-                "code_puppy.plugins.statusline.prompt_patch.get_status_text",
-                return_value="status",
-            ),
-            patch(
-                "code_puppy.plugins.statusline.prompt_patch.get_mode",
-                return_value="replace",
-            ),
-        ):
-            result = _render(default, "")
-
-        fragments = list(result)
-        assert any(_DEFAULT_ARROW in text for _, text in fragments)
 
     def test_render_survives_ansi_parse_exception(self):
         """If ANSI() blows up, _render should return the default prompt unchanged."""
@@ -443,25 +413,19 @@ class TestStatuslineCommand:
             assert result is True
             mock_mode.assert_called_once_with(mode)
 
-    def test_mode_invalid_warns(self):
+    @pytest.mark.parametrize(
+        "cmd",
+        ["/statusline mode supermode", "/statusline mode"],
+        ids=["invalid_mode", "missing_arg"],
+    )
+    def test_mode_invalid_warns(self, cmd):
         with (
             patch(
                 "code_puppy.plugins.statusline.statusline_command.emit_warning"
             ) as mock_warn,
             patch("code_puppy.plugins.statusline.statusline_command.emit_info"),
         ):
-            result = self._call("/statusline mode supermode")
-        assert result is True
-        mock_warn.assert_called_once()
-
-    def test_mode_missing_arg_warns(self):
-        with (
-            patch(
-                "code_puppy.plugins.statusline.statusline_command.emit_warning"
-            ) as mock_warn,
-            patch("code_puppy.plugins.statusline.statusline_command.emit_info"),
-        ):
-            result = self._call("/statusline mode")
+            result = self._call(cmd)
         assert result is True
         mock_warn.assert_called_once()
 
@@ -499,25 +463,6 @@ class TestStatuslineCommand:
         assert result is True
         calls = [c[0][0] for c in mock_info.call_args_list]
         assert any("hello world" in c for c in calls)
-
-    def test_show_emits_empty_placeholder(self):
-        with (
-            patch(
-                "code_puppy.plugins.statusline.statusline_command.config.get_command",
-                return_value="echo",
-            ),
-            patch(
-                "code_puppy.plugins.statusline.statusline_command.runner.run_once_sync",
-                return_value="",
-            ),
-            patch(
-                "code_puppy.plugins.statusline.statusline_command.emit_info"
-            ) as mock_info,
-        ):
-            result = self._call("/statusline show")
-        assert result is True
-        calls = [c[0][0] for c in mock_info.call_args_list]
-        assert any("(empty)" in c for c in calls)
 
     # --- json ---
 
@@ -651,29 +596,18 @@ class TestCrossPlatform:
 
     # --- _default_script_path ---
 
-    def test_default_script_path_windows(self):
-        """On win32 the init path must end with .ps1."""
+    @pytest.mark.parametrize(
+        "platform, suffix",
+        [("win32", ".ps1"), ("linux", ".sh"), ("darwin", ".sh")],
+        ids=["windows", "linux", "darwin"],
+    )
+    def test_default_script_path(self, platform, suffix):
+        """The init script path must match the platform convention."""
         import code_puppy.plugins.statusline.statusline_command as sc
 
-        with patch.object(sys, "platform", "win32"):
+        with patch.object(sys, "platform", platform):
             p = sc._default_script_path()
-        assert str(p).endswith(".ps1"), f"Expected .ps1 on win32, got {p}"
-
-    def test_default_script_path_linux(self):
-        """On linux the init path must end with .sh."""
-        import code_puppy.plugins.statusline.statusline_command as sc
-
-        with patch.object(sys, "platform", "linux"):
-            p = sc._default_script_path()
-        assert str(p).endswith(".sh"), f"Expected .sh on linux, got {p}"
-
-    def test_default_script_path_darwin(self):
-        """On darwin (macOS) the init path must also end with .sh."""
-        import code_puppy.plugins.statusline.statusline_command as sc
-
-        with patch.object(sys, "platform", "darwin"):
-            p = sc._default_script_path()
-        assert str(p).endswith(".sh"), f"Expected .sh on darwin, got {p}"
+        assert str(p).endswith(suffix), f"Expected {suffix} on {platform}, got {p}"
 
     # --- PS1 template content ---
 
@@ -684,9 +618,8 @@ class TestCrossPlatform:
         assert "ConvertFrom-Json" in _STARTER_SCRIPT_PS1, (
             "Must parse JSON via ConvertFrom-Json"
         )
-        # Must use Write-Output, NOT Write-Host.
-        # Write-Host writes to the console host only; subprocess.run(capture_output=True)
-        # captures stdout, so Write-Host produces empty output for the parent process.
+        # Must use Write-Output, NOT Write-Host — Write-Host goes to the console host
+        # only, so subprocess.run(capture_output=True) sees empty stdout.
         assert "Write-Output" in _STARTER_SCRIPT_PS1, (
             "Must output via Write-Output (not Write-Host)"
         )

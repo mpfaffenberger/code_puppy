@@ -1,12 +1,9 @@
 from code_puppy.callbacks import register_callback
 from code_puppy.messaging import emit_info
 
-# Optional dependency on the sibling ``customizable_commands`` plugin.
-# Returning a ``MarkdownCommandResult`` from a custom command tells the
-# dispatcher to forward the wrapped content to the agent as a prompt
-# (see ``code_puppy.command_line.command_handler.handle_command``).
-# If the sibling plugin is ever absent we fall back to display-only
-# behavior rather than fail the whole plugin load.
+# Optional sibling ``customizable_commands`` dep: a ``MarkdownCommandResult`` return
+# forwards the content to the agent as a prompt; absent plugin falls back to
+# display-only behavior rather than failing the whole plugin load.
 try:
     from code_puppy.plugins.customizable_commands.register_callbacks import (
         MarkdownCommandResult,

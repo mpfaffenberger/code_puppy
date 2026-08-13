@@ -69,9 +69,7 @@ def initialize() -> None:
         conn.executescript(SCHEMA_SQL)
 
 
-# --------------------------------------------------------------------------- #
-# Wings and rooms (simple upserts; nothing fancy)
-# --------------------------------------------------------------------------- #
+# Wings and rooms (simple upserts)
 
 
 def ensure_wing(name: str, metadata: dict[str, Any] | None = None) -> int:
@@ -110,9 +108,7 @@ def ensure_room(wing_id: int, name: str, metadata: dict[str, Any] | None = None)
         return int(row["id"])
 
 
-# --------------------------------------------------------------------------- #
-# Drawers — the actual remembered content
-# --------------------------------------------------------------------------- #
+# Drawers — remembered content
 
 
 def add_drawer(
@@ -336,8 +332,7 @@ def search_drawers_multi(
     return out
 
 
-# FTS5 treats a lot of punctuation as operators. For free-form text queries
-# we wrap each token in quotes and OR them together. Crude but bulletproof.
+# Quote each token and OR them: FTS5 punctuation otherwise acts as operators.
 _FTS_BAD = set('"()*:^-+')
 
 

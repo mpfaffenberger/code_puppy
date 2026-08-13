@@ -4,12 +4,24 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Patch targets for lazy imports inside _get_skills_prompt_section
 _CFG = "code_puppy.plugins.agent_skills.config"
 _DISC = "code_puppy.plugins.agent_skills.discovery"
 _META = "code_puppy.plugins.agent_skills.metadata"
 _PB = "code_puppy.plugins.agent_skills.prompt_builder"
 _ENABLED = "code_puppy.plugins.agent_skills.enabled_skills"
+
+
+def _write_skill(root, name, description="A test skill."):
+    """Create a minimal valid skill directory with SKILL.md under root."""
+    skill_dir = root / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {description}\n---\n\nBody.\n"
+    )
+    return skill_dir
 
 
 class TestGetSkillsPromptSection:
@@ -141,6 +153,121 @@ class TestEnabledSkillsHelper:
         mock_parse.assert_not_called()
 
 
+class TestEnabledSkillsDirectoryPassthrough:
+    # Regression: iterators must forward omitted `directories` as None, else the
+    # default-dir merge is skipped and those skills hide (real fn + temp dirs, no mock).
+
+    @pytest.fixture(autouse=True)
+    def _isolate_plugin_skills(self):
+        # Plugin-registered skills are process-global; keep this hermetic.
+        with patch(f"{_DISC}._collect_plugin_skills", return_value=[]):
+            yield
+
+    def test_omitted_directories_still_finds_default_dir_skill(self, tmp_path):
+        # The headline bug: a configured custom directory must not push
+        # out skills that live in a default directory.
+        from code_puppy.plugins.agent_skills.enabled_skills import (
+            list_enabled_skill_metadata,
+        )
+
+        configured_dir = tmp_path / "configured"
+        configured_dir.mkdir()
+        default_dir = tmp_path / "default"
+        default_dir.mkdir()
+        _write_skill(default_dir, "default-dir-skill")
+
+        with (
+            patch(f"{_CFG}.get_skills_enabled", return_value=True),
+            patch(f"{_CFG}.get_disabled_skills", return_value=set()),
+            # Buggy code path resolves via config.get_skill_directories()
+            # before ever reaching discover_skills.
+            patch(
+                f"{_CFG}.get_skill_directories",
+                return_value=[str(configured_dir)],
+            ),
+            # Fixed code path forwards None into discover_skills, which
+            # resolves configured + default dirs via these two.
+            patch(
+                f"{_DISC}.get_skill_directories",
+                return_value=[str(configured_dir)],
+            ),
+            patch(
+                f"{_DISC}.get_default_skill_directories",
+                return_value=[default_dir],
+            ),
+        ):
+            names = {meta.name for meta in list_enabled_skill_metadata()}
+
+        assert "default-dir-skill" in names, (
+            "Skill in a default directory disappeared when a custom "
+            "skill_directories value was configured -- the additive merge "
+            "regressed."
+        )
+
+    def test_explicit_directories_still_restrict_scope(self, tmp_path):
+        # Callers that intentionally pass an explicit list keep the old,
+        # non-additive behaviour.
+        from code_puppy.plugins.agent_skills.enabled_skills import (
+            list_enabled_skill_metadata,
+        )
+
+        explicit_dir = tmp_path / "explicit"
+        explicit_dir.mkdir()
+        _write_skill(explicit_dir, "explicit-skill")
+
+        default_dir = tmp_path / "default"
+        default_dir.mkdir()
+        _write_skill(default_dir, "default-skill-should-not-appear")
+
+        with (
+            patch(f"{_CFG}.get_skills_enabled", return_value=True),
+            patch(f"{_CFG}.get_disabled_skills", return_value=set()),
+            patch(
+                f"{_DISC}.get_default_skill_directories",
+                return_value=[default_dir],
+            ),
+        ):
+            names = {
+                meta.name
+                for meta in list_enabled_skill_metadata(directories=[explicit_dir])
+            }
+
+        assert names == {"explicit-skill"}
+
+    def test_disabled_skills_excluded_from_merged_directories(self, tmp_path):
+        # Disabling still works once directories are merged.
+        from code_puppy.plugins.agent_skills.enabled_skills import (
+            list_enabled_skill_metadata,
+        )
+
+        configured_dir = tmp_path / "configured"
+        configured_dir.mkdir()
+        default_dir = tmp_path / "default"
+        default_dir.mkdir()
+        _write_skill(default_dir, "keep-me")
+        _write_skill(default_dir, "disable-me")
+
+        with (
+            patch(f"{_CFG}.get_skills_enabled", return_value=True),
+            patch(f"{_CFG}.get_disabled_skills", return_value={"disable-me"}),
+            patch(
+                f"{_CFG}.get_skill_directories",
+                return_value=[str(configured_dir)],
+            ),
+            patch(
+                f"{_DISC}.get_skill_directories",
+                return_value=[str(configured_dir)],
+            ),
+            patch(
+                f"{_DISC}.get_default_skill_directories",
+                return_value=[default_dir],
+            ),
+        ):
+            names = {meta.name for meta in list_enabled_skill_metadata()}
+
+        assert names == {"keep-me"}
+
+
 class TestInjectSkillsIntoPrompt:
     def test_no_skills(self):
         from code_puppy.plugins.agent_skills.register_callbacks import (
@@ -179,6 +306,14 @@ class TestRegisterSkillsTools:
         names = {t["name"] for t in tools}
         assert "activate_skill" in names
         assert "list_or_search_skills" in names
+
+    def test_registers_provider_without_traversing_discovery(self):
+        from code_puppy.plugins.agent_skills.provider import skill_provider
+        from code_puppy.plugins.agent_skills.register_callbacks import (
+            _register_skills,
+        )
+
+        assert _register_skills() == [{"provider": skill_provider}]
 
 
 class TestSkillsCommandHelp:

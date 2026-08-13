@@ -40,9 +40,8 @@ TOOL_PREFIX = "cp_"
 # User-Agent to send with Claude Code OAuth requests
 CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
 
-# Extended (1 hour) prompt-cache TTL. Claude Code OAuth sessions get this for
-# free, so claude-code-* models always request it. API-key / third-party
-# Anthropic models keep the default 5-minute TTL (no ``ttl`` field at all).
+# Extended 1h prompt-cache TTL — free for Claude Code OAuth (always requested).
+# API-key / third-party models keep the default 5-min TTL (no ``ttl`` field).
 CACHE_TTL_1H = "1h"
 
 # Beta flag Anthropic requires before honoring a 1-hour cache TTL.
@@ -63,9 +62,8 @@ def _cache_marker(ttl: str | None) -> dict[str, str]:
 
 
 def _model_requires_thinking_summary(model_name):
-    # Anthropic's Opus 4.7+ / Fable 5 families reject adaptive-thinking
-    # requests unless 'display: summarized' is present alongside
-    # 'type: adaptive'. Delegate to model_utils — single source of truth.
+    # Opus 4.7+ / Fable 5 reject adaptive-thinking without display=summarized.
+    # Delegate to model_utils — single source of truth.
     if not model_name:
         return False
     from code_puppy.model_utils import should_use_anthropic_thinking_summary
@@ -74,10 +72,8 @@ def _model_requires_thinking_summary(model_name):
 
 
 def _enforce_thinking_display_summary(payload):
-    # Belt-and-suspenders wire-level enforcement of thinking.display='summary'
-    # for Opus 4.7 payloads. Mutates payload in place; returns True if a
-    # change was made. No-ops on non-matching models or payloads without a
-    # thinking dict.
+    # Wire-level enforcement of thinking.display='summarized' for Opus 4.7.
+    # Mutates payload in place; returns True if changed. No-ops otherwise.
     if not isinstance(payload, dict):
         return False
     if not _model_requires_thinking_summary(payload.get("model")):
@@ -124,9 +120,8 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         # Explicit prompt-cache TTL (e.g. "1h") for injected cache markers.
         # None means "let Anthropic default" (currently 5 minutes).
         self._cache_ttl = cache_ttl
-        # The ``cp_`` tool-name prefix is a Claude Code OAuth quirk. Only the
-        # claude_code_oauth plugin should enable it; custom_anthropic and
-        # Anthropic-vanilla models keep tool names verbatim.
+        # ``cp_`` tool-name prefix is a Claude Code OAuth quirk; only that plugin
+        # enables it — custom_anthropic/vanilla models keep names verbatim.
         self._apply_claude_code_prefix = apply_claude_code_prefix
 
     def set_token_update_callback(self, callback: Callable[[str], None] | None) -> None:
@@ -199,33 +194,27 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             return auth_header[7:]  # Strip "Bearer " prefix
         return None
 
-    def _should_refresh_token(self, request: httpx.Request) -> bool:
-        """Check if the token should be refreshed (within the max-age window).
-
-        Uses two strategies:
-        1. Decode JWT to check token age (if possible)
-        2. Fall back to stored expires_at from token file
-
-        Returns True if token expires within TOKEN_MAX_AGE_SECONDS.
-        """
+    def _jwt_refresh_decision(self, request: httpx.Request) -> bool | None:
+        """Return a JWT-based refresh decision, or ``None`` for stored fallback."""
         token = self._extract_bearer_token(request)
         if not token:
             return False
 
-        # Strategy 1: Try to decode JWT age
         age = self._get_jwt_age_seconds(token)
-        if age is not None:
-            should_refresh = age >= TOKEN_MAX_AGE_SECONDS
-            if should_refresh:
-                logger.info(
-                    "JWT token is %.1f seconds old (>= %d), will refresh proactively",
-                    age,
-                    TOKEN_MAX_AGE_SECONDS,
-                )
-            return should_refresh
+        if age is None:
+            return None
 
-        # Strategy 2: Fall back to stored expires_at from token file
-        should_refresh = self._check_stored_token_expiry()
+        should_refresh = age >= TOKEN_MAX_AGE_SECONDS
+        if should_refresh:
+            logger.info(
+                "JWT token is %.1f seconds old (>= %d), will refresh proactively",
+                age,
+                TOKEN_MAX_AGE_SECONDS,
+            )
+        return should_refresh
+
+    @staticmethod
+    def _log_stored_token_refresh(should_refresh: bool) -> bool:
         if should_refresh:
             logger.info(
                 "Stored token expires within %d seconds, will refresh proactively",
@@ -233,25 +222,50 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             )
         return should_refresh
 
+    def _should_refresh_token(self, request: httpx.Request) -> bool:
+        """Synchronously check JWT age, then the stored-token callback."""
+        decision = self._jwt_refresh_decision(request)
+        if decision is not None:
+            return decision
+        return self._log_stored_token_refresh(self._check_stored_token_expiry())
+
+    async def _should_refresh_token_async(self, request: httpx.Request) -> bool:
+        """Check token expiry while awaiting async providers in ``send()``."""
+        decision = self._jwt_refresh_decision(request)
+        if decision is not None:
+            return decision
+        return self._log_stored_token_refresh(
+            await self._check_stored_token_expiry_async()
+        )
+
     @staticmethod
     def _check_stored_token_expiry() -> bool:
         """Check if the stored token expires within TOKEN_MAX_AGE_SECONDS.
 
         This is a fallback for when JWT decoding fails or isn't available.
-        Uses the expires_at timestamp from the stored token file.
+        Uses the expires_at timestamp from the stored token file.  The
+        claude_code_oauth plugin self-registers this capability; when it
+        isn't loaded (or the check fails) we conservatively report ``False``.
         """
         try:
-            from code_puppy.plugins.claude_code_oauth.utils import (
-                is_token_expired,
-                load_stored_tokens,
+            from code_puppy.callbacks import on_check_claude_oauth_token_expiry
+
+            results = on_check_claude_oauth_token_expiry()
+            return any(result is True for result in results)
+        except Exception as exc:
+            logger.debug("Error checking stored token expiry: %s", exc)
+            return False
+
+    @staticmethod
+    async def _check_stored_token_expiry_async() -> bool:
+        """Await stored-token expiry providers from an active event loop."""
+        try:
+            from code_puppy.callbacks import (
+                on_check_claude_oauth_token_expiry_async,
             )
 
-            tokens = load_stored_tokens()
-            if not tokens:
-                return False
-
-            # is_token_expired already uses the configured refresh buffer window
-            return is_token_expired(tokens)
+            results = await on_check_claude_oauth_token_expiry_async()
+            return any(result is True for result in results)
         except Exception as exc:
             logger.debug("Error checking stored token expiry: %s", exc)
             return False
@@ -359,8 +373,8 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         # Proactive token refresh: check JWT age before every request
         if not request.extensions.get("claude_oauth_proactive_refresh_attempted"):
             try:
-                if self._should_refresh_token(request):
-                    refreshed_token = self._refresh_claude_oauth_token()
+                if await self._should_refresh_token_async(request):
+                    refreshed_token = await self._refresh_claude_oauth_token_async()
                     if refreshed_token:
                         logger.info("Proactively refreshed token before request")
                         # Rebuild request with new token
@@ -395,10 +409,8 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 # 2. Add ?beta=true query param
                 url = self._add_beta_query_param(url)
 
-                # 3. Prefix tool names in request body (claude_code OAuth only).
-                # The ``cp_`` prefix is required by Anthropic's Claude Code OAuth
-                # endpoint, but vanilla Anthropic / custom_anthropic endpoints
-                # don't expect it — so this is opt-in via the constructor flag.
+                # 3. Prefix tool names with cp_ (claude_code OAuth only): required
+                # by that endpoint, unexpected elsewhere — opt-in constructor flag.
                 if body_bytes and self._apply_claude_code_prefix:
                     prefixed_body = self._prefix_tool_names(body_bytes)
                     if prefixed_body is not None:
@@ -453,13 +465,10 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
             except Exception as exc:
                 logger.debug("Error in Claude Code transformations: %s", exc)
 
-        # Send the request with retry logic for transient errors
         response = await self._send_with_retries(request, *args, **kwargs)
 
-        # NOTE: Tool name unprefixing is now handled at the pydantic-ai level
-        # in pydantic_patches.py rather than wrapping the HTTP response stream.
-        # The response wrapper caused zlib decompression errors due to httpx
-        # response lifecycle issues.
+        # NOTE: unprefixing moved to pydantic_patches.py — wrapping the HTTP
+        # stream caused zlib errors from httpx response-lifecycle issues.
 
         # Handle auth errors with token refresh
         try:
@@ -625,10 +634,14 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         headers: MutableMapping[str, str], access_token: str
     ) -> None:
         bearer_value = f"Bearer {access_token}"
-        if "Authorization" in headers or "authorization" in headers:
+        if "Authorization" in headers:
             headers["Authorization"] = bearer_value
-        elif "x-api-key" in headers or "X-API-Key" in headers:
+        elif "authorization" in headers:
+            headers["authorization"] = bearer_value
+        elif "x-api-key" in headers:
             headers["x-api-key"] = access_token
+        elif "X-API-Key" in headers:
+            headers["X-API-Key"] = access_token
         else:
             headers["Authorization"] = bearer_value
 
@@ -698,19 +711,40 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         self._notify_token_recovered(reauthenticated_token)
         return reauthenticated_token
 
+    def _apply_token_refresh_results(self, results: list[Any]) -> str | None:
+        if not results:
+            # Plugin not loaded — nothing to refresh.
+            return None
+
+        logger.info("Attempting to refresh Claude Code OAuth token...")
+        refreshed_token = next(
+            (result for result in results if isinstance(result, str) and result),
+            None,
+        )
+        if refreshed_token:
+            self._update_auth_headers(self.headers, refreshed_token)
+            self._notify_token_recovered(refreshed_token)
+            logger.info("Successfully refreshed Claude Code OAuth token")
+        else:
+            logger.warning("Token refresh returned None")
+        return refreshed_token
+
     def _refresh_claude_oauth_token(self) -> str | None:
         try:
-            from code_puppy.plugins.claude_code_oauth.utils import refresh_access_token
+            from code_puppy.callbacks import on_refresh_claude_oauth_token
 
-            logger.info("Attempting to refresh Claude Code OAuth token...")
-            refreshed_token = refresh_access_token(force=True)
-            if refreshed_token:
-                self._update_auth_headers(self.headers, refreshed_token)
-                self._notify_token_recovered(refreshed_token)
-                logger.info("Successfully refreshed Claude Code OAuth token")
-            else:
-                logger.warning("Token refresh returned None")
-            return refreshed_token
+            return self._apply_token_refresh_results(on_refresh_claude_oauth_token())
+        except Exception as exc:
+            logger.error("Exception during token refresh: %s", exc)
+            return None
+
+    async def _refresh_claude_oauth_token_async(self) -> str | None:
+        """Await token-refresh providers from an active event loop."""
+        try:
+            from code_puppy.callbacks import on_refresh_claude_oauth_token_async
+
+            results = await on_refresh_claude_oauth_token_async()
+            return self._apply_token_refresh_results(results)
         except Exception as exc:
             logger.error("Exception during token refresh: %s", exc)
             return None
@@ -727,12 +761,8 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
 
         modified = False
 
-        # Anthropic supports up to 4 cache breakpoints.  We place them on
-        # the three most impactful, stable prefixes so that content which
-        # doesn't change between turns is independently cached:
-        #   1. System prompt  – static across the whole session
-        #   2. Tool definitions – static across the whole session
-        #   3. Last message    – caches the growing conversation prefix
+        # 3 of Anthropic's 4 allowed cache breakpoints on stable, high-impact
+        # prefixes: system prompt, tool definitions, last message.
 
         # 1. System prompt
         system = data.get("system")
@@ -742,8 +772,7 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                 last_sys["cache_control"] = _cache_marker(ttl)
                 modified = True
         elif isinstance(system, str) and system:
-            # Convert bare string to content-block list so we can attach
-            # cache_control (the Anthropic API accepts both formats).
+            # Bare-string system can't carry cache_control; convert to block list.
             data["system"] = [
                 {"type": "text", "text": system, "cache_control": _cache_marker(ttl)}
             ]
@@ -772,9 +801,8 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                         last_block["cache_control"] = _cache_marker(ttl)
                         modified = True
 
-        # 4. Opus 4.7 adaptive-thinking requires display=summarized on the
-        # thinking dict. Enforce at the wire level so the request can't go
-        # out without it, regardless of upstream settings construction.
+        # 4. Opus 4.7 adaptive-thinking needs display=summarized; enforce at the
+        # wire level so the request can't go out without it.
         if _enforce_thinking_display_summary(data):
             modified = True
 
@@ -825,8 +853,7 @@ def _inject_cache_control_in_payload(
                 if isinstance(last_block, dict) and "cache_control" not in last_block:
                     last_block["cache_control"] = _cache_marker(ttl)
 
-    # 4. Opus 4.7 adaptive-thinking requires display=summarized on the
-    # thinking dict. Enforce here as well so the AsyncAnthropic client
+    # 4. Same wire-level display=summarized enforcement so the AsyncAnthropic
     # patch path matches the raw httpx path.
     _enforce_thinking_display_summary(payload)
 

@@ -59,9 +59,8 @@ _loop: Optional[asyncio.AbstractEventLoop] = None
 _draining = False
 
 # --- Persistent-prompt state (Phase A: the bar IS the prompt) -----------
-# When persistent, the bar + editor + key listener live for the whole
-# REPL; start_run_ui/stop_run_ui merely toggle _run_active so submission
-# routing (idle = new turn, running = steer/slash-drain) stays correct.
+# Bar + editor + listener live for the whole REPL; start/stop_run_ui merely
+# toggle _run_active (idle = new turn, running = steer/slash-drain).
 _persistent = False
 _run_active = False
 _idle_queue: "Optional[asyncio.Queue]" = None
@@ -80,9 +79,8 @@ _EOF = object()  # idle-queue sentinel: Ctrl+D on an empty buffer
 #: pause boundary before running commands anyway (best-effort).
 _PARK_TIMEOUT_S = 2.0
 
-#: Commands that must NOT execute while an agent run is in flight, with a
-#: one-line reason each. Conservative: anything that mutates the agent,
-#: its message history, or the session is deferred to the idle REPL.
+#: Commands that must NOT execute while an agent run is in flight (one-line
+#: reason each). Anything mutating the agent/history/session is deferred.
 MID_RUN_DENYLIST: Dict[str, str] = {
     "exit": "terminates the app; cancel the run first (Ctrl+C)",
     "quit": "terminates the app; cancel the run first (Ctrl+C)",
@@ -122,18 +120,16 @@ def start_run_ui() -> Optional[RunningLineEditor]:
             return None  # non-TTY: no bar, no editor
         editor = RunningLineEditor()
         _editor = editor
-        # Capture the main loop for the slash-command consumer — the
-        # editor's feed() runs on the key-listener daemon thread, but
-        # command execution needs the loop (see module docstring).
+        # Capture the main loop for the slash-command consumer: feed() runs
+        # on the key-listener thread, but command execution needs the loop.
         try:
             _loop = asyncio.get_running_loop()
         except RuntimeError:
             _loop = None
     editor.add_submit_listener(_make_slash_listener(editor))
     editor.set_clipboard_handler(make_clipboard_handler(editor, _get_loop))
-    # Ctrl+X Ctrl+E: edit the prompt in $EDITOR (chord registry — shell
-    # kill/background chords are registered by command_runner while
-    # shells run; this one lives for the UI's lifetime).
+    # Ctrl+X Ctrl+E: edit the prompt in $EDITOR. Shell chords are registered
+    # per-shell by command_runner; this one lives for the UI's lifetime.
     register_chord(
         "\x05",
         make_external_edit_handler(editor, _get_loop),
@@ -159,9 +155,8 @@ def stop_run_ui() -> None:
             # The UI outlives the run — just drop back to idle routing.
             _run_active = False
             _clear_status_row()
-            # Self-heal: if the REPL-lifetime listener died mid-run (its
-            # thread crashed, or a per-run listener replaced-then-stopped
-            # it), typing at the idle prompt would be dead forever.
+            # Self-heal: if the REPL-lifetime listener died mid-run (thread
+            # crash, or replaced-then-stopped), idle typing would be dead.
             _ensure_persistent_listener_locked()
             persistent_run_ended = True
             editor = None
@@ -441,9 +436,8 @@ def _spawn_persistent_listener() -> None:
     except ImportError:
         return  # no listener infra: prompt still works via nothing-to-feed
     stop_event = threading.Event()
-    # Atomic reuse-or-spawn: if someone else already owns stdin we back
-    # off (spawned=False) and deliberately do NOT record their handle as
-    # ours — stop_persistent_ui must never stop a listener it didn't spawn.
+    # Reuse-or-spawn: if someone else owns stdin we back off (spawned=False)
+    # and never record their handle — stop_persistent_ui stops only its own.
     handle, spawned = _key_listeners.acquire_listener(
         stop_event, on_escape=lambda: None
     )
@@ -572,12 +566,8 @@ async def _run_paused_commands(editor: RunningLineEditor, first_cmd: str) -> Non
     pc = get_pause_controller()
     bus.provide_response(PauseAgentCommand(reason="slash command"))
     try:
-        # Pause is a flag, not a rendezvous: wait (briefly) for the agent
-        # to actually park at its safe boundary before taking over the
-        # terminal. Best-effort — between model calls the gate is never
-        # reached, so proceed anyway on timeout. Poll asynchronously:
-        # blocking the loop here would prevent the agent from ever
-        # REACHING the pause gate (it runs on this same loop).
+        # Pause is a flag, not a rendezvous: briefly await the agent's park,
+        # then proceed on timeout. Poll async; blocking the loop would starve the gate.
         await _await_parked(pc, _PARK_TIMEOUT_S)
         cmd: Optional[str] = first_cmd
         while cmd is not None:
@@ -589,9 +579,8 @@ async def _run_paused_commands(editor: RunningLineEditor, first_cmd: str) -> Non
                     f"({reason}) — finish the run first."
                 )
             elif not pc.is_paused():
-                # Only event_stream_handler's wait_if_paused timeout (or a
-                # cancel path) resumes behind our back — the pause window
-                # is gone, so running now would interleave with streaming.
+                # wait_if_paused timeout / cancel resumed behind our back; the
+                # window is gone, so running now would interleave with streaming.
                 emit_warning(
                     f"⏸ pause expired before {cmd} could run — skipped; "
                     "run it again when the agent finishes."
@@ -663,10 +652,8 @@ def _handle_command_result(cmd: str, result) -> None:
     emit_info(f"⏭ {cmd} expanded to a prompt — queued as the next turn.")
 
 
-# TODO(deferred): invert this messaging→agents lazy import — have the
-# key-listener register itself into a small registry owned by messaging
-# instead of run_ui reaching across packages. (Flagged by review; not
-# worth the churn mid-rewrite.)
+# TODO(deferred): invert this messaging→agents lazy import — key-listener
+# registers into a registry owned by messaging instead of run_ui reaching across.
 def _set_feed_target(editor: Optional[RunningLineEditor]) -> None:
     """Install/clear the key-listener feed target (lazy import, no cycle)."""
     try:

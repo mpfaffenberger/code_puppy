@@ -4,11 +4,9 @@ Provides a beautiful split-panel interface for browsing providers and models
 with live preview of model details and one-click addition to extra_models.json.
 """
 
-import json
 import os
 import sys
 import time
-from pathlib import Path
 from typing import List, Optional
 
 from prompt_toolkit.application import Application
@@ -17,6 +15,7 @@ from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame
 
+from code_puppy import atomic_json
 from code_puppy.command_line.pagination import (
     ensure_visible_page,
     get_page_bounds,
@@ -36,6 +35,11 @@ from code_puppy.provider_credentials import (
 )
 from code_puppy.tools.command_runner import set_awaiting_user_input
 from code_puppy.callbacks import on_prompt_toolkit_style
+
+
+class _ExtraModelsNotADict(Exception):
+    """Sentinel: extra_models.json parsed to something other than a dict."""
+
 
 PAGE_SIZE = 15  # Items per page
 
@@ -96,9 +100,8 @@ def derive_provider_identity(provider: ProviderInfo) -> str:
 class AddModelMenu:
     """Interactive TUI for browsing and adding models."""
 
-    # Class-level default so the attribute is always present, even when the
-    # instance is constructed via ``__new__`` (e.g. in tests that bypass
-    # ``__init__``). ``run()`` reads this in its event loop.
+    # Class-level default so the attribute exists even when built via
+    # ``__new__`` (e.g. tests bypass ``__init__``); ``run()`` reads it.
     pending_credentials_edit: Optional[ProviderInfo] = None
 
     def __init__(self):
@@ -759,54 +762,44 @@ class AddModelMenu:
         The extra_models.json format is a dictionary where:
         - Keys are user-friendly model names (e.g., "provider-model-name")
         - Values contain type, name, custom_endpoint (if needed), and context_length
+
+        Uses :func:`code_puppy.atomic_json.mutate_json` for a bounded,
+        locked, atomically-written read-modify-write -- this file is also
+        touched by the ollama-setup and aws_bedrock/azure_foundry plugins,
+        so an unlocked write here could lose one of those concurrent updates.
         """
+        model_key = f"{provider.id}-{model.model_id}".replace("/", "-").replace(
+            ":", "-"
+        )
+        already_present = False
+
+        def _mutate(current):
+            nonlocal already_present
+            if not isinstance(current, dict):
+                raise _ExtraModelsNotADict()
+            if model_key in current:
+                already_present = True
+                return current
+            current[model_key] = self._build_model_config(model, provider)
+            return current
+
         try:
-            # Load existing extra models (dictionary format)
-            extra_models_path = Path(EXTRA_MODELS_FILE)
-            extra_models: dict = {}
-
-            if extra_models_path.exists():
-                try:
-                    with open(extra_models_path, "r", encoding="utf-8") as f:
-                        extra_models = json.load(f)
-                        if not isinstance(extra_models, dict):
-                            emit_error(
-                                "extra_models.json must be a dictionary, not a list"
-                            )
-                            return False
-                except json.JSONDecodeError as e:
-                    emit_error(f"Error parsing extra_models.json: {e}")
-                    return False
-
-            # Create a unique key for this model (provider-modelname format)
-            model_key = f"{provider.id}-{model.model_id}".replace("/", "-").replace(
-                ":", "-"
-            )
-
-            # Check for duplicates
-            if model_key in extra_models:
-                emit_info(f"Model {model_key} is already in extra_models.json")
-                return True  # Not an error, just already exists
-
-            # Convert to Code Puppy config format (dictionary value)
-            config = self._build_model_config(model, provider)
-            extra_models[model_key] = config
-
-            # Ensure directory exists
-            extra_models_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Save updated configuration (atomic write)
-            temp_path = extra_models_path.with_suffix(".tmp")
-            with open(temp_path, "w", encoding="utf-8") as f:
-                json.dump(extra_models, f, indent=4, ensure_ascii=False)
-            temp_path.replace(extra_models_path)
-
-            emit_info(f"Added {model_key} to extra_models.json")
-            return True
-
+            atomic_json.mutate_json(EXTRA_MODELS_FILE, _mutate, default={})
+        except _ExtraModelsNotADict:
+            emit_error("extra_models.json must be a dictionary, not a list")
+            return False
+        except atomic_json.JsonFileCorrupt as e:
+            emit_error(f"Error parsing extra_models.json: {e}")
+            return False
         except Exception as e:
             emit_error(f"Error adding model to extra_models.json: {e}")
             return False
+
+        if already_present:
+            emit_info(f"Model {model_key} is already in extra_models.json")
+        else:
+            emit_info(f"Added {model_key} to extra_models.json")
+        return True
 
     def _build_model_config(self, model: ModelInfo, provider: ProviderInfo) -> dict:
         """Build a Code Puppy compatible model configuration.

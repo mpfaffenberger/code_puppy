@@ -373,9 +373,8 @@ def _create_azure_foundry_model(
         if beta_parts:
             default_headers = {"anthropic-beta": ",".join(beta_parts)}
 
-        # Create the Azure Foundry Anthropic client with token provider
-        # Note: We pass default_headers here because AsyncAnthropicFoundry.with_options()
-        # has a bug where copy() passes auth_token which isn't a valid __init__ param
+        # Create the client with token provider. Pass default_headers directly:
+        # .with_options() copy() passes auth_token, not a valid __init__ param (SDK bug).
         anthropic_client = AsyncAnthropicFoundry(
             resource=resource_name,
             azure_ad_token_provider=token_provider.get_token,
@@ -466,11 +465,9 @@ def _create_azure_foundry_openai_model(
         provider = make_openai_provider(provider_identity, openai_client=azure_client)
 
         if deployment_name.startswith("gpt-5"):
-            # Azure returns reasoning items without encrypted_content, so pydantic-ai
-            # drops the reasoning item while still replaying its function_call by ID —
-            # causing HTTP 400 "function_call provided without its required reasoning item".
-            # openai_send_reasoning_ids=False disables ID replay; thinking is re-sent as
-            # plain assistant text instead.
+            # Azure reasoning items lack encrypted_content, so pydantic-ai drops them but
+            # still replays the function_call by ID -> HTTP 400. openai_send_reasoning_ids=False
+            # disables ID replay; thinking goes as plain assistant text instead.
             settings = OpenAIResponsesModelSettings(openai_send_reasoning_ids=False)
             model = OpenAIResponsesModel(
                 model_name=deployment_name, provider=provider, settings=settings

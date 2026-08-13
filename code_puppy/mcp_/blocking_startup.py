@@ -230,10 +230,8 @@ class BlockingMCPServerStdio(SimpleCapturedMCPServerStdio):
     async def __aenter__(self):
         """Enter context and track initialization."""
         try:
-            # Start initialization
             result = await super().__aenter__()
 
-            # Mark as initialized
             self._initialized.set()
 
             # Success message removed to reduce console spam
@@ -259,10 +257,8 @@ class BlockingMCPServerStdio(SimpleCapturedMCPServerStdio):
 
             self._initialized.set()
 
-            # Gentle one-liner pointing the user to /mcp logs for details.
-            # The full error_details are intentionally NOT included here —
-            # they're already in the persistent log file. We don't want to
-            # spam the prompt with stack traces every time the agent runs.
+            # Point the user to /mcp logs; error_details stay out of the prompt
+            # (already in the log file — no stack-trace spam on every run).
             server_name = getattr(self, "tool_prefix", self.command)
             emit_info(
                 f"⚠  MCP server '{server_name}' didn't start. "
@@ -425,55 +421,3 @@ class StartupMonitor:
             status = "✅" if self.servers[name].is_ready() else "❌"
             lines.append(f"  {status} {name}: {time_taken:.2f}s")
         return "\n".join(lines)
-
-
-async def start_servers_with_blocking(
-    *servers: BlockingMCPServerStdio,
-    timeout: float = 30.0,
-    message_group: Optional[uuid.UUID] = None,
-):
-    """
-    Start multiple servers and wait for all to be ready.
-
-    Args:
-        *servers: Variable number of BlockingMCPServerStdio instances
-        timeout: Maximum time to wait for all servers
-        message_group: Optional UUID for grouping log messages
-
-    Returns:
-        List of ready servers
-
-    Example:
-        server1 = BlockingMCPServerStdio(...)
-        server2 = BlockingMCPServerStdio(...)
-        ready = await start_servers_with_blocking(server1, server2)
-    """
-    monitor = StartupMonitor(message_group=message_group)
-
-    for i, server in enumerate(servers):
-        name = getattr(server, "tool_prefix", f"server-{i}")
-        monitor.add_server(name, server)
-
-    # Start all servers
-    async def start_server(server):
-        async with server:
-            await asyncio.sleep(0.1)  # Keep context alive briefly
-            return server
-
-    # Store tasks to prevent garbage collection; note that server contexts
-    # will still close after the brief sleep - callers should manage server
-    # lifecycle separately
-    _startup_tasks = [asyncio.create_task(start_server(server)) for server in servers]
-
-    # Wait for all to be ready
-    results = await monitor.wait_all_ready(timeout)
-
-    # Get the report
-    emit_info(monitor.get_startup_report(), message_group=monitor.message_group)
-
-    # Return ready servers
-    ready_servers = [
-        server for name, server in monitor.servers.items() if results.get(name, False)
-    ]
-
-    return ready_servers

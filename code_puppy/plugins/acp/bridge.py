@@ -75,11 +75,9 @@ _PATH_ARG_KEYS = ("file_path", "path", "target_file", "filename")
 # Cap on inline diff/output content so a huge edit never floods the client.
 _MAX_DIFF_CHARS = 8000
 
-# Interactive TUI tools that can't run headless over ACP (they'd render a
-# terminal picker + read stdin, which is the JSON-RPC pipe). Until ACP ratifies
-# structured elicitation (currently an RFD), we block these and steer the model
-# to ask the user in plain text instead — which the client shows as a normal
-# assistant message. See README → *Interactive tools*.
+# Interactive TUI tools that can't run headless over ACP (they'd render a terminal
+# picker + read stdin, the JSON-RPC pipe). Until ACP ratifies structured elicitation
+# (an RFD), block these and steer the model to plain-text questions instead.
 _INTERACTIVE_TOOLS = {"ask_user_question"}
 _INTERACTIVE_BLOCK = {
     "blocked": True,

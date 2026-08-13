@@ -100,11 +100,9 @@ def handle_cd_command(command: str) -> bool:
             except Exception:
                 # Index is a nicety, not load-bearing. Never block /cd on it.
                 pass
-            # Reload the agent to pick up new working directory context.
-            # This ensures AGENTS.md is re-read and the system prompt is
-            # updated -- without this, the PydanticAgent instructions stay
-            # baked in from construction time and keep serving stale paths
-            # for the remainder of the session.
+            # Reload so AGENTS.md and the system prompt pick up the new cwd —
+            # otherwise the PydanticAgent instructions stay baked in from
+            # construction and keep serving stale paths.
             try:
                 from code_puppy.agents.agent_manager import get_current_agent
 
@@ -205,18 +203,18 @@ def handle_tutorial_command(command: str) -> bool:
 
     if result == "chatgpt":
         emit_info(t("cmd.tutorial.chatgpt_oauth"))
-        from code_puppy.plugins.chatgpt_oauth.oauth_flow import run_oauth_flow
+        # Decoupled: dispatch /chatgpt-auth via its self-registered custom
+        # command rather than importing the plugin module directly.
+        from code_puppy.callbacks import on_custom_command
 
-        run_oauth_flow()
-        set_model_and_reload_agent("codex-gpt-5.6-sol")
+        on_custom_command("/chatgpt-auth", "chatgpt-auth")
     elif result == "claude":
         emit_info(t("cmd.tutorial.claude_oauth"))
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
-            _perform_authentication,
-        )
+        from code_puppy.callbacks import on_claude_oauth_authenticate
 
-        _perform_authentication()
-        set_model_and_reload_agent("claude-code-claude-opus-4-7")
+        auth_results = on_claude_oauth_authenticate()
+        if any(result is True for result in auth_results):
+            set_model_and_reload_agent("claude-code-claude-opus-4-7")
     elif result == "completed":
         emit_info(t("cmd.tutorial.complete"))
     elif result == "skipped":
@@ -274,9 +272,8 @@ def handle_agent_command(command: str) -> bool:
     if len(tokens) == 1:
         # Show interactive agent picker
         try:
-            # Run the async picker using asyncio utilities
-            # Since we're called from an async context but this function is sync,
-            # we need to carefully schedule and wait for the coroutine
+            # Called from an async context but this fn is sync — schedule the
+            # async picker via asyncio utilities and carefully wait for it.
             import asyncio
             import concurrent.futures
             import uuid
@@ -288,9 +285,8 @@ def handle_agent_command(command: str) -> bool:
                 )
                 selected_agent = future.result(timeout=300)  # 5 min timeout
 
-            # Drain any deferred pin-reloads queued from inside the picker.
-            # These MUST run on the main loop, not on the worker's transient
-            # one --- see the comment in agent_menu._PENDING_PIN_RELOADS.
+            # Drain deferred pin-reloads — must run on the main loop, not the
+            # worker's transient one (see agent_menu._PENDING_PIN_RELOADS).
             from code_puppy.command_line.agent_menu import (
                 apply_pending_pin_reload,
                 consume_pending_pin_reloads,
@@ -463,9 +459,8 @@ def handle_model_command(command: str) -> bool:
     # If just /model or /m with no args, show interactive picker
     if len(tokens) == 1:
         try:
-            # Run the async picker using asyncio utilities
-            # Since we're called from an async context but this function is sync,
-            # we need to carefully schedule and wait for the coroutine
+            # Called from an async context but this fn is sync — schedule the
+            # async picker via asyncio utilities and carefully wait for it.
             import concurrent.futures
 
             # Create a new event loop in a thread and run the picker there

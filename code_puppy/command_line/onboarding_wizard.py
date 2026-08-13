@@ -346,9 +346,9 @@ def require_model_setup_if_needed(wizard_result: Optional[str]) -> None:
     from code_puppy import config as cp_config
     from code_puppy.messaging import emit_warning
 
-    # Pre-arm the generic one-time "no model" warning BEFORE resolving the
-    # model, so the resolution below doesn't double up with our more specific
-    # tutorial message. Harmless if a model turns out to be configured.
+    # Pre-arm the generic "no model" warning before resolving, so it doesn't
+    # double up with our more specific tutorial message (harmless if a model
+    # is configured).
     cp_config._warned_no_model = True
 
     # If a model somehow is already configured, don't be annoying.

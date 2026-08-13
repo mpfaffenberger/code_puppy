@@ -172,9 +172,9 @@ class MacOSBackend:
             / f"code-puppy-app-state-{int(time.time() * 1000)}.png"
         )
         capture = capture_window(app_name, target)
-        # Electron apps often expose their useful web accessibility subtree only
-        # while frontmost. Activate before reading AX state so the model receives
-        # semantic controls instead of a nearly empty generic window tree.
+        # Electron apps expose their useful web AX subtree only while frontmost —
+        # activate before reading state so the model gets semantic controls, not an
+        # almost-empty generic window tree.
         activate_application(
             int(capture["pid"]),
             str(capture["application"]),

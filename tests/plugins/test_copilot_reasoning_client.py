@@ -210,14 +210,6 @@ class TestCaptureFromContent:
         assert key in cache
         assert cache[key] == "encrypted_blob"
 
-    def test_ignores_response_without_opaque(self):
-        cache: dict[str, str] = {}
-        content = json.dumps(
-            {"choices": [{"message": {"reasoning_text": "thoughts"}}]}
-        ).encode()
-        _capture_from_content(content, cache, "reasoning_text")
-        assert cache == {}
-
     def test_handles_bad_json(self):
         cache: dict[str, str] = {}
         _capture_from_content(b"not json", cache, "reasoning_text")

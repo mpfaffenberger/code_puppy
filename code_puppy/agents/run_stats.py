@@ -63,30 +63,27 @@ class AgentRunStats:
 
     _lock: Lock = Lock()
 
-    # Inter-event gaps above this are stalls (tool runs, follow-up request
-    # latency) and are excluded from generation-time accounting. Streaming
-    # deltas arrive sub-second even on slow backends, so 2s is generous.
+    # Gaps above this are stalls (tool runs, follow-up latency), excluded from
+    # generation-time accounting; streaming deltas arrive sub-second even on
+    # slow backends.
     _MAX_INTER_EVENT_GAP_SECONDS: float = 2.0
 
     # ----------------- per-cycle state -----------------
-    # T0 set on agent_run_start; T1 set on first content stream_event;
-    # output_tokens accumulates across all stream_events in the cycle.
-    # gen_seconds accumulates only the gaps BETWEEN stream events, so tool
-    # execution time between model calls never pollutes the TG denominator.
+    # T0 on run start, T1 on first content event; output_tokens accumulates
+    # across the cycle; gen_seconds counts only gaps BETWEEN stream events so
+    # tool-execution time never pollutes the TG denominator.
     _stream_start_time: float = 0.0
     _first_token_time: float = 0.0
     _last_token_time: float = 0.0
     _gen_seconds: float = 0.0
     _output_tokens: int = 0
-    # Tokens whose inter-event gap was MEASURED (not a stall / re-anchor).
-    # Only these enter the TG numerator -- keeping numerator and
-    # denominator over the same set of events.
+    # Tokens whose inter-event gap was MEASURED (not a stall / re-anchor); only
+    # these enter the TG numerator, keeping num and denom on the same events.
     _timed_output_tokens: int = 0
     _current_model_name: str = ""
 
-    # Snapshot of the most-recently-finished cycle. Used as a fallback so
-    # consumers (telemetry, future displays) have something stable to read
-    # between cycles instead of seeing zeros.
+    # Snapshot of the most-recently-finished cycle, so consumers have
+    # something stable to read between cycles instead of zeros.
     _last_ttft_seconds: float = 0.0
     _last_gen_tps: float = 0.0
     _last_output_tokens: int = 0
@@ -95,8 +92,8 @@ class AgentRunStats:
     _last_model_name: str = ""
 
     # --------------- conversation-wide aggregates ---------------
-    # Summed across every model call in the session so we can report
-    # weighted averages on auto-save / session shutdown.
+    # Summed across every model call in the session for the weighted
+    # averages reported on auto-save / session shutdown.
     _total_ttft_seconds: float = 0.0
     _ttft_sample_count: int = 0
     # Float: calibrated (real/estimated-scaled) token counts fold in here.
@@ -182,9 +179,9 @@ class AgentRunStats:
                 timed_tokens = float(cls._timed_output_tokens)
                 exact = bool(usage_output_tokens) and cls._output_tokens > 0
                 if exact:
-                    # Calibrate: same estimator, same event population --
-                    # the real/estimated ratio corrects the bias without
-                    # mixing untimed tokens into the timed numerator.
+                    # Calibrate: same estimator, same event population — the
+                    # real/estimated ratio corrects bias without mixing
+                    # untimed tokens into the numerator.
                     timed_tokens *= usage_output_tokens / cls._output_tokens
                     cls._last_output_tokens = int(usage_output_tokens)
                 else:
@@ -325,10 +322,9 @@ _HIGH_MODE_RESULT_FOOTER_THRESHOLD = 50
 # via display_non_streamed_result) and should NOT be dumped again.
 _ALREADY_RENDERED_TOOLS = frozenset({"invoke_agent", "invoke_agent_with_model"})
 
-# Tools whose output is already rendered by the rich_renderer via MessageBus
-# messages (FileContentMessage, DiffMessage, GrepResultMessage, etc.).
-# High-mode metadata annotations are already shown inline by the renderer,
-# so dumping the tool result body again would be noisy redundancy.
+# Tools whose output the rich_renderer already shows via MessageBus messages
+# (FileContentMessage, DiffMessage, GrepResultMessage, ...) — re-dumping the
+# body would be noisy redundancy.
 _TOOLS_WITH_RENDERER = frozenset(
     {
         "read_file",
@@ -420,10 +416,9 @@ def _render_high_mode_tool_result(
         console = get_streaming_console()
         dur_str = f"{duration_ms:.0f}" if duration_ms >= 1 else f"{duration_ms:.1f}"
 
-        # Sub-agent results: the response body was already streamed or
-        # rendered by display_non_streamed_result.  Dumping the raw repr
-        # of AgentInvokeOutput would produce a single unreadable line
-        # with escaped newlines.  Show a compact summary instead.
+        # Sub-agent results: body already streamed/rendered; a raw
+        # AgentInvokeOutput repr would be one unreadable escaped-newline line.
+        # Show a compact summary instead.
         if tool_name in _ALREADY_RENDERED_TOOLS:
             _render_high_mode_agent_result(console, tool_name, result, dur_str)
             return
@@ -436,10 +431,9 @@ def _render_high_mode_tool_result(
             )
             return
 
-        # General path: convert structured results to readable multi-line
-        # text (handles Pydantic models, dataclasses, dicts, lists).
-        # High mode shows the FULL result — no truncation.  The user
-        # explicitly opted into maximum verbosity.
+        # General path: convert structured results to readable multi-line text
+        # (Pydantic models, dataclasses, dicts, lists). High mode shows the
+        # FULL result, no truncation — the user opted into max verbosity.
         result_str = _stringify_result(result)
         lines = result_str.splitlines()
         total_lines = len(lines)

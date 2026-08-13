@@ -69,6 +69,19 @@ _KENNEL_TOOL_NAMES = (
 )
 
 
+def _register_kennel_memory():
+    """Expose the recall block through the neutral provider seam.
+
+    Returned to core via the ``register_kennel_memory`` callback phase; core
+    consumes it through ``code_puppy.kennel_provider``. Disabling the kennel
+    makes ``build_recall_block`` return ``None``, so providers are resolved
+    per call and the stale-registration problem never appears.
+    """
+    if not is_enabled():
+        return None
+    return build_recall_block
+
+
 def _advertise_tools_to_agent(agent_name: str | None = None) -> list[str]:
     """``register_agent_tools`` callback — advertise kennel tools to every agent.
 
@@ -91,5 +104,6 @@ if _initialize_once():
     register_callback("agent_run_end", _on_agent_run_end)
     register_callback("register_tools", tools.register_tools_callback)
     register_callback("register_agent_tools", _advertise_tools_to_agent)
+    register_callback("register_kennel_memory", _register_kennel_memory)
     register_callback("custom_command", commands.handle)
     register_callback("custom_command_help", commands.help_entries)

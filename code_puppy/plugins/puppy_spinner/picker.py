@@ -40,14 +40,11 @@ from code_puppy.command_line.pagination import (
 from . import spinners as sp
 from code_puppy.callbacks import on_prompt_toolkit_style
 
-#: Invalidation cadence for the preview animation. Pinned to the speed
-#: floor so even a spinner dialed all the way down to MIN_INTERVAL
-#: previews at its true speed (frames still pick their own timing).
+#: Preview invalidation cadence, pinned to MIN_INTERVAL so slowest spinners run
+#: at their true speed.
 _REFRESH_INTERVAL_S = sp.MIN_INTERVAL
 PAGE_SIZE = 20  # one line per entry, same as the plugins menu
-#: Speed-key step per keypress. Matches the MIN_INTERVAL clamp floor,
-#: so the whole 0.02..1.0 range is one clean grid -- the floor is just
-#: another grid point, never an off-grid clamp artifact.
+#: Speed-key grid step; matching the clamp floor keeps 0.02..1.0 on-grid.
 _SPEED_STEP_S = 0.02
 
 
@@ -105,9 +102,7 @@ def _format_menu(
     return FormattedText(lines)
 
 
-#: (style, keys, action) rows for the hint block. Keys are padded to a
-#: common cell width in ``_render_hints`` so the action column always
-#: lines up -- hand-padding drifted the moment a row gained an arrow.
+#: Hint rows; ``_render_hints`` pads keys to keep action columns aligned.
 _HINTS = [
     ("class:tui.help-key", "up/down or j/k", "Navigate"),
     ("class:tui.help-key", "PgUp/PgDn", "Page"),

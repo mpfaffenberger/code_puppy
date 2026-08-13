@@ -137,6 +137,27 @@ async def _run_interactive(
         await interactive_mode(renderer, initial_command=initial_command)
 
 
+def _scripted_input(*steps):
+    """Build an async fake ``input()`` that yields the given literal steps in
+    order, raising any step that is an exception (instance or class), then
+    returning ``/exit`` for all further calls."""
+    state = {"n": 0}
+
+    async def fake_input(*a, **kw):
+        idx = state["n"]
+        state["n"] += 1
+        if idx < len(steps):
+            step = steps[idx]
+            if isinstance(step, BaseException) or (
+                isinstance(step, type) and issubclass(step, BaseException)
+            ):
+                raise step
+            return step
+        return "/exit"
+
+    return fake_input
+
+
 # ---------------------------------------------------------------------------
 # main() tests
 # ---------------------------------------------------------------------------
@@ -197,6 +218,21 @@ class TestMain:
             },
         )
         mock_inter.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_android_interactive_mode_uses_compact_banner(self):
+        mock_inter = AsyncMock()
+        mock_figlet = MagicMock(return_value="LOGO\n\n")
+        await self._run_main(
+            ["code-puppy"],
+            extra_patches={
+                "code_puppy.cli_runner.interactive_mode": mock_inter,
+                "code_puppy.cli_runner.sys.platform": "android",
+                "pyfiglet.figlet_format": mock_figlet,
+            },
+        )
+
+        mock_figlet.assert_called_once_with("PUP", font="ansi_shadow")
 
     @pytest.mark.anyio
     async def test_with_command_args(self):
@@ -492,36 +528,18 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_keyboard_interrupt_continues(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise KeyboardInterrupt
-            return "/exit"
+        fake_input = _scripted_input(KeyboardInterrupt)
 
         await _run_interactive(
             _mock_renderer(),
             _interactive_patches(),
             fake_input,
-            extra_patches={
-                "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
-                    return_value=False
-                ),
-            },
+            extra_patches={},
         )
 
     @pytest.mark.anyio
     async def test_keyboard_interrupt_notifies_continuation_plugins(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise KeyboardInterrupt
-            return "/exit"
+        fake_input = _scripted_input(KeyboardInterrupt)
 
         mock_cancel = AsyncMock()
         await _run_interactive(
@@ -536,12 +554,7 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_clear_command(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "/clear" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("/clear")
 
         agent = MagicMock()
         agent.get_user_prompt.return_value = "task:"
@@ -555,9 +568,8 @@ class TestInteractiveMode:
                 "code_puppy.cli_runner.get_current_agent": MagicMock(
                     return_value=agent
                 ),
-                # /clear is handled by session_commands now; it lazy-imports
-                # the clipboard manager and autosave rotation, so patch at
-                # the source modules.
+                # /clear lives in session_commands and lazy-imports the clipboard
+                # manager + autosave rotation — patch at the source modules.
                 "code_puppy.command_line.clipboard.get_clipboard_manager": MagicMock(
                     return_value=_mock_clipboard([b"img"])
                 ),
@@ -570,12 +582,7 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_slash_command_handled(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "/help" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("/help")
 
         await _run_interactive(
             _mock_renderer(),
@@ -593,12 +600,7 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_slash_command_returns_prompt(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "/custom" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("/custom")
 
         mock_result = MagicMock(output="done")
         mock_result.all_messages.return_value = []
@@ -617,20 +619,12 @@ class TestInteractiveMode:
                 "code_puppy.cli_runner.run_prompt_with_attachments": AsyncMock(
                     return_value=(mock_result, MagicMock())
                 ),
-                "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
-                    return_value=False
-                ),
             },
         )
 
     @pytest.mark.anyio
     async def test_slash_command_exception(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "/bad" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("/bad")
 
         await _run_interactive(
             _mock_renderer(),
@@ -648,12 +642,7 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_normal_prompt_execution(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "write hello" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("write hello")
 
         mock_result = MagicMock(output="done")
         mock_result.all_messages.return_value = []
@@ -666,9 +655,6 @@ class TestInteractiveMode:
                 "code_puppy.cli_runner.run_prompt_with_attachments": AsyncMock(
                     return_value=(mock_result, MagicMock())
                 ),
-                "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
-                    return_value=False
-                ),
                 "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
                     return_value=_mock_parse_result("write hello")
                 ),
@@ -677,12 +663,7 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_prompt_returns_none_cancelled(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "write hello" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("write hello")
 
         await _run_interactive(
             _mock_renderer(),
@@ -692,9 +673,6 @@ class TestInteractiveMode:
                 "code_puppy.cli_runner.run_prompt_with_attachments": AsyncMock(
                     return_value=(None, MagicMock())
                 ),
-                "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
-                    return_value=False
-                ),
                 "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
                     return_value=_mock_parse_result("write hello")
                 ),
@@ -703,12 +681,7 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_prompt_cancelled_notifies_continuation_plugins(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "write hello" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("write hello")
 
         mock_cancel = AsyncMock()
         await _run_interactive(
@@ -729,12 +702,7 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_prompt_exception(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "write hello" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("write hello")
 
         await _run_interactive(
             _mock_renderer(),
@@ -743,9 +711,6 @@ class TestInteractiveMode:
             extra_patches={
                 "code_puppy.cli_runner.run_prompt_with_attachments": AsyncMock(
                     side_effect=RuntimeError("agent error")
-                ),
-                "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
-                    return_value=False
                 ),
                 "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
                     return_value=_mock_parse_result("write hello")
@@ -758,12 +723,7 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_empty_input_skipped(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "   " if call_count == 1 else "/exit"
+        fake_input = _scripted_input("   ")
 
         await _run_interactive(
             _mock_renderer(),
@@ -843,12 +803,7 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_autosave_load_non_tty(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "/autosave_load" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("/autosave_load")
 
         mock_stdin = MagicMock()
         mock_stdin.isatty.return_value = False
@@ -874,12 +829,7 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_autosave_load_tty_cancelled(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "/autosave_load" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("/autosave_load")
 
         mock_stdin = MagicMock()
         mock_stdin.isatty.return_value = True
@@ -908,12 +858,7 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_autosave_load_tty_success(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "/autosave_load" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("/autosave_load")
 
         agent = MagicMock()
         agent.get_user_prompt.return_value = "task:"
@@ -955,12 +900,7 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_autosave_load_exception(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "/autosave_load" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("/autosave_load")
 
         mock_stdin = MagicMock()
         mock_stdin.isatty.return_value = False
@@ -989,12 +929,7 @@ class TestInteractiveMode:
     @pytest.mark.anyio
     async def test_slash_command_returns_false(self):
         """Command returns False = not recognized, fall through."""
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "/unknown" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("/unknown")
 
         mock_result = MagicMock(output="ok")
         mock_result.all_messages.return_value = []
@@ -1013,20 +948,12 @@ class TestInteractiveMode:
                 "code_puppy.cli_runner.run_prompt_with_attachments": AsyncMock(
                     return_value=(mock_result, MagicMock())
                 ),
-                "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
-                    return_value=False
-                ),
             },
         )
 
     @pytest.mark.anyio
     async def test_continuation_loop(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "write hello" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("write hello")
 
         mock_result = MagicMock(output="done")
         mock_result.all_messages.return_value = []
@@ -1052,12 +979,7 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_continuation_loop_cancelled(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "write hello" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("write hello")
 
         mock_result = MagicMock(output="done")
         mock_result.all_messages.return_value = []
@@ -1092,12 +1014,7 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_continuation_no_request_stops(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "write hello" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("write hello")
 
         mock_result = MagicMock(output="done")
         mock_result.all_messages.return_value = []
@@ -1121,12 +1038,7 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_continuation_loop_exception_is_reported_to_plugins(self):
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "write hello" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("write hello")
 
         mock_result = MagicMock(output="done")
         mock_result.all_messages.return_value = []
@@ -1217,40 +1129,15 @@ class TestInteractiveMode:
         )
 
     @pytest.mark.anyio
-    async def test_onboarding_completed(self):
+    @pytest.mark.parametrize("onboarding_result", ["completed", "skipped"])
+    async def test_onboarding_result(self, onboarding_result):
         patches = _interactive_patches()
         patches["code_puppy.command_line.onboarding_wizard.should_show_onboarding"] = (
             MagicMock(return_value=True)
         )
 
         mock_future = MagicMock()
-        mock_future.result.return_value = "completed"
-        mock_pool = MagicMock()
-        mock_pool.submit.return_value = mock_future
-        mock_executor = MagicMock()
-        mock_executor.__enter__ = MagicMock(return_value=mock_pool)
-        mock_executor.__exit__ = MagicMock(return_value=False)
-
-        await _run_interactive(
-            _mock_renderer(),
-            patches,
-            AsyncMock(return_value="/exit"),
-            extra_patches={
-                "concurrent.futures.ThreadPoolExecutor": MagicMock(
-                    return_value=mock_executor
-                ),
-            },
-        )
-
-    @pytest.mark.anyio
-    async def test_onboarding_skipped(self):
-        patches = _interactive_patches()
-        patches["code_puppy.command_line.onboarding_wizard.should_show_onboarding"] = (
-            MagicMock(return_value=True)
-        )
-
-        mock_future = MagicMock()
-        mock_future.result.return_value = "skipped"
+        mock_future.result.return_value = onboarding_result
         mock_pool = MagicMock()
         mock_pool.submit.return_value = mock_future
         mock_executor = MagicMock()
@@ -1284,12 +1171,7 @@ class TestInteractiveMode:
     @pytest.mark.anyio
     async def test_clear_no_clipboard_images(self):
         """Test /clear when no clipboard images pending."""
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "/clear" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("/clear")
 
         agent = MagicMock()
         agent.get_user_prompt.return_value = "task:"
@@ -1330,14 +1212,7 @@ class TestInteractiveModeEdgeCases:
     @pytest.mark.anyio
     async def test_exit_with_running_task(self):
         """Lines 594-599: exit cancels running agent task."""
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return "do work"
-            return "/exit"
+        fake_input = _scripted_input("do work")
 
         agent = MagicMock()
         agent.get_user_prompt.return_value = "task:"
@@ -1362,23 +1237,13 @@ class TestInteractiveModeEdgeCases:
                 "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
                     return_value=_mock_parse_result("do work")
                 ),
-                "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
-                    return_value=False
-                ),
             },
         )
 
     @pytest.mark.anyio
     async def test_eof_with_running_task_cancels(self):
         """Lines 574-579: EOF cancels running agent task."""
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return "do work"
-            raise EOFError
+        fake_input = _scripted_input("do work", EOFError)
 
         agent = MagicMock()
         agent.get_user_prompt.return_value = "task:"
@@ -1401,21 +1266,13 @@ class TestInteractiveModeEdgeCases:
                 "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
                     return_value=_mock_parse_result("do work")
                 ),
-                "code_puppy.command_line.wiggum_state.is_wiggum_active": MagicMock(
-                    return_value=False
-                ),
             },
         )
 
     @pytest.mark.anyio
     async def test_clear_with_clipboard_images(self):
         """Line 625: clipboard_count > 0 message."""
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "clear" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("clear")
 
         agent = MagicMock()
         agent.get_user_prompt.return_value = "task:"
@@ -1439,12 +1296,7 @@ class TestInteractiveModeEdgeCases:
     @pytest.mark.anyio
     async def test_autosave_load_no_tui_env(self):
         """Line 656: CODE_PUPPY_NO_TUI=1 forces non-interactive picker."""
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "/autosave_load" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("/autosave_load")
 
         mock_stdin = MagicMock()
         mock_stdin.isatty.return_value = True
@@ -1468,54 +1320,6 @@ class TestInteractiveModeEdgeCases:
                     "code_puppy.session_storage.restore_autosave_interactively": AsyncMock(),
                 },
             )
-
-    @pytest.mark.anyio
-    async def test_wiggum_keyboard_interrupt(self):
-        """Lines 874-876: KeyboardInterrupt in wiggum loop."""
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "write hello" if call_count == 1 else "/exit"
-
-        mock_result = MagicMock(output="done")
-        mock_result.all_messages.return_value = []
-        run_call = 0
-
-        async def fake_run(*a, **kw):
-            nonlocal run_call
-            run_call += 1
-            if run_call == 1:
-                return (mock_result, MagicMock())
-            raise KeyboardInterrupt
-
-        wiggum_calls = 0
-
-        def fake_wiggum():
-            nonlocal wiggum_calls
-            wiggum_calls += 1
-            return wiggum_calls == 1
-
-        await _run_interactive(
-            _mock_renderer(),
-            _interactive_patches(),
-            fake_input,
-            extra_patches={
-                "code_puppy.cli_runner.run_prompt_with_attachments": fake_run,
-                "code_puppy.cli_runner.parse_prompt_attachments": MagicMock(
-                    return_value=_mock_parse_result("write hello")
-                ),
-                "code_puppy.command_line.wiggum_state.is_wiggum_active": fake_wiggum,
-                "code_puppy.command_line.wiggum_state.get_wiggum_prompt": MagicMock(
-                    return_value="repeat"
-                ),
-                "code_puppy.command_line.wiggum_state.increment_wiggum_count": MagicMock(
-                    return_value=1
-                ),
-                "code_puppy.command_line.wiggum_state.stop_wiggum": MagicMock(),
-            },
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -1642,12 +1446,7 @@ class TestRemainingEdgeCases:
     @pytest.mark.anyio
     async def test_cancelled_result_notifies_continuation_plugins(self):
         """Cancelled agent runs notify continuation plugins."""
-        call_count = 0
-
-        async def fake_input(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            return "write hello" if call_count == 1 else "/exit"
+        fake_input = _scripted_input("write hello")
 
         agent = MagicMock()
         agent.get_user_prompt.return_value = "task:"
@@ -1705,9 +1504,8 @@ class TestImportErrorFallbacks:
         which is impractical to test without breaking the test infrastructure.
         Marking as known-uncoverable (Windows/missing-dep edge case).
         """
-        # This test documents that lines 449-470 and 542-546 are
-        # ImportError fallback paths that can't be easily covered
-        # in a test environment where prompt_toolkit is installed.
+        # Documents that lines 449-470/542-546 are ImportError fallbacks unreachable
+        # where prompt_toolkit is installed.
         pass
 
     @pytest.mark.anyio

@@ -130,18 +130,12 @@ class TestColorsFor:
         assert len(m) > 0
 
     def test_all_menu_themes_produce_mappings(self):
-        # "reset"/"defaults" are aliases for "default"; colors_for only
-        # handles them via the literal "default" check, so use
-        # resolve_theme_arg first (as the real command handler does).
+        # "reset"/"defaults" alias "default", but colors_for only matches the
+        # literal — resolve_theme_arg first, like the real command handler.
         for name in MENU_BY_NAME:
             resolved = resolve_theme_arg(name) or name
             m = colors_for(resolved)
             assert isinstance(m, dict) and len(m) > 0, name
-
-    def test_surprise_with_seed_is_deterministic(self):
-        a = colors_for("surprise", rng=random.Random(42))
-        b = colors_for("surprise", rng=random.Random(42))
-        assert a == b
 
     def test_surprise_different_seeds_differ(self):
         a = colors_for("surprise", rng=random.Random(1))

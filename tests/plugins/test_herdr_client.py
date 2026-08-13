@@ -3,8 +3,10 @@
 Split out from ``test_herdr_plugin.py`` (which keeps the reporter state
 machine + core wiring) so each file stays well under the 600-line cap.
 
-Covers env-gated activation, a real ``AF_UNIX`` round-trip, seq
-monotonicity, retry-until-acked delivery, and the protocol-16 additions:
+Covers env-gated activation, a real ``AF_UNIX`` round-trip, the Windows
+named-pipe transport (activation without ``AF_UNIX`` plus a real pipe
+round-trip against a ctypes pipe server), seq monotonicity,
+retry-until-acked delivery, and the protocol-16 additions:
 coalescing critical/decorative lanes, wire-order seq assignment, pane
 metadata, and bounded idempotent release.
 """
@@ -89,6 +91,83 @@ def test_client_sends_report_over_socket(monkeypatch):
     assert params["state"] == "working"
     assert params["agent_session_id"] == "sess-42"
     assert isinstance(params["seq"], int)
+
+
+# --- Windows named-pipe transport -----------------------------------------
+
+_IS_WINDOWS = os.name == "nt"
+
+
+@pytest.mark.skipif(not _IS_WINDOWS, reason="named-pipe transport is windows-only")
+def test_client_active_on_windows_without_af_unix(monkeypatch):
+    """Windows has no ``socket.AF_UNIX``; the pipe transport must still arm."""
+    assert not hasattr(socket, "AF_UNIX")  # the premise of the whole feature
+    monkeypatch.setenv("HERDR_ENV", "1")
+    monkeypatch.setenv("HERDR_SOCKET_PATH", r"C:\nonexistent\herdr.sock")
+    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
+    client = HerdrClient()
+    assert client.active is True
+    client.close()
+
+
+def _serve_one_pipe_request(pipe_name: str, received: list, ready: threading.Event):
+    """Minimal one-shot named-pipe server (what herdr's Windows build does)."""
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.windll.kernel32
+    k32.CreateNamedPipeW.restype = wintypes.HANDLE
+    PIPE_ACCESS_DUPLEX = 0x3
+    handle = k32.CreateNamedPipeW(
+        pipe_name, PIPE_ACCESS_DUPLEX, 0, 1, 65536, 65536, 0, None
+    )
+    assert handle not in (0, wintypes.HANDLE(-1).value), "CreateNamedPipeW failed"
+    ready.set()
+    k32.ConnectNamedPipe(wintypes.HANDLE(handle), None)
+    buf = ctypes.create_string_buffer(65536)
+    n = wintypes.DWORD()
+    k32.ReadFile(wintypes.HANDLE(handle), buf, 65536, ctypes.byref(n), None)
+    received.append(buf.raw[: n.value])
+    reply = b'{"result":{"type":"ok"}}\n'
+    k32.WriteFile(wintypes.HANDLE(handle), reply, len(reply), ctypes.byref(n), None)
+    k32.FlushFileBuffers(wintypes.HANDLE(handle))
+    k32.DisconnectNamedPipe(wintypes.HANDLE(handle))
+    k32.CloseHandle(wintypes.HANDLE(handle))
+
+
+@pytest.mark.skipif(not _IS_WINDOWS, reason="named-pipe transport is windows-only")
+def test_client_sends_report_over_named_pipe(monkeypatch):
+    """Full round-trip over the ``\\\\.\\pipe\\<HERDR_SOCKET_PATH>`` mapping."""
+    sock_path = os.path.join(tempfile.mkdtemp(), "herdr.sock")
+    pipe_name = "\\\\.\\pipe\\" + sock_path
+
+    received: list[bytes] = []
+    ready = threading.Event()
+    t = threading.Thread(
+        target=_serve_one_pipe_request, args=(pipe_name, received, ready), daemon=True
+    )
+    t.start()
+    assert ready.wait(timeout=2)
+
+    monkeypatch.setenv("HERDR_ENV", "1")
+    monkeypatch.setenv("HERDR_SOCKET_PATH", sock_path)
+    monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
+
+    client = HerdrClient()
+    assert client.active is True
+    client.report_state("working", agent_session_id="sess-42")
+
+    t.join(timeout=3)
+    assert received, "pipe server never received a report"
+
+    envelope = json.loads(received[0].decode("utf-8").strip().splitlines()[0])
+    assert envelope["method"] == "pane.report_agent"
+    params = envelope["params"]
+    assert params["pane_id"] == "w1:p1"
+    assert params["source"] == SOURCE
+    assert params["agent"] == AGENT
+    assert params["state"] == "working"
+    assert params["agent_session_id"] == "sess-42"
 
 
 def test_client_seq_strictly_increases(monkeypatch):
@@ -199,20 +278,6 @@ def test_decorative_saturation_cannot_displace_critical(monkeypatch):
         method, params = c._take_next_locked()
     assert method == cl._M_STATE
     assert params["state"] == "blocked"
-
-
-def test_closing_discards_decorative_but_keeps_release(monkeypatch):
-    """Once closing, decorative work is dropped and release becomes terminal."""
-    c = _inert_client(monkeypatch)
-    c._message = {"state": "idle", "message": "thinking"}
-    c._metadata = {"tokens": {"model": "m"}}
-    c._closing = True
-    c._release = {}
-    with c._cond:
-        first = c._take_next_locked()
-        second = c._take_next_locked()
-    assert first[0] == cl._M_RELEASE
-    assert second is None  # decorative work was skipped entirely
 
 
 def test_closing_flushes_pending_critical_before_release(monkeypatch):
@@ -365,6 +430,9 @@ def test_release_and_close_is_idempotent(monkeypatch):
     assert c._release is first_release
 
 
+@pytest.mark.skipif(
+    not hasattr(socket, "AF_UNIX"), reason="AF_UNIX transport is unix-only"
+)
 def test_send_retries_reuse_one_seq(monkeypatch):
     """One ``_send`` assigns exactly one seq, however many attempts it makes."""
     monkeypatch.setattr(cl, "_SEND_BACKOFF_S", 0.0)

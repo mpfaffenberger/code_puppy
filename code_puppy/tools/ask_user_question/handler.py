@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from code_puppy.plugins.wiggum.state import is_active as is_wiggum_active
+from code_puppy.callbacks import get_feature_capability
 from code_puppy.tools.subagent_context import is_subagent
 
 from .constants import CI_ENV_VARS, DEFAULT_TIMEOUT_SECONDS, MAX_VALIDATION_ERRORS_SHOWN
@@ -26,6 +26,18 @@ class AsyncContextError(RuntimeError):
     """Raised when TUI is called from async context without await."""
 
     pass
+
+
+def _autonomous_mode_active() -> bool:
+    """True while a plugin-run autonomous loop should block interactive tools.
+
+    Resolved through the neutral ``feature_capability`` seam (the wiggum
+    plugin advertises ``autonomous_loop``) so core never imports the plugin.
+    """
+    try:
+        return get_feature_capability("autonomous_loop")
+    except Exception:  # noqa: BLE001 - never let the seam break the tool.
+        return False
 
 
 def _cancelled_response() -> AskUserQuestionOutput:
@@ -100,9 +112,8 @@ def ask_user_question(
             "if user input is required."
         )
 
-    # Validate input before environment/mode checks so callers get useful schema
-    # errors. Otherwise an invalid request during autonomous mode gets a spooky
-    # unrelated Wiggum error, which is technically true but deeply unhelpful.
+    # Validate first so callers get real schema errors — not a spooky unrelated
+    # autonomous-mode error when the loop would otherwise reject the request.
     try:
         validated_input = _validate_input(questions)
     except ValidationError as e:
@@ -111,10 +122,11 @@ def ask_user_question(
     except (TypeError, ValueError) as e:
         return AskUserQuestionOutput.error_response(f"Validation error: {e!s}")
 
-    # Block interactive tools in wiggum (autonomous loop) mode
-    if is_wiggum_active():
+    # Block interactive tools while an autonomous loop (e.g. /wiggum, /goal)
+    # is driving the agent. Plugins advertise this via feature_capability.
+    if _autonomous_mode_active():
         return AskUserQuestionOutput.error_response(
-            "Interactive tools are disabled during /wiggum mode. "
+            "Interactive tools are disabled during autonomous loop mode. "
             "The agent is running autonomously in a loop. "
             "Make a reasonable decision to proceed, or stop and wait for user input "
             "by completing the current task."
@@ -160,9 +172,8 @@ def _run_interactive_picker(
     # "coroutine was never awaited" warnings on the error path.
     try:
         asyncio.get_running_loop()
-        # Already in async context - fail fast with helpful message
-        # Note: We avoid nest_asyncio.apply() as it globally patches the event loop,
-        # which can break other async code in the process and is not thread-safe.
+        # Already in async context - fail fast. No nest_asyncio.apply(): it
+        # globally patches the loop (breaks other async code, not thread-safe).
         raise AsyncContextError(
             "Cannot run interactive TUI from within an async context. "
             "Either call from synchronous code, or use "

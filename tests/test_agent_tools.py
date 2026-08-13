@@ -223,19 +223,21 @@ class TestSessionIdValidation:
         with pytest.raises(ValueError, match="must be kebab-case"):
             _validate_session_id("MY-SESSION")
 
-    def test_invalid_underscores(self):
-        """Test that underscores are rejected."""
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("my_session")
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("my-session_name")
-
-    def test_invalid_spaces(self):
-        """Test that spaces are rejected."""
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("my session")
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("session name")
+    @pytest.mark.parametrize(
+        "bad_names",
+        [
+            ["my_session", "my-session_name"],
+            ["my session", "session name"],
+            ["my--session", "session--name"],
+            ["-session", "-my-session"],
+            ["session-", "my-session-"],
+        ],
+    )
+    def test_invalid_session_ids(self, bad_names):
+        """Test that non-kebab-case ids are rejected."""
+        for name in bad_names:
+            with pytest.raises(ValueError, match="must be kebab-case"):
+                _validate_session_id(name)
 
     def test_invalid_special_characters(self):
         """Test that special characters are rejected."""
@@ -247,27 +249,6 @@ class TestSessionIdValidation:
             _validate_session_id("session.name")
         with pytest.raises(ValueError, match="must be kebab-case"):
             _validate_session_id("session#1")
-
-    def test_invalid_double_hyphens(self):
-        """Test that double hyphens are rejected."""
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("my--session")
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("session--name")
-
-    def test_invalid_leading_hyphen(self):
-        """Test that leading hyphens are rejected."""
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("-session")
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("-my-session")
-
-    def test_invalid_trailing_hyphen(self):
-        """Test that trailing hyphens are rejected."""
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("session-")
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("my-session-")
 
     def test_invalid_empty_string(self):
         """Test that empty strings are rejected."""

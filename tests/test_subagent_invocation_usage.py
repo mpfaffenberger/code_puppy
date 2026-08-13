@@ -20,6 +20,7 @@ new behaviour stays focused and readable.
 """
 
 from contextlib import ExitStack, contextmanager
+import asyncio
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -92,20 +93,39 @@ def _build_agent_config():
 
 
 async def _run_invoke(
-    *, usage=None, usage_raises=False, run_raises=False, perf=None, use_default=False
+    *,
+    usage=None,
+    usage_raises=False,
+    run_raises=False,
+    run_exc=None,
+    partial_history=None,
+    capture=None,
+    perf=None,
+    use_default=False,
 ):
     """Drive _invoke_agent_impl with a mocked temp agent and return the output.
 
     ``use_default=True`` drives it through the plain ``invoke_agent`` tool
     (no model override, no usage instrumentation) instead of
     ``invoke_agent_with_model``.
+
+    ``run_exc`` injects an arbitrary exception as the temp agent's run failure
+    (e.g. ``asyncio.CancelledError()``); it takes precedence over
+    ``run_raises``. ``partial_history`` seeds the config's in-flight history so
+    the interruption/failure save path has progress to persist. ``capture``, a
+    dict, is populated with handles to the patched ``emit_warning``,
+    ``emit_info``, and ``_save_session_history`` mocks for assertions.
     """
     invoke = _capture_invoke_default() if use_default else _capture_invoke_with_model()
     mock_context = MagicMock()
     agent_config = _build_agent_config()
+    if partial_history is not None:
+        agent_config.get_message_history.return_value = partial_history
 
     mock_temp_agent = MagicMock()
-    if run_raises:
+    if run_exc is not None:
+        mock_temp_agent.run = AsyncMock(side_effect=run_exc)
+    elif run_raises:
         mock_temp_agent.run = AsyncMock(side_effect=RuntimeError("boom"))
     else:
         result = MagicMock()
@@ -136,7 +156,13 @@ async def _run_invoke(
         p(patch("code_puppy.tools.subagent_invocation.emit_info"))
         p(patch("code_puppy.tools.subagent_invocation.emit_error"))
         p(patch("code_puppy.tools.subagent_invocation.emit_success"))
-        p(patch("code_puppy.tools.subagent_invocation._save_session_history"))
+        mock_warning = p(patch("code_puppy.tools.subagent_invocation.emit_warning"))
+        mock_save = p(
+            patch("code_puppy.tools.subagent_invocation._save_session_history")
+        )
+        if capture is not None:
+            capture["warning"] = mock_warning
+            capture["save"] = mock_save
         p(
             patch(
                 "code_puppy.tools.subagent_invocation._load_session_history",
@@ -290,9 +316,8 @@ class TestExtractUsageMetrics:
         }
 
     def test_openai_shape_cache_read_only(self):
-        # OpenAI prompt_tokens already includes cached tokens; cached_tokens is
-        # NOT copied into details (it lives in nested prompt_tokens_details), so
-        # the cache read surfaces only via the first-class cache_read_tokens.
+        # OpenAI prompt_tokens already includes cached tokens; cached_tokens isn't copied
+        # into details (nested prompt_tokens_details) — reads surface via cache_read_tokens.
         usage = _usage(
             input_tokens=120,  # 80 non-cached + 40 cached
             output_tokens=60,
@@ -312,9 +337,8 @@ class TestExtractUsageMetrics:
         }
 
     def test_openai_genuine_zero_cache_read_is_none(self):
-        # OpenAI reports cache_read=0 only via the attribute default, which is
-        # indistinguishable from "not reported", so we surface None (never a
-        # fabricated 0) for that provider.
+        # OpenAI's cache_read=0 is only the attribute default (indistinguishable from
+        # "not reported"), so surface None — never a fabricated 0.
         usage = _usage(
             input_tokens=120,
             output_tokens=60,
@@ -553,3 +577,103 @@ class TestInvokeAgentUnaffected:
 
         assert out.response == "subagent response"
         mock_perf.assert_not_called()
+
+
+class TestCancellationPersistence:
+    """Ctrl-C (CancelledError) must persist partial work and re-raise.
+
+    ``CancelledError`` derives from ``BaseException``, so the historical
+    ``except Exception`` save path never ran on cancellation -- both the
+    partial history and the transient session ID were lost. These lock in the
+    minimal fix: save-then-re-raise, with a resume hint naming the exact
+    session ID.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cancellation_saves_partial_and_reraises(self):
+        from code_puppy.tools.subagent_invocation import drain_interrupted_subagents
+
+        drain_interrupted_subagents()  # isolate module-level queue
+        cap = {}
+        with pytest.raises(asyncio.CancelledError):
+            await _run_invoke(
+                run_exc=asyncio.CancelledError(),
+                partial_history=["m1", "m2"],
+                capture=cap,
+                use_default=True,
+            )
+
+        cap["save"].assert_called_once()
+        save_kwargs = cap["save"].call_args.kwargs
+        assert save_kwargs["session_id"] == "test-agent-session-abc123"
+        assert save_kwargs["message_history"] == ["m1", "m2"]
+
+        cap["warning"].assert_called_once()
+        warn_text = cap["warning"].call_args.args[0]
+        assert "interrupted" in warn_text
+        assert "test-agent-session-abc123" in warn_text
+        assert "resume" in warn_text.lower()
+
+        # The parent agent must be able to learn about this interruption.
+        records = drain_interrupted_subagents()
+        assert len(records) == 1
+        assert records[0] == {
+            "agent_name": "test-agent",
+            "session_id": "test-agent-session-abc123",
+            "saved_count": 2,
+        }
+
+    @pytest.mark.asyncio
+    async def test_grouped_cancellation_is_treated_as_interruption(self):
+        """Async teardown can wrap CancelledError in a BaseExceptionGroup."""
+        cap = {}
+        grouped = BaseExceptionGroup("teardown", [asyncio.CancelledError()])
+        with pytest.raises(BaseExceptionGroup):
+            await _run_invoke(
+                run_exc=grouped,
+                partial_history=["m1"],
+                capture=cap,
+                use_default=True,
+            )
+
+        cap["save"].assert_called_once()
+        cap["warning"].assert_called_once()
+        assert "interrupted" in cap["warning"].call_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_zero_message_cancellation_reports_nothing_saved(self):
+        """A cancel before any turn completes has no history to persist."""
+        cap = {}
+        with pytest.raises(asyncio.CancelledError):
+            await _run_invoke(
+                run_exc=asyncio.CancelledError(),
+                partial_history=[],
+                capture=cap,
+                use_default=True,
+            )
+
+        cap["save"].assert_not_called()
+        warn_text = cap["warning"].call_args.args[0]
+        assert "no new messages" in warn_text
+        assert "test-agent-session-abc123" in warn_text
+
+    @pytest.mark.asyncio
+    async def test_ordinary_failure_still_returns_error_output(self):
+        """Non-cancellation crashes keep the existing failure-result contract."""
+        from code_puppy.tools.subagent_invocation import drain_interrupted_subagents
+
+        drain_interrupted_subagents()  # isolate module-level queue
+        cap = {}
+        out = await _run_invoke(
+            run_raises=True,
+            partial_history=["m1", "m2"],
+            capture=cap,
+            use_default=True,
+        )
+
+        assert out.response is None
+        assert out.error is not None
+        cap["save"].assert_called_once()
+        cap["warning"].assert_not_called()
+        # A crash is not an interruption: nothing to resume, no parent note.
+        assert drain_interrupted_subagents() == []

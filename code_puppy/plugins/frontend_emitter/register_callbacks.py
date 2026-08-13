@@ -29,11 +29,9 @@ from code_puppy.plugins.frontend_emitter.emitter import emit_event
 logger = logging.getLogger(__name__)
 
 
-# Maximum serialized size we allow for a structured tool-args payload
-# before we fall back to a truncated string representation.  Chosen to
-# fit comfortably in a typical 16-64 KB WebSocket frame after JSON
-# wrapping while still being large enough to carry real file paths,
-# small code snippets, and config blobs verbatim.
+# Max serialized size for a structured tool-args payload before falling back to a
+# truncated string: fits a typical 16-64 KB WebSocket frame after JSON wrapping while
+# still carrying real file paths / small snippets / config blobs verbatim.
 _MAX_ARGS_SERIALIZED_BYTES = 4096
 
 # Maximum length for the textual representation we attach when a value
@@ -265,11 +263,8 @@ def _sanitize_event_data(data: Any) -> Any:
     if isinstance(data, (list, tuple)):
         return [_sanitize_event_data(item) for item in data[:20]]
 
-    # ── pydantic-ai delta extraction ────────────────────────────────
-    #
-    # We use duck-typing (hasattr) rather than isinstance() so we don't
-    # have to import pydantic-ai here and we stay compatible with any
-    # future delta subclass that adheres to the same attribute names.
+    # pydantic-ai delta extraction: duck-type (hasattr), not isinstance, so we don't
+    # import pydantic-ai here and stay compatible with future delta subclasses.
 
     type_name = type(data).__name__
 

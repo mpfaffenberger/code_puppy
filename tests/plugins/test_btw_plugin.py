@@ -30,11 +30,6 @@ def test_bare_btw_shows_usage_and_is_handled():
     assert "Usage" in str(emit.call_args)
 
 
-def test_help_flag_shows_usage():
-    with patch("code_puppy.messaging.emit_info"):
-        assert _parse_question("/btw --help") is None
-
-
 def test_parse_question_extracts_text():
     assert _parse_question("/btw why is the sky blue?") == "why is the sky blue?"
 

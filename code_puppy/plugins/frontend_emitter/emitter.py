@@ -49,10 +49,9 @@ from code_puppy.plugins.frontend_emitter.session_context import (
 logger = logging.getLogger(__name__)
 
 
-# Sentinel used for "no explicit kwarg was passed".  We can't use ``None``
-# because ``None`` is a meaningful explicit value meaning "this event has
-# no session context, even if a ContextVar is set".  This lets a caller
-# opt OUT of the ContextVar fallback by explicitly passing ``session_id=None``.
+# Sentinel for "no explicit kwarg passed". Can't use ``None``: it's a meaningful
+# explicit value (no session context even if a ContextVar is set), letting callers
+# opt out of the ContextVar fallback by passing ``session_id=None``.
 class _Unset:
     def __repr__(self) -> str:
         return "<unset>"
@@ -69,15 +68,9 @@ class _Subscriber:
     session_id: Optional[str] = None  # None == wildcard (all events)
 
 
-# Global state for event distribution.
-#
-# We keep two parallel data structures:
-#   * ``_subscribers``: the legacy "set of queues" used by callers that
-#     have a raw queue reference (back-compat for unsubscribe(queue)).
-#   * ``_subscriber_records``: the richer set with filter metadata,
-#     iterated during fan-out.
-#
-# Both are kept in sync by ``subscribe`` / ``unsubscribe``.
+# Two parallel structures kept in sync by subscribe/unsubscribe:
+# ``_subscribers`` (legacy queue set, back-compat for unsubscribe(queue)) and
+# ``_subscriber_records`` (queue + filter metadata, iterated during fan-out).
 _subscribers: Set["asyncio.Queue[Dict[str, Any]]"] = set()
 _subscriber_records: Set[_Subscriber] = set()
 _recent_events: List[Dict[str, Any]] = []  # Keep last N events for new subscribers
@@ -148,18 +141,13 @@ def emit_event(
     if len(_recent_events) > max_recent:
         _recent_events.pop(0)
 
-    # Build the set of queues that are managed via the public subscribe()
-    # API.  Anything in the legacy ``_subscribers`` set that is NOT here is
-    # an "orphan" -- a queue someone added directly, which we still want
-    # to honour as a wildcard subscriber for back-compat.
+    # Queues managed via subscribe(); anything in ``_subscribers`` not here is an
+    # "orphan" (added directly) we still honour as a wildcard for back-compat.
     managed_qids = {id(sub.queue) for sub in _subscriber_records}
 
     # 1. Deliver to filter-matching managed subscribers.
     for sub in list(_subscriber_records):
-        # Filter logic:
-        #   - sub.session_id is None  -> wildcard, deliver everything
-        #   - sub.session_id == sid   -> exact match
-        #   - otherwise               -> skip
+        # Filter: None -> wildcard deliver-all; == sid -> exact match; else skip.
         if sub.session_id is not None and sub.session_id != resolved_sid:
             continue
         try:
@@ -169,11 +157,8 @@ def emit_event(
         except Exception as e:
             logger.error(f"Failed to emit event to subscriber: {e}")
 
-    # 2. Back-compat: deliver to any queue someone added DIRECTLY to the
-    # legacy ``_subscribers`` set without going through ``subscribe()``.
-    # These orphan queues are treated as unconditional wildcards.  Queues
-    # owned by ``subscribe()`` are excluded here so they don't double-fire
-    # and so session filtering above is respected.
+    # 2. Back-compat: deliver to orphan queues (added directly, no subscribe()); exclude
+    # managed ones so they don't double-fire and session filtering stays respected.
     for orphan_q in list(_subscribers):
         if id(orphan_q) in managed_qids:
             continue
@@ -224,9 +209,8 @@ def unsubscribe(queue: "asyncio.Queue[Dict[str, Any]]") -> None:
         queue: The queue returned from ``subscribe()``.
     """
     _subscribers.discard(queue)
-    # Drop matching record(s) from the rich set as well.  We compare by
-    # queue identity since the same queue object can only correspond to
-    # one _Subscriber record (subscribe always allocates a fresh queue).
+    # Drop matching rich-set records too; compare by queue identity (subscribe always
+    # allocates a fresh queue, so one record per queue).
     to_drop = {sub for sub in _subscriber_records if sub.queue is queue}
     _subscriber_records.difference_update(to_drop)
     logger.debug(

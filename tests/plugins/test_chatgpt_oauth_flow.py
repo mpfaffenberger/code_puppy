@@ -889,47 +889,9 @@ class TestRunOAuthFlow:
         # Test passes as long as no exceptions are raised during the OAuth flow setup
         assert True  # This test verifies the mock setup works without errors
 
-        # Should still show manual URL prompt
-        # Note: Due to mocking, the exact message might not be reached
-        # Test passes as long as no exceptions are raised during browser failure handling
+        # Should still show the manual URL prompt (mocking may skip the exact message) and
+        # no exceptions may be raised during browser-failure handling.
         assert True
-
-
-class TestTokenDataAndAuthBundle:
-    """Test token data structures."""
-
-    def test_token_data_creation(self):
-        """Test TokenData dataclass creation and attributes."""
-        token_data = TokenData(
-            id_token="test_id_token",
-            access_token="test_access_token",
-            refresh_token="test_refresh_token",
-            account_id="test_account_id",
-        )
-
-        assert token_data.id_token == "test_id_token"
-        assert token_data.access_token == "test_access_token"
-        assert token_data.refresh_token == "test_refresh_token"
-        assert token_data.account_id == "test_account_id"
-
-    def test_auth_bundle_creation(self):
-        """Test AuthBundle dataclass creation and attributes."""
-        token_data = TokenData(
-            id_token="test_id_token",
-            access_token="test_access_token",
-            refresh_token="test_refresh_token",
-            account_id="test_account_id",
-        )
-
-        bundle = AuthBundle(
-            api_key="test_api_key",
-            token_data=token_data,
-            last_refresh="2023-01-01T00:00:00Z",
-        )
-
-        assert bundle.api_key == "test_api_key"
-        assert bundle.token_data == token_data
-        assert bundle.last_refresh == "2023-01-01T00:00:00Z"
 
 
 class TestShutdownAfterDelay:

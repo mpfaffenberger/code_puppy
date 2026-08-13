@@ -165,6 +165,26 @@ jobs:
           git add .
           git commit -m "chore: bump version [ci skip]" || echo "No changes to commit"
           TAG="v${{ steps.version.outputs.version }}"
-          git tag -a "$TAG" -m "Release $TAG"
-          git push
-          git push origin "$TAG"
+
+          # main can advance between our checkout and this push (a human or
+          # another branch landing a commit while we bump). The bare `git
+          # push` used to fail the whole publish with "fetch first". Rebase
+          # onto the latest main and retry instead of going red.
+          for attempt in 1 2 3 4 5; do
+            if ! git pull --rebase origin main 2>/dev/null; then
+              echo "rebase conflicted/running; aborting and retrying"
+              git rebase --abort 2>/dev/null || true
+              sleep 5
+              continue
+            fi
+            git tag -f -a "$TAG" -m "Release $TAG"
+            if git push origin main; then
+              git push origin "$TAG" || echo "tag $TAG already exists remotely (fine)"
+              echo "Pushed version bump and tag $TAG"
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt/5); retrying..."
+            sleep 5
+          done
+          echo "Giving up pushing version bump after 5 attempts"
+          exit 1

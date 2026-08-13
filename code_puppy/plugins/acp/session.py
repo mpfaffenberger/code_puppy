@@ -84,10 +84,8 @@ class ACPSession:
         text = parsed.text
         if not text.strip() and not parsed.attachments and not parsed.link_attachments:
             return PromptResult(STOP_END_TURN)
-        # A leading /slash command is executed by Code Puppy's command handler
-        # (not the model), with its output forwarded to the client. If the
-        # handler expands the command into a prompt (a string result, e.g. a
-        # markdown/custom command), we fall through and run the model on it,
+        # A leading /slash command runs via Code Puppy's command handler (not the
+        # model); if it expands into a prompt (string result), run the model on it,
         # exactly as cli_runner does with a string command result.
         if (
             not parsed.attachments
@@ -98,16 +96,22 @@ class ACPSession:
             if not expanded:
                 return PromptResult(STOP_END_TURN)
             text = expanded
-        # Resolve this session's relative paths against its own cwd -- WITHOUT
-        # a process-global os.chdir (which would corrupt the SDK's own I/O,
-        # subprocesses, and any concurrent session). The ContextVar is copied
-        # into the run task + its tool threads.
+        # Resolve relative paths against this session's own cwd -- no process-global
+        # os.chdir (would corrupt the SDK's I/O + any concurrent session).
         from code_puppy.tools.common import (
             reset_working_directory,
             set_working_directory,
         )
+        from code_puppy.tools.subagent_context import (
+            reset_conversation_root_id,
+            set_conversation_root_id,
+        )
 
         cwd_token = set_working_directory(self.cwd) if self.cwd else None
+        # ContextVar, not set_session_context: conversation_scope reads it and needs
+        # real per-task isolation across concurrent ACP sessions, which the shared
+        # mutable attribute can't provide.
+        root_id_token = set_conversation_root_id(self.session_id)
 
         set_session_context(self.session_id)
         state.begin_run(self.session_id)
@@ -125,13 +129,9 @@ class ACPSession:
             self._absorb_history(result)
             stop_reason = STOP_END_TURN
         except asyncio.CancelledError:
-            # Two ways we land here:
-            #  * our own session/cancel cancelled the inner run task -> it is
-            #    cancelled and we report ``cancelled``.
-            #  * THIS prompt coroutine was cancelled (e.g. SDK connection
-            #    teardown) while the inner task is still live -> cancel it so it
-            #    can't outlive us, then propagate the cancellation rather than
-            #    silently reporting a normal ``cancelled`` turn.
+            # Two ways here: our own cancel cancelled the inner task (report
+            # ``cancelled``), or THIS coroutine was cancelled (SDK teardown) while the
+            # task lives on -> cancel it so it can't outlive us, and propagate.
             task = self._task
             if task is not None and not task.cancelled():
                 task.cancel()
@@ -146,12 +146,12 @@ class ACPSession:
             self._task = None
             state.end_run()
             set_session_context(None)
+            reset_conversation_root_id(root_id_token)
             if cwd_token is not None:
                 reset_working_directory(cwd_token)
 
-        # Persist off the event loop so pickling a large history can't stall
-        # other sessions' streaming. Best-effort; never fails the turn. (Skipped
-        # on the propagate-cancellation path above, which re-raises before here.)
+        # Persist off the event loop so pickling a large history can't stall other
+        # sessions' streaming. Best-effort; never fails the turn.
         try:
             await asyncio.to_thread(
                 persistence.save,
@@ -196,6 +196,11 @@ class ACPSession:
         Besides cancelling the asyncio task, force-kill any local shell
         processes the run spawned so they don't orphan. (Shells delegated to
         the client run client-side and are unaffected.)
+
+        Only *requests* cancellation -- delivery happens at the task's next
+        await point, whenever that is, not immediately. Callers that need
+        the run to have actually finished unwinding (its ``finally`` block
+        included) before they act should use :meth:`cancel_and_wait` instead.
         """
         task = self._task
         if task is not None and not task.done():
@@ -208,6 +213,36 @@ class ACPSession:
             kill_all_running_shell_processes()
         except Exception:  # noqa: BLE001
             logger.debug("ACP: shell kill on cancel failed", exc_info=True)
+
+    async def cancel_and_wait(self, timeout: float = 2.0) -> None:
+        """Cancel the in-flight run and wait for it to actually unwind.
+
+        ``cancel()`` alone only *requests* cancellation; asyncio only
+        delivers it at the task's next await point, with no guarantee of
+        when that is. A caller that needs the run's own cleanup to have
+        genuinely finished first -- notably ``close_session`` purging this
+        session's warn-dedup bucket, which would otherwise race a
+        still-in-flight ``_invoke_agent_impl`` synchronously writing into
+        that same bucket a moment later -- must await this instead of the
+        bare ``cancel()``.
+
+        Bounded by ``timeout`` so a run stuck ignoring cancellation (blocked
+        in genuinely non-cancellable I/O, say) can't hang session close
+        forever; on timeout we give up waiting and return anyway -- the task
+        is still cancelled, just not confirmed finished.
+        """
+        task = self._task
+        self.cancel()
+        if task is None:
+            return
+        try:
+            await asyncio.wait_for(task, timeout=timeout)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+        except Exception:  # noqa: BLE001
+            # prompt()'s own except block already logs/handles run failures;
+            # a close shouldn't raise because the run it interrupted failed.
+            logger.debug("ACP: cancel_and_wait observed run failure", exc_info=True)
 
     async def _send_error_notice(self, error: Optional[BaseException]) -> None:
         """Tell the client a turn failed, so it isn't a silent empty response.

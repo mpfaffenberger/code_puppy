@@ -195,7 +195,7 @@ class TestVersionHandling:
 
 
 class TestLogoDisplay:
-    """Test CODE PUPPY logo display."""
+    """Test platform-aware logo display."""
 
     def test_logo_not_displayed_in_prompt_only_mode(self):
         """Test that logo is skipped in prompt-only mode (-p flag)."""
@@ -467,15 +467,11 @@ class TestHeadlessSessionPersistence:
             )
 
         assert (tmp_path / "mywork.pkl").exists()
-        # post_autosave hook is reserved for the periodic background save
-        # path (``config.auto_save_session_if_enabled``). The headless
-        # ``-r NAME -p ...`` save-back deliberately does NOT fire it, so
-        # plugins that decorate the auto-save line (e.g. the walmart
-        # token-quota plugin) don't double-print.
+        # post_autosave is reserved for the periodic auto-save path - the headless
+        # ``-r NAME -p`` save-back must NOT fire it (decorator plugins double-print).
         assert fire_cb.call_count == 0
-        # quick-resume pointer must be written after a successful persist so
-        # ``--quick-resume`` can rediscover both auto-generated and ``-r``
-        # headless saves.
+        # Write the quick-resume pointer only after a successful persist, so
+        # ``--quick-resume`` rediscovers both auto-generated and ``-r`` saves.
         mock_qr.assert_called_once_with("mywork")
 
     @pytest.mark.asyncio

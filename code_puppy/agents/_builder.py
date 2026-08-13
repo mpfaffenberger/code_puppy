@@ -40,12 +40,9 @@ from code_puppy.model_factory import ModelFactory, make_model_settings
 _AGENT_RULE_FILES = ("AGENTS.md", "AGENT.md", "agents.md", "agent.md")
 _CODE_PUPPY_DIR = ".code_puppy"
 
-# Re-export the default so callers that imported AGENTS_MD_MAX_CHARS from
-# here keep working. The *effective* cap on any given load is whatever
-# ``get_agents_md_max_chars()`` returns (user override via
-# ``/set agents_md_max_chars=<int>``); this constant is just the fallback
-# documented in the warning notice and used by tests that don't care about
-# the override path.
+# Re-export the default so existing importers keep working. The *effective*
+# cap is ``get_agents_md_max_chars()`` (user override via /set); this constant
+# is just the fallback used by tests and the warning notice.
 AGENTS_MD_MAX_CHARS = AGENTS_MD_MAX_CHARS_DEFAULT
 
 
@@ -219,10 +216,9 @@ def _iter_autostart_targets(manager: Any, agent_name: str):
         yield server_name, config
 
 
-# Module-level dedupe set: ``(agent_name, server_name)`` pairs we've already
-# warned about. We don't bother with TTLs — a fresh process resets it, which
-# matches "warn at most once per session per missing binding". Cleared in
-# tests via ``_reset_missing_warning_cache``.
+# Dedupe set of ``(agent_name, server_name)`` pairs already warned about — no
+# TTLs, a fresh process resets it ("warn once per session"). Cleared in tests
+# via ``_reset_missing_warning_cache``.
 _WARNED_MISSING: set[tuple[str, str]] = set()
 
 
@@ -307,15 +303,76 @@ def reload_mcp_servers(agent_name: Optional[str] = None) -> List[Any]:
     return manager.get_servers_for_agent(agent_name=agent_name)
 
 
+# (conversation_scope, agent_name, requested_model_name) combos already
+# warned about. Scope keeps concurrent ACP sessions' warning state separate
+# (subagent_invocation.py passes the parent session id; build_pydantic_agent
+# leaves it ``None`` for the main-agent bucket). NOT cleared when a model
+# loads again — only reset_model_fallback_warnings() resets it, so a broken
+# pin doesn't re-nag per rebuild but a fresh conversation does. The pin
+# itself stays a human decision (config.clear_agent_pinned_model).
+_warned_model_fallbacks: Set[Tuple[Optional[str], Optional[str], str]] = set()
+
+# Sentinel distinguishing reset() with no args (nuke everything — CLI /clear)
+# from reset(scope=X) (clear only that conversation's bucket, e.g. ACP session
+# creation). ``None`` is itself a valid scope (the main-agent bucket), so it
+# can't double as "unset".
+_UNSET = object()
+
+
+def reset_model_fallback_warnings(scope: Any = _UNSET) -> None:
+    """Forget which fallback warnings have already fired.
+
+    Called with no arguments on a genuinely fresh conversation (the CLI's
+    ``/clear``) to clear every scope's warning state.
+
+    Called with an explicit ``scope`` (e.g. an ACP session boundary) to
+    clear only that conversation's bucket -- notably ``scope=None`` clears
+    just the shared main-agent-build bucket without wiping the per-session
+    warning state other live conversations already earned via
+    ``load_model_with_fallback(..., conversation_scope=<their own id>)``.
+    """
+    if scope is _UNSET:
+        _warned_model_fallbacks.clear()
+        return
+    stale = {key for key in _warned_model_fallbacks if key[0] == scope}
+    _warned_model_fallbacks.difference_update(stale)
+
+
+def _model_fallback_fix_hint(agent_name: Optional[str]) -> str:
+    """Build the how-to-fix tail appended to model fallback warnings."""
+    if agent_name:
+        return (
+            f"Fix it with `/pin {agent_name} <model>` once a working model is "
+            f"available, or `/unpin {agent_name}` to just track the global "
+            "default from now on. Run `/model` to see configured models."
+        )
+    return "Set a valid model with `/model`, or check your models configuration."
+
+
 def load_model_with_fallback(
     requested_model_name: str,
     models_config: Dict[str, Any],
     message_group: str,
+    agent_name: Optional[str] = None,
+    conversation_scope: Optional[str] = None,
 ) -> Tuple[Any, str]:
     """Load the requested model, or fall back to a sensible alternative.
 
     Falls back in order: the globally configured model, then any other
     configured model. Raises ``ValueError`` only if nothing loads.
+
+    ``agent_name``, when given, scopes the model-unavailable warning to fire
+    once per (conversation, agent, requested model) combo per conversation
+    (see ``reset_model_fallback_warnings``) and tailors the fix instructions
+    to that agent's ``/pin``/``/unpin`` commands. The agent's pinned model is
+    never auto-cleared -- that stays a deliberate, human-initiated action.
+
+    ``conversation_scope`` identifies the conversation this call belongs to
+    (e.g. an ACP session id) so independent conversations sharing one
+    process don't share warning-dedup state -- one session's warning must
+    not silently suppress the identical warning for a completely different
+    session. Leave ``None`` for the single main-agent-per-process case
+    (default; unaffected by this parameter).
     """
     try:
         model = ModelFactory.get_model(requested_model_name, models_config)
@@ -330,30 +387,38 @@ def load_model_with_fallback(
         available_str = (
             ", ".join(sorted(available)) if available else "no configured models"
         )
+        warn_key = (conversation_scope, agent_name, requested_model_name)
+        already_warned = warn_key in _warned_model_fallbacks
+        _warned_model_fallbacks.add(warn_key)
+        fix_hint = _model_fallback_fix_hint(agent_name)
+
         # Distinguish between "key missing", "type unsupported", and "creation failed"
         exc_msg = str(exc)
-        if "not found in configuration" in exc_msg:
+        if already_warned:
+            pass
+        elif "not found in configuration" in exc_msg:
             emit_warning(
-                f"Model '{requested_model_name}' not found. Available models: {available_str}",
+                f"Model '{requested_model_name}' not found. Available models: "
+                f"{available_str}. {fix_hint}",
                 message_group=message_group,
             )
         elif "Unsupported model type" in exc_msg:
             model_type = models_config.get(requested_model_name, {}).get("type", "?")
             emit_warning(
                 f"Model type '{model_type}' is not supported (model '{requested_model_name}'). "
-                f"Available models: {available_str}",
+                f"Available models: {available_str}. {fix_hint}",
                 message_group=message_group,
             )
         elif "could not be instantiated" in exc_msg:
             emit_warning(
                 f"Model '{requested_model_name}' could not be instantiated. "
-                f"Available models: {available_str}",
+                f"Available models: {available_str}. {fix_hint}",
                 message_group=message_group,
             )
         else:
             emit_warning(
                 f"Model '{requested_model_name}' failed: {exc_msg}. "
-                f"Available models: {available_str}",
+                f"Available models: {available_str}. {fix_hint}",
                 message_group=message_group,
             )
 
@@ -526,7 +591,10 @@ def build_pydantic_agent(
 
     models_config = ModelFactory.load_config()
     model, resolved_model_name = load_model_with_fallback(
-        agent.get_model_name(), models_config, message_group
+        agent.get_model_name(),
+        models_config,
+        message_group,
+        agent_name=getattr(agent, "name", None),
     )
     instructions = _assemble_instructions(agent, resolved_model_name)
     mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
@@ -541,9 +609,9 @@ def build_pydantic_agent(
             output_type=output_type,
             retries=3,
             toolsets=toolsets,
-            # Order is critical: compaction first (may trim history to fit
-            # context), THEN steer injection (the steer must NOT be subject
-            # to compaction on this call — it just arrived).
+            # Order matters: compaction first (may trim history to fit
+            # context), THEN steer injection (a fresh steer must not be
+            # compacted away).
             history_processors=[history_processor, steer_processor],
             model_settings=model_settings,
         )
@@ -571,9 +639,8 @@ def build_pydantic_agent(
             Text.from_markup(f"[dim]Filtered {dropped} conflicting MCP tools[/dim]")
         )
 
-    # Pass 2: real build. MCP servers are always included in the constructor;
-    # plugins (e.g. DBOS) may swap them out at run time via the
-    # ``agent_run_context`` hook if their wrapper can't handle them directly.
+    # Pass 2: real build. MCP servers always go in the constructor; plugins
+    # (e.g. DBOS) may swap them at run time via ``agent_run_context``.
     final_pydantic = _new_pydantic_agent(toolsets=filtered_mcp_servers)
     register_tools_for_agent(
         final_pydantic,
@@ -618,6 +685,7 @@ def build_tool_probe_for_agent(agent: Any) -> Optional[Any]:
             agent.get_model_name() or "",
             models_config,
             message_group=str(uuid.uuid4()),
+            agent_name=getattr(agent, "name", None),
         )
     except Exception:
         return None

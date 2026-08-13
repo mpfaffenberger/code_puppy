@@ -100,10 +100,8 @@ def _render_question_panel_unsafe(
     total = len(state.questions)
     pad = PANEL_CONTENT_PADDING  # Left padding for visual alignment
 
-    # Escape all user-supplied strings before they hit Rich markup. Without this,
-    # a header like '/foo' becomes '[/foo]' which Rich parses as an unmatched
-    # closing tag and raises MarkupError on every redraw (doom-loop).
-    # We escape the whole bracketed-decoration so both '[' and ']' are literal.
+    # Escape user strings before Rich markup: '/foo' → '[/foo]' would raise
+    # MarkupError on every redraw (doom-loop). Escape whole bracketed decoration.
     safe_header_decoration = rich_escape(f"[{question.header}]")
     safe_question = rich_escape(question.question)
 

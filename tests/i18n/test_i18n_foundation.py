@@ -13,19 +13,6 @@ from code_puppy import i18n
 from code_puppy.i18n import catalog, formats, locale, plurals, pseudo, translate
 
 
-@pytest.fixture(autouse=True)
-def _isolate_i18n(tmp_path, monkeypatch):
-    """Reset catalog state + force a clean en-US translator per test."""
-    # Clear any env-based locale so detection tests are deterministic.
-    for var in ("CODE_PUPPY_LOCALE", "LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"):
-        monkeypatch.delenv(var, raising=False)
-    catalog.reset()
-    translate.get_translator().set_locale("en-US")
-    yield
-    catalog.reset()
-    translate.get_translator().set_locale("en-US")
-
-
 def _write_catalog(tmp_path, name, data):
     path = tmp_path / f"{name}.json"
     path.write_text(json.dumps(data), encoding="utf-8")
@@ -86,9 +73,8 @@ def test_fallback_chain():
 
 
 def test_fallback_chain_latin_american_spanish():
-    # es-419 is deprecated (folded into base es), so Latin American Spanish
-    # now truncates straight to es -- keeping its own regional override file
-    # on top and never probing the removed es-419 catalog.
+    # es-419 is deprecated (folded into es): Latin American Spanish truncates straight
+    # to es — its own regional override stays on top, es-419 catalog never probed.
     assert locale.fallback_chain("es-AR") == ["es-AR", "es", "en-US"]
     assert locale.fallback_chain("es-MX") == ["es-MX", "es", "en-US"]
     # An explicit es-419 request still degrades gracefully to base es.

@@ -42,9 +42,6 @@ def iter_enabled_skill_metadata(
     if not _config.get_skills_enabled():
         return
 
-    if directories is None:
-        directories = [Path(d) for d in _config.get_skill_directories()]
-
     disabled = _config.get_disabled_skills()
 
     for info in _discovery.discover_skills(directories):
@@ -74,9 +71,6 @@ def iter_enabled_skills(
     """
     if not _config.get_skills_enabled():
         return
-
-    if directories is None:
-        directories = [Path(d) for d in _config.get_skill_directories()]
 
     disabled = _config.get_disabled_skills()
 

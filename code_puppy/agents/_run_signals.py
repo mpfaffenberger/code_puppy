@@ -71,23 +71,20 @@ def make_schedule_cancel(
         if agent_task.done():
             return
         if _RUNNING_PROCESSES and not force:
-            # Ordering matters (see _shell_sigint_handler): hide the
-            # panel and show the banner BEFORE the kill — the sweep
-            # blocks this (key-listener) thread up to ~2s per process,
-            # and the user deserves instant feedback.
+            # Ordering matters (see _shell_sigint_handler): banner BEFORE the
+            # kill — the sweep blocks this thread ~2s per process, so the
+            # user deserves instant feedback.
             _tear_down_live_panels()
-            # Key-agnostic wording: on POSIX this branch is only reachable
-            # via a REMAPPED cancel hotkey (ctrl+k/ctrl+q — SIGINT owns
-            # ctrl+c and routes through _shell_sigint_handler instead),
-            # so "Ctrl-C detected!" would be a lie there.
+            # Key-agnostic wording: on POSIX this only runs via a REMAPPED
+            # cancel key (ctrl+c routes through _shell_sigint_handler), so
+            # "Ctrl-C detected!" would be a lie there.
             emit_warning(
                 "\nCancel requested! Stopping the agent (shells + all sub-agents)..."
             )
             kill_all_running_shell_processes()
         if _active_subagent_tasks:
-            # Hide the sub-agent status panel (rendered inside the spinner's
-            # Live) the same way the steer flow does, so the cancel banner
-            # isn't instantly repainted over. Mirrors _shell_sigint_handler.
+            # Hide the sub-agent status panel (inside the spinner's Live) like
+            # the steer flow, so the cancel banner isn't repainted over.
             _tear_down_live_panels()
             emit_warning(
                 f"Cancelling {len(_active_subagent_tasks)} active subagent task(s)..."
@@ -105,10 +102,9 @@ def make_schedule_cancel(
 # =============================================================================
 #
 # ``PauseController`` is a process-wide singleton. Without explicit hygiene:
-#   - A ``now`` steer that missed the final model boundary would linger into
-#     the next run instead of becoming the queued turn the user still expects.
-#   - A run that crashed mid-pause would leave the controller in a paused
-#     state, freezing the next run's spinner + event stream.
+#   - a ``now`` steer that missed the final model boundary lingers into the
+#     next run instead of the queued turn the user expects; and
+#   - a run that crashed mid-pause leaves it paused, freezing the next run.
 # Both bugs are bad. The two helpers below scrub that state.
 
 
@@ -174,6 +170,54 @@ def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[Any]:
     return content
 
 
+def inject_interrupted_subagent_notes(agent: Any) -> None:
+    """Tell the agent about any sub-agents interrupted since the last run.
+
+    Ctrl+C cancels both the delegated sub-agent task and the parent run, and
+    the parent's return-less ``invoke_agent`` tool call is pruned from history
+    as a dangling call -- so without this the model would have no memory that
+    it ever delegated. We drain the records left by the sub-agent cancel path
+    and append one plain user-message note per interrupted session (the same
+    injection shape the steer processor uses), which survives the interrupted
+    tool-call prune because it is a valid standalone message.
+
+    Called at run start (never nested) so a foreground cancel surfaces on the
+    user's next turn, and a ``/fork`` cancelled while the agent was idle
+    surfaces on the next run too.
+    """
+    from pydantic_ai.messages import ModelRequest, UserPromptPart
+
+    from code_puppy.tools.subagent_invocation import drain_interrupted_subagents
+
+    if not hasattr(agent, "_message_history"):
+        return
+    records = drain_interrupted_subagents()
+    if not records:
+        return
+
+    injected = []
+    for rec in records:
+        session_id = rec["session_id"]
+        saved = rec["saved_count"]
+        saved_phrase = (
+            f"{saved} message(s) of its work were saved"
+            if saved is not None
+            else "no completed messages had been produced yet"
+        )
+        note = (
+            f"[system note] The sub-agent '{rec['agent_name']}' you invoked was "
+            f"interrupted by the user before it finished; {saved_phrase}. Its "
+            f"partial session is saved as '{session_id}'."
+        )
+        injected.append(ModelRequest(parts=[UserPromptPart(content=note)]))
+        emit_info(
+            f"Noting interrupted sub-agent '{rec['agent_name']}' "
+            f"(session {session_id}) for the agent's next turn."
+        )
+
+    agent._message_history = list(agent._message_history) + injected
+
+
 def drain_pause_state_on_cancel() -> None:
     """Clear ``PauseController`` state when a run is cancelled.
 
@@ -192,8 +236,9 @@ def drain_pause_state_on_cancel() -> None:
         )
 
 
-__all__ = [
+all__ = [
     "drain_pause_state_on_cancel",
+    "inject_interrupted_subagent_notes",
     "make_schedule_cancel",
     "prepare_queued_steer_injection",
     "reset_pause_state_at_run_start",

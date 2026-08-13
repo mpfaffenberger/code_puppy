@@ -42,8 +42,7 @@ def _run_interactive_picker() -> tuple[str, float | None] | None:
 
 
 def _apply(name: str, interval: float | None = None) -> None:
-    # Case-insensitive: the command path lowercases args, but the pack
-    # has camelCase names (dotsWide, bouncingBall, ...).
+    # Match case-insensitively; built-in names use camelCase.
     catalogue = spinners.get_catalogue()
     name = next((n for n in catalogue if n.lower() == name.lower()), name)
     try:

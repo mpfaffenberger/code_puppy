@@ -231,9 +231,8 @@ def _list_files(
             )
             recursive = False
 
-    # When a filesystem backend is installed it owns the whole FS surface, so
-    # we compose the listing from it (fs_access.walk / list_dir) instead of
-    # shelling out to the local ripgrep -- keeping every operation coherent.
+    # With a FS backend installed it owns the whole FS surface — compose the
+    # listing from it (fs_access.walk / list_dir) instead of local ripgrep.
     from code_puppy.tools.io_backends import get_filesystem_backend
 
     _use_backend = get_filesystem_backend() is not None
@@ -438,35 +437,6 @@ def _list_files(
         else:
             return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
 
-    def get_file_icon(file_path):
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext in [".py", ".pyw"]:
-            return "\U0001f40d"
-        elif ext in [".js", ".jsx", ".ts", ".tsx"]:
-            return "\U0001f4dc"
-        elif ext in [".html", ".htm", ".xml"]:
-            return "\U0001f310"
-        elif ext in [".css", ".scss", ".sass"]:
-            return "\U0001f3a8"
-        elif ext in [".md", ".markdown", ".rst"]:
-            return "\U0001f4dd"
-        elif ext in [".json", ".yaml", ".yml", ".toml"]:
-            return "\u2699\ufe0f"
-        elif ext in [".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp"]:
-            return "\U0001f5bc\ufe0f"
-        elif ext in [".mp3", ".wav", ".ogg", ".flac"]:
-            return "\U0001f3b5"
-        elif ext in [".mp4", ".avi", ".mov", ".webm"]:
-            return "\U0001f3ac"
-        elif ext in [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"]:
-            return "\U0001f4c4"
-        elif ext in [".zip", ".tar", ".gz", ".rar", ".7z"]:
-            return "\U0001f4e6"
-        elif ext in [".exe", ".dll", ".so", ".dylib"]:
-            return "\u26a1"
-        else:
-            return "\U0001f4c4"
-
     # Count items in results
     dir_count = sum(1 for item in results if item.type == "directory")
     file_count = sum(1 for item in results if item.type == "file")
@@ -536,10 +506,8 @@ def _read_file(
 ) -> ReadFileOutput:
     file_path = resolve_path(file_path)
 
-    # When a filesystem backend is installed (e.g. an editor host), read
-    # through it so we see unsaved buffers and the host's view of the file.
-    # The backend owns existence/permission semantics, so we skip the local
-    # disk checks on this path.
+    # With a FS backend (e.g. editor host), read through it to see unsaved
+    # buffers; it owns existence/permission semantics — skip local checks.
     from code_puppy.tools.io_backends import get_filesystem_backend
 
     backend = get_filesystem_backend()
@@ -550,9 +518,8 @@ def _read_file(
         if num_lines is not None and num_lines < 1:
             error_msg = "num_lines must be >= 1"
             return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-        # Push the slice down to the host (ACP fs/read supports line+limit) so a
-        # chunked read doesn't drag the whole file across the wire. Matches the
-        # local path: only slice when BOTH bounds are given.
+        # Push line+limit down to the host (ACP fs/read) so chunked reads don't
+        # drag the whole file across; slice only when BOTH bounds are given.
         want_slice = start_line is not None and num_lines is not None
         try:
             if want_slice:
@@ -576,9 +543,8 @@ def _read_file(
         error_msg = f"{file_path} is not a file"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
     try:
-        # Use errors="surrogateescape" to handle files with invalid UTF-8 sequences
-        # This is common on Windows when files contain emojis or were created by
-        # applications that don't properly encode Unicode
+        # errors="surrogateescape" handles invalid UTF-8 (common on Windows when
+        # files contain emojis or were written by non-UTF-8 apps).
         with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
             if start_line is not None and start_line < 1:
                 error_msg = "start_line must be >= 1 (1-based indexing)"
@@ -689,10 +655,8 @@ def _sanitize_string(text: str) -> str:
         )
 
 
-# Ripgrep flags that change the output away from per-match JSON events.
-# _grep parses `--json` "match" events; with any of these flags ripgrep
-# emits none, so the tool would silently report zero matches. Reject them
-# loudly instead.
+# Ripgrep flags that suppress per-match JSON events (which _grep parses);
+# with these the tool would silently report zero matches — reject loudly.
 _INCOMPATIBLE_RG_FLAGS = frozenset(
     {
         "-l",
@@ -783,9 +747,8 @@ def _build_grep_args(search_string: str) -> tuple[list[str], str | None]:
     return tokens, None
 
 
-# ripgrep --type name -> file extensions, for the backend grep path. Covers the
-# common types; unknown types raise a clear error rather than silently matching
-# nothing (ripgrep itself owns the full list on the local path).
+# ripgrep --type name → extensions for the backend grep path; unknown types
+# error loudly (ripgrep owns the full list on the local path).
 _RG_TYPE_EXTS: dict[str, set[str]] = {
     "py": {".py", ".pyi", ".pyw"},
     "js": {".js", ".jsx", ".mjs", ".cjs", ".vue"},
@@ -967,9 +930,8 @@ def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
     """
     from code_puppy.tools.common import should_ignore_dir_path, should_ignore_path
 
-    # Report a missing/non-directory target as an error, matching the local
-    # ripgrep path (rather than silently returning zero matches for a typo'd
-    # directory). ``walk`` itself tolerates a bad root by yielding nothing.
+    # Missing/non-directory target = error (matches local ripgrep, not silent
+    # zero matches); ``walk`` itself tolerates a bad root.
     if not fs_access.is_dir(directory):
         error_msg = (
             f"Error: Directory '{directory}' does not exist"
@@ -1040,13 +1002,8 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     # Create a temporary ignore file with our ignore patterns
     ignore_file = None
     try:
-        # Use ripgrep to search for the string
-        # Use absolute path to ensure it works from any directory
-        # --json for structured output
-        # --max-count 50 to limit results
-        # --max-filesize 5M to avoid huge files (increased from 1M)
-        # --type=all to search across all recognized text file types
-        # --ignore-file to obey our ignore list
+        # ripgrep: absolute path, --json output, --max-count 50, --max-filesize 5M,
+        # --type=all, --ignore-file for our ignore list.
 
         # Find ripgrep executable - first check system PATH, then virtual environment
         rg_path = shutil.which("rg")
@@ -1192,9 +1149,8 @@ def register_list_files(agent):
         if warning:
             result.error = warning
 
-        # Context guard: if the listing is too chonky to dump straight into
-        # the agent's context window, spill it to a temp file and hand the
-        # agent a pointer instead. Keeps token usage sane on huge repos.
+        # Oversized listing → spill to a temp file and hand the agent a pointer
+        # (keeps token usage sane on huge repos).
         _LIST_FILES_CONTEXT_LIMIT = 20_000
         if len(result.content) > _LIST_FILES_CONTEXT_LIMIT:
             from tempfile import NamedTemporaryFile, gettempdir

@@ -191,7 +191,7 @@ class TestProactiveTokenRefresh:
         ) as mock_send:
             with patch.object(
                 ClaudeCacheAsyncClient,
-                "_refresh_claude_oauth_token",
+                "_refresh_claude_oauth_token_async",
                 return_value="new_fresh_token",
             ) as mock_refresh:
                 client = ClaudeCacheAsyncClient(
@@ -235,7 +235,7 @@ class TestProactiveTokenRefresh:
         ):
             with patch.object(
                 ClaudeCacheAsyncClient,
-                "_refresh_claude_oauth_token",
+                "_refresh_claude_oauth_token_async",
             ) as mock_refresh:
                 client = ClaudeCacheAsyncClient(
                     headers={"Authorization": f"Bearer {fresh_token}"}
