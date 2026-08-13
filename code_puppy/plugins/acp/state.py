@@ -37,11 +37,9 @@ from typing import Any, Dict, List, Optional, Tuple
 _CONNECTION: Any = None
 _LOOP: Optional[asyncio.AbstractEventLoop] = None
 
-# Per-run state, isolated per prompt task via a ContextVar. ``None`` means "no
-# run active in this context". The value is a mutable dict:
-#   {"session_id": str, "streamed": bool, "tool_stack": List[(name, id)]}
-# so writes made in child tasks/threads (which copy this context) are visible in
-# the prompt coroutine that created the run.
+# Per-run state isolated per prompt task via a ContextVar (None = no active run).
+# A mutable dict {"session_id", "streamed", "tool_stack"} so child tasks/threads
+# (which copy this context) see writes made by the creating prompt coroutine.
 _RUN: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar(
     "acp_run", default=None
 )

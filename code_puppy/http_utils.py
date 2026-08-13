@@ -217,9 +217,8 @@ def create_client(
     # Check if HTTP/2 is enabled in config
     http2_enabled = get_http2()
 
-    # If retry components are available, create a client with retry transport
-    # Note: TenacityTransport was removed. For now we just return a standard client.
-    # Future TODO: Implement RetryingClient(httpx.Client) if needed.
+    # NOTE: TenacityTransport removed — return a plain client for now.
+    # TODO: RetryingClient(httpx.Client) if retries are ever needed again.
     return httpx.Client(
         verify=verify,
         headers=headers or {},

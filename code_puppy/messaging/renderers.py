@@ -290,10 +290,8 @@ def _print_message(console: Console, message: UIMessage) -> None:
 
 def _print_message_uncoordinated(console: Console, message: UIMessage) -> None:
     """Print ``message`` to ``console`` using the standard styling rules."""
-    # New transcript output is about to scroll: the bottom bar walks
-    # its popup slack back one row per message so the prompt steps down
-    # with the flow (see BottomBar.notify_transcript_output). Guarded:
-    # bar geometry plumbing must NEVER break (or kill) a render thread.
+    # Transcript output scrolls: the bar walks its popup slack back one row per
+    # message (see notify_transcript_output). Guarded — must never break a render thread.
     style = _classify_style(message)
     content = message.content
     if message.type == MessageType.QUEUED:
@@ -490,10 +488,8 @@ class SynchronousInteractiveRenderer:
 
         pc = get_pause_controller()
 
-        # Hold the lock during the actual print so concurrent emitters (bus
-        # listener thread vs. consume thread vs. resume-listener flush) see
-        # a single serial ordering. Rich's console.print is microseconds-
-        # fast so contention is negligible.
+        # Hold the lock during print so concurrent emitters see one serial order
+        # (console.print is fast; contention negligible).
         with self._buffer_lock:
             if pc.is_paused():
                 self._paused_buffer.append(message)

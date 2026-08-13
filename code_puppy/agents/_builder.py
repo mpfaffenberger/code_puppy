@@ -40,12 +40,9 @@ from code_puppy.model_factory import ModelFactory, make_model_settings
 _AGENT_RULE_FILES = ("AGENTS.md", "AGENT.md", "agents.md", "agent.md")
 _CODE_PUPPY_DIR = ".code_puppy"
 
-# Re-export the default so callers that imported AGENTS_MD_MAX_CHARS from
-# here keep working. The *effective* cap on any given load is whatever
-# ``get_agents_md_max_chars()`` returns (user override via
-# ``/set agents_md_max_chars=<int>``); this constant is just the fallback
-# documented in the warning notice and used by tests that don't care about
-# the override path.
+# Re-export the default so existing importers keep working. The *effective*
+# cap is ``get_agents_md_max_chars()`` (user override via /set); this constant
+# is just the fallback used by tests and the warning notice.
 AGENTS_MD_MAX_CHARS = AGENTS_MD_MAX_CHARS_DEFAULT
 
 
@@ -219,10 +216,9 @@ def _iter_autostart_targets(manager: Any, agent_name: str):
         yield server_name, config
 
 
-# Module-level dedupe set: ``(agent_name, server_name)`` pairs we've already
-# warned about. We don't bother with TTLs — a fresh process resets it, which
-# matches "warn at most once per session per missing binding". Cleared in
-# tests via ``_reset_missing_warning_cache``.
+# Dedupe set of ``(agent_name, server_name)`` pairs already warned about — no
+# TTLs, a fresh process resets it ("warn once per session"). Cleared in tests
+# via ``_reset_missing_warning_cache``.
 _WARNED_MISSING: set[tuple[str, str]] = set()
 
 
@@ -307,29 +303,19 @@ def reload_mcp_servers(agent_name: Optional[str] = None) -> List[Any]:
     return manager.get_servers_for_agent(agent_name=agent_name)
 
 
-# (conversation_scope, agent_name, requested_model_name) combos we've
-# already warned about this conversation. ``conversation_scope`` lets
-# independent conversations sharing one process (concurrent ACP sessions,
-# notably) keep separate warning state, so one session's warning can't
-# silently suppress -- or a reset silently un-suppress -- another's; see
-# ``subagent_invocation.py`` (passes the parent conversation's session id)
-# and ``build_pydantic_agent``/``build_tool_probe_for_agent`` (leave it
-# ``None``, matching the pre-existing single-main-agent-per-process model).
-# Deliberately NOT cleared when a model finally loads again -- only
-# reset_model_fallback_warnings() resets it, so a still-broken pin doesn't
-# re-nag on every agent rebuild within one conversation, but a fresh
-# conversation gets the reminder again. We deliberately do NOT auto-clear
-# the pin itself -- see config.clear_agent_pinned_model; that stays a human
-# decision.
+# (conversation_scope, agent_name, requested_model_name) combos already
+# warned about. Scope keeps concurrent ACP sessions' warning state separate
+# (subagent_invocation.py passes the parent session id; build_pydantic_agent
+# leaves it ``None`` for the main-agent bucket). NOT cleared when a model
+# loads again — only reset_model_fallback_warnings() resets it, so a broken
+# pin doesn't re-nag per rebuild but a fresh conversation does. The pin
+# itself stays a human decision (config.clear_agent_pinned_model).
 _warned_model_fallbacks: Set[Tuple[Optional[str], Optional[str], str]] = set()
 
-# Sentinel distinguishing "reset() called with no args" (nuke everything --
-# the CLI's /clear, a genuinely fresh process-wide start) from
-# "reset(scope=X)" (clear only that conversation's bucket -- e.g. ACP session
-# creation clearing just the shared main-agent-build bucket without touching
-# other live sessions' own scoped sub-agent warnings). ``None`` is itself a
-# valid, meaningful scope (the unscoped/main-agent bucket), so it can't
-# double as "unset".
+# Sentinel distinguishing reset() with no args (nuke everything — CLI /clear)
+# from reset(scope=X) (clear only that conversation's bucket, e.g. ACP session
+# creation). ``None`` is itself a valid scope (the main-agent bucket), so it
+# can't double as "unset".
 _UNSET = object()
 
 
@@ -623,9 +609,9 @@ def build_pydantic_agent(
             output_type=output_type,
             retries=3,
             toolsets=toolsets,
-            # Order is critical: compaction first (may trim history to fit
-            # context), THEN steer injection (the steer must NOT be subject
-            # to compaction on this call — it just arrived).
+            # Order matters: compaction first (may trim history to fit
+            # context), THEN steer injection (a fresh steer must not be
+            # compacted away).
             history_processors=[history_processor, steer_processor],
             model_settings=model_settings,
         )
@@ -653,9 +639,8 @@ def build_pydantic_agent(
             Text.from_markup(f"[dim]Filtered {dropped} conflicting MCP tools[/dim]")
         )
 
-    # Pass 2: real build. MCP servers are always included in the constructor;
-    # plugins (e.g. DBOS) may swap them out at run time via the
-    # ``agent_run_context`` hook if their wrapper can't handle them directly.
+    # Pass 2: real build. MCP servers always go in the constructor; plugins
+    # (e.g. DBOS) may swap them at run time via ``agent_run_context``.
     final_pydantic = _new_pydantic_agent(toolsets=filtered_mcp_servers)
     register_tools_for_agent(
         final_pydantic,

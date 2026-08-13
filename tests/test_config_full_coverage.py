@@ -854,9 +854,8 @@ class TestAutosaveSession:
         assert name.startswith("auto_session_")
 
     def test_set_from_session_name_with_prefix(self):
-        # Post-unification: the deprecation shim stores the full name verbatim
-        # rather than stripping the `auto_session_` prefix. Documented behavior
-        # change so the singleton always holds a loadable session filename.
+        # Post-unification: the deprecation shim stores the full name verbatim (no
+        # `auto_session_` strip) so the singleton always holds a loadable filename.
         result = cp_config.set_current_autosave_from_session_name(
             "auto_session_20250101_120000"
         )

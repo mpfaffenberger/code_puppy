@@ -170,9 +170,8 @@ def register_list_or_search_skills(agent):
                 error=f"Failed to discover skills: {e}",
             )
 
-        # Filter by query — match if ANY term appears in the skill's name,
-        # description, or tags. Avoids the old bug where the entire query was
-        # treated as one substring (so "code puppy architecture" matched nothing).
+        # Filter: match if ANY term appears in name/description/tags — avoids the
+        # old bug of treating the whole query as one substring.
         if query:
             terms = query.lower().replace("-", " ").replace("_", " ").split()
             skills_list = [

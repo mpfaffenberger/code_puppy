@@ -1016,10 +1016,8 @@ def test_m_command_case_insensitive(
             mock_set_model.assert_not_called()
 
 
-# Note: Tests for newly migrated commands (set, agent, model, mcp, pin_model,
-# generate-pr-description, dump_context, load_context, diff) already exist above
-# and in TestCommandRegistry. All logic has been verified to be identical to original.
-# See LOGIC_VERIFICATION.md for detailed verification.
+# Note: migrated-command tests (set/agent/model/mcp/pin_model/etc.) live above and
+# in TestCommandRegistry; logic verified identical — see LOGIC_VERIFICATION.md.
 
 
 def test_pin_model_command_case_insensitive_agent():

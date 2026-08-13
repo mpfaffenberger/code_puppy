@@ -68,9 +68,9 @@ async def run(session_id: str, command: str) -> Optional[str]:
 
     text = _render(collected)
     if _is_prompt_expansion(result):
-        # Handler expanded the command into a prompt for the model. Surface any
-        # incidental bus output first, then hand the prompt back to the caller
-        # to run through the agent (not display it as a canned answer).
+        # Handler expanded the command into a prompt: surface any incidental bus
+        # output first, then hand the prompt back to the caller to run through the
+        # agent (not display it as a canned answer).
         if text:
             await _emit(session_id, text)
         return result.strip()

@@ -22,9 +22,7 @@ def _banner_color():
         return "blue"
 
 
-# ---------------------------------------------------------------------------
 # Hierarchy helpers (true parent -> child tree)
-# ---------------------------------------------------------------------------
 def _ordered_tree(rows):
     """Return [(entry, depth), ...] in DFS order. A row whose parent is not in
     the set (e.g. the main agent, or None) is a root (depth 0); descendants are
@@ -55,10 +53,8 @@ def _ordered_tree(rows):
     return out
 
 
-# Tier/variant qualifiers that distinguish models sharing a version number
-# (e.g. gpt-5.4 vs gpt-5.4-nano vs gpt-5.4-mini). Without these, three distinct
-# models all collapse to "GPT 5.4" in the panel -- the exact confusion this maps
-# away. key (lowercased token in the id) -> Display label.
+# Preserve tier/variant tokens (e.g. nano, mini) so same-version models do not
+# collapse to one panel label. Keys are lowercased model-id tokens.
 _MODEL_VARIANTS = (
     ("nano", "Nano"),
     ("mini", "Mini"),
@@ -170,10 +166,8 @@ def _row_lines(ordered, frame):
         done = bool(e.get("done"))
         failed = bool(e.get("failed"))
         line = left.copy()
-        # These rows are deliberately one-line status rows: the live panel
-        # rows are truncated to the terminal width by the bottom bar, and
-        # transcript records must not wrap mid-column. Crop visually;
-        # preserve full status in state.
+        # Keep status rows single-line; crop visually for the terminal but retain
+        # full status in state.
         line.no_wrap = True
         line.overflow = "ellipsis"
         line.append(" " * (name_w - left.cell_len + 2))

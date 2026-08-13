@@ -75,14 +75,8 @@ def register_browse_skill_namespace(agent):
             namespace: Exact namespace name to list skills within.
             query: Keyword(s) to search across name/description/tags.
         """
-        # build_namespaces() does a full filesystem walk + frontmatter
-        # re-parse per call. Left inline, that blocking I/O runs directly
-        # on the event loop -- pydantic-ai only auto-offloads to a worker
-        # thread for *sync* tool functions (anyio.to_thread), not async
-        # ones. Since this tool must stay async (RunContext-taking tools
-        # in this codebase are conventionally async -- see
-        # activate_skill/list_or_search_skills in
-        # code_puppy/tools/skills_tools.py), we offload explicitly instead.
+        # build_namespaces() performs blocking filesystem/frontmatter I/O; explicitly
+        # offload it because async pydantic-ai tools aren't auto-threaded.
         try:
             namespaces = await asyncio.to_thread(build_namespaces)
         except Exception as exc:  # noqa: BLE001 - surface to the model, don't crash the turn
@@ -140,10 +134,8 @@ def register_browse_skill_namespace(agent):
                 total_skills=len(skills),
             )
 
-        # Mode 3: keyword search across every namespace. An empty/blank
-        # query (explicit query="" rather than omitted entirely -- mode 1
-        # only triggers when both args are None) means "no filter",
-        # matching mode 2's semantics above.
+        # Mode 3 searches all namespaces; explicit blank query means "no filter",
+        # unlike omitted args, which select mode 1's directory listing.
         terms = _query_terms(query)
         results = [
             {

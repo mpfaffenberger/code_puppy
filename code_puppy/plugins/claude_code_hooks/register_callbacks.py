@@ -48,10 +48,8 @@ logger = logging.getLogger(__name__)
 
 _hook_engine: Optional[HookEngine] = None
 
-# Deferred-context buffer: SessionStart hook stdout is collected here at boot
-# and injected into the very next user prompt (which is where Claude Code's
-# spec says SessionStart "additional context" should land — the assistant's
-# first turn). Cleared on first inject so it's a one-shot per session.
+# Deferred-context buffer: SessionStart hook stdout lands in the next user prompt
+# (where the spec says "additional context" goes). One-shot per session.
 _pending_session_context: List[str] = []
 
 
@@ -140,9 +138,8 @@ async def on_pre_tool_call_hook(
                 "error_message": result.blocking_reason,
             }
 
-        # Exit code 0 hooks: propagate their stdout to the model context.
-        # See issue #298. The pydantic_patches consumer reads
-        # ``context_message`` and prepends it to the tool result.
+        # Exit code 0 hooks: propagate stdout via ``context_message`` (issue #298) so
+        # the pydantic_patches consumer prepends it to the tool result.
         stdout_chunks = _collect_context_stdout(result)
         if stdout_chunks:
             return {"context_message": "\n\n".join(stdout_chunks)}

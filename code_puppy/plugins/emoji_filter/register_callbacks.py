@@ -90,11 +90,9 @@ def _filter_edit_payload(payload: Any) -> list[str]:
     return stripped
 
 
-# Notify the model when we tamper with its tool call so it stops emitting
-# emojis instead of silently fighting the filter every turn. The framework
-# (see ``pydantic_patches._patched_call_tool``) collects ``context_message``
-# values from pre-tool-call hooks and prepends them to the tool result as
-# ``[hook context]\n{msg}``, which the model then reads.
+# Notify the model when we tamper with its tool call so it stops emitting emojis.
+# The framework (pydantic_patches._patched_call_tool) prepends the ``context_message``
+# to the tool result as ``[hook context]\n{msg}``, which the model then reads.
 _CONTEXT_MESSAGE_TEMPLATE = (
     "emoji_filter is ENABLED. Emojis were detected and stripped from "
     "`{tool_name}` arg(s): {fields}. This project does not allow emojis "
@@ -148,9 +146,8 @@ def _on_pre_tool_call(
     }
 
 
-# --- Streaming patch ---------------------------------------------------------
-# We patch TextPart and TextPartDelta __init__ exactly once. The patched init
-# checks ``is_enabled()`` at call time so the user can toggle without restart.
+# Streaming patch: patch TextPart/TextPartDelta __init__ exactly once; the patched
+# init checks ``is_enabled()`` at call time so the user can toggle without restart.
 
 _STREAM_PATCH_FLAG = "_emoji_filter_patched"
 

@@ -27,11 +27,8 @@ from code_puppy.tools.subagent_context import subagent_context
 
 from .judge_config import DEFAULT_JUDGE_PROMPT, JudgeConfig
 
-# Default cap on per-judge pydantic_ai requests. Judges are read-only and
-# shouldn't ever need this many round-trips — if one does, it's almost
-# certainly looping. 200 leaves plenty of headroom for inspection-heavy
-# verification (file reads + grep + a shell test run) without letting a
-# runaway judge burn the whole goal loop's token budget.
+# Read-only judges should not need 200 requests; cap verification-heavy loops
+# without letting a runaway judge consume the goal loop's budget.
 GOAL_JUDGE_REQUEST_LIMIT = 200
 
 _READ_ONLY_TOOLS = {
@@ -262,11 +259,8 @@ async def judge_goal(
     )
     _register_goal_history_tool(judge_agent, list(history or []))
 
-    # Run the judge inside a sub-agent context so:
-    #   * its tool-call banners (read_file, grep, shell, etc.) are suppressed
-    #   * its reasoning/agent-response chatter doesn't litter the goal loop UI
-    # The plumbing for this already exists in rich_renderer and tools/display —
-    # they check is_subagent() + get_subagent_verbose() and skip rendering.
+    # Run judges as sub-agents to suppress tool/reasoning chatter; rich_renderer
+    # and tools/display already skip those banners in sub-agent context.
     try:
         with subagent_context(f"judge:{judge_config.name}"):
             result = await judge_agent.run(
@@ -278,10 +272,8 @@ async def judge_goal(
         # Propagate cancellation — the orchestrator handles cleanup.
         raise
     except Exception as exc:
-        # Any other exception during the run is an infrastructure problem
-        # (HTTP 4xx/5xx, network timeout, auth failure, vendor SDK bug...).
-        # Abstain rather than fail — the judge couldn't render a verdict,
-        # so it shouldn't get a vote.
+        # Infrastructure errors abstain rather than vote; the judge produced no
+        # verdict to fail the goal.
         return GoalJudgement(
             judge_name=judge_config.name,
             complete=False,

@@ -77,9 +77,8 @@ class BaseAgent(ABC):
         self._mcp_servers: List[Any] = []
         self.cur_model: Optional[pydantic_ai.models.Model] = None
         self.pydantic_agent: Any = None
-        # Cached probe agent used to count tool overhead before the real
-        # pydantic agent has been built. Keyed implicitly by ``_last_model_name``
-        # so model swaps invalidate it via ``_probe_model_name``.
+        # Cached probe agent for tool-overhead counting before the real build;
+        # keyed by ``_last_model_name`` so model swaps invalidate it.
         self._tool_probe_agent: Any = None
         self._probe_model_name: Optional[str] = None
 

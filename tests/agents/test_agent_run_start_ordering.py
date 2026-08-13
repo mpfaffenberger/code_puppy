@@ -44,9 +44,8 @@ class TestAgentRunStartOrdering:
 
         async def slow_hook(agent_name, model_name, session_id=None):
             nonlocal hook_finished
-            # Yield to the event loop multiple times — if the agent task were
-            # already scheduled, this is exactly the window where it would
-            # sneak ahead and call run() with stale credentials.
+            # Yield repeatedly: if the agent task were already scheduled, this is the
+            # window where it would sneak ahead and call run() with stale credentials.
             await asyncio.sleep(0)
             await asyncio.sleep(0)
             await asyncio.sleep(0)

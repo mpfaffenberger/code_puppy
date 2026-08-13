@@ -12,9 +12,8 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from rich.console import Console
 
-# Original stdin console mode saved by disable_windows_ctrl_c() so
-# enable_windows_ctrl_c() can restore it. (Historic name kept: tests
-# and monkeypatches reference it.)
+# Original stdin console mode saved/restored by disable/enable_windows_ctrl_c.
+# (Historic name kept: tests and monkeypatches reference it.)
 _original_ctrl_handler: Optional[int] = None
 
 
@@ -85,10 +84,8 @@ def reset_windows_console_mode() -> None:
         kernel32.GetConsoleMode(stdin_handle, ctypes.byref(stdin_mode))
 
         new_stdin_mode = stdin_mode.value | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT
-        # Only restore processed input (Ctrl+C -> CTRL_C_EVENT) when the
-        # raw-Ctrl+C clamp isn't active. Re-enabling it would let Ctrl+C
-        # generate a console-wide event that kills wrapper launchers
-        # (uvx.exe, pipx shims) attached to the same console.
+        # Restore processed input (Ctrl+C -> CTRL_C_EVENT) only when the raw
+        # clamp is off; re-enabling it would kill wrapper launchers on the console.
         if not _keep_ctrl_c_disabled:
             new_stdin_mode |= ENABLE_PROCESSED_INPUT
         kernel32.SetConsoleMode(stdin_handle, new_stdin_mode)
@@ -282,10 +279,8 @@ def reset_unix_terminal() -> None:
         pass  # Silently fail if reset command isn't available
 
 
-#: Disable every xterm mouse-tracking mode plus bracketed paste.
-#: 1000=click, 1002=drag, 1003=any-motion, 1005/1006/1015=coordinate
-#: encodings, 2004=bracketed paste. Disabling a mode that was never
-#: enabled is a harmless no-op, so we always send the full set.
+#: Disable all xterm mouse-tracking modes + bracketed paste (1000/1002/1003,
+#: 1005/1006/1015 coords, 2004). No-op if never enabled — always send full set.
 _MOUSE_TRACKING_OFF = (
     "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?2004l"
 )

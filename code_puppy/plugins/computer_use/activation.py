@@ -34,9 +34,8 @@ def activate_application(pid: int, application_name: str, timeout: float = 1.0) 
         raise ComputerUseError(
             f"Could not activate target application {application_name}."
         )
-    # A background CLI can receive a successful AppKit result without macOS
-    # changing focus. The plugin already requires Accessibility permission, so
-    # explicitly foreground and raise the target window through AX as well.
+    # AppKit success doesn't guarantee macOS actually changes focus. With Accessibility
+    # permission already required, explicitly foreground + raise the window via AX too.
     try:
         import ApplicationServices as api
 

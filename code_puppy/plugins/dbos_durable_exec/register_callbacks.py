@@ -29,9 +29,8 @@ if is_enabled():
     try:
         import dbos  # noqa: F401  -- early import check
     except ImportError:
-        # Use logger.info (not debug) so it surfaces by default — silently
-        # skipping a feature the user enabled is bad UX. Install with
-        # `pip install code-puppy[durable]` to fix.
+        # logger.info (not debug) so a silently-skipped enabled feature surfaces;
+        # install with `pip install code-puppy[durable]` to fix.
         logger.info(
             "DBOS plugin enabled but `dbos` package not installed; "
             "durable-exec hooks not registered. "

@@ -101,9 +101,8 @@ def test_no_leftover_placeholder_for_supplied_params(prefixes):
     for key in _keys(prefixes):
         entry = src[key]
         text = entry if isinstance(entry, str) else entry.get("other", "")
-        # Skip entries with intentional double-brace escapes like {{color_type}}:
-        # those render to literal {color_type} — correct display text, not an
-        # un-substituted slot.
+        # Skip intentional double-brace escapes like {{color_type}} — they render a
+        # literal {color_type} (correct display text, not an un-substituted slot).
         if "{{" in text:
             continue
         params = {name: "X" for name in _PLACEHOLDER.findall(text)}

@@ -92,9 +92,8 @@ class PluginsMenu:
         self.lock_builtin: bool = False
         self.hidden_builtin_count: int = 0
 
-        # Trust popup state. While ``trust_target`` is set, the modal is
-        # visible, ALL list keybindings are filter-disabled (so typing the
-        # accept word can't trigger shortcuts), and focus sits on the input.
+        # The trust modal disables list bindings while open, keeping accept-word
+        # typing from triggering shortcuts; focus remains on its input.
         self.trust_target: Optional[_PluginEntry] = None
         self.trust_error: str = ""
         self.trust_feedback: str = ""
@@ -113,9 +112,8 @@ class PluginsMenu:
 
         self.detail_scroll = 0
 
-        # Pane height is tracked so we can pad short content with blank rows —
-        # prompt_toolkit's cell-diff leaves "empty" area below content alone,
-        # which strands stale glyphs from previous renders.
+        # Track pane height so cell-diff redraws overwrite stale glyphs below
+        # short content.
         self._menu_cols = 30
         self._detail_cols = 60
         self._pane_rows = 20
@@ -396,13 +394,8 @@ class PluginsMenu:
             style=on_prompt_toolkit_style(),
         )
 
-        # Live resize: prompt_toolkit re-renders on SIGWINCH automatically, but
-        # our pre-wrapped detail text is laid out to a fixed width and won't
-        # reflow on its own. ``before_render`` fires ahead of layout sizing, so
-        # recomputing dimensions here lets the width callables AND the next
-        # render's pre-wrap both see the fresh geometry in the same frame.
-        # ``_recompute_dimensions`` is a no-op when the size hasn't changed, so
-        # there's no per-frame waste.
+        # Recompute fixed-width wrapping before each render so SIGWINCH updates
+        # dimensions and content; the helper is a no-op when size is unchanged.
         def _on_before_render(_app: Application) -> None:
             if self._recompute_dimensions():
                 self.update_display()

@@ -294,9 +294,8 @@ def register_list_agents(agent):
     return list_agents
 
 
-# Backward-compatible exports for callers that import invocation tools from
-# code_puppy.tools.agent_tools. The implementation lives in the focused
-# subagent_invocation module so this file stays below the puppy bloat line.
+# Backward-compatible re-exports: invocation tools live in subagent_invocation
+# so this file stays below the bloat line.
 from code_puppy.tools.subagent_invocation import (  # noqa: E402
     _active_subagent_tasks,
     register_invoke_agent,

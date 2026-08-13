@@ -618,9 +618,8 @@ class TestCrossPlatform:
         assert "ConvertFrom-Json" in _STARTER_SCRIPT_PS1, (
             "Must parse JSON via ConvertFrom-Json"
         )
-        # Must use Write-Output, NOT Write-Host.
-        # Write-Host writes to the console host only; subprocess.run(capture_output=True)
-        # captures stdout, so Write-Host produces empty output for the parent process.
+        # Must use Write-Output, NOT Write-Host — Write-Host goes to the console host
+        # only, so subprocess.run(capture_output=True) sees empty stdout.
         assert "Write-Output" in _STARTER_SCRIPT_PS1, (
             "Must output via Write-Output (not Write-Host)"
         )

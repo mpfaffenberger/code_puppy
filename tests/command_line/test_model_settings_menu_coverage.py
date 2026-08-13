@@ -131,11 +131,8 @@ class TestEditing:
         mock_supports.side_effect = lambda m, s: s == "effort"
         menu = _make_menu()
         menu._load_model_settings("gpt-5")
-        # effort is a choice, let's test a truly numeric unknown by manipulating
-        # Actually effort is a choice type. Let's test with a hacky approach:
-        # We want the else branch for numeric defaults. Use a custom setting.
-        # Just verify budget_tokens which has a known default path
-        # Test the else branch for numeric default by temporarily adding a custom setting
+        # effort is a choice type, so hit the numeric-default else branch by
+        # temporarily registering a custom numeric setting below.
         SETTING_DEFINITIONS["_test_numeric"] = {
             "name": "Test",
             "type": "numeric",
@@ -363,9 +360,8 @@ class TestRenderMainList:
         assert "active" in text
 
     def test_render_settings_view_no_settings_empty_state(self):
-        # Defensive branch: unreachable via _load_model_settings today (the
-        # universal settings above guarantee a non-empty list), but the
-        # renderer must still degrade gracefully if the list is empty.
+        # Defensive branch: unreachable today (universal settings guarantee non-empty),
+        # but the panel must still degrade gracefully on an empty list.
         menu = _make_menu()
         menu.selected_model = "gpt-5"
         menu.supported_settings = []

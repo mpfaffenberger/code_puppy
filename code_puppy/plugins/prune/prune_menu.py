@@ -57,9 +57,8 @@ class PruneMenu:
         self.entries = entries
         self.budget = budget or ContextBudget()
 
-        # Build the visible row list NEWEST-FIRST. Pure tool-return
-        # messages are hidden from the top level — they tag along with
-        # whichever assistant message owns the matching ToolCallPart.
+        # Build newest-first rows; pure tool returns hide under their owning
+        # assistant tool call instead of appearing as top-level entries.
         self.rows: List[Row] = [
             Row(message_idx=msg_idx)
             for msg_idx in range(len(entries) - 1, -1, -1)
@@ -72,9 +71,8 @@ class PruneMenu:
         self.cursor: int = 0
         self.selected_messages: Set[int] = set()  # message_idx values
 
-        # Viewport state — set for real in run() once we know the terminal
-        # size, but seed with sensible defaults so the menu can be unit-tested
-        # without a live TTY.
+        # Seed viewport dimensions for tests; run() replaces them with terminal
+        # size.
         self.viewport_top: int = 0
         self._visible_rows: int = 20
 
@@ -233,23 +231,15 @@ class PruneMenu:
         self.list_control = FormattedTextControl(text="")
         self.detail_control = FormattedTextControl(text="")
 
-        # Lock pane widths to absolute halves of the terminal. Using weights
-        # alone lets prompt_toolkit re-negotiate based on content, which makes
-        # the divider visibly jitter as the user scrolls. We cap the upper
-        # bound (max == preferred) so widths stay stable, but allow shrinking
-        # down to a small min so prompt_toolkit can survive tight terminals
-        # (Frame borders + padding chrome eat a few cols on each side).
+        # Fix pane widths to terminal halves to prevent content-driven divider
+        # jitter; allow shrinking for tight terminals.
         cols, rows = self._measure_terminal()
-        # Be generous with the chrome budget: each Frame can eat ~3 cols on
-        # each side once you count border + padding. Underestimating triggers
-        # "Window too small" errors.
+        # Reserve generous border/padding chrome to avoid "Window too small" errors.
         usable_cols = max(40, cols - 8)
         left_cols = usable_cols // 2
         right_cols = usable_cols - left_cols
-        # Reserve lines for: title (1) + budget (1) + optional overflow (1) +
-        # legend (1) + blank (1) + top indicator (1) + bottom indicator (1) +
-        # blank (1) + footer (1) + cursor counter (1) + frame top/bottom (2).
-        # Floor at 5 so tiny terminals still work.
+        # Reserve title, budget, legend, indicators, footer, and frame lines;
+        # floor at 5 so tiny terminals still work.
         self._visible_rows = max(5, rows - 12)
 
         list_width = Dimension(min=20, max=left_cols, preferred=left_cols)

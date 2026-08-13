@@ -145,9 +145,8 @@ async def event_stream_handler(
             pass  # Just consume events without rendering
         return
 
-    # NOTE: TTFT / gen-speed timing is handled by callback hooks
-    # (agent_run_start + stream_event + agent_run_end). This handler
-    # stays focused on rendering.
+    # NOTE: TTFT/gen-speed timing lives in callback hooks (agent_run_start +
+    # stream_event + agent_run_end); this handler only renders.
 
     from termflow import Parser as TermflowParser
     from termflow import Renderer as TermflowRenderer
@@ -217,9 +216,8 @@ async def event_stream_handler(
             highlighter=on_termflow_highlighter(Highlighter()),
         )
 
-    # Smooth-stream state for thinking parts. Each index maps to a smoother
-    # (steady-rate drain) or lands in ``thinking_direct`` when smoothing is
-    # disabled and we should print deltas immediately.
+    # Smooth-stream state per thinking part: index → smoother (steady drain)
+    # or ``thinking_direct`` when smoothing is off (print deltas immediately).
     thinking_smoothers: dict[int, ThinkingStreamSmoother] = {}
     thinking_direct: set[int] = set()
     thinking_stream_id = object()
@@ -303,9 +301,8 @@ async def event_stream_handler(
     try:
         async for event in events:
             # ---- Pause gate ------------------------------------------------
-            # If the user has paused the agent, suppress rendering and block
-            # at this safe boundary until resume (or until the safety timeout
-            # expires, to avoid SSE upstream timeouts).
+            # Paused: suppress rendering and block at this safe boundary until
+            # resume (or the safety timeout, to avoid SSE upstream timeouts).
             from code_puppy.messaging.pause_controller import get_pause_controller
 
             _pc = get_pause_controller()
@@ -320,11 +317,10 @@ async def event_stream_handler(
                 resumed = await _pc.wait_if_paused(timeout=max_pause)
                 if resumed:
                     break
-                # Timed out — the controller force-resumed itself. If a
-                # slash-command window still owns the pause lease, re-arm
-                # and keep waiting: streaming must NOT interleave under an
-                # open /command menu. The drain's ``finally`` guarantees
-                # the ultimate resume, so this can't wait forever.
+                # Timed out (controller force-resumed). If a /command window
+                # still owns the pause lease, re-arm and keep waiting: streaming
+                # must not interleave under it; the drain's ``finally``
+                # guarantees the ultimate resume.
                 from code_puppy.messaging.run_ui import is_draining
 
                 if is_draining():
@@ -425,9 +421,9 @@ async def event_stream_handler(
 
                                 termflow_line_buffers[event.index] = buffer
                             else:
-                                # For thinking parts, stream smoothly (dim) via a
-                                # rate-limited buffer so bursty deltas don't stutter.
-                                # Gate on output level / suppress_thinking toggle.
+                                # Stream thinking parts smoothly (dim) via a
+                                # rate-limited buffer; gate on output level /
+                                # suppress_thinking toggle.
                                 if not _suppress_thinking_stream():
                                     if event.index not in banner_printed:
                                         await _print_thinking_banner()
@@ -456,9 +452,8 @@ async def event_stream_handler(
                                 tool_names.get(event.index, "") + tool_name_delta
                             )
 
-                        # Use stored tool name for display.
-                        # In low mode, skip the progress counter — the
-                        # RichConsoleRenderer peek is sufficient.
+                        # Use stored tool name; in low mode skip the progress
+                        # counter — the RichConsoleRenderer peek suffices.
                         if not _suppress_tool_progress():
                             tool_name = tool_names.get(event.index, "")
                             count = token_count[event.index]
@@ -515,9 +510,9 @@ async def event_stream_handler(
                             await writer.close()
                     # For tool parts, clear the chunk counter line
                     elif event.index in tool_parts:
-                        # Erase the \r-repainted chunk counter line entirely
-                        # (space-padding assumed <= 50 cells and left ghost
-                        # tails like ``s)`` behind long tool names).
+                        # Erase the \r-repainted chunk-counter line entirely;
+                        # space-padding assumed <= 50 cells and left ghost
+                        # tails behind long tool names.
                         erase_progress_line(console)
                         # In high mode, dump the full tool call arguments so the
                         # user can see exactly what the model sent to the tool.
@@ -562,9 +557,8 @@ async def event_stream_handler(
                     banner_printed.discard(event.index)
 
     except BaseException:
-        # Cancelled (Ctrl+C / steer) or crashed mid-stream: the graceful
-        # drain below would never run, orphaning the background drain
-        # tasks — which then keep typing into the terminal. Abort them.
+        # Cancelled/crashed mid-stream: the graceful drain never runs, orphaning
+        # background drain tasks that keep typing into the terminal. Abort them.
         _abort_all_drainers()
         raise
 

@@ -256,9 +256,8 @@ def _inject_opaque_into_request(
                 modified = True
                 injected += 1
             else:
-                # SAFETY: No matching opaque → strip reasoning_text to
-                # prevent the 400.  Losing thinking context is better
-                # than crashing the conversation.
+                # SAFETY: no matching opaque → strip reasoning_text to avoid the 400;
+                # losing thinking context beats crashing the conversation.
                 del msg[thinking_field]
                 modified = True
                 stripped += 1
@@ -369,10 +368,9 @@ def patch_client_for_reasoning_opaque(
         # 2) Let the real send (incl. auth + retries) run.
         response = await original_send(request, *args, **kwargs)
 
-        # 3) RECOVERY: If the API still returns 400, it's likely because
-        #    our reasoning fields are wrong/stale.  Strip them all and
-        #    retry once.  This degrades to "no thinking after tool calls"
-        #    but keeps the conversation alive.
+        # 3) RECOVERY: still 400 → reasoning fields likely stale; strip them all and
+        #    retry once (degrades to "no thinking after tool calls" but keeps the convo
+        #    alive).
         if response.status_code == 400 and request.method == "POST":
             # Read the error body for diagnostics before retrying.
             try:

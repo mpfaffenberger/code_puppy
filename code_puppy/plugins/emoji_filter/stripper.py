@@ -7,10 +7,8 @@ from __future__ import annotations
 
 import re
 
-# Covers the common pictographic / emoji unicode ranges, plus the zero-width
-# joiner and variation selector-16 used to compose multi-codepoint emoji.
-# Conservative: we do NOT strip basic punctuation, math symbols, arrows, or
-# letter-like symbols outside these ranges.
+# Common pictographic/emoji ranges + zero-width joiner & variation selector-16
+# (multi-codepoint composition). Conservative: no punctuation/math/arrows/letters.
 _EMOJI_RE = re.compile(
     "["
     "\U0001f300-\U0001f5ff"  # misc symbols & pictographs

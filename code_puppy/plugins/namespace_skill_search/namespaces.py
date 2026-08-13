@@ -19,10 +19,8 @@ from code_puppy.plugins.agent_skills.metadata import SkillMetadata
 
 _DEFAULT_NAMESPACE = "General"
 
-# OpenAI's own sizing guidance: "keep each namespace to fewer than 10
-# functions for better token efficiency and model performance." We don't
-# enforce this (skills aren't ours to re-tag), but we surface it in the
-# namespace summary so an oversized namespace is visible, not silent.
+# OpenAI recommends fewer than 10 functions per namespace; flag oversized
+# namespaces without re-tagging skills we don't own.
 _RECOMMENDED_MAX_PER_NAMESPACE = 10
 
 

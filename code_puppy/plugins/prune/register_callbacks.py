@@ -60,13 +60,7 @@ def _custom_help() -> List[Tuple[str, str]]:
     ]
 
 
-# ── tool-fragment pruning ──────────────────────────────────────────────────
-# After dropping selected messages, the tail of history may still hold
-# orphaned ToolCallPart or ToolReturnPart fragments. Providers (notably
-# Anthropic) require every ToolCallPart to have a matching
-# ToolReturnPart and vice versa, so we walk the tail and strip any
-# fragment whose ``tool_call_id`` has no live partner in the remaining
-# history.
+# Tool-fragment pruning: remove unmatched tool parts after message drops.
 
 
 def _collect_tool_ids(history: List[Any]) -> Tuple[Set[str], Set[str]]:
@@ -247,9 +241,8 @@ def _perform_prune(drop_indices: Set[int]) -> None:
         emit_warning("/prune: conversation history is empty – nothing to remove")
         return
 
-    # Defensive filter: ignore out-of-range indices and silently skip
-    # any message that carries a SystemPromptPart so the agent's
-    # identity can never be dropped.
+    # Ignore invalid indices and SystemPromptPart messages; the system identity
+    # must never be pruned.
     drop_indices = {
         i
         for i in drop_indices
@@ -340,9 +333,7 @@ def _launch_menu() -> None:
     )
 
     entries = build_message_entries(raw_history)
-    # Bail out when there's nothing the user can actually toggle.
-    # Locked rows (system bundle or history[0]) are non-prunable, so an
-    # all-locked list is the same as an empty conversation.
+    # Locked rows are non-prunable, so an all-locked list has nothing to toggle.
     if not entries or all(e.is_locked for e in entries):
         emit_info("/prune: no prunable messages")
         return

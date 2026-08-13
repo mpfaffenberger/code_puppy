@@ -138,9 +138,8 @@ def _post_generation_request(
         ),
     }
     if reference_data_urls:
-        # Reference-conditioned edit. `images` entries MUST be objects whose
-        # only accepted key is `image_url` (see module docstring); `background`
-        # is not accepted on this endpoint.
+        # Reference-conditioned edit: `images` entries must be `{"image_url": ...}`
+        # objects only; `background` isn't accepted on this endpoint.
         endpoint = "/images/edits"
         payload = {
             "prompt": prompt,

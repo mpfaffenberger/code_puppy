@@ -338,11 +338,8 @@ class ManagedMCPServer:
                 if "read_timeout" in config:
                     http_kwargs["read_timeout"] = config["read_timeout"]
 
-                # Pass headers directly instead of creating http_client
-                # Note: There's a bug in MCP 1.25.0 where passing http_client
-                # causes "'_AsyncGeneratorContextManager' object has no attribute 'stream'"
-                # The workaround is to pass headers directly and let pydantic-ai
-                # create the http_client internally.
+                # Pass headers directly: MCP 1.25.0 http_client bug ("...no attribute
+                # 'stream'"); let pydantic-ai create the http_client internally.
                 if config.get("headers"):
                     # Expand environment variables in headers
                     http_kwargs["headers"] = _expand_env_vars(config["headers"])

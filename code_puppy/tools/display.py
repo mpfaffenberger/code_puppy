@@ -76,9 +76,8 @@ def display_non_streamed_result(
         >>> display_non_streamed_result("# Hello\n\nThis is **bold** text.")
         # Renders with AGENT RESPONSE banner and formatted markdown
     """
-    # Skip display for sub-agents unless verbose mode or high output level.
-    # In ``high`` mode the user has asked for maximum visibility, so sub-agent
-    # responses must render regardless of the legacy ``subagent_verbose`` toggle.
+    # Skip sub-agent display unless verbose or high output level — high mode
+    # overrides the legacy ``subagent_verbose`` toggle (max visibility requested).
     if is_subagent() and not get_subagent_verbose() and get_output_level() != "high":
         return
 

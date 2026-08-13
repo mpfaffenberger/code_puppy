@@ -32,10 +32,9 @@ _SKILL_DIR = Path(__file__).resolve().parent
 
 
 def _register_builtin_skills() -> list[dict]:
-    # This "name" MUST match the SKILL.md frontmatter ``name:`` field.
-    # SkillInfo.name (driven by this key) governs dedup + the disable-set,
-    # while the frontmatter name drives display & ``/activate_skill``. A
-    # mismatch would silently break ``/skills enable|disable`` and the alias.
+    # This "name" MUST match the SKILL.md frontmatter ``name:``: it drives dedup +
+    # the disable-set, while frontmatter name drives display; a mismatch would
+    # silently break ``/skills enable|disable`` and the alias.
     return [
         {
             "name": "code-puppy-agent",

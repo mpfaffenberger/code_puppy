@@ -59,18 +59,15 @@ AGENT = "codepuppy"
 
 _CONNECT_TIMEOUT_S = 0.5
 
-# Delivery is retried until herdr acks, because a silently-dropped critical
-# report strands the pane on a stale state (a lost ``working`` shows idle
-# mid-turn; a lost ``idle`` shows working after a Ctrl+C). Retrying the *same*
-# envelope is safe: herdr dedupes on ``seq`` (rejects seq <= last_seq), so a
-# report that already applied is harmlessly ignored on the retry.
+# Retry until herdr acks: a silently-dropped report strands the pane on a stale state.
+# Retrying the *same* envelope is safe — herdr dedupes on ``seq``, so an already-applied
+# report is harmlessly ignored.
 _SEND_ATTEMPTS = 3
 _SEND_BACKOFF_S = 0.05
 _ACK_BYTES = 4096
 
-#: Pane metadata TTL (24h). herdr clears stale token/model values after this
-#: window, which bounds how long an abrupt process death can leave stale
-#: numbers on the sidebar.
+#: Pane metadata TTL (24h) — bounds how long an abrupt process death can leave
+#: stale token/model numbers on the sidebar.
 _METADATA_TTL_MS = 86_400_000
 
 # herdr request methods.
@@ -328,13 +325,11 @@ class HerdrClient:
             return bool(sock.recv(_ACK_BYTES))
 
     def _deliver_pipe(self, payload: bytes) -> bool:
-        # herdr's Windows build (Rust ``interprocess`` crate) exposes the
-        # named pipe ``\\.\pipe\<full HERDR_SOCKET_PATH>``; the .sock file
-        # itself is just a pid marker. CreateFile fails fast when herdr is
-        # gone (OSError -> retry lane). The ack read has no timeout, but
-        # replies are immediate in practice, the worker is a daemon thread,
-        # and ``release_and_close`` is caller-bounded, so a wedged herdr
-        # cannot hang the agent or its shutdown.
+        # Windows herdr (Rust ``interprocess``) exposes ``\\.\pipe\<full path>``; the
+        # .sock file is just a pid marker. CreateFile fails fast when herdr's gone
+        # (OSError -> retry). The ack read has no timeout, but replies are immediate,
+        # the worker is a daemon thread, and release_and_close is bounded, so a wedged
+        # herdr can't hang the agent or its shutdown.
         pipe_name = "\\\\.\\pipe\\" + str(self._socket_path)
         with open(pipe_name, "r+b", buffering=0) as pipe:
             pipe.write(payload)

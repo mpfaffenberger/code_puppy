@@ -215,9 +215,9 @@ def _run_summarization_core(
         _SUMMARIZATION_INSTRUCTIONS, message_history=pruned
     )
 
-    # Splice ONLY the summary output into context — not the summarization
-    # run's request/response envelope (which would drag the prompt + full
-    # history right back into the window we just tried to shrink).
+    # Splice ONLY the summary into context — not the summarization run's
+    # request/response envelope (which would drag the prompt + full history
+    # right back into the window we're shrinking).
     new_messages: List[ModelMessage] = [
         ModelRequest(parts=[UserPromptPart(content=str(summary_text))])
     ]
@@ -344,16 +344,10 @@ def compact(
     protected_tokens = get_protected_token_count()
     filtered = filter_huge_messages(messages, model_name)
 
-    # filter_huge_messages() already runs prune_interrupted_tool_calls(),
-    # so by this point any orphaned tool_call / tool_return pairs (from
-    # cancelled runs, Ctrl-C interrupts, etc.) have been stripped out. The
-    # check below only trips on a genuine mid-execution state, which
-    # shouldn't happen when the history_processor is invoked — but we keep
-    # it as a defensive safety net.
-    #
-    # Previously this check ran on the raw `messages` list, which meant a
-    # single orphaned tool_call (e.g., from one cancelled command weeks ago)
-    # would defer summarization forever, letting history grow unbounded.
+    # filter_huge_messages() already strips orphaned tool_call/tool_return
+    # pairs (cancelled runs, Ctrl-C), so this check only trips on a genuine
+    # mid-execution state — a defensive net. Previously it ran on the raw
+    # `messages` list, so one orphaned call deferred summarization forever.
     if strategy == "summarization" and has_pending_tool_calls(filtered):
         emit_warning(
             "⚠️  Summarization deferred: pending tool call(s) detected "
@@ -372,9 +366,8 @@ def compact(
         result_messages, summarized_messages = summarize(
             filtered, protected_tokens, True, model_name
         )
-        # If summarization failed gracefully (returned original messages
-        # with nothing dropped), fall back to truncation for this cycle.
-        # The user's strategy preference is preserved for the next cycle.
+        # Summarization failed gracefully (nothing dropped) → fall back to
+        # truncation this cycle; keep the user's strategy for next time.
         if not summarized_messages:
             emit_warning(
                 "↪️  Summarization produced no compaction; "
@@ -451,9 +444,8 @@ def make_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
     """
 
     def history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
-        # pydantic-ai picks 1-arg vs 2-arg processor by inspecting the first
-        # parameter's type annotation (must be ``RunContext`` for 2-arg form).
-        # We don't need ctx, so we use the 1-arg form.
+        # pydantic-ai picks 1-arg vs 2-arg processor by the first parameter's
+        # type annotation (``RunContext`` = 2-arg). We don't need ctx.
         history: List[ModelMessage] = agent._message_history
         compacted_hashes: Set[int] = agent._compacted_message_hashes
 
@@ -471,9 +463,8 @@ def make_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
             h = hash_message(msg)
             if h in existing_hashes:
                 continue
-            # Always keep the last (newest) message, even if its hash collides
-            # with a previously compacted one — short prompts like "yes"/"1"
-            # can collide and get silently dropped otherwise.
+            # Always keep the newest message even on hash collision — short
+            # prompts like "yes"/"1" can collide and get silently dropped.
             if i == last_idx or h not in compacted_hashes:
                 history.append(msg)
                 messages_added += 1
@@ -503,11 +494,9 @@ def make_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
         while cleaned and isinstance(cleaned[-1], ModelResponse):
             cleaned.pop()
 
-        # Sanitize tool_call_ids that don't match Anthropic's required pattern.
-        # When switching from providers like Kimi (which may emit IDs with
-        # dots, colons, etc.) to Claude, those stale IDs cause a 400 from
-        # the Anthropic API.  This step is cheap and no-op when all IDs
-        # already conform.
+        # Sanitize tool_call_ids that don't match Anthropic's pattern: stale IDs
+        # from Kimi-style providers (dots/colons) cause a 400 after switching to
+        # Claude. Cheap no-op when all IDs already conform.
         cleaned = sanitize_tool_call_ids(cleaned)
 
         agent._message_history = cleaned

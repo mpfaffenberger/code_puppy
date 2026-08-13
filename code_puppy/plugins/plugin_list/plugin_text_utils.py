@@ -44,12 +44,8 @@ def drop_leading_lines(fragments: Fragments, n: int) -> Fragments:
     return out
 
 
-# prompt_toolkit's ``get_cwidth`` uses older Unicode East Asian Width data, so
-# it reports 1 for emoji codepoints (e.g. U+1F6E0 hammer-and-wrench) that modern
-# terminals actually render at 2 cells. Without compensating for this, padded
-# lines end up 1 cell short per emoji and the overflow bleeds into the divider
-# column on the next render. The ranges below cover the main emoji blocks where
-# this happens — anything in them is forced to width 2.
+# ``get_cwidth`` undercounts emoji that terminals render as two cells; force
+# affected ranges to width 2 so padding cannot bleed into the divider.
 _EMOJI_RANGES: tuple[tuple[int, int], ...] = (
     (0x2600, 0x27BF),  # Misc Symbols + Dingbats
     (

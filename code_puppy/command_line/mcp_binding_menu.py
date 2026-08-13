@@ -375,9 +375,9 @@ def prompt_bind_after_install_sync(server_name: str) -> None:
         "You can bind it now via a quick menu, or skip and bind later from /agents → B."
     )
 
-    # Use safe_input (not emit_prompt) so the answer appears inline after
-    # the question, matching the rest of the install wizard's [y/N]: style.
-    # emit_prompt would put the answer on its own ">>> " line below.
+    # safe_input (not emit_prompt) so the answer appears inline after the
+    # question, matching the wizard's [y/N]: style (emit_prompt adds a ">>> "
+    # line).
     from code_puppy.command_line.utils import safe_input
 
     try:

@@ -131,8 +131,7 @@ def get_commands_help():
 # ============================================================================
 # IMPORT BUILT-IN COMMAND HANDLERS
 # ============================================================================
-# All built-in command handlers have been split into category-specific files.
-# These imports trigger their registration via @register_command decorators.
+# Each category's handlers register themselves via @register_command on import.
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -209,12 +208,9 @@ def handle_command(command: str):
 
     command = command.strip()
 
-    # Disambiguate file paths from commands:
-    # Commands have a single slash (e.g., /agent, /model)
-    # File paths have multiple slashes (e.g., /Users/username/workspace/file.py)
-    # EXCEPTION: namespaced custom commands (e.g., /flux/status) legitimately
-    # carry multiple slashes -- only bail to normal input if the token isn't a
-    # known custom command.
+    # Commands have a single slash, file paths multiple. EXCEPTION: namespaced
+    # custom commands (/flux/status) — only bail to normal input if the token
+    # isn't a known custom command.
     if command.startswith("/"):
         first_token = command.split()[0] if command.split() else command
         slash_count = first_token.count("/")
@@ -244,23 +240,18 @@ def handle_command(command: str):
     # ========================================================================
     # LEGACY COMMAND FALLBACK
     # ========================================================================
-    # This section is kept as a fallback mechanism for commands added in other
-    # branches that haven't been migrated to the registry system yet.
+    # Kept for commands added in other branches not yet migrated to the
+    # registry (current commands all use @register_command). Old-style
+    # if/elif still works after a rebase — add your block below.
     #
-    # All current commands are registered above using @register_command, so
-    # they won't fall through to this section.
-    #
-    # If you're rebasing and your branch adds a new command using the old
-    # if/elif style, it will still work! Just add your if block below.
-    #
-    # EXAMPLE: How to add a legacy command:
+    # EXAMPLE:
     #
     #   if command.startswith("/mycommand"):
     #       from code_puppy.messaging import emit_info
     #       emit_info("My command executed!")
     #       return True
     #
-    # NOTE: For new commands, please use @register_command instead (see above).
+    # NOTE: use @register_command for new commands.
     # ========================================================================
 
     # Legacy commands from other branches/rebases go here:

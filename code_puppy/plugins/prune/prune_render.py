@@ -149,10 +149,8 @@ def render_budget_line(budget: ContextBudget) -> List[tuple]:
         ("class:tui.muted", f"   overhead: {budget.overhead_tokens or 0:,}t\n"),
     ]
     if budget.out_of_context_messages > 0:
-        # On its own line — these tokens won't fit in this turn's window,
-        # and the warning is too long to share a row with the main
-        # context counter on most terminal widths. (Messages stay in
-        # history; pop or prune newer ones to slide them back in.)
+        # Keep overflow on its own line; newer messages can be popped/pruned to
+        # bring these history entries back into context.
         parts.append(
             (
                 "class:tui.error",

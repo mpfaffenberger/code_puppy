@@ -38,6 +38,7 @@ PhaseType = Literal[
     "register_agents",
     "register_model_type",
     "register_skills",
+    "register_kennel_memory",
     "register_cli_args",
     "handle_cli_args",
     "get_model_system_prompt",
@@ -123,6 +124,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_agents": [],
     "register_model_type": [],
     "register_skills": [],
+    "register_kennel_memory": [],
     "register_cli_args": [],
     "handle_cli_args": [],
     "get_model_system_prompt": [],
@@ -337,20 +339,17 @@ def _trigger_callbacks_sync(
                 # Try to get the running event loop
                 try:
                     asyncio.get_running_loop()
-                    # We're in an async context already - this shouldn't happen for sync triggers
-                    # but if it does, we can't use run_until_complete
+                    # Already in an async context — can't use run_until_complete.
                     logger.warning(
                         f"Async callback {callback.__name__} called from async context in sync trigger"
                     )
-                    # The sync dispatcher cannot await while its event loop is
-                    # already running. Explicitly close the coroutine so this
-                    # safe fallback never leaks an unawaited-coroutine warning.
+                    # Can't await with the loop running; close the coroutine to
+                    # avoid an unawaited-coroutine warning.
                     result.close()
                     results.append(None)
                     continue
                 except RuntimeError:
-                    # No running loop - we're in a sync/worker thread context
-                    # Use asyncio.run() which is safe here since we're in an isolated thread
+                    # No running loop — isolated thread, so asyncio.run() is safe.
                     result = asyncio.run(result)
             results.append(result)
             logger.debug(f"Successfully executed callback {callback.__name__}")
@@ -939,6 +938,17 @@ def on_register_skills() -> List[Dict[str, Any]]:
     - "scripts_dir": str | Path
     """
     return _trigger_callbacks_sync("register_skills")
+
+
+def on_register_kennel_memory() -> List[Any]:
+    """Collect kennel memory providers from plugins.
+
+    Each callback should return either a callable ``() -> str | None`` that
+    yields the current recall block, or ``None``. Core consumes providers via
+    the neutral ``code_puppy.kennel_provider`` seam instead of importing the
+    plugin directly.
+    """
+    return _trigger_callbacks_sync("register_kennel_memory")
 
 
 def on_get_model_system_prompt(

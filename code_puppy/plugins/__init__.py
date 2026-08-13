@@ -20,9 +20,7 @@ _PLUGINS_LOADED = False
 # Populated once, then read by get_loaded_plugins().
 _loaded_plugin_names: dict[str, list[str]] = {"builtin": [], "user": [], "project": []}
 
-# Status of every discovered project plugin, keyed by name:
-# "loaded" | "untrusted" | "changed" | "disabled" | "error".
-# Read by /plugins UI via get_project_plugin_status().
+# Discovered project-plugin status by name (loaded|untrusted|changed|disabled|error); read by /plugins UI.
 _project_plugin_status: dict[str, str] = {}
 
 
@@ -392,10 +390,8 @@ def _load_project_plugins(
             # Trust gate — fail closed BEFORE any import machinery runs.
             status = _trust.get_trust_status(project_root, plugin_name, item)
             if status != _trust.TRUSTED:
-                # Recorded here; surfaced to the human by plugin_list's
-                # startup hook (orange banner) once renderers are live.
-                # logger.info only — a logger.warning would splat onto
-                # stderr above the logo, duplicating the banner.
+                # Recorded here; surfaced by plugin_list's startup hook (orange banner).
+                # logger.info only — warning would duplicate the banner above the logo.
                 _project_plugin_status[plugin_name] = status
                 logger.info(
                     "Skipping project plugin '%s' (%s). "
@@ -469,11 +465,9 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
 
     plugins_dir = Path(__file__).parent
 
-    # Pre-scan project plugin names so we can skip user plugins that the
-    # project tier will supersede (project wins, matching agents dedup).
-    # SECURITY: only TRUSTED project plugins participate in dedup — otherwise
-    # an untrusted repo could knock out user plugins (e.g. force_push_guard)
-    # just by squatting on their names.
+    # Pre-scan project plugin names so the project tier supersedes user plugins.
+    # SECURITY: only TRUSTED project plugins dedup — an untrusted repo could otherwise
+    # squat on user plugin names (e.g. force_push_guard).
     project_plugins_dir = get_project_plugins_directory()
     project_plugin_names: set[str] = set()
     if project_plugins_dir is not None:

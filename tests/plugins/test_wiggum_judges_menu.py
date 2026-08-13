@@ -8,7 +8,7 @@ and the dataclass round-trip behavior.
 
 from __future__ import annotations
 
-from code_puppy.command_line.judges_menu import (
+from code_puppy.plugins.wiggum.judges_menu import (
     _FormResult,
     _render_menu,
     _render_preview,
@@ -106,7 +106,7 @@ def test_no_user_facing_alt_m_label():
     they must not advertise Alt+M.
     """
     import re
-    from code_puppy.command_line import judges_menu
+    from code_puppy.plugins.wiggum import judges_menu
 
     source = open(judges_menu.__file__, encoding="utf-8").read()
     code_only = re.sub(r"#.*$", "", source, flags=re.MULTILINE)
@@ -118,7 +118,7 @@ def test_form_uses_inline_model_list_not_chord_popup():
     """The form must pick models via an inline paginated section, not a
     key-chord popping a separate picker. This is what the user asked for:
     a tab-able 3rd section."""
-    import code_puppy.command_line.judges_menu as jm
+    import code_puppy.plugins.wiggum.judges_menu as jm
 
     source = open(jm.__file__, encoding="utf-8").read()
     # New design: paginated list renderer + focusable model window.
@@ -143,7 +143,7 @@ def test_list_view_help_says_enter_edits_and_esc_closes():
     after user feedback. This test pins the new binding labels so the
     polarity can't silently flip back.
     """
-    from code_puppy.command_line.judges_menu import _render_menu
+    from code_puppy.plugins.wiggum.judges_menu import _render_menu
     from code_puppy.plugins.wiggum.judge_config import JudgeConfig
 
     flat = "".join(
@@ -169,7 +169,7 @@ def test_list_view_keybindings_swap_enter_and_esc():
     Source-level check: 'enter' is wired to the edit handler, 'escape' is
     wired to the close handler, and 'enter' is NOT wired to close anymore.
     """
-    import code_puppy.command_line.judges_menu as jm
+    import code_puppy.plugins.wiggum.judges_menu as jm
 
     source = open(jm.__file__, encoding="utf-8").read()
 
@@ -189,7 +189,7 @@ def test_form_escape_is_simple_cancel_binding():
     """With the inline model list, Esc no longer has a chord partner, so
     Esc-as-plain-cancel works fine. We just check it's bound.
     """
-    import code_puppy.command_line.judges_menu as jm
+    import code_puppy.plugins.wiggum.judges_menu as jm
 
     source = open(jm.__file__, encoding="utf-8").read()
     assert '@kb.add("escape")' in source
@@ -198,7 +198,7 @@ def test_form_escape_is_simple_cancel_binding():
 
 def test_render_model_list_empty_state():
     """With zero models, the list section explains how to fix it."""
-    from code_puppy.command_line.judges_menu import _render_model_list
+    from code_puppy.plugins.wiggum.judges_menu import _render_model_list
 
     flat = _flatten(_render_model_list([], 0, 0, focused=True))
     assert "No models available" in flat
@@ -206,7 +206,7 @@ def test_render_model_list_empty_state():
 
 def test_render_model_list_paginates_correctly():
     """With more models than PAGE_SIZE, only the active page is shown."""
-    from code_puppy.command_line.judges_menu import (
+    from code_puppy.plugins.wiggum.judges_menu import (
         _render_model_list,
         MODEL_PAGE_SIZE,
     )
@@ -227,7 +227,7 @@ def test_render_model_list_paginates_correctly():
 
 def test_render_model_list_marker_changes_with_focus():
     """Selected row uses ▶ when focused, · when not (visual focus cue)."""
-    from code_puppy.command_line.judges_menu import _render_model_list
+    from code_puppy.plugins.wiggum.judges_menu import _render_model_list
 
     models = ["alpha", "beta", "gamma"]
     flat_focused = _flatten(_render_model_list(models, 1, 0, focused=True))
@@ -245,7 +245,7 @@ def test_form_tab_cycle_has_three_sections():
     This is the user-requested feature: 'paginated 3rd section that you
     can tab over to'. We verify the focus cycle list in the source.
     """
-    import code_puppy.command_line.judges_menu as jm
+    import code_puppy.plugins.wiggum.judges_menu as jm
 
     source = open(jm.__file__, encoding="utf-8").read()
     # The focus cycle list is constructed inline with three entries.
@@ -254,7 +254,7 @@ def test_form_tab_cycle_has_three_sections():
 
 def test_form_help_describes_arrow_keys_for_model_selection():
     """Help line should tell users how to pick a model with the keyboard."""
-    import code_puppy.command_line.judges_menu as jm
+    import code_puppy.plugins.wiggum.judges_menu as jm
 
     source = open(jm.__file__, encoding="utf-8").read()
     # Some kind of arrow-key hint must exist (↑↓ or 'select model').

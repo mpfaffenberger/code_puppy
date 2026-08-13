@@ -137,11 +137,8 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         self._panel_lines: list[str] = []
         self._popup_lines: list[str] = []  # completion popup (over panel)
         self._popup_selected = -1
-        # Blank rows held below the prompt after the popup shrinks/closes
-        # (high-water residue). The prompt does NOT slide back down when
-        # the menu closes; the slack is reclaimed lazily by
-        # ``notify_transcript_output`` so the prompt falls back into
-        # place while output is scrolling anyway.
+        # High-water popup slack: the prompt doesn't slide back down when the
+        # menu closes; notify_transcript_output reclaims it while output scrolls.
         self._popup_slack = 0
         self._reserved = 0  # reserved-row count while the region is up
         self._paste_armed = False  # bracketed paste (ESC[?2004h) state
@@ -152,10 +149,8 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         self._prompt_cursor = 0
         self._sigwinch_installed = False
         self._atexit_registered = False
-        # DECTCEM state: the hardware cursor is hidden while the region
-        # is up (the prompt row paints a reverse-video pseudo-cursor;
-        # without hiding, a second "rogue" cursor blinks wherever
-        # streaming output last wrote inside the region).
+        # DECTCEM state: hide the hardware cursor while the region is up — the
+        # prompt paints a pseudo-cursor; otherwise a "rogue" cursor blinks inside.
         self._cursor_hidden = False
         # Windows scrollback guard (no-op state on POSIX) — see
         # transcript_guard.TranscriptGuardMixin.
@@ -481,14 +476,9 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
         top = rows - reserved
         parts = []
         if old_reserved and old_rows > 0:
-            # Re-establish after a resize: the old bar rows were painted
-            # at the PREVIOUS geometry and nothing repaints over them —
-            # without an explicit erase they linger as ghost duplicates
-            # ("multiples of UI elements") at their old positions while
-            # the fresh bar paints at the new bottom. Reset the region
-            # first so the erases can reach rows outside the incoming
-            # one, then blank the old reserved band (clamped to the new
-            # screen height).
+            # Re-establish after a resize: old rows were painted at the previous
+            # geometry and linger as ghosts. Reset the region so erases can reach
+            # outside the incoming one, then blank the old band (clamped to height).
             parts.append(_RESET_REGION)
             for row in range(
                 max(1, old_rows - old_reserved + 1), min(old_rows, rows) + 1
@@ -499,9 +489,8 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
             "\n" * reserved,
             # DECSTBM: scrollable region = rows 1..H-reserved. Homes cursor.
             f"\x1b[1;{top}r",
-            # CRITICAL: park the cursor INSIDE the scrollable area so
-            # subsequent console prints scroll rather than overwriting
-            # the reserved rows.
+            # CRITICAL: park the cursor INSIDE the scrollable area so prints
+            # scroll instead of overwriting the reserved rows.
             f"\x1b[{top};1H",
         ]
         if not self._cursor_hidden:
@@ -556,10 +545,8 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
             # Blank the soon-to-be-reserved rows by scrolling content up.
             delta_up = new_reserved - old_reserved
             if self._guard_scroll_fix:
-                # Windows: CSI S inside a restricted region DESTROYS the
-                # scrolled lines (they never reach scrollback). Reset the
-                # margins and feed LFs at the physical bottom row instead
-                # — visually identical, but the lines pan into history.
+                # Windows: CSI S inside a restricted region DESTROYS scrolled
+                # lines; reset margins + feed LFs at the physical bottom instead.
                 parts.append("\x1b[r")
                 parts.append(f"\x1b[{rows};1H" + "\n" * delta_up)
             else:
@@ -570,9 +557,8 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
                 parts.append(f"\x1b[{row};1H{_CLEAR_LINE}")
         top = rows - new_reserved
         parts.append(f"\x1b[1;{top}r")  # DECSTBM homes the cursor
-        # Restore the transcript cursor (DECSTBM homed it). After a grow
-        # the content scrolled up by ``delta_up``, so the cursor must
-        # follow its line up (CUU clamps at the region top — safe).
+        # DECSTBM homed the cursor; after a grow it must follow its line up
+        # by ``delta_up`` (CUU clamps at region top — safe).
         parts.append(_RESTORE_CURSOR)
         if delta_up:
             parts.append(f"\x1b[{delta_up}A")

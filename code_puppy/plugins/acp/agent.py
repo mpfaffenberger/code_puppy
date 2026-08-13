@@ -54,10 +54,8 @@ from code_puppy.plugins.acp.session import ACPSession
 
 logger = logging.getLogger(__name__)
 
-# The ACP protocol version this plugin targets. Source it from the SDK rather
-# than hardcoding a literal, so a library upgrade can't leave us silently
-# advertising a stale version. Falls back to v1 (the stable baseline) if an
-# older SDK doesn't export the constant.
+# ACP protocol version this plugin targets. Sourced from the SDK (not a literal) so a
+# library upgrade can't silently advertise a stale version; falls back to v1 if absent.
 try:
     from acp import PROTOCOL_VERSION as PROTOCOL_VERSION
 except ImportError:  # pragma: no cover - defensive for older SDKs

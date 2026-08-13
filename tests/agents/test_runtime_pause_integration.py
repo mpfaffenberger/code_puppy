@@ -273,15 +273,8 @@ def _isolated_runtime(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(_runtime, "should_render_fallback", lambda *_, **__: False)
 
 
-# NOTE: tests that verified the OLD ``_do_run`` between-turns steering
-# injection (test_steering_message_injected_between_turns,
-# test_multiple_steering_messages_concatenated_into_one_turn) have been
-# deleted. Steering is now injected by ``make_steer_history_processor``
-# which fires before EVERY model call (including between tool calls
-# within a single ``agent.run()``). Mocked pydantic_agent.run() doesn't
-# invoke history processors, so those scaffold-style tests can't exercise
-# the new behaviour. The processor is comprehensively unit-tested in
-# ``tests/agents/test_steer_history_processor.py``.
+# NOTE: old _do_run steering tests deleted — steering now fires via
+# make_steer_history_processor before EVERY model call; unit-tested in test_steer_history_processor.py.
 
 
 @pytest.mark.asyncio

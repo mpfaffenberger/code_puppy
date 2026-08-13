@@ -73,12 +73,8 @@ class BrowserLocatorsBaseTest:
         return locator, element
 
 
-# Shared get_by_* family table: role / text / label / placeholder / test-id.
-#   fn, query, call_kwargs   -> operation invocation
-#   page_attr, page_call     -> mocked page accessor + expected call
-#   wait_timeout             -> expected wait_for() timeout
-#   setup                    -> element method return-values to configure
-#   result, checks           -> expected result dict / element dict fields
+# Shared get_by_* table legend: fn/query/call_kwargs, page_attr/page_call,
+# wait_timeout, setup return-values, and expected result/checks fields.
 GET_BY = [
     {
         "name": "role",
