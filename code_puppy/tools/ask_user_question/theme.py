@@ -124,6 +124,15 @@ class RichColors(NamedTuple):
 _DEFAULT_RICH = RichColors()
 
 
+def _to_rich_color(color: str) -> str:
+    """Convert prompt-toolkit's bare hexadecimal color to Rich syntax."""
+    if len(color) == 6 and all(
+        character in "0123456789abcdefABCDEF" for character in color
+    ):
+        return f"#{color}"
+    return color
+
+
 def get_rich_colors() -> RichColors:
     """Return Rich styles backed by the shared prompt-toolkit palette."""
     from code_puppy.callbacks import on_prompt_toolkit_style
@@ -136,7 +145,7 @@ def get_rich_colors() -> RichColors:
     if not muted or muted == "default":
         return _DEFAULT_RICH
 
-    muted_style = f"{muted} italic"
+    muted_style = f"{_to_rich_color(muted)} italic"
     return _DEFAULT_RICH._replace(
         progress=muted_style,
         question_hint=muted_style,
