@@ -5,10 +5,10 @@ from unittest.mock import patch
 import pytest
 from pydantic_ai import ToolReturn
 
-from code_puppy.plugins.computer_use import register_callbacks
-from code_puppy.plugins.computer_use import tools
-from code_puppy.plugins.computer_use.geometry import CaptureGeometry, Rect
-from code_puppy.plugins.computer_use.state import state_store
+from code_puppy_core_plugins.computer_use import register_callbacks
+from code_puppy_core_plugins.computer_use import tools
+from code_puppy_core_plugins.computer_use.geometry import CaptureGeometry, Rect
+from code_puppy_core_plugins.computer_use.state import state_store
 
 
 class FakeAgent:
@@ -23,15 +23,15 @@ class FakeAgent:
 @pytest.fixture(autouse=True)
 def disable_real_app_activation(monkeypatch):
     monkeypatch.setattr(
-        "code_puppy.plugins.computer_use.backend.activate_state",
+        "code_puppy_core_plugins.computer_use.backend.activate_state",
         lambda state: None,
     )
     monkeypatch.setattr(
-        "code_puppy.plugins.computer_use.backend.policy_store.require_enabled",
+        "code_puppy_core_plugins.computer_use.backend.policy_store.require_enabled",
         lambda: None,
     )
     monkeypatch.setattr(
-        "code_puppy.plugins.computer_use.backend.policy_store.require",
+        "code_puppy_core_plugins.computer_use.backend.policy_store.require",
         lambda bundle_id: None,
     )
 

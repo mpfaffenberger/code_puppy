@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from code_puppy.plugins.computer_use.settle import wait_for_ui_settle
+from code_puppy_core_plugins.computer_use.settle import wait_for_ui_settle
 
 
 def test_wait_for_ui_settle_requires_repeated_fingerprint():

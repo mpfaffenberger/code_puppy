@@ -1,7 +1,7 @@
 """Tests for the core ``code_puppy.token_usage`` module.
 
 Token accounting used to live in the ``context_indicator`` plugin
-(``code_puppy.plugins.context_indicator.usage``). It moved to this core
+(``code_puppy_core_plugins.context_indicator.usage``). It moved to this core
 module so several consumers (the ``context_indicator`` plugin, the
 ``statusline`` plugin, and the ``herdr`` integration) can share it without
 importing across plugin boundaries.

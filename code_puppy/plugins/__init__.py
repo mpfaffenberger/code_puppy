@@ -495,9 +495,10 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
     """Dynamically load register_callbacks.py from all plugin sources.
 
     Loads plugins from:
-    1. Built-in plugins in the code_puppy/plugins/ directory
-    2. User plugins in ~/.code_puppy/plugins/
-    3. Project plugins in <CWD>/.code_puppy/plugins/
+    1. Installed ``code_puppy.plugins`` entry points (builtin tier)
+    2. Legacy bundled directories, when present during migration
+    3. User plugins in ~/.code_puppy/plugins/
+    4. Project plugins in <CWD>/.code_puppy/plugins/
 
     Returns dict with 'builtin', 'user', and 'project' keys containing
     lists of loaded plugin names.

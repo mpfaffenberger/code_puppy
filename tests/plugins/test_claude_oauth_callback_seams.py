@@ -72,7 +72,7 @@ def _raising_provider() -> None:
 
 @pytest.mark.parametrize("result", [False, True])
 def test_auth_hook_returns_real_success_boolean(result, monkeypatch):
-    from code_puppy.plugins.claude_code_oauth import register_callbacks
+    from code_puppy_core_plugins.claude_code_oauth import register_callbacks
 
     authenticate = MagicMock(return_value=result)
     monkeypatch.setattr(register_callbacks, "_perform_authentication", authenticate)

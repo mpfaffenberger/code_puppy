@@ -15,7 +15,7 @@ import pytest
 
 def _reset_runner():
     """Reset runner module-level globals between tests."""
-    from code_puppy.plugins.statusline import runner
+    from code_puppy_core_plugins.statusline import runner
 
     runner._cached_output = ""
     runner._last_run_monotonic = 0.0
@@ -32,25 +32,31 @@ class TestConfig:
         _reset_runner()
 
     def test_is_enabled_false_when_missing(self):
-        from code_puppy.plugins.statusline.config import is_enabled
+        from code_puppy_core_plugins.statusline.config import is_enabled
 
-        with patch("code_puppy.plugins.statusline.config.get_value", return_value=None):
+        with patch(
+            "code_puppy_core_plugins.statusline.config.get_value", return_value=None
+        ):
             assert is_enabled() is False
 
     @pytest.mark.parametrize(
         "val", ["1", "true", "True", "TRUE", "yes", "YES", "on", "ON"]
     )
     def test_is_enabled_truthy_values(self, val):
-        from code_puppy.plugins.statusline.config import is_enabled
+        from code_puppy_core_plugins.statusline.config import is_enabled
 
-        with patch("code_puppy.plugins.statusline.config.get_value", return_value=val):
+        with patch(
+            "code_puppy_core_plugins.statusline.config.get_value", return_value=val
+        ):
             assert is_enabled() is True
 
     @pytest.mark.parametrize("val", ["0", "false", "no", "off", "nope", ""])
     def test_is_enabled_falsy_values(self, val):
-        from code_puppy.plugins.statusline.config import is_enabled
+        from code_puppy_core_plugins.statusline.config import is_enabled
 
-        with patch("code_puppy.plugins.statusline.config.get_value", return_value=val):
+        with patch(
+            "code_puppy_core_plugins.statusline.config.get_value", return_value=val
+        ):
             assert is_enabled() is False
 
     @pytest.mark.parametrize(
@@ -58,103 +64,115 @@ class TestConfig:
         [(True, "true"), (False, "false")],
     )
     def test_set_enabled(self, enabled, expected):
-        from code_puppy.plugins.statusline.config import set_enabled
+        from code_puppy_core_plugins.statusline.config import set_enabled
 
-        with patch("code_puppy.plugins.statusline.config.set_value") as mock_set:
+        with patch("code_puppy_core_plugins.statusline.config.set_value") as mock_set:
             set_enabled(enabled)
             mock_set.assert_called_once_with("statusline_enabled", expected)
 
     def test_get_command_strips_whitespace(self):
-        from code_puppy.plugins.statusline.config import get_command
+        from code_puppy_core_plugins.statusline.config import get_command
 
         with patch(
-            "code_puppy.plugins.statusline.config.get_value",
+            "code_puppy_core_plugins.statusline.config.get_value",
             return_value="  ~/bin/status.sh  ",
         ):
             assert get_command() == "~/bin/status.sh"
 
     def test_get_command_returns_empty_when_none(self):
-        from code_puppy.plugins.statusline.config import get_command
+        from code_puppy_core_plugins.statusline.config import get_command
 
-        with patch("code_puppy.plugins.statusline.config.get_value", return_value=None):
+        with patch(
+            "code_puppy_core_plugins.statusline.config.get_value", return_value=None
+        ):
             assert get_command() == ""
 
     def test_set_command(self):
-        from code_puppy.plugins.statusline.config import set_command
+        from code_puppy_core_plugins.statusline.config import set_command
 
-        with patch("code_puppy.plugins.statusline.config.set_value") as mock_set:
+        with patch("code_puppy_core_plugins.statusline.config.set_value") as mock_set:
             set_command("~/bin/status.sh")
             mock_set.assert_called_once_with("statusline_command", "~/bin/status.sh")
 
     def test_get_timeout_ms_default(self):
-        from code_puppy.plugins.statusline.config import (
-            DEFAULT_TIMEOUT_MS,
-            get_timeout_ms,
-        )
-
-        with patch("code_puppy.plugins.statusline.config.get_value", return_value=None):
-            assert get_timeout_ms() == DEFAULT_TIMEOUT_MS
-
-    def test_get_timeout_ms_enforces_minimum(self):
-        from code_puppy.plugins.statusline.config import get_timeout_ms
-
-        with patch("code_puppy.plugins.statusline.config.get_value", return_value="50"):
-            assert get_timeout_ms() == 100  # clamped to min
-
-    def test_get_timeout_ms_invalid_falls_back(self):
-        from code_puppy.plugins.statusline.config import (
+        from code_puppy_core_plugins.statusline.config import (
             DEFAULT_TIMEOUT_MS,
             get_timeout_ms,
         )
 
         with patch(
-            "code_puppy.plugins.statusline.config.get_value", return_value="notanumber"
+            "code_puppy_core_plugins.statusline.config.get_value", return_value=None
+        ):
+            assert get_timeout_ms() == DEFAULT_TIMEOUT_MS
+
+    def test_get_timeout_ms_enforces_minimum(self):
+        from code_puppy_core_plugins.statusline.config import get_timeout_ms
+
+        with patch(
+            "code_puppy_core_plugins.statusline.config.get_value", return_value="50"
+        ):
+            assert get_timeout_ms() == 100  # clamped to min
+
+    def test_get_timeout_ms_invalid_falls_back(self):
+        from code_puppy_core_plugins.statusline.config import (
+            DEFAULT_TIMEOUT_MS,
+            get_timeout_ms,
+        )
+
+        with patch(
+            "code_puppy_core_plugins.statusline.config.get_value",
+            return_value="notanumber",
         ):
             assert get_timeout_ms() == DEFAULT_TIMEOUT_MS
 
     def test_get_refresh_ms_default(self):
-        from code_puppy.plugins.statusline.config import (
+        from code_puppy_core_plugins.statusline.config import (
             DEFAULT_REFRESH_MS,
             get_refresh_ms,
         )
 
-        with patch("code_puppy.plugins.statusline.config.get_value", return_value=None):
+        with patch(
+            "code_puppy_core_plugins.statusline.config.get_value", return_value=None
+        ):
             assert get_refresh_ms() == DEFAULT_REFRESH_MS
 
     def test_get_refresh_ms_enforces_minimum(self):
-        from code_puppy.plugins.statusline.config import get_refresh_ms
+        from code_puppy_core_plugins.statusline.config import get_refresh_ms
 
-        with patch("code_puppy.plugins.statusline.config.get_value", return_value="10"):
+        with patch(
+            "code_puppy_core_plugins.statusline.config.get_value", return_value="10"
+        ):
             assert get_refresh_ms() == 200  # clamped to min
 
     def test_get_mode_valid(self):
-        from code_puppy.plugins.statusline.config import get_mode
+        from code_puppy_core_plugins.statusline.config import get_mode
 
         for mode in ("replace", "above", "newline"):
             with patch(
-                "code_puppy.plugins.statusline.config.get_value", return_value=mode
+                "code_puppy_core_plugins.statusline.config.get_value", return_value=mode
             ):
                 assert get_mode() == mode
 
     def test_get_mode_normalises_case(self):
-        from code_puppy.plugins.statusline.config import get_mode
+        from code_puppy_core_plugins.statusline.config import get_mode
 
         with patch(
-            "code_puppy.plugins.statusline.config.get_value", return_value="REPLACE"
+            "code_puppy_core_plugins.statusline.config.get_value",
+            return_value="REPLACE",
         ):
             assert get_mode() == "replace"
 
     def test_set_mode_valid(self):
-        from code_puppy.plugins.statusline.config import set_mode
+        from code_puppy_core_plugins.statusline.config import set_mode
 
-        with patch("code_puppy.plugins.statusline.config.set_value") as mock_set:
+        with patch("code_puppy_core_plugins.statusline.config.set_value") as mock_set:
             set_mode("above")
             mock_set.assert_called_once_with("statusline_mode", "above")
 
     def test_set_mode_invalid_does_nothing(self):
-        from code_puppy.plugins.statusline.config import set_mode
+        from code_puppy_core_plugins.statusline.config import set_mode
 
-        with patch("code_puppy.plugins.statusline.config.set_value") as mock_set:
+        with patch("code_puppy_core_plugins.statusline.config.set_value") as mock_set:
             set_mode("supermode")
             mock_set.assert_not_called()
 
@@ -174,27 +192,27 @@ class TestRender:
         return FormattedText([("class:arrow", text)])
 
     def test_render_returns_default_when_no_status_text(self):
-        from code_puppy.plugins.statusline.prompt_patch import _render
+        from code_puppy_core_plugins.statusline.prompt_patch import _render
 
         default = self._make_formatted_text()
         with patch(
-            "code_puppy.plugins.statusline.prompt_patch.get_status_text",
+            "code_puppy_core_plugins.statusline.prompt_patch.get_status_text",
             return_value="",
         ):
             result = _render(default, ">>> ")
         assert result is default
 
     def test_render_replace_mode_appends_arrow(self):
-        from code_puppy.plugins.statusline.prompt_patch import _render
+        from code_puppy_core_plugins.statusline.prompt_patch import _render
 
         default = self._make_formatted_text()
         with (
             patch(
-                "code_puppy.plugins.statusline.prompt_patch.get_status_text",
+                "code_puppy_core_plugins.statusline.prompt_patch.get_status_text",
                 return_value="my status",
             ),
             patch(
-                "code_puppy.plugins.statusline.prompt_patch.get_mode",
+                "code_puppy_core_plugins.statusline.prompt_patch.get_mode",
                 return_value="replace",
             ),
         ):
@@ -208,16 +226,16 @@ class TestRender:
         assert "my status" in full_text
 
     def test_render_above_mode_includes_newline(self):
-        from code_puppy.plugins.statusline.prompt_patch import _render
+        from code_puppy_core_plugins.statusline.prompt_patch import _render
 
         default = self._make_formatted_text()
         with (
             patch(
-                "code_puppy.plugins.statusline.prompt_patch.get_status_text",
+                "code_puppy_core_plugins.statusline.prompt_patch.get_status_text",
                 return_value="my status",
             ),
             patch(
-                "code_puppy.plugins.statusline.prompt_patch.get_mode",
+                "code_puppy_core_plugins.statusline.prompt_patch.get_mode",
                 return_value="above",
             ),
         ):
@@ -228,16 +246,16 @@ class TestRender:
         assert any("\n" in text for _, text in fragments)
 
     def test_render_newline_mode_pushes_arrow_down(self):
-        from code_puppy.plugins.statusline.prompt_patch import _render
+        from code_puppy_core_plugins.statusline.prompt_patch import _render
 
         default = self._make_formatted_text()
         with (
             patch(
-                "code_puppy.plugins.statusline.prompt_patch.get_status_text",
+                "code_puppy_core_plugins.statusline.prompt_patch.get_status_text",
                 return_value="my status",
             ),
             patch(
-                "code_puppy.plugins.statusline.prompt_patch.get_mode",
+                "code_puppy_core_plugins.statusline.prompt_patch.get_mode",
                 return_value="newline",
             ),
         ):
@@ -249,16 +267,16 @@ class TestRender:
 
     def test_render_survives_ansi_parse_exception(self):
         """If ANSI() blows up, _render should return the default prompt unchanged."""
-        from code_puppy.plugins.statusline.prompt_patch import _render
+        from code_puppy_core_plugins.statusline.prompt_patch import _render
 
         default = self._make_formatted_text()
         with (
             patch(
-                "code_puppy.plugins.statusline.prompt_patch.get_status_text",
+                "code_puppy_core_plugins.statusline.prompt_patch.get_status_text",
                 return_value="bad\x1b[999m",
             ),
             patch(
-                "code_puppy.plugins.statusline.prompt_patch.get_mode",
+                "code_puppy_core_plugins.statusline.prompt_patch.get_mode",
                 return_value="replace",
             ),
             patch(
@@ -279,7 +297,7 @@ class TestRender:
 class TestInstallPromptPatch:
     def test_idempotent(self):
         """Calling install_prompt_patch() twice must not double-wrap."""
-        from code_puppy.plugins.statusline import prompt_patch
+        from code_puppy_core_plugins.statusline import prompt_patch
         import code_puppy.command_line.prompt_toolkit_completion as ptc
 
         # Clean slate
@@ -303,7 +321,7 @@ class TestInstallPromptPatch:
 
     def test_patch_replaces_function(self):
         """After install, get_prompt_with_active_model should be a new callable."""
-        from code_puppy.plugins.statusline import prompt_patch
+        from code_puppy_core_plugins.statusline import prompt_patch
         import code_puppy.command_line.prompt_toolkit_completion as ptc
 
         if hasattr(ptc, prompt_patch._PATCH_ATTR):
@@ -329,7 +347,7 @@ class TestStatuslineCommand:
         _reset_runner()
 
     def _call(self, command: str, name: str = "statusline"):
-        from code_puppy.plugins.statusline.statusline_command import (
+        from code_puppy_core_plugins.statusline.statusline_command import (
             handle_statusline_command,
         )
 
@@ -344,7 +362,7 @@ class TestStatuslineCommand:
 
     def test_status_subcommand_emits_info(self):
         with patch(
-            "code_puppy.plugins.statusline.statusline_command.emit_info"
+            "code_puppy_core_plugins.statusline.statusline_command.emit_info"
         ) as mock_info:
             result = self._call("/statusline")
         assert result is True
@@ -357,11 +375,11 @@ class TestStatuslineCommand:
     def test_on_with_no_command_warns(self):
         with (
             patch(
-                "code_puppy.plugins.statusline.statusline_command.config.get_command",
+                "code_puppy_core_plugins.statusline.statusline_command.config.get_command",
                 return_value="",
             ),
             patch(
-                "code_puppy.plugins.statusline.statusline_command.emit_warning"
+                "code_puppy_core_plugins.statusline.statusline_command.emit_warning"
             ) as mock_warn,
         ):
             result = self._call("/statusline on")
@@ -371,16 +389,16 @@ class TestStatuslineCommand:
     def test_on_enables_when_command_is_set(self):
         with (
             patch(
-                "code_puppy.plugins.statusline.statusline_command.config.get_command",
+                "code_puppy_core_plugins.statusline.statusline_command.config.get_command",
                 return_value="~/bin/status.sh",
             ),
             patch(
-                "code_puppy.plugins.statusline.statusline_command.config.set_enabled"
+                "code_puppy_core_plugins.statusline.statusline_command.config.set_enabled"
             ) as mock_enabled,
             patch(
-                "code_puppy.plugins.statusline.statusline_command.runner.reset_cache"
+                "code_puppy_core_plugins.statusline.statusline_command.runner.reset_cache"
             ),
-            patch("code_puppy.plugins.statusline.statusline_command.emit_success"),
+            patch("code_puppy_core_plugins.statusline.statusline_command.emit_success"),
         ):
             result = self._call("/statusline on")
         assert result is True
@@ -391,9 +409,9 @@ class TestStatuslineCommand:
     def test_off_disables(self):
         with (
             patch(
-                "code_puppy.plugins.statusline.statusline_command.config.set_enabled"
+                "code_puppy_core_plugins.statusline.statusline_command.config.set_enabled"
             ) as mock_enabled,
-            patch("code_puppy.plugins.statusline.statusline_command.emit_warning"),
+            patch("code_puppy_core_plugins.statusline.statusline_command.emit_warning"),
         ):
             result = self._call("/statusline off")
         assert result is True
@@ -405,9 +423,11 @@ class TestStatuslineCommand:
         for mode in ("replace", "above", "newline"):
             with (
                 patch(
-                    "code_puppy.plugins.statusline.statusline_command.config.set_mode"
+                    "code_puppy_core_plugins.statusline.statusline_command.config.set_mode"
                 ) as mock_mode,
-                patch("code_puppy.plugins.statusline.statusline_command.emit_success"),
+                patch(
+                    "code_puppy_core_plugins.statusline.statusline_command.emit_success"
+                ),
             ):
                 result = self._call(f"/statusline mode {mode}")
             assert result is True
@@ -421,9 +441,9 @@ class TestStatuslineCommand:
     def test_mode_invalid_warns(self, cmd):
         with (
             patch(
-                "code_puppy.plugins.statusline.statusline_command.emit_warning"
+                "code_puppy_core_plugins.statusline.statusline_command.emit_warning"
             ) as mock_warn,
-            patch("code_puppy.plugins.statusline.statusline_command.emit_info"),
+            patch("code_puppy_core_plugins.statusline.statusline_command.emit_info"),
         ):
             result = self._call(cmd)
         assert result is True
@@ -434,11 +454,11 @@ class TestStatuslineCommand:
     def test_show_with_no_command_warns(self):
         with (
             patch(
-                "code_puppy.plugins.statusline.statusline_command.config.get_command",
+                "code_puppy_core_plugins.statusline.statusline_command.config.get_command",
                 return_value="",
             ),
             patch(
-                "code_puppy.plugins.statusline.statusline_command.emit_warning"
+                "code_puppy_core_plugins.statusline.statusline_command.emit_warning"
             ) as mock_warn,
         ):
             result = self._call("/statusline show")
@@ -448,15 +468,15 @@ class TestStatuslineCommand:
     def test_show_runs_and_emits(self):
         with (
             patch(
-                "code_puppy.plugins.statusline.statusline_command.config.get_command",
+                "code_puppy_core_plugins.statusline.statusline_command.config.get_command",
                 return_value="echo hello",
             ),
             patch(
-                "code_puppy.plugins.statusline.statusline_command.runner.run_once_sync",
+                "code_puppy_core_plugins.statusline.statusline_command.runner.run_once_sync",
                 return_value="hello world",
             ),
             patch(
-                "code_puppy.plugins.statusline.statusline_command.emit_info"
+                "code_puppy_core_plugins.statusline.statusline_command.emit_info"
             ) as mock_info,
         ):
             result = self._call("/statusline show")
@@ -469,11 +489,11 @@ class TestStatuslineCommand:
     def test_json_emits_payload(self):
         with (
             patch(
-                "code_puppy.plugins.statusline.statusline_command.payload.build_payload_json",
+                "code_puppy_core_plugins.statusline.statusline_command.payload.build_payload_json",
                 return_value='{"cwd": "/tmp"}',
             ),
             patch(
-                "code_puppy.plugins.statusline.statusline_command.emit_info"
+                "code_puppy_core_plugins.statusline.statusline_command.emit_info"
             ) as mock_info,
         ):
             result = self._call("/statusline json")
@@ -487,22 +507,22 @@ class TestStatuslineCommand:
         fake_path = tmp_path / "statusline.sh"
         with (
             patch(
-                "code_puppy.plugins.statusline.statusline_command._default_script_path",
+                "code_puppy_core_plugins.statusline.statusline_command._default_script_path",
                 return_value=fake_path,
             ),
             patch(
-                "code_puppy.plugins.statusline.statusline_command.config.set_command"
+                "code_puppy_core_plugins.statusline.statusline_command.config.set_command"
             ) as mock_cmd,
             patch(
-                "code_puppy.plugins.statusline.statusline_command.config.set_enabled"
+                "code_puppy_core_plugins.statusline.statusline_command.config.set_enabled"
             ) as mock_enabled,
             patch(
-                "code_puppy.plugins.statusline.statusline_command.runner.reset_cache"
+                "code_puppy_core_plugins.statusline.statusline_command.runner.reset_cache"
             ),
-            patch("code_puppy.plugins.statusline.statusline_command.emit_success"),
-            patch("code_puppy.plugins.statusline.statusline_command.emit_info"),
+            patch("code_puppy_core_plugins.statusline.statusline_command.emit_success"),
+            patch("code_puppy_core_plugins.statusline.statusline_command.emit_info"),
             patch(
-                "code_puppy.plugins.statusline.statusline_command._has_jq",
+                "code_puppy_core_plugins.statusline.statusline_command._has_jq",
                 return_value=True,
             ),
         ):
@@ -517,26 +537,26 @@ class TestStatuslineCommand:
         fake_path = tmp_path / "statusline.sh"
         with (
             patch(
-                "code_puppy.plugins.statusline.statusline_command._default_script_path",
+                "code_puppy_core_plugins.statusline.statusline_command._default_script_path",
                 return_value=fake_path,
             ),
             patch(
-                "code_puppy.plugins.statusline.statusline_command.config.set_command"
+                "code_puppy_core_plugins.statusline.statusline_command.config.set_command"
             ),
             patch(
-                "code_puppy.plugins.statusline.statusline_command.config.set_enabled"
+                "code_puppy_core_plugins.statusline.statusline_command.config.set_enabled"
             ),
             patch(
-                "code_puppy.plugins.statusline.statusline_command.runner.reset_cache"
+                "code_puppy_core_plugins.statusline.statusline_command.runner.reset_cache"
             ),
-            patch("code_puppy.plugins.statusline.statusline_command.emit_success"),
-            patch("code_puppy.plugins.statusline.statusline_command.emit_info"),
+            patch("code_puppy_core_plugins.statusline.statusline_command.emit_success"),
+            patch("code_puppy_core_plugins.statusline.statusline_command.emit_info"),
             patch(
-                "code_puppy.plugins.statusline.statusline_command._has_jq",
+                "code_puppy_core_plugins.statusline.statusline_command._has_jq",
                 return_value=False,
             ),
             patch(
-                "code_puppy.plugins.statusline.statusline_command.emit_warning"
+                "code_puppy_core_plugins.statusline.statusline_command.emit_warning"
             ) as mock_warn,
         ):
             result = self._call("/statusline init")
@@ -550,9 +570,9 @@ class TestStatuslineCommand:
     def test_unknown_subcommand_warns(self):
         with (
             patch(
-                "code_puppy.plugins.statusline.statusline_command.emit_warning"
+                "code_puppy_core_plugins.statusline.statusline_command.emit_warning"
             ) as mock_warn,
-            patch("code_puppy.plugins.statusline.statusline_command.emit_info"),
+            patch("code_puppy_core_plugins.statusline.statusline_command.emit_info"),
         ):
             result = self._call("/statusline flibbertigibbet")
         assert result is True
@@ -561,7 +581,7 @@ class TestStatuslineCommand:
     # --- help ---
 
     def test_help_returns_entry(self):
-        from code_puppy.plugins.statusline.statusline_command import (
+        from code_puppy_core_plugins.statusline.statusline_command import (
             statusline_command_help,
         )
 
@@ -603,7 +623,7 @@ class TestCrossPlatform:
     )
     def test_default_script_path(self, platform, suffix):
         """The init script path must match the platform convention."""
-        import code_puppy.plugins.statusline.statusline_command as sc
+        import code_puppy_core_plugins.statusline.statusline_command as sc
 
         with patch.object(sys, "platform", platform):
             p = sc._default_script_path()
@@ -613,7 +633,9 @@ class TestCrossPlatform:
 
     def test_ps1_template_has_required_constructs(self):
         """The PowerShell starter template must be valid-looking PS1."""
-        from code_puppy.plugins.statusline.statusline_command import _STARTER_SCRIPT_PS1
+        from code_puppy_core_plugins.statusline.statusline_command import (
+            _STARTER_SCRIPT_PS1,
+        )
 
         assert "ConvertFrom-Json" in _STARTER_SCRIPT_PS1, (
             "Must parse JSON via ConvertFrom-Json"
@@ -632,7 +654,9 @@ class TestCrossPlatform:
 
     def test_bash_template_unchanged(self):
         """The bash starter script must still contain expected bash constructs."""
-        from code_puppy.plugins.statusline.statusline_command import _STARTER_SCRIPT
+        from code_puppy_core_plugins.statusline.statusline_command import (
+            _STARTER_SCRIPT,
+        )
 
         assert "#!/usr/bin/env bash" in _STARTER_SCRIPT
         assert "jq" in _STARTER_SCRIPT
@@ -641,7 +665,7 @@ class TestCrossPlatform:
 
     def test_do_init_windows_sets_powershell_command(self, tmp_path):
         """On win32, /statusline init must use powershell, set_enabled, and reset_cache."""
-        import code_puppy.plugins.statusline.statusline_command as sc
+        import code_puppy_core_plugins.statusline.statusline_command as sc
 
         fake_ps1 = tmp_path / "statusline.ps1"
 
@@ -674,7 +698,7 @@ class TestCrossPlatform:
 
     def test_do_init_posix_sets_bare_path_command(self, tmp_path):
         """On posix, /statusline init sets command to the bare script path (not powershell)."""
-        import code_puppy.plugins.statusline.statusline_command as sc
+        import code_puppy_core_plugins.statusline.statusline_command as sc
 
         fake_sh = tmp_path / "statusline.sh"
 
@@ -700,7 +724,7 @@ class TestCrossPlatform:
 
     def test_do_init_posix_warns_if_no_jq(self, tmp_path):
         """On posix, missing jq must emit a warning. On Windows it must not."""
-        import code_puppy.plugins.statusline.statusline_command as sc
+        import code_puppy_core_plugins.statusline.statusline_command as sc
 
         fake_sh = tmp_path / "statusline.sh"
 
@@ -729,7 +753,7 @@ class TestCrossPlatform:
         UnicodeDecodeError when the script outputs German umlauts (ä, ö, ü),
         killing the terminal with exit code 1.
         """
-        from code_puppy.plugins.statusline.runner import _run_command_blocking
+        from code_puppy_core_plugins.statusline.runner import _run_command_blocking
 
         captured_kwargs = {}
 
@@ -741,11 +765,11 @@ class TestCrossPlatform:
 
         with (
             patch(
-                "code_puppy.plugins.statusline.runner.subprocess.run",
+                "code_puppy_core_plugins.statusline.runner.subprocess.run",
                 side_effect=fake_run,
             ),
             patch(
-                "code_puppy.plugins.statusline.runner.build_payload_json",
+                "code_puppy_core_plugins.statusline.runner.build_payload_json",
                 return_value="{}",
             ),
         ):
@@ -761,7 +785,7 @@ class TestCrossPlatform:
 
     def test_run_command_blocking_returns_unicode_output(self):
         """Output containing umlauts must be returned without raising."""
-        from code_puppy.plugins.statusline.runner import _run_command_blocking
+        from code_puppy_core_plugins.statusline.runner import _run_command_blocking
 
         umlaut_output = "🐶 code-puppy [model] erklärenstraße 0%ctx"
 
@@ -770,11 +794,11 @@ class TestCrossPlatform:
 
         with (
             patch(
-                "code_puppy.plugins.statusline.runner.subprocess.run",
+                "code_puppy_core_plugins.statusline.runner.subprocess.run",
                 return_value=mock_proc,
             ),
             patch(
-                "code_puppy.plugins.statusline.runner.build_payload_json",
+                "code_puppy_core_plugins.statusline.runner.build_payload_json",
                 return_value="{}",
             ),
         ):
@@ -796,7 +820,7 @@ class TestCrossPlatform:
         ``subprocess.run(encoding=...)``. We verify the UTF-8 decoding works
         by injecting a mock temp file that yields UTF-8 bytes.
         """
-        from code_puppy.plugins.statusline.payload import detect_git_branch
+        from code_puppy_core_plugins.statusline.payload import detect_git_branch
 
         branch_name = "feature/für-münchen"
         mock_proc = MagicMock()
@@ -810,7 +834,7 @@ class TestCrossPlatform:
 
         with (
             patch(
-                "code_puppy.plugins.statusline.payload.subprocess.run",
+                "code_puppy_core_plugins.statusline.payload.subprocess.run",
                 return_value=mock_proc,
             ),
             patch(

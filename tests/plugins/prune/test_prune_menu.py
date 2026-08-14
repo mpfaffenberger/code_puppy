@@ -1,4 +1,4 @@
-"""Tests for ``code_puppy.plugins.prune.prune_menu.PruneMenu``.
+"""Tests for ``code_puppy_core_plugins.prune.prune_menu.PruneMenu``.
 
 Covers menu construction, selection toggling, lock invariants surfaced at
 the UI layer, ``PruneSelection`` shape, and viewport scrolling math. Pure
@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from code_puppy.plugins.prune.prune_menu import PruneMenu
-from code_puppy.plugins.prune.prune_model import (
+from code_puppy_core_plugins.prune.prune_menu import PruneMenu
+from code_puppy_core_plugins.prune.prune_model import (
     ContextBudget,
     build_message_entries,
 )

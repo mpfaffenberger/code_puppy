@@ -1089,7 +1089,7 @@ class TestPluginCacheTtlResolution:
     """claude-code-* models ALWAYS get 1h; nothing else does (issue #640)."""
 
     def test_claude_code_prefix_gets_1h(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _resolve_cache_ttl,
         )
 
@@ -1097,7 +1097,7 @@ class TestPluginCacheTtlResolution:
         assert _resolve_cache_ttl("claude-code-claude-haiku-4-5") == CACHE_TTL_1H
 
     def test_non_prefixed_models_keep_default(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _resolve_cache_ttl,
         )
 

@@ -22,8 +22,8 @@ import time
 
 import pytest
 
-import code_puppy.plugins.herdr.client as cl
-from code_puppy.plugins.herdr.client import AGENT, SOURCE, HerdrClient
+import code_puppy_core_plugins.herdr.client as cl
+from code_puppy_core_plugins.herdr.client import AGENT, SOURCE, HerdrClient
 
 
 # --- client activation guard ----------------------------------------------

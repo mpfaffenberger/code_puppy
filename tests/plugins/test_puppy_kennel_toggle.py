@@ -29,13 +29,13 @@ def kennel_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     import importlib
 
-    from code_puppy.plugins.puppy_kennel import commands as commands_mod
-    from code_puppy.plugins.puppy_kennel import config as kennel_config
-    from code_puppy.plugins.puppy_kennel import kennel as kennel_mod
-    from code_puppy.plugins.puppy_kennel import recorder as recorder_mod
-    from code_puppy.plugins.puppy_kennel import retriever as retriever_mod
-    from code_puppy.plugins.puppy_kennel import state as state_mod
-    from code_puppy.plugins.puppy_kennel import tools as tools_mod
+    from code_puppy_core_plugins.puppy_kennel import commands as commands_mod
+    from code_puppy_core_plugins.puppy_kennel import config as kennel_config
+    from code_puppy_core_plugins.puppy_kennel import kennel as kennel_mod
+    from code_puppy_core_plugins.puppy_kennel import recorder as recorder_mod
+    from code_puppy_core_plugins.puppy_kennel import retriever as retriever_mod
+    from code_puppy_core_plugins.puppy_kennel import state as state_mod
+    from code_puppy_core_plugins.puppy_kennel import tools as tools_mod
 
     importlib.reload(kennel_config)
     importlib.reload(state_mod)
@@ -72,7 +72,7 @@ def _ctx(agent_name: str = "code-puppy") -> Any:
 
 
 def test_recorder_skips_when_disabled(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import kennel, recorder, state
+    from code_puppy_core_plugins.puppy_kennel import kennel, recorder, state
 
     state.set_enabled(False)
     recorder.record_run_end(
@@ -85,7 +85,7 @@ def test_recorder_skips_when_disabled(kennel_root: Path) -> None:
 
 
 def test_recorder_resumes_after_re_enable(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import kennel, recorder, state
+    from code_puppy_core_plugins.puppy_kennel import kennel, recorder, state
 
     state.set_enabled(False)
     recorder.record_run_end(
@@ -106,7 +106,7 @@ def test_recorder_resumes_after_re_enable(kennel_root: Path) -> None:
 
 
 def test_retriever_returns_none_when_disabled(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import recorder, retriever, state
+    from code_puppy_core_plugins.puppy_kennel import recorder, retriever, state
 
     # Has to be longer than MIN_DRAWER_CHARS (80) to clear the packer's
     # noise filter; otherwise the block would be empty for unrelated reasons.
@@ -134,7 +134,7 @@ def test_retriever_returns_none_when_disabled(kennel_root: Path) -> None:
 
 
 def test_all_tools_return_disabled_error_when_off(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import state, tools
+    from code_puppy_core_plugins.puppy_kennel import state, tools
 
     state.set_enabled(False)
     agent = _FakeAgent()
@@ -158,7 +158,7 @@ def test_all_tools_return_disabled_error_when_off(kennel_root: Path) -> None:
 
 
 def test_tools_resume_after_re_enable(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import kennel, state, tools
+    from code_puppy_core_plugins.puppy_kennel import kennel, state, tools
 
     state.set_enabled(False)
     agent = _FakeAgent()
@@ -183,27 +183,27 @@ def test_tools_resume_after_re_enable(kennel_root: Path) -> None:
 
 def test_default_is_disabled(kennel_root: Path) -> None:
     """Fresh installs start with the kennel off — memory is opt-in."""
-    from code_puppy.plugins.puppy_kennel import state
+    from code_puppy_core_plugins.puppy_kennel import state
 
     assert state.is_enabled() is False
 
 
 def test_slash_status_when_enabled(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands, state
+    from code_puppy_core_plugins.puppy_kennel import commands, state
 
     state.set_enabled(True)
     assert commands.handle("/kennel status", "kennel") is True
 
 
 def test_slash_status_when_disabled(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands, state
+    from code_puppy_core_plugins.puppy_kennel import commands, state
 
     state.set_enabled(False)
     assert commands.handle("/kennel status", "kennel") is True
 
 
 def test_slash_disable_then_enable_roundtrip(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands, state
+    from code_puppy_core_plugins.puppy_kennel import commands, state
 
     state.set_enabled(True)
     assert state.is_enabled() is True
@@ -214,7 +214,7 @@ def test_slash_disable_then_enable_roundtrip(kennel_root: Path) -> None:
 
 
 def test_slash_off_and_on_aliases(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands, state
+    from code_puppy_core_plugins.puppy_kennel import commands, state
 
     state.set_enabled(True)
     assert state.is_enabled() is True
@@ -225,7 +225,7 @@ def test_slash_off_and_on_aliases(kennel_root: Path) -> None:
 
 
 def test_slash_enable_when_already_enabled_is_noop(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands, state
+    from code_puppy_core_plugins.puppy_kennel import commands, state
 
     state.set_enabled(True)
     assert state.is_enabled() is True
@@ -234,7 +234,7 @@ def test_slash_enable_when_already_enabled_is_noop(kennel_root: Path) -> None:
 
 
 def test_slash_disable_when_already_disabled_is_noop(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands, state
+    from code_puppy_core_plugins.puppy_kennel import commands, state
 
     state.set_enabled(False)
     assert commands.handle("/kennel disable", "kennel") is True
@@ -252,7 +252,7 @@ def test_slash_disable_when_already_disabled_is_noop(kennel_root: Path) -> None:
 
 
 def test_advertise_tools_returns_full_list_when_enabled(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import register_callbacks, state
+    from code_puppy_core_plugins.puppy_kennel import register_callbacks, state
 
     state.set_enabled(True)
     advertised = register_callbacks._advertise_tools_to_agent("code-puppy")
@@ -261,7 +261,7 @@ def test_advertise_tools_returns_full_list_when_enabled(kennel_root: Path) -> No
 
 def test_advertise_tools_returns_empty_when_disabled(kennel_root: Path) -> None:
     """Disabled kennel must not leak its tool names into the agent's surface."""
-    from code_puppy.plugins.puppy_kennel import register_callbacks, state
+    from code_puppy_core_plugins.puppy_kennel import register_callbacks, state
 
     state.set_enabled(False)
     assert register_callbacks._advertise_tools_to_agent("code-puppy") == []
@@ -302,7 +302,7 @@ def test_toggle_reload_behavior(
 ) -> None:
     """Toggle commands trigger a live agent reload so tools refresh; reload
     failures are swallowed without blocking the toggle flip."""
-    from code_puppy.plugins.puppy_kennel import commands, state
+    from code_puppy_core_plugins.puppy_kennel import commands, state
 
     state.set_enabled(initial_enabled)
     calls: list[str] = []

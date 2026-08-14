@@ -36,7 +36,7 @@ from acp.schema import (
     WaitForTerminalExitResponse,
 )
 
-from code_puppy.plugins.acp import (
+from code_puppy_core_plugins.acp import (
     bridge as bridge_mod,
     capabilities,
     content,
@@ -44,7 +44,7 @@ from code_puppy.plugins.acp import (
     permissions,
     state,
 )
-from code_puppy.plugins.acp.agent import CodePuppyAgent
+from code_puppy_core_plugins.acp.agent import CodePuppyAgent
 
 
 # --------------------------------------------------------------------------- #
@@ -342,7 +342,7 @@ async def test_stream_part_start_content_not_dropped(wired_agent):
     truncates the start of every message (the reported bug). Start + deltas are
     disjoint, so both are emitted and reconstruct the full text.
     """
-    from code_puppy.plugins.acp.bridge import EventBridge
+    from code_puppy_core_plugins.acp.bridge import EventBridge
 
     agent, conn = wired_agent
     state.begin_run("sess_stream")
@@ -1029,7 +1029,7 @@ async def test_fork_session_copies_history(wired_agent):
 async def test_load_session_rehydrates_history(wired_agent, monkeypatch):
     agent, _ = wired_agent
     monkeypatch.setattr(
-        "code_puppy.plugins.acp.persistence.load_history",
+        "code_puppy_core_plugins.acp.persistence.load_history",
         lambda sid: ["persisted-a", "persisted-b"],
     )
     await agent.load_session(cwd="/tmp", session_id="sess_restored")
@@ -1058,7 +1058,7 @@ async def test_load_session_replays_history_to_client(wired_agent, monkeypatch):
         ModelResponse(parts=[TextPart(content="hi there")]),
     ]
     monkeypatch.setattr(
-        "code_puppy.plugins.acp.persistence.load_history", lambda sid: history
+        "code_puppy_core_plugins.acp.persistence.load_history", lambda sid: history
     )
     await agent.load_session(cwd="/tmp", session_id="sess_replay")
     kinds = [getattr(u, "session_update", None) for _, u in conn.updates]
@@ -1084,7 +1084,7 @@ async def test_list_sessions_includes_persisted_after_restart(wired_agent, monke
     but a session pickled to disk. ``list_sessions`` must surface it (with the
     required ``cwd``) so the client's picker can revive it.
     """
-    from code_puppy.plugins.acp import persistence
+    from code_puppy_core_plugins.acp import persistence
 
     agent, _ = wired_agent
     monkeypatch.setattr(
@@ -1108,7 +1108,7 @@ async def test_list_sessions_includes_persisted_after_restart(wired_agent, monke
 @pytest.mark.asyncio
 async def test_list_sessions_live_wins_over_persisted(wired_agent, monkeypatch):
     """A live session and its on-disk copy must dedupe to a single entry."""
-    from code_puppy.plugins.acp import persistence
+    from code_puppy_core_plugins.acp import persistence
 
     agent, _ = wired_agent
     live = await agent.new_session(cwd="/live")
@@ -1128,7 +1128,7 @@ async def test_list_sessions_live_wins_over_persisted(wired_agent, monkeypatch):
 @pytest.mark.asyncio
 async def test_close_session_deletes_persisted(wired_agent, monkeypatch):
     """Closing a session tombstones its disk copy so it can't resurrect."""
-    from code_puppy.plugins.acp import persistence
+    from code_puppy_core_plugins.acp import persistence
 
     agent, _ = wired_agent
     deleted: list = []
@@ -1151,7 +1151,7 @@ def test_persistence_roundtrip_lists_and_deletes(tmp_path):
     import json
     import pickle
 
-    from code_puppy.plugins.acp import persistence
+    from code_puppy_core_plugins.acp import persistence
 
     # A complete session: pickle + sidecar (what list_persisted keys on).
     (tmp_path / "sess_x.pkl").write_bytes(pickle.dumps(["turn-1"]))
@@ -1192,7 +1192,7 @@ def test_persistence_save_writes_listable_session(tmp_path):
     globals). Kept separate from the list/delete unit test so a failure points
     at the right half.
     """
-    from code_puppy.plugins.acp import persistence
+    from code_puppy_core_plugins.acp import persistence
 
     class _Agent:
         def get_message_history(self):
@@ -1323,7 +1323,7 @@ def test_image_block_becomes_attachment():
 
 
 def test_mcp_config_attach_stdio():
-    from code_puppy.plugins.acp import mcp_config
+    from code_puppy_core_plugins.acp import mcp_config
 
     class _Agent:
         _mcp_servers: list = []
@@ -1391,7 +1391,7 @@ async def test_set_session_mode_is_noop(wired_agent, monkeypatch):
 
 def test_config_options_expose_model_select(monkeypatch):
     """The model picker is a category='model', type='select' config option."""
-    from code_puppy.plugins.acp import session_config
+    from code_puppy_core_plugins.acp import session_config
 
     monkeypatch.setattr(
         "code_puppy.command_line.model_picker_completion.load_model_names",
@@ -1412,7 +1412,7 @@ def test_config_options_expose_model_select(monkeypatch):
 
 def test_mode_state_is_single_default():
     """We advertise one 'default' mode as a category=mode select (not blank)."""
-    from code_puppy.plugins.acp import session_config
+    from code_puppy_core_plugins.acp import session_config
 
     opts = session_config.config_options()
     mode_opt = next(o for o in opts if o.id == "mode")
@@ -1601,7 +1601,7 @@ async def test_set_config_model_reattaches_mcp(wired_agent, monkeypatch):
     monkeypatch.setattr("code_puppy.config.set_model_name", lambda m: None)
     reattached = {}
     monkeypatch.setattr(
-        "code_puppy.plugins.acp.mcp_config.attach",
+        "code_puppy_core_plugins.acp.mcp_config.attach",
         lambda ag, specs: reattached.update(specs=specs),
     )
     new = await agent.new_session(cwd="/tmp")

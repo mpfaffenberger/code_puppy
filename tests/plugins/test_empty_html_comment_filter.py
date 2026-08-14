@@ -12,7 +12,7 @@ from rich.console import Console
 
 def _plugin_module():
     return importlib.import_module(
-        "code_puppy.plugins.empty_html_comment_filter.register_callbacks"
+        "code_puppy_core_plugins.empty_html_comment_filter.register_callbacks"
     )
 
 

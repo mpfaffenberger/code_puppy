@@ -10,13 +10,13 @@ class TestWiggumState:
 
     def setup_method(self):
         """Reset wiggum state before each test."""
-        from code_puppy.plugins.wiggum.state import stop
+        from code_puppy_core_plugins.wiggum.state import stop
 
         stop()
 
     def test_initial_state_inactive(self):
         """Wiggum should be inactive by default."""
-        from code_puppy.plugins.wiggum.state import (
+        from code_puppy_core_plugins.wiggum.state import (
             get_state,
             get_prompt,
             is_active,
@@ -28,7 +28,7 @@ class TestWiggumState:
 
     def test_start(self):
         """Starting wiggum should set active state and prompt."""
-        from code_puppy.plugins.wiggum.state import (
+        from code_puppy_core_plugins.wiggum.state import (
             get_state,
             get_prompt,
             is_active,
@@ -43,7 +43,7 @@ class TestWiggumState:
 
     def test_stop(self):
         """Stopping wiggum should reset all state."""
-        from code_puppy.plugins.wiggum.state import (
+        from code_puppy_core_plugins.wiggum.state import (
             get_state,
             get_prompt,
             increment,
@@ -64,7 +64,7 @@ class TestWiggumState:
 
     def test_increment_count(self):
         """Incrementing count should return new value."""
-        from code_puppy.plugins.wiggum.state import (
+        from code_puppy_core_plugins.wiggum.state import (
             get_state,
             increment,
             start,
@@ -83,7 +83,7 @@ class TestWiggumState:
 
     def test_get_state_singleton(self):
         """get_state should return the same instance."""
-        from code_puppy.plugins.wiggum.state import get_state
+        from code_puppy_core_plugins.wiggum.state import get_state
 
         state1 = get_state()
         state2 = get_state()
@@ -92,7 +92,7 @@ class TestWiggumState:
 
     def test_wiggum_state_dataclass(self):
         """WiggumState dataclass should work correctly."""
-        from code_puppy.plugins.wiggum.state import get_state
+        from code_puppy_core_plugins.wiggum.state import get_state
 
         state = get_state()
 
@@ -121,8 +121,8 @@ class TestWiggumCommand:
         """Reset wiggum state and ensure plugin commands are registered."""
         import importlib
 
-        import code_puppy.plugins.wiggum.register_callbacks as wiggum_plugin
-        from code_puppy.plugins.wiggum.state import stop
+        import code_puppy_core_plugins.wiggum.register_callbacks as wiggum_plugin
+        from code_puppy_core_plugins.wiggum.state import stop
 
         # Wiggum commands live in the plugin; other suites call clear_registry(), so
         # re-run the idempotent registrations by reloading — decorators re-fire.
@@ -153,7 +153,7 @@ class TestWiggumCommand:
     def test_wiggum_command_without_prompt_returns_true(self):
         """Calling /wiggum without a prompt should show help and return True."""
         from code_puppy.command_line.command_registry import get_command
-        from code_puppy.plugins.wiggum.state import is_active
+        from code_puppy_core_plugins.wiggum.state import is_active
 
         cmd = get_command("wiggum")
         result = cmd.handler("/wiggum")
@@ -164,7 +164,7 @@ class TestWiggumCommand:
     def test_wiggum_command_with_prompt_returns_prompt(self):
         """Calling /wiggum with a prompt should return the prompt for execution."""
         from code_puppy.command_line.command_registry import get_command
-        from code_puppy.plugins.wiggum.state import (
+        from code_puppy_core_plugins.wiggum.state import (
             get_prompt,
             is_active,
         )
@@ -179,7 +179,7 @@ class TestWiggumCommand:
     def test_wiggum_stop_command_when_active(self):
         """Calling /wiggum_stop when active should stop wiggum mode."""
         from code_puppy.command_line.command_registry import get_command
-        from code_puppy.plugins.wiggum.state import is_active, start
+        from code_puppy_core_plugins.wiggum.state import is_active, start
 
         start("test prompt")
         assert is_active()
@@ -193,7 +193,7 @@ class TestWiggumCommand:
     def test_wiggum_stop_command_when_inactive(self):
         """Calling /wiggum_stop when inactive should just return True."""
         from code_puppy.command_line.command_registry import get_command
-        from code_puppy.plugins.wiggum.state import is_active
+        from code_puppy_core_plugins.wiggum.state import is_active
 
         assert not is_active()
 

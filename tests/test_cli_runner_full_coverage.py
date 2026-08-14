@@ -1095,7 +1095,7 @@ class TestInteractiveMode:
                 "code_puppy.command_line.onboarding_wizard.run_onboarding_wizard": AsyncMock(
                     return_value="chatgpt"
                 ),
-                "code_puppy.plugins.chatgpt_oauth.oauth_flow.run_oauth_flow": MagicMock(),
+                "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.run_oauth_flow": MagicMock(),
                 "code_puppy.config.set_model_name": MagicMock(),
             },
         )
@@ -1123,7 +1123,7 @@ class TestInteractiveMode:
                 "concurrent.futures.ThreadPoolExecutor": MagicMock(
                     return_value=mock_executor
                 ),
-                "code_puppy.plugins.claude_code_oauth.register_callbacks._perform_authentication": MagicMock(),
+                "code_puppy_core_plugins.claude_code_oauth.register_callbacks._perform_authentication": MagicMock(),
                 "code_puppy.config.set_model_name": MagicMock(),
             },
         )

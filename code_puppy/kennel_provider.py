@@ -1,6 +1,6 @@
 """Neutral provider seam for puppy_kennel memory recall.
 
-Core never imports ``code_puppy.plugins.puppy_kennel`` directly. The plugin
+Core never imports ``code_puppy_core_plugins.puppy_kennel`` directly. The plugin
 registers a recall-block provider through the ``register_kennel_memory``
 callback phase; token accounting consumes it through this module, so the
 plugin can ship, toggle, or be removed without touching core.

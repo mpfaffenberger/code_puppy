@@ -27,14 +27,12 @@ def _skill(name, description="desc", tags=None):
     return meta
 
 
-_PATCH_TARGET = (
-    "code_puppy.plugins.namespace_skill_search.namespaces.list_enabled_skill_metadata"
-)
+_PATCH_TARGET = "code_puppy_core_plugins.namespace_skill_search.namespaces.list_enabled_skill_metadata"
 
 
 class TestBuildNamespaces:
     def test_empty_when_no_skills(self):
-        from code_puppy.plugins.namespace_skill_search.namespaces import (
+        from code_puppy_core_plugins.namespace_skill_search.namespaces import (
             build_namespaces,
         )
 
@@ -42,7 +40,7 @@ class TestBuildNamespaces:
             assert build_namespaces() == {}
 
     def test_groups_by_first_tag(self):
-        from code_puppy.plugins.namespace_skill_search.namespaces import (
+        from code_puppy_core_plugins.namespace_skill_search.namespaces import (
             build_namespaces,
         )
 
@@ -59,7 +57,7 @@ class TestBuildNamespaces:
         assert len(namespaces["ops"]) == 1
 
     def test_untagged_skill_lands_in_general(self):
-        from code_puppy.plugins.namespace_skill_search.namespaces import (
+        from code_puppy_core_plugins.namespace_skill_search.namespaces import (
             build_namespaces,
         )
 
@@ -70,7 +68,7 @@ class TestBuildNamespaces:
 
     def test_mixed_case_first_tag_collapses_to_one_namespace(self):
         """ "finance" and "Finance" must not fragment into two namespaces."""
-        from code_puppy.plugins.namespace_skill_search.namespaces import (
+        from code_puppy_core_plugins.namespace_skill_search.namespaces import (
             build_namespaces,
         )
 
@@ -91,7 +89,7 @@ class TestBuildNamespaces:
         """Documents current behavior: duplicates are surfaced, not merged
         or dropped -- see the warning line asserted in
         TestBuildNamespaceSummary.test_duplicate_names_are_flagged."""
-        from code_puppy.plugins.namespace_skill_search.namespaces import (
+        from code_puppy_core_plugins.namespace_skill_search.namespaces import (
             build_namespaces,
         )
 
@@ -108,7 +106,7 @@ class TestBuildNamespaces:
 
 class TestBuildNamespaceSummary:
     def test_none_when_no_skills(self):
-        from code_puppy.plugins.namespace_skill_search.namespaces import (
+        from code_puppy_core_plugins.namespace_skill_search.namespaces import (
             build_namespace_summary,
         )
 
@@ -116,7 +114,7 @@ class TestBuildNamespaceSummary:
             assert build_namespace_summary() is None
 
     def test_summary_contains_namespace_and_count(self):
-        from code_puppy.plugins.namespace_skill_search.namespaces import (
+        from code_puppy_core_plugins.namespace_skill_search.namespaces import (
             build_namespace_summary,
         )
 
@@ -129,7 +127,7 @@ class TestBuildNamespaceSummary:
         assert "browse_skill_namespace" in summary
 
     def test_oversized_namespace_is_flagged(self):
-        from code_puppy.plugins.namespace_skill_search.namespaces import (
+        from code_puppy_core_plugins.namespace_skill_search.namespaces import (
             build_namespace_summary,
         )
 
@@ -140,7 +138,7 @@ class TestBuildNamespaceSummary:
         assert "oversized namespace" in summary
 
     def test_small_namespace_is_not_flagged(self):
-        from code_puppy.plugins.namespace_skill_search.namespaces import (
+        from code_puppy_core_plugins.namespace_skill_search.namespaces import (
             build_namespace_summary,
         )
 
@@ -151,7 +149,7 @@ class TestBuildNamespaceSummary:
         assert "oversized namespace" not in summary
 
     def test_duplicate_names_are_flagged(self):
-        from code_puppy.plugins.namespace_skill_search.namespaces import (
+        from code_puppy_core_plugins.namespace_skill_search.namespaces import (
             build_namespace_summary,
         )
 
@@ -166,7 +164,7 @@ class TestBuildNamespaceSummary:
         assert "ambiguous" in summary
 
     def test_unique_names_are_not_flagged(self):
-        from code_puppy.plugins.namespace_skill_search.namespaces import (
+        from code_puppy_core_plugins.namespace_skill_search.namespaces import (
             build_namespace_summary,
         )
 
@@ -180,7 +178,7 @@ class TestBuildNamespaceSummary:
 class TestBrowseSkillNamespace:
     @pytest.mark.asyncio
     async def test_no_skills_returns_error(self):
-        from code_puppy.plugins.namespace_skill_search.search_tool import (
+        from code_puppy_core_plugins.namespace_skill_search.search_tool import (
             register_browse_skill_namespace,
         )
 
@@ -196,7 +194,7 @@ class TestBrowseSkillNamespace:
 
     @pytest.mark.asyncio
     async def test_directory_mode_lists_namespaces(self):
-        from code_puppy.plugins.namespace_skill_search.search_tool import (
+        from code_puppy_core_plugins.namespace_skill_search.search_tool import (
             register_browse_skill_namespace,
         )
 
@@ -214,7 +212,7 @@ class TestBrowseSkillNamespace:
 
     @pytest.mark.asyncio
     async def test_namespace_mode_lists_matching_skills(self):
-        from code_puppy.plugins.namespace_skill_search.search_tool import (
+        from code_puppy_core_plugins.namespace_skill_search.search_tool import (
             register_browse_skill_namespace,
         )
 
@@ -235,7 +233,7 @@ class TestBrowseSkillNamespace:
 
     @pytest.mark.asyncio
     async def test_namespace_mode_is_case_insensitive(self):
-        from code_puppy.plugins.namespace_skill_search.search_tool import (
+        from code_puppy_core_plugins.namespace_skill_search.search_tool import (
             register_browse_skill_namespace,
         )
 
@@ -251,7 +249,7 @@ class TestBrowseSkillNamespace:
 
     @pytest.mark.asyncio
     async def test_namespace_mode_unknown_namespace_errors(self):
-        from code_puppy.plugins.namespace_skill_search.search_tool import (
+        from code_puppy_core_plugins.namespace_skill_search.search_tool import (
             register_browse_skill_namespace,
         )
 
@@ -268,7 +266,7 @@ class TestBrowseSkillNamespace:
 
     @pytest.mark.asyncio
     async def test_namespace_mode_with_query_filters_further(self):
-        from code_puppy.plugins.namespace_skill_search.search_tool import (
+        from code_puppy_core_plugins.namespace_skill_search.search_tool import (
             register_browse_skill_namespace,
         )
 
@@ -290,7 +288,7 @@ class TestBrowseSkillNamespace:
 
     @pytest.mark.asyncio
     async def test_search_mode_matches_across_namespaces(self):
-        from code_puppy.plugins.namespace_skill_search.search_tool import (
+        from code_puppy_core_plugins.namespace_skill_search.search_tool import (
             register_browse_skill_namespace,
         )
 
@@ -312,7 +310,7 @@ class TestBrowseSkillNamespace:
 
     @pytest.mark.asyncio
     async def test_search_mode_no_match(self):
-        from code_puppy.plugins.namespace_skill_search.search_tool import (
+        from code_puppy_core_plugins.namespace_skill_search.search_tool import (
             register_browse_skill_namespace,
         )
 
@@ -331,7 +329,7 @@ class TestBrowseSkillNamespace:
     async def test_search_mode_empty_string_query_means_no_filter(self):
         """query="" (explicit empty string) must return everything, not
         nothing -- distinct code path from query=None (mode 1/directory)."""
-        from code_puppy.plugins.namespace_skill_search.search_tool import (
+        from code_puppy_core_plugins.namespace_skill_search.search_tool import (
             register_browse_skill_namespace,
         )
 
@@ -351,7 +349,7 @@ class TestBrowseSkillNamespace:
 
     @pytest.mark.asyncio
     async def test_catalog_read_failure_is_reported_not_raised(self):
-        from code_puppy.plugins.namespace_skill_search.search_tool import (
+        from code_puppy_core_plugins.namespace_skill_search.search_tool import (
             register_browse_skill_namespace,
         )
 
@@ -369,7 +367,7 @@ class TestBrowseSkillNamespace:
 
 class TestRegisterCallbacksModule:
     def test_register_tools_returns_browse_skill_namespace(self):
-        from code_puppy.plugins.namespace_skill_search.register_callbacks import (
+        from code_puppy_core_plugins.namespace_skill_search.register_callbacks import (
             _register_tools,
         )
 
@@ -377,7 +375,7 @@ class TestRegisterCallbacksModule:
         assert tools[0]["name"] == "browse_skill_namespace"
 
     def test_advertise_to_all_agents(self):
-        from code_puppy.plugins.namespace_skill_search.register_callbacks import (
+        from code_puppy_core_plugins.namespace_skill_search.register_callbacks import (
             _advertise_to_all_agents,
         )
 
@@ -387,7 +385,7 @@ class TestRegisterCallbacksModule:
         ]
 
     def test_on_load_prompt_delegates_to_namespace_summary(self):
-        from code_puppy.plugins.namespace_skill_search.register_callbacks import (
+        from code_puppy_core_plugins.namespace_skill_search.register_callbacks import (
             _on_load_prompt,
         )
 
@@ -403,10 +401,10 @@ class TestMaybeDisableFrontmatter:
     import time, specifically so it's directly callable/testable like
     this -- see the design note in register_callbacks.py."""
 
-    _CONFIG_MODULE = "code_puppy.plugins.namespace_skill_search.register_callbacks"
+    _CONFIG_MODULE = "code_puppy_core_plugins.namespace_skill_search.register_callbacks"
 
     def test_noop_if_already_migrated(self):
-        from code_puppy.plugins.namespace_skill_search.register_callbacks import (
+        from code_puppy_core_plugins.namespace_skill_search.register_callbacks import (
             _maybe_disable_frontmatter,
         )
 
@@ -423,7 +421,7 @@ class TestMaybeDisableFrontmatter:
         set_cfg.assert_not_called()
 
     def test_flips_frontmatter_off_on_first_run_when_currently_on(self):
-        from code_puppy.plugins.namespace_skill_search.register_callbacks import (
+        from code_puppy_core_plugins.namespace_skill_search.register_callbacks import (
             _maybe_disable_frontmatter,
             _MIGRATION_MARKER_KEY,
         )
@@ -446,7 +444,7 @@ class TestMaybeDisableFrontmatter:
         """If frontmatter is already False on first run, don't call
         set_frontmatter_in_system_prompt at all -- just record that this
         plugin has now run, so a later user opt-in is never fought."""
-        from code_puppy.plugins.namespace_skill_search.register_callbacks import (
+        from code_puppy_core_plugins.namespace_skill_search.register_callbacks import (
             _maybe_disable_frontmatter,
             _MIGRATION_MARKER_KEY,
         )
@@ -479,7 +477,7 @@ class TestMaybeDisableFrontmatter:
         """
         import inspect
 
-        import code_puppy.plugins.namespace_skill_search.register_callbacks as mod
+        import code_puppy_core_plugins.namespace_skill_search.register_callbacks as mod
 
         source = inspect.getsource(mod)
         assert 'register_callback("startup", _maybe_disable_frontmatter)' in source

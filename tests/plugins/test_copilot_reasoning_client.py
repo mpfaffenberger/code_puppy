@@ -14,7 +14,7 @@ import json
 import httpx
 import pytest
 
-from code_puppy.plugins.copilot_auth.reasoning_client import (
+from code_puppy_core_plugins.copilot_auth.reasoning_client import (
     _MAX_CACHE_ENTRIES,
     _OpaqueCapturingStream,
     _capture_from_content,
@@ -415,7 +415,7 @@ class TestRetryOn400:
         client = httpx.AsyncClient()
 
         # Patch client.send directly (no opaque cache = prevention kicks in)
-        from code_puppy.plugins.copilot_auth.reasoning_client import (
+        from code_puppy_core_plugins.copilot_auth.reasoning_client import (
             _inject_opaque_into_request,
         )
 
@@ -464,7 +464,7 @@ class TestRetryOn400:
         """
         call_count = 0
 
-        from code_puppy.plugins.copilot_auth.reasoning_client import (
+        from code_puppy_core_plugins.copilot_auth.reasoning_client import (
             _inject_opaque_into_request,
             _strip_all_reasoning_fields,
         )

@@ -1,6 +1,6 @@
 """Tests for shell command safety caching layer."""
 
-from code_puppy.plugins.shell_safety.command_cache import (
+from code_puppy_core_plugins.shell_safety.command_cache import (
     CachedAssessment,
     CommandSafetyCache,
     cache_assessment,
@@ -13,7 +13,9 @@ class TestCacheFunctions:
 
     def test_cache_miss_returns_none(self):
         """Should return None when cache miss."""
-        from code_puppy.plugins.shell_safety.command_cache import get_cached_assessment
+        from code_puppy_core_plugins.shell_safety.command_cache import (
+            get_cached_assessment,
+        )
 
         result = get_cached_assessment("unknown command", None)
         assert result is None
@@ -102,7 +104,7 @@ class TestCacheIntegration:
     def setup_method(self):
         """Clear the global cache before each test."""
         # Access the cache directly to clear it
-        from code_puppy.plugins.shell_safety.command_cache import _cache
+        from code_puppy_core_plugins.shell_safety.command_cache import _cache
 
         _cache.clear()
 

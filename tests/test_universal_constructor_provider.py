@@ -32,7 +32,7 @@ import sys
 
 class BlockUniversalConstructor(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.startswith("code_puppy.plugins.universal_constructor"):
+        if fullname.startswith("code_puppy_core_plugins.universal_constructor"):
             raise ImportError(f"blocked optional plugin: {fullname}")
         return None
 
@@ -47,7 +47,7 @@ import code_puppy.command_line.uc_menu
 assert "universal_constructor" not in code_puppy.tools.TOOL_REGISTRY
 loaded = [
     name for name in sys.modules
-    if name.startswith("code_puppy.plugins.universal_constructor")
+    if name.startswith("code_puppy_core_plugins.universal_constructor")
 ]
 assert loaded == [], loaded
 """
@@ -149,7 +149,7 @@ def test_reregistration_replaces_provider_and_stale_unregister_is_safe(
 
 
 def test_plugin_callbacks_register_provider_and_tool():
-    from code_puppy.plugins.universal_constructor import register_callbacks
+    from code_puppy_core_plugins.universal_constructor import register_callbacks
 
     assert get_universal_constructor_provider() is not None
     contributions = register_callbacks._register_tools()

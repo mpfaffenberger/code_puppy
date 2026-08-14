@@ -453,7 +453,10 @@ def test_autosave_menu_keybindings():
 
 def test_uc_menu_keybindings():
     from code_puppy.command_line.uc_menu import interactive_uc_picker
-    from code_puppy.plugins.universal_constructor.models import ToolMeta, UCToolInfo
+    from code_puppy_core_plugins.universal_constructor.models import (
+        ToolMeta,
+        UCToolInfo,
+    )
 
     # Create enough tools for multiple pages
     tools = [

@@ -19,7 +19,7 @@ def _isolate_plugin_skills(request, monkeypatch):
     if request.node.get_closest_marker("plugin_skills"):
         return
 
-    from code_puppy.plugins.agent_skills import discovery as discovery_module
+    from code_puppy_core_plugins.agent_skills import discovery as discovery_module
 
     monkeypatch.setattr(discovery_module, "_collect_plugin_skills", lambda: [])
 

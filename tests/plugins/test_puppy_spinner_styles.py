@@ -12,10 +12,10 @@ import json
 import pytest
 from rich.cells import cell_len
 
-from code_puppy.plugins.puppy_spinner import commands as cmds
-from code_puppy.plugins.puppy_spinner import picker
-from code_puppy.plugins.puppy_spinner import register_callbacks as rc
-from code_puppy.plugins.puppy_spinner import spinners as sp
+from code_puppy_core_plugins.puppy_spinner import commands as cmds
+from code_puppy_core_plugins.puppy_spinner import picker
+from code_puppy_core_plugins.puppy_spinner import register_callbacks as rc
+from code_puppy_core_plugins.puppy_spinner import spinners as sp
 
 
 @pytest.fixture(autouse=True)
@@ -108,7 +108,7 @@ def test_aesthetic_drains_to_all_hollow():
 
 
 def test_cli_spinners_pack_has_descriptions():
-    from code_puppy.plugins.puppy_spinner.builtin_frames import EXTRA_SPECS
+    from code_puppy_core_plugins.puppy_spinner.builtin_frames import EXTRA_SPECS
 
     for name in EXTRA_SPECS:
         assert sp.BUILTIN_SPINNERS[name].description, name

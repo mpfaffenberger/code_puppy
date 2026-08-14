@@ -84,13 +84,13 @@ class TestAgentTools:
         from unittest.mock import patch
 
         from code_puppy import callbacks
-        from code_puppy.plugins.file_permission_handler.register_callbacks import (
+        from code_puppy_core_plugins.file_permission_handler.register_callbacks import (
             get_file_permission_prompt_additions,
         )
 
         # Mock yolo mode to be False so we can test prompt additions
         with patch(
-            "code_puppy.plugins.file_permission_handler.register_callbacks.get_yolo_mode",
+            "code_puppy_core_plugins.file_permission_handler.register_callbacks.get_yolo_mode",
             return_value=False,
         ):
             # Register the file permission callback (normally done at startup)

@@ -23,10 +23,10 @@ def kennel_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     import importlib
 
-    from code_puppy.plugins.puppy_kennel import config as kennel_config
-    from code_puppy.plugins.puppy_kennel import kennel as kennel_mod
-    from code_puppy.plugins.puppy_kennel import state as state_mod
-    from code_puppy.plugins.puppy_kennel import tools as tools_mod
+    from code_puppy_core_plugins.puppy_kennel import config as kennel_config
+    from code_puppy_core_plugins.puppy_kennel import kennel as kennel_mod
+    from code_puppy_core_plugins.puppy_kennel import state as state_mod
+    from code_puppy_core_plugins.puppy_kennel import tools as tools_mod
 
     importlib.reload(kennel_config)
     importlib.reload(state_mod)
@@ -60,7 +60,7 @@ def _ctx(agent_name: str = "code-puppy") -> Any:
 
 
 def test_resolve_wing_shortcuts(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import tools
+    from code_puppy_core_plugins.puppy_kennel import tools
 
     cwd = Path.cwd()
     # Phase 5: blank default now routes to repo, not agent.
@@ -72,7 +72,7 @@ def test_resolve_wing_shortcuts(kennel_root: Path) -> None:
 
 
 def test_resolve_scope_combinations(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import tools
+    from code_puppy_core_plugins.puppy_kennel import tools
 
     cwd = Path.cwd()
     # Explicit wing wins over scope.
@@ -96,7 +96,7 @@ def test_kennel_remember_writes_to_repo_wing_by_default(kennel_root: Path) -> No
     Project-scoped notes are by far the most common use case for
     ``kennel_remember``, so the default should match.
     """
-    from code_puppy.plugins.puppy_kennel import kennel, tools
+    from code_puppy_core_plugins.puppy_kennel import kennel, tools
 
     agent = _FakeAgent()
     tools.register_kennel_remember(agent)
@@ -112,7 +112,7 @@ def test_kennel_remember_writes_to_repo_wing_by_default(kennel_root: Path) -> No
 
 
 def test_kennel_remember_wing_shortcuts(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import tools
+    from code_puppy_core_plugins.puppy_kennel import tools
 
     agent = _FakeAgent()
     tools.register_kennel_remember(agent)
@@ -131,7 +131,7 @@ def test_kennel_remember_wing_shortcuts(kennel_root: Path) -> None:
 
 
 def test_kennel_remember_explicit_wing_passes_through(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import tools
+    from code_puppy_core_plugins.puppy_kennel import tools
 
     agent = _FakeAgent()
     tools.register_kennel_remember(agent)
@@ -142,7 +142,7 @@ def test_kennel_remember_explicit_wing_passes_through(kennel_root: Path) -> None
 
 
 def test_kennel_remember_empty_content_returns_error(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import kennel, tools
+    from code_puppy_core_plugins.puppy_kennel import kennel, tools
 
     agent = _FakeAgent()
     tools.register_kennel_remember(agent)
@@ -155,7 +155,7 @@ def test_kennel_remember_empty_content_returns_error(kennel_root: Path) -> None:
 
 
 def test_kennel_remember_blank_room_falls_back_to_notes(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import tools
+    from code_puppy_core_plugins.puppy_kennel import tools
 
     agent = _FakeAgent()
     tools.register_kennel_remember(agent)
@@ -173,7 +173,7 @@ def test_kennel_remember_blank_room_falls_back_to_notes(kennel_root: Path) -> No
 def test_kennel_recent_returns_newest_first(kennel_root: Path) -> None:
     import time
 
-    from code_puppy.plugins.puppy_kennel import recorder, tools
+    from code_puppy_core_plugins.puppy_kennel import recorder, tools
 
     recorder.record_run_end(
         agent_name="code-puppy",
@@ -202,7 +202,7 @@ def test_kennel_recent_returns_newest_first(kennel_root: Path) -> None:
 
 
 def test_kennel_recent_scope_user(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import tools
+    from code_puppy_core_plugins.puppy_kennel import tools
 
     agent = _FakeAgent()
     tools.register_kennel_remember(agent)
@@ -222,7 +222,7 @@ def test_kennel_recent_scope_user(kennel_root: Path) -> None:
 
 
 def test_kennel_recent_top_k_clamped(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import tools
+    from code_puppy_core_plugins.puppy_kennel import tools
 
     agent = _FakeAgent()
     tools.register_kennel_recent(agent)
@@ -233,7 +233,7 @@ def test_kennel_recent_top_k_clamped(kennel_root: Path) -> None:
 
 
 def test_kennel_recent_empty_kennel(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import tools
+    from code_puppy_core_plugins.puppy_kennel import tools
 
     agent = _FakeAgent()
     tools.register_kennel_recent(agent)
@@ -250,7 +250,7 @@ def test_kennel_recent_empty_kennel(kennel_root: Path) -> None:
 
 
 def test_list_wings_empty_kennel(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import tools
+    from code_puppy_core_plugins.puppy_kennel import tools
 
     agent = _FakeAgent()
     tools.register_kennel_list_wings(agent)
@@ -262,7 +262,7 @@ def test_list_wings_empty_kennel(kennel_root: Path) -> None:
 
 
 def test_list_wings_with_counts(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import recorder, tools
+    from code_puppy_core_plugins.puppy_kennel import recorder, tools
 
     recorder.record_run_end(
         agent_name="code-puppy",
@@ -291,7 +291,7 @@ def test_list_wings_with_counts(kennel_root: Path) -> None:
 
 
 def test_kennel_stats_basic(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import recorder, tools
+    from code_puppy_core_plugins.puppy_kennel import recorder, tools
 
     recorder.record_run_end(
         agent_name="code-puppy",
@@ -318,7 +318,7 @@ def test_kennel_stats_basic(kennel_root: Path) -> None:
 
 
 def test_register_tools_callback_exposes_full_surface() -> None:
-    from code_puppy.plugins.puppy_kennel import tools
+    from code_puppy_core_plugins.puppy_kennel import tools
 
     specs = tools.register_tools_callback()
     names = {s["name"] for s in specs}

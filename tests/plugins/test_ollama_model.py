@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import httpx
 
-from code_puppy.plugins.ollama.register_callbacks import create_ollama_model
+from code_puppy_core_plugins.ollama.register_callbacks import create_ollama_model
 
 
 def _client(**kwargs):
@@ -13,7 +13,7 @@ def _client(**kwargs):
 
 
 @patch(
-    "code_puppy.plugins.ollama.register_callbacks.create_async_client",
+    "code_puppy_core_plugins.ollama.register_callbacks.create_async_client",
     side_effect=_client,
 )
 def test_custom_endpoint_accepts_timeout_from_get_custom_config(mock_client):
@@ -37,7 +37,7 @@ def test_custom_endpoint_accepts_timeout_from_get_custom_config(mock_client):
 
 
 @patch(
-    "code_puppy.plugins.ollama.register_callbacks.create_async_client",
+    "code_puppy_core_plugins.ollama.register_callbacks.create_async_client",
     side_effect=_client,
 )
 def test_custom_endpoint_passes_headers_and_tls_config(mock_client):
@@ -61,7 +61,7 @@ def test_custom_endpoint_passes_headers_and_tls_config(mock_client):
 
 
 @patch(
-    "code_puppy.plugins.ollama.register_callbacks.create_async_client",
+    "code_puppy_core_plugins.ollama.register_callbacks.create_async_client",
     side_effect=_client,
 )
 def test_local_endpoint_uses_ollama_defaults(mock_client, monkeypatch):

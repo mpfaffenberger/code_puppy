@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from code_puppy.plugins.plugin_list.register_callbacks import (
+from code_puppy_core_plugins.plugin_list.register_callbacks import (
     _build_output,
     _custom_help,
     _format_plugin_list,
@@ -132,7 +132,7 @@ class TestHandleCustomCommand:
 
     def test_bare_plugins_launches_tui(self):
         with patch(
-            "code_puppy.plugins.plugin_list.plugins_menu.run_plugins_menu",
+            "code_puppy_core_plugins.plugin_list.plugins_menu.run_plugins_menu",
         ) as mock_menu:
             result = _handle_custom_command("/plugins", "plugins")
             assert result is True
@@ -167,7 +167,7 @@ class TestMenuShowsGatedProjectPlugins:
     """The TUI must show project plugins the trust gate held back."""
 
     def _make_menu(self, loaded, statuses, project_dir=None):
-        from code_puppy.plugins.plugin_list.plugins_menu import PluginsMenu
+        from code_puppy_core_plugins.plugin_list.plugins_menu import PluginsMenu
 
         with (
             patch(f"{_PLUGINS_MOD}.get_loaded_plugins", return_value=loaded),
@@ -214,7 +214,9 @@ class TestMenuShowsGatedProjectPlugins:
         assert menu._changed is False
 
     def test_detail_pane_shows_enable_hint(self):
-        from code_puppy.plugins.plugin_list.plugins_menu_render import render_detail
+        from code_puppy_core_plugins.plugin_list.plugins_menu_render import (
+            render_detail,
+        )
 
         loaded = {"builtin": [], "user": [], "project": []}
         menu = self._make_menu(
@@ -231,10 +233,10 @@ class TestMenuShowsGatedProjectPlugins:
 class TestSlashEnableOpensTUI:
     """Slash enable never prompts inline — it opens the TUI ceremony."""
 
-    _MENU = "code_puppy.plugins.plugin_list.plugins_menu.run_plugins_menu"
+    _MENU = "code_puppy_core_plugins.plugin_list.plugins_menu.run_plugins_menu"
 
     def _run_enable(self, tmp_path: Path, status: str, menu_effect=None):
-        from code_puppy.plugins.plugin_list.project_trust_flow import (
+        from code_puppy_core_plugins.plugin_list.project_trust_flow import (
             try_enable_project_plugin,
         )
 
@@ -302,7 +304,7 @@ class TestTrustModal:
     """The in-TUI ceremony: popup state, accept word, cancel."""
 
     def _gated_menu(self):
-        from code_puppy.plugins.plugin_list.plugins_menu import PluginsMenu
+        from code_puppy_core_plugins.plugin_list.plugins_menu import PluginsMenu
 
         with (
             patch(
@@ -334,7 +336,7 @@ class TestTrustModal:
         assert menu.trust_target.name == "sketchy"
 
     def test_focus_plugin_preselects_and_opens_modal(self):
-        from code_puppy.plugins.plugin_list.plugins_menu import PluginsMenu
+        from code_puppy_core_plugins.plugin_list.plugins_menu import PluginsMenu
 
         with (
             patch(
@@ -367,7 +369,7 @@ class TestTrustModal:
         menu = next(gen)
         menu._toggle_current()
         with patch(
-            "code_puppy.plugins.plugin_list.project_trust_flow.grant_trust_and_load"
+            "code_puppy_core_plugins.plugin_list.project_trust_flow.grant_trust_and_load"
         ) as mock_grant:
             keep = menu._accept_trust(SimpleNamespace(text="nope"))
         mock_grant.assert_not_called()
@@ -383,7 +385,7 @@ class TestTrustModal:
         menu._toggle_current()
         with (
             patch(
-                "code_puppy.plugins.plugin_list.project_trust_flow.grant_trust_and_load",
+                "code_puppy_core_plugins.plugin_list.project_trust_flow.grant_trust_and_load",
                 return_value=(True, "loaded!"),
             ) as mock_grant,
             patch.object(menu, "_refresh_data"),
@@ -398,7 +400,7 @@ class TestTrustModal:
         menu = next(gen)
         menu._toggle_current()
         with patch(
-            "code_puppy.plugins.plugin_list.project_trust_flow.grant_trust_and_load"
+            "code_puppy_core_plugins.plugin_list.project_trust_flow.grant_trust_and_load"
         ) as mock_grant:
             menu._close_trust_modal()
         mock_grant.assert_not_called()
