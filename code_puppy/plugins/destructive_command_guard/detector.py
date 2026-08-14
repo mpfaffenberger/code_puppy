@@ -236,7 +236,7 @@ def detect_destructive_command(command: str) ->  DestructiveCommandMatch | None:
     if GLOBAL_PATTERNS is None:
         try:
             GLOBAL_PATTERNS = load_guardrails_data()
-        except Exception as e:
+        except Exception:
             return DestructiveCommandMatch(
                 pattern_name = "Failed to load JSON data",
                 description = "The data inside of /plugins/destructive_command_guardrail/patterns is corrupted or wrong. Please fix this issue to run commands",
