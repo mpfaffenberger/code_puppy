@@ -34,11 +34,7 @@ class TestUnixRmRoot:
 
     @pytest.mark.parametrize(
         "cmd",
-        [
-            "rm -rf /",
-            "rm -r -f /",
-            "rm -fr /"
-        ],
+        ["rm -rf /", "rm -r -f /", "rm -fr /"],
     )
     def test_matches(self, cmd: str) -> None:
         result = _hits(cmd)
@@ -54,10 +50,7 @@ class TestUnixRmHome:
 
     @pytest.mark.parametrize(
         "cmd",
-        [
-            "rm -rf ~",
-            "rm -fr ~"
-        ],
+        ["rm -rf ~", "rm -fr ~"],
     )
     def test_matches(self, cmd: str) -> None:
         result = _hits(cmd)
@@ -68,6 +61,7 @@ class TestUnixRmHome:
         result = _hits("rm -rf ~/*")
         assert result is not None
         assert "/*" in result.pattern_name
+
 
 class TestUnixSqlDrop:
     @pytest.mark.parametrize(
@@ -305,8 +299,9 @@ class TestCmdRegDelete:
 
 
 # ===========================================================================
-# Git Commands 
+# Git Commands
 # ===========================================================================
+
 
 class TestUnixGitPushMirror:
     def test_matches(self) -> None:
@@ -377,7 +372,7 @@ class TestGitForcePush:
             "git push origin main -f",
             "git push -F",
             "git push origin main -F",
-            "git push -v -f origin main"
+            "git push -v -f origin main",
         ],
     )
     def test_force_shorthand_matches(self, cmd: str) -> None:
@@ -424,7 +419,7 @@ class TestObfuscation:
             "^git clean -fd",
             "rm   -rf   /",
             'r""m -rf /',
-            '"git" push --force'
+            '"git" push --force',
         ],
     )
     def test_obfuscation_matches(self, cmd: str) -> None:
@@ -443,13 +438,12 @@ class TestCompoundCommands:
             "rm non_existent_file.txt || git push -F",
             "echo hello; diskpart",
             "echo done & rd /s /q C:",
-            "ls / | rm -rf /"
+            "ls / | rm -rf /",
         ],
     )
     def test_compound_command(self, cmd: str) -> None:
         result = _hits(cmd)
         assert result is not None
-
 
 
 # ===========================================================================
@@ -470,7 +464,7 @@ class TestBlockImmediately:
         [
             "rm -rf /",
             "rm -r -f /",
-            "rm -fr /",     
+            "rm -fr /",
             "rm -rf /*",
             "rm -fr /*",
             "rm -rf ~",

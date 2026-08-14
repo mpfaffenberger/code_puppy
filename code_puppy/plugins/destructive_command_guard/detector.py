@@ -45,63 +45,76 @@ def load_guardrails_data() -> list[SearchGroup]:
 
     for data_path in json_files:
         try:
-            with open(data_path, "r", encoding = "utf-8") as f:
+            with open(data_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
         except (OSError, json.JSONDecodeError) as e:
             raise ValueError(f"Failed to parse guardrails data JSON: {e}") from e
 
         if "groups" not in data:
             print("groups not in data")
-            raise KeyError(f"Guardrails file '{data_path.name}' is missing required top-level 'groups' key")
+            raise KeyError(
+                f"Guardrails file '{data_path.name}' is missing required top-level 'groups' key"
+            )
 
         for group_data in data["groups"]:
-            try:   
+            try:
                 group = SearchGroup(
                     name=group_data["name"],
                     substrings=frozenset(
-                        keyword.lower()
-                        for keyword in group_data["cheap_substrings"]
+                        keyword.lower() for keyword in group_data["cheap_substrings"]
                     ),
                     patterns=tuple(
-                        (re.compile(pattern_info["regex"], re.IGNORECASE), pattern_info["name"], pattern_info["description"], pattern_info["block_immediately"])
+                        (
+                            re.compile(pattern_info["regex"], re.IGNORECASE),
+                            pattern_info["name"],
+                            pattern_info["description"],
+                            pattern_info["block_immediately"],
+                        )
                         for pattern_info in group_data["expensive_patterns"]
                     ),
                 )
                 all_groups.append(group)
             except KeyError as e:
-                raise KeyError(f"Guardrails group '{group_data.get('name', '<unknown>')}' is missing required field: {e}")
+                raise KeyError(
+                    f"Guardrails group '{group_data.get('name', '<unknown>')}' is missing required field: {e}"
+                )
             except re.error as e:
-                raise ValueError(f"Invalid regex in guardrails group '{group_data.get('name', '<unknown>')}': {e}")
-    
+                raise ValueError(
+                    f"Invalid regex in guardrails group '{group_data.get('name', '<unknown>')}': {e}"
+                )
+
     if not all_groups:
         raise ValueError("No guardrails groups found in any JSON files")
-    
+
     return all_groups
 
 
-#regex pattern to split on
+# regex pattern to split on
 _CMD_SPLIT_RE = re.compile(r"\s*(?:&&|\|\||;|&|\|)\s*")
 
-#Split a command string into subcommands based on shell operators.
+
+# Split a command string into subcommands based on shell operators.
 def split_command(command: str) -> list[str]:
     return _CMD_SPLIT_RE.split(command)
 
 
 # Regex patterns to remove simple obfuscations like empty quotes, backslash escapes, and caret escapes.
-_EMPTY_QUOTES_RE     = re.compile(r"(['\"])\1")
+_EMPTY_QUOTES_RE = re.compile(r"(['\"])\1")
 _BACKSLASH_ESCAPE_RE = re.compile(r"\\(.)")
-_QUOTED_WORD_RE      = re.compile(r'(["\'])(\w+)\1')
-_CARET_ESCAPE_RE     = re.compile(r"\^(.?)")
-_SEPARATOR_RE        = re.compile(r"[,\s]+")
+_QUOTED_WORD_RE = re.compile(r'(["\'])(\w+)\1')
+_CARET_ESCAPE_RE = re.compile(r"\^(.?)")
+_SEPARATOR_RE = re.compile(r"[,\s]+")
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
 
+
 def normalize_command(command: str) -> str:
-    command = _EMPTY_QUOTES_RE.sub("", command)             # strip '' and ""
-    command = _BACKSLASH_ESCAPE_RE.sub(r"\1", command)      # strip backslash escapes
-    command = _CARET_ESCAPE_RE.sub(r"\1", command)          # strip caret escapes
-    command = _QUOTED_WORD_RE.sub(r"\2", command)           # unquote words
-    command = _SEPARATOR_RE.sub(" ", command)               # normalize all separators + whitespace
+    command = _EMPTY_QUOTES_RE.sub("", command)  # strip '' and ""
+    command = _BACKSLASH_ESCAPE_RE.sub(r"\1", command)  # strip backslash escapes
+    command = _CARET_ESCAPE_RE.sub(r"\1", command)  # strip caret escapes
+    command = _QUOTED_WORD_RE.sub(r"\2", command)  # unquote words
+    command = _SEPARATOR_RE.sub(" ", command)  # normalize all separators + whitespace
     return command
+
 
 # Intentionally small: only wrappers whose option syntax we understand belong here.
 _WRAPPERS = {"sudo", "env", "nice", "nohup", "time", "command"}
@@ -118,6 +131,8 @@ _SUDO_LONG_VALUE_OPTIONS = {
 """
 Find Executable Logic
 """
+
+
 def _skip_assignments(tokens: Sequence[str], index: int) -> int:
     while index < len(tokens) and _ASSIGNMENT.fullmatch(tokens[index]):
         index += 1
@@ -224,7 +239,7 @@ Detect Destructive Command Pipeline
 GLOBAL_PATTERNS: list[SearchGroup] | None = None
 
 
-def detect_destructive_command(command: str) ->  DestructiveCommandMatch | None:
+def detect_destructive_command(command: str) -> DestructiveCommandMatch | None:
     """
     Sends command through pipeline of checks to determine if it is malicious
     - Receives command: string
@@ -238,18 +253,18 @@ def detect_destructive_command(command: str) ->  DestructiveCommandMatch | None:
             GLOBAL_PATTERNS = load_guardrails_data()
         except Exception:
             return DestructiveCommandMatch(
-                pattern_name = "Failed to load JSON data",
-                description = "The data inside of /plugins/destructive_command_guardrail/patterns is corrupted or wrong. Please fix this issue to run commands",
-                block_immediately = True
+                pattern_name="Failed to load JSON data",
+                description="The data inside of /plugins/destructive_command_guardrail/patterns is corrupted or wrong. Please fix this issue to run commands",
+                block_immediately=True,
             )
 
-    #Normalize command to remove obfuscations and standardize separators
+    # Normalize command to remove obfuscations and standardize separators
     norm_command = normalize_command(command)
 
-    #Split commands on operators Ex: &&, ||, ;, &, \n
+    # Split commands on operators Ex: &&, ||, ;, &, \n
     subcommands = split_command(norm_command)
 
-    #Check each subcommand for malicious keywords and patterns, return first match found
+    # Check each subcommand for malicious keywords and patterns, return first match found
     for subcommand in subcommands:
         # Tokenize command
         try:
@@ -257,21 +272,25 @@ def detect_destructive_command(command: str) ->  DestructiveCommandMatch | None:
         except ValueError:
             return None
 
-        #Find executable
+        # Find executable
         executable = find_command_executable(tokens)
 
         found_groups = set()
         for group in GLOBAL_PATTERNS:
-            if(group.cheap_substrings & executable):
+            if group.cheap_substrings & executable:
                 found_groups.update(group.expensive_patterns)
 
-        #If no keywords are found, skip expensive regex checks for this subcommand
+        # If no keywords are found, skip expensive regex checks for this subcommand
         if not found_groups:
             continue
         # Use expensive regex patterns to check for destructive commands, return first match found
         for pattern, name, description, block_immediately in found_groups:
             if pattern.search(norm_command):
-                return DestructiveCommandMatch(pattern_name=name, description=description, block_immediately=block_immediately)
+                return DestructiveCommandMatch(
+                    pattern_name=name,
+                    description=description,
+                    block_immediately=block_immediately,
+                )
 
-    #If all checks pass and no malicious patterns are found return None
+    # If all checks pass and no malicious patterns are found return None
     return None

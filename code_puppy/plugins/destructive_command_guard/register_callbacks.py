@@ -55,7 +55,6 @@ async def destructive_command_guard_callback(
     if get_disable_dangerous_command_guard():
         return None
 
-
     match = detect_destructive_command(command)
     if match is None:
         return None
