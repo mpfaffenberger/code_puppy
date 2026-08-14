@@ -2,6 +2,7 @@ import importlib
 import importlib.util
 import logging
 import sys
+from importlib.metadata import entry_points
 import types
 from pathlib import Path
 
@@ -12,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 # User plugins directory
 USER_PLUGINS_DIR = Path.home() / ".code_puppy" / "plugins"
+
+PLUGIN_ENTRY_POINT_GROUP = "code_puppy.plugins"
 
 # Track if plugins have already been loaded to prevent duplicate registration
 _PLUGINS_LOADED = False
@@ -24,20 +27,67 @@ _loaded_plugin_names: dict[str, list[str]] = {"builtin": [], "user": [], "projec
 _project_plugin_status: dict[str, str] = {}
 
 
-def _load_builtin_plugins(plugins_dir: Path) -> list[str]:
-    """Load built-in plugins from the package plugins directory.
+def _load_installed_plugins() -> list[str]:
+    """Load distribution-provided plugins advertised through entry points.
 
-    Returns list of successfully loaded plugin names.
+    Installed plugin bundles are the builtin tier: they load before user and
+    project plugins, but remain physically independent from the core package.
+    Entry points are sorted for deterministic startup and test behavior.
+    """
+    from code_puppy.config import get_safety_permission_level
+
+    loaded: list[str] = []
+    discovered = sorted(
+        entry_points(group=PLUGIN_ENTRY_POINT_GROUP), key=lambda item: item.name
+    )
+    for entry_point in discovered:
+        plugin_name = entry_point.name
+        if plugin_name == "shell_safety" and get_safety_permission_level() not in (
+            "none",
+            "low",
+        ):
+            logger.debug("Skipping shell_safety plugin due to safety permission level")
+            continue
+        try:
+            set_loading_context(plugin_name)
+            entry_point.load()
+            loaded.append(plugin_name)
+        except ImportError as exc:
+            logger.warning("Failed to import installed plugin %s: %s", plugin_name, exc)
+        except Exception as exc:
+            logger.error(
+                "Unexpected error loading installed plugin %s: %s",
+                plugin_name,
+                exc,
+                exc_info=True,
+            )
+        finally:
+            clear_loading_context()
+    return loaded
+
+
+def _load_builtin_plugins(
+    plugins_dir: Path, skip_names: set[str] | None = None
+) -> list[str]:
+    """Load legacy plugins still bundled in the core package.
+
+    ``skip_names`` prevents duplicate registration during the migration when
+    the same plugin is both installed through an entry point and still present
+    in an older core checkout.
     """
     # Import safety permission check for shell_safety plugin
     from code_puppy.config import get_safety_permission_level
 
     loaded = []
+    skip_names = set(skip_names or ())
 
     for item in plugins_dir.iterdir():
         if item.is_dir() and not item.name.startswith("_"):
             plugin_name = item.name
             callbacks_file = item / "register_callbacks.py"
+
+            if plugin_name in skip_names:
+                continue
 
             if callbacks_file.exists():
                 # Skip shell_safety plugin unless safety_permission_level is "low" or "none"
@@ -478,7 +528,9 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
             if _trust.is_plugin_trusted(project_root, name, project_plugins_dir / name)
         }
 
-    builtin_loaded = _load_builtin_plugins(plugins_dir)
+    installed_loaded = _load_installed_plugins()
+    legacy_loaded = _load_builtin_plugins(plugins_dir, skip_names=set(installed_loaded))
+    builtin_loaded = installed_loaded + legacy_loaded
     user_skip_names = set(builtin_loaded) | project_plugin_names
     user_loaded = _load_user_plugins(USER_PLUGINS_DIR, skip_names=user_skip_names)
 
