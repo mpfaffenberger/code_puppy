@@ -486,9 +486,22 @@ def get_project_plugins_directory() -> Path | None:
         Path to the project's plugins directory if it exists, or None.
     """
     project_plugins_dir = Path.cwd() / ".code_puppy" / "plugins"
-    if project_plugins_dir.is_dir():
-        return project_plugins_dir
-    return None
+    if not project_plugins_dir.is_dir():
+        return None
+
+    try:
+        if project_plugins_dir.samefile(USER_PLUGINS_DIR):
+            logger.debug(
+                "Ignoring project plugins directory because it is the user plugins directory: %s",
+                project_plugins_dir,
+            )
+            return None
+    except OSError:
+        # A missing/unreadable user directory cannot be the discovered project
+        # directory, so retain normal project discovery.
+        pass
+
+    return project_plugins_dir
 
 
 def load_plugin_callbacks() -> dict[str, list[str]]:
