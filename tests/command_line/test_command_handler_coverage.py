@@ -170,7 +170,7 @@ class TestHandleCommand:
         with patch.dict(
             "sys.modules",
             {
-                "code_puppy.plugins.customizable_commands.register_callbacks": MagicMock(
+                "code_puppy_core_plugins.customizable_commands.register_callbacks": MagicMock(
                     MarkdownCommandResult=type(mock_result)
                 )
             },

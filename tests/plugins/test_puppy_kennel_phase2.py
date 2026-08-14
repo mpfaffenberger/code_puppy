@@ -18,14 +18,17 @@ def kennel_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     import importlib
 
-    from code_puppy.plugins.puppy_kennel import config as kennel_config
-    from code_puppy.plugins.puppy_kennel import kennel as kennel_mod
-    from code_puppy.plugins.puppy_kennel import state as state_mod
+    from code_puppy_core_plugins.puppy_kennel import config as kennel_config
+    from code_puppy_core_plugins.puppy_kennel import kennel as kennel_mod
+    from code_puppy_core_plugins.puppy_kennel import state as state_mod
 
     importlib.reload(kennel_config)
     importlib.reload(state_mod)
     importlib.reload(kennel_mod)
     kennel_mod.initialize()
+    # Storage/search tests operate on an enabled kennel; the default-off
+    # behavior is covered by test_puppy_kennel_toggle.
+    state_mod.set_enabled(True)
     return root
 
 
@@ -39,7 +42,7 @@ def test_search_drawers_multi_dedupes_same_content(kennel_root: Path) -> None:
     in more than one wing (e.g. autosaved in repo, then echoed via
     ``kennel_remember`` into another wing).
     """
-    from code_puppy.plugins.puppy_kennel import kennel, recorder, wings
+    from code_puppy_core_plugins.puppy_kennel import kennel, recorder, wings
 
     recorder.record_run_end(
         agent_name="code-puppy",
@@ -74,7 +77,7 @@ def test_search_drawers_multi_dedupes_same_content(kennel_root: Path) -> None:
 
 def test_search_drawers_multi_all_wings_when_none(kennel_root: Path) -> None:
     """Passing None for wings = search every wing."""
-    from code_puppy.plugins.puppy_kennel import kennel, recorder
+    from code_puppy_core_plugins.puppy_kennel import kennel, recorder
 
     recorder.record_run_end(
         agent_name="agent-a",
@@ -87,7 +90,7 @@ def test_search_drawers_multi_all_wings_when_none(kennel_root: Path) -> None:
 
 
 def test_search_drawers_multi_empty_query(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import kennel
+    from code_puppy_core_plugins.puppy_kennel import kennel
 
     assert kennel.search_drawers_multi("", wing_names=None) == []
     assert kennel.search_drawers_multi("   ", wing_names=None) == []
@@ -114,7 +117,7 @@ def _make_context(agent_name: str = "code-puppy") -> Any:
 
 
 def test_kennel_recall_returns_hits(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import recorder, tools
+    from code_puppy_core_plugins.puppy_kennel import recorder, tools
 
     recorder.record_run_end(
         agent_name="code-puppy",
@@ -133,7 +136,7 @@ def test_kennel_recall_returns_hits(kennel_root: Path) -> None:
 
 
 def test_kennel_recall_empty_query_returns_error(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import tools
+    from code_puppy_core_plugins.puppy_kennel import tools
 
     agent = _FakeAgent()
     tools.register_kennel_recall(agent)
@@ -146,7 +149,7 @@ def test_kennel_recall_empty_query_returns_error(kennel_root: Path) -> None:
 
 def test_kennel_recall_scope_repo_only(kennel_root: Path) -> None:
     """scope='repo' should restrict to the repo wing."""
-    from code_puppy.plugins.puppy_kennel import recorder, tools
+    from code_puppy_core_plugins.puppy_kennel import recorder, tools
 
     # Autosaved content lives in the repo wing now (no dual-write).
     recorder.record_run_end(
@@ -172,7 +175,7 @@ def test_register_tools_callback_shape() -> None:
     The full surface assertion lives in test_puppy_kennel_tools; this one
     just sanity-checks that kennel_recall is in the set.
     """
-    from code_puppy.plugins.puppy_kennel import tools
+    from code_puppy_core_plugins.puppy_kennel import tools
 
     result = tools.register_tools_callback()
     assert isinstance(result, list) and len(result) >= 1
@@ -223,7 +226,7 @@ def test_register_tools_callback_shape() -> None:
 def test_kennel_commands(
     kennel_root: Path, cmd: str, name: str, record_text: str | None, expected
 ) -> None:
-    from code_puppy.plugins.puppy_kennel import commands, recorder
+    from code_puppy_core_plugins.puppy_kennel import commands, recorder
 
     if record_text:
         recorder.record_run_end(
@@ -236,7 +239,7 @@ def test_kennel_commands(
 
 
 def test_help_entries_advertised() -> None:
-    from code_puppy.plugins.puppy_kennel import commands
+    from code_puppy_core_plugins.puppy_kennel import commands
 
     entries = commands.help_entries()
     assert any(name == "kennel" for name, _desc in entries)

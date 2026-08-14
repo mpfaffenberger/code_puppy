@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from code_puppy import callbacks
-from code_puppy.plugins.plugin_list import plugin_contributions as pc
+from code_puppy_core_plugins.plugin_list import plugin_contributions as pc
 
 
 @pytest.fixture
@@ -327,7 +327,7 @@ def _handler_in(module_name):
 @pytest.mark.parametrize(
     "module, expected",
     [
-        ("code_puppy.plugins.wiggum.register_callbacks", "wiggum"),
+        ("code_puppy_core_plugins.wiggum.register_callbacks", "wiggum"),
         ("project_plugins.my_plug.register_callbacks", "my_plug"),
         ("user_plug.register_callbacks", "user_plug"),
         # Core modules resolve to a prefix that is not a real plugin name.
@@ -348,7 +348,7 @@ def test_registry_commands_attributed_by_handler_module(monkeypatch):
         _FakeCommandInfo(
             "wiggum",
             "Loop mode",
-            _handler_in("code_puppy.plugins.wiggum.register_callbacks"),
+            _handler_in("code_puppy_core_plugins.wiggum.register_callbacks"),
         ),
         _FakeCommandInfo(
             "other",

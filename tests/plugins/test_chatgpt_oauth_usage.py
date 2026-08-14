@@ -1,6 +1,6 @@
 from unittest.mock import Mock, patch
 
-from code_puppy.plugins.chatgpt_oauth import usage
+from code_puppy_core_plugins.chatgpt_oauth import usage
 
 
 def test_parse_usage_payload_formats_remaining_percentages():

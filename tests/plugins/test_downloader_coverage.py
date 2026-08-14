@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from code_puppy.plugins.agent_skills.downloader import (
+from code_puppy_core_plugins.agent_skills.downloader import (
     _determine_extracted_root,
     _download_to_file,
     _is_within_directory,
@@ -55,7 +55,7 @@ def test_safe_rmtree_existing(tmp_path):
 
 def test_safe_rmtree_failure(tmp_path):
     with patch(
-        "code_puppy.plugins.agent_skills.downloader.shutil.rmtree",
+        "code_puppy_core_plugins.agent_skills.downloader.shutil.rmtree",
         side_effect=OSError("no"),
     ):
         d = tmp_path / "dir"
@@ -116,7 +116,7 @@ def test_download_to_file_success(tmp_path):
     dest = tmp_path / "sub" / "out.zip"
     mc = _make_mock_client(chunks=[b"hello", b"", b"world"])
     with patch(
-        "code_puppy.plugins.agent_skills.downloader.httpx.Client", return_value=mc
+        "code_puppy_core_plugins.agent_skills.downloader.httpx.Client", return_value=mc
     ):
         assert _download_to_file("http://example.com/a.zip", dest) is True
     assert dest.read_bytes() == b"helloworld"
@@ -125,7 +125,7 @@ def test_download_to_file_success(tmp_path):
 def test_download_to_file_http_error(tmp_path):
     mc = _make_mock_client(status_error=True)
     with patch(
-        "code_puppy.plugins.agent_skills.downloader.httpx.Client", return_value=mc
+        "code_puppy_core_plugins.agent_skills.downloader.httpx.Client", return_value=mc
     ):
         assert _download_to_file("http://x", tmp_path / "o.zip") is False
 
@@ -133,7 +133,7 @@ def test_download_to_file_http_error(tmp_path):
 def test_download_to_file_connect_error(tmp_path):
     mc = _make_mock_client(connect_error=True)
     with patch(
-        "code_puppy.plugins.agent_skills.downloader.httpx.Client", return_value=mc
+        "code_puppy_core_plugins.agent_skills.downloader.httpx.Client", return_value=mc
     ):
         assert _download_to_file("http://x", tmp_path / "o.zip") is False
 
@@ -141,7 +141,7 @@ def test_download_to_file_connect_error(tmp_path):
 def test_download_to_file_generic_error(tmp_path):
     mc = _make_mock_client(generic_error=True)
     with patch(
-        "code_puppy.plugins.agent_skills.downloader.httpx.Client", return_value=mc
+        "code_puppy_core_plugins.agent_skills.downloader.httpx.Client", return_value=mc
     ):
         assert _download_to_file("http://x", tmp_path / "o.zip") is False
 
@@ -235,7 +235,7 @@ def test_safe_extract_zip_outside_dir(tmp_path):
     extract_dir = tmp_path / "out"
     with zipfile.ZipFile(BytesIO(data)) as zf:
         with patch(
-            "code_puppy.plugins.agent_skills.downloader._is_within_directory",
+            "code_puppy_core_plugins.agent_skills.downloader._is_within_directory",
             return_value=False,
         ):
             assert _safe_extract_zip(zf, extract_dir) is False
@@ -246,7 +246,7 @@ def test_safe_extract_zip_exception(tmp_path):
     extract_dir = tmp_path / "out"
     with zipfile.ZipFile(BytesIO(data)) as zf:
         with patch(
-            "code_puppy.plugins.agent_skills.downloader._is_within_directory",
+            "code_puppy_core_plugins.agent_skills.downloader._is_within_directory",
             side_effect=RuntimeError,
         ):
             assert _safe_extract_zip(zf, extract_dir) is False
@@ -341,7 +341,7 @@ def test_stage_normalized_install_missing_skill_md(tmp_path):
 
 def test_stage_normalized_install_exception(tmp_path):
     with patch(
-        "code_puppy.plugins.agent_skills.downloader.shutil.copytree",
+        "code_puppy_core_plugins.agent_skills.downloader.shutil.copytree",
         side_effect=OSError,
     ):
         src = tmp_path / "src"
@@ -383,7 +383,8 @@ def test_force_reinstall_rmtree_fails(tmp_path):
     skill_dir = tmp_path / "myskill"
     skill_dir.mkdir()
     with patch(
-        "code_puppy.plugins.agent_skills.downloader._safe_rmtree", return_value=False
+        "code_puppy_core_plugins.agent_skills.downloader._safe_rmtree",
+        return_value=False,
     ):
         r = download_and_install_skill(
             "myskill", "http://x", target_dir=tmp_path, force=True
@@ -393,7 +394,7 @@ def test_force_reinstall_rmtree_fails(tmp_path):
 
 def test_download_failure(tmp_path):
     with patch(
-        "code_puppy.plugins.agent_skills.downloader._download_to_file",
+        "code_puppy_core_plugins.agent_skills.downloader._download_to_file",
         return_value=False,
     ):
         r = download_and_install_skill("myskill", "http://x", target_dir=tmp_path)
@@ -402,11 +403,11 @@ def test_download_failure(tmp_path):
 
 def test_bad_zip_file(tmp_path):
     with patch(
-        "code_puppy.plugins.agent_skills.downloader._download_to_file",
+        "code_puppy_core_plugins.agent_skills.downloader._download_to_file",
         return_value=True,
     ):
         with patch(
-            "code_puppy.plugins.agent_skills.downloader.zipfile.ZipFile",
+            "code_puppy_core_plugins.agent_skills.downloader.zipfile.ZipFile",
             side_effect=zipfile.BadZipFile,
         ):
             r = download_and_install_skill("myskill", "http://x", target_dir=tmp_path)
@@ -415,11 +416,11 @@ def test_bad_zip_file(tmp_path):
 
 def test_zip_open_generic_exception(tmp_path):
     with patch(
-        "code_puppy.plugins.agent_skills.downloader._download_to_file",
+        "code_puppy_core_plugins.agent_skills.downloader._download_to_file",
         return_value=True,
     ):
         with patch(
-            "code_puppy.plugins.agent_skills.downloader.zipfile.ZipFile",
+            "code_puppy_core_plugins.agent_skills.downloader.zipfile.ZipFile",
             side_effect=RuntimeError("boom"),
         ):
             r = download_and_install_skill("myskill", "http://x", target_dir=tmp_path)
@@ -428,18 +429,18 @@ def test_zip_open_generic_exception(tmp_path):
 
 def test_unsafe_zip(tmp_path):
     with patch(
-        "code_puppy.plugins.agent_skills.downloader._download_to_file",
+        "code_puppy_core_plugins.agent_skills.downloader._download_to_file",
         return_value=True,
     ):
         mock_zf = MagicMock()
         mock_zf.__enter__ = MagicMock(return_value=mock_zf)
         mock_zf.__exit__ = MagicMock(return_value=False)
         with patch(
-            "code_puppy.plugins.agent_skills.downloader.zipfile.ZipFile",
+            "code_puppy_core_plugins.agent_skills.downloader.zipfile.ZipFile",
             return_value=mock_zf,
         ):
             with patch(
-                "code_puppy.plugins.agent_skills.downloader._validate_zip_safety",
+                "code_puppy_core_plugins.agent_skills.downloader._validate_zip_safety",
                 return_value="too big",
             ):
                 r = download_and_install_skill(
@@ -450,22 +451,22 @@ def test_unsafe_zip(tmp_path):
 
 def test_extract_failure(tmp_path):
     with patch(
-        "code_puppy.plugins.agent_skills.downloader._download_to_file",
+        "code_puppy_core_plugins.agent_skills.downloader._download_to_file",
         return_value=True,
     ):
         mock_zf = MagicMock()
         mock_zf.__enter__ = MagicMock(return_value=mock_zf)
         mock_zf.__exit__ = MagicMock(return_value=False)
         with patch(
-            "code_puppy.plugins.agent_skills.downloader.zipfile.ZipFile",
+            "code_puppy_core_plugins.agent_skills.downloader.zipfile.ZipFile",
             return_value=mock_zf,
         ):
             with patch(
-                "code_puppy.plugins.agent_skills.downloader._validate_zip_safety",
+                "code_puppy_core_plugins.agent_skills.downloader._validate_zip_safety",
                 return_value=None,
             ):
                 with patch(
-                    "code_puppy.plugins.agent_skills.downloader._safe_extract_zip",
+                    "code_puppy_core_plugins.agent_skills.downloader._safe_extract_zip",
                     return_value=False,
                 ):
                     r = download_and_install_skill(
@@ -476,26 +477,26 @@ def test_extract_failure(tmp_path):
 
 def test_no_extracted_root(tmp_path):
     with patch(
-        "code_puppy.plugins.agent_skills.downloader._download_to_file",
+        "code_puppy_core_plugins.agent_skills.downloader._download_to_file",
         return_value=True,
     ):
         mock_zf = MagicMock()
         mock_zf.__enter__ = MagicMock(return_value=mock_zf)
         mock_zf.__exit__ = MagicMock(return_value=False)
         with patch(
-            "code_puppy.plugins.agent_skills.downloader.zipfile.ZipFile",
+            "code_puppy_core_plugins.agent_skills.downloader.zipfile.ZipFile",
             return_value=mock_zf,
         ):
             with patch(
-                "code_puppy.plugins.agent_skills.downloader._validate_zip_safety",
+                "code_puppy_core_plugins.agent_skills.downloader._validate_zip_safety",
                 return_value=None,
             ):
                 with patch(
-                    "code_puppy.plugins.agent_skills.downloader._safe_extract_zip",
+                    "code_puppy_core_plugins.agent_skills.downloader._safe_extract_zip",
                     return_value=True,
                 ):
                     with patch(
-                        "code_puppy.plugins.agent_skills.downloader._determine_extracted_root",
+                        "code_puppy_core_plugins.agent_skills.downloader._determine_extracted_root",
                         return_value=None,
                     ):
                         r = download_and_install_skill(
@@ -506,30 +507,30 @@ def test_no_extracted_root(tmp_path):
 
 def test_stage_failure(tmp_path):
     with patch(
-        "code_puppy.plugins.agent_skills.downloader._download_to_file",
+        "code_puppy_core_plugins.agent_skills.downloader._download_to_file",
         return_value=True,
     ):
         mock_zf = MagicMock()
         mock_zf.__enter__ = MagicMock(return_value=mock_zf)
         mock_zf.__exit__ = MagicMock(return_value=False)
         with patch(
-            "code_puppy.plugins.agent_skills.downloader.zipfile.ZipFile",
+            "code_puppy_core_plugins.agent_skills.downloader.zipfile.ZipFile",
             return_value=mock_zf,
         ):
             with patch(
-                "code_puppy.plugins.agent_skills.downloader._validate_zip_safety",
+                "code_puppy_core_plugins.agent_skills.downloader._validate_zip_safety",
                 return_value=None,
             ):
                 with patch(
-                    "code_puppy.plugins.agent_skills.downloader._safe_extract_zip",
+                    "code_puppy_core_plugins.agent_skills.downloader._safe_extract_zip",
                     return_value=True,
                 ):
                     with patch(
-                        "code_puppy.plugins.agent_skills.downloader._determine_extracted_root",
+                        "code_puppy_core_plugins.agent_skills.downloader._determine_extracted_root",
                         return_value=Path("/fake"),
                     ):
                         with patch(
-                            "code_puppy.plugins.agent_skills.downloader._stage_normalized_install",
+                            "code_puppy_core_plugins.agent_skills.downloader._stage_normalized_install",
                             return_value=None,
                         ):
                             r = download_and_install_skill(
@@ -543,34 +544,34 @@ def test_move_failure(tmp_path):
     staged.mkdir()
     (staged / "SKILL.md").write_text("hi")
     with patch(
-        "code_puppy.plugins.agent_skills.downloader._download_to_file",
+        "code_puppy_core_plugins.agent_skills.downloader._download_to_file",
         return_value=True,
     ):
         mock_zf = MagicMock()
         mock_zf.__enter__ = MagicMock(return_value=mock_zf)
         mock_zf.__exit__ = MagicMock(return_value=False)
         with patch(
-            "code_puppy.plugins.agent_skills.downloader.zipfile.ZipFile",
+            "code_puppy_core_plugins.agent_skills.downloader.zipfile.ZipFile",
             return_value=mock_zf,
         ):
             with patch(
-                "code_puppy.plugins.agent_skills.downloader._validate_zip_safety",
+                "code_puppy_core_plugins.agent_skills.downloader._validate_zip_safety",
                 return_value=None,
             ):
                 with patch(
-                    "code_puppy.plugins.agent_skills.downloader._safe_extract_zip",
+                    "code_puppy_core_plugins.agent_skills.downloader._safe_extract_zip",
                     return_value=True,
                 ):
                     with patch(
-                        "code_puppy.plugins.agent_skills.downloader._determine_extracted_root",
+                        "code_puppy_core_plugins.agent_skills.downloader._determine_extracted_root",
                         return_value=Path("/fake"),
                     ):
                         with patch(
-                            "code_puppy.plugins.agent_skills.downloader._stage_normalized_install",
+                            "code_puppy_core_plugins.agent_skills.downloader._stage_normalized_install",
                             return_value=staged,
                         ):
                             with patch(
-                                "code_puppy.plugins.agent_skills.downloader.shutil.move",
+                                "code_puppy_core_plugins.agent_skills.downloader.shutil.move",
                                 side_effect=OSError,
                             ):
                                 r = download_and_install_skill(
@@ -588,10 +589,12 @@ def test_full_success(tmp_path):
         return True
 
     with patch(
-        "code_puppy.plugins.agent_skills.downloader._download_to_file",
+        "code_puppy_core_plugins.agent_skills.downloader._download_to_file",
         side_effect=fake_download,
     ):
-        with patch("code_puppy.plugins.agent_skills.downloader.refresh_skill_cache"):
+        with patch(
+            "code_puppy_core_plugins.agent_skills.downloader.refresh_skill_cache"
+        ):
             r = download_and_install_skill("myskill", "http://x", target_dir=tmp_path)
     assert r.success
     assert (tmp_path / "myskill" / "SKILL.md").exists()
@@ -606,11 +609,11 @@ def test_full_success_cache_refresh_fails(tmp_path):
         return True
 
     with patch(
-        "code_puppy.plugins.agent_skills.downloader._download_to_file",
+        "code_puppy_core_plugins.agent_skills.downloader._download_to_file",
         side_effect=fake_download,
     ):
         with patch(
-            "code_puppy.plugins.agent_skills.downloader.refresh_skill_cache",
+            "code_puppy_core_plugins.agent_skills.downloader.refresh_skill_cache",
             side_effect=RuntimeError("oops"),
         ):
             r = download_and_install_skill("myskill", "http://x", target_dir=tmp_path)
@@ -639,11 +642,11 @@ def test_post_install_missing_skill_md(tmp_path):
         return result
 
     with patch(
-        "code_puppy.plugins.agent_skills.downloader._download_to_file",
+        "code_puppy_core_plugins.agent_skills.downloader._download_to_file",
         side_effect=fake_download,
     ):
         with patch(
-            "code_puppy.plugins.agent_skills.downloader.shutil.move",
+            "code_puppy_core_plugins.agent_skills.downloader.shutil.move",
             side_effect=fake_move,
         ):
             r = download_and_install_skill("myskill", "http://x", target_dir=tmp_path)
@@ -670,30 +673,30 @@ def test_skill_dir_exists_during_move_no_force(tmp_path):
         return orig_exists(self)
 
     with patch(
-        "code_puppy.plugins.agent_skills.downloader._download_to_file",
+        "code_puppy_core_plugins.agent_skills.downloader._download_to_file",
         return_value=True,
     ):
         mock_zf = MagicMock()
         mock_zf.__enter__ = MagicMock(return_value=mock_zf)
         mock_zf.__exit__ = MagicMock(return_value=False)
         with patch(
-            "code_puppy.plugins.agent_skills.downloader.zipfile.ZipFile",
+            "code_puppy_core_plugins.agent_skills.downloader.zipfile.ZipFile",
             return_value=mock_zf,
         ):
             with patch(
-                "code_puppy.plugins.agent_skills.downloader._validate_zip_safety",
+                "code_puppy_core_plugins.agent_skills.downloader._validate_zip_safety",
                 return_value=None,
             ):
                 with patch(
-                    "code_puppy.plugins.agent_skills.downloader._safe_extract_zip",
+                    "code_puppy_core_plugins.agent_skills.downloader._safe_extract_zip",
                     return_value=True,
                 ):
                     with patch(
-                        "code_puppy.plugins.agent_skills.downloader._determine_extracted_root",
+                        "code_puppy_core_plugins.agent_skills.downloader._determine_extracted_root",
                         return_value=Path("/fake"),
                     ):
                         with patch(
-                            "code_puppy.plugins.agent_skills.downloader._stage_normalized_install",
+                            "code_puppy_core_plugins.agent_skills.downloader._stage_normalized_install",
                             return_value=staged,
                         ):
                             with patch.object(Path, "exists", fake_exists):
@@ -716,10 +719,12 @@ def test_skill_dir_exists_during_move_force(tmp_path):
         return True
 
     with patch(
-        "code_puppy.plugins.agent_skills.downloader._download_to_file",
+        "code_puppy_core_plugins.agent_skills.downloader._download_to_file",
         side_effect=fake_download,
     ):
-        with patch("code_puppy.plugins.agent_skills.downloader.refresh_skill_cache"):
+        with patch(
+            "code_puppy_core_plugins.agent_skills.downloader.refresh_skill_cache"
+        ):
             r = download_and_install_skill(
                 "myskill", "http://x", target_dir=tmp_path, force=True
             )
@@ -743,10 +748,12 @@ def test_full_success_nested_zip(tmp_path):
         return True
 
     with patch(
-        "code_puppy.plugins.agent_skills.downloader._download_to_file",
+        "code_puppy_core_plugins.agent_skills.downloader._download_to_file",
         side_effect=fake_download,
     ):
-        with patch("code_puppy.plugins.agent_skills.downloader.refresh_skill_cache"):
+        with patch(
+            "code_puppy_core_plugins.agent_skills.downloader.refresh_skill_cache"
+        ):
             r = download_and_install_skill("myskill", "http://x", target_dir=tmp_path)
     assert r.success
     assert (tmp_path / "myskill" / "SKILL.md").read_text() == "# Nested"

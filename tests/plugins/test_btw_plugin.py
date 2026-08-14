@@ -2,8 +2,8 @@
 
 from unittest.mock import patch
 
-from code_puppy.plugins.btw import inline_view, side_query
-from code_puppy.plugins.btw.register_callbacks import (
+from code_puppy_core_plugins.btw import inline_view, side_query
+from code_puppy_core_plugins.btw.register_callbacks import (
     COMMAND_NAME,
     _custom_help,
     _handle_custom_command,

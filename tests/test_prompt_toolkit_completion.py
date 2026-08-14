@@ -141,7 +141,7 @@ def test_fork_model_completion_no_prefix_still_works():
 
 def test_fork_parse_args_with_model():
     """Test fork arg parsing extracts both agent and model."""
-    from code_puppy.plugins.fork.register_callbacks import _parse_fork_args
+    from code_puppy_core_plugins.fork.register_callbacks import _parse_fork_args
 
     # Both agent and model
     agent, model, prompt = _parse_fork_args("@code-puppy @gpt-5 fizzbuzz")

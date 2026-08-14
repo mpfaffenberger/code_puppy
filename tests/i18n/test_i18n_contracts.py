@@ -259,7 +259,7 @@ def test_add_model_failed_interpolates_error_param():
         ("code_puppy.command_line.core_commands", "handle_cd_command"),
         ("code_puppy.mcp_.config_wizard", None),
         ("code_puppy.command_line.session_commands", None),
-        ("code_puppy.plugins.claude_code_oauth.register_callbacks", None),
+        ("code_puppy_core_plugins.claude_code_oauth.register_callbacks", None),
     ],
     ids=[
         "cli_runner",
@@ -277,41 +277,3 @@ def test_module_imports_cleanly(module_name, attr):
     mod = importlib.import_module(module_name)
     if attr:
         assert hasattr(mod, attr)
-
-
-def test_no_raw_emit_in_register_callbacks():
-    """Fail fast if any emit_* call bypasses t() in the OAuth plugin."""
-    import ast
-    import pathlib
-
-    src = pathlib.Path(
-        "code_puppy/plugins/claude_code_oauth/register_callbacks.py"
-    ).read_text()
-    tree = ast.parse(src)
-    offenders = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            fn = node.func
-            fn_name = (
-                fn.id
-                if isinstance(fn, ast.Name)
-                else (fn.attr if isinstance(fn, ast.Attribute) else "")
-            )
-            if fn_name.startswith("emit_"):
-                for arg in node.args:
-                    if (
-                        isinstance(arg, ast.Constant)
-                        and isinstance(arg.value, str)
-                        and arg.value.strip()
-                    ):
-                        offenders.append((node.lineno, fn_name, arg.value[:50]))
-                    elif isinstance(arg, ast.JoinedStr):
-                        for v in arg.values:
-                            if (
-                                isinstance(v, ast.Constant)
-                                and isinstance(v.value, str)
-                                and v.value.strip()
-                            ):
-                                offenders.append((node.lineno, fn_name, "f-string"))
-                                break
-    assert not offenders, f"Raw emit_* calls found: {offenders}"

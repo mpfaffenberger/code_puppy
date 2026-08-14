@@ -9,15 +9,17 @@ import pytest
 
 
 def _plugin_module():
-    return importlib.import_module("code_puppy.plugins.emoji_filter.register_callbacks")
+    return importlib.import_module(
+        "code_puppy_core_plugins.emoji_filter.register_callbacks"
+    )
 
 
 def _config_module():
-    return importlib.import_module("code_puppy.plugins.emoji_filter.config")
+    return importlib.import_module("code_puppy_core_plugins.emoji_filter.config")
 
 
 def _stripper_module():
-    return importlib.import_module("code_puppy.plugins.emoji_filter.stripper")
+    return importlib.import_module("code_puppy_core_plugins.emoji_filter.stripper")
 
 
 # ---------------------------------------------------------------------------

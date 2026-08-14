@@ -7,11 +7,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Patch targets for lazy imports inside _get_skills_prompt_section
-_CFG = "code_puppy.plugins.agent_skills.config"
-_DISC = "code_puppy.plugins.agent_skills.discovery"
-_META = "code_puppy.plugins.agent_skills.metadata"
-_PB = "code_puppy.plugins.agent_skills.prompt_builder"
-_ENABLED = "code_puppy.plugins.agent_skills.enabled_skills"
+_CFG = "code_puppy_core_plugins.agent_skills.config"
+_DISC = "code_puppy_core_plugins.agent_skills.discovery"
+_META = "code_puppy_core_plugins.agent_skills.metadata"
+_PB = "code_puppy_core_plugins.agent_skills.prompt_builder"
+_ENABLED = "code_puppy_core_plugins.agent_skills.enabled_skills"
 
 
 def _write_skill(root, name, description="A test skill."):
@@ -27,7 +27,7 @@ def _write_skill(root, name, description="A test skill."):
 class TestGetSkillsPromptSection:
     def test_no_enabled_skills(self):
         """Helper returns [] → no prompt section."""
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _get_skills_prompt_section,
         )
 
@@ -36,7 +36,7 @@ class TestGetSkillsPromptSection:
 
     def test_success(self):
         """Helper returns metadata → prompt section built from it."""
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _get_skills_prompt_section,
         )
 
@@ -56,7 +56,7 @@ class TestGetSkillsPromptSection:
         """With frontmatter off, only the guidance one-liner is emitted —
         the per-skill block is suppressed but the model is still told the
         activate_skill / list_or_search_skills mechanism exists."""
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _get_skills_prompt_section,
         )
 
@@ -80,7 +80,7 @@ class TestGetSkillsPromptSection:
     def test_frontmatter_disabled_no_skills_returns_none(self):
         """No skills + frontmatter off should still short-circuit to None;
         don't advertise a mechanism that has nothing to find."""
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _get_skills_prompt_section,
         )
 
@@ -96,7 +96,7 @@ class TestEnabledSkillsHelper:
     parse frontmatter for disabled skills."""
 
     def test_skills_globally_disabled_yields_nothing(self):
-        from code_puppy.plugins.agent_skills.enabled_skills import (
+        from code_puppy_core_plugins.agent_skills.enabled_skills import (
             list_enabled_skill_metadata,
         )
 
@@ -106,7 +106,7 @@ class TestEnabledSkillsHelper:
     def test_disabled_skill_never_parses_frontmatter(self):
         """The headline guarantee: parse_skill_metadata is NOT called for
         a disabled skill."""
-        from code_puppy.plugins.agent_skills.enabled_skills import (
+        from code_puppy_core_plugins.agent_skills.enabled_skills import (
             list_enabled_skill_metadata,
         )
 
@@ -135,7 +135,7 @@ class TestEnabledSkillsHelper:
         assert disabled.path not in called_paths
 
     def test_skill_without_skill_md_is_skipped(self):
-        from code_puppy.plugins.agent_skills.enabled_skills import (
+        from code_puppy_core_plugins.agent_skills.enabled_skills import (
             list_enabled_skill_metadata,
         )
 
@@ -166,7 +166,7 @@ class TestEnabledSkillsDirectoryPassthrough:
     def test_omitted_directories_still_finds_default_dir_skill(self, tmp_path):
         # The headline bug: a configured custom directory must not push
         # out skills that live in a default directory.
-        from code_puppy.plugins.agent_skills.enabled_skills import (
+        from code_puppy_core_plugins.agent_skills.enabled_skills import (
             list_enabled_skill_metadata,
         )
 
@@ -207,7 +207,7 @@ class TestEnabledSkillsDirectoryPassthrough:
     def test_explicit_directories_still_restrict_scope(self, tmp_path):
         # Callers that intentionally pass an explicit list keep the old,
         # non-additive behaviour.
-        from code_puppy.plugins.agent_skills.enabled_skills import (
+        from code_puppy_core_plugins.agent_skills.enabled_skills import (
             list_enabled_skill_metadata,
         )
 
@@ -236,7 +236,7 @@ class TestEnabledSkillsDirectoryPassthrough:
 
     def test_disabled_skills_excluded_from_merged_directories(self, tmp_path):
         # Disabling still works once directories are merged.
-        from code_puppy.plugins.agent_skills.enabled_skills import (
+        from code_puppy_core_plugins.agent_skills.enabled_skills import (
             list_enabled_skill_metadata,
         )
 
@@ -270,23 +270,23 @@ class TestEnabledSkillsDirectoryPassthrough:
 
 class TestInjectSkillsIntoPrompt:
     def test_no_skills(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _inject_skills_into_prompt,
         )
 
         with patch(
-            "code_puppy.plugins.agent_skills.register_callbacks._get_skills_prompt_section",
+            "code_puppy_core_plugins.agent_skills.register_callbacks._get_skills_prompt_section",
             return_value=None,
         ):
             assert _inject_skills_into_prompt("model", "prompt", "user") is None
 
     def test_with_skills(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _inject_skills_into_prompt,
         )
 
         with patch(
-            "code_puppy.plugins.agent_skills.register_callbacks._get_skills_prompt_section",
+            "code_puppy_core_plugins.agent_skills.register_callbacks._get_skills_prompt_section",
             return_value="SKILLS SECTION",
         ):
             result = _inject_skills_into_prompt("model", "base prompt", "user input")
@@ -297,7 +297,7 @@ class TestInjectSkillsIntoPrompt:
 
 class TestRegisterSkillsTools:
     def test_returns_tools(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _register_skills_tools,
         )
 
@@ -308,8 +308,8 @@ class TestRegisterSkillsTools:
         assert "list_or_search_skills" in names
 
     def test_registers_provider_without_traversing_discovery(self):
-        from code_puppy.plugins.agent_skills.provider import skill_provider
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.provider import skill_provider
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _register_skills,
         )
 
@@ -318,7 +318,7 @@ class TestRegisterSkillsTools:
 
 class TestSkillsCommandHelp:
     def test_returns_entries(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _skills_command_help,
         )
 
@@ -330,20 +330,20 @@ class TestSkillsCommandHelp:
 
 # Patch targets for lazy imports inside _handle_skills_command
 _MSG = "code_puppy.messaging"
-_SKILLS_MENU = "code_puppy.plugins.agent_skills.skills_menu"
-_SKILLS_INSTALL = "code_puppy.plugins.agent_skills.skills_install_menu"
+_SKILLS_MENU = "code_puppy_core_plugins.agent_skills.skills_menu"
+_SKILLS_INSTALL = "code_puppy_core_plugins.agent_skills.skills_install_menu"
 
 
 class TestHandleSkillsCommand:
     def test_unrelated_command(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
         assert _handle_skills_command("/other", "other") is None
 
     def test_skills_list_no_skills(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -356,7 +356,7 @@ class TestHandleSkillsCommand:
             assert _handle_skills_command("/skills list", "skills") is True
 
     def test_skills_list_with_skills(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -377,7 +377,7 @@ class TestHandleSkillsCommand:
             assert _handle_skills_command("/skills list", "skills") is True
 
     def test_skills_list_disabled_skill(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -396,7 +396,7 @@ class TestHandleSkillsCommand:
             assert _handle_skills_command("/skills list", "skills") is True
 
     def test_skills_list_no_metadata(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -413,7 +413,7 @@ class TestHandleSkillsCommand:
             assert _handle_skills_command("/skills list", "skills") is True
 
     def test_skills_install(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -421,7 +421,7 @@ class TestHandleSkillsCommand:
             assert _handle_skills_command("/skills install", "skills") is True
 
     def test_skills_enable(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -432,7 +432,7 @@ class TestHandleSkillsCommand:
             assert _handle_skills_command("/skills enable", "skills") is True
 
     def test_skills_disable(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -443,7 +443,7 @@ class TestHandleSkillsCommand:
             assert _handle_skills_command("/skills disable", "skills") is True
 
     def test_skills_toggle(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -457,7 +457,7 @@ class TestHandleSkillsCommand:
             mock_success.assert_called_once()
 
     def test_skills_frontmatter_on(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -471,7 +471,7 @@ class TestHandleSkillsCommand:
             mock_success.assert_called_once()
 
     def test_skills_frontmatter_off(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -485,7 +485,7 @@ class TestHandleSkillsCommand:
             mock_warning.assert_called_once()
 
     def test_skills_frontmatter_toggle(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -500,7 +500,7 @@ class TestHandleSkillsCommand:
             mock_set.assert_called_once_with(False)
 
     def test_skills_frontmatter_no_arg_shows_state(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -515,7 +515,7 @@ class TestHandleSkillsCommand:
             assert "on" in str(mock_info.call_args_list).lower()
 
     def test_skills_frontmatter_bogus_arg(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -532,7 +532,7 @@ class TestHandleSkillsCommand:
             mock_error.assert_called_once()
 
     def test_skills_help(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -542,7 +542,7 @@ class TestHandleSkillsCommand:
             assert "toggle" in str(mock_info.call_args_list)
 
     def test_skills_refresh(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -562,7 +562,7 @@ class TestHandleSkillsCommand:
             assert "1 with SKILL.md" in str(mock_success.call_args)
 
     def test_skills_unknown_subcommand(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -575,7 +575,7 @@ class TestHandleSkillsCommand:
             assert "help" in str(mock_info.call_args)
 
     def test_skills_no_subcommand_launches_menu(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 
@@ -584,7 +584,7 @@ class TestHandleSkillsCommand:
             mock_menu.assert_called_once()
 
     def test_skill_alias(self):
-        from code_puppy.plugins.agent_skills.register_callbacks import (
+        from code_puppy_core_plugins.agent_skills.register_callbacks import (
             _handle_skills_command,
         )
 

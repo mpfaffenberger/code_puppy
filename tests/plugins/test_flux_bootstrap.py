@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from code_puppy.plugins.flux_bootstrap import installer
+from code_puppy_core_plugins.flux_bootstrap import installer
 
 
 @pytest.fixture
@@ -182,8 +182,8 @@ def test_first_run_lifecycle_makes_flux_dispatchable_without_restart(config_dir:
     bootstrap ``startup`` callback, then an assertion that the command is
     dispatchable -- with no manual reload in the test.
     """
-    from code_puppy.plugins.customizable_commands import register_callbacks as cc
-    from code_puppy.plugins.flux_bootstrap import register_callbacks as flux_rc
+    from code_puppy_core_plugins.customizable_commands import register_callbacks as cc
+    from code_puppy_core_plugins.flux_bootstrap import register_callbacks as flux_rc
 
     commands_dir = config_dir / "commands"
 

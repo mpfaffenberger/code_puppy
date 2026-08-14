@@ -4,7 +4,7 @@ import os
 import sys
 from unittest.mock import MagicMock, patch
 
-from code_puppy.plugins.customizable_commands import register_callbacks as commands
+from code_puppy_core_plugins.customizable_commands import register_callbacks as commands
 
 
 def test_exec_runner_uses_utf8_stdio_contract():

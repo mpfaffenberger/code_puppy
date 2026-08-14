@@ -486,7 +486,7 @@ def test_facade_local_walk_and_symlink_cycle(tmp_path):
 
 # --- gap B: the ACP adapter's topology methods (pure local os) --------------
 def test_acp_backend_topology(tmp_path):
-    from code_puppy.plugins.acp.io_delegation import DelegatedFileSystemBackend
+    from code_puppy_core_plugins.acp.io_delegation import DelegatedFileSystemBackend
 
     be = DelegatedFileSystemBackend()
     be.make_dirs(str(tmp_path / "sub"))
@@ -502,7 +502,7 @@ def test_acp_backend_topology(tmp_path):
 
 
 def test_acp_backend_list_dir_errors(tmp_path):
-    from code_puppy.plugins.acp.io_delegation import DelegatedFileSystemBackend
+    from code_puppy_core_plugins.acp.io_delegation import DelegatedFileSystemBackend
 
     be = DelegatedFileSystemBackend()
     with pytest.raises(FileNotFoundError):

@@ -83,8 +83,8 @@ def test_command_handler_markdown_import_failure():
         with patch.dict(
             sys.modules,
             {
-                "code_puppy.plugins.customizable_commands": None,
-                "code_puppy.plugins.customizable_commands.register_callbacks": None,
+                "code_puppy_core_plugins.customizable_commands": None,
+                "code_puppy_core_plugins.customizable_commands.register_callbacks": None,
             },
         ):
             result = handle_command("/unknowncmd_xyz")
@@ -267,7 +267,10 @@ def test_uc_menu_delete_tool():
     import tempfile
 
     from code_puppy.command_line.uc_menu import _delete_tool
-    from code_puppy.plugins.universal_constructor.models import ToolMeta, UCToolInfo
+    from code_puppy_core_plugins.universal_constructor.models import (
+        ToolMeta,
+        UCToolInfo,
+    )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tool_file = os.path.join(tmpdir, "sub", "test_tool.py")
@@ -290,7 +293,10 @@ def test_uc_menu_delete_tool():
         )
 
         with (
-            patch("code_puppy.plugins.universal_constructor.USER_UC_DIR", Path(tmpdir)),
+            patch(
+                "code_puppy_core_plugins.universal_constructor.USER_UC_DIR",
+                Path(tmpdir),
+            ),
             patch("code_puppy.command_line.uc_menu.emit_success"),
         ):
             result = _delete_tool(tool)
@@ -301,7 +307,10 @@ def test_uc_menu_delete_tool():
 def test_uc_menu_delete_tool_exception():
     """Cover _delete_tool exception handling."""
     from code_puppy.command_line.uc_menu import _delete_tool
-    from code_puppy.plugins.universal_constructor.models import ToolMeta, UCToolInfo
+    from code_puppy_core_plugins.universal_constructor.models import (
+        ToolMeta,
+        UCToolInfo,
+    )
 
     tool = UCToolInfo(
         meta=ToolMeta(
@@ -358,7 +367,10 @@ def test_uc_menu_highlight_python_line():
 def test_uc_menu_render_preview_panel_with_author():
     """Cover line 297: _render_preview_panel with author."""
     from code_puppy.command_line.uc_menu import _render_preview_panel
-    from code_puppy.plugins.universal_constructor.models import ToolMeta, UCToolInfo
+    from code_puppy_core_plugins.universal_constructor.models import (
+        ToolMeta,
+        UCToolInfo,
+    )
 
     tool = UCToolInfo(
         meta=ToolMeta(
@@ -386,7 +398,10 @@ def test_uc_menu_toggle_tool_meta_not_found():
     import tempfile
 
     from code_puppy.command_line.uc_menu import _toggle_tool_enabled
-    from code_puppy.plugins.universal_constructor.models import ToolMeta, UCToolInfo
+    from code_puppy_core_plugins.universal_constructor.models import (
+        ToolMeta,
+        UCToolInfo,
+    )
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write("# no TOOL_META here\ndef my_tool(): pass\n")

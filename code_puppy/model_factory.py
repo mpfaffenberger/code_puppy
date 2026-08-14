@@ -997,63 +997,6 @@ class ModelFactory:
                 profile=_thinking_tags_profile(model_name, model_config),
             )
 
-        elif model_type == "gemini_oauth":
-            # Gemini OAuth models use the Code Assist API (cloudcode-pa.googleapis.com)
-            # This is a different API than the standard Generative Language API
-            try:
-                # Try user plugin first, then built-in plugin
-                try:
-                    from gemini_oauth.config import GEMINI_OAUTH_CONFIG
-                    from gemini_oauth.utils import (
-                        get_project_id,
-                        get_valid_access_token,
-                    )
-                except ImportError:
-                    from code_puppy.plugins.gemini_oauth.config import (
-                        GEMINI_OAUTH_CONFIG,
-                    )
-                    from code_puppy.plugins.gemini_oauth.utils import (
-                        get_project_id,
-                        get_valid_access_token,
-                    )
-            except ImportError as exc:
-                emit_warning(
-                    f"Gemini OAuth plugin not available; skipping model '{model_config.get('name')}'. "
-                    f"Error: {exc}"
-                )
-                return None
-
-            # Get a valid access token (refreshing if needed)
-            access_token = get_valid_access_token()
-            if not access_token:
-                emit_warning(
-                    f"Failed to get valid Gemini OAuth token; skipping model '{model_config.get('name')}'. "
-                    "Run /gemini-auth to re-authenticate."
-                )
-                return None
-
-            # Get project ID from stored tokens
-            project_id = get_project_id()
-            if not project_id:
-                emit_warning(
-                    f"No Code Assist project ID found; skipping model '{model_config.get('name')}'. "
-                    "Run /gemini-auth to re-authenticate."
-                )
-                return None
-
-            # Import the Code Assist model wrapper
-            from code_puppy.gemini_code_assist import GeminiCodeAssistModel
-
-            # Create the Code Assist model
-            model = GeminiCodeAssistModel(
-                model_name=model_config["name"],
-                access_token=access_token,
-                project_id=project_id,
-                api_base_url=GEMINI_OAUTH_CONFIG["api_base_url"],
-                api_version=GEMINI_OAUTH_CONFIG["api_version"],
-            )
-            return model
-
         # NOTE: 'chatgpt_oauth' model type is now handled by the chatgpt_oauth plugin
         # via the register_model_type callback. See plugins/chatgpt_oauth/register_callbacks.py
 

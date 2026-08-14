@@ -15,8 +15,8 @@ from code_puppy.messaging.pause_controller import (
     PauseController,
     reset_pause_controller,
 )
-from code_puppy.plugins.steer_queue import register_callbacks as rc
-from code_puppy.plugins.steer_queue.queue_menu import (
+from code_puppy_core_plugins.steer_queue import register_callbacks as rc
+from code_puppy_core_plugins.steer_queue.queue_menu import (
     QueueMenuApp,
     QueueMenuState,
     _preview,

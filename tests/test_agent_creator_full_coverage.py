@@ -66,7 +66,7 @@ class TestAgentCreatorAgent:
             ),
             patch("code_puppy.agents.agent_creator_agent.ModelFactory") as mock_factory,
             patch(
-                "code_puppy.plugins.universal_constructor.registry.get_registry",
+                "code_puppy_core_plugins.universal_constructor.registry.get_registry",
                 return_value=mock_registry,
             ),
         ):

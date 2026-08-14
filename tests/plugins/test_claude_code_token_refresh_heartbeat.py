@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from code_puppy.plugins.claude_code_oauth.token_refresh_heartbeat import (
+from code_puppy_core_plugins.claude_code_oauth.token_refresh_heartbeat import (
     HEARTBEAT_INTERVAL_SECONDS,
     MIN_REFRESH_INTERVAL_SECONDS,
     TokenRefreshHeartbeat,
@@ -61,9 +61,9 @@ class TestTokenRefreshHeartbeat:
         assert heartbeat.refresh_count == 0
 
     @pytest.mark.asyncio
-    @patch("code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens")
-    @patch("code_puppy.plugins.claude_code_oauth.utils.is_token_expired")
-    @patch("code_puppy.plugins.claude_code_oauth.utils.refresh_access_token")
+    @patch("code_puppy_core_plugins.claude_code_oauth.utils.load_stored_tokens")
+    @patch("code_puppy_core_plugins.claude_code_oauth.utils.is_token_expired")
+    @patch("code_puppy_core_plugins.claude_code_oauth.utils.refresh_access_token")
     async def test_heartbeat_refreshes_expired_token(
         self, mock_refresh, mock_is_expired, mock_load_tokens
     ):
@@ -89,8 +89,8 @@ class TestTokenRefreshHeartbeat:
         mock_refresh.assert_called()
 
     @pytest.mark.asyncio
-    @patch("code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens")
-    @patch("code_puppy.plugins.claude_code_oauth.utils.is_token_expired")
+    @patch("code_puppy_core_plugins.claude_code_oauth.utils.load_stored_tokens")
+    @patch("code_puppy_core_plugins.claude_code_oauth.utils.is_token_expired")
     async def test_heartbeat_skips_refresh_if_not_expired(
         self, mock_is_expired, mock_load_tokens
     ):
@@ -113,7 +113,7 @@ class TestTokenRefreshHeartbeat:
         assert heartbeat.refresh_count == 0
 
     @pytest.mark.asyncio
-    @patch("code_puppy.plugins.claude_code_oauth.utils.load_stored_tokens")
+    @patch("code_puppy_core_plugins.claude_code_oauth.utils.load_stored_tokens")
     async def test_heartbeat_handles_no_tokens_gracefully(self, mock_load_tokens):
         """Heartbeat should handle missing tokens gracefully."""
         mock_load_tokens.return_value = None
@@ -158,7 +158,7 @@ class TestForceTokenRefresh:
     """Tests for the force_token_refresh function."""
 
     @pytest.mark.asyncio
-    @patch("code_puppy.plugins.claude_code_oauth.utils.refresh_access_token")
+    @patch("code_puppy_core_plugins.claude_code_oauth.utils.refresh_access_token")
     async def test_force_refresh_success(self, mock_refresh):
         """force_token_refresh should return True on success."""
         mock_refresh.return_value = "new_token"
@@ -169,7 +169,7 @@ class TestForceTokenRefresh:
         mock_refresh.assert_called_once_with(force=True)
 
     @pytest.mark.asyncio
-    @patch("code_puppy.plugins.claude_code_oauth.utils.refresh_access_token")
+    @patch("code_puppy_core_plugins.claude_code_oauth.utils.refresh_access_token")
     async def test_force_refresh_failure(self, mock_refresh):
         """force_token_refresh should return False on failure."""
         mock_refresh.return_value = None
@@ -179,7 +179,7 @@ class TestForceTokenRefresh:
         assert result is False
 
     @pytest.mark.asyncio
-    @patch("code_puppy.plugins.claude_code_oauth.utils.refresh_access_token")
+    @patch("code_puppy_core_plugins.claude_code_oauth.utils.refresh_access_token")
     async def test_force_refresh_handles_exception(self, mock_refresh):
         """force_token_refresh should handle exceptions gracefully."""
         mock_refresh.side_effect = Exception("Network error")
@@ -211,7 +211,7 @@ class TestCallbackIntegration:
     @pytest.mark.asyncio
     async def test_agent_run_start_starts_heartbeat_for_claude_code(self):
         """agent_run_start should start heartbeat for claude-code models."""
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _active_heartbeats,
             _on_agent_run_start,
         )
@@ -237,7 +237,7 @@ class TestCallbackIntegration:
     @pytest.mark.asyncio
     async def test_agent_run_start_ignores_non_claude_code_models(self):
         """agent_run_start should not start heartbeat for non-claude-code models."""
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _active_heartbeats,
             _on_agent_run_start,
         )
@@ -256,7 +256,7 @@ class TestCallbackIntegration:
     @pytest.mark.asyncio
     async def test_agent_run_end_handles_missing_heartbeat_gracefully(self):
         """agent_run_end should not error if no heartbeat exists."""
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _active_heartbeats,
             _on_agent_run_end,
         )

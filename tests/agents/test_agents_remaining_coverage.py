@@ -196,7 +196,7 @@ def test_creator_agent_get_system_prompt_with_uc_tools():
     mock_registry.list_tools.return_value = [mock_tool]
 
     with patch(
-        "code_puppy.plugins.universal_constructor.registry.get_registry",
+        "code_puppy_core_plugins.universal_constructor.registry.get_registry",
         return_value=mock_registry,
     ):
         prompt = agent.get_system_prompt()
@@ -210,7 +210,7 @@ def test_creator_agent_get_system_prompt_uc_import_error():
     agent = AgentCreatorAgent()
 
     with patch(
-        "code_puppy.plugins.universal_constructor.registry.get_registry",
+        "code_puppy_core_plugins.universal_constructor.registry.get_registry",
         side_effect=Exception("boom"),
     ):
         prompt = agent.get_system_prompt()
@@ -628,7 +628,7 @@ def test_json_agent_uc_tools(tmp_path):
     mock_registry.list_tools.return_value = [mock_tool]
 
     with patch(
-        "code_puppy.plugins.universal_constructor.registry.get_registry",
+        "code_puppy_core_plugins.universal_constructor.registry.get_registry",
         return_value=mock_registry,
     ):
         tools = agent.get_available_tools()
@@ -650,7 +650,7 @@ def test_json_agent_uc_import_error(tmp_path):
 
     # The import is inside get_available_tools, so we patch at source
     with patch.dict(
-        "sys.modules", {"code_puppy.plugins.universal_constructor.registry": None}
+        "sys.modules", {"code_puppy_core_plugins.universal_constructor.registry": None}
     ):
         tools = agent.get_available_tools()
         assert "list_files" in tools

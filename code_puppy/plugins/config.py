@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Set
 
@@ -39,10 +40,16 @@ def set_lock_builtin_plugins(locked: bool) -> None:
 
 
 def is_builtin_plugin(plugin_name: str) -> bool:
-    """True if *plugin_name* is a builtin (shipped in code_puppy/plugins/).
+    """True if *plugin_name* belongs to the builtin plugin tier.
 
-    Filesystem ground-truth so the check is independent of plugin load order.
+    Distribution entry points are the primary source of truth. The filesystem
+    fallback keeps older core installations compatible during migration.
     """
+    if any(
+        item.name == plugin_name for item in entry_points(group="code_puppy.plugins")
+    ):
+        return True
+
     import code_puppy.plugins as plugins_pkg
 
     plugin_dir = Path(plugins_pkg.__file__).parent / plugin_name

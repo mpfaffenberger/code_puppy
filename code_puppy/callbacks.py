@@ -38,6 +38,7 @@ PhaseType = Literal[
     "register_agents",
     "register_model_type",
     "register_skills",
+    "register_kennel_memory",
     "register_cli_args",
     "handle_cli_args",
     "get_model_system_prompt",
@@ -123,6 +124,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_agents": [],
     "register_model_type": [],
     "register_skills": [],
+    "register_kennel_memory": [],
     "register_cli_args": [],
     "handle_cli_args": [],
     "get_model_system_prompt": [],
@@ -936,6 +938,17 @@ def on_register_skills() -> List[Dict[str, Any]]:
     - "scripts_dir": str | Path
     """
     return _trigger_callbacks_sync("register_skills")
+
+
+def on_register_kennel_memory() -> List[Any]:
+    """Collect kennel memory providers from plugins.
+
+    Each callback should return either a callable ``() -> str | None`` that
+    yields the current recall block, or ``None``. Core consumes providers via
+    the neutral ``code_puppy.kennel_provider`` seam instead of importing the
+    plugin directly.
+    """
+    return _trigger_callbacks_sync("register_kennel_memory")
 
 
 def on_get_model_system_prompt(

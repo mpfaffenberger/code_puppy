@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 # ============================================================
 # shell_safety/command_cache.py - Full coverage
 # ============================================================
-from code_puppy.plugins.shell_safety.command_cache import (
+from code_puppy_core_plugins.shell_safety.command_cache import (
     CachedAssessment,
     CommandSafetyCache,
     cache_assessment,
@@ -137,7 +137,7 @@ class TestShellSafetyAgent:
             # Force reimport
             import importlib
 
-            import code_puppy.plugins.shell_safety.agent_shell_safety as mod
+            import code_puppy_core_plugins.shell_safety.agent_shell_safety as mod
 
             importlib.reload(mod)
 
@@ -153,7 +153,7 @@ class TestShellSafetyAgent:
 # shell_safety/register_callbacks.py - line 43 (is_oauth_model with None)
 # ============================================================
 
-from code_puppy.plugins.shell_safety.register_callbacks import (  # noqa: E402
+from code_puppy_core_plugins.shell_safety.register_callbacks import (  # noqa: E402
     is_oauth_model,
 )
 
@@ -168,7 +168,7 @@ class TestIsOauthModel:
 # agent_skills/discovery.py - lines 79, 95
 # ============================================================
 
-from code_puppy.plugins.agent_skills.discovery import discover_skills  # noqa: E402
+from code_puppy_core_plugins.agent_skills.discovery import discover_skills  # noqa: E402
 
 
 class TestDiscoveryMissingLines:
@@ -185,11 +185,11 @@ class TestDiscoveryMissingLines:
 
         with (
             patch(
-                "code_puppy.plugins.agent_skills.discovery.get_skill_directories",
+                "code_puppy_core_plugins.agent_skills.discovery.get_skill_directories",
                 return_value=[str(configured_dir)],
             ),
             patch(
-                "code_puppy.plugins.agent_skills.discovery.get_default_skill_directories",
+                "code_puppy_core_plugins.agent_skills.discovery.get_default_skill_directories",
                 return_value=[default_dir],  # different dir, should be appended
             ),
         ):
@@ -223,7 +223,7 @@ class TestDiscoveryMissingLines:
 # agent_skills/metadata.py - missing lines
 # ============================================================
 
-from code_puppy.plugins.agent_skills.metadata import (  # noqa: E402
+from code_puppy_core_plugins.agent_skills.metadata import (  # noqa: E402
     get_skill_resources,
     load_full_skill_content,
     parse_skill_metadata,
@@ -320,7 +320,7 @@ class TestMetadataMissingLines:
 # agent_skills/skill_catalog.py - missing lines
 # ============================================================
 
-from code_puppy.plugins.agent_skills.skill_catalog import (  # noqa: E402
+from code_puppy_core_plugins.agent_skills.skill_catalog import (  # noqa: E402
     SkillCatalog,
     _format_display_name,
 )
@@ -340,7 +340,7 @@ class TestSkillCatalogMissing:
     def test_catalog_init_remote_exception(self):
         """Lines 139-142: fetch_remote_catalog raises exception."""
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             side_effect=RuntimeError("network error"),
         ):
             cat = SkillCatalog()
@@ -349,7 +349,7 @@ class TestSkillCatalogMissing:
     def test_catalog_init_remote_none(self):
         """Lines 145-149: fetch returns None."""
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             return_value=None,
         ):
             cat = SkillCatalog()
@@ -358,7 +358,7 @@ class TestSkillCatalogMissing:
     def test_catalog_list_categories(self):
         """Lines 201-202."""
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             return_value=None,
         ):
             cat = SkillCatalog()
@@ -367,7 +367,7 @@ class TestSkillCatalogMissing:
     def test_catalog_get_by_category_empty(self):
         """Lines 207-209."""
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             return_value=None,
         ):
             cat = SkillCatalog()
@@ -377,7 +377,7 @@ class TestSkillCatalogMissing:
     def test_catalog_search_empty_query(self):
         """Lines 214-232: search returns all when empty."""
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             return_value=None,
         ):
             cat = SkillCatalog()
@@ -399,7 +399,7 @@ class TestSkillCatalogMissing:
         mock_remote.entries = [entry]
 
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             return_value=mock_remote,
         ):
             cat = SkillCatalog()
@@ -411,7 +411,7 @@ class TestSkillCatalogMissing:
     def test_catalog_get_by_id_empty(self):
         """Lines 237-239."""
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             return_value=None,
         ):
             cat = SkillCatalog()
@@ -433,7 +433,7 @@ class TestSkillCatalogMissing:
         mock_remote.entries = [entry]
 
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             return_value=mock_remote,
         ):
             cat = SkillCatalog()
@@ -451,21 +451,27 @@ class TestSkillCatalogMissing:
 class TestSkillsInstallMenuSizeFormat:
     def test_format_size_gb(self):
         """Line 60: format size that exceeds MB range."""
-        from code_puppy.plugins.agent_skills.skills_install_menu import _format_bytes
+        from code_puppy_core_plugins.agent_skills.skills_install_menu import (
+            _format_bytes,
+        )
 
         # Large enough to be in GB
         result = _format_bytes(2 * 1024 * 1024 * 1024)  # 2 GB
         assert "GB" in result
 
     def test_format_size_bytes(self):
-        from code_puppy.plugins.agent_skills.skills_install_menu import _format_bytes
+        from code_puppy_core_plugins.agent_skills.skills_install_menu import (
+            _format_bytes,
+        )
 
         result = _format_bytes(500)
         assert "B" in result
 
     def test_format_size_tb_fallthrough(self):
         """Line 60: the final return that's after the loop."""
-        from code_puppy.plugins.agent_skills.skills_install_menu import _format_bytes
+        from code_puppy_core_plugins.agent_skills.skills_install_menu import (
+            _format_bytes,
+        )
 
         # Loop covers B→GB and GB returns inside it, so the post-loop return (line 60)
         # is normally unreachable — but test it anyway with huge values.
@@ -477,7 +483,7 @@ class TestSkillsInstallMenuSizeFormat:
 # universal_constructor/registry.py - missing lines
 # ============================================================
 
-from code_puppy.plugins.universal_constructor.registry import UCRegistry  # noqa: E402
+from code_puppy_core_plugins.universal_constructor.registry import UCRegistry  # noqa: E402
 
 
 class TestUCRegistryMissing:
@@ -690,7 +696,7 @@ def sig_tool(*a, **kw): pass
         reg = UCRegistry(tools_dir=tmp_path)
         # Patch inspect.signature to raise
         with patch(
-            "code_puppy.plugins.universal_constructor.registry.inspect.signature",
+            "code_puppy_core_plugins.universal_constructor.registry.inspect.signature",
             side_effect=ValueError("no sig"),
         ):
             count = reg.scan()
@@ -726,7 +732,7 @@ def weather(): pass
 # universal_constructor/sandbox.py - missing lines
 # ============================================================
 
-from code_puppy.plugins.universal_constructor.sandbox import (  # noqa: E402
+from code_puppy_core_plugins.universal_constructor.sandbox import (  # noqa: E402
     FunctionInfo,
     _extract_tool_meta,
     _find_main_function,

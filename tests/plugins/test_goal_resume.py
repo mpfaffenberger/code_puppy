@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from code_puppy.plugins.wiggum import goal_runs, state
-from code_puppy.plugins.wiggum.register_callbacks import (
+from code_puppy_core_plugins.wiggum import goal_runs, state
+from code_puppy_core_plugins.wiggum.register_callbacks import (
     _on_interactive_turn_cancel,
     handle_goal_command,
 )
@@ -42,8 +42,10 @@ def test_goal_resume_restores_progress(tmp_path, monkeypatch):
     )
 
     with (
-        patch("code_puppy.plugins.wiggum.register_callbacks._display_banner_message"),
-        patch("code_puppy.plugins.wiggum.register_callbacks.emit_info"),
+        patch(
+            "code_puppy_core_plugins.wiggum.register_callbacks._display_banner_message"
+        ),
+        patch("code_puppy_core_plugins.wiggum.register_callbacks.emit_info"),
     ):
         prompt = handle_goal_command(f"/goal resume {run.run_id}")
 
@@ -61,8 +63,10 @@ def test_cancel_marks_goal_interrupted_and_prints_resume(tmp_path, monkeypatch):
     state.start(run.prompt, mode="goal", run_id=run.run_id, loop_count=4)
 
     with (
-        patch("code_puppy.plugins.wiggum.register_callbacks.emit_warning"),
-        patch("code_puppy.plugins.wiggum.register_callbacks.emit_info") as emit_info,
+        patch("code_puppy_core_plugins.wiggum.register_callbacks.emit_warning"),
+        patch(
+            "code_puppy_core_plugins.wiggum.register_callbacks.emit_info"
+        ) as emit_info,
     ):
         _on_interactive_turn_cancel(run.prompt, reason="cancelled")
 

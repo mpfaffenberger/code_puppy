@@ -41,7 +41,9 @@ def test_build_completer_includes_registered_provider(monkeypatch):
 
 def test_ollama_plugin_registers_completion_provider(monkeypatch):
     monkeypatch.setitem(callbacks._callbacks, "register_completion_provider", [])
-    from code_puppy.plugins.ollama_setup.register_callbacks import _completion_provider
+    from code_puppy_core_plugins.ollama_setup.register_callbacks import (
+        _completion_provider,
+    )
 
     callbacks.register_callback("register_completion_provider", _completion_provider)
 

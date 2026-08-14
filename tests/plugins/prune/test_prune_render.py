@@ -1,4 +1,4 @@
-"""Tests for ``code_puppy.plugins.prune.prune_render``.
+"""Tests for ``code_puppy_core_plugins.prune.prune_render``.
 
 Covers small formatting helpers (``ctx_indicator``, ``tokens_str``,
 ``format_args_full``), the budget footer line, the legend, and full
@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import pytest
 
-from code_puppy.plugins.prune.prune_menu import PruneMenu
-from code_puppy.plugins.prune.prune_model import (
+from code_puppy_core_plugins.prune.prune_menu import PruneMenu
+from code_puppy_core_plugins.prune.prune_model import (
     ContextBudget,
     MessageEntry,
     build_message_entries,
 )
-from code_puppy.plugins.prune.prune_render import (
+from code_puppy_core_plugins.prune.prune_render import (
     ctx_detail_text,
     ctx_indicator,
     format_args_full,

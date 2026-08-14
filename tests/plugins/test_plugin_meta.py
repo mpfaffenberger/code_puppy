@@ -18,8 +18,11 @@ from unittest.mock import patch
 import pytest
 
 from code_puppy import callbacks
-from code_puppy.plugins.plugin_list import plugin_meta
-from code_puppy.plugins.plugin_list.plugins_menu_render import fill_pane, render_detail
+from code_puppy_core_plugins.plugin_list import plugin_meta
+from code_puppy_core_plugins.plugin_list.plugins_menu_render import (
+    fill_pane,
+    render_detail,
+)
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -222,7 +225,10 @@ class TestGetHooks:
 
 def _make_menu(name="previewplug", tier="builtin"):
     """Construct a PluginsMenu with one entry, bypassing real discovery."""
-    from code_puppy.plugins.plugin_list.plugins_menu import PluginsMenu, _PluginEntry
+    from code_puppy_core_plugins.plugin_list.plugins_menu import (
+        PluginsMenu,
+        _PluginEntry,
+    )
 
     with (
         patch(
@@ -313,7 +319,7 @@ class TestMenuPreview:
 
 # ── plugins_menu "Contributes" rendering ───────────────────────────────────
 
-from code_puppy.plugins.plugin_list import plugin_contributions as pc  # noqa: E402
+from code_puppy_core_plugins.plugin_list import plugin_contributions as pc  # noqa: E402
 
 _EMPTY_CONTRIB = {key: [] for key in pc._EXTRACTORS}
 
@@ -460,7 +466,7 @@ class TestMenuContributes:
 
 # ── detail pane scrolling ──────────────────────────────────────────────────
 
-from code_puppy.plugins.plugin_list import plugin_text_utils as ptu  # noqa: E402
+from code_puppy_core_plugins.plugin_list import plugin_text_utils as ptu  # noqa: E402
 
 
 class TestLineSlicing:
@@ -615,7 +621,7 @@ class TestDetailScroll:
         # Patch the name bound inside plugins_menu (imported render_detail at module
         # load) so update_display() sees the stub.
         with patch(
-            "code_puppy.plugins.plugin_list.plugins_menu.render_detail",
+            "code_puppy_core_plugins.plugin_list.plugins_menu.render_detail",
             return_value=[("", "l0\n"), ("", "l1\n"), ("", "l2\n")],
         ):
             menu.detail_scroll = 1

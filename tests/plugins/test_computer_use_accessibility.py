@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from code_puppy.plugins.computer_use.accessibility import snapshot_tree
+from code_puppy_core_plugins.computer_use.accessibility import snapshot_tree
 
 
 class API:

@@ -12,7 +12,7 @@ import pytest
 
 class TestEmitEvent:
     def test_disabled_returns_early(self):
-        from code_puppy.plugins.frontend_emitter.emitter import (
+        from code_puppy_core_plugins.frontend_emitter.emitter import (
             _recent_events,
             _subscribers,
             emit_event,
@@ -21,14 +21,14 @@ class TestEmitEvent:
         _recent_events.clear()
         _subscribers.clear()
         with patch(
-            "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
+            "code_puppy_core_plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
             return_value=False,
         ):
             emit_event("test_event", {"foo": 1})
         assert len(_recent_events) == 0
 
     def test_enabled_stores_and_broadcasts(self):
-        from code_puppy.plugins.frontend_emitter.emitter import (
+        from code_puppy_core_plugins.frontend_emitter.emitter import (
             _recent_events,
             _subscribers,
             emit_event,
@@ -42,11 +42,11 @@ class TestEmitEvent:
 
         with (
             patch(
-                "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
+                "code_puppy_core_plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
                 return_value=True,
             ),
             patch(
-                "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_max_recent_events",
+                "code_puppy_core_plugins.frontend_emitter.emitter.get_frontend_emitter_max_recent_events",
                 return_value=5,
             ),
         ):
@@ -61,7 +61,7 @@ class TestEmitEvent:
         _recent_events.clear()
 
     def test_recent_events_capped(self):
-        from code_puppy.plugins.frontend_emitter.emitter import (
+        from code_puppy_core_plugins.frontend_emitter.emitter import (
             _recent_events,
             _subscribers,
             emit_event,
@@ -71,11 +71,11 @@ class TestEmitEvent:
         _subscribers.clear()
         with (
             patch(
-                "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
+                "code_puppy_core_plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
                 return_value=True,
             ),
             patch(
-                "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_max_recent_events",
+                "code_puppy_core_plugins.frontend_emitter.emitter.get_frontend_emitter_max_recent_events",
                 return_value=2,
             ),
         ):
@@ -85,7 +85,7 @@ class TestEmitEvent:
         _recent_events.clear()
 
     def test_queue_full_doesnt_raise(self):
-        from code_puppy.plugins.frontend_emitter.emitter import (
+        from code_puppy_core_plugins.frontend_emitter.emitter import (
             _recent_events,
             _subscribers,
             emit_event,
@@ -98,11 +98,11 @@ class TestEmitEvent:
         _subscribers.add(q)
         with (
             patch(
-                "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
+                "code_puppy_core_plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
                 return_value=True,
             ),
             patch(
-                "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_max_recent_events",
+                "code_puppy_core_plugins.frontend_emitter.emitter.get_frontend_emitter_max_recent_events",
                 return_value=10,
             ),
         ):
@@ -111,7 +111,7 @@ class TestEmitEvent:
         _recent_events.clear()
 
     def test_subscriber_exception_doesnt_raise(self):
-        from code_puppy.plugins.frontend_emitter.emitter import (
+        from code_puppy_core_plugins.frontend_emitter.emitter import (
             _recent_events,
             _subscribers,
             emit_event,
@@ -124,11 +124,11 @@ class TestEmitEvent:
         _subscribers.add(bad_q)
         with (
             patch(
-                "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
+                "code_puppy_core_plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
                 return_value=True,
             ),
             patch(
-                "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_max_recent_events",
+                "code_puppy_core_plugins.frontend_emitter.emitter.get_frontend_emitter_max_recent_events",
                 return_value=10,
             ),
         ):
@@ -139,7 +139,7 @@ class TestEmitEvent:
 
 class TestSubscribeUnsubscribe:
     def test_subscribe_and_unsubscribe(self):
-        from code_puppy.plugins.frontend_emitter.emitter import (
+        from code_puppy_core_plugins.frontend_emitter.emitter import (
             _subscribers,
             get_subscriber_count,
             subscribe,
@@ -148,7 +148,7 @@ class TestSubscribeUnsubscribe:
 
         _subscribers.clear()
         with patch(
-            "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_queue_size",
+            "code_puppy_core_plugins.frontend_emitter.emitter.get_frontend_emitter_queue_size",
             return_value=10,
         ):
             q = subscribe()
@@ -157,7 +157,7 @@ class TestSubscribeUnsubscribe:
         assert get_subscriber_count() == 0
 
     def test_unsubscribe_nonexistent(self):
-        from code_puppy.plugins.frontend_emitter.emitter import (
+        from code_puppy_core_plugins.frontend_emitter.emitter import (
             _subscribers,
             unsubscribe,
         )
@@ -169,7 +169,7 @@ class TestSubscribeUnsubscribe:
 
 class TestGetRecentAndClear:
     def test_get_recent_events(self):
-        from code_puppy.plugins.frontend_emitter.emitter import (
+        from code_puppy_core_plugins.frontend_emitter.emitter import (
             _recent_events,
             _subscribers,
             emit_event,
@@ -180,11 +180,11 @@ class TestGetRecentAndClear:
         _subscribers.clear()
         with (
             patch(
-                "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
+                "code_puppy_core_plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
                 return_value=True,
             ),
             patch(
-                "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_max_recent_events",
+                "code_puppy_core_plugins.frontend_emitter.emitter.get_frontend_emitter_max_recent_events",
                 return_value=10,
             ),
         ):
@@ -195,7 +195,7 @@ class TestGetRecentAndClear:
         _recent_events.clear()
 
     def test_clear_recent_events(self):
-        from code_puppy.plugins.frontend_emitter.emitter import (
+        from code_puppy_core_plugins.frontend_emitter.emitter import (
             _recent_events,
             _subscribers,
             clear_recent_events,
@@ -206,11 +206,11 @@ class TestGetRecentAndClear:
         _subscribers.clear()
         with (
             patch(
-                "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
+                "code_puppy_core_plugins.frontend_emitter.emitter.get_frontend_emitter_enabled",
                 return_value=True,
             ),
             patch(
-                "code_puppy.plugins.frontend_emitter.emitter.get_frontend_emitter_max_recent_events",
+                "code_puppy_core_plugins.frontend_emitter.emitter.get_frontend_emitter_max_recent_events",
                 return_value=10,
             ),
         ):
@@ -224,14 +224,14 @@ class TestGetRecentAndClear:
 
 class TestSanitizeArgs:
     def test_non_dict(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_args,
         )
 
         assert _sanitize_args("not a dict") == {}
 
     def test_string_truncation(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_args,
         )
 
@@ -239,7 +239,7 @@ class TestSanitizeArgs:
         assert len(result["long"]) <= 503
 
     def test_primitives(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_args,
         )
 
@@ -253,7 +253,7 @@ class TestSanitizeArgs:
         values that JSON-serialise to <= 4 KB are returned unchanged so
         downstream consumers see the real shape.
         """
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_args,
         )
 
@@ -264,7 +264,7 @@ class TestSanitizeArgs:
     def test_complex_types_truncated_when_oversize(self):
         """A structured value whose JSON form exceeds the size cap is replaced
         by a truncated string preview (not silently dropped)."""
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_args,
         )
 
@@ -278,7 +278,7 @@ class TestSanitizeArgs:
         assert "x" in result["items"]
 
     def test_other_types(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_args,
         )
 
@@ -288,21 +288,21 @@ class TestSanitizeArgs:
 
 class TestSanitizeEventData:
     def test_none(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_event_data,
         )
 
         assert _sanitize_event_data(None) is None
 
     def test_string(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_event_data,
         )
 
         assert _sanitize_event_data("hello") == "hello"
 
     def test_string_truncation(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_event_data,
         )
 
@@ -310,7 +310,7 @@ class TestSanitizeEventData:
         assert len(result) <= 1003
 
     def test_int_float_bool(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_event_data,
         )
 
@@ -319,7 +319,7 @@ class TestSanitizeEventData:
         assert _sanitize_event_data(True) is True
 
     def test_dict(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_event_data,
         )
 
@@ -327,7 +327,7 @@ class TestSanitizeEventData:
         assert result == {"a": 1}
 
     def test_list(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_event_data,
         )
 
@@ -335,7 +335,7 @@ class TestSanitizeEventData:
         assert result == [1, 2]
 
     def test_tuple(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_event_data,
         )
 
@@ -343,7 +343,7 @@ class TestSanitizeEventData:
         assert result == [1, 2]
 
     def test_other(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_event_data,
         )
 
@@ -351,7 +351,7 @@ class TestSanitizeEventData:
         assert "object" in result
 
     def test_tool_call_part_preserves_tool_metadata(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_event_data,
         )
 
@@ -367,7 +367,7 @@ class TestSanitizeEventData:
         assert result["args"] == {"directory": "."}
 
     def test_tool_call_part_delta_preserves_name_delta(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _sanitize_event_data,
         )
 
@@ -407,7 +407,7 @@ class TestIsSuccessfulResult:
         ],
     )
     def test_is_successful_result(self, result, expected):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _is_successful_result,
         )
 
@@ -421,14 +421,14 @@ class TestSummarizeResult:
         ids=["none", "string"],
     )
     def test_summarize_result(self, value, expected):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _summarize_result,
         )
 
         assert _summarize_result(value) == expected
 
     def test_dict_with_error(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _summarize_result,
         )
 
@@ -436,14 +436,14 @@ class TestSummarizeResult:
         assert "Error" in result
 
     def test_dict_with_message(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _summarize_result,
         )
 
         assert _summarize_result({"message": "ok"}) == "ok"
 
     def test_dict_generic(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _summarize_result,
         )
 
@@ -451,7 +451,7 @@ class TestSummarizeResult:
         assert "2 keys" in result
 
     def test_list(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _summarize_result,
         )
 
@@ -459,7 +459,7 @@ class TestSummarizeResult:
         assert "list[3]" in result
 
     def test_other(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _summarize_result,
         )
 
@@ -469,21 +469,21 @@ class TestSummarizeResult:
 
 class TestTruncateString:
     def test_none(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _truncate_string,
         )
 
         assert _truncate_string(None) is None
 
     def test_short(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _truncate_string,
         )
 
         assert _truncate_string("hi", 10) == "hi"
 
     def test_long(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _truncate_string,
         )
 
@@ -492,7 +492,7 @@ class TestTruncateString:
         assert result.endswith("...")
 
     def test_non_string(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             _truncate_string,
         )
 
@@ -502,12 +502,12 @@ class TestTruncateString:
 class TestAsyncCallbacks:
     @pytest.mark.asyncio
     async def test_on_pre_tool_call(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             on_pre_tool_call,
         )
 
         with patch(
-            "code_puppy.plugins.frontend_emitter.register_callbacks.emit_event"
+            "code_puppy_core_plugins.frontend_emitter.register_callbacks.emit_event"
         ) as mock_emit:
             await on_pre_tool_call("my_tool", {"arg": "val"})
             mock_emit.assert_called_once()
@@ -515,24 +515,24 @@ class TestAsyncCallbacks:
 
     @pytest.mark.asyncio
     async def test_on_pre_tool_call_exception(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             on_pre_tool_call,
         )
 
         with patch(
-            "code_puppy.plugins.frontend_emitter.register_callbacks.emit_event",
+            "code_puppy_core_plugins.frontend_emitter.register_callbacks.emit_event",
             side_effect=RuntimeError("boom"),
         ):
             await on_pre_tool_call("t", {})  # should not raise
 
     @pytest.mark.asyncio
     async def test_on_post_tool_call(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             on_post_tool_call,
         )
 
         with patch(
-            "code_puppy.plugins.frontend_emitter.register_callbacks.emit_event"
+            "code_puppy_core_plugins.frontend_emitter.register_callbacks.emit_event"
         ) as mock_emit:
             await on_post_tool_call("t", {"a": 1}, "result", 100.0)
             mock_emit.assert_called_once()
@@ -540,60 +540,60 @@ class TestAsyncCallbacks:
 
     @pytest.mark.asyncio
     async def test_on_post_tool_call_exception(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             on_post_tool_call,
         )
 
         with patch(
-            "code_puppy.plugins.frontend_emitter.register_callbacks.emit_event",
+            "code_puppy_core_plugins.frontend_emitter.register_callbacks.emit_event",
             side_effect=RuntimeError,
         ):
             await on_post_tool_call("t", {}, None, 0.0)
 
     @pytest.mark.asyncio
     async def test_on_stream_event(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             on_stream_event,
         )
 
         with patch(
-            "code_puppy.plugins.frontend_emitter.register_callbacks.emit_event"
+            "code_puppy_core_plugins.frontend_emitter.register_callbacks.emit_event"
         ) as mock_emit:
             await on_stream_event("text_delta", "hello", "sess-1")
             mock_emit.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_on_stream_event_exception(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             on_stream_event,
         )
 
         with patch(
-            "code_puppy.plugins.frontend_emitter.register_callbacks.emit_event",
+            "code_puppy_core_plugins.frontend_emitter.register_callbacks.emit_event",
             side_effect=RuntimeError,
         ):
             await on_stream_event("x", "y")
 
     @pytest.mark.asyncio
     async def test_on_invoke_agent_with_kwargs(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             on_invoke_agent,
         )
 
         with patch(
-            "code_puppy.plugins.frontend_emitter.register_callbacks.emit_event"
+            "code_puppy_core_plugins.frontend_emitter.register_callbacks.emit_event"
         ) as mock_emit:
             await on_invoke_agent(agent_name="test", session_id="s1", prompt="hi")
             mock_emit.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_on_invoke_agent_exception(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import (
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import (
             on_invoke_agent,
         )
 
         with patch(
-            "code_puppy.plugins.frontend_emitter.register_callbacks.emit_event",
+            "code_puppy_core_plugins.frontend_emitter.register_callbacks.emit_event",
             side_effect=RuntimeError,
         ):
             await on_invoke_agent()
@@ -601,9 +601,9 @@ class TestAsyncCallbacks:
 
 class TestRegister:
     def test_register_function(self):
-        from code_puppy.plugins.frontend_emitter.register_callbacks import register
+        from code_puppy_core_plugins.frontend_emitter.register_callbacks import register
 
         with patch(
-            "code_puppy.plugins.frontend_emitter.register_callbacks.register_callback"
+            "code_puppy_core_plugins.frontend_emitter.register_callbacks.register_callback"
         ):
             register()  # should not raise

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from code_puppy.callbacks import clear_callbacks, register_callback
-from code_puppy.plugins.agent_skills.provider import AgentSkillsProvider
+from code_puppy_core_plugins.agent_skills.provider import AgentSkillsProvider
 
 
 @pytest.mark.plugin_skills
@@ -14,7 +14,7 @@ def test_provider_listing_does_not_recurse_through_register_skills(
     tmp_path, monkeypatch
 ):
     """Discovery sees provider registrations but never invokes/materializes them."""
-    from code_puppy.plugins.agent_skills import discovery, enabled_skills
+    from code_puppy_core_plugins.agent_skills import discovery, enabled_skills
 
     skills_root = tmp_path / "skills"
     skill_dir = skills_root / "example"
@@ -71,27 +71,27 @@ def test_provider_delegates_config_content_resources_and_catalog():
 
     with (
         patch(
-            "code_puppy.plugins.agent_skills.provider.get_skills_enabled",
+            "code_puppy_core_plugins.agent_skills.provider.get_skills_enabled",
             return_value=True,
         ),
         patch(
-            "code_puppy.plugins.agent_skills.provider.get_disabled_skills",
+            "code_puppy_core_plugins.agent_skills.provider.get_disabled_skills",
             return_value={"disabled"},
         ),
         patch(
-            "code_puppy.plugins.agent_skills.provider.iter_enabled_skills",
+            "code_puppy_core_plugins.agent_skills.provider.iter_enabled_skills",
             return_value=iter([info]),
         ),
         patch(
-            "code_puppy.plugins.agent_skills.provider.load_full_skill_content",
+            "code_puppy_core_plugins.agent_skills.provider.load_full_skill_content",
             return_value="# body",
         ),
         patch(
-            "code_puppy.plugins.agent_skills.provider.get_skill_resources",
+            "code_puppy_core_plugins.agent_skills.provider.get_skill_resources",
             return_value=[skill_path / "reference.md"],
         ),
         patch(
-            "code_puppy.plugins.agent_skills.provider.catalog.get_all",
+            "code_puppy_core_plugins.agent_skills.provider.catalog.get_all",
             return_value=[catalog_entry],
         ),
     ):

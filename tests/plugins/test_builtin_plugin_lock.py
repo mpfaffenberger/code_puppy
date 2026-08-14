@@ -13,7 +13,7 @@ import json
 from unittest.mock import patch
 
 from code_puppy.plugins import config as pc
-from code_puppy.plugins.plugin_list.plugins_menu import PluginsMenu
+from code_puppy_core_plugins.plugin_list.plugins_menu import PluginsMenu
 
 _FAKE_LOADED = {
     "builtin": ["plugin_list", "agent_skills", "emoji_filter"],

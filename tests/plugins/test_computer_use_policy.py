@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from code_puppy.plugins.computer_use.backend_types import ComputerUseError
-from code_puppy.plugins.computer_use.geometry import CaptureGeometry, Rect
-from code_puppy.plugins.computer_use.policy import PolicyStore
-from code_puppy.plugins.computer_use.safety import require_safe_state
-from code_puppy.plugins.computer_use.state import state_store
+from code_puppy_core_plugins.computer_use.backend_types import ComputerUseError
+from code_puppy_core_plugins.computer_use.geometry import CaptureGeometry, Rect
+from code_puppy_core_plugins.computer_use.policy import PolicyStore
+from code_puppy_core_plugins.computer_use.safety import require_safe_state
+from code_puppy_core_plugins.computer_use.state import state_store
 
 
 def test_policy_reports_only_explicit_opt_in_as_enabled(tmp_path):
@@ -74,7 +74,7 @@ def test_safe_state_is_not_interrupted_by_user_input(monkeypatch):
         elements={},
     )
     monkeypatch.setattr(
-        "code_puppy.plugins.computer_use.safety.policy_store.require",
+        "code_puppy_core_plugins.computer_use.safety.policy_store.require",
         lambda bundle_id: None,
     )
     assert require_safe_state(state.revision, consume=True) is state

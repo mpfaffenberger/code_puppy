@@ -192,7 +192,7 @@ class TestRegisterToolsForAgent:
 
 
 class TestRegisterUcToolWrapper:
-    @patch("code_puppy.plugins.universal_constructor.registry.get_registry")
+    @patch("code_puppy_core_plugins.universal_constructor.registry.get_registry")
     @patch("code_puppy.tools.emit_warning")
     def test_tool_not_found(self, mock_warn, mock_reg):
         from code_puppy.tools import _register_uc_tool_wrapper
@@ -201,7 +201,7 @@ class TestRegisterUcToolWrapper:
         _register_uc_tool_wrapper(MagicMock(), "bad")
         mock_warn.assert_called()
 
-    @patch("code_puppy.plugins.universal_constructor.registry.get_registry")
+    @patch("code_puppy_core_plugins.universal_constructor.registry.get_registry")
     @patch("code_puppy.tools.emit_warning")
     def test_func_not_found(self, mock_warn, mock_reg):
         from code_puppy.tools import _register_uc_tool_wrapper
@@ -214,7 +214,7 @@ class TestRegisterUcToolWrapper:
         _register_uc_tool_wrapper(MagicMock(), "t")
         mock_warn.assert_called()
 
-    @patch("code_puppy.plugins.universal_constructor.registry.get_registry")
+    @patch("code_puppy_core_plugins.universal_constructor.registry.get_registry")
     def test_success(self, mock_reg):
         from code_puppy.tools import _register_uc_tool_wrapper
 
@@ -232,7 +232,7 @@ class TestRegisterUcToolWrapper:
         agent.tool.assert_called_once()
 
     @patch(
-        "code_puppy.plugins.universal_constructor.registry.get_registry",
+        "code_puppy_core_plugins.universal_constructor.registry.get_registry",
         side_effect=Exception("boom"),
     )
     @patch("code_puppy.tools.emit_warning")
@@ -242,7 +242,7 @@ class TestRegisterUcToolWrapper:
         _register_uc_tool_wrapper(MagicMock(), "t")
         mock_warn.assert_called()
 
-    @patch("code_puppy.plugins.universal_constructor.registry.get_registry")
+    @patch("code_puppy_core_plugins.universal_constructor.registry.get_registry")
     @patch("code_puppy.tools.emit_warning")
     def test_register_fails(self, mock_warn, mock_reg):
         from code_puppy.tools import _register_uc_tool_wrapper

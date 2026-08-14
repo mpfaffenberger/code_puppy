@@ -321,13 +321,14 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.710"
+version = "0.0.718"
 source = { editable = "." }
 dependencies = [
     { name = "agent-client-protocol" },
     { name = "anthropic" },
     { name = "azure-identity" },
     { name = "boto3" },
+    { name = "code-puppy-core-plugins" },
     { name = "httpx", extra = ["http2"] },
     { name = "json-repair" },
     { name = "keyring" },
@@ -377,6 +378,7 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
+    { name = "code-puppy-core-plugins", specifier = ">=0.0.2" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "json-repair", specifier = ">=0.46.2" },
@@ -409,6 +411,15 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=0.23.1" },
     { name = "pytest-cov", specifier = ">=6.1.1" },
     { name = "ruff", specifier = ">=0.15,<0.16" },
+]
+
+[[package]]
+name = "code-puppy-core-plugins"
+version = "0.0.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/93/58/cba98809d5d39be7d927c01417685142bd26090fb6a8dbee5efdeb79042d/code_puppy_core_plugins-0.0.2.tar.gz", hash = "sha256:50f826783d04ed02669cd36fa64c9a046ca10c40688ba8b7a32c95d92b6f1f58", size = 495737, upload-time = "2026-08-14T15:44:27.29Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/22/80/47f3b6106c0044c2ba0b8bd24480ea702a53b3b6a0795e356900a4563cbf/code_puppy_core_plugins-0.0.2-py3-none-any.whl", hash = "sha256:7578b9a1076a8c99a99c8490d3260c3decea69c1c188d9339903597bf0b6cf82", size = 671442, upload-time = "2026-08-14T15:44:25.488Z" },
 ]
 
 [[package]]

@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 from rich.text import Text
 
-from code_puppy.plugins.subagent_panel import register_callbacks as rc
-from code_puppy.plugins.subagent_panel import state
+from code_puppy_core_plugins.subagent_panel import register_callbacks as rc
+from code_puppy_core_plugins.subagent_panel import state
 
 
 def _plain(line):
@@ -63,7 +63,8 @@ def test_single_agent_renders_one_styled_line():
     plain = line.plain
     assert "INVOKE AGENT" in plain
     assert "qa-kitten" in plain
-    assert "Opus 4.8" in plain
+    # Passthrough contract: raw model id, not a curated shorthand.
+    assert "claude-4-8-opus" in plain
     assert "starting" in plain
     assert "\x1b" not in plain  # no in-band ANSI in the content
     assert any(span.style for span in line.spans)  # styling present
