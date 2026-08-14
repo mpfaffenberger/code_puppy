@@ -124,10 +124,11 @@ Plus a **`/kennel`** slash command suite for humans:
 
 ## Enable / disable
 
-The plugin is **enabled by default**. Flip it with the slash commands:
+The plugin is **disabled by default** — running in the background on
+noise is off until you opt in. Flip it with the slash commands:
 
+- ``/kennel enable`` (or ``/kennel on``) — turn memory on
 - ``/kennel disable`` (or ``/kennel off``) — turn memory off
-- ``/kennel enable`` (or ``/kennel on``) — turn memory back on
 
 State is persisted to ``puppy.cfg`` under ``kennel_enabled`` and read on
 every callback, so the toggle is live — no restart needed, and the
@@ -168,7 +169,7 @@ front end can read or write the same value.
 
 | Key | Default | Effect |
 |---|---|---|
-| `kennel_enabled` | unset → enabled | Single source of truth for the on/off toggle. Set to `false`/`0`/`no`/`off` (case-insensitive) to disable. Anything else — missing, blank, or garbage — leaves the kennel on. Flipped live by `/kennel enable` and `/kennel disable`. |
+| `kennel_enabled` | unset → disabled | Single source of truth for the on/off toggle. Set to `true`/`1`/`yes`/`on` (case-insensitive) to enable. Anything else — missing, blank, or garbage — leaves the kennel off. Flipped live by `/kennel enable` and `/kennel disable`. |
 
 ## How tools reach the agent
 

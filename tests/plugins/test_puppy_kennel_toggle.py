@@ -1,7 +1,7 @@
 """Tests for the runtime enable/disable toggle.
 
 Covers:
-* default state is enabled
+* default state is disabled (opt-in)
 * set_enabled persists across reads
 * recorder no-ops when disabled
 * retriever returns None when disabled
@@ -110,6 +110,7 @@ def test_retriever_returns_none_when_disabled(kennel_root: Path) -> None:
 
     # Has to be longer than MIN_DRAWER_CHARS (80) to clear the packer's
     # noise filter; otherwise the block would be empty for unrelated reasons.
+    state.set_enabled(True)
     recorder.record_run_end(
         agent_name="code-puppy",
         model_name="m",
@@ -180,9 +181,17 @@ def test_tools_resume_after_re_enable(kennel_root: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_slash_status_when_enabled(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
+def test_default_is_disabled(kennel_root: Path) -> None:
+    """Fresh installs start with the kennel off — memory is opt-in."""
+    from code_puppy.plugins.puppy_kennel import state
 
+    assert state.is_enabled() is False
+
+
+def test_slash_status_when_enabled(kennel_root: Path) -> None:
+    from code_puppy.plugins.puppy_kennel import commands, state
+
+    state.set_enabled(True)
     assert commands.handle("/kennel status", "kennel") is True
 
 
@@ -196,6 +205,7 @@ def test_slash_status_when_disabled(kennel_root: Path) -> None:
 def test_slash_disable_then_enable_roundtrip(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import commands, state
 
+    state.set_enabled(True)
     assert state.is_enabled() is True
     assert commands.handle("/kennel disable", "kennel") is True
     assert state.is_enabled() is False
@@ -206,6 +216,8 @@ def test_slash_disable_then_enable_roundtrip(kennel_root: Path) -> None:
 def test_slash_off_and_on_aliases(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import commands, state
 
+    state.set_enabled(True)
+    assert state.is_enabled() is True
     commands.handle("/kennel off", "kennel")
     assert state.is_enabled() is False
     commands.handle("/kennel on", "kennel")
@@ -215,6 +227,7 @@ def test_slash_off_and_on_aliases(kennel_root: Path) -> None:
 def test_slash_enable_when_already_enabled_is_noop(kennel_root: Path) -> None:
     from code_puppy.plugins.puppy_kennel import commands, state
 
+    state.set_enabled(True)
     assert state.is_enabled() is True
     assert commands.handle("/kennel enable", "kennel") is True
     assert state.is_enabled() is True  # still enabled, no flip

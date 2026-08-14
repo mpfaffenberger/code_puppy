@@ -26,6 +26,9 @@ def kennel_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     importlib.reload(state_mod)
     importlib.reload(kennel_mod)
     kennel_mod.initialize()
+    # Storage/search tests operate on an enabled kennel; the default-off
+    # behavior is covered by test_puppy_kennel_toggle.
+    state_mod.set_enabled(True)
     return root
 
 

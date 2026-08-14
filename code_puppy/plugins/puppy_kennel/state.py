@@ -5,12 +5,12 @@ Single source of truth for whether the kennel is on. Flipped by the
 ``puppy.cfg`` under the key ``kennel_enabled`` so the front end can read
 and write the same value.
 
-Default is **enabled** -- a missing key, blank value, or garbage value
-all leave the kennel on. Only the explicit-falsy tokens
-``{"false", "0", "no", "off"}`` (case-insensitive) turn it off. That
-asymmetry is on purpose: on a default-on system, a typo like
-``kennel_enabled = noep`` must not silently kill memory. In the face of
-ambiguity, refuse to guess.
+Default is **disabled** -- a missing key, blank value, or garbage value
+all leave the kennel off. Only the explicit-truthy tokens
+``{"true", "1", "yes", "on"}`` (case-insensitive) turn it on. That
+asymmetry is on purpose: on a default-off system, a typo like
+``kennel_enabled = yeas`` must not silently enable memory. In the face
+of ambiguity, refuse to guess.
 
 Reads and writes go through ``code_puppy.config.get_value`` /
 ``set_config_value``, the same helpers every other plugin (statusline,
@@ -34,7 +34,7 @@ from code_puppy.config import get_value, set_config_value
 
 _CFG_KEY = "kennel_enabled"
 _ENV_KEY = "PUPPY_KENNEL_ENABLED"
-_FALSY = frozenset({"false", "0", "no", "off"})
+_TRUTHY = frozenset({"true", "1", "yes", "on"})
 
 DISABLED_TOOL_ERROR = (
     "Puppy Kennel memory is currently disabled. "
@@ -45,8 +45,8 @@ DISABLED_TOOL_ERROR = (
 def is_enabled() -> bool:
     """Return True if the kennel is on.
 
-    Defaults to True when the key is missing, blank, or set to anything
-    that isn't one of the explicit-falsy tokens. Evaluated on every call
+    Defaults to False when the key is missing, blank, or set to anything
+    that isn't one of the explicit-truthy tokens. Evaluated on every call
     so flipping the toggle takes effect immediately -- no relaunch
     required.
     """
@@ -54,8 +54,8 @@ def is_enabled() -> bool:
     if raw is None:
         raw = get_value(_CFG_KEY)
     if raw is None:
-        return True
-    return str(raw).strip().lower() not in _FALSY
+        return False
+    return str(raw).strip().lower() in _TRUTHY
 
 
 def set_enabled(value: bool) -> None:
