@@ -92,16 +92,13 @@ def test_web_retriever():
     assert "plaintext passwords" in lowered
 
 
-def test_code_puppy_routes_complex_web_tasks_but_allows_direct_curl():
-    """Route complex web work without delegating explicit one-shot fetches."""
+def test_code_puppy_prompt_omits_web_retriever_guidance():
+    """Keep web-retriever routing policy out of Code Puppy's prompt."""
     from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
     prompt = CodePuppyAgent().get_system_prompt()
-    assert "web-retriever" in prompt
-    assert "invoke_agent" in prompt
-    assert "simple one-shot HTTP request" in prompt
-    assert "explicitly requests curl or wget" in prompt
-    assert "instead of delegating to web-retriever" in prompt
+    assert "web-retriever" not in prompt
+    assert "simple one-shot HTTP request" not in prompt
 
 
 def test_planning_agent_routes_scraping_but_allows_direct_curl():

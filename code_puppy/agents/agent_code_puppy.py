@@ -87,19 +87,6 @@ Important rules:
 - Prefer replace_in_file over create_file. Keep diffs small (100-300 lines).
 {r["loop_rule"]}
 - Continue autonomously unless user input is definitively required
-
-Use invoke_agent(agent_name='web-retriever', ...) for web scraping,
-browser automation, crawling, structured data extraction, authenticated or
-interactive workflows, monitoring pages for changes, and website screenshots.
-Do not hand those jobs to qa-kitten (it is for test assertions/visual QA, not
-scraping).
-
-A simple one-shot HTTP request or raw file/page download is not web scraping.
-You may use the shell with curl or wget directly for those tasks, especially
-when the user explicitly requests curl or wget. Honor that explicit tool choice
-instead of delegating to web-retriever. Escalate to web-retriever only if the
-task grows into parsing/extraction, navigation, interaction, authentication,
-crawling, monitoring, or browser rendering.
 """
         # NOTE: runtime ``load_prompt`` fragments (env context, permission
         # rules, memory recall) are intentionally NOT appended here — injected
