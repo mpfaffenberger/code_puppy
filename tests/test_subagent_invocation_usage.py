@@ -31,7 +31,10 @@ from code_puppy.tools.subagent_invocation import (
     register_invoke_agent,
     register_invoke_agent_with_model,
 )
-from code_puppy.tools.subagent_usage_metrics import _extract_usage_metrics
+from code_puppy.tools.subagent_usage_metrics import (
+    _extract_usage_metrics,
+    _safe_usage_metrics,
+)
 
 
 def _usage(**kwargs):
@@ -99,6 +102,7 @@ async def _run_invoke(
     run_raises=False,
     run_exc=None,
     partial_history=None,
+    result_messages=None,
     capture=None,
     perf=None,
     use_default=False,
@@ -130,7 +134,9 @@ async def _run_invoke(
     else:
         result = MagicMock()
         result.output = "subagent response"
-        result.all_messages.return_value = ["updated-history"]
+        result.all_messages.return_value = (
+            result_messages if result_messages is not None else ["updated-history"]
+        )
         if usage_raises:
             result.usage = MagicMock(side_effect=RuntimeError("no usage"))
         else:
@@ -290,6 +296,43 @@ class TestExtractUsageMetrics:
             "num_requests": 2,
         }
 
+    def test_cache_details_aliases_populate_buckets_without_normalized_attrs(self):
+        # Some provider adapters expose cache counts only in details, not in
+        # pydantic-ai's normalized cache_read/cache_write attributes.
+        usage = _usage(
+            input_tokens=150,  # 100 base + 20 creation + 30 read
+            output_tokens=50,
+            total_tokens=200,
+            requests=1,
+            details={
+                "cache_read_tokens": 30,
+                "cache_write_tokens": 20,
+            },
+        )
+
+        assert _extract_usage_metrics(usage) == {
+            "input_tokens": 100,
+            "cache_read_input_tokens": 30,
+            "cache_creation_input_tokens": 20,
+            "output_tokens": 50,
+            "total_tokens": 200,
+            "num_requests": 1,
+        }
+
+    def test_explicit_zero_cache_detail_is_preserved(self):
+        usage = _usage(
+            input_tokens=120,
+            output_tokens=60,
+            total_tokens=180,
+            requests=1,
+            details={"cached_tokens": 0},
+        )
+
+        metrics = _extract_usage_metrics(usage)
+
+        assert metrics["cache_read_input_tokens"] == 0
+        assert metrics["input_tokens"] == 120
+
     def test_anthropic_shape_populates_both_cache_buckets(self):
         # Anthropic folds base + cache_creation + cache_read into input_tokens.
         usage = _usage(
@@ -420,6 +463,59 @@ class TestExtractUsageMetrics:
         assert metrics["num_requests"] is None
 
 
+class TestUsageFallback:
+    """Provider-zero usage falls back to completed message content."""
+
+    def test_zero_run_usage_does_not_leak_zeroes(self):
+        request_type = type("ModelRequest", (), {})
+        response_type = type("ModelResponse", (), {})
+        request = request_type()
+        request.parts = [SimpleNamespace(content="system prompt and user task")]
+        response = response_type()
+        response.parts = [SimpleNamespace(content="useful sub-agent response")]
+        result = SimpleNamespace(
+            usage=lambda: _usage(
+                input_tokens=0,
+                output_tokens=0,
+                total_tokens=0,
+                requests=0,
+            ),
+            all_messages=lambda: [request, response],
+            output="useful sub-agent response",
+        )
+
+        metrics = _safe_usage_metrics(result)
+
+        assert metrics["input_tokens"] > 0
+        assert metrics["output_tokens"] > 0
+        assert metrics["total_tokens"] == (
+            metrics["input_tokens"] + metrics["output_tokens"]
+        )
+        assert metrics["num_requests"] == 1
+
+    def test_reported_usage_wins_over_estimate(self):
+        request_type = type("ModelRequest", (), {})
+        response_type = type("ModelResponse", (), {})
+        request = request_type()
+        request.parts = [SimpleNamespace(content="a much longer prompt")]
+        response = response_type()
+        response.parts = [SimpleNamespace(content="a much longer response")]
+        result = SimpleNamespace(
+            usage=lambda: _usage(
+                input_tokens=11,
+                output_tokens=7,
+                total_tokens=18,
+                requests=1,
+            ),
+            all_messages=lambda: [request, response],
+            output="ignored estimate",
+        )
+
+        assert _safe_usage_metrics(result)["input_tokens"] == 11
+        assert _safe_usage_metrics(result)["output_tokens"] == 7
+        assert _safe_usage_metrics(result)["total_tokens"] == 18
+
+
 class TestInvokeReportsUsageAndLatency:
     """Integration-ish tests through the registered tool."""
 
@@ -452,6 +548,25 @@ class TestInvokeReportsUsageAndLatency:
         assert start <= end
         assert isinstance(out.duration_ms, float)
         assert out.duration_ms >= 0.0
+
+    @pytest.mark.asyncio
+    async def test_zero_provider_usage_is_estimated_from_run_messages(self):
+        request_type = type("ModelRequest", (), {})
+        response_type = type("ModelResponse", (), {})
+        request = request_type()
+        request.parts = [SimpleNamespace(content="system prompt and user task")]
+        response = response_type()
+        response.parts = [SimpleNamespace(content="useful sub-agent response")]
+
+        out = await _run_invoke(
+            usage=_usage(input_tokens=0, output_tokens=0, total_tokens=0, requests=0),
+            result_messages=[request, response],
+        )
+
+        assert out.input_tokens > 0
+        assert out.output_tokens > 0
+        assert out.total_tokens == out.input_tokens + out.output_tokens
+        assert out.num_requests == 1
 
     @pytest.mark.asyncio
     async def test_success_anthropic_reports_creation_bucket(self):
