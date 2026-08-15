@@ -223,10 +223,9 @@ class AgentInvokeWithModelOutput(AgentInvokeOutput):
     Token accounting is normalized so the input buckets never overlap:
     ``input_tokens`` counts only regular (non-cached) input, while cached input
     is reported separately as ``cache_read_input_tokens`` (cache hits) and
-    ``cache_creation_input_tokens`` (cache writes). Provider counts are used
-    when available; providers that return pydantic-ai's all-zero sentinel use
-    a deterministic message-based estimate, and genuinely unavailable values
-    remain ``None`` rather than being reported as fabricated zeroes.
+    ``cache_creation_input_tokens`` (cache writes). Only provider-reported
+    counts are used so these fields remain suitable for billing comparisons;
+    unavailable values remain ``None`` rather than being estimated.
     """
 
     input_tokens: int | None = None

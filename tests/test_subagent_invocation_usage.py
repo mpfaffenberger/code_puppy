@@ -11,6 +11,7 @@ contract is locked in by ``TestInvokeAgentUnaffected`` below.
   end_time, duration_ms) with ``start_time <= end_time``
 - token buckets are normalized per provider so cached tokens are not
   double-counted (Anthropic / OpenAI / Gemini shapes)
+- missing/all-zero provider billing usage stays None and is never estimated
 - a failing ``result.usage()`` leaves token fields None but still times the run
 - an error path (the sub-agent run raises) leaves all new fields None
 - ``invoke_agent`` (no model override) never sees any of these fields
@@ -102,7 +103,6 @@ async def _run_invoke(
     run_raises=False,
     run_exc=None,
     partial_history=None,
-    result_messages=None,
     capture=None,
     perf=None,
     use_default=False,
@@ -134,9 +134,7 @@ async def _run_invoke(
     else:
         result = MagicMock()
         result.output = "subagent response"
-        result.all_messages.return_value = (
-            result_messages if result_messages is not None else ["updated-history"]
-        )
+        result.all_messages.return_value = ["updated-history"]
         if usage_raises:
             result.usage = MagicMock(side_effect=RuntimeError("no usage"))
         else:
@@ -319,6 +317,30 @@ class TestExtractUsageMetrics:
             "num_requests": 1,
         }
 
+    def test_normalized_cache_aggregates_win_over_detail_aliases(self):
+        # Round-robin runs can aggregate provider-specific detail keys
+        # independently; pydantic-ai's normalized attributes hold the totals.
+        usage = _usage(
+            input_tokens=260,  # 200 base + 50 read + 10 creation
+            output_tokens=40,
+            total_tokens=300,
+            requests=2,
+            cache_read_tokens=50,
+            cache_write_tokens=10,
+            details={
+                "cache_read_input_tokens": 20,
+                "cached_content_tokens": 30,
+                "cache_creation_input_tokens": 4,
+                "cache_write_tokens": 6,
+            },
+        )
+
+        metrics = _extract_usage_metrics(usage)
+
+        assert metrics["input_tokens"] == 200
+        assert metrics["cache_read_input_tokens"] == 50
+        assert metrics["cache_creation_input_tokens"] == 10
+
     def test_explicit_zero_cache_detail_is_preserved(self):
         usage = _usage(
             input_tokens=120,
@@ -463,43 +485,46 @@ class TestExtractUsageMetrics:
         assert metrics["num_requests"] is None
 
 
-class TestUsageFallback:
-    """Provider-zero usage falls back to completed message content."""
+class TestProviderOnlyUsage:
+    """Billing metrics never substitute estimated token counts."""
 
-    def test_zero_run_usage_does_not_leak_zeroes(self):
-        request_type = type("ModelRequest", (), {})
-        response_type = type("ModelResponse", (), {})
-        request = request_type()
-        request.parts = [SimpleNamespace(content="system prompt and user task")]
-        response = response_type()
-        response.parts = [SimpleNamespace(content="useful sub-agent response")]
+    def test_zero_provider_usage_stays_unavailable(self):
         result = SimpleNamespace(
             usage=lambda: _usage(
                 input_tokens=0,
                 output_tokens=0,
                 total_tokens=0,
-                requests=0,
+                # Request count is known locally, but billing tokens are not.
+                requests=1,
             ),
-            all_messages=lambda: [request, response],
-            output="useful sub-agent response",
         )
 
         metrics = _safe_usage_metrics(result)
 
-        assert metrics["input_tokens"] > 0
-        assert metrics["output_tokens"] > 0
-        assert metrics["total_tokens"] == (
-            metrics["input_tokens"] + metrics["output_tokens"]
-        )
+        assert metrics["input_tokens"] is None
+        assert metrics["output_tokens"] is None
+        assert metrics["total_tokens"] is None
         assert metrics["num_requests"] == 1
 
-    def test_reported_usage_wins_over_estimate(self):
-        request_type = type("ModelRequest", (), {})
-        response_type = type("ModelResponse", (), {})
-        request = request_type()
-        request.parts = [SimpleNamespace(content="a much longer prompt")]
-        response = response_type()
-        response.parts = [SimpleNamespace(content="a much longer response")]
+    def test_all_cached_input_preserves_real_zero(self):
+        result = SimpleNamespace(
+            usage=lambda: _usage(
+                input_tokens=100,
+                cache_read_tokens=100,
+                output_tokens=10,
+                total_tokens=110,
+                requests=1,
+            ),
+        )
+
+        metrics = _safe_usage_metrics(result)
+
+        assert metrics["input_tokens"] == 0
+        assert metrics["cache_read_input_tokens"] == 100
+        assert metrics["output_tokens"] == 10
+        assert metrics["total_tokens"] == 110
+
+    def test_reported_usage_is_returned_unchanged(self):
         result = SimpleNamespace(
             usage=lambda: _usage(
                 input_tokens=11,
@@ -507,8 +532,6 @@ class TestUsageFallback:
                 total_tokens=18,
                 requests=1,
             ),
-            all_messages=lambda: [request, response],
-            output="ignored estimate",
         )
 
         assert _safe_usage_metrics(result)["input_tokens"] == 11
@@ -550,22 +573,14 @@ class TestInvokeReportsUsageAndLatency:
         assert out.duration_ms >= 0.0
 
     @pytest.mark.asyncio
-    async def test_zero_provider_usage_is_estimated_from_run_messages(self):
-        request_type = type("ModelRequest", (), {})
-        response_type = type("ModelResponse", (), {})
-        request = request_type()
-        request.parts = [SimpleNamespace(content="system prompt and user task")]
-        response = response_type()
-        response.parts = [SimpleNamespace(content="useful sub-agent response")]
-
+    async def test_zero_provider_usage_stays_unavailable(self):
         out = await _run_invoke(
-            usage=_usage(input_tokens=0, output_tokens=0, total_tokens=0, requests=0),
-            result_messages=[request, response],
+            usage=_usage(input_tokens=0, output_tokens=0, total_tokens=0, requests=1),
         )
 
-        assert out.input_tokens > 0
-        assert out.output_tokens > 0
-        assert out.total_tokens == out.input_tokens + out.output_tokens
+        assert out.input_tokens is None
+        assert out.output_tokens is None
+        assert out.total_tokens is None
         assert out.num_requests == 1
 
     @pytest.mark.asyncio

@@ -18,8 +18,6 @@ from typing import Any
 
 from code_puppy.tools.agent_tools import AgentInvokeOutput, AgentInvokeWithModelOutput
 
-_ESTIMATE_CHARS_PER_TOKEN = 2.5
-
 _EMPTY_USAGE_METRICS: dict[str, int | None] = {
     "input_tokens": None,
     "cache_read_input_tokens": None,
@@ -54,17 +52,18 @@ def _coerce_token_count(value: Any) -> int | None:
 def _pick_reported_tokens(
     usage: Any, detail_keys: tuple[str, ...], attr: str
 ) -> int | None:
-    """Return a reported token count, preferring the provider ``details`` dict.
+    """Return a provider cache count, preferring the normalized aggregate.
 
-    The ``details`` dict only contains keys a provider actually sent, so when a
-    key is present it is the authoritative signal for presence: a key present
-    with value ``0`` is a genuine "provider reported zero" and is kept. The
-    normalized first-class attribute (e.g. ``cache_read_tokens``) is used as a
-    fallback, and only when it is positive, because its dataclass default of
-    ``0`` is indistinguishable from "not reported" -- so for providers that only
-    surface a bucket via the first-class attribute (OpenAI cache reads), a
-    genuine zero is reported as ``None`` rather than a fabricated ``0``.
+    pydantic-ai aggregates ``cache_read_tokens``/``cache_write_tokens`` across
+    every request, including mixed-provider round-robin runs. Provider detail
+    aliases are fallbacks for adapters that do not populate those normalized
+    attributes. An explicit detail value of zero is preserved; a normalized
+    zero is ambiguous because it is also the ``RunUsage`` dataclass default.
     """
+    normalized = _coerce_token_count(getattr(usage, attr, None))
+    if normalized is not None and normalized > 0:
+        return normalized
+
     details = getattr(usage, "details", None)
     if isinstance(details, dict):
         for key in detail_keys:
@@ -72,9 +71,6 @@ def _pick_reported_tokens(
                 coerced = _coerce_token_count(details[key])
                 if coerced is not None:
                     return coerced
-    fallback = _coerce_token_count(getattr(usage, attr, None))
-    if fallback is not None and fallback > 0:
-        return fallback
     return None
 
 
@@ -158,120 +154,35 @@ def _extract_usage_metrics(usage: Any) -> dict[str, int | None]:
     return metrics
 
 
-def _estimate_tokens(text: Any) -> int:
-    """Estimate tokens without depending on a provider tokenizer."""
-    if text is None:
-        return 0
-    if not isinstance(text, str):
-        text = str(text)
-    if not text:
-        return 0
-    return max(1, int(len(text) / _ESTIMATE_CHARS_PER_TOKEN))
-
-
-def _part_text(part: Any) -> str:
-    """Extract useful text from a pydantic-ai message part."""
-    content = getattr(part, "content", None)
-    if content is not None:
-        return content if isinstance(content, str) else str(content)
-
-    for attr in ("args", "args_json", "content_delta", "args_delta"):
-        value = getattr(part, attr, None)
-        if value is not None:
-            return value if isinstance(value, str) else str(value)
-    return ""
-
-
-def _message_tokens(message: Any) -> int:
-    """Estimate tokens in every part of one model message."""
-    return sum(
-        _estimate_tokens(_part_text(part))
-        for part in (getattr(message, "parts", None) or [])
-    )
-
-
-def _is_model_response(message: Any) -> bool:
-    """Avoid importing pydantic-ai message classes in this compatibility shim."""
-    return type(message).__name__ == "ModelResponse"
-
-
-def _estimate_result_metrics(result: Any) -> dict[str, int]:
-    """Estimate usage from the completed run when the provider reports zeroes.
-
-    ``RunUsage`` initializes every counter to zero, even when the provider did
-    not send usage metadata. The completed message list is still available, so
-    use it as a provider-neutral fallback. Input is accumulated at each model
-    response (the approximate context sent for that request), while output is
-    counted from response parts. These values are estimates, not fabricated
-    provider usage.
-    """
-    try:
-        messages = result.all_messages()
-    except Exception:
-        return {"input_tokens": 0, "output_tokens": 0, "num_requests": 0}
-
-    input_tokens = 0
-    output_tokens = 0
-    prefix_tokens = 0
-    requests = 0
-
-    for message in messages or []:
-        message_tokens = _message_tokens(message)
-        if _is_model_response(message):
-            input_tokens += prefix_tokens
-            output_tokens += message_tokens
-            requests += 1
-        prefix_tokens += message_tokens
-
-    # A custom model may return a final string without a response part in its
-    # reconstructed message history. Keep output useful in that case.
-    if output_tokens == 0:
-        output_tokens = _estimate_tokens(getattr(result, "output", None))
-
-    return {
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "num_requests": requests,
-    }
-
-
 def _safe_usage_metrics(result: Any) -> dict[str, int | None]:
-    """Extract usage, estimating missing zero-valued provider counters."""
+    """Extract provider-reported usage without inventing billable tokens."""
     try:
         usage = result.usage()
     except Exception:
-        # Preserve the existing contract for a genuinely unavailable usage
-        # object. The zero-valued RunUsage sentinel is handled below.
         return _extract_usage_metrics(None)
 
     metrics = _extract_usage_metrics(usage)
-    fallback = _estimate_result_metrics(result)
-    for key in ("input_tokens", "output_tokens"):
-        if not metrics[key] and fallback[key] > 0:
-            metrics[key] = fallback[key]
+    provider_reported_tokens = any(
+        metrics[key] not in (None, 0)
+        for key in (
+            "input_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+            "output_tokens",
+            "total_tokens",
+        )
+    )
 
-    if not metrics["total_tokens"]:
-        parts = [
-            value
-            for value in (
-                metrics["input_tokens"],
-                metrics["cache_read_input_tokens"],
-                metrics["cache_creation_input_tokens"],
-                metrics["output_tokens"],
-            )
-            if value is not None
-        ]
-        if parts:
-            metrics["total_tokens"] = sum(parts)
-
-    if not metrics["num_requests"] and fallback["num_requests"] > 0:
-        metrics["num_requests"] = fallback["num_requests"]
-
-    # Do not expose pydantic-ai's all-zero sentinel when no usable fallback
-    # exists. ``None`` means unavailable; zero is reserved for a real count.
-    for key in ("input_tokens", "output_tokens", "total_tokens", "num_requests"):
-        if metrics[key] == 0:
+    # RunUsage defaults every counter to zero even when a provider omitted
+    # billing data. Zero input+output for a completed LLM request is therefore
+    # an unavailable-usage sentinel, not a free request. Preserve genuine zero
+    # buckets when another provider token count proves usage was reported (for
+    # example, fully cached input normalizes non-cached input to zero).
+    for key in ("input_tokens", "output_tokens", "total_tokens"):
+        if metrics[key] == 0 and not provider_reported_tokens:
             metrics[key] = None
+    if metrics["num_requests"] == 0:
+        metrics["num_requests"] = None
     return metrics
 
 
