@@ -367,7 +367,7 @@ class TestResumedSessions:
     async def test_each_turn_reports_only_its_own_calls(self):
         for result in await self._turns(4):
             entries = extract_per_request_usage(result.new_messages())
-            aggregate = _extract_usage_metrics(result.usage())
+            aggregate = _extract_usage_metrics(result.usage)
 
             assert len(entries) == aggregate["num_requests"] == 1
             assert entries[0].input_tokens == aggregate["input_tokens"]

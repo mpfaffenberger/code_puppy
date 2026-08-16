@@ -17,7 +17,7 @@ contract is locked in by ``TestInvokeAgentUnaffected`` below.
 - no aggregate total is reported: the four buckets are billed at different
   rates, so summing them would be meaningless for cost
 - missing/all-zero provider billing usage stays None and is never estimated
-- a failing ``result.usage()`` leaves token fields None but still times the run
+- a failing ``result.usage`` leaves token fields None but still times the run
 - an error path (the sub-agent run raises) leaves all new fields None
 - ``invoke_agent`` (no model override) never sees any of these fields
 
@@ -460,7 +460,7 @@ class TestExtractUsageMetrics:
         so this must assert at that boundary to bite.
         """
         result = SimpleNamespace(
-            usage=lambda: _usage(input_tokens=10, output_tokens=5, requests=0)
+            usage=_usage(input_tokens=10, output_tokens=5, requests=0)
         )
 
         assert _safe_usage_metrics(result)["num_requests"] is None
@@ -471,7 +471,7 @@ class TestProviderOnlyUsage:
 
     def test_all_cached_input_preserves_real_zero(self):
         result = SimpleNamespace(
-            usage=lambda: _usage(
+            usage=_usage(
                 input_tokens=100,
                 cache_read_tokens=100,
                 output_tokens=10,
@@ -487,7 +487,7 @@ class TestProviderOnlyUsage:
 
     def test_reported_usage_is_returned_unchanged(self):
         result = SimpleNamespace(
-            usage=lambda: _usage(
+            usage=_usage(
                 input_tokens=11,
                 output_tokens=7,
                 requests=1,
@@ -520,7 +520,7 @@ class TestPerFieldAvailability:
         fix only at ``_extract_usage_metrics`` would miss it.
         """
         result = SimpleNamespace(
-            usage=lambda: _usage(input_tokens=500, output_tokens=0, requests=1),
+            usage=_usage(input_tokens=500, output_tokens=0, requests=1),
         )
 
         metrics = _safe_usage_metrics(result)
@@ -820,7 +820,7 @@ class TestInvokeAgentUnaffected:
     ``invoke_agent`` must keep returning a plain ``AgentInvokeOutput`` -- the
     original five-field contract -- with no usage/timing fields present at
     all (not even as ``None`` attributes), and must not pay the cost of
-    ``time.perf_counter()``/``datetime.now()``/``result.usage()`` calls.
+    ``time.perf_counter()``/``datetime.now()``/``result.usage`` access.
     """
 
     @pytest.mark.asyncio
