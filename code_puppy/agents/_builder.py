@@ -247,13 +247,11 @@ def _autostart_bound_servers(manager: Any, agent_name: str) -> None:
     immediately. **The server is NOT guaranteed to be ready** when this
     returns — it just kicks off a background task. Safe for the main agent
     boot path because there's plenty of wall-clock time before the first
-    ``agent.run()``. **Not safe** for callers that immediately spin up a
-    pydantic-ai agent against the same MCP singleton in a different task
-    (e.g. ``invoke_agent`` wrapping ``temp_agent.run`` in
-    ``asyncio.create_task``) — those should use
-    :func:`autostart_bound_servers_async` instead, which awaits readiness so
-    pydantic-ai's re-entry hits the refcount fast-path and never creates a
-    competing cancel scope.
+    ``agent.run()``. Callers that immediately spin up a pydantic-ai agent
+    against the same MCP singleton (e.g. ``invoke_agent`` wrapping
+    ``temp_agent.run`` in ``asyncio.create_task``) should use
+    :func:`autostart_bound_servers_async` instead, which awaits readiness
+    so the run starts against a fully started server.
     """
     targets = list(_iter_autostart_targets(manager, agent_name))
     if not targets:
@@ -274,9 +272,8 @@ async def autostart_bound_servers_async(manager: Any, agent_name: str) -> None:
 
     Calls ``manager.start_server`` (the async API) and awaits it, so when
     this coroutine returns the lifecycle task has finished entering the
-    pydantic-ai MCP singleton's context. A subsequent re-entry from
-    pydantic-ai inside ``agent.run()`` will see ``_running_count > 0`` and
-    take the no-op fast-path, avoiding the cross-task cancel-scope crash.
+    pydantic-ai MCP singleton's context and a subsequent re-entry from
+    pydantic-ai inside ``agent.run()`` takes the no-op fast-path.
 
     Use this from any async caller that's about to immediately invoke a
     pydantic-ai agent against the same MCP servers (sub-agent invocation,

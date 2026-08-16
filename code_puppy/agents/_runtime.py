@@ -18,7 +18,6 @@ preserved verbatim:
 from __future__ import annotations
 
 import asyncio
-import logging
 import re
 import signal
 import threading
@@ -37,6 +36,8 @@ from pydantic_ai import (
     UsageLimitExceeded,
     UsageLimits,
 )
+
+from pydantic_ai.exceptions import RunCancelled
 
 try:  # pragma: no cover - pydantic-ai version dependent
     from pydantic_ai.exceptions import ModelHTTPError
@@ -564,45 +565,28 @@ def _should_prepend_system_prompt(agent: Any, prompt: str) -> str:
     return prepared.user_prompt
 
 
-# Count of cancel-scope corruption suppressions this process (exposed for
-# tests and for the Phase C proof-of-death gate). pydantic-ai 1.92+ fixed the
-# upstream stream/MCP teardown bugs (#5313, #4514) that caused these, so this
-# counter is expected to stay at ZERO — any increment is a signal the
-# suppression below is still load-bearing and must NOT be deleted yet.
-_cancel_scope_suppression_count = 0
+def _checkpoint_cancelled_history(exc_group: BaseException, agent: Any) -> None:
+    """Preserve a cancelled run's partial work into ``agent._message_history``.
 
-
-def get_cancel_scope_suppression_count() -> int:
-    """Return how many times cancel-scope corruption was suppressed."""
-    return _cancel_scope_suppression_count
-
-
-def _record_cancel_scope_suppression(exc: BaseException) -> None:
-    """Log LOUDLY and count a cancel-scope suppression (Phase C gate)."""
-    global _cancel_scope_suppression_count
-    _cancel_scope_suppression_count += 1
-    logging.getLogger(__name__).warning(
-        "cancel-scope corruption suppressed "
-        "(expected extinct after pydantic-ai 1.92+): %r",
-        exc,
-    )
-
-
-def _is_cancel_scope_corruption(exc: BaseException) -> bool:
-    """True for anyio's cross-task cancel-scope ``RuntimeError``.
-
-    pydantic-ai MCP toolsets are refcounted: whichever task takes the
-    refcount 0->1 owns the underlying anyio cancel scope, and whichever
-    task drops it back to 0 closes it. When an MCP server's lifecycle task
-    dies mid-run (e.g. a flaky ``npx``-spawned stdio subprocess exits), the
-    agent run task ends up closing a scope owned by a dead task and anyio
-    raises ``RuntimeError: Attempted to exit a cancel scope that isn't the
-    current task's current cancel scope``. By that point the model's
-    response has already streamed — this is teardown noise, not a run
-    failure, so we detect it and degrade gracefully instead of dumping a
-    full exception group on the user.
+    pydantic-ai v2 attaches a ``RunCancelled`` snapshot (the full message
+    history including the interrupted response and every completed tool
+    return) to the propagating ``CancelledError``; a first-party
+    ``RunCancelled`` carries it directly. Keep whichever history is longer:
+    the ProcessHistory checkpoint already holds completed steps, but only
+    the snapshot has the final partial step. Best-effort by design — the
+    ``finally`` prune normalizes any dangling tool calls afterwards.
     """
-    return isinstance(exc, RuntimeError) and "cancel scope" in str(exc).lower()
+    try:
+        for leaf in _collect_exceptions(exc_group, lambda e: True):
+            recovered = RunCancelled.from_cancellation(leaf)
+            if recovered is None:
+                continue
+            messages = list(recovered.all_messages())
+            if len(messages) > len(agent._message_history or []):
+                agent._message_history = messages
+            return
+    except Exception:  # pragma: no cover - preservation must never mask cancel
+        pass
 
 
 def _collect_exceptions(
@@ -867,10 +851,21 @@ async def _run_with_mcp_impl(
             _logging.getLogger(__name__).debug(
                 "McpError during agent run: %s", mcp_error
             )
-        except* asyncio.CancelledError:
+        except* asyncio.CancelledError as ce_group:
+            # pydantic-ai v2 attaches the partial run state to the
+            # CancelledError — checkpoint it so cancelled work survives.
+            _checkpoint_cancelled_history(ce_group, agent)
             # Leading newline: a mid-stream cancel leaves the transcript cursor
             # mid-line, so without it the banner glues onto that text
             # ("...AaronCancelled"). Mirrors cli_runner's "\nCancelled".
+            emit_info("\nCancelled")
+            drain_pause_state_on_cancel()
+            await on_agent_run_cancel(group_id)
+        except* RunCancelled as rc_group:
+            # First-party cancellation (RunContext.cancel() from a tool or
+            # capability hook). Same UX as an external cancel, but the
+            # snapshot rides on the exception itself.
+            _checkpoint_cancelled_history(rc_group, agent)
             emit_info("\nCancelled")
             drain_pause_state_on_cancel()
             await on_agent_run_cancel(group_id)
@@ -885,17 +880,6 @@ async def _run_with_mcp_impl(
                     not isinstance(e, (asyncio.CancelledError, UsageLimitExceeded))
                 ),
             )
-            scope_noise = [e for e in unexpected if _is_cancel_scope_corruption(e)]
-            unexpected = [e for e in unexpected if e not in scope_noise]
-            if scope_noise:
-                for noise in scope_noise:
-                    _record_cancel_scope_suppression(noise)
-                emit_warning(
-                    "An MCP server connection died during this run (its async "
-                    "teardown crossed task boundaries). The response above is "
-                    "intact, but this turn may not be saved to history. "
-                    "Check [cyan]/mcp status[/cyan] and restart the server if needed."
-                )
             for exc in unexpected:
                 emit_exception_diagnostics(exc, group_id=group_id)
             # Re-raise, else the bare except* would silently mask all errors

@@ -1,12 +1,15 @@
-"""Cancellation behavior of ``run_with_mcp`` (Phase B.2 instrumentation).
+"""Cancellation behavior of ``run_with_mcp`` (pydantic-ai v2).
 
 Covers:
 - A cancelled run terminates cleanly: no cancel-scope ``RuntimeError``
   propagates to the caller (pydantic-ai 1.92+ fixed stream teardown on
-  cancel upstream, #5313).
-- The cancel-scope-corruption suppression path is instrumented: when it
-  fires it logs a WARNING and bumps a module-level counter. That counter
-  is the Phase C proof-of-death gate for deleting the suppression.
+  cancel upstream, #5313; the Phase C proof-of-death gate then deleted
+  code_puppy's cancel-scope suppression entirely).
+- Cancel-scope ``RuntimeError``s now propagate like any other error —
+  no silent suppression.
+- A cancelled run's partial work is preserved: pydantic-ai v2 attaches a
+  ``RunCancelled`` snapshot to the ``CancelledError`` and the runtime
+  checkpoints it into ``agent._message_history``.
 
 The manual Ctrl+C matrix (terminal-level SIGINT during streaming, during
 tool runs, during MCP startup) remains a human task.
@@ -15,15 +18,12 @@ tool runs, during MCP startup) remains a human task.
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any
 
 import pytest
 
 from code_puppy.agents import _runtime
 from code_puppy.callbacks import _callbacks, clear_callbacks
-
-LOGGER_NAME = "code_puppy.agents._runtime"
 
 
 class HangingPydanticAgent:
@@ -94,7 +94,6 @@ async def test_cancelled_run_terminates_without_cancel_scope_error():
     """Cancelling a run must terminate it; no cancel-scope RuntimeError."""
     pydantic_agent = HangingPydanticAgent()
     agent = DummyAgent(pydantic_agent)
-    baseline = _runtime.get_cancel_scope_suppression_count()
 
     task = asyncio.create_task(_runtime.run_with_mcp(agent, "hello"))
     await asyncio.wait_for(pydantic_agent.started.wait(), timeout=5)
@@ -113,56 +112,56 @@ async def test_cancelled_run_terminates_without_cancel_scope_error():
     await asyncio.sleep(0)
     assert pydantic_agent.cancelled, "inner agent task was not cancelled"
 
-    # The suppression path must NOT have fired for a plain cancellation.
-    assert _runtime.get_cancel_scope_suppression_count() == baseline
-
 
 # ---------------------------------------------------------------------------
-# Suppression instrumentation (Phase C proof-of-death gate).
+# Cancel-scope noise is no longer suppressed (Phase C gate passed).
 # ---------------------------------------------------------------------------
 
 
-def test_record_cancel_scope_suppression_warns_and_counts(caplog):
-    exc = RuntimeError(
-        "Attempted to exit a cancel scope that isn't the current "
-        "task's current cancel scope"
-    )
-    baseline = _runtime.get_cancel_scope_suppression_count()
-
-    with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-        _runtime._record_cancel_scope_suppression(exc)
-
-    assert _runtime.get_cancel_scope_suppression_count() == baseline + 1
-    warnings = [
-        r
-        for r in caplog.records
-        if r.name == LOGGER_NAME and r.levelno == logging.WARNING
-    ]
-    assert len(warnings) == 1
-    message = warnings[0].getMessage()
-    assert "cancel-scope corruption suppressed" in message
-    assert "expected extinct after pydantic-ai 1.92+" in message
-    assert "cancel scope" in message  # the repr of the suppressed exception
-
-
-async def test_scope_noise_suppression_path_increments_counter(caplog):
-    """End-to-end: an ExceptionGroup of cancel-scope noise is suppressed,
-    logged at WARNING, counted, and does NOT propagate to the caller."""
+async def test_scope_noise_propagates_like_any_other_error():
+    """The v1-era suppression is deleted: cancel-scope RuntimeErrors from an
+    ExceptionGroup now surface to the caller instead of being swallowed."""
     noise = RuntimeError(
         "Attempted to exit cancel scope in a different task than it was entered in"
     )
     pydantic_agent = ScriptedPydanticAgent(ExceptionGroup("teardown", [noise]))
     agent = DummyAgent(pydantic_agent)
-    baseline = _runtime.get_cancel_scope_suppression_count()
 
-    with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-        result = await _runtime.run_with_mcp(agent, "hello")
+    with pytest.raises(RuntimeError, match="cancel scope"):
+        await _runtime.run_with_mcp(agent, "hello")
 
-    assert result is None  # suppressed, not raised
-    assert _runtime.get_cancel_scope_suppression_count() == baseline + 1
-    messages = [
-        r.getMessage()
-        for r in caplog.records
-        if r.name == LOGGER_NAME and r.levelno == logging.WARNING
+
+# ---------------------------------------------------------------------------
+# Cancelled-run history preservation (pydantic-ai v2 RunCancelled snapshot).
+# ---------------------------------------------------------------------------
+
+
+async def test_cancelled_run_checkpoints_partial_history():
+    """A CancelledError carrying a RunCancelled snapshot must checkpoint the
+    snapshot's messages into agent._message_history."""
+    from pydantic_ai.exceptions import RunCancelled
+    from pydantic_ai.messages import ModelRequest, UserPromptPart
+
+    snapshot_messages = [
+        ModelRequest(parts=[UserPromptPart(content="already-started")]),
+        ModelRequest(parts=[UserPromptPart(content="partial-progress")]),
     ]
-    assert any("cancel-scope corruption suppressed" in m for m in messages)
+
+    class CancelledWithSnapshot(HangingPydanticAgent):
+        async def run(self, prompt: Any, **kwargs: Any) -> Any:
+            self.started.set()
+            cancel_exc = asyncio.CancelledError()
+            RunCancelled("cancelled mid-run", messages=snapshot_messages)._attach_to(
+                cancel_exc
+            )
+            raise cancel_exc
+
+    pydantic_agent = CancelledWithSnapshot()
+    agent = DummyAgent(pydantic_agent)
+    agent._message_history = [snapshot_messages[0]]
+
+    result = await _runtime.run_with_mcp(agent, "hello")
+
+    assert result is None  # cancelled, not a successful run
+    # The snapshot (2 messages) is longer than the checkpoint (1) — taken.
+    assert len(agent._message_history) == 2
