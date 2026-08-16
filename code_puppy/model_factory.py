@@ -23,7 +23,7 @@ from code_puppy.gemini_model import GeminiModel
 from code_puppy.messaging import emit_warning
 
 from . import callbacks
-from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
+from .claude_cache_client import ClaudeCacheAsyncClient
 from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .provider_identity import (
@@ -123,7 +123,7 @@ def get_api_key(env_var_name: str) -> str | None:
 # Model types that use the Anthropic Messages API under the hood.
 # These all need Anthropic-specific settings (thinking, effort, etc.).
 _ANTHROPIC_MODEL_TYPES = frozenset(
-    {"anthropic", "aws_bedrock", "azure_foundry", "claude_code"}
+    {"anthropic", "aws_bedrock", "azure_foundry", "claude_code", "custom_anthropic"}
 )
 
 
@@ -409,6 +409,21 @@ def make_model_settings(
             extra_body["output_config"] = {"effort": effort}
             model_settings_dict["extra_body"] = extra_body
 
+        # pydantic-ai 1.56.0 handles all three Anthropic cache breakpoints
+        # natively. OAuth subscription models get their free one-hour TTL;
+        # API-key and custom endpoints use Anthropic's five-minute default.
+        cache_setting: bool | str = (
+            "1h"
+            if model_type == "claude_code" or model_name.startswith("claude-code-")
+            else True
+        )
+        model_settings_dict.update(
+            {
+                "anthropic_cache_instructions": cache_setting,
+                "anthropic_cache_tool_definitions": cache_setting,
+                "anthropic_cache_messages": cache_setting,
+            }
+        )
         model_settings = AnthropicModelSettings(**model_settings_dict)
 
     # Apply thinking defaults if the model supports them
@@ -726,9 +741,6 @@ class ModelFactory:
                 default_headers=default_headers if default_headers else None,
             )
 
-            # Ensure cache_control is injected at the Anthropic SDK layer
-            patch_anthropic_client_messages(anthropic_client)
-
             provider = make_anthropic_provider(
                 provider_identity, anthropic_client=anthropic_client
             )
@@ -774,9 +786,6 @@ class ModelFactory:
                 api_key=api_key,
                 default_headers=default_headers if default_headers else None,
             )
-
-            # Ensure cache_control is injected at the Anthropic SDK layer
-            patch_anthropic_client_messages(anthropic_client)
 
             provider = make_anthropic_provider(
                 provider_identity, anthropic_client=anthropic_client
