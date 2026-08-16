@@ -16,8 +16,26 @@ _JSON_REPAIR_PATCH_MARKER = "__code_puppy_json_repair_patch_v1__"
 _TOOL_CALLBACK_PATCH_MARKER = "__code_puppy_tool_callback_patch_v2__"
 
 
+def _repair_json_args(call: Any, json_repair: Any) -> None:
+    raw_args = call.args
+    if type(raw_args) is not str or not raw_args:
+        return
+    try:
+        from_json(raw_args)
+        return
+    except ValueError:
+        pass
+    try:
+        repaired = json_repair.repair_json(raw_args)
+        parsed = from_json(repaired)
+        if type(parsed) is dict:
+            call.args = repaired
+    except Exception:
+        pass
+
+
 def patch_tool_call_json_repair() -> bool:
-    """Repair malformed JSON before pydantic-ai validates a tool call."""
+    """Repair malformed JSON before final regular/output-tool validation."""
     try:
         import json_repair
     except ImportError as exc:
@@ -26,28 +44,27 @@ def patch_tool_call_json_repair() -> bool:
     try:
         from pydantic_ai.tool_manager import ToolManager
 
-        if getattr(ToolManager.validate_tool_call, _JSON_REPAIR_PATCH_MARKER, False):
-            return True
-        original = ToolManager.validate_tool_call
+        def make_wrapper(original, *, partial_aware: bool):
+            @functools.wraps(original)
+            async def patched(self, call, **kwargs):
+                if not partial_aware or kwargs.get("allow_partial") is not True:
+                    _repair_json_args(call, json_repair)
+                return await original(self, call, **kwargs)
 
-        @functools.wraps(original)
-        async def patched(self, call, **kwargs):
-            if isinstance(call.args, str) and call.args:
-                try:
-                    from_json(call.args)
-                except ValueError:
-                    try:
-                        repaired = json_repair.repair_json(call.args)
-                        parsed = from_json(repaired)
-                        if type(parsed) is dict:
-                            call.args = repaired
-                    except Exception:
-                        pass
-            return await original(self, call, **kwargs)
+            setattr(patched, _JSON_REPAIR_PATCH_MARKER, True)
+            return patched
 
-        setattr(patched, _JSON_REPAIR_PATCH_MARKER, True)
-        ToolManager.validate_tool_call = patched
-        assert ToolManager.validate_tool_call is patched
+        regular = ToolManager.validate_tool_call
+        output = getattr(ToolManager, "validate_output_tool_call", None)
+        if not getattr(regular, _JSON_REPAIR_PATCH_MARKER, False):
+            regular = make_wrapper(regular, partial_aware=False)
+            ToolManager.validate_tool_call = regular
+        if output is not None and not getattr(output, _JSON_REPAIR_PATCH_MARKER, False):
+            output = make_wrapper(output, partial_aware=True)
+            ToolManager.validate_output_tool_call = output
+        assert ToolManager.validate_tool_call is regular
+        if output is not None:
+            assert ToolManager.validate_output_tool_call is output
         return True
     except Exception as exc:
         return patch_failed(
@@ -74,101 +91,144 @@ def _compose_hook_result_envelope(
     return {"hook_context": context, "tool_result": output}
 
 
-def _tool_args(
-    validated: Any,
-    call: Any,
-) -> tuple[dict, dict, str | None, bytes]:
+def _tool_args(validated: Any, call: Any) -> tuple[dict, str, bytes]:
     """Isolate hook mutations and snapshot their model-facing JSON form."""
     execution_args = validated.validated_args
     if type(execution_args) is not dict:
         raise TypeError("tool callbacks require a built-in argument dictionary")
     hook_args = copy.deepcopy(execution_args)
     before = to_json(execution_args)
-    if isinstance(call.args, dict):
+    if type(call.args) is dict:
         mode = "dict"
-    elif isinstance(call.args, str):
+    elif type(call.args) is str:
         mode = "str"
+    elif call.args is None:
+        mode = "none"
     else:
-        mode = None
-    return execution_args, hook_args, mode, before
+        mode = "unsupported"
+    return hook_args, mode, before
 
 
 def _apply_tool_arg_changes(
+    validated: Any,
     call: Any,
-    execution_args: dict,
     hook_args: dict,
-    mode: str | None,
+    mode: str,
     before: bytes,
 ) -> None:
-    """Atomically publish serializable hook mutations to execution and history."""
+    """Atomically publish detached, serializable execution and history values."""
     after = to_json(hook_args)
     if after == before:
         return
-    execution_args.clear()
-    execution_args.update(hook_args)
+    if mode == "unsupported":
+        raise TypeError("unsupported model-history argument representation")
+    execution_args = copy.deepcopy(hook_args)
+    history_args = from_json(after)
+    if type(execution_args) is not dict or type(history_args) is not dict:
+        raise TypeError("tool argument mutation did not produce a dictionary")
+    validated.validated_args = execution_args
     if mode == "str":
         call.args = after.decode("utf-8")
-    elif mode == "dict":
-        call.args = dict(hook_args)
+    else:
+        call.args = history_args
+
+
+_MISSING = object()
+
+
+def _exact_dict_get(mapping: Any, name: str) -> Any:
+    if type(mapping) is not dict:
+        return _MISSING
+    for key in dict.__iter__(mapping):
+        if type(key) is str and key == name:
+            return dict.__getitem__(mapping, key)
+    return _MISSING
+
+
+def _requests_block(callback_result: Any) -> bool:
+    value = _exact_dict_get(callback_result, "blocked")
+    return value is not _MISSING and value is not False and value is not None
 
 
 def _blocking_reason(callback_results: list[Any]) -> str | None:
-    """Latch a block decision without trusting its optional diagnostic fields."""
+    """Latch a block decision without evaluating callback-owned diagnostics."""
     for callback_result in callback_results:
-        if type(callback_result) is not dict or not callback_result.get("blocked"):
+        if not _requests_block(callback_result):
             continue
-        raw_reason = callback_result.get("error_message") or callback_result.get(
-            "reason"
-        )
+        raw_reason = _exact_dict_get(callback_result, "error_message")
+        if raw_reason is _MISSING:
+            raw_reason = _exact_dict_get(callback_result, "reason")
+        if raw_reason is _MISSING:
+            raw_reason = None
         if type(raw_reason) is not str:
             return "Tool execution blocked by hook"
-        if "[BLOCKED]" in raw_reason:
-            return raw_reason[raw_reason.index("[BLOCKED]") :].strip()
-        return raw_reason.strip() or "Tool execution blocked by hook"
+        marker_index = str.find(raw_reason, "[BLOCKED]")
+        if marker_index >= 0:
+            marked = str.strip(raw_reason[marker_index:])
+            return marked or "Tool execution blocked by hook"
+        return str.strip(raw_reason) or "Tool execution blocked by hook"
     return None
 
 
 def _context_messages(callback_results: list[Any]) -> list[str]:
     messages: list[str] = []
     for callback_result in callback_results:
-        if type(callback_result) is not dict or callback_result.get("blocked"):
+        if type(callback_result) is not dict or _requests_block(callback_result):
             continue
-        message = callback_result.get("context_message")
-        if isinstance(message, str) and message.strip():
-            messages.append(message.strip())
+        message = _exact_dict_get(callback_result, "context_message")
+        if type(message) is str:
+            stripped = str.strip(message)
+            if stripped:
+                messages.append(stripped)
     return messages
 
 
 def patch_tool_call_callbacks() -> bool:
     """Install early name normalization and pre/post/final tool callbacks.
 
-    The public pydantic-ai v2 validation seam classifies tools before execution,
-    so Claude Code's ``cp_`` prefix is normalized during lookup and validation.
+    Pydantic-ai v2 classifies calls before validation, so its call-aware graph
+    seam and both public validation APIs normalize Claude Code's ``cp_`` prefix.
     Execution hooks receive an isolated copy of validated arguments; serializable
-    mutations are then published atomically to execution and model-visible history.
+    mutations are published as detached execution and model-history snapshots.
     """
     try:
+        from pydantic_ai._agent_graph import CallToolsNode
         from pydantic_ai.tool_manager import ToolManager
 
-        if getattr(ToolManager.execute_tool_call, _TOOL_CALLBACK_PATCH_MARKER, False):
-            return True
         original_execute = ToolManager.execute_tool_call
         original_get_tool_def = ToolManager.get_tool_def
+        original_output_validate = ToolManager.validate_output_tool_call
         original_validate = ToolManager.validate_tool_call
+        original_handle_tool_calls = CallToolsNode._handle_tool_calls
+        patch_targets = (
+            original_execute,
+            original_get_tool_def,
+            original_output_validate,
+            original_validate,
+            original_handle_tool_calls,
+        )
+        if all(
+            getattr(target, _TOOL_CALLBACK_PATCH_MARKER, False)
+            for target in patch_targets
+        ):
+            return True
 
-        def call_uses_claude_code(self, call: Any) -> bool:
-            provider_name = getattr(call, "provider_name", None)
-            if isinstance(provider_name, str):
-                return provider_name == "claude_code"
+        def manager_uses_claude_code(self) -> bool:
             try:
                 return self.ctx.model.provider.name == "claude_code"
             except Exception:
                 return False
 
+        def call_uses_claude_code(self, call: Any) -> bool:
+            provider_name = getattr(call, "provider_name", None)
+            if type(provider_name) is str:
+                return provider_name == "claude_code"
+            return manager_uses_claude_code(self)
+
         def normalize_call(self, call: Any) -> tuple[Any, Any]:
             tool_name = getattr(call, "tool_name", None)
             if not (
-                isinstance(tool_name, str)
+                type(tool_name) is str
                 and tool_name.startswith("cp_")
                 and call_uses_claude_code(self, call)
             ):
@@ -188,8 +248,9 @@ def patch_tool_call_callbacks() -> bool:
             exact = original_get_tool_def(self, name)
             if (
                 exact is not None
-                or not isinstance(name, str)
-                or not name.startswith("cp_")
+                or type(name) is not str
+                or not str.startswith(name, "cp_")
+                or not manager_uses_claude_code(self)
             ):
                 return exact
             return original_get_tool_def(self, name[3:])
@@ -198,6 +259,24 @@ def patch_tool_call_callbacks() -> bool:
         async def patched_validate(self, call, **kwargs):
             normalize_call(self, call)
             return await original_validate(self, call, **kwargs)
+
+        @functools.wraps(original_output_validate)
+        async def patched_output_validate(self, call, **kwargs):
+            normalize_call(self, call)
+            return await original_output_validate(self, call, **kwargs)
+
+        @functools.wraps(original_handle_tool_calls)
+        async def patched_handle_tool_calls(self, ctx, tool_calls, **kwargs):
+            manager = ctx.deps.tool_manager
+            for call in tool_calls:
+                normalize_call(manager, call)
+            async for event in original_handle_tool_calls(
+                self,
+                ctx,
+                tool_calls,
+                **kwargs,
+            ):
+                yield event
 
         @functools.wraps(original_execute)
         async def patched_execute(self, validated, **kwargs):
@@ -214,16 +293,15 @@ def patch_tool_call_callbacks() -> bool:
 
             call = validated.call
             tool_name, call = normalize_call(self, call)
-            start = time.perf_counter()
             arg_error: str | None = None
             try:
-                execution_args, tool_args, writeback_mode, before = _tool_args(
-                    validated, call
-                )
+                tool_args, writeback_mode, before = _tool_args(validated, call)
             except Exception:
-                execution_args = validated.validated_args
-                tool_args = dict(execution_args)
-                writeback_mode = None
+                validated_args = validated.validated_args
+                tool_args = (
+                    dict.copy(validated_args) if type(validated_args) is dict else {}
+                )
+                writeback_mode = "unsupported"
                 before = b""
                 arg_error = "Tool arguments could not be safely synchronized"
 
@@ -235,16 +313,22 @@ def patch_tool_call_callbacks() -> bool:
                 callback_results = await callbacks_api.on_pre_tool_call(
                     tool_name, tool_args
                 )
+                if type(callback_results) is not list:
+                    callback_results = []
             except Exception:
                 pass
 
-            hook_context_messages = _context_messages(callback_results)
-            reason = _blocking_reason(callback_results) or arg_error
+            reason = _blocking_reason(callback_results)
+            if reason is None:
+                reason = arg_error
+            hook_context_messages = (
+                _context_messages(callback_results) if reason is None else []
+            )
             if reason is None:
                 try:
                     _apply_tool_arg_changes(
+                        validated,
                         call,
-                        execution_args,
                         tool_args,
                         writeback_mode,
                         before,
@@ -262,11 +346,14 @@ def patch_tool_call_callbacks() -> bool:
                     pass
                 try:
                     self.ctx.usage.tool_calls += 1
-                    if kwargs.get("wrap_validation_errors", True):
-                        self.succeeded_tools.add(call.tool_name)
                 except Exception:
                     pass
-                duration_ms = (time.perf_counter() - start) * 1000
+                if kwargs.get("wrap_validation_errors", True) is True:
+                    try:
+                        self.succeeded_tools.add(call.tool_name)
+                    except Exception:
+                        pass
+                duration_ms = 0.0
                 blocked_result = {"blocked": True, "error": block_message}
                 if callbacks_api is not None:
                     try:
@@ -286,14 +373,22 @@ def patch_tool_call_callbacks() -> bool:
 
             error: BaseException | None = None
             result = None
+            execution_start = time.perf_counter()
             try:
                 result = await original_execute(self, validated, **kwargs)
             except BaseException as exc:
                 error = exc
                 raise
             finally:
-                duration_ms = (time.perf_counter() - start) * 1000
-                post_result = result if error is None else {"error": str(error)}
+                duration_ms = (time.perf_counter() - execution_start) * 1000
+                if error is None:
+                    post_result = result
+                else:
+                    try:
+                        error_message = str(error)
+                    except Exception:
+                        error_message = type(error).__name__
+                    post_result = {"error": error_message}
                 if callbacks_api is not None:
                     try:
                         await callbacks_api.on_post_tool_call(
@@ -322,13 +417,24 @@ def patch_tool_call_callbacks() -> bool:
                     pass
             return result
 
-        setattr(patched_execute, _TOOL_CALLBACK_PATCH_MARKER, True)
+        for patched in (
+            patched_execute,
+            patched_get_tool_def,
+            patched_output_validate,
+            patched_validate,
+            patched_handle_tool_calls,
+        ):
+            setattr(patched, _TOOL_CALLBACK_PATCH_MARKER, True)
         ToolManager.get_tool_def = patched_get_tool_def
         ToolManager.validate_tool_call = patched_validate
+        ToolManager.validate_output_tool_call = patched_output_validate
         ToolManager.execute_tool_call = patched_execute
+        CallToolsNode._handle_tool_calls = patched_handle_tool_calls
         assert ToolManager.get_tool_def is patched_get_tool_def
         assert ToolManager.validate_tool_call is patched_validate
+        assert ToolManager.validate_output_tool_call is patched_output_validate
         assert ToolManager.execute_tool_call is patched_execute
+        assert CallToolsNode._handle_tool_calls is patched_handle_tool_calls
         return True
     except Exception as exc:
         return patch_failed(
