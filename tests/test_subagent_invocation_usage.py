@@ -7,10 +7,15 @@ unmodified ``AgentInvokeOutput`` with no usage/timing fields at all; that
 contract is locked in by ``TestInvokeAgentUnaffected`` below.
 
 - success path populates every new field (non-cached input_tokens, cache read /
-  creation buckets, output_tokens, total_tokens, num_requests, start_time,
+  creation buckets, output_tokens, num_requests, start_time,
   end_time, duration_ms) with ``start_time <= end_time``
 - token buckets are normalized per provider so cached tokens are not
   double-counted (Anthropic / OpenAI / Gemini shapes)
+- availability is tracked PER FIELD: an ambiguous zero (the RunUsage dataclass
+  default) reports as None, while a genuine zero -- fully cached input, or a
+  key explicitly present in ``details`` -- is preserved
+- no aggregate total is reported: the four buckets are billed at different
+  rates, so summing them would be meaningless for cost
 - missing/all-zero provider billing usage stays None and is never estimated
 - a failing ``result.usage()`` leaves token fields None but still times the run
 - an error path (the sub-agent run raises) leaves all new fields None
@@ -22,11 +27,14 @@ new behaviour stays focused and readable.
 
 from contextlib import ExitStack, contextmanager
 import asyncio
+import warnings
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_ai.usage import RequestUsage, RunUsage
 
 from code_puppy.tools.subagent_invocation import (
     register_invoke_agent,
@@ -106,6 +114,7 @@ async def _run_invoke(
     capture=None,
     perf=None,
     use_default=False,
+    new_messages=(),
 ):
     """Drive _invoke_agent_impl with a mocked temp agent and return the output.
 
@@ -134,7 +143,12 @@ async def _run_invoke(
     else:
         result = MagicMock()
         result.output = "subagent response"
+        # Distinct values: usage extraction must read the CURRENT run's slice
+        # (new_messages), while persistence keeps the whole session
+        # (all_messages). A mock returning the same list for both would hide a
+        # wiring mistake that overcharges every resumed session.
         result.all_messages.return_value = ["updated-history"]
+        result.new_messages.return_value = new_messages
         if usage_raises:
             result.usage = MagicMock(side_effect=RuntimeError("no usage"))
         else:
@@ -271,7 +285,6 @@ class TestExtractUsageMetrics:
             "cache_read_input_tokens": None,
             "cache_creation_input_tokens": None,
             "output_tokens": None,
-            "total_tokens": None,
             "num_requests": None,
         }
 
@@ -280,7 +293,6 @@ class TestExtractUsageMetrics:
         usage = _usage(
             input_tokens=10,
             output_tokens=5,
-            total_tokens=15,
             requests=2,
             cache_read_tokens=0,
             cache_write_tokens=0,
@@ -290,7 +302,6 @@ class TestExtractUsageMetrics:
             "cache_read_input_tokens": None,
             "cache_creation_input_tokens": None,
             "output_tokens": 5,
-            "total_tokens": 15,
             "num_requests": 2,
         }
 
@@ -300,7 +311,6 @@ class TestExtractUsageMetrics:
         usage = _usage(
             input_tokens=150,  # 100 base + 20 creation + 30 read
             output_tokens=50,
-            total_tokens=200,
             requests=1,
             details={
                 "cache_read_tokens": 30,
@@ -313,7 +323,6 @@ class TestExtractUsageMetrics:
             "cache_read_input_tokens": 30,
             "cache_creation_input_tokens": 20,
             "output_tokens": 50,
-            "total_tokens": 200,
             "num_requests": 1,
         }
 
@@ -323,7 +332,6 @@ class TestExtractUsageMetrics:
         usage = _usage(
             input_tokens=260,  # 200 base + 50 read + 10 creation
             output_tokens=40,
-            total_tokens=300,
             requests=2,
             cache_read_tokens=50,
             cache_write_tokens=10,
@@ -345,7 +353,6 @@ class TestExtractUsageMetrics:
         usage = _usage(
             input_tokens=120,
             output_tokens=60,
-            total_tokens=180,
             requests=1,
             details={"cached_tokens": 0},
         )
@@ -360,7 +367,6 @@ class TestExtractUsageMetrics:
         usage = _usage(
             input_tokens=150,  # 100 base + 20 creation + 30 read
             output_tokens=50,
-            total_tokens=200,
             requests=1,
             cache_read_tokens=30,
             cache_write_tokens=20,
@@ -376,7 +382,6 @@ class TestExtractUsageMetrics:
             "cache_read_input_tokens": 30,
             "cache_creation_input_tokens": 20,
             "output_tokens": 50,
-            "total_tokens": 200,
             "num_requests": 1,
         }
 
@@ -386,7 +391,6 @@ class TestExtractUsageMetrics:
         usage = _usage(
             input_tokens=120,  # 80 non-cached + 40 cached
             output_tokens=60,
-            total_tokens=180,
             requests=1,
             cache_read_tokens=40,
             cache_write_tokens=0,
@@ -397,7 +401,6 @@ class TestExtractUsageMetrics:
             "cache_read_input_tokens": 40,
             "cache_creation_input_tokens": None,
             "output_tokens": 60,
-            "total_tokens": 180,
             "num_requests": 1,
         }
 
@@ -407,7 +410,6 @@ class TestExtractUsageMetrics:
         usage = _usage(
             input_tokens=120,
             output_tokens=60,
-            total_tokens=180,
             requests=1,
             cache_read_tokens=0,
             cache_write_tokens=0,
@@ -423,7 +425,6 @@ class TestExtractUsageMetrics:
         usage = _usage(
             input_tokens=250,  # 200 non-cached + 50 cached
             output_tokens=70,
-            total_tokens=320,
             requests=1,
             cache_read_tokens=50,
             cache_write_tokens=0,
@@ -434,19 +435,17 @@ class TestExtractUsageMetrics:
             "cache_read_input_tokens": 50,
             "cache_creation_input_tokens": None,
             "output_tokens": 70,
-            "total_tokens": 320,
             "num_requests": 1,
         }
 
-    def test_deprecated_fields_and_computed_total(self):
-        # No total_tokens attr, no cache: total computed from the parts.
+    def test_deprecated_fields_are_read_when_modern_attrs_are_absent(self):
+        # Legacy-only shape: the deprecated aliases are the only source.
         usage = SimpleNamespace(request_tokens=7, response_tokens=3, requests=1)
         assert _extract_usage_metrics(usage) == {
             "input_tokens": 7,
             "cache_read_input_tokens": None,
             "cache_creation_input_tokens": None,
             "output_tokens": 3,
-            "total_tokens": 10,
             "num_requests": 1,
         }
 
@@ -455,7 +454,6 @@ class TestExtractUsageMetrics:
         usage = _usage(
             input_tokens=10,
             output_tokens=5,
-            total_tokens=15,
             requests=1,
             cache_read_tokens=0,
             details={"cache_read_input_tokens": 0},
@@ -493,7 +491,6 @@ class TestProviderOnlyUsage:
             usage=lambda: _usage(
                 input_tokens=0,
                 output_tokens=0,
-                total_tokens=0,
                 # Request count is known locally, but billing tokens are not.
                 requests=1,
             ),
@@ -503,7 +500,6 @@ class TestProviderOnlyUsage:
 
         assert metrics["input_tokens"] is None
         assert metrics["output_tokens"] is None
-        assert metrics["total_tokens"] is None
         assert metrics["num_requests"] == 1
 
     def test_all_cached_input_preserves_real_zero(self):
@@ -512,7 +508,6 @@ class TestProviderOnlyUsage:
                 input_tokens=100,
                 cache_read_tokens=100,
                 output_tokens=10,
-                total_tokens=110,
                 requests=1,
             ),
         )
@@ -522,21 +517,258 @@ class TestProviderOnlyUsage:
         assert metrics["input_tokens"] == 0
         assert metrics["cache_read_input_tokens"] == 100
         assert metrics["output_tokens"] == 10
-        assert metrics["total_tokens"] == 110
 
     def test_reported_usage_is_returned_unchanged(self):
         result = SimpleNamespace(
             usage=lambda: _usage(
                 input_tokens=11,
                 output_tokens=7,
-                total_tokens=18,
                 requests=1,
             ),
         )
 
         assert _safe_usage_metrics(result)["input_tokens"] == 11
         assert _safe_usage_metrics(result)["output_tokens"] == 7
-        assert _safe_usage_metrics(result)["total_tokens"] == 18
+
+
+class TestPerFieldAvailability:
+    """Each token counter resolves availability on its own.
+
+    ``RunUsage`` defaults every counter to ``0`` independently, so a provider
+    that reports input but omits output must not surface ``output_tokens=0`` as
+    though it were a real reading just because some *other* field was positive.
+    """
+
+    def test_positive_input_does_not_vouch_for_omitted_output(self):
+        usage = _usage(input_tokens=500, output_tokens=0, requests=1)
+
+        metrics = _extract_usage_metrics(usage)
+
+        assert metrics["input_tokens"] == 500
+        assert metrics["output_tokens"] is None
+
+    def test_positive_input_does_not_vouch_for_absent_output(self):
+        usage = SimpleNamespace(input_tokens=500, requests=1, details={})
+
+        metrics = _extract_usage_metrics(usage)
+
+        assert metrics["input_tokens"] == 500
+        assert metrics["output_tokens"] is None
+
+    def test_partial_usage_survives_safe_usage_metrics(self):
+        """Locks the regression at the _safe_usage_metrics boundary.
+
+        The bug came from post-processing in ``_safe_usage_metrics``, so proving
+        the fix only at ``_extract_usage_metrics`` would not lock the behaviour
+        that actually regressed.
+        """
+        result = SimpleNamespace(
+            usage=lambda: _usage(input_tokens=500, output_tokens=0, requests=1),
+        )
+
+        metrics = _safe_usage_metrics(result)
+
+        assert metrics["input_tokens"] == 500
+        assert metrics["output_tokens"] is None
+        assert metrics["num_requests"] == 1
+
+    def test_explicit_zero_output_detail_is_preserved(self):
+        usage = _usage(
+            input_tokens=120,
+            output_tokens=0,
+            requests=1,
+            details={"output_tokens": 0},
+        )
+
+        metrics = _extract_usage_metrics(usage)
+
+        assert metrics["input_tokens"] == 120
+        assert metrics["output_tokens"] == 0
+
+    def test_deprecated_alias_used_only_when_modern_attr_is_absent(self):
+        # No modern attributes at all: the deprecated aliases are the only
+        # source, so they are consulted.
+        usage = SimpleNamespace(
+            request_tokens=7,
+            response_tokens=3,
+            requests=1,
+            details={},
+        )
+
+        metrics = _extract_usage_metrics(usage)
+
+        assert metrics["input_tokens"] == 7
+        assert metrics["output_tokens"] == 3
+
+    def test_present_modern_zero_does_not_fall_through_to_alias(self):
+        """A present modern attribute is authoritative, even when ambiguous.
+
+        ``RunUsage`` implements ``request_tokens``/``response_tokens`` as
+        deprecated properties that re-read the modern field and warn on access,
+        so probing them after a zero would be noisy and could never yield a
+        different number. The counter reports unavailable instead.
+        """
+        usage = _usage(
+            input_tokens=0,
+            request_tokens=7,
+            output_tokens=0,
+            response_tokens=3,
+            requests=1,
+        )
+
+        metrics = _extract_usage_metrics(usage)
+
+        assert metrics["input_tokens"] is None
+        assert metrics["output_tokens"] is None
+
+    def test_input_is_never_sourced_from_details(self):
+        """Anthropic footgun: details input is base-only, the attr is combined.
+
+        ``details["input_tokens"]`` excludes cache, whereas the normalized
+        attribute includes it. Sourcing input from details would subtract the
+        cache components a second time and undercount non-cached input.
+        """
+        usage = _usage(
+            output_tokens=50,
+            requests=1,
+            cache_read_tokens=30,
+            cache_write_tokens=20,
+            details={"input_tokens": 100},
+        )
+
+        metrics = _extract_usage_metrics(usage)
+
+        assert metrics["input_tokens"] is None
+        assert metrics["cache_read_input_tokens"] == 30
+        assert metrics["cache_creation_input_tokens"] == 20
+        assert metrics["output_tokens"] == 50
+
+
+class TestNoAggregateTotalIsReported:
+    """No summed total is emitted -- the billable buckets stand alone.
+
+    Providers price input, cache reads, cache writes, and output at different
+    per-token rates, so an aggregate cannot be converted to a cost without
+    being decomposed again. The schema therefore carries no ``total_tokens``
+    field, and nothing in the metrics dict may reintroduce one -- including
+    ``UsageBase.total_tokens``, the property ``RunUsage`` always exposes as
+    ``input_tokens + output_tokens``, which cannot tell an omitted counter
+    from a zero one.
+    """
+
+    _EXPECTED_KEYS = {
+        "input_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+        "output_tokens",
+        "num_requests",
+    }
+
+    def test_metrics_dict_exposes_exactly_the_billable_buckets(self):
+        usage = _usage(
+            input_tokens=150,  # 100 base + 20 creation + 30 read
+            output_tokens=50,
+            requests=1,
+            cache_read_tokens=30,
+            cache_write_tokens=20,
+        )
+
+        metrics = _extract_usage_metrics(usage)
+
+        assert set(metrics) == self._EXPECTED_KEYS
+        assert metrics["input_tokens"] == 100
+        assert metrics["cache_read_input_tokens"] == 30
+        assert metrics["cache_creation_input_tokens"] == 20
+        assert metrics["output_tokens"] == 50
+
+    def test_upstream_total_property_is_ignored(self):
+        # The stub advertises a total; it must not leak into the metrics.
+        usage = _usage(
+            input_tokens=41,
+            output_tokens=7,
+            total_tokens=999,
+            cache_read_tokens=30,
+            requests=1,
+        )
+
+        assert "total_tokens" not in _extract_usage_metrics(usage)
+
+    def test_empty_metrics_carry_no_total(self):
+        assert set(_extract_usage_metrics(None)) == self._EXPECTED_KEYS
+
+    def test_output_type_has_no_total_field(self):
+        from code_puppy.tools.agent_tools import AgentInvokeWithModelOutput
+
+        assert "total_tokens" not in AgentInvokeWithModelOutput.model_fields
+
+
+class TestRealRunUsageShapes:
+    """Drive the extractor with genuine ``RunUsage`` objects, not stubs.
+
+    The stub helper above builds a ``SimpleNamespace``, which cannot reproduce
+    two behaviours of the real class: ``total_tokens`` is an inherited property
+    that is ALWAYS present (defined as ``input_tokens + output_tokens``), so it
+    must never be mistaken for a reported bucket; and
+    ``request_tokens``/``response_tokens`` are deprecated properties that warn
+    on access. Both are easy to get wrong and invisible to a stub-only suite,
+    so they are pinned here against the real thing.
+    """
+
+    def test_input_only_run_reports_no_output(self):
+        usage = RunUsage(input_tokens=500, output_tokens=0, requests=1)
+
+        metrics = _extract_usage_metrics(usage)
+
+        assert metrics["input_tokens"] == 500
+        assert metrics["output_tokens"] is None
+        # RunUsage.total_tokens would claim 500 for this run even though the
+        # output was never measured -- it cannot tell omitted from zero.
+        assert "total_tokens" not in metrics
+
+    def test_unavailable_usage_sentinel_stays_unavailable(self):
+        usage = RunUsage(requests=1)
+
+        assert _extract_usage_metrics(usage) == {
+            "input_tokens": None,
+            "cache_read_input_tokens": None,
+            "cache_creation_input_tokens": None,
+            "output_tokens": None,
+            "num_requests": 1,
+        }
+
+    def test_cached_run_splits_every_billable_bucket(self):
+        usage = RunUsage(
+            input_tokens=150,  # 100 base + 20 creation + 30 read
+            cache_read_tokens=30,
+            cache_write_tokens=20,
+            output_tokens=50,
+            requests=1,
+        )
+
+        metrics = _extract_usage_metrics(usage)
+
+        assert metrics["input_tokens"] == 100
+        assert metrics["cache_read_input_tokens"] == 30
+        assert metrics["cache_creation_input_tokens"] == 20
+        assert metrics["output_tokens"] == 50
+        # No aggregate is published: the four buckets are priced separately,
+        # so a single summed figure could not be converted back into a cost.
+        assert "total_tokens" not in metrics
+
+    def test_extraction_emits_no_deprecation_warnings(self):
+        """Touching the deprecated aliases would warn (and fail -W error)."""
+        shapes = (
+            RunUsage(input_tokens=500, output_tokens=0, requests=1),
+            RunUsage(requests=1),
+            RunUsage(input_tokens=100, output_tokens=50, requests=1),
+        )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            for usage in shapes:
+                _extract_usage_metrics(usage)
+
+        assert [w for w in caught if issubclass(w.category, DeprecationWarning)] == []
 
 
 class TestInvokeReportsUsageAndLatency:
@@ -547,7 +779,6 @@ class TestInvokeReportsUsageAndLatency:
         usage = _usage(
             input_tokens=120,
             output_tokens=60,
-            total_tokens=180,
             requests=3,
             cache_read_tokens=40,
             cache_write_tokens=0,
@@ -561,7 +792,6 @@ class TestInvokeReportsUsageAndLatency:
         assert out.cache_read_input_tokens == 40
         assert out.cache_creation_input_tokens is None
         assert out.output_tokens == 60
-        assert out.total_tokens == 180
         assert out.num_requests == 3
         # Timestamps are UTC ISO-8601 and correctly ordered.
         assert out.start_time is not None and out.end_time is not None
@@ -575,12 +805,11 @@ class TestInvokeReportsUsageAndLatency:
     @pytest.mark.asyncio
     async def test_zero_provider_usage_stays_unavailable(self):
         out = await _run_invoke(
-            usage=_usage(input_tokens=0, output_tokens=0, total_tokens=0, requests=1),
+            usage=_usage(input_tokens=0, output_tokens=0, requests=1),
         )
 
         assert out.input_tokens is None
         assert out.output_tokens is None
-        assert out.total_tokens is None
         assert out.num_requests == 1
 
     @pytest.mark.asyncio
@@ -588,7 +817,6 @@ class TestInvokeReportsUsageAndLatency:
         usage = _usage(
             input_tokens=150,
             output_tokens=50,
-            total_tokens=200,
             requests=1,
             cache_read_tokens=30,
             cache_write_tokens=20,
@@ -607,7 +835,7 @@ class TestInvokeReportsUsageAndLatency:
 
     @pytest.mark.asyncio
     async def test_success_duration_is_measured(self):
-        usage = _usage(input_tokens=1, output_tokens=1, total_tokens=2, requests=1)
+        usage = _usage(input_tokens=1, output_tokens=1, requests=1)
         # perf_counter: start=1000.0, stop=1000.5 -> 500.0 ms; extra calls stay
         # at the stop value so nothing raises if the clock is touched again.
         out = await _run_invoke(usage=usage, perf=[1000.0, 1000.5, 1000.5, 1000.5])
@@ -624,7 +852,6 @@ class TestInvokeReportsUsageAndLatency:
         assert out.cache_read_input_tokens is None
         assert out.cache_creation_input_tokens is None
         assert out.output_tokens is None
-        assert out.total_tokens is None
         assert out.num_requests is None
         # Timing is still measured even when usage extraction fails.
         assert out.start_time is not None
@@ -642,7 +869,6 @@ class TestInvokeReportsUsageAndLatency:
         assert out.cache_read_input_tokens is None
         assert out.cache_creation_input_tokens is None
         assert out.output_tokens is None
-        assert out.total_tokens is None
         assert out.num_requests is None
         assert out.start_time is None
         assert out.end_time is None
@@ -665,7 +891,7 @@ class TestInvokeAgentUnaffected:
             AgentInvokeWithModelOutput,
         )
 
-        usage = _usage(input_tokens=120, output_tokens=60, total_tokens=180, requests=3)
+        usage = _usage(input_tokens=120, output_tokens=60, requests=3)
         out = await _run_invoke(usage=usage, use_default=True)
 
         assert out.response == "subagent response"
@@ -678,7 +904,6 @@ class TestInvokeAgentUnaffected:
             "cache_read_input_tokens",
             "cache_creation_input_tokens",
             "output_tokens",
-            "total_tokens",
             "num_requests",
             "start_time",
             "end_time",
@@ -699,7 +924,7 @@ class TestInvokeAgentUnaffected:
     @pytest.mark.asyncio
     async def test_usage_and_clock_are_never_touched(self):
         """invoke_agent must not pay for timing/usage instrumentation at all."""
-        usage = _usage(input_tokens=1, output_tokens=1, total_tokens=2, requests=1)
+        usage = _usage(input_tokens=1, output_tokens=1, requests=1)
         with patch(
             "code_puppy.tools.subagent_invocation.time.perf_counter"
         ) as mock_perf:
@@ -807,3 +1032,74 @@ class TestCancellationPersistence:
         cap["warning"].assert_not_called()
         # A crash is not an interruption: nothing to resume, no parent note.
         assert drain_interrupted_subagents() == []
+
+
+class TestPerRequestWiring:
+    """The invoke path must read the CURRENT run's messages, not the session.
+
+    ``all_messages()`` includes older runs, so wiring usage extraction to it
+    re-reports every earlier call as freshly billable -- reported cost then
+    grows with session length instead of matching the run. Persistence still
+    needs the full history, so both calls exist and must not be confused.
+    """
+
+    @staticmethod
+    def _response(input_tokens, output_tokens):
+        return ModelResponse(
+            parts=[TextPart(content="reply")],
+            usage=RequestUsage(input_tokens=input_tokens, output_tokens=output_tokens),
+            model_name="gpt-5.6-terra",
+        )
+
+    @pytest.mark.asyncio
+    async def test_per_request_usage_comes_from_this_run_only(self):
+        out = await _run_invoke(
+            usage=_usage(input_tokens=100, output_tokens=50, requests=1),
+            new_messages=[self._response(100, 50)],
+        )
+
+        assert [e.input_tokens for e in out.per_request_usage] == [100]
+        assert [e.output_tokens for e in out.per_request_usage] == [50]
+        assert out.per_request_usage[0].model_name == "gpt-5.6-terra"
+
+    @pytest.mark.asyncio
+    async def test_session_history_is_not_used_for_usage(self):
+        """The mocked all_messages() is unusable as usage input on purpose.
+
+        If the wiring ever points back at it, extraction yields no entries and
+        this fails loudly rather than silently overcharging.
+        """
+        out = await _run_invoke(
+            usage=_usage(input_tokens=100, output_tokens=50, requests=1),
+            new_messages=[self._response(100, 50)],
+        )
+
+        assert len(out.per_request_usage) == out.num_requests == 1
+
+    @pytest.mark.asyncio
+    async def test_error_path_reports_no_breakdown(self):
+        out = await _run_invoke(run_raises=True)
+
+        assert out.per_request_usage is None
+
+    @pytest.mark.asyncio
+    async def test_final_context_tokens_is_wired_from_this_run(self):
+        """Occupancy must come from the last call, not the run totals."""
+        out = await _run_invoke(
+            usage=_usage(input_tokens=100, output_tokens=50, requests=2),
+            new_messages=[self._response(100, 50), self._response(300, 25)],
+        )
+
+        assert out.final_context_tokens == 325
+
+    @pytest.mark.asyncio
+    async def test_final_context_tokens_none_on_error(self):
+        out = await _run_invoke(run_raises=True)
+
+        assert out.final_context_tokens is None
+
+    @pytest.mark.asyncio
+    async def test_plain_invoke_agent_has_no_context_field(self):
+        out = await _run_invoke(use_default=True)
+
+        assert not hasattr(out, "final_context_tokens")

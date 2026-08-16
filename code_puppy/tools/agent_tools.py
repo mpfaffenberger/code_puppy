@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from pydantic_ai import RunContext
 from pydantic_ai.messages import ModelMessage
@@ -210,6 +210,35 @@ class AgentInvokeOutput(BaseModel):
     error: str | None = None
 
 
+class SubagentRequestUsage(BaseModel):
+    """Token usage for ONE model call within a run.
+
+    Providers decide pricing per request, not per run: several models charge a
+    higher rate once a single call's context crosses a length threshold, and a
+    run may switch models partway through. Summing calls therefore destroys the
+    information cost depends on -- upstream says as much on
+    ``RequestUsage.__add__``: "this CANNOT be used to sum multiple requests
+    without breaking some pricing calculations."
+
+    Each entry keeps one call's buckets intact alongside the model that served
+    it, so callers can apply the correct price sheet and context tier per call.
+    Buckets follow the same rules as the aggregate fields: non-overlapping, and
+    ``None`` whenever the provider did not report them unambiguously.
+
+    ``num_requests`` is deliberately absent -- it is always 1 here. The model
+    forbids extra fields so that feeding it run-level metrics (which carry
+    ``num_requests``) fails loudly instead of silently dropping the key.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    model_name: str | None = None
+    input_tokens: int | None = None
+    cache_read_input_tokens: int | None = None
+    cache_creation_input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
 class AgentInvokeWithModelOutput(AgentInvokeOutput):
     """Output for the invoke_agent_with_model tool.
 
@@ -220,20 +249,42 @@ class AgentInvokeWithModelOutput(AgentInvokeOutput):
     scoped to THIS tool only -- ``invoke_agent`` keeps the original five-field
     contract untouched, with no functional or schema changes.
 
-    Token accounting is normalized so the input buckets never overlap:
-    ``input_tokens`` counts only regular (non-cached) input, while cached input
-    is reported separately as ``cache_read_input_tokens`` (cache hits) and
-    ``cache_creation_input_tokens`` (cache writes). Only provider-reported
-    counts are used so these fields remain suitable for billing comparisons;
-    unavailable values remain ``None`` rather than being estimated.
+    Token accounting is normalized so the buckets never overlap and map 1:1
+    onto the dimensions providers actually bill for: ``input_tokens`` counts
+    only regular (non-cached) input, cached input is split into
+    ``cache_read_input_tokens`` (cache hits) and ``cache_creation_input_tokens``
+    (cache writes), and ``output_tokens`` covers generated tokens. Those four
+    are priced at different per-token rates, so they are reported separately
+    rather than aggregated -- no single blended total would be meaningful.
+
+    Each bucket is surfaced only when the provider reports it unambiguously,
+    and each decides that independently, so an unavailable bucket stays ``None``
+    rather than being estimated or defaulted to ``0``. Buckets a provider has no
+    concept of also stay ``None``: only Anthropic bills cache writes, so
+    ``cache_creation_input_tokens`` is ``None`` for OpenAI and Gemini runs.
+
+    The root token fields are run-level TOTALS: convenient for coarse telemetry,
+    but NOT sufficient to compute cost. Pricing is decided per request, so a run
+    that crossed a context-length threshold on one call -- or switched models
+    partway through -- cannot be priced from the totals alone. Use
+    ``per_request_usage`` for exact cost; it preserves each call's buckets and
+    the model that served it.
+
+    ``final_context_tokens`` answers a different question: not what the run
+    cost, but how much context was live when it ended. It counts the last
+    call's raw combined input (cached tokens included -- they occupy the
+    window regardless of how they are billed) plus that call's output. The
+    root totals cannot answer this: they sum every request, so a four-call run
+    reports several times the context that was ever live at once.
     """
 
     input_tokens: int | None = None
     cache_read_input_tokens: int | None = None
     cache_creation_input_tokens: int | None = None
     output_tokens: int | None = None
-    total_tokens: int | None = None
     num_requests: int | None = None
+    per_request_usage: list[SubagentRequestUsage] | None = None
+    final_context_tokens: int | None = None
     start_time: str | None = None
     end_time: str | None = None
     duration_ms: float | None = None
@@ -308,6 +359,7 @@ __all__ = [
     "AgentInvokeOutput",
     "AgentInvokeWithModelOutput",
     "ListAgentsOutput",
+    "SubagentRequestUsage",
     "_active_subagent_tasks",
     "_generate_session_hash_suffix",
     "_get_subagent_sessions_dir",

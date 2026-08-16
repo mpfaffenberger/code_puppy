@@ -54,6 +54,8 @@ from code_puppy.tools.subagent_context import (
 from code_puppy.tools.subagent_usage_metrics import (
     _safe_usage_metrics,
     build_invoke_output,
+    extract_per_request_usage,
+    extract_final_context_tokens,
 )
 
 # Set to track active subagent invocation tasks
@@ -563,6 +565,19 @@ async def _invoke_agent_impl(
                 session_id=session_id,
                 model_name=effective_model_name,
                 usage_metrics=usage_metrics,
+                per_request_usage=(
+                    # new_messages(), NOT updated_history: all_messages()
+                    # deliberately includes older runs, so a resumed session
+                    # would re-report every earlier call as freshly billable.
+                    extract_per_request_usage(result.new_messages())
+                    if include_usage_metrics
+                    else None
+                ),
+                final_context_tokens=(
+                    extract_final_context_tokens(result.new_messages())
+                    if include_usage_metrics
+                    else None
+                ),
                 start_time=start_time,
                 end_time=end_time,
                 duration_ms=duration_ms,
@@ -724,11 +739,17 @@ def register_invoke_agent_with_model(agent):
             session_id, effective model_name, and error fields. On a
             successful run it also reports per-run token usage (non-cached
             input_tokens, cache_read_input_tokens, cache_creation_input_tokens,
-            output_tokens, total_tokens, num_requests) and timing
+            output_tokens, num_requests) and timing
             (start_time/end_time as UTC ISO-8601 strings plus duration_ms);
-            those fields are None on any error path. This extra usage/timing
-            reporting is scoped to invoke_agent_with_model only -- invoke_agent
-            is unaffected.
+            those fields are None on any error path. The four token buckets are
+            the dimensions providers bill on, each surfaced only when reported
+            unambiguously and each priced differently, so no aggregate total is
+            reported. Those root totals are for coarse telemetry, NOT exact
+            cost: pricing is decided per request, so per_request_usage carries
+            one entry per model call (its own buckets plus the model that served
+            it) for runs that cross a context-length tier or switch models
+            mid-run. This extra usage/timing reporting is scoped to
+            invoke_agent_with_model only -- invoke_agent is unaffected.
         """
         normalized_model_name = model_name.strip()
         if not normalized_model_name:
