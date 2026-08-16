@@ -18,7 +18,7 @@ from pathlib import Path
 
 from rich.console import Console
 
-from code_puppy import __version__, callbacks, plugins
+from code_puppy import __version__, callbacks, get_core_plugins_version, plugins
 from code_puppy.agents import get_current_agent
 from code_puppy.command_line.attachments import (
     parse_prompt_attachments,
@@ -377,6 +377,13 @@ async def main():
             await callbacks.on_version_check(current_version)
         else:
             default_version_mismatch_behavior(current_version)
+
+    core_plugins_version = get_core_plugins_version()
+    if core_plugins_version is None:
+        core_plugins_message = t("version.core_plugins_unknown")
+    else:
+        core_plugins_message = t("version.core_plugins", version=core_plugins_version)
+    emit_system_message(core_plugins_message)
 
     # One-shot sweep of legacy ~/.code_puppy/contexts/ into autosaves/ (idempotent
     # via sentinel). Must run before plugin startup callbacks read AUTOSAVE_DIR and

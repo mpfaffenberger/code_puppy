@@ -403,7 +403,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.727"
+version = "0.0.728"
 source = { editable = "." }
 dependencies = [
     { name = "agent-client-protocol" },
@@ -417,6 +417,7 @@ dependencies = [
     { name = "keyring" },
     { name = "mcp" },
     { name = "openai" },
+    { name = "packaging" },
     { name = "pillow" },
     { name = "playwright", marker = "sys_platform != 'android'" },
     { name = "prompt-toolkit" },
@@ -469,6 +470,7 @@ requires-dist = [
     { name = "keyring", specifier = ">=24.0.0" },
     { name = "mcp", specifier = ">=1.9.4" },
     { name = "openai", specifier = ">=2.45.0" },
+    { name = "packaging", specifier = ">=24.0" },
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "playwright", marker = "sys_platform != 'android'", specifier = ">=1.40.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
