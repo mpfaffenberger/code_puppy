@@ -9,7 +9,7 @@ description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
-    "code-puppy-core-plugins>=0.0.2",
+    "code-puppy-core-plugins>=0.0.6",
     "pydantic-ai-slim[openai,anthropic,mcp]==1.107.5",
     "anyio>=4.7.0",
     "typer>=0.12.0",
@@ -104,6 +104,13 @@ omit = ["code_puppy/main.py"]
 
 [tool.uv]
 python-preference = "only-managed"
+
+# TEMPORARY (pydantic-ai v2 migration): code-puppy-core-plugins 0.0.6 is not
+# published yet — resolve it from the sibling checkout (branch
+# pydantic-ai-2-hop1). RELEASE PREP: publish code-puppy-core-plugins first,
+# then delete this source override.
+[tool.uv.sources]
+code-puppy-core-plugins = { path = "../code_puppy_core_plugins" }
 
 [dependency-groups]
 dev = [

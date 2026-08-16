@@ -118,7 +118,8 @@ class FakeAgent:
                 "part_delta", {"delta_type": "TextPartDelta", "delta": delta}
             )
         usage = SimpleNamespace(input_tokens=12, output_tokens=8, total_tokens=20)
-        return SimpleNamespace(output="Hello puppy", usage=lambda: usage)
+        # pydantic-ai 1.107.5+/v2: ``result.usage`` is a property, not a method.
+        return SimpleNamespace(output="Hello puppy", usage=usage)
 
 
 def _update_types(conn: FakeConnection) -> List[str]:
@@ -309,7 +310,7 @@ async def test_prompt_absorbs_history_for_memory_and_persistence(monkeypatch):
                 ModelResponse(parts=[TextPart(content=f"reply:{prompt}")]),
             ]
             return SimpleNamespace(
-                all_messages=lambda: new, usage=lambda: None, output="reply"
+                all_messages=lambda: new, usage=None, output="reply"
             )
 
     monkeypatch.setattr(
@@ -1269,7 +1270,7 @@ async def test_slash_command_string_result_runs_model(wired_agent, monkeypatch):
     async def echo_run(prompt, **_):
         captured["prompt"] = prompt
         return SimpleNamespace(
-            output="modelled reply", usage=lambda: None, all_messages=lambda: []
+            output="modelled reply", usage=None, all_messages=lambda: []
         )
 
     agent._sessions[new.session_id].agent.run_with_mcp = echo_run
@@ -1297,7 +1298,7 @@ async def test_slash_command_sentinel_not_modelled(wired_agent, monkeypatch):
 
     async def guard_run(prompt, **_):
         modelled["called"] = True
-        return SimpleNamespace(output="x", usage=lambda: None, all_messages=lambda: [])
+        return SimpleNamespace(output="x", usage=None, all_messages=lambda: [])
 
     agent._sessions[new.session_id].agent.run_with_mcp = guard_run
     resp = await agent.prompt(
