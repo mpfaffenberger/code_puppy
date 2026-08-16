@@ -25,8 +25,8 @@ The suite is intentionally isolated from ``test_agent_tools_coverage.py`` so the
 new behaviour stays focused and readable.
 """
 
-from contextlib import ExitStack, contextmanager
 import asyncio
+from contextlib import ExitStack, contextmanager
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
@@ -35,6 +35,7 @@ import pytest
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.usage import RequestUsage, RunUsage
 
+from code_puppy.agent_execution_context import get_executing_agent
 from code_puppy.tools.subagent_invocation import (
     register_invoke_agent,
     register_invoke_agent_with_model,
@@ -132,6 +133,8 @@ async def _run_invoke(
     invoke = _capture_invoke_default() if use_default else _capture_invoke_with_model()
     mock_context = MagicMock()
     agent_config = _build_agent_config()
+    if capture is not None:
+        capture["agent_config"] = agent_config
     if partial_history is not None:
         agent_config.get_message_history.return_value = partial_history
 
@@ -152,7 +155,13 @@ async def _run_invoke(
             type(result).usage = PropertyMock(side_effect=RuntimeError("no usage"))
         else:
             result.usage = usage
-        mock_temp_agent.run = AsyncMock(return_value=result)
+
+        async def successful_run(*args, **kwargs):
+            if capture is not None:
+                capture["executing_agent"] = get_executing_agent()
+            return result
+
+        mock_temp_agent.run = AsyncMock(side_effect=successful_run)
 
     with ExitStack() as stack:
         p = stack.enter_context
@@ -680,6 +689,15 @@ class TestInvokeReportsUsageAndLatency:
         assert out.input_tokens is None
         assert out.output_tokens is None
         assert out.num_requests == 1
+
+    @pytest.mark.asyncio
+    async def test_run_scopes_the_loaded_agent_into_execution_context(self):
+        capture = {}
+
+        await _run_invoke(usage=_usage(), capture=capture)
+
+        assert capture["executing_agent"] is capture["agent_config"]
+        assert get_executing_agent() is None
 
     @pytest.mark.asyncio
     async def test_success_anthropic_reports_creation_bucket(self):
