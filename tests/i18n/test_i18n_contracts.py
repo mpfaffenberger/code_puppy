@@ -149,10 +149,10 @@ _CONTRACTS = {
             {
                 "message_count": 10,
                 "total_tokens": 2000,
-                "pickle_path": "/tmp/ctx.pkl",
-                "metadata_path": "/tmp/ctx.json",
+                "json_path": "/tmp/ctx.json",
+                "metadata_path": "/tmp/ctx_meta.json",
             },
-            ("10", "/tmp/ctx.pkl", "\u2705", "\U0001f4c1"),
+            ("10", "/tmp/ctx.json", "\u2705", "\U0001f4c1"),
         ),
     ],
     "load_context_keys_interpolate": [

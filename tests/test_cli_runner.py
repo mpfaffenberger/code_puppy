@@ -466,6 +466,8 @@ class TestHeadlessSessionPersistence:
                 session_name="mywork",
             )
 
+        # Canonical JSON envelope plus the legacy pickle twin (compat shim).
+        assert (tmp_path / "mywork.json").exists()
         assert (tmp_path / "mywork.pkl").exists()
         # post_autosave is reserved for the periodic auto-save path - the headless
         # ``-r NAME -p`` save-back must NOT fire it (decorator plugins double-print).

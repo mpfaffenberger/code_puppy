@@ -1,7 +1,6 @@
 # agent_tools.py
 import hashlib
 import json
-import pickle
 import re
 from datetime import datetime
 from pathlib import Path
@@ -124,13 +123,13 @@ def _save_session_history(
 
     sessions_dir = _get_subagent_sessions_dir()
 
-    # Save pickle file with message history (atomic: write a temp file then
-    # replace, so a crash mid-write can't corrupt an existing session pickle)
-    pkl_path = sessions_dir / f"{session_id}.pkl"
-    tmp_pkl = pkl_path.with_suffix(".tmp")
-    with open(tmp_pkl, "wb") as f:
-        pickle.dump(message_history, f)
-    tmp_pkl.replace(pkl_path)
+    # Save the versioned JSON envelope (atomic write via session_storage so
+    # a crash mid-write can't corrupt an existing session file). Shares the
+    # exact serialization used by the main session store -- no drift.
+    from code_puppy.session_storage import build_envelope, write_envelope_file
+
+    json_path = sessions_dir / f"{session_id}.json"
+    write_envelope_file(json_path, build_envelope(message_history))
 
     # Save or update txt file with metadata
     txt_path = sessions_dir / f"{session_id}.txt"
@@ -171,18 +170,36 @@ def _load_session_history(session_id: str) -> List[ModelMessage]:
     # Validate session_id format before loading
     _validate_session_id(session_id)
 
+    from code_puppy.session_storage import decode_envelope, read_envelope_file
+
     sessions_dir = _get_subagent_sessions_dir()
+    json_path = sessions_dir / f"{session_id}.json"
     pkl_path = sessions_dir / f"{session_id}.pkl"
 
-    if not pkl_path.exists():
-        return []
+    if json_path.exists():
+        try:
+            return decode_envelope(read_envelope_file(json_path))
+        except Exception:
+            # Corrupted or incompatible session file: start fresh.
+            return []
 
-    try:
-        with open(pkl_path, "rb") as f:
-            return pickle.load(f)
-    except Exception:
-        # If pickle is corrupted or incompatible, return empty history
-        return []
+    if pkl_path.exists():
+        # Legacy pre-JSON sub-agent session: lazy-migrate it in place.
+        from code_puppy.session_format_migration import (
+            archive_legacy_pickle,
+            migrate_pickle_file,
+        )
+
+        result = migrate_pickle_file(pkl_path)
+        if not result.success:
+            return []
+        archive_legacy_pickle(pkl_path)
+        try:
+            return decode_envelope(read_envelope_file(json_path))
+        except Exception:
+            return []
+
+    return []
 
 
 class AgentInfo(BaseModel):
