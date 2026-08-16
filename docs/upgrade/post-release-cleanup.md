@@ -30,6 +30,16 @@ plugin surface:
   `_should_refresh_token` (:179), `_check_stored_token_expiry` (:196),
   `_refresh_claude_oauth_token` (:574) — each has an `_async` counterpart
   that is the live path.
+- `stream_event` callback timing (flagged by the plugins repo during the
+  emoji_filter migration): core schedules `stream_event` callbacks via
+  `asyncio.create_task` (fire-and-forget) in
+  `code_puppy/agents/event_stream_handler.py:_fire_stream_event`, so the
+  callback is NOT a guaranteed synchronous pre-render transform — the
+  renderer may consume a delta before the callback mutates it. Plugins
+  needing deterministic output filtering (e.g. emoji_filter) must pair the
+  callback with a terminal-side writer wrapper. Decide whether the seam
+  should offer a synchronous pre-render hook, or document fire-and-forget
+  as the supported contract.
 
 ## (c) Release-ordering checklist
 

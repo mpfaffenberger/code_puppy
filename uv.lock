@@ -502,7 +502,7 @@ dev = [
 
 [[package]]
 name = "code-puppy-core-plugins"
-version = "0.0.6"
+version = "0.0.7"
 source = { directory = "../code_puppy_core_plugins" }
 dependencies = [
     { name = "httpx" },
@@ -512,7 +512,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.24.1,<1" },
-    { name = "pydantic-ai-slim", extras = ["openai", "anthropic", "mcp"], specifier = ">=1.107.5,<2" },
+    { name = "pydantic-ai-slim", extras = ["openai", "anthropic", "mcp"], specifier = ">=2.31.0,<3" },
 ]
 
 [package.metadata.requires-dev]
