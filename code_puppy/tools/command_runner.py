@@ -329,7 +329,7 @@ class ShellCommandOutput(BaseModel):
     stdout: str | None
     stderr: str | None
     exit_code: int | None
-    execution_time: float | None
+    execution_time: float | None = None
     timeout: bool | None = False
     user_interrupted: bool | None = False
     user_feedback: str | None = None  # User feedback when command is rejected
@@ -1051,13 +1051,31 @@ def run_shell_command_streaming(
         )
 
 
+def _normalize_cwd(cwd: str | None) -> str | None:
+    """Coerce None-ish ``cwd`` values from model tool calls into a real None.
+
+    LLMs sometimes serialize a null working directory as the literal strings
+    ``"null"``/``"none"`` (or whitespace) because the tool schema advertises a
+    string. Passing those to ``subprocess.Popen`` explodes with
+    ``FileNotFoundError: 'null'`` — normalize them to None (inherit our cwd).
+    """
+    if cwd is None:
+        return None
+    stripped = cwd.strip()
+    if not stripped or stripped.lower() in ("null", "none"):
+        return None
+    return stripped
+
+
 async def run_shell_command(
     context: RunContext,
     command: str,
-    cwd: str = None,
+    cwd: str | None = None,
     timeout: int = 60,
     background: bool = False,
 ) -> ShellCommandOutput:
+    cwd = _normalize_cwd(cwd)
+
     # Generate unique group_id for this command execution
     group_id = generate_group_id("shell_command", command)
 
@@ -1527,7 +1545,7 @@ def register_agent_run_shell_command(agent):
     async def agent_run_shell_command(
         context: RunContext,
         command: str,
-        cwd: str = None,
+        cwd: str | None = None,
         timeout: int = 60,
         background: bool = False,
     ) -> ShellCommandOutput:
