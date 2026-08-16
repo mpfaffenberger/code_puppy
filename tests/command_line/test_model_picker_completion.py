@@ -125,6 +125,49 @@ class TestModelNameCompleter:
             assert len(completions) == 1
             assert completions[0].text == "claude-3"
 
+    def test_sees_model_added_after_construction(self):
+        """Regression: /add_model writes extra_models.json, but completer
+        stacks (the persistent prompt caches its stack for the whole
+        session) were built before the add -- completions must reflect the
+        config as of *each keystroke*, not as of construction time."""
+        from code_puppy.command_line.model_picker_completion import ModelNameCompleter
+
+        before_add = {"gpt-4o": {}, "claude-3": {}}
+        after_add = {**before_add, "xai-grok-4": {}}
+        states = iter([before_add, after_add])
+
+        def _load():
+            try:
+                return next(states)
+            except StopIteration:
+                raise AssertionError(
+                    "_load_models_config called more times than expected"
+                ) from None
+
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion._load_models_config",
+                side_effect=_load,
+            ),
+            patch(
+                "code_puppy.command_line.model_picker_completion.get_active_model",
+                return_value="gpt-4o",
+            ),
+        ):
+            completer = ModelNameCompleter(trigger="/model")
+
+            # Before /add_model: no grok suggestions.
+            completions = list(
+                completer.get_completions(self._make_doc("/model grok"), None)
+            )
+            assert completions == []
+
+            # After /add_model: the newly added model is suggested immediately.
+            completions = list(
+                completer.get_completions(self._make_doc("/model grok"), None)
+            )
+            assert [c.text for c in completions] == ["xai-grok-4"]
+
 
 class TestFindMatchingModel:
     @pytest.mark.parametrize(
