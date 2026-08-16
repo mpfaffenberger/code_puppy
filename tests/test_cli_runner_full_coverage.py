@@ -7,7 +7,7 @@ execute_single_prompt(), and main_entry() — targeting all uncovered branches.
 import asyncio
 import os
 from contextlib import ExitStack
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -49,6 +49,11 @@ def _apply_patches(stack, patches_dict):
     """Apply a dict of patches using an ExitStack."""
     for target, value in patches_dict.items():
         stack.enter_context(patch(target, value))
+
+
+def _assert_core_plugins_message_once(mock_emit, version):
+    expected = call(f"Core plugins version: {version}")
+    assert mock_emit.call_args_list.count(expected) == 1
 
 
 def _base_main_patches():
@@ -355,6 +360,139 @@ class TestMain:
             )
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("argv", "mode_target"),
+        [
+            (
+                ["code-puppy", "-p", "hi"],
+                "code_puppy.cli_runner.execute_single_prompt",
+            ),
+            (["code-puppy"], "code_puppy.cli_runner.interactive_mode"),
+        ],
+        ids=["one-shot", "interactive"],
+    )
+    async def test_core_plugins_version_with_updates_disabled(self, argv, mode_target):
+        mock_emit = MagicMock()
+        mock_core_version = MagicMock(return_value="0.0.2")
+
+        await self._run_main(
+            argv,
+            extra_patches={
+                mode_target: AsyncMock(),
+                "code_puppy.cli_runner.get_core_plugins_version": mock_core_version,
+                "code_puppy.messaging.emit_system_message": mock_emit,
+                "pyfiglet.figlet_format": MagicMock(return_value="LOGO\n\n"),
+            },
+        )
+
+        from code_puppy.cli_runner import __version__ as current_version
+
+        mock_core_version.assert_called_once_with()
+        assert call(f"Current version: {current_version}") in mock_emit.call_args_list
+        _assert_core_plugins_message_once(mock_emit, "0.0.2")
+
+    @pytest.mark.anyio
+    async def test_core_plugins_version_renders_once_through_message_pipeline(self):
+        from io import StringIO
+
+        from rich.console import Console as RichConsole
+
+        from code_puppy.messaging.message_queue import MessageQueue
+
+        output = StringIO()
+        queue = MessageQueue()
+        queue.start()
+        console = RichConsole(file=output, force_terminal=False, width=120)
+
+        async def execute_and_drain(*_args, **_kwargs):
+            assert queue.drain()
+
+        patches = _base_main_patches()
+        patches["code_puppy.cli_runner.get_core_plugins_version"] = MagicMock(
+            return_value="0.0.2"
+        )
+
+        try:
+            with ExitStack() as stack:
+                stack.enter_context(patch.dict(os.environ, {"NO_VERSION_UPDATE": "1"}))
+                stack.enter_context(patch("sys.argv", ["code-puppy", "-p", "hi"]))
+                stack.enter_context(
+                    patch("code_puppy.cli_runner.Console", return_value=console)
+                )
+                stack.enter_context(
+                    patch(
+                        "code_puppy.messaging.RichConsoleRenderer",
+                        return_value=_mock_renderer(),
+                    )
+                )
+                stack.enter_context(
+                    patch("code_puppy.messaging.get_global_queue", return_value=queue)
+                )
+                stack.enter_context(
+                    patch(
+                        "code_puppy.messaging.message_queue.get_global_queue",
+                        return_value=queue,
+                    )
+                )
+                stack.enter_context(
+                    patch(
+                        "code_puppy.messaging.get_message_bus",
+                        return_value=MagicMock(),
+                    )
+                )
+                stack.enter_context(
+                    patch(
+                        "code_puppy.cli_runner.execute_single_prompt",
+                        side_effect=execute_and_drain,
+                    )
+                )
+                _apply_patches(stack, patches)
+
+                from code_puppy.cli_runner import main
+
+                await main()
+        finally:
+            queue.stop()
+
+        assert output.getvalue().count("Core plugins version: 0.0.2") == 1
+
+    @pytest.mark.anyio
+    async def test_core_plugins_version_uses_localized_unknown_fallback(self):
+        mock_emit = MagicMock()
+
+        await self._run_main(
+            ["code-puppy", "-p", "hi"],
+            extra_patches={
+                "code_puppy.cli_runner.execute_single_prompt": AsyncMock(),
+                "code_puppy.cli_runner.get_core_plugins_version": MagicMock(
+                    return_value=None
+                ),
+                "code_puppy.messaging.emit_system_message": mock_emit,
+            },
+        )
+
+        _assert_core_plugins_message_once(mock_emit, "unknown")
+
+    @pytest.mark.anyio
+    async def test_version_flag_output_is_unchanged(self, capsys):
+        from code_puppy.cli_runner import __version__ as current_version
+        from code_puppy.cli_runner import main
+
+        mock_core_version = MagicMock()
+        capsys.readouterr()
+        with (
+            patch("sys.argv", ["code-puppy", "--version"]),
+            patch("code_puppy.cli_runner.callbacks", MagicMock()),
+            patch("code_puppy.cli_runner.get_core_plugins_version", mock_core_version),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            await main()
+
+        assert exc_info.value.code == 0
+        assert capsys.readouterr().out == f"{current_version}\n"
+        mock_core_version.assert_not_called()
+
+    @pytest.mark.anyio
     async def test_version_check_with_callbacks(self):
         cb_mock = MagicMock(
             on_startup=AsyncMock(),
@@ -363,7 +501,14 @@ class TestMain:
             get_callbacks=MagicMock(return_value=[lambda: None]),
         )
         patches = _base_main_patches()
+        default_version_check = patches[
+            "code_puppy.cli_runner.default_version_mismatch_behavior"
+        ]
+        mock_core_version = MagicMock(return_value="0.0.2")
+        mock_emit = MagicMock()
         patches["code_puppy.cli_runner.callbacks"] = cb_mock
+        patches["code_puppy.cli_runner.get_core_plugins_version"] = mock_core_version
+        patches["code_puppy.messaging.emit_system_message"] = mock_emit
         with ExitStack() as stack:
             stack.enter_context(
                 patch.dict(os.environ, {"NO_VERSION_UPDATE": ""}, clear=False)
@@ -398,17 +543,27 @@ class TestMain:
 
             await main()
             cb_mock.on_version_check.assert_called_once()
+            default_version_check.assert_not_called()
+            mock_core_version.assert_called_once_with()
+            _assert_core_plugins_message_once(mock_emit, "0.0.2")
 
     @pytest.mark.anyio
     async def test_version_check_no_callbacks(self):
         """Version check falls back to default_version_mismatch_behavior."""
         patches = _base_main_patches()
+        default_version_check = patches[
+            "code_puppy.cli_runner.default_version_mismatch_behavior"
+        ]
+        mock_core_version = MagicMock(return_value="0.0.2")
+        mock_emit = MagicMock()
         patches["code_puppy.cli_runner.callbacks"] = MagicMock(
             on_startup=AsyncMock(),
             on_shutdown=AsyncMock(),
             on_version_check=AsyncMock(),
             get_callbacks=MagicMock(return_value=[]),
         )
+        patches["code_puppy.cli_runner.get_core_plugins_version"] = mock_core_version
+        patches["code_puppy.messaging.emit_system_message"] = mock_emit
         with ExitStack() as stack:
             stack.enter_context(
                 patch.dict(os.environ, {"NO_VERSION_UPDATE": ""}, clear=False)
@@ -442,6 +597,9 @@ class TestMain:
             from code_puppy.cli_runner import main
 
             await main()
+            default_version_check.assert_called_once()
+            mock_core_version.assert_called_once_with()
+            _assert_core_plugins_message_once(mock_emit, "0.0.2")
 
     @pytest.mark.anyio
     async def test_pyfiglet_import_error(self):

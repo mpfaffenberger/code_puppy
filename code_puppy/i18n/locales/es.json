@@ -14,6 +14,8 @@
   },
   "error.generic": "Algo salió mal: {detail}",
   "version.current": "Versión actual: {version}",
+  "version.core_plugins": "Versión de los complementos principales: {version}",
+  "version.core_plugins_unknown": "Versión de los complementos principales: desconocida",
   "version.latest": "Última versión: {version}",
   "version.update_available": "Hay una nueva versión de code puppy disponible: {version}",
   "version.please_update": "¡Considera actualizar!",
