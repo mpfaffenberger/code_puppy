@@ -40,6 +40,7 @@ from code_puppy.tools.subagent_invocation import (
     register_invoke_agent_with_model,
 )
 from code_puppy.tools.subagent_usage_metrics import (
+    _extract_token_buckets,
     _extract_usage_metrics,
     _safe_usage_metrics,
 )
@@ -1042,3 +1043,92 @@ class TestPerRequestWiring:
         out = await _run_invoke(use_default=True)
 
         assert not hasattr(out, "final_context_tokens")
+
+
+class TestRealProviderAdapterShapes:
+    """The cache-folding premise, verified through real pydantic-ai adapters.
+
+    Every bucket here is produced by the installed library's own mapping code,
+    not a hand-built stub. The subtraction in ``_extract_token_buckets`` is only
+    correct while providers keep folding cached tokens INTO ``input_tokens``; if
+    a future upgrade makes that value exclusive, the subtraction would silently
+    undercount and every stubbed test would still pass. These fail instead.
+    """
+
+    def test_anthropic_folds_cache_into_input(self):
+        raw = {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "cache_creation_input_tokens": 20,
+            "cache_read_input_tokens": 30,
+        }
+        usage = RequestUsage.extract(
+            {"usage": raw},
+            provider="anthropic",
+            provider_url="https://api.anthropic.com",
+            provider_fallback="anthropic",
+        )
+
+        # The combined value exceeds the raw base: cache is folded in.
+        assert usage.input_tokens == 150
+
+        assert _extract_token_buckets(usage) == {
+            "input_tokens": 100,
+            "cache_read_input_tokens": 30,
+            "cache_creation_input_tokens": 20,
+            "output_tokens": 50,
+        }
+
+    def test_openai_prompt_tokens_are_cache_inclusive(self):
+        openai_chat = pytest.importorskip("pydantic_ai.models.openai")
+        openai_provider = pytest.importorskip("pydantic_ai.providers.openai")
+        chat_completion = pytest.importorskip("openai.types.chat.chat_completion")
+        message_mod = pytest.importorskip("openai.types.chat.chat_completion_message")
+        completion_usage = pytest.importorskip("openai.types.completion_usage")
+
+        model = openai_chat.OpenAIChatModel(
+            "gpt-4o", provider=openai_provider.OpenAIProvider(api_key="sk-test")
+        )
+        response = chat_completion.ChatCompletion(
+            id="x",
+            model="gpt-4o",
+            object="chat.completion",
+            created=0,
+            choices=[
+                chat_completion.Choice(
+                    finish_reason="stop",
+                    index=0,
+                    message=message_mod.ChatCompletionMessage(
+                        role="assistant", content="hi"
+                    ),
+                )
+            ],
+            usage=completion_usage.CompletionUsage(
+                prompt_tokens=120,
+                completion_tokens=60,
+                total_tokens=180,
+                prompt_tokens_details=completion_usage.PromptTokensDetails(
+                    cached_tokens=40
+                ),
+            ),
+        )
+
+        usage = model._map_usage(response)
+
+        # prompt_tokens already includes the 40 cached tokens.
+        assert usage.input_tokens == 120
+        assert usage.cache_read_tokens == 40
+
+        buckets = _extract_token_buckets(usage)
+        assert buckets["input_tokens"] == 80
+        assert buckets["cache_read_input_tokens"] == 40
+        # OpenAI reports no write bucket at all.
+        assert buckets["cache_creation_input_tokens"] is None
+
+    def test_usage_is_a_property_not_a_callable(self):
+        """v2 removed the callable form; our extractor must read the attribute."""
+        from pydantic_ai.usage import RunUsage
+
+        result = SimpleNamespace(usage=RunUsage(input_tokens=10, output_tokens=5))
+
+        assert _safe_usage_metrics(result)["input_tokens"] == 10
