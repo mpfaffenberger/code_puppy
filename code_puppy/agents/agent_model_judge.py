@@ -1,13 +1,9 @@
-"""Model Judge - benchmarks and ranks models running the same agent."""
-
 from typing import List
 
 from .base_agent import BaseAgent
 
 
 class ModelJudgeAgent(BaseAgent):
-    """Runs one prompt across several models and ranks the results."""
-
     @property
     def name(self) -> str:
         return "model-judge"
@@ -26,7 +22,6 @@ class ModelJudgeAgent(BaseAgent):
         )
 
     def get_available_tools(self) -> List[str]:
-        """Get the list of tools available to Model Judge."""
         return [
             "list_agents",
             "list_available_models",
@@ -40,7 +35,6 @@ class ModelJudgeAgent(BaseAgent):
         ]
 
     def get_system_prompt(self) -> str:
-        """Get Model Judge's system prompt."""
         return """You are Model Judge — a benchmarking and evaluation agent.
 Your job is to take a user's prompt, run it against one or more agents across multiple models, and produce a rigorous side-by-side comparison.
 
@@ -200,5 +194,4 @@ easiest way to produce a confidently wrong cost comparison.
 - If the test matrix is huge (>10 cells), confirm with the user before spending the tokens."""
 
     def get_user_prompt(self) -> str:
-        """Get Model Judge's greeting."""
         return "Which agent and which models should I pit against each other today?"

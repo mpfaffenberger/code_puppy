@@ -1,21 +1,3 @@
-"""Per-request usage breakdown for ``invoke_agent_with_model``.
-
-Run totals cannot be priced when the rate depends on a single call's context
-length, or when a run switches models partway through. These tests cover the
-per-call breakdown that makes exact costing possible:
-
-- one entry per ``ModelResponse``, in call order, with its own buckets
-- ``model_name`` captured per entry, so mixed-model runs price correctly
-- the aggregate/per-request invariant (sum of entries == run totals)
-- entries survive even when a response carries no usage at all
-- ``invoke_agent`` is untouched
-
-Everything is driven by REAL ``ModelResponse``/``RequestUsage`` objects. Stubs
-hid two genuine defects earlier in this work; the shapes that matter here --
-``RequestUsage.requests`` being a hardcoded property, ``model_name`` being
-optional -- are exactly the kind a ``SimpleNamespace`` would misrepresent.
-"""
-
 import warnings
 
 import pytest
@@ -39,14 +21,10 @@ from code_puppy.tools.subagent_usage_metrics import (
     extract_per_request_usage,
 )
 
-# A representative long-context threshold. Nothing in the module knows about
-# tiers -- pricing belongs to callers -- but the tests price a run to prove the
-# reported data is sufficient to do so.
 LONG_CONTEXT_THRESHOLD = 128_000
 
 
 def _response(usage: RequestUsage | None, model_name: str | None = "gpt-5.6-terra"):
-    """One completed model call, as pydantic-ai records it in history."""
     return ModelResponse(
         parts=[TextPart(content="reply")],
         usage=usage if usage is not None else RequestUsage(),
@@ -55,7 +33,6 @@ def _response(usage: RequestUsage | None, model_name: str | None = "gpt-5.6-terr
 
 
 def _history(*responses):
-    """Interleave requests and responses the way a real run does."""
     messages = []
     for index, response in enumerate(responses):
         messages.append(ModelRequest(parts=[UserPromptPart(content=f"step {index}")]))
@@ -64,8 +41,6 @@ def _history(*responses):
 
 
 class TestPerRequestExtraction:
-    """One entry per model call, in order, with per-call buckets."""
-
     def test_each_call_keeps_its_own_context_length(self):
         entries = extract_per_request_usage(
             _history(
@@ -84,7 +59,6 @@ class TestPerRequestExtraction:
             _response(RequestUsage(input_tokens=20, output_tokens=7)),
         )
 
-        # The history holds requests too; only responses carry usage.
         assert len(history) == 4
         assert len(extract_per_request_usage(history)) == 2
 
@@ -103,15 +77,12 @@ class TestPerRequestExtraction:
         )
 
         entry = entries[0]
-        # Cached tokens are subtracted out of combined input, exactly as they
-        # are for run totals -- the same normalization, applied per call.
         assert entry.input_tokens == 100
         assert entry.cache_read_input_tokens == 30
         assert entry.cache_creation_input_tokens == 20
         assert entry.output_tokens == 50
 
     def test_no_entries_is_an_empty_list_not_none(self):
-        # A readable history with zero responses is knowledge, not absence.
         assert extract_per_request_usage([]) == []
 
     def test_unreadable_history_is_none(self):
@@ -131,8 +102,6 @@ class TestPerRequestExtraction:
 
 
 class TestUnavailableUsagePerEntry:
-    """A call with no usage is still a call."""
-
     def test_entry_is_kept_when_every_bucket_is_unavailable(self):
         entries = extract_per_request_usage(
             _history(
@@ -145,7 +114,6 @@ class TestUnavailableUsagePerEntry:
         blank = entries[1]
         assert blank.input_tokens is None
         assert blank.output_tokens is None
-        # Dropping it would recast "usage unknown" as "call never happened".
         assert blank.model_name == "gpt-5.6-terra"
 
     def test_ambiguous_zero_is_none_but_model_name_survives(self):
@@ -159,7 +127,6 @@ class TestUnavailableUsagePerEntry:
         assert entry.model_name == "gpt-5.6-terra"
 
     def test_missing_model_name_is_none(self):
-        # ModelResponse.model_name is Optional upstream.
         entries = extract_per_request_usage(
             _history(
                 _response(
@@ -173,13 +140,6 @@ class TestUnavailableUsagePerEntry:
 
 
 class TestAggregateInvariant:
-    """Per-request entries must reconcile with the run totals.
-
-    pydantic-ai increments run usage and appends the response in the same
-    block, so both views describe the same calls. If upstream diverges, these
-    fail loudly rather than publishing contradictory numbers.
-    """
-
     def test_entries_sum_to_the_aggregate(self):
         shapes = [
             RequestUsage(input_tokens=60_000, output_tokens=1_000),
@@ -207,7 +167,6 @@ class TestAggregateInvariant:
         )
 
     def test_aggregate_alone_cannot_distinguish_tiers(self):
-        """The defect this feature exists to fix, pinned as a test."""
         many_small = [RequestUsage(input_tokens=60_000, output_tokens=1_000)] * 3
         one_large = [RequestUsage(input_tokens=180_000, output_tokens=3_000)]
 
@@ -217,11 +176,8 @@ class TestAggregateInvariant:
                 run.incr(shape)
             return _extract_usage_metrics(run)["input_tokens"]
 
-        # Identical totals...
         assert totals(many_small) == totals(one_large) == 180_000
 
-        # ...but the per-request view tells them apart, which is what pricing
-        # needs: none of the small calls crosses the threshold, the large one does.
         small_entries = extract_per_request_usage(
             _history(*[_response(s) for s in many_small])
         )
@@ -234,8 +190,6 @@ class TestAggregateInvariant:
 
 
 class TestMixedModelRuns:
-    """A run that switches models cannot be priced from totals alone."""
-
     def test_each_entry_records_the_model_that_served_it(self):
         entries = extract_per_request_usage(
             _history(
@@ -254,11 +208,6 @@ class TestMixedModelRuns:
         assert [e.input_tokens for e in entries] == [100, 200]
 
     def test_cost_is_derivable_across_tiers_and_models(self):
-        """End-to-end: the reported data is sufficient to compute a real bill.
-
-        Rates are the caller's business, not this module's; they are inlined
-        here purely to prove the arithmetic closes.
-        """
         rates = {  # (short_input, long_input) per 1M tokens
             "gpt-5.6-terra": (1.00, 2.00),
             "gpt-5.6-luna": (0.10, 0.20),
@@ -288,13 +237,10 @@ class TestMixedModelRuns:
             )
             cost += entry.input_tokens / 1_000_000 * tier
 
-        # 60k@1.00 + 130k@2.00 + 200k@0.20
         assert round(cost, 4) == round(0.06 + 0.26 + 0.04, 4)
 
 
 class TestOutputWiring:
-    """The field reaches the serialized tool output."""
-
     def test_entries_are_serialized_on_the_output_model(self):
         entries = [
             SubagentRequestUsage(
@@ -316,7 +262,6 @@ class TestOutputWiring:
         assert len(dumped) == 1
         assert dumped[0]["model_name"] == "gpt-5.6-terra"
         assert dumped[0]["input_tokens"] == 100
-        # Per-call request counts are meaningless; the field must not exist.
         assert "num_requests" not in dumped[0]
 
     def test_absent_breakdown_stays_none(self):
@@ -339,21 +284,8 @@ class TestOutputWiring:
 
 
 class TestResumedSessions:
-    """Only THIS run's calls may be reported, never the whole session.
-
-    ``all_messages()`` documents that "Messages from older runs are included",
-    and sub-agent sessions are resumable, so extracting from it would re-bill
-    every earlier call without bound. ``new_messages()`` is this run's slice.
-    """
-
     @staticmethod
     async def _turns(count):
-        """Drive a real resumed session, returning each turn's result.
-
-        ``await agent.run(...)`` rather than ``run_sync``: the sync wrapper
-        reaches for a current event loop, which CPython 3.13 deprecates, and
-        that unrelated warning would mask genuine ones under ``-W error``.
-        """
         agent = Agent(TestModel())
         history = []
         results = []
@@ -374,13 +306,11 @@ class TestResumedSessions:
 
     @pytest.mark.asyncio
     async def test_whole_session_history_would_overcount(self):
-        """Pins the defect directly, so the wiring cannot quietly regress."""
         final = (await self._turns(4))[-1]
 
         whole_session = extract_per_request_usage(final.all_messages())
         this_run = extract_per_request_usage(final.new_messages())
 
-        # Four calls accumulated across the session; this run made exactly one.
         assert len(whole_session) == 4
         assert len(this_run) == 1
         assert sum(e.input_tokens for e in whole_session) > sum(
@@ -389,14 +319,6 @@ class TestResumedSessions:
 
 
 class TestExtractorBoundary:
-    """Entries carry billable buckets only -- never run-level counters.
-
-    ``SubagentRequestUsage`` forbids extra fields, so building one from
-    run-level metrics raises instead of discarding ``num_requests``. Without
-    that, the per-request path could be wired to the aggregate extractor
-    unnoticed.
-    """
-
     def test_run_level_metrics_are_rejected(self):
         run_metrics = _extract_usage_metrics(
             RunUsage(input_tokens=100, output_tokens=50, requests=1)
@@ -418,13 +340,6 @@ class TestExtractorBoundary:
 
 
 class TestFinalContextTokens:
-    """End-of-run context occupancy -- a different question from cost.
-
-    Cost asks "what did the run consume in total"; this asks "how much was
-    live in the window when it stopped". Neither the run totals nor the
-    billing buckets can answer it.
-    """
-
     @staticmethod
     def _resp(input_tokens, output_tokens, cache_write=0, cache_read=0):
         return ModelResponse(
@@ -444,27 +359,17 @@ class TestFinalContextTokens:
             self._resp(45_000, 500),
         ]
 
-        # Summing every call would report 238_500 -- context that was never
-        # simultaneously live.
         assert extract_final_context_tokens(history) == 45_500
 
     def test_cached_tokens_count_toward_occupancy(self):
-        """The trap: billing subtracts cache, occupancy must not.
-
-        1000 combined input = 200 fresh + 500 cache read + 300 cache write.
-        The model saw all 1000; only the invoice splits them apart.
-        """
         history = [self._resp(1_000, 200, cache_write=300, cache_read=500)]
 
         assert extract_final_context_tokens(history) == 1_200
 
-        # Prove the wrong source really is wrong, so nobody "simplifies"
-        # this into the billing buckets later.
         buckets = _extract_token_buckets(history[-1].usage)
         assert buckets["input_tokens"] + buckets["output_tokens"] == 400
 
     def test_partial_reporting_yields_none(self):
-        """Half a sum would understate occupancy while looking authoritative."""
         input_only = ModelResponse(
             parts=[TextPart(content="r")],
             usage=RequestUsage(input_tokens=100),

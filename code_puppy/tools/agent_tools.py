@@ -228,16 +228,7 @@ class AgentInvokeOutput(BaseModel):
 
 
 class SubagentRequestUsage(BaseModel):
-    """Token usage for ONE model call within a run.
-
-    Pricing is decided per request -- rates can change once a call's context
-    crosses a length threshold, and a run may switch models partway -- so
-    summing calls destroys what cost depends on. Upstream warns the same on
-    ``RequestUsage.__add__``.
-
-    ``num_requests`` is absent because it is always 1 here; extra fields are
-    forbidden so passing run-level metrics fails loudly.
-    """
+    """Billable token buckets for one model call."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -249,35 +240,7 @@ class SubagentRequestUsage(BaseModel):
 
 
 class AgentInvokeWithModelOutput(AgentInvokeOutput):
-    """Output for the invoke_agent_with_model tool.
-
-    Extends :class:`AgentInvokeOutput` with per-run token-usage and timing
-    fields, populated on the success path only, so benchmarking/
-    model-comparison callers that explicitly pin a model can measure per-run
-    cost without reconstructing it from downstream telemetry. These fields are
-    scoped to THIS tool only -- ``invoke_agent`` keeps the original five-field
-    contract untouched, with no functional or schema changes.
-
-    Token accounting is normalized so the buckets never overlap and map 1:1
-    onto what providers bill: non-cached ``input_tokens``, cache hits, cache
-    writes, and ``output_tokens``. Each is priced differently, so they are
-    reported separately with no blended total.
-
-    Each bucket resolves availability independently and stays ``None`` when the
-    provider did not report it unambiguously -- including buckets a provider has
-    no concept of (not every provider reports cache writes).
-
-    ``input_tokens`` here is cache-EXCLUSIVE. Do not hand it to
-    ``genai_prices.calc_price``, which expects the inclusive combined input and
-    subtracts the cache buckets itself.
-
-    The root token fields are run-level TOTALS: fine for coarse telemetry, but
-    insufficient for cost. Use ``per_request_usage`` for that.
-
-    ``final_context_tokens`` answers a different question -- how much context
-    was live at the end, counting cached tokens, which the summed totals cannot
-    show.
-    """
+    """Usage output; ``input_tokens`` excludes cache."""
 
     input_tokens: int | None = None
     cache_read_input_tokens: int | None = None

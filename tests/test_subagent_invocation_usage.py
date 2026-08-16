@@ -143,10 +143,6 @@ async def _run_invoke(
     else:
         result = MagicMock()
         result.output = "subagent response"
-        # Distinct values: usage extraction must read the CURRENT run's slice
-        # (new_messages), while persistence keeps the whole session
-        # (all_messages). A mock returning the same list for both would hide a
-        # wiring mistake that overcharges every resumed session.
         result.all_messages.return_value = ["updated-history"]
         result.new_messages.return_value = new_messages
         if usage_raises:
@@ -282,10 +278,6 @@ async def _run_invoke(
 class TestExtractUsageMetrics:
     """Unit tests for the defensive, provider-aware usage-mapping helper."""
 
-    # Real provider shapes. Cached tokens are folded into the combined input by
-    # pydantic-ai, so the expected input is always the non-cached remainder.
-    # Each row also pins where the cache count is READ FROM, which is the part
-    # that silently rots when an alias is dropped.
     @pytest.mark.parametrize(
         "name,usage_kwargs,expected",
         [
@@ -358,8 +350,6 @@ class TestExtractUsageMetrics:
         }
 
     def test_cache_details_aliases_populate_buckets_without_normalized_attrs(self):
-        # Some provider adapters expose cache counts only in details, not in
-        # pydantic-ai's normalized cache_read/cache_write attributes.
         usage = _usage(
             input_tokens=150,  # 100 base + 20 creation + 30 read
             output_tokens=50,
@@ -379,8 +369,6 @@ class TestExtractUsageMetrics:
         }
 
     def test_normalized_cache_aggregates_win_over_detail_aliases(self):
-        # Round-robin runs can aggregate provider-specific detail keys
-        # independently; pydantic-ai's normalized attributes hold the totals.
         usage = _usage(
             input_tokens=260,  # 200 base + 50 read + 10 creation
             output_tokens=40,
@@ -425,7 +413,6 @@ class TestExtractUsageMetrics:
         }
 
     def test_deprecated_fields_are_read_when_modern_attrs_are_absent(self):
-        # Legacy-only shape: the deprecated aliases are the only source.
         usage = SimpleNamespace(request_tokens=7, response_tokens=3, requests=1)
         assert _extract_usage_metrics(usage) == {
             "input_tokens": 7,
@@ -436,7 +423,6 @@ class TestExtractUsageMetrics:
         }
 
     def test_input_never_goes_negative(self):
-        # Defensive: absurd cache larger than combined input floors at 0.
         usage = _usage(
             input_tokens=10,
             output_tokens=5,
@@ -455,11 +441,6 @@ class TestExtractUsageMetrics:
         assert metrics["num_requests"] is None
 
     def test_zero_requests_is_normalized_to_none(self):
-        """A completed run never made zero calls, so 0 is the default showing.
-
-        Normalization lives in ``_safe_usage_metrics``, not the pure extractor,
-        so this must assert at that boundary to bite.
-        """
         result = SimpleNamespace(
             usage=_usage(input_tokens=10, output_tokens=5, requests=0)
         )
@@ -468,8 +449,6 @@ class TestExtractUsageMetrics:
 
 
 class TestProviderOnlyUsage:
-    """Billing metrics never substitute estimated token counts."""
-
     def test_all_cached_input_preserves_real_zero(self):
         result = SimpleNamespace(
             usage=_usage(
@@ -500,12 +479,6 @@ class TestProviderOnlyUsage:
 
 
 class TestPerFieldAvailability:
-    """Each token counter resolves availability on its own.
-
-    A provider reporting input but omitting output must not surface
-    ``output_tokens=0`` just because another field was positive.
-    """
-
     def test_positive_input_does_not_vouch_for_omitted_output(self):
         usage = _usage(input_tokens=500, output_tokens=0, requests=1)
 
@@ -515,11 +488,6 @@ class TestPerFieldAvailability:
         assert metrics["output_tokens"] is None
 
     def test_partial_usage_survives_safe_usage_metrics(self):
-        """Locks the regression at its actual boundary.
-
-        The bug lived in ``_safe_usage_metrics`` post-processing, so proving the
-        fix only at ``_extract_usage_metrics`` would miss it.
-        """
         result = SimpleNamespace(
             usage=_usage(input_tokens=500, output_tokens=0, requests=1),
         )
@@ -544,8 +512,6 @@ class TestPerFieldAvailability:
         assert metrics["output_tokens"] == 0
 
     def test_deprecated_alias_used_only_when_modern_attr_is_absent(self):
-        # No modern attributes at all: the deprecated aliases are the only
-        # source, so they are consulted.
         usage = SimpleNamespace(
             request_tokens=7,
             response_tokens=3,
@@ -559,13 +525,6 @@ class TestPerFieldAvailability:
         assert metrics["output_tokens"] == 3
 
     def test_present_modern_zero_does_not_fall_through_to_alias(self):
-        """A present modern attribute is authoritative, even when ambiguous.
-
-        ``RunUsage`` implements ``request_tokens``/``response_tokens`` as
-        deprecated properties that re-read the modern field and warn on access,
-        so probing them after a zero would be noisy and could never yield a
-        different number. The counter reports unavailable instead.
-        """
         usage = _usage(
             input_tokens=0,
             request_tokens=7,
@@ -580,12 +539,6 @@ class TestPerFieldAvailability:
         assert metrics["output_tokens"] is None
 
     def test_input_is_never_sourced_from_details(self):
-        """Anthropic footgun: details input is base-only, the attr is combined.
-
-        ``details["input_tokens"]`` excludes cache, whereas the normalized
-        attribute includes it. Sourcing input from details would subtract the
-        cache components a second time and undercount non-cached input.
-        """
         usage = _usage(
             output_tokens=50,
             requests=1,
@@ -603,14 +556,6 @@ class TestPerFieldAvailability:
 
 
 class TestNoAggregateTotalIsReported:
-    """No summed total is emitted -- the billable buckets stand alone.
-
-    Each bucket is priced differently, so an aggregate cannot be turned back
-    into a cost. Nothing may reintroduce one, including ``UsageBase.total_tokens``
-    (``input_tokens + output_tokens``), which cannot tell an omitted counter
-    from a zero one.
-    """
-
     _EXPECTED_KEYS = {
         "input_tokens",
         "cache_read_input_tokens",
@@ -637,7 +582,6 @@ class TestNoAggregateTotalIsReported:
         assert metrics["output_tokens"] == 50
 
     def test_upstream_total_property_is_ignored(self):
-        # The stub advertises a total; it must not leak into the metrics.
         usage = _usage(
             input_tokens=41,
             output_tokens=7,
@@ -658,17 +602,6 @@ class TestNoAggregateTotalIsReported:
 
 
 class TestRealRunUsageShapes:
-    """Drive the extractor with genuine ``RunUsage`` objects, not stubs.
-
-    The stub helper above builds a ``SimpleNamespace``, which cannot reproduce
-    two behaviours of the real class: ``total_tokens`` is an inherited property
-    that is ALWAYS present (defined as ``input_tokens + output_tokens``), so it
-    must never be mistaken for a reported bucket; and
-    ``request_tokens``/``response_tokens`` are deprecated properties that warn
-    on access. Both are easy to get wrong and invisible to a stub-only suite,
-    so they are pinned here against the real thing.
-    """
-
     def test_input_only_run_reports_no_output(self):
         usage = RunUsage(input_tokens=500, output_tokens=0, requests=1)
 
@@ -676,8 +609,6 @@ class TestRealRunUsageShapes:
 
         assert metrics["input_tokens"] == 500
         assert metrics["output_tokens"] is None
-        # RunUsage.total_tokens would claim 500 for this run even though the
-        # output was never measured -- it cannot tell omitted from zero.
         assert "total_tokens" not in metrics
 
     def test_unavailable_usage_sentinel_stays_unavailable(self):
@@ -706,8 +637,6 @@ class TestRealRunUsageShapes:
         assert metrics["cache_read_input_tokens"] == 30
         assert metrics["cache_creation_input_tokens"] == 20
         assert metrics["output_tokens"] == 50
-        # No aggregate is published: the four buckets are priced separately,
-        # so a single summed figure could not be converted back into a cost.
         assert "total_tokens" not in metrics
 
 
@@ -975,14 +904,6 @@ class TestCancellationPersistence:
 
 
 class TestPerRequestWiring:
-    """The invoke path must read the CURRENT run's messages, not the session.
-
-    ``all_messages()`` includes older runs, so wiring usage extraction to it
-    re-reports every earlier call as freshly billable -- reported cost then
-    grows with session length instead of matching the run. Persistence still
-    needs the full history, so both calls exist and must not be confused.
-    """
-
     @staticmethod
     def _response(input_tokens, output_tokens):
         return ModelResponse(
@@ -1004,11 +925,6 @@ class TestPerRequestWiring:
 
     @pytest.mark.asyncio
     async def test_session_history_is_not_used_for_usage(self):
-        """The mocked all_messages() is unusable as usage input on purpose.
-
-        If the wiring ever points back at it, extraction yields no entries and
-        this fails loudly rather than silently overcharging.
-        """
         out = await _run_invoke(
             usage=_usage(input_tokens=100, output_tokens=50, requests=1),
             new_messages=[self._response(100, 50)],
@@ -1024,7 +940,6 @@ class TestPerRequestWiring:
 
     @pytest.mark.asyncio
     async def test_final_context_tokens_is_wired_from_this_run(self):
-        """Occupancy must come from the last call, not the run totals."""
         out = await _run_invoke(
             usage=_usage(input_tokens=100, output_tokens=50, requests=2),
             new_messages=[self._response(100, 50), self._response(300, 25)],
@@ -1046,15 +961,6 @@ class TestPerRequestWiring:
 
 
 class TestRealProviderAdapterShapes:
-    """The cache-folding premise, verified through real pydantic-ai adapters.
-
-    Every bucket here is produced by the installed library's own mapping code,
-    not a hand-built stub. The subtraction in ``_extract_token_buckets`` is only
-    correct while providers keep folding cached tokens INTO ``input_tokens``; if
-    a future upgrade makes that value exclusive, the subtraction would silently
-    undercount and every stubbed test would still pass. These fail instead.
-    """
-
     def test_anthropic_folds_cache_into_input(self):
         raw = {
             "input_tokens": 100,
@@ -1069,7 +975,6 @@ class TestRealProviderAdapterShapes:
             provider_fallback="anthropic",
         )
 
-        # The combined value exceeds the raw base: cache is folded in.
         assert usage.input_tokens == 150
 
         assert _extract_token_buckets(usage) == {
@@ -1115,18 +1020,15 @@ class TestRealProviderAdapterShapes:
 
         usage = model._map_usage(response)
 
-        # prompt_tokens already includes the 40 cached tokens.
         assert usage.input_tokens == 120
         assert usage.cache_read_tokens == 40
 
         buckets = _extract_token_buckets(usage)
         assert buckets["input_tokens"] == 80
         assert buckets["cache_read_input_tokens"] == 40
-        # OpenAI reports no write bucket at all.
         assert buckets["cache_creation_input_tokens"] is None
 
     def test_usage_is_a_property_not_a_callable(self):
-        """v2 removed the callable form; our extractor must read the attribute."""
         from pydantic_ai.usage import RunUsage
 
         result = SimpleNamespace(usage=RunUsage(input_tokens=10, output_tokens=5))
