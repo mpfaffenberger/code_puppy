@@ -1,66 +1,24 @@
 """Per-run token usage/latency extraction for ``invoke_agent_with_model``.
 
-This module is deliberately self-contained: pure functions that map a
-pydantic-ai usage object to our schema fields, plus the output-builder that
-decides which :class:`AgentInvokeOutput` subtype a caller gets back. None of
-this depends on the agent-run orchestration in ``subagent_invocation.py``, so
-it lives separately to keep both files focused and under the puppy bloat
-line.
+Pure functions mapping a pydantic-ai usage object to our schema fields, plus
+the output builder. ``invoke_agent`` never calls into this module.
 
-Scope reminder: this instrumentation is used ONLY by ``invoke_agent_with_model``
-(via ``include_usage_metrics=True`` in ``_invoke_agent_impl``). ``invoke_agent``
-never calls into this module at all -- see ``build_invoke_output``'s
-``include_usage_metrics=False`` branch, which returns a plain
-``AgentInvokeOutput`` without touching any of these helpers.
+Two invariants drive everything here:
 
-Central invariant -- availability is tracked PER FIELD
-------------------------------------------------------
-pydantic-ai's ``RunUsage`` is a dataclass whose counters each default to ``0``
-independently, so a bare ``0`` is ambiguous: it may mean "the provider reported
-zero" or "the provider reported nothing at all". A provider that supplies
-input usage but omits output usage must not surface ``output_tokens=0`` as if
-it were a real reading. Each counter therefore resolves its own availability
-via :func:`_pick_reported_counter`:
+**Availability is per field.** ``RunUsage`` counters each default to ``0``, so a
+bare ``0`` may mean "reported zero" or "not reported at all". Each counter
+resolves independently, so a provider that reports input but omits output
+yields ``output_tokens=None`` rather than a fabricated ``0``.
 
-- a POSITIVE value on the first PRESENT attribute is trustworthy;
-- a zero there is ambiguous, and later aliases are not probed: they are
-  fallbacks for objects lacking the modern attribute entirely, not second
-  opinions (and on ``RunUsage`` they are deprecated properties that merely
-  re-read the modern field, warning on access);
-- a key explicitly present in ``details`` is a real provider reading and is
-  trusted even when its value is ``0``.
-
-``total_tokens`` is deliberately NOT reported. Providers price each bucket at a
-different per-token rate -- cache reads are heavily discounted, cache writes
-carry a premium, output usually costs the most -- so a single summed number
-cannot be turned back into a cost without being decomposed again. Nor can the
-upstream figure be trusted in its place: ``UsageBase.total_tokens`` (inherited
-by ``RunUsage``) is a property defined as ``input_tokens + output_tokens``,
-which cannot distinguish an omitted counter from a zero one and so reports a
-confident ``500`` for a run whose output was never measured. Reporting the four
-billable buckets and nothing else keeps the output honest.
-
-Run totals are not enough either. Several models charge a higher rate once a
-single call's context crosses a length threshold, and a run may switch models
-partway through, so summing calls destroys what pricing depends on -- upstream
-puts it plainly on ``RequestUsage.__add__``: "this CANNOT be used to sum
-multiple requests without breaking some pricing calculations." The totals stay
-(useful for coarse telemetry), and :func:`extract_per_request_usage` recovers
-the per-call detail that exact costing needs.
-
-Deliberate asymmetry: input has no ``details`` fallback
--------------------------------------------------------
-``usage.input_tokens`` is COMBINED (cached tokens folded in), whereas a provider
-detail key such as Anthropic's ``details["input_tokens"]`` is BASE-only (cache
-excluded). Same name, different semantics. Because the combined value feeds the
-cache-subtraction below, sourcing input from ``details`` would subtract the
-cache components a second time and silently undercount non-cached input. Input
-is therefore read from ordered attributes only. Output has no such mismatch --
-nothing is subtracted from it -- so it keeps its ``details`` fallback, which is
-what lets a genuine explicit ``output_tokens: 0`` survive.
-
-The cost of that conservatism is that an explicit zero for input alone reports
-as ``None``. Under-reporting is acceptable; fabricating a billable ``0`` is not.
+**No aggregate total.** Each bucket is priced differently, so a sum cannot be
+turned back into a cost. ``UsageBase.total_tokens`` is no substitute: it is a
+property defined as ``input_tokens + output_tokens``, so it reports a confident
+number for a run whose output was never measured. Run totals are likewise
+insufficient for pricing -- rates can depend on a single call's context length,
+and a run may switch models partway -- which is why
+:func:`extract_per_request_usage` exists. Upstream agrees, warning on
+``RequestUsage.__add__`` that it "CANNOT be used to sum multiple requests
+without breaking some pricing calculations".
 """
 
 import math
@@ -103,16 +61,13 @@ _CACHE_READ_ATTRS = ("cache_read_tokens",)
 _CACHE_READ_DETAIL_KEYS = (
     "cache_read_input_tokens",
     "cache_read_tokens",
-    "cached_read_tokens",
     "cached_tokens",
     "cached_content_tokens",
 )
 _CACHE_CREATION_ATTRS = ("cache_write_tokens",)
 _CACHE_CREATION_DETAIL_KEYS = (
     "cache_creation_input_tokens",
-    "cache_creation_tokens",
     "cache_write_tokens",
-    "cached_write_tokens",
 )
 
 
@@ -142,24 +97,14 @@ def _pick_reported_counter(
 ) -> int | None:
     """Read one reported counter, or ``None`` when nothing trustworthy exists.
 
-    ``attrs`` are tried in priority order (modern name first, deprecated aliases
-    after), but only the FIRST ONE PRESENT is consulted -- later aliases exist
-    for objects that never had the modern attribute at all, not as a second
-    opinion. That matters for ``RunUsage``, whose deprecated ``request_tokens``/
-    ``response_tokens`` are properties that merely re-read the modern field and
-    emit a ``DeprecationWarning`` on access; probing them would be both noisy
-    and pointless.
+    Only the FIRST PRESENT attribute is consulted; later aliases are fallbacks
+    for objects lacking the modern name entirely, not second opinions. On
+    ``RunUsage`` the deprecated aliases are properties that re-read the modern
+    field and warn on access, so probing them is noisy and pointless.
 
-    A present counter is accepted only when POSITIVE, because ``RunUsage``
-    defaults every field to ``0`` and an attribute reading of zero cannot be
-    told apart from "never populated". An ambiguous zero falls through to
-    ``detail_keys``, which are matched against ``usage.details``: a key that is
-    explicitly PRESENT is a genuine provider reading and is trusted even when
-    its value is ``0``.
-
-    Callers whose counter has no semantically-equivalent detail key simply pass
-    none (see the input asymmetry in the module docstring); an empty tuple means
-    "no safe details source", not a special case.
+    A present attribute is trusted only when POSITIVE (zero is ambiguous). An
+    ambiguous zero falls through to ``detail_keys``: a key explicitly present in
+    ``usage.details`` is a real provider reading, trusted even at ``0``.
     """
     for attr in attrs:
         raw = getattr(usage, attr, _MISSING)
@@ -185,30 +130,13 @@ def _pick_reported_counter(
 def _extract_token_buckets(usage: Any) -> dict[str, int | None]:
     """Map a pydantic-ai usage object to the four billable buckets.
 
-    Works for BOTH ``RunUsage`` (run totals) and ``RequestUsage`` (one call):
-    the two share the same token attribute names, so per-request extraction
-    inherits every rule below for free rather than reimplementing them.
-    Token buckets are normalized so they never overlap: pydantic-ai (via
-    genai-prices) folds cached tokens INTO ``input_tokens`` for every provider
-    we use (Anthropic, OpenAI/codex, Gemini), so we subtract the cache
-    components back out to keep ``input_tokens`` strictly non-cached. That way
-    ``input_tokens + cache_read_input_tokens + cache_creation_input_tokens``
-    reflects total input without double-counting.
+    Works for both ``RunUsage`` (run totals) and ``RequestUsage`` (one call);
+    they share attribute names, so per-request extraction inherits these rules.
 
-    Cache buckets are sourced per provider (verified against the installed
-    pydantic-ai + genai-prices):
-    - cache reads: Anthropic emits ``cache_read_input_tokens``, Gemini emits
-      ``cached_content_tokens``, and OpenAI exposes ``cache_read_tokens``;
-      adapters may place any of these aliases in ``details`` instead of the
-      normalized first-class attribute.
-    - cache creation: Anthropic emits ``cache_creation_input_tokens`` (or
-      ``cache_write_tokens`` after normalization); OpenAI and Gemini have no
-      such concept, so that field stays ``None``.
-
-    Every bucket resolves its own availability, so a provider reporting input
-    but omitting output yields ``output_tokens=None`` rather than a fabricated
-    ``0``. No aggregate total is produced: the four buckets are the billable
-    dimensions, and each is priced differently.
+    pydantic-ai folds cached tokens INTO ``input_tokens`` for every provider we
+    use, so the cache components are subtracted back out and the buckets never
+    overlap. Cache creation is Anthropic-only; OpenAI and Gemini leave it
+    ``None``. Aliases may arrive as attributes or in ``details``.
     """
     metrics: dict[str, int | None] = dict(_EMPTY_TOKEN_BUCKETS)
     if usage is None:
@@ -222,9 +150,10 @@ def _extract_token_buckets(usage: Any) -> dict[str, int | None]:
     )
 
     # Availability is decided on the RAW combined input, before subtraction: a
-    # post-subtraction zero is a real reading (every input token was cached),
-    # whereas an unavailable raw input must stay None. Input deliberately has
-    # no details fallback -- see the module docstring.
+    # post-subtraction zero is a real reading (all input was cached), while an
+    # unavailable raw input must stay None. Input has NO details fallback:
+    # ``usage.input_tokens`` is combined, but a detail key of the same name
+    # (Anthropic) is base-only, so sourcing it would subtract cache twice.
     combined_input = _pick_reported_counter(usage, _INPUT_ATTRS)
     input_tokens = combined_input
     if combined_input is not None:
@@ -258,16 +187,10 @@ def _extract_usage_metrics(usage: Any) -> dict[str, int | None]:
 def _safe_usage_metrics(result: Any) -> dict[str, int | None]:
     """Extract usage for a completed run, without inventing billable tokens.
 
-    Token availability is resolved per field during extraction (see the module
-    docstring), so there is no global "was anything reported?" rescue pass here:
-    an ambiguous zero has already become ``None`` by this point, and a genuine
-    zero -- fully cached input, or an explicit provider detail -- has already
-    been preserved.
-
-    ``num_requests`` is the one counter still normalized here. It is a local
-    ``RunUsage`` bookkeeping field rather than a provider billing figure, and a
-    completed run reporting zero requests is the dataclass default showing
-    through, so it reports as unavailable.
+    Availability is already resolved per field during extraction, so there is no
+    global "was anything reported?" rescue pass. ``num_requests`` is normalized
+    here because it is local bookkeeping, not a provider figure: a completed run
+    reporting zero requests is the dataclass default showing through.
     """
     try:
         usage = result.usage()
@@ -283,19 +206,14 @@ def _safe_usage_metrics(result: Any) -> dict[str, int | None]:
 def extract_per_request_usage(messages: Any) -> list[SubagentRequestUsage] | None:
     """Break a run's message history into one usage entry per model call.
 
-    Run totals cannot be priced when the rate depends on a single call's
-    context length, or when the run switched models partway through. Message
-    history still holds the per-call truth: pydantic-ai appends one
-    ``ModelResponse`` per completed call, each carrying its own
-    ``RequestUsage`` and ``model_name``.
+    pydantic-ai appends one ``ModelResponse`` per completed call, each carrying
+    its own ``RequestUsage`` and ``model_name`` -- the per-call detail that run
+    totals destroy.
 
-    Entries are kept even when every bucket is unavailable. A response in the
-    history means the call happened; dropping it would silently recast "usage
-    unknown" as "call never occurred" and break the one-entry-per-request
-    correspondence with ``num_requests``.
-
-    Returns ``None`` when the history cannot be read at all -- unavailable is
-    not the same as "there were no calls", which is an empty list.
+    Entries are kept even when every bucket is unavailable: dropping one would
+    recast "usage unknown" as "call never happened" and break the correspondence
+    with ``num_requests``. ``None`` means the history was unreadable; ``[]``
+    means there were no calls.
     """
     try:
         history = list(messages)
@@ -319,21 +237,16 @@ def extract_per_request_usage(messages: Any) -> list[SubagentRequestUsage] | Non
 def extract_final_context_tokens(messages: Any) -> int | None:
     """Tokens occupying the context window when the run finished.
 
-    Measured as the final :class:`ModelResponse`'s *raw combined* input plus
-    that same response's output.
+    The final :class:`ModelResponse`'s *raw combined* input plus its output.
 
-    Deliberately NOT built from :func:`_extract_token_buckets`. Those buckets
-    subtract cached tokens out of ``input_tokens`` so the four billable
-    categories never overlap -- correct for pricing, wrong here. Cached tokens
-    still OCCUPY the window; they are merely billed at a different rate. For a
-    1000-token prompt of which 500 was cache-read and 300 cache-write, the
-    buckets say 200 but the model actually saw 1000.
+    Deliberately not built from :func:`_extract_token_buckets`: those subtract
+    cached tokens out for pricing, but cached tokens still OCCUPY the window.
+    For a 1000-token prompt with 500 cache-read and 300 cache-write, the buckets
+    say 200 where the model actually saw 1000. Nor is it the run totals, which
+    sum across calls.
 
-    Nor is it the run totals: those sum every request, so a four-call run
-    reports several times the context that was ever live at once.
-
-    Returns ``None`` unless BOTH halves were genuinely reported -- a partial
-    sum would understate occupancy while looking authoritative.
+    ``None`` unless BOTH halves were reported: a partial sum would understate
+    occupancy while looking authoritative.
     """
     try:
         history = list(messages)
@@ -373,10 +286,8 @@ def build_invoke_output(
 ) -> AgentInvokeOutput:
     """Build the correct output type for the calling tool.
 
-    ``invoke_agent`` always gets a plain :class:`AgentInvokeOutput` -- the
-    original five-field contract, completely untouched. Only
-    ``invoke_agent_with_model`` (``include_usage_metrics=True``) gets the
-    extra token-usage/timing fields via :class:`AgentInvokeWithModelOutput`.
+    ``invoke_agent`` keeps its original five-field contract; only
+    ``invoke_agent_with_model`` gets the usage/timing fields.
     """
     if not include_usage_metrics:
         return AgentInvokeOutput(

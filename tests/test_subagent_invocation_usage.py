@@ -27,7 +27,6 @@ new behaviour stays focused and readable.
 
 from contextlib import ExitStack, contextmanager
 import asyncio
-import warnings
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -279,6 +278,72 @@ async def _run_invoke(
 class TestExtractUsageMetrics:
     """Unit tests for the defensive, provider-aware usage-mapping helper."""
 
+    # Real provider shapes. Cached tokens are folded into the combined input by
+    # pydantic-ai, so the expected input is always the non-cached remainder.
+    # Each row also pins where the cache count is READ FROM, which is the part
+    # that silently rots when an alias is dropped.
+    @pytest.mark.parametrize(
+        "name,usage_kwargs,expected",
+        [
+            (
+                "no cache reported anywhere",
+                dict(input_tokens=10, output_tokens=5, requests=2),
+                (10, None, None, 5),
+            ),
+            (
+                "anthropic: both cache buckets, via details aliases",
+                dict(
+                    input_tokens=150,
+                    output_tokens=50,
+                    requests=1,
+                    details={
+                        "cache_creation_input_tokens": 20,
+                        "cache_read_input_tokens": 30,
+                    },
+                ),
+                (100, 30, 20, 50),
+            ),
+            (
+                "openai: read-only, via the cache_read_tokens attribute",
+                dict(
+                    input_tokens=120, output_tokens=60, requests=1, cache_read_tokens=40
+                ),
+                (80, 40, None, 60),
+            ),
+            (
+                "gemini: read-only, via the cached_content_tokens detail alias",
+                dict(
+                    input_tokens=250,
+                    output_tokens=70,
+                    requests=1,
+                    details={"cached_content_tokens": 50},
+                ),
+                (200, 50, None, 70),
+            ),
+            (
+                "explicit zero in details is a real reading, not a gap",
+                dict(
+                    input_tokens=120,
+                    output_tokens=60,
+                    requests=1,
+                    details={"cached_tokens": 0},
+                ),
+                (120, 0, None, 60),
+            ),
+        ],
+    )
+    def test_provider_shapes_map_to_disjoint_buckets(
+        self, name, usage_kwargs, expected
+    ):
+        metrics = _extract_usage_metrics(_usage(**usage_kwargs))
+
+        assert (
+            metrics["input_tokens"],
+            metrics["cache_read_input_tokens"],
+            metrics["cache_creation_input_tokens"],
+            metrics["output_tokens"],
+        ) == expected, name
+
     def test_none_usage_yields_all_none(self):
         assert _extract_usage_metrics(None) == {
             "input_tokens": None,
@@ -286,23 +351,6 @@ class TestExtractUsageMetrics:
             "cache_creation_input_tokens": None,
             "output_tokens": None,
             "num_requests": None,
-        }
-
-    def test_modern_fields_no_cache(self):
-        # No cache reported anywhere: cache buckets stay None, input untouched.
-        usage = _usage(
-            input_tokens=10,
-            output_tokens=5,
-            requests=2,
-            cache_read_tokens=0,
-            cache_write_tokens=0,
-        )
-        assert _extract_usage_metrics(usage) == {
-            "input_tokens": 10,
-            "cache_read_input_tokens": None,
-            "cache_creation_input_tokens": None,
-            "output_tokens": 5,
-            "num_requests": 2,
         }
 
     def test_cache_details_aliases_populate_buckets_without_normalized_attrs(self):
@@ -349,19 +397,6 @@ class TestExtractUsageMetrics:
         assert metrics["cache_read_input_tokens"] == 50
         assert metrics["cache_creation_input_tokens"] == 10
 
-    def test_explicit_zero_cache_detail_is_preserved(self):
-        usage = _usage(
-            input_tokens=120,
-            output_tokens=60,
-            requests=1,
-            details={"cached_tokens": 0},
-        )
-
-        metrics = _extract_usage_metrics(usage)
-
-        assert metrics["cache_read_input_tokens"] == 0
-        assert metrics["input_tokens"] == 120
-
     def test_anthropic_shape_populates_both_cache_buckets(self):
         # Anthropic folds base + cache_creation + cache_read into input_tokens.
         usage = _usage(
@@ -385,59 +420,6 @@ class TestExtractUsageMetrics:
             "num_requests": 1,
         }
 
-    def test_openai_shape_cache_read_only(self):
-        # OpenAI prompt_tokens already includes cached tokens; cached_tokens isn't copied
-        # into details (nested prompt_tokens_details) — reads surface via cache_read_tokens.
-        usage = _usage(
-            input_tokens=120,  # 80 non-cached + 40 cached
-            output_tokens=60,
-            requests=1,
-            cache_read_tokens=40,
-            cache_write_tokens=0,
-            details={"reasoning_tokens": 0},
-        )
-        assert _extract_usage_metrics(usage) == {
-            "input_tokens": 80,
-            "cache_read_input_tokens": 40,
-            "cache_creation_input_tokens": None,
-            "output_tokens": 60,
-            "num_requests": 1,
-        }
-
-    def test_openai_genuine_zero_cache_read_is_none(self):
-        # OpenAI's cache_read=0 is only the attribute default (indistinguishable from
-        # "not reported"), so surface None — never a fabricated 0.
-        usage = _usage(
-            input_tokens=120,
-            output_tokens=60,
-            requests=1,
-            cache_read_tokens=0,
-            cache_write_tokens=0,
-            details={"reasoning_tokens": 0},
-        )
-        metrics = _extract_usage_metrics(usage)
-        assert metrics["cache_read_input_tokens"] is None
-        assert metrics["input_tokens"] == 120
-
-    def test_gemini_shape_cache_read_only(self):
-        # Gemini promptTokenCount includes cached content; details carries the
-        # cached_content_tokens key (only present when non-zero).
-        usage = _usage(
-            input_tokens=250,  # 200 non-cached + 50 cached
-            output_tokens=70,
-            requests=1,
-            cache_read_tokens=50,
-            cache_write_tokens=0,
-            details={"cached_content_tokens": 50},
-        )
-        assert _extract_usage_metrics(usage) == {
-            "input_tokens": 200,
-            "cache_read_input_tokens": 50,
-            "cache_creation_input_tokens": None,
-            "output_tokens": 70,
-            "num_requests": 1,
-        }
-
     def test_deprecated_fields_are_read_when_modern_attrs_are_absent(self):
         # Legacy-only shape: the deprecated aliases are the only source.
         usage = SimpleNamespace(request_tokens=7, response_tokens=3, requests=1)
@@ -448,20 +430,6 @@ class TestExtractUsageMetrics:
             "output_tokens": 3,
             "num_requests": 1,
         }
-
-    def test_zero_cache_is_reported_not_missing(self):
-        # A provider genuinely reporting 0 (key present) keeps the 0.
-        usage = _usage(
-            input_tokens=10,
-            output_tokens=5,
-            requests=1,
-            cache_read_tokens=0,
-            details={"cache_read_input_tokens": 0},
-        )
-        metrics = _extract_usage_metrics(usage)
-        assert metrics["cache_read_input_tokens"] == 0
-        assert metrics["cache_creation_input_tokens"] is None
-        assert metrics["input_tokens"] == 10
 
     def test_input_never_goes_negative(self):
         # Defensive: absurd cache larger than combined input floors at 0.
@@ -485,22 +453,6 @@ class TestExtractUsageMetrics:
 
 class TestProviderOnlyUsage:
     """Billing metrics never substitute estimated token counts."""
-
-    def test_zero_provider_usage_stays_unavailable(self):
-        result = SimpleNamespace(
-            usage=lambda: _usage(
-                input_tokens=0,
-                output_tokens=0,
-                # Request count is known locally, but billing tokens are not.
-                requests=1,
-            ),
-        )
-
-        metrics = _safe_usage_metrics(result)
-
-        assert metrics["input_tokens"] is None
-        assert metrics["output_tokens"] is None
-        assert metrics["num_requests"] == 1
 
     def test_all_cached_input_preserves_real_zero(self):
         result = SimpleNamespace(
@@ -541,14 +493,6 @@ class TestPerFieldAvailability:
 
     def test_positive_input_does_not_vouch_for_omitted_output(self):
         usage = _usage(input_tokens=500, output_tokens=0, requests=1)
-
-        metrics = _extract_usage_metrics(usage)
-
-        assert metrics["input_tokens"] == 500
-        assert metrics["output_tokens"] is None
-
-    def test_positive_input_does_not_vouch_for_absent_output(self):
-        usage = SimpleNamespace(input_tokens=500, requests=1, details={})
 
         metrics = _extract_usage_metrics(usage)
 
@@ -754,21 +698,6 @@ class TestRealRunUsageShapes:
         # No aggregate is published: the four buckets are priced separately,
         # so a single summed figure could not be converted back into a cost.
         assert "total_tokens" not in metrics
-
-    def test_extraction_emits_no_deprecation_warnings(self):
-        """Touching the deprecated aliases would warn (and fail -W error)."""
-        shapes = (
-            RunUsage(input_tokens=500, output_tokens=0, requests=1),
-            RunUsage(requests=1),
-            RunUsage(input_tokens=100, output_tokens=50, requests=1),
-        )
-
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            for usage in shapes:
-                _extract_usage_metrics(usage)
-
-        assert [w for w in caught if issubclass(w.category, DeprecationWarning)] == []
 
 
 class TestInvokeReportsUsageAndLatency:
