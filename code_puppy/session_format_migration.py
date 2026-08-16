@@ -19,16 +19,19 @@ move to ``<dir>/pre_v2_backup/``, failures to ``<dir>/pre_v2_backup/failed/``.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import pathlib
 from dataclasses import dataclass
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Tuple
 
 from code_puppy.session_surrogate_unpickler import (
     load_surrogate_pickle,
     normalize_history,
     to_jsonable,
 )
+
+logger = logging.getLogger(__name__)
 
 _MARKER_FILENAME = ".session_format_v2_migrated"
 _BACKUP_DIRNAME = "pre_v2_backup"
@@ -159,45 +162,115 @@ def _marker_path() -> pathlib.Path:
     return pathlib.Path(CONFIG_DIR) / _MARKER_FILENAME
 
 
-def sweep_legacy_pickle_sessions() -> None:
-    """One-time startup sweep: migrate every known ``.pkl`` session to JSON.
+def _migrate_directory(directory: pathlib.Path) -> Tuple[int, int]:
+    """Migrate every ``.pkl`` in ``directory``; returns ``(migrated, failed)``."""
+    migrated = 0
+    failed = 0
+    for pkl_path in sorted(directory.glob("*.pkl")):
+        if pkl_path.with_suffix(".json").exists():
+            continue  # JSON twin already present; nothing to do.
+        result = migrate_pickle_file(pkl_path)
+        if result.success:
+            migrated += 1
+            archive_legacy_pickle(pkl_path)
+        else:
+            failed += 1
+            logger.debug(
+                "Could not migrate session file %s: %s (quarantined)",
+                pkl_path,
+                result.error,
+            )
+            quarantine_failed_pickle(pkl_path)
+    return migrated, failed
 
-    Idempotent via a marker file; per-file failures are warned about,
-    quarantined, and never abort the sweep. Never raises (best-effort at
-    startup, same policy as ``session_migration.sweep_contexts_to_autosaves``).
+
+def _retry_quarantined(directory: pathlib.Path) -> Tuple[int, int]:
+    """Retry ``pre_v2_backup/failed/*.pkl``; returns ``(rescued, stuck)``.
+
+    Runs even when the sweep marker exists (cheap: only when ``failed/``
+    is non-empty) so unpickler fixes retroactively rescue quarantined
+    sessions. Rescued pickles graduate to ``pre_v2_backup/`` proper;
+    repeat failures stay put with debug-only logging -- no warning spam.
+    """
+    failed_dir = directory / _BACKUP_DIRNAME / "failed"
+    if not failed_dir.is_dir():
+        return 0, 0
+    rescued = 0
+    stuck = 0
+    for pkl_path in sorted(failed_dir.glob("*.pkl")):
+        json_path = directory / pkl_path.with_suffix(".json").name
+        if json_path.exists():
+            logger.debug("Skipping quarantined %s: JSON twin already exists", pkl_path)
+            continue
+        result = migrate_pickle_file(pkl_path, json_path)
+        if result.success:
+            rescued += 1
+            # Sidecar (if any) lives in the sessions dir, not failed/.
+            _repoint_meta_sidecar(directory / pkl_path.name, json_path)
+            archive_legacy_pickle_from_quarantine(pkl_path, directory)
+        else:
+            stuck += 1
+            logger.debug(
+                "Quarantined session %s still unmigratable: %s",
+                pkl_path,
+                result.error,
+            )
+    return rescued, stuck
+
+
+def archive_legacy_pickle_from_quarantine(
+    pkl_path: pathlib.Path, directory: pathlib.Path
+) -> None:
+    """Graduate a rescued pickle from ``failed/`` to ``pre_v2_backup/``."""
+    try:
+        _move_to(pkl_path, directory / _BACKUP_DIRNAME)
+    except OSError:
+        pass
+
+
+def sweep_legacy_pickle_sessions() -> None:
+    """Startup sweep: migrate every known ``.pkl`` session to JSON.
+
+    The main sweep is one-time (marker file); the quarantine-retry pass is
+    self-healing and runs every startup. Per-file failures are quarantined
+    with debug-level detail and summarized in a single warning; the sweep
+    never raises (best-effort at startup, same policy as
+    ``session_migration.sweep_contexts_to_autosaves``).
     """
     try:
-        marker = _marker_path()
-        if marker.exists():
-            return
+        directories = [d for d in _sweep_directories() if d.is_dir()]
 
         migrated = 0
         failed = 0
-        for directory in _sweep_directories():
-            if not directory.is_dir():
-                continue
-            for pkl_path in sorted(directory.glob("*.pkl")):
-                if pkl_path.with_suffix(".json").exists():
-                    continue  # JSON twin already present; nothing to do.
-                result = migrate_pickle_file(pkl_path)
-                if result.success:
-                    migrated += 1
-                    archive_legacy_pickle(pkl_path)
-                else:
-                    failed += 1
-                    _emit_warning_safely(
-                        f"Could not migrate session file {pkl_path.name}: "
-                        f"{result.error} (moved to {_BACKUP_DIRNAME}/failed/)"
-                    )
-                    quarantine_failed_pickle(pkl_path)
+        marker = _marker_path()
+        if not marker.exists():
+            for directory in directories:
+                dir_migrated, dir_failed = _migrate_directory(directory)
+                migrated += dir_migrated
+                failed += dir_failed
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.touch()
 
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.touch()
+        rescued = 0
+        for directory in directories:
+            dir_rescued, _stuck = _retry_quarantined(directory)
+            rescued += dir_rescued
 
+        if failed:
+            _emit_warning_safely(
+                f"{failed} session(s) could not be migrated and were "
+                f"quarantined to {_BACKUP_DIRNAME}/failed/ -- run with debug "
+                "logging for details."
+            )
         if migrated or failed:
             _emit_info_safely(
                 f"Session format migration: {migrated} migrated to JSON, "
                 f"{failed} failed (originals kept under {_BACKUP_DIRNAME}/)."
+            )
+        if rescued:
+            _emit_info_safely(
+                f"Recovered {rescued} previously quarantined session(s) "
+                f"from {_BACKUP_DIRNAME}/failed/."
             )
     except Exception as exc:  # pragma: no cover - defensive
         try:
