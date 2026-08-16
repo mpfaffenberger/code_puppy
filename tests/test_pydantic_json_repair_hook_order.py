@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from pydantic_ai import Agent
+from pydantic_ai._agent_graph import CallToolsNode
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.tool_manager import ToolManager
@@ -47,6 +48,8 @@ async def test_repair_precedes_hook_inspection_writeback_and_blocking(blocked):
     original_execute_tool_call = ToolManager.execute_tool_call
     original_get_tool_def = ToolManager.get_tool_def
     original_validate_tool_call = ToolManager.validate_tool_call
+    original_validate_output_tool_call = ToolManager.validate_output_tool_call
+    original_handle_tool_calls = CallToolsNode._handle_tool_calls
     callbacks.register_callback("pre_tool_call", policy_hook)
     patch_tool_call_json_repair()
     patch_tool_call_callbacks()
@@ -63,6 +66,8 @@ async def test_repair_precedes_hook_inspection_writeback_and_blocking(blocked):
         ToolManager.execute_tool_call = original_execute_tool_call
         ToolManager.get_tool_def = original_get_tool_def
         ToolManager.validate_tool_call = original_validate_tool_call
+        ToolManager.validate_output_tool_call = original_validate_output_tool_call
+        CallToolsNode._handle_tool_calls = original_handle_tool_calls
         callbacks.unregister_callback("pre_tool_call", policy_hook)
 
     assert run_result.output == "done"

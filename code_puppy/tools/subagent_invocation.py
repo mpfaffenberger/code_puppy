@@ -56,6 +56,8 @@ from code_puppy.tools.subagent_context import (
 from code_puppy.tools.subagent_usage_metrics import (
     _safe_usage_metrics,
     build_invoke_output,
+    extract_final_context_tokens,
+    extract_per_request_usage,
 )
 
 # Set to track active subagent invocation tasks
@@ -570,6 +572,17 @@ async def _invoke_agent_impl(
                 session_id=session_id,
                 model_name=effective_model_name,
                 usage_metrics=usage_metrics,
+                per_request_usage=(
+                    # all_messages() would re-report calls from earlier runs.
+                    extract_per_request_usage(result.new_messages())
+                    if include_usage_metrics
+                    else None
+                ),
+                final_context_tokens=(
+                    extract_final_context_tokens(result.new_messages())
+                    if include_usage_metrics
+                    else None
+                ),
                 start_time=start_time,
                 end_time=end_time,
                 duration_ms=duration_ms,
@@ -729,13 +742,9 @@ def register_invoke_agent_with_model(agent):
         Returns:
             AgentInvokeWithModelOutput: Contains response, agent_name,
             session_id, effective model_name, and error fields. On a
-            successful run it also reports per-run token usage (non-cached
-            input_tokens, cache_read_input_tokens, cache_creation_input_tokens,
-            output_tokens, total_tokens, num_requests) and timing
-            (start_time/end_time as UTC ISO-8601 strings plus duration_ms);
-            those fields are None on any error path. This extra usage/timing
-            reporting is scoped to invoke_agent_with_model only -- invoke_agent
-            is unaffected.
+            successful run it also reports usage and timing; those fields are
+            None on errors. Use per_request_usage for pricing. invoke_agent is
+            unaffected.
         """
         normalized_model_name = model_name.strip()
         if not normalized_model_name:

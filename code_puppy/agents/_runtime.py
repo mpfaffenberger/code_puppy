@@ -18,6 +18,7 @@ preserved verbatim:
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import signal
 import threading
@@ -107,6 +108,10 @@ from code_puppy.tools.command_runner import is_awaiting_user_input
 
 # Provider "please retry" signals or SSE/transport artifacts that reliably
 # succeed on retry. Keep substring-based and lower-case.
+#
+# NOTE: a bare ``json.JSONDecodeError`` (malformed SSE line) doesn't match
+# "malformed streamed sse event" / "extra json data in sse payload" below --
+# it's classified separately via isinstance in ``_is_retryable_one``.
 _RETRYABLE_SNIPPETS = (
     "streamed response ended without content",
     "malformed streamed sse event",
@@ -300,6 +305,11 @@ def _is_retryable_one(exc: BaseException) -> bool:
     if ModelAPIError is not None and isinstance(exc, ModelAPIError):
         if _matches_retryable_snippet(msg):
             return True
+
+    # Malformed/concatenated SSE line -> bare JSONDecodeError; message won't
+    # match the snippets above, so check the type directly.
+    if isinstance(exc, json.JSONDecodeError):
+        return True
 
     return False
 

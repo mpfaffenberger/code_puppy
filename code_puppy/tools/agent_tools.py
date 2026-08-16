@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from pydantic_ai import RunContext
 from pydantic_ai.messages import ModelMessage
 
@@ -226,29 +226,28 @@ class AgentInvokeOutput(BaseModel):
     error: str | None = None
 
 
+class SubagentRequestUsage(BaseModel):
+    """Billable token buckets for one model call."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model_name: str | None = None
+    input_tokens: int | None = None
+    cache_read_input_tokens: int | None = None
+    cache_creation_input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
 class AgentInvokeWithModelOutput(AgentInvokeOutput):
-    """Output for the invoke_agent_with_model tool.
-
-    Extends :class:`AgentInvokeOutput` with per-run token-usage and timing
-    fields, populated on the success path only, so benchmarking/
-    model-comparison callers that explicitly pin a model can measure per-run
-    cost without reconstructing it from downstream telemetry. These fields are
-    scoped to THIS tool only -- ``invoke_agent`` keeps the original five-field
-    contract untouched, with no functional or schema changes.
-
-    Token accounting is normalized so the input buckets never overlap:
-    ``input_tokens`` counts only regular (non-cached) input, while cached input
-    is reported separately as ``cache_read_input_tokens`` (cache hits) and
-    ``cache_creation_input_tokens`` (cache writes). A provider that does not
-    report a given bucket leaves that field ``None`` rather than a fabricated 0.
-    """
+    """Usage output; ``input_tokens`` excludes cache."""
 
     input_tokens: int | None = None
     cache_read_input_tokens: int | None = None
     cache_creation_input_tokens: int | None = None
     output_tokens: int | None = None
-    total_tokens: int | None = None
     num_requests: int | None = None
+    per_request_usage: list[SubagentRequestUsage] | None = None
+    final_context_tokens: int | None = None
     start_time: str | None = None
     end_time: str | None = None
     duration_ms: float | None = None
@@ -323,6 +322,7 @@ __all__ = [
     "AgentInvokeOutput",
     "AgentInvokeWithModelOutput",
     "ListAgentsOutput",
+    "SubagentRequestUsage",
     "_active_subagent_tasks",
     "_generate_session_hash_suffix",
     "_get_subagent_sessions_dir",

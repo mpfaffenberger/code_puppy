@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic_ai._agent_graph import CallToolsNode
 from pydantic_ai.tool_manager import ToolManager
 
 from code_puppy import callbacks
@@ -57,12 +59,23 @@ def _validated(call, *, tool=_DEFAULT_TOOL, **overrides):
     return SimpleNamespace(**values)
 
 
-def _install_callback_patch(monkeypatch, execute, validate=None):
+def _install_callback_patch(monkeypatch, execute, validate=None, handle=None):
     if validate is None:
 
         async def validate(self, call, **kwargs):
             _ = self, kwargs
             return call
+
+    async def validate_output(self, call, **kwargs):
+        _ = self, kwargs
+        return call
+
+    if handle is None:
+
+        async def handle(self, ctx, tool_calls, **kwargs):
+            _ = self, ctx, tool_calls, kwargs
+            if False:
+                yield None
 
     def get_tool_def(self, name):
         tool = (self.tools or {}).get(name)
@@ -70,7 +83,9 @@ def _install_callback_patch(monkeypatch, execute, validate=None):
 
     monkeypatch.setattr(ToolManager, "execute_tool_call", execute)
     monkeypatch.setattr(ToolManager, "validate_tool_call", validate)
+    monkeypatch.setattr(ToolManager, "validate_output_tool_call", validate_output)
     monkeypatch.setattr(ToolManager, "get_tool_def", get_tool_def)
+    monkeypatch.setattr(CallToolsNode, "_handle_tool_calls", handle)
     assert patch_tool_call_callbacks() is True
 
 
@@ -89,9 +104,21 @@ async def test_block_is_fail_closed_and_balances_lifecycle(monkeypatch):
         _ = tool_name, tool_args, context
         lifecycle.append("started")
 
+    class ExplosiveBool:
+        def __bool__(self):
+            raise AssertionError("callback diagnostic truthiness executed")
+
+    class ExplosiveStr(str):
+        def strip(self, *args, **kwargs):
+            raise AssertionError("callback string subclass executed")
+
     def blocker(tool_name, tool_args, context=None):
         _ = tool_name, tool_args, context
-        return {"blocked": True, "reason": object()}
+        return {
+            "blocked": ExplosiveBool(),
+            "error_message": ExplosiveBool(),
+            "context_message": ExplosiveStr("hostile"),
+        }
 
     def finished(tool_name, tool_args, result, duration_ms, context=None):
         _ = tool_name, tool_args, duration_ms, context
@@ -222,6 +249,69 @@ async def test_normalization_uses_call_provider_and_exact_tool_lookup(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_call_aware_classification_never_strips_non_claude_calls(monkeypatch):
+    observed = []
+
+    async def execute(self, validated, **kwargs):
+        _ = self, kwargs
+        return validated
+
+    async def handle(self, ctx, tool_calls, **kwargs):
+        _ = self, ctx, kwargs
+        observed.extend(call.tool_name for call in tool_calls)
+        if False:
+            yield None
+
+    _install_callback_patch(monkeypatch, execute, handle=handle)
+    tools = {
+        "function": _tool("function"),
+        "sequential": _tool("function"),
+        "output": _tool("output"),
+        "external": _tool("external"),
+        "unapproved": _tool("unapproved"),
+        "cp_legit": _tool("function"),
+    }
+    manager = _manager(provider="openai", tools=tools)
+    calls = [
+        _call(f"cp_{name}", provider="openai")
+        for name in ("function", "sequential", "output", "external", "unapproved")
+    ]
+    calls.extend(
+        [
+            _call("cp_output", provider="claude_code"),
+            _call("cp_legit", provider="claude_code"),
+        ]
+    )
+    ctx = SimpleNamespace(deps=SimpleNamespace(tool_manager=manager))
+
+    events = [
+        event
+        async for event in CallToolsNode._handle_tool_calls(
+            SimpleNamespace(),
+            ctx,
+            calls,
+        )
+    ]
+
+    assert events == []
+    assert observed == [
+        "cp_function",
+        "cp_sequential",
+        "cp_output",
+        "cp_external",
+        "cp_unapproved",
+        "output",
+        "cp_legit",
+    ]
+    assert ToolManager.get_tool_def(manager, "cp_output") is None
+    claude_manager = _manager(provider="claude_code", tools=tools)
+    assert (
+        ToolManager.get_tool_def(claude_manager, "cp_output")
+        is tools["output"].tool_def
+    )
+
+
+@pytest.mark.asyncio
 async def test_noop_preserves_raw_bytes_and_typed_mutation_stays_consistent(
     monkeypatch,
 ):
@@ -279,6 +369,109 @@ async def test_noop_preserves_raw_bytes_and_typed_mutation_stays_consistent(
     assert executions[-1][1]["path"] == Path("/tmp/café")
     assert executions[-1][1]["count"] == 2
     assert executions[-1][1]["nested"] == {"x": 3}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("history_mode", ["string", "dict"])
+async def test_published_arguments_detach_callback_owned_aliases(
+    monkeypatch,
+    history_mode,
+):
+    retained = {}
+    executions = []
+
+    async def execute(self, validated, **kwargs):
+        _ = self, kwargs
+        await asyncio.sleep(0)
+        executions.append((validated.validated_args, validated.call.args))
+        return "ok"
+
+    def mutate(tool_name, tool_args, context=None):
+        _ = tool_name, context
+        tool_args["nested"]["x"] = 2
+        retained["args"] = tool_args
+        asyncio.get_running_loop().call_soon(
+            lambda: retained["args"]["nested"].__setitem__("x", 999)
+        )
+
+    callbacks.clear_callbacks("pre_tool_call")
+    callbacks.clear_callbacks("post_tool_call")
+    callbacks.clear_callbacks("final_tool_result")
+    callbacks.register_callback("pre_tool_call", mutate)
+    _install_callback_patch(monkeypatch, execute)
+    raw_args = '{"nested":{"x":1}}'
+    call = _call(args=raw_args if history_mode == "string" else json.loads(raw_args))
+    validated = _validated(call, validated_args={"nested": {"x": 1}})
+
+    await ToolManager.execute_tool_call(_manager(), validated)
+
+    execution_args, history_args = executions[0]
+    if type(history_args) is str:
+        history_args = json.loads(history_args)
+    assert retained["args"]["nested"]["x"] == 999
+    assert execution_args == {"nested": {"x": 2}}
+    assert history_args == {"nested": {"x": 2}}
+
+
+@pytest.mark.asyncio
+async def test_none_history_is_preserved_on_noop_and_materialized_on_mutation(
+    monkeypatch,
+):
+    executions = []
+
+    async def execute(self, validated, **kwargs):
+        _ = self, kwargs
+        executions.append((validated.validated_args.copy(), validated.call.args))
+        return "ok"
+
+    callbacks.clear_callbacks("pre_tool_call")
+    callbacks.clear_callbacks("post_tool_call")
+    callbacks.clear_callbacks("final_tool_result")
+    _install_callback_patch(monkeypatch, execute)
+    await ToolManager.execute_tool_call(
+        _manager(),
+        _validated(_call(args=None), validated_args={"value": 1}),
+    )
+    assert executions[-1] == ({"value": 1}, None)
+
+    def mutate(tool_name, tool_args, context=None):
+        _ = tool_name, context
+        tool_args["value"] = 2
+
+    callbacks.register_callback("pre_tool_call", mutate)
+    await ToolManager.execute_tool_call(
+        _manager(),
+        _validated(_call(args=None), validated_args={"value": 1}),
+    )
+    assert executions[-1] == ({"value": 2}, {"value": 2})
+
+
+@pytest.mark.asyncio
+async def test_post_duration_excludes_pre_hook_latency(monkeypatch):
+    durations = []
+
+    async def execute(self, validated, **kwargs):
+        _ = self, validated, kwargs
+        return "ok"
+
+    async def slow_pre(tool_name, tool_args, context=None):
+        _ = tool_name, tool_args, context
+        await asyncio.sleep(0.05)
+
+    def observe(tool_name, tool_args, result, duration_ms, context=None):
+        _ = tool_name, tool_args, result, context
+        durations.append(duration_ms)
+
+    callbacks.clear_callbacks("pre_tool_call")
+    callbacks.clear_callbacks("post_tool_call")
+    callbacks.clear_callbacks("final_tool_result")
+    callbacks.register_callback("pre_tool_call", slow_pre)
+    callbacks.register_callback("post_tool_call", observe)
+    _install_callback_patch(monkeypatch, execute)
+
+    await ToolManager.execute_tool_call(_manager(), _validated(_call()))
+
+    assert durations and durations[0] < 25
 
 
 @pytest.mark.asyncio

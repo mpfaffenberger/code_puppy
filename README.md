@@ -532,7 +532,11 @@ context is present. Pre-tool hook context creates a safe textual dictionary
 envelope; that envelope may spill even when the original result shape normally
 would not. `spill_max_inline_bytes` budgets decoded UTF-8 bytes in supported
 top-level string values—not JSON keys/syntax/escaping, provider wire bytes, or
-tokens.
+tokens. One result stages at most its 128 largest eligible fields to bound file
+amplification. If meeting the inline budget would require a 129th field, spill
+leaves the complete result inline rather than returning a misleading partial
+plan. Exact single-key `{"error": ...}` dictionaries remain inline; mappings
+with `error` plus normal result or metadata fields remain eligible.
 
 To keep spill enabled but exempt selected tools for this agent, add their exact
 registered names:

@@ -10,6 +10,7 @@ import time
 import pytest
 from pydantic import BaseModel
 from pydantic_ai import Agent
+from pydantic_ai._agent_graph import CallToolsNode
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.tool_manager import ToolManager
@@ -76,6 +77,8 @@ async def test_post_callbacks_mutate_structured_result_before_context_stringific
     original_execute_tool_call = ToolManager.execute_tool_call
     original_get_tool_def = ToolManager.get_tool_def
     original_validate_tool_call = ToolManager.validate_tool_call
+    original_validate_output_tool_call = ToolManager.validate_output_tool_call
+    original_handle_tool_calls = CallToolsNode._handle_tool_calls
     callbacks.register_callback("pre_tool_call", add_context)
     callbacks.register_callback("post_tool_call", mutate_result)
     callbacks.register_callback("final_tool_result", observe_final)
@@ -109,6 +112,8 @@ async def test_post_callbacks_mutate_structured_result_before_context_stringific
         ToolManager.execute_tool_call = original_execute_tool_call
         ToolManager.get_tool_def = original_get_tool_def
         ToolManager.validate_tool_call = original_validate_tool_call
+        ToolManager.validate_output_tool_call = original_validate_output_tool_call
+        CallToolsNode._handle_tool_calls = original_handle_tool_calls
         callbacks.unregister_callback("pre_tool_call", add_context)
         callbacks.unregister_callback("post_tool_call", mutate_result)
         callbacks.unregister_callback("final_tool_result", observe_final)

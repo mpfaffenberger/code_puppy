@@ -26,22 +26,22 @@ puppy_name = IntegrationPup
 owner_name = CodePuppyTester
 auto_save_session = true
 max_saved_sessions = 5
-model = lilac-zai-org-glm-5.1
+model = lilac-zai-org-glm-5.2
 enable_dbos = true
 """
 
-# models.json ships empty, so tests provision the "lilac synthetic GLM-5.1"
+# models.json ships empty, so tests provision the "lilac synthetic GLM-5.2"
 # model via ~/.code_puppy/extra_models.json, like a real user would.
 EXTRA_MODELS_TEMPLATE: Final[str] = """{
-  "lilac-zai-org-glm-5.1": {
+  "lilac-zai-org-glm-5.2": {
     "type": "custom_openai",
     "provider": "lilac",
-    "name": "zai-org/glm-5.1",
+    "name": "zai-org/glm-5.2",
     "custom_endpoint": {
       "url": "https://api.getlilac.com/v1",
       "api_key": "$LILAC_API_KEY"
     },
-    "context_length": 202800,
+    "context_length": 524288,
     "supported_settings": ["temperature", "seed", "top_p"]
   }
 }
