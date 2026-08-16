@@ -77,10 +77,8 @@ class TestSystemPrompt:
 class TestCacheWriteEstimation:
     """Pins the arithmetic the prompt tells the agent to use.
 
-    Cache reads are CUMULATIVE -- each call reads the whole prefix cached so
-    far. So a write is the DIFFERENCE between consecutive reads, not the next
-    call's raw read. Using the raw read re-counts the entire prefix every time
-    and overstates the premium-priced bucket badly.
+    Reads are CUMULATIVE, so a write is the DIFFERENCE between consecutive
+    reads. Using the next call's raw read re-counts the prefix every time.
     """
 
     @staticmethod
@@ -132,9 +130,8 @@ class TestCacheWriteEstimation:
 class TestPromptMatchesTheSchema:
     """Every metric the prompt names must exist on the tool's output.
 
-    The persona was ported before ``final_context_tokens`` was added, so the
-    prompt silently fell behind the schema. Telling the judge to read a field
-    that does not exist produces confident nonsense, so pin the two together.
+    The persona already fell behind the schema once. Telling the judge to read
+    a missing field produces confident nonsense.
     """
 
     def test_every_metric_field_is_documented(self):
@@ -168,11 +165,9 @@ class TestPromptMatchesTheSchema:
 class TestCacheWritePricingClaim:
     """OpenAI and Gemini do not charge for cache writes.
 
-    An earlier draft told the judge their price sheets "charge a premium rate
-    for cache writes". They do not: genai-prices lists cache_write_mtok for
-    0 of 71 OpenAI models, and every Google entry that has one is a Claude
-    model served via Vertex, not a gemini-*. Pricing an estimated write for
-    those providers invents a cost and biases the verdict against them.
+    genai-prices lists ``cache_write_mtok`` for 0 of 71 OpenAI models, and every
+    Google entry with one is Claude-on-Vertex, not a gemini-*. Pricing an
+    estimated write there invents a cost and biases the verdict.
     """
 
     def test_prompt_says_writes_are_free_there(self):

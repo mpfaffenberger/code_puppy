@@ -486,9 +486,8 @@ class TestProviderOnlyUsage:
 class TestPerFieldAvailability:
     """Each token counter resolves availability on its own.
 
-    ``RunUsage`` defaults every counter to ``0`` independently, so a provider
-    that reports input but omits output must not surface ``output_tokens=0`` as
-    though it were a real reading just because some *other* field was positive.
+    A provider reporting input but omitting output must not surface
+    ``output_tokens=0`` just because another field was positive.
     """
 
     def test_positive_input_does_not_vouch_for_omitted_output(self):
@@ -500,11 +499,10 @@ class TestPerFieldAvailability:
         assert metrics["output_tokens"] is None
 
     def test_partial_usage_survives_safe_usage_metrics(self):
-        """Locks the regression at the _safe_usage_metrics boundary.
+        """Locks the regression at its actual boundary.
 
-        The bug came from post-processing in ``_safe_usage_metrics``, so proving
-        the fix only at ``_extract_usage_metrics`` would not lock the behaviour
-        that actually regressed.
+        The bug lived in ``_safe_usage_metrics`` post-processing, so proving the
+        fix only at ``_extract_usage_metrics`` would miss it.
         """
         result = SimpleNamespace(
             usage=lambda: _usage(input_tokens=500, output_tokens=0, requests=1),
@@ -591,12 +589,9 @@ class TestPerFieldAvailability:
 class TestNoAggregateTotalIsReported:
     """No summed total is emitted -- the billable buckets stand alone.
 
-    Providers price input, cache reads, cache writes, and output at different
-    per-token rates, so an aggregate cannot be converted to a cost without
-    being decomposed again. The schema therefore carries no ``total_tokens``
-    field, and nothing in the metrics dict may reintroduce one -- including
-    ``UsageBase.total_tokens``, the property ``RunUsage`` always exposes as
-    ``input_tokens + output_tokens``, which cannot tell an omitted counter
+    Each bucket is priced differently, so an aggregate cannot be turned back
+    into a cost. Nothing may reintroduce one, including ``UsageBase.total_tokens``
+    (``input_tokens + output_tokens``), which cannot tell an omitted counter
     from a zero one.
     """
 

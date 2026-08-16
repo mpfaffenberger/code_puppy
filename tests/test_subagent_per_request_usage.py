@@ -176,9 +176,8 @@ class TestAggregateInvariant:
     """Per-request entries must reconcile with the run totals.
 
     pydantic-ai increments run usage and appends the response in the same
-    ``_finish_handling`` block, so the two views describe the same calls. This
-    pins that assumption: if upstream ever diverges, these fail loudly rather
-    than silently publishing contradictory numbers.
+    block, so both views describe the same calls. If upstream diverges, these
+    fail loudly rather than publishing contradictory numbers.
     """
 
     def test_entries_sum_to_the_aggregate(self):
@@ -343,9 +342,8 @@ class TestResumedSessions:
     """Only THIS run's calls may be reported, never the whole session.
 
     ``all_messages()`` documents that "Messages from older runs are included",
-    and sub-agent sessions are resumable, so extracting from it would re-report
-    every earlier call as freshly billable -- inflating reported cost without
-    bound as a session grows. ``new_messages()`` is the current run's slice.
+    and sub-agent sessions are resumable, so extracting from it would re-bill
+    every earlier call without bound. ``new_messages()`` is this run's slice.
     """
 
     @staticmethod
@@ -393,10 +391,10 @@ class TestResumedSessions:
 class TestExtractorBoundary:
     """Entries carry billable buckets only -- never run-level counters.
 
-    ``SubagentRequestUsage`` forbids extra fields, so constructing one from
-    run-level metrics raises instead of silently discarding ``num_requests``.
-    Without that, the per-request path could be wired to the aggregate
-    extractor and no test would notice.
+    ``SubagentRequestUsage`` forbids extra fields, so building one from
+    run-level metrics raises instead of discarding ``num_requests``. Without
+    that, the per-request path could be wired to the aggregate extractor
+    unnoticed.
     """
 
     def test_run_level_metrics_are_rejected(self):

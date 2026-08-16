@@ -213,21 +213,13 @@ class AgentInvokeOutput(BaseModel):
 class SubagentRequestUsage(BaseModel):
     """Token usage for ONE model call within a run.
 
-    Providers decide pricing per request, not per run: several models charge a
-    higher rate once a single call's context crosses a length threshold, and a
-    run may switch models partway through. Summing calls therefore destroys the
-    information cost depends on -- upstream says as much on
-    ``RequestUsage.__add__``: "this CANNOT be used to sum multiple requests
-    without breaking some pricing calculations."
+    Pricing is decided per request -- rates can change once a call's context
+    crosses a length threshold, and a run may switch models partway -- so
+    summing calls destroys what cost depends on. Upstream warns the same on
+    ``RequestUsage.__add__``.
 
-    Each entry keeps one call's buckets intact alongside the model that served
-    it, so callers can apply the correct price sheet and context tier per call.
-    Buckets follow the same rules as the aggregate fields: non-overlapping, and
-    ``None`` whenever the provider did not report them unambiguously.
-
-    ``num_requests`` is deliberately absent -- it is always 1 here. The model
-    forbids extra fields so that feeding it run-level metrics (which carry
-    ``num_requests``) fails loudly instead of silently dropping the key.
+    ``num_requests`` is absent because it is always 1 here; extra fields are
+    forbidden so passing run-level metrics fails loudly.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -250,32 +242,20 @@ class AgentInvokeWithModelOutput(AgentInvokeOutput):
     contract untouched, with no functional or schema changes.
 
     Token accounting is normalized so the buckets never overlap and map 1:1
-    onto the dimensions providers actually bill for: ``input_tokens`` counts
-    only regular (non-cached) input, cached input is split into
-    ``cache_read_input_tokens`` (cache hits) and ``cache_creation_input_tokens``
-    (cache writes), and ``output_tokens`` covers generated tokens. Those four
-    are priced at different per-token rates, so they are reported separately
-    rather than aggregated -- no single blended total would be meaningful.
+    onto what providers bill: non-cached ``input_tokens``, cache hits, cache
+    writes, and ``output_tokens``. Each is priced differently, so they are
+    reported separately with no blended total.
 
-    Each bucket is surfaced only when the provider reports it unambiguously,
-    and each decides that independently, so an unavailable bucket stays ``None``
-    rather than being estimated or defaulted to ``0``. Buckets a provider has no
-    concept of also stay ``None``: only Anthropic bills cache writes, so
-    ``cache_creation_input_tokens`` is ``None`` for OpenAI and Gemini runs.
+    Each bucket resolves availability independently and stays ``None`` when the
+    provider did not report it unambiguously -- including buckets a provider has
+    no concept of (only Anthropic bills cache writes).
 
-    The root token fields are run-level TOTALS: convenient for coarse telemetry,
-    but NOT sufficient to compute cost. Pricing is decided per request, so a run
-    that crossed a context-length threshold on one call -- or switched models
-    partway through -- cannot be priced from the totals alone. Use
-    ``per_request_usage`` for exact cost; it preserves each call's buckets and
-    the model that served it.
+    The root token fields are run-level TOTALS: fine for coarse telemetry, but
+    insufficient for cost. Use ``per_request_usage`` for that.
 
-    ``final_context_tokens`` answers a different question: not what the run
-    cost, but how much context was live when it ended. It counts the last
-    call's raw combined input (cached tokens included -- they occupy the
-    window regardless of how they are billed) plus that call's output. The
-    root totals cannot answer this: they sum every request, so a four-call run
-    reports several times the context that was ever live at once.
+    ``final_context_tokens`` answers a different question -- how much context
+    was live at the end, counting cached tokens, which the summed totals cannot
+    show.
     """
 
     input_tokens: int | None = None
