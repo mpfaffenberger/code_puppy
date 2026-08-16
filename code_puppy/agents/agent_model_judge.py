@@ -138,14 +138,19 @@ still counts as a real call whose usage the provider didn't report.
 
 ## Estimating cache writes on models that never report them
 
-Anthropic reports `cache_creation_input_tokens`. OpenAI (gpt-*) and Gemini do
-NOT -- the field is always `None` there, even though the provider's price sheet
-charges a premium rate for cache writes. So a naive comparison flatters OpenAI:
-its most expensive input bucket is simply invisible.
+Anthropic reports `cache_creation_input_tokens` AND charges a premium rate for
+writes, so for those models the figure is both measured and billable.
 
-You can recover it. With prefix caching, whatever one call WRITES to the cache
-is what the NEXT call READS. Reads are CUMULATIVE (each call reads the whole
-prefix cached so far), so take the DIFFERENCE between consecutive reads:
+OpenAI (gpt-*) and Gemini leave the field `None` -- and for them that is NOT a
+hidden cost. Their price sheets carry no cache-write rate at all: prefix caching
+is automatic and writes are free. Never invent a write cost for those providers;
+doing so penalises them for a charge that does not exist.
+
+The write VOLUME is still worth estimating, as a behavioural signal rather than
+a billing one -- it shows how much new context each turn had to cache. With
+prefix caching, whatever one call WRITES is what the NEXT call READS. Reads are
+CUMULATIVE (each call reads the whole prefix cached so far), so take the
+DIFFERENCE between consecutive reads:
 
     estimated_write(call i) = cache_read(call i+1) - cache_read(call i)
 
@@ -161,6 +166,9 @@ and overstates writes badly, because it re-counts the whole prefix every time.
 
 Rules when you use this:
 - Label it an ESTIMATE, always. Never present it as measured.
+- NEVER price it for OpenAI or Gemini. It is a volume signal only; those
+  providers do not charge for cache writes, so multiplying it by any rate
+  invents a cost and biases the comparison against them.
 - It needs `per_request_usage` -- the run totals cannot support it, since they
   sum reads across calls and destroy the per-call sequence.
 - The LAST call's write cannot be estimated: there is no following call to read
@@ -171,9 +179,11 @@ Rules when you use this:
 - Prefer real data: if `cache_creation_input_tokens` is populated, use it and
   ignore this section entirely.
 
-When comparing an Anthropic model against an OpenAI one, state plainly that the
-OpenAI cache-write figure is derived while the Anthropic one is measured -- the
-comparison is otherwise not apples to apples.
+When comparing an Anthropic model against an OpenAI one, say plainly which
+numbers are measured and which are derived, and remember the asymmetry is real:
+Anthropic bills for cache writes, OpenAI and Gemini do not. Treating a derived
+OpenAI volume as if it were an Anthropic-style billable write is the single
+easiest way to produce a confidently wrong cost comparison.
 
 ## Best Practices
 - Run all independent (agent, model) invocations in PARALLEL by emitting them in the same tool-call wave.

@@ -87,6 +87,26 @@ class TestCacheWriteEstimation:
     def _estimate(reads):
         return [reads[i + 1] - reads[i] for i in range(len(reads) - 1)]
 
+    @staticmethod
+    def _formula_from_prompt():
+        """Pull the formula line out of the shipped prompt.
+
+        Reading it back means the tests below cannot drift away from what the
+        agent is actually told to do.
+        """
+        for line in ModelJudgeAgent().get_system_prompt().splitlines():
+            if line.strip().startswith("estimated_write(call i)"):
+                return line.strip()
+        raise AssertionError("cache-write formula missing from the prompt")
+
+    def test_prompt_specifies_the_delta_form(self):
+        """The formula must be the difference, not the next raw read."""
+        formula = self._formula_from_prompt()
+
+        assert formula == (
+            "estimated_write(call i) = cache_read(call i+1) - cache_read(call i)"
+        )
+
     def test_delta_recovers_the_true_writes(self):
         true_writes = [1000, 300, 250]
         reads = [0, 1000, 1300, 1550]
@@ -117,13 +137,6 @@ class TestPromptMatchesTheSchema:
     that does not exist produces confident nonsense, so pin the two together.
     """
 
-    @staticmethod
-    def _documented_fields():
-        from code_puppy.tools.agent_tools import AgentInvokeWithModelOutput
-
-        prompt = ModelJudgeAgent().get_system_prompt()
-        return [f for f in AgentInvokeWithModelOutput.model_fields if f in prompt]
-
     def test_every_metric_field_is_documented(self):
         from code_puppy.tools.agent_tools import AgentInvokeWithModelOutput
 
@@ -150,3 +163,31 @@ class TestPromptMatchesTheSchema:
 
         # Mentioned only to forbid inventing one.
         assert "NO `total_tokens`" in prompt
+
+
+class TestCacheWritePricingClaim:
+    """OpenAI and Gemini do not charge for cache writes.
+
+    An earlier draft told the judge their price sheets "charge a premium rate
+    for cache writes". They do not: genai-prices lists cache_write_mtok for
+    0 of 71 OpenAI models, and every Google entry that has one is a Claude
+    model served via Vertex, not a gemini-*. Pricing an estimated write for
+    those providers invents a cost and biases the verdict against them.
+    """
+
+    def test_prompt_says_writes_are_free_there(self):
+        prompt = ModelJudgeAgent().get_system_prompt()
+
+        assert "writes are free" in prompt
+        assert "NEVER price it for OpenAI or Gemini" in prompt
+
+    def test_prompt_does_not_claim_they_charge_a_premium(self):
+        prompt = ModelJudgeAgent().get_system_prompt()
+
+        assert "charges a premium rate for cache writes" not in prompt
+
+    def test_anthropic_is_still_described_as_billable(self):
+        """The asymmetry is the point -- don't over-correct into the reverse."""
+        prompt = ModelJudgeAgent().get_system_prompt()
+
+        assert "Anthropic bills for cache writes" in prompt
