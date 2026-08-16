@@ -519,6 +519,24 @@ spill configuration alone and add:
 Only the JSON boolean `false` opts out; omitting this setting keeps the global
 spill behavior.
 
+To keep spill enabled but exempt selected tools for this agent, add their exact
+registered names:
+
+```json
+{
+  "tools_config": {
+    "spill": {
+      "skip_tools": ["custom_report", "agent_run_shell_command"]
+    }
+  }
+}
+```
+
+Per-agent `skip_tools` are additive to the effective global
+`spill_skip_tools` setting: they can only add exemptions, never remove global
+ones (`read_file` by default). Invalid values are ignored rather than disabling
+spill accidentally.
+
 ## Available Tools
 
 Agents can access these tools based on their configuration:
