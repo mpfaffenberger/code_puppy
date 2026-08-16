@@ -12,6 +12,7 @@ from typing import Set
 
 from pydantic_ai import Agent, RunContext, UsageLimits
 
+from code_puppy.agent_execution_context import executing_agent_context
 from code_puppy.callbacks import (
     on_agent_run_cancel,
     on_agent_run_context,
@@ -448,7 +449,10 @@ async def _invoke_agent_impl(
             else:
                 stream_handler = partial(subagent_stream_handler, session_id=session_id)
 
-            with subagent_context(agent_name, effective_model_name):
+            with (
+                subagent_context(agent_name, effective_model_name),
+                executing_agent_context(agent_config),
+            ):
                 run_ctxs = on_agent_run_context(
                     agent_config, temp_agent, group_id, mcp_servers
                 )

@@ -501,7 +501,23 @@ Create JSON files in your agents directory following this schema:
 #### Optional Fields
 - **`display_name`**: Pretty display name (defaults to title-cased name + 🤖)
 - **`user_prompt`**: Custom user greeting
-- **`tools_config`**: Tool configuration object
+- **`tools_config`**: Per-agent tool/plugin configuration object
+
+To disable oversized-result spilling for only this agent, leave the global
+spill configuration alone and add:
+
+```json
+{
+  "tools_config": {
+    "spill": {
+      "enabled": false
+    }
+  }
+}
+```
+
+Only the JSON boolean `false` opts out; omitting this setting keeps the global
+spill behavior.
 
 ## Available Tools
 

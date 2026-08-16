@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from code_puppy.agent_execution_context import get_executing_agent
 from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 from code_puppy.callbacks import (
     clear_callbacks,
@@ -70,6 +71,23 @@ class TestAgentRunStartOrdering:
             "was invoked — the race from issue #338 has regressed."
         )
         assert hook_finished is True
+
+    @pytest.mark.asyncio
+    async def test_agent_run_task_inherits_executing_agent_context(self, agent):
+        """Plugins running in the pydantic task can resolve its actual agent."""
+        observed_agent = None
+
+        async def fake_run(*args, **kwargs):
+            nonlocal observed_agent
+            observed_agent = get_executing_agent()
+            return MagicMock(data="response")
+
+        with patch.object(agent, "_code_generation_agent") as mock_agent:
+            mock_agent.run = AsyncMock(side_effect=fake_run)
+            await agent.run_with_mcp("hello")
+
+        assert observed_agent is agent
+        assert get_executing_agent() is None
 
     @pytest.mark.asyncio
     async def test_hook_exception_does_not_block_agent(self, agent):

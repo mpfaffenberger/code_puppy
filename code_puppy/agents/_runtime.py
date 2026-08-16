@@ -65,6 +65,7 @@ try:
 except ImportError:  # pragma: no cover - 3.10 only
     BaseExceptionGroup = Exception  # type: ignore[misc,assignment]
 
+from code_puppy.agent_execution_context import executing_agent_context
 from code_puppy.agents import _history, _key_listeners
 from code_puppy.agents._builder import build_pydantic_agent
 from code_puppy.agents._diagnostics import emit_exception_diagnostics
@@ -913,7 +914,11 @@ async def _run_with_mcp_impl(
         # MCP trouble must never block the agent run itself.
         pass
 
-    agent_task = asyncio.create_task(run_agent_task())
+    # ContextVars are copied when a task is created. Scope the actual agent
+    # instance into this task so plugins can apply per-agent behavior without
+    # consulting the process-global agent manager (unsafe for concurrent runs).
+    with executing_agent_context(agent):
+        agent_task = asyncio.create_task(run_agent_task())
 
     loop = asyncio.get_running_loop()
 
