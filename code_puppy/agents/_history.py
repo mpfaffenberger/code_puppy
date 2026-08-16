@@ -272,10 +272,17 @@ def estimate_context_overhead(
     return _apply_multiplier(total, model_name)
 
 
-# Pydantic-AI has FIVE part kinds carrying a tool_call_id: tool-call/-return,
-# builtin-tool-call/-return (claude extended-thinking), and retry-prompt (acts
-# as a response). Counting only tool-call/-return caused bugs: e.g. builtin
-# calls on Claude Opus stayed "pending" forever, deferring summarization.
+# Pydantic-AI has FIVE part kinds carrying a tool_call_id that participate in
+# call/return pairing: tool-call/-return, builtin-tool-call/-return (claude
+# extended-thinking), and retry-prompt (acts as a response). Counting only
+# tool-call/-return caused bugs: e.g. builtin calls on Claude Opus stayed
+# "pending" forever, deferring summarization.
+#
+# v2.31.0 vocabulary audit: the only new part kinds are
+# 'tool-availability-delta' (carries an *optional* tool_call_id but is an
+# additive tool-reveal marker, NOT a call or return — must stay unpaired so
+# pruning never drops it) and 'speech' (realtime audio, no tool_call_id).
+# Neither joins these sets.
 _TOOL_CALL_PART_KINDS: frozenset[str] = frozenset({"tool-call", "builtin-tool-call"})
 _TOOL_RETURN_PART_KINDS: frozenset[str] = frozenset(
     {"tool-return", "builtin-tool-return", "retry-prompt"}

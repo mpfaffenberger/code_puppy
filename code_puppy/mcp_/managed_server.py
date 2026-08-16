@@ -263,8 +263,17 @@ class ManagedMCPServer:
         ``init_timeout``; ``read_timeout`` keeps its name. Omitted keys fall
         through to pydantic-ai's defaults (5s / 300s — same as the old
         ``MCPServer*`` defaults).
+
+        ``prefer_tasks=False``: pydantic-ai v2 defaults to task-augmented
+        execution (SEP-1686) for tools whose server marks task support
+        'optional'. Pinned off to preserve the direct-call semantics our
+        timeout/stderr-capture/blocking-startup plumbing was built against;
+        servers that *require* tasks still get them regardless of this flag.
         """
-        kwargs: Dict[str, Any] = {"process_tool_call": process_tool_call}
+        kwargs: Dict[str, Any] = {
+            "process_tool_call": process_tool_call,
+            "prefer_tasks": False,
+        }
         if "timeout" in config:
             kwargs["init_timeout"] = config["timeout"]
         if "read_timeout" in config:

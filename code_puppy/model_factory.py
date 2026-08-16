@@ -332,8 +332,13 @@ def make_model_settings(
             underlying_name = str(model_config.get("name", "")).lower()
             is_gpt_5_6 = "gpt-5.6" in model_name.lower() or "gpt-5.6" in underlying_name
             if is_gpt_5_6:
-                # pydantic-ai lacks context/mode fields; supply the full reasoning
-                # object via extra_body (partial would clobber its effort/summary).
+                # pydantic-ai 2.31.0 HAS openai_reasoning_mode/context settings,
+                # but they're gated on profile flags
+                # (openai_responses_supports_reasoning_{mode,context}) that
+                # custom-endpoint GPT-5.6 routes don't reliably carry — the
+                # fields would be silently dropped. extra_body delivers the
+                # full reasoning object unconditionally, so keep it (and pop
+                # effort/summary so pydantic-ai's partial doesn't clobber it).
                 reasoning = {
                     "effort": model_settings_dict.pop("openai_reasoning_effort"),
                     "summary": model_settings_dict.pop("openai_reasoning_summary"),
