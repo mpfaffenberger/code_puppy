@@ -503,6 +503,11 @@ Create JSON files in your agents directory following this schema:
 - **`user_prompt`**: Custom user greeting
 - **`tools_config`**: Per-agent tool/plugin configuration object
 
+> **Release ordering:** these spill controls and Pydantic-result guarantees
+> require `code-puppy-core-plugins>=0.0.7`. Publish that core-plugin release,
+> then raise Code Puppy's dependency floor and regenerate `uv.lock` before
+> publishing this runtime/documentation change. PyPI `0.0.6` predates them.
+
 To disable oversized-result spilling for only this agent, leave the global
 spill configuration alone and add:
 
@@ -517,9 +522,17 @@ spill configuration alone and add:
 ```
 
 Only the JSON boolean `false` opts out; omitting this setting keeps the global
-spill behavior. Spill bounds declared top-level string fields in plain dict and
-Pydantic-model results; strings nested in containers and `ToolReturn` payloads
-are left untouched.
+spill behavior. Spill bounds top-level string fields in exact built-in
+dictionaries and an audited allowlist of Code Puppy scalar output models,
+including shell, file-listing, and agent-invocation results. Arbitrary/custom
+Pydantic models—including nested fields, custom validators/serializers/schema
+hooks, aliases, extras, exclusions, computed or frozen fields—remain inline.
+Nested strings and `ToolReturn` payloads are also left untouched when no hook
+context is present. Pre-tool hook context creates a safe textual dictionary
+envelope; that envelope may spill even when the original result shape normally
+would not. `spill_max_inline_bytes` budgets decoded UTF-8 bytes in supported
+top-level string values—not JSON keys/syntax/escaping, provider wire bytes, or
+tokens.
 
 To keep spill enabled but exempt selected tools for this agent, add their exact
 registered names:

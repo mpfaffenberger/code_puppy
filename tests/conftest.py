@@ -10,7 +10,6 @@ import inspect
 import os
 import subprocess
 import tempfile
-from copy import deepcopy
 from unittest.mock import MagicMock
 
 import pytest
@@ -28,8 +27,8 @@ _ORIGINAL_XDG_ENV = {name: os.environ.get(name) for name in _XDG_ENV_VARS}
 for _xdg_name in _XDG_ENV_VARS:
     os.environ[_xdg_name] = os.path.join(_XDG_TEMP_DIR.name, _xdg_name.lower())
 
-from code_puppy import config as cp_config  # noqa: E402
 from code_puppy import callbacks as cp_callbacks  # noqa: E402
+from code_puppy import config as cp_config  # noqa: E402
 from code_puppy.messaging import bottom_bar as cp_bottom_bar  # noqa: E402
 
 
@@ -125,7 +124,7 @@ def isolate_global_state_between_tests(tmp_path_factory):
     original_config_file = cp_config.CONFIG_FILE
     original_config_dir = cp_config.CONFIG_DIR
     original_history_file = cp_config.COMMAND_HISTORY_FILE
-    original_callbacks = deepcopy(cp_callbacks._callbacks)
+    callback_snapshot = cp_callbacks.snapshot_callback_registry()
 
     # Create a completely separate temp directory for config isolation
     # (not using tmp_path which tests may use for their own purposes).
@@ -158,8 +157,7 @@ def isolate_global_state_between_tests(tmp_path_factory):
     cp_config.CONFIG_FILE = original_config_file
     cp_config.CONFIG_DIR = original_config_dir
     cp_config.COMMAND_HISTORY_FILE = original_history_file
-    cp_callbacks._callbacks.clear()
-    cp_callbacks._callbacks.update(original_callbacks)
+    cp_callbacks.restore_callback_registry(callback_snapshot)
     _ensure_builtin_plugin_callback_registrations()
 
     # Clear cache again after test.

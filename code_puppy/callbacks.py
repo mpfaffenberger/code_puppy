@@ -1,6 +1,11 @@
 import asyncio
+import inspect
 import logging
+import threading
 import traceback
+import types
+from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Literal, Optional, Set
 
 PhaseType = Literal[
@@ -27,6 +32,7 @@ PhaseType = Literal[
     "file_permission",
     "pre_tool_call",
     "post_tool_call",
+    "final_tool_result",
     "stream_event",
     "thinking_display_filter",
     "termflow_style",
@@ -74,6 +80,9 @@ PhaseType = Literal[
     "feature_capability",
 ]
 CallbackFunc = Callable[..., Any]
+DEFAULT_CALLBACK_PRIORITY = 0
+FINALIZER_CALLBACK_PRIORITY = 1000
+_TERMINAL_CALLBACK_PRIORITY = 2**63 - 1
 
 
 class CustomCommandResult:
@@ -113,6 +122,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "file_permission": [],
     "pre_tool_call": [],
     "post_tool_call": [],
+    "final_tool_result": [],
     "stream_event": [],
     "thinking_display_filter": [],
     "termflow_style": [],
@@ -165,13 +175,31 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Plugin ownership tracking
 # ---------------------------------------------------------------------------
-# Maps each registered callback function to the plugin that registered it.
-# Populated by register_callback() when a loading context is active.
-_callback_owners: Dict[CallbackFunc, str] = {}
+CallbackIdentity = tuple[int, int]
 
-# Set by the plugin loader before importing each plugin's register_callbacks.py,
-# cleared immediately after.  register_callback() reads this to record ownership.
-_current_loading_plugin: Optional[str] = None
+# Metadata uses controlled identity tokens rather than callback hashing. Any
+# callable is valid here, including unhashable instances and bound methods.
+_callback_owners: Dict[CallbackIdentity, tuple[CallbackFunc, str]] = {}
+_callback_priorities: Dict[
+    tuple[PhaseType, CallbackIdentity], tuple[CallbackFunc, int]
+] = {}
+_callback_registry_lock = threading.RLock()
+
+
+@dataclass(frozen=True)
+class CallbackRegistrySnapshot:
+    callbacks: Dict[PhaseType, List[CallbackFunc]]
+    owners: Dict[CallbackIdentity, tuple[CallbackFunc, str]]
+    priorities: Dict[tuple[PhaseType, CallbackIdentity], tuple[CallbackFunc, int]]
+    loading_stack: tuple[str, ...]
+
+
+# Scoped to the loading task/thread so hot-loaded plugins cannot steal ownership
+# from one another. A stack also makes nested plugin loaders restore correctly.
+_loading_plugin_stack: ContextVar[tuple[str, ...]] = ContextVar(
+    "callback_loading_plugin_stack",
+    default=(),
+)
 
 
 def set_loading_context(plugin_name: str) -> None:
@@ -181,24 +209,51 @@ def set_loading_context(plugin_name: str) -> None:
     ``register_callbacks`` module.  Any callbacks registered while this
     context is active are associated with *plugin_name*.
     """
-    global _current_loading_plugin
-    _current_loading_plugin = plugin_name
+    stack = _loading_plugin_stack.get()
+    _loading_plugin_stack.set((*stack, plugin_name))
 
 
 def clear_loading_context() -> None:
     """Clear the current plugin loading context."""
-    global _current_loading_plugin
-    _current_loading_plugin = None
+    stack = _loading_plugin_stack.get()
+    _loading_plugin_stack.set(stack[:-1])
 
 
 def get_loading_context() -> Optional[str]:
     """Return the plugin currently being loaded, if any."""
-    return _current_loading_plugin
+    stack = _loading_plugin_stack.get()
+    return stack[-1] if stack else None
+
+
+def _callback_identity(func: CallbackFunc) -> CallbackIdentity:
+    if isinstance(func, types.MethodType):
+        return id(func.__self__), id(func.__func__)
+    if isinstance(func, (types.BuiltinMethodType, types.MethodWrapperType)):
+        instance = func.__self__
+        name = func.__name__
+        if instance is not None:
+            try:
+                descriptor = inspect.getattr_static(instance, name)
+            except AttributeError:
+                pass
+            else:
+                return id(instance), id(descriptor)
+    return id(func), 0
+
+
+def _callback_name(func: CallbackFunc) -> str:
+    try:
+        return str(getattr(func, "__name__", type(func).__name__))
+    except Exception:
+        return type(func).__name__
 
 
 def get_callback_owner(func: CallbackFunc) -> Optional[str]:
     """Return the plugin name that registered *func*, or ``None``."""
-    return _callback_owners.get(func)
+    identity = _callback_identity(func)
+    with _callback_registry_lock:
+        record = _callback_owners.get(identity)
+        return record[1] if record is not None else None
 
 
 def _get_disabled_plugins() -> Set[str]:
@@ -211,55 +266,182 @@ def _get_disabled_plugins() -> Set[str]:
         return set()
 
 
-def register_callback(phase: PhaseType, func: CallbackFunc) -> None:
+def _register_callback(
+    phase: PhaseType,
+    func: CallbackFunc,
+    priority: int,
+    *,
+    terminal: bool,
+) -> None:
     if phase not in _callbacks:
         raise ValueError(
             f"Unsupported phase: {phase}. Supported phases: {list(_callbacks.keys())}"
         )
-
     if not callable(func):
         raise TypeError(f"Callback must be callable, got {type(func)}")
+    if type(priority) is not int:
+        raise TypeError(f"Callback priority must be an int, got {type(priority)}")
+    if not terminal and priority >= _TERMINAL_CALLBACK_PRIORITY:
+        raise ValueError("Callback priority is reserved for the terminal boundary")
 
-    # Prevent duplicate registration of the same callback function
-    # This can happen if plugins are accidentally loaded multiple times
-    if func in _callbacks[phase]:
-        logger.debug(
-            f"Callback {func.__name__} already registered for phase '{phase}', skipping"
+    identity = _callback_identity(func)
+    callback_name = _callback_name(func)
+    owner = get_loading_context()
+    priority_key = (phase, identity)
+    with _callback_registry_lock:
+        existing = next(
+            (
+                callback
+                for callback in _callbacks[phase]
+                if _callback_identity(callback) == identity
+            ),
+            None,
         )
-        return
+        if existing is not None:
+            existing_record = _callback_priorities.get(priority_key)
+            if (
+                not terminal
+                and existing_record is not None
+                and existing_record[1] == _TERMINAL_CALLBACK_PRIORITY
+            ):
+                raise ValueError(
+                    "Terminal callback priority cannot be changed publicly"
+                )
+            _callback_priorities[priority_key] = (existing, priority)
+            logger.debug(
+                "Callback %s already registered for phase '%s', updated priority to %d",
+                _callback_name(existing),
+                phase,
+                priority,
+            )
+            return
 
-    _callbacks[phase].append(func)
+        previous_priority = _callback_priorities.get(priority_key)
+        previous_owner = _callback_owners.get(identity)
+        _callback_priorities[priority_key] = (func, priority)
+        if owner is not None:
+            _callback_owners[identity] = (func, owner)
+        try:
+            _callbacks[phase].append(func)
+        except BaseException:
+            if previous_priority is None:
+                _callback_priorities.pop(priority_key, None)
+            else:
+                _callback_priorities[priority_key] = previous_priority
+            if previous_owner is None:
+                _callback_owners.pop(identity, None)
+            else:
+                _callback_owners[identity] = previous_owner
+            raise
 
-    # Record ownership if we know which plugin is loading.
-    if _current_loading_plugin is not None:
-        _callback_owners[func] = _current_loading_plugin
+    logger.debug("Registered async callback %s for phase '%s'", callback_name, phase)
 
-    logger.debug(f"Registered async callback {func.__name__} for phase '{phase}'")
+
+def register_callback(
+    phase: PhaseType,
+    func: CallbackFunc,
+    *,
+    priority: int = DEFAULT_CALLBACK_PRIORITY,
+) -> None:
+    """Register a public callback; higher priorities execute later."""
+    _register_callback(phase, func, priority, terminal=False)
+
+
+def _register_terminal_callback(phase: PhaseType, func: CallbackFunc) -> None:
+    """Register the single reserved callback that closes a public phase."""
+    with _callback_registry_lock:
+        terminal_callbacks = [
+            callback
+            for callback in _callbacks.get(phase, [])
+            if (
+                record := _callback_priorities.get(
+                    (phase, _callback_identity(callback))
+                )
+            )
+            and record[1] == _TERMINAL_CALLBACK_PRIORITY
+        ]
+        if terminal_callbacks and not any(
+            _callback_identity(callback) == _callback_identity(func)
+            for callback in terminal_callbacks
+        ):
+            raise RuntimeError(f"Phase '{phase}' already has a terminal callback")
+        _register_callback(
+            phase,
+            func,
+            _TERMINAL_CALLBACK_PRIORITY,
+            terminal=True,
+        )
 
 
 def unregister_callback(phase: PhaseType, func: CallbackFunc) -> bool:
     if phase not in _callbacks:
         return False
 
-    try:
-        _callbacks[phase].remove(func)
-        logger.debug(
-            f"Unregistered async callback {func.__name__} from phase '{phase}'"
+    identity = _callback_identity(func)
+    with _callback_registry_lock:
+        index = next(
+            (
+                index
+                for index, callback in enumerate(_callbacks[phase])
+                if _callback_identity(callback) == identity
+            ),
+            None,
         )
-        return True
-    except ValueError:
-        return False
+        if index is None:
+            return False
+        callback = _callbacks[phase].pop(index)
+        _callback_priorities.pop((phase, identity), None)
+        # Ownership intentionally survives reorder-style unregister/register,
+        # matching the pre-priority registry's plugin-disable contract.
+
+    logger.debug(
+        "Unregistered async callback %s from phase '%s'",
+        _callback_name(callback),
+        phase,
+    )
+    return True
 
 
 def clear_callbacks(phase: Optional[PhaseType] = None) -> None:
-    if phase is None:
-        for p in _callbacks:
-            _callbacks[p].clear()
-        logger.debug("Cleared all async callbacks")
-    else:
-        if phase in _callbacks:
+    with _callback_registry_lock:
+        if phase is None:
+            for registered in _callbacks.values():
+                registered.clear()
+            _callback_priorities.clear()
+            logger.debug("Cleared all async callbacks")
+        elif phase in _callbacks:
+            removed_identities = {
+                _callback_identity(callback) for callback in _callbacks[phase]
+            }
             _callbacks[phase].clear()
+            for identity in removed_identities:
+                _callback_priorities.pop((phase, identity), None)
             logger.debug(f"Cleared async callbacks for phase '{phase}'")
+
+
+def snapshot_callback_registry() -> CallbackRegistrySnapshot:
+    """Return a complete test-safe snapshot of callback registry state."""
+    with _callback_registry_lock:
+        return CallbackRegistrySnapshot(
+            callbacks={phase: items.copy() for phase, items in _callbacks.items()},
+            owners=_callback_owners.copy(),
+            priorities=_callback_priorities.copy(),
+            loading_stack=_loading_plugin_stack.get(),
+        )
+
+
+def restore_callback_registry(snapshot: CallbackRegistrySnapshot) -> None:
+    """Atomically restore a snapshot without exposing half-restored metadata."""
+    with _callback_registry_lock:
+        _callbacks.clear()
+        _callbacks.update(
+            {phase: items.copy() for phase, items in snapshot.callbacks.items()}
+        )
+        _callback_owners.clear()
+        _callback_owners.update(snapshot.owners)
+        _callback_priorities.clear()
+        _callback_priorities.update(snapshot.priorities)
+        _loading_plugin_stack.set(snapshot.loading_stack)
 
 
 def is_callback_owner_enabled(owner: Optional[str]) -> bool:
@@ -270,20 +452,32 @@ def is_callback_owner_enabled(owner: Optional[str]) -> bool:
 def get_callbacks(
     phase: PhaseType, *, include_disabled: bool = False
 ) -> List[CallbackFunc]:
-    """Return callbacks for *phase*, filtering out disabled plugins.
+    """Return a consistent callback snapshot ordered by priority."""
+    with _callback_registry_lock:
+        records = []
+        for callback in _callbacks.get(phase, []):
+            identity = _callback_identity(callback)
+            owner_record = _callback_owners.get(identity)
+            priority_record = _callback_priorities.get((phase, identity))
+            records.append(
+                (
+                    callback,
+                    owner_record[1] if owner_record is not None else None,
+                    priority_record[1]
+                    if priority_record is not None
+                    else DEFAULT_CALLBACK_PRIORITY,
+                )
+            )
 
-    When *include_disabled* is ``True`` the filter is bypassed — useful for
-    introspection (e.g. listing all registered callbacks).
-    """
-    all_cbs = _callbacks.get(phase, []).copy()
-    if include_disabled:
-        return all_cbs
-
-    return [
-        callback
-        for callback in all_cbs
-        if is_callback_owner_enabled(_callback_owners.get(callback))
-    ]
+    if not include_disabled:
+        disabled = _get_disabled_plugins()
+        records = [
+            record
+            for record in records
+            if record[1] is None or record[1] not in disabled
+        ]
+    records.sort(key=lambda record: record[2])
+    return [record[0] for record in records]
 
 
 def get_completion_providers() -> List[Any]:
@@ -300,9 +494,10 @@ def get_completion_providers() -> List[Any]:
 
 
 def count_callbacks(phase: Optional[PhaseType] = None) -> int:
-    if phase is None:
-        return sum(len(callbacks) for callbacks in _callbacks.values())
-    return len(_callbacks.get(phase, []))
+    with _callback_registry_lock:
+        if phase is None:
+            return sum(len(callbacks) for callbacks in _callbacks.values())
+        return len(_callbacks.get(phase, []))
 
 
 def get_feature_capability(name: str) -> bool:
@@ -341,7 +536,7 @@ def _trigger_callbacks_sync(
                     asyncio.get_running_loop()
                     # Already in an async context — can't use run_until_complete.
                     logger.warning(
-                        f"Async callback {callback.__name__} called from async context in sync trigger"
+                        f"Async callback {_callback_name(callback)} called from async context in sync trigger"
                     )
                     # Can't await with the loop running; close the coroutine to
                     # avoid an unawaited-coroutine warning.
@@ -352,10 +547,10 @@ def _trigger_callbacks_sync(
                     # No running loop — isolated thread, so asyncio.run() is safe.
                     result = asyncio.run(result)
             results.append(result)
-            logger.debug(f"Successfully executed callback {callback.__name__}")
+            logger.debug(f"Successfully executed callback {_callback_name(callback)}")
         except Exception as e:
             logger.error(
-                f"Callback {callback.__name__} failed in phase '{phase}': {e}\n"
+                f"Callback {_callback_name(callback)} failed in phase '{phase}': {e}\n"
                 f"{traceback.format_exc()}"
             )
             if raise_on_error:
@@ -381,10 +576,12 @@ async def _trigger_callbacks(phase: PhaseType, *args, **kwargs) -> List[Any]:
             if asyncio.iscoroutine(result):
                 result = await result
             results.append(result)
-            logger.debug(f"Successfully executed async callback {callback.__name__}")
+            logger.debug(
+                f"Successfully executed async callback {_callback_name(callback)}"
+            )
         except Exception as e:
             logger.error(
-                f"Async callback {callback.__name__} failed in phase '{phase}': {e}\n"
+                f"Async callback {_callback_name(callback)} failed in phase '{phase}': {e}\n"
                 f"{traceback.format_exc()}"
             )
             results.append(None)
@@ -687,6 +884,19 @@ async def on_post_tool_call(
     )
 
 
+async def on_final_tool_result(
+    tool_name: str,
+    tool_args: dict,
+    result: Any,
+    duration_ms: float,
+    context: Any = None,
+) -> List[Any]:
+    """Run final result mutators after hook context has been composed."""
+    return await _trigger_callbacks(
+        "final_tool_result", tool_name, tool_args, result, duration_ms, context
+    )
+
+
 def on_thinking_display_filter(
     text: str,
     *,
@@ -715,13 +925,13 @@ def on_thinking_display_filter(
             else:
                 logger.warning(
                     "Thinking display filter %s returned %s; ignoring it",
-                    callback.__name__,
+                    _callback_name(callback),
                     type(result).__name__,
                 )
         except Exception as exc:
             logger.error(
                 "Thinking display filter %s failed: %s\n%s",
-                callback.__name__,
+                _callback_name(callback),
                 exc,
                 traceback.format_exc(),
             )
@@ -740,7 +950,7 @@ def _chain_value_callbacks(phase: PhaseType, default: Any) -> Any:
             logger.error(
                 "%s callback %s failed: %s\n%s",
                 phase,
-                callback.__name__,
+                _callback_name(callback),
                 exc,
                 traceback.format_exc(),
             )

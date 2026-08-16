@@ -12,6 +12,8 @@ Usage:
 import importlib.metadata
 from typing import Any
 
+_TOOL_CALLBACK_PATCH_MARKER = "__code_puppy_tool_callbacks_patch_v2__"
+
 
 def _get_code_puppy_version() -> str:
     """Get the current code-puppy version."""
@@ -205,6 +207,25 @@ def _writeback_tool_args(call: Any, tool_args: dict, mode: str | None) -> None:
         pass  # never block tool execution on writeback failure
 
 
+def _compose_hook_result_envelope(
+    tool_name: str,
+    result: Any,
+    hook_context_messages: tuple[str, ...],
+) -> dict[str, str]:
+    """Serialize result privacy-safely and compose context off the agent loop."""
+    from pydantic_ai.messages import ToolReturnPart
+
+    return {
+        "hook_context": "\n\n".join(
+            f"[hook context]\n{message}" for message in hook_context_messages
+        ),
+        "tool_result": ToolReturnPart(
+            tool_name=tool_name,
+            content=result,
+        ).model_response_str(),
+    }
+
+
 def patch_tool_call_callbacks() -> None:
     """Patch pydantic-ai tool handling to support callbacks and Claude Code tool names.
 
@@ -214,15 +235,18 @@ def patch_tool_call_callbacks() -> None:
     burn through result retries, eventually raising ``UnexpectedModelBehavior``.
 
     This patch normalizes Claude Code tool names early (during lookup/dispatch)
-    and wraps ``_call_tool`` so every tool invocation also triggers the
-    ``pre_tool_call`` and ``post_tool_call`` callbacks defined in
-    ``code_puppy.callbacks``.
+    and wraps ``_call_tool`` so every successful invocation triggers
+    ``pre_tool_call``, then ``post_tool_call`` on the structured result, then
+    ``final_tool_result`` after safely composing any hook-context envelope.
     """
+    import asyncio
     import time
 
     try:
         from pydantic_ai._tool_manager import ToolManager
 
+        if getattr(ToolManager._call_tool, _TOOL_CALLBACK_PATCH_MARKER, False):
+            return
         _original_call_tool = ToolManager._call_tool
         _original_get_tool_def = ToolManager.get_tool_def
         _original_handle_call = ToolManager.handle_call
@@ -390,20 +414,6 @@ def patch_tool_call_callbacks() -> None:
                     approved=approved,
                     metadata=metadata,
                 )
-                # Prepend collected hook stdout (PreToolUse "additional
-                # context") so the model sees it as part of the tool result.
-                if hook_context_messages:
-                    prefix = (
-                        "\n\n".join(
-                            f"[hook context]\n{m}" for m in hook_context_messages
-                        )
-                        + "\n\n"
-                    )
-                    if isinstance(result, str):
-                        result = prefix + result
-                    else:
-                        result = prefix + str(result)
-                return result
             except Exception as exc:
                 error = exc
                 raise
@@ -419,6 +429,32 @@ def patch_tool_call_callbacks() -> None:
                 except Exception:
                     pass  # never block tool execution
 
+            # Compose hook context only after ordinary result mutators. Use
+            # pydantic-ai's model-facing serializer rather than str(result),
+            # which can expose excluded or redacted Pydantic fields. A mutable
+            # envelope lets finalizers bound both context and tool output.
+            if hook_context_messages:
+                try:
+                    result = await asyncio.to_thread(
+                        _compose_hook_result_envelope,
+                        tool_name,
+                        result,
+                        tuple(hook_context_messages),
+                    )
+                except Exception:
+                    pass  # preserving the structured result is safer than repr()
+
+            try:
+                from code_puppy import callbacks
+
+                await callbacks.on_final_tool_result(
+                    tool_name, tool_args, result, duration_ms
+                )
+            except Exception:
+                pass  # never block tool execution
+            return result
+
+        setattr(_patched_call_tool, _TOOL_CALLBACK_PATCH_MARKER, True)
         ToolManager.get_tool_def = _patched_get_tool_def
         ToolManager.handle_call = _patched_handle_call
         ToolManager._call_tool = _patched_call_tool

@@ -9,27 +9,19 @@ strings, and never raises when a callback blows up.
 from __future__ import annotations
 
 import pytest
+from code_puppy_core_plugins.plugin_list import plugin_contributions as pc
 
 from code_puppy import callbacks
-from code_puppy_core_plugins.plugin_list import plugin_contributions as pc
 
 
 @pytest.fixture
 def clean_callbacks():
     """Snapshot and restore the global callback registries."""
-    saved_callbacks = {
-        phase: list(funcs) for phase, funcs in callbacks._callbacks.items()
-    }
-    saved_owners = dict(callbacks._callback_owners)
-    saved_loading = callbacks._current_loading_plugin
+    snapshot = callbacks.snapshot_callback_registry()
     try:
         yield
     finally:
-        for phase in callbacks._callbacks:
-            callbacks._callbacks[phase] = saved_callbacks.get(phase, [])
-        callbacks._callback_owners.clear()
-        callbacks._callback_owners.update(saved_owners)
-        callbacks._current_loading_plugin = saved_loading
+        callbacks.restore_callback_registry(snapshot)
 
 
 def _register(owner: str, phase: str, fn):

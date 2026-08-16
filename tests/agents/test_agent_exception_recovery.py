@@ -6,8 +6,9 @@ from typing import Any
 
 import pytest
 
+from code_puppy import callbacks as callback_registry
 from code_puppy.agents import _runtime
-from code_puppy.callbacks import _callbacks, clear_callbacks, register_callback
+from code_puppy.callbacks import register_callback
 
 
 class DummyResult:
@@ -66,17 +67,15 @@ class DummyAgent:
 @pytest.fixture(autouse=True)
 def isolated_runtime_callbacks(monkeypatch: pytest.MonkeyPatch):
     """Keep global callback state from leaking into or out of these tests."""
-    snapshot = {phase: list(callbacks) for phase, callbacks in _callbacks.items()}
-    clear_callbacks()
+    snapshot = callback_registry.snapshot_callback_registry()
+    callback_registry.clear_callbacks()
     monkeypatch.setattr(_runtime, "sigint_fallback_cancels", lambda: True)
     monkeypatch.setattr(_runtime, "get_enable_streaming", lambda: False)
     monkeypatch.setattr(_runtime, "should_render_fallback", lambda *_, **__: False)
 
     yield
 
-    clear_callbacks()
-    for phase, callbacks in snapshot.items():
-        _callbacks[phase].extend(callbacks)
+    callback_registry.restore_callback_registry(snapshot)
 
 
 @pytest.fixture

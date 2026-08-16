@@ -15,17 +15,16 @@ from pydantic_ai import PartStartEvent, RunContext
 from pydantic_ai.messages import TextPart
 from rich.console import Console
 
+from code_puppy import callbacks as callback_registry
 from code_puppy.agents import _runtime
 from code_puppy.agents.event_stream_handler import (
     event_stream_handler,
     set_streaming_console,
 )
-from code_puppy.callbacks import _callbacks, clear_callbacks
 from code_puppy.messaging.pause_controller import (
     get_pause_controller,
     reset_pause_controller,
 )
-
 
 # =============================================================================
 # Shared fixtures
@@ -41,12 +40,10 @@ def _reset_pause_controller():
 
 @pytest.fixture(autouse=True)
 def _isolated_callbacks():
-    snapshot = {phase: list(cbs) for phase, cbs in _callbacks.items()}
-    clear_callbacks()
+    snapshot = callback_registry.snapshot_callback_registry()
+    callback_registry.clear_callbacks()
     yield
-    clear_callbacks()
-    for phase, cbs in snapshot.items():
-        _callbacks[phase].extend(cbs)
+    callback_registry.restore_callback_registry(snapshot)
 
 
 # =============================================================================

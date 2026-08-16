@@ -61,7 +61,11 @@ and skills (`<CWD>/.code_puppy/skills/`).
 
 ## Available Hooks
 
-`register_callback("<hook>", func)` — deduplicated, async hooks accept sync or async functions.
+`register_callback("<hook>", func, priority=0)` — identity-deduplicated; async
+hooks accept sync or async callables. Higher priorities execute later and equal
+priorities preserve registration order. Public result mutators should use
+`FINALIZER_CALLBACK_PRIORITY`; a reserved internal terminal boundary runs after
+all public priorities and cannot be selected through `register_callback`.
 
 | Hook | When | Signature |
 |------|------|-----------|
@@ -75,7 +79,8 @@ and skills (`<CWD>/.code_puppy/skills/`).
 | `run_shell_command` | Before shell exec | `(context, command, cwd=None, timeout=60) -> dict \| None` (return `{"blocked": True}` to block, `{"rewrite": "<new cmd>"}` to transparently transform) |
 | `file_permission` | Before file op | `(context, file_path, operation, ...) -> bool` |
 | `pre_tool_call` | Before tool executes | `(tool_name, tool_args, context=None) -> Any` |
-| `post_tool_call` | After tool finishes | `(tool_name, tool_args, result, duration_ms, context=None) -> Any` |
+| `post_tool_call` | After tool finishes, before hook-context composition | `(tool_name, tool_args, result, duration_ms, context=None) -> Any` |
+| `final_tool_result` | After context composition, immediately before the result returns to pydantic-ai | `(tool_name, tool_args, result, duration_ms, context=None) -> Any` |
 | `custom_command` | Unknown `/slash` cmd | `(command, name) -> True \| str \| None` |
 | `custom_command_help` | `/help` menu | `() -> list[tuple[str, str]]` |
 | `register_tools` | Tool registration | `() -> list[dict]` with `{"name": str, "register_func": callable}` |
