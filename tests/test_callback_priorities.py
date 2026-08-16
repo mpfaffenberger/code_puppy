@@ -182,7 +182,7 @@ def test_forged_method_attributes_do_not_collapse_distinct_callables():
 def test_hostile_callable_attributes_are_not_used_for_identity():
     class HostileCallable:
         def __getattribute__(self, name):
-            if name in {"__self__", "__func__", "__name__"}:
+            if name in {"__self__", "__func__", "__name__", "__class__"}:
                 raise AssertionError(
                     "identity must not inspect forged method attributes"
                 )

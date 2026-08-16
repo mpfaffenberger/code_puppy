@@ -226,9 +226,10 @@ def get_loading_context() -> Optional[str]:
 
 
 def _callback_identity(func: CallbackFunc) -> CallbackIdentity:
-    if isinstance(func, types.MethodType):
+    func_type = type(func)
+    if func_type is types.MethodType:
         return id(func.__self__), id(func.__func__)
-    if isinstance(func, (types.BuiltinMethodType, types.MethodWrapperType)):
+    if func_type is types.BuiltinMethodType or func_type is types.MethodWrapperType:
         instance = func.__self__
         name = func.__name__
         if instance is not None:

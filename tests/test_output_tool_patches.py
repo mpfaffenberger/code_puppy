@@ -7,6 +7,7 @@ import json
 import pytest
 from pydantic import BaseModel
 from pydantic_ai import Agent
+from pydantic_ai._agent_graph import CallToolsNode
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.tool_manager import ToolManager
@@ -39,12 +40,28 @@ async def test_claude_prefixed_malformed_output_tool_reaches_final_validation():
             ]
         )
 
-    patch_tool_call_json_repair()
-    patch_tool_call_callbacks()
-    result = await Agent(
-        FunctionModel(model_function),
-        output_type=_FinalOutput,
-    ).run("finish")
+    originals = (
+        ToolManager.execute_tool_call,
+        ToolManager.get_tool_def,
+        ToolManager.validate_tool_call,
+        ToolManager.validate_output_tool_call,
+        CallToolsNode._handle_tool_calls,
+    )
+    try:
+        patch_tool_call_json_repair()
+        patch_tool_call_callbacks()
+        result = await Agent(
+            FunctionModel(model_function),
+            output_type=_FinalOutput,
+        ).run("finish")
+    finally:
+        (
+            ToolManager.execute_tool_call,
+            ToolManager.get_tool_def,
+            ToolManager.validate_tool_call,
+            ToolManager.validate_output_tool_call,
+            CallToolsNode._handle_tool_calls,
+        ) = originals
 
     assert observed["output_name"] == "final_result"
     assert result.output == _FinalOutput(answer="repaired")

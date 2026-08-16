@@ -506,7 +506,7 @@ Create JSON files in your agents directory following this schema:
 > **Release ordering:** these spill controls and Pydantic-result guarantees
 > require `code-puppy-core-plugins>=0.0.9`. Publish that core-plugin release,
 > then raise Code Puppy's dependency floor and regenerate `uv.lock` before
-> publishing this runtime/documentation change. PyPI `0.0.6` predates them.
+> publishing this runtime/documentation change. Core releases before `0.0.9` predate them.
 
 To disable oversized-result spilling for only this agent, leave the global
 spill configuration alone and add:

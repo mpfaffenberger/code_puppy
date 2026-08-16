@@ -510,6 +510,57 @@ async def test_unserializable_hook_mutation_blocks_instead_of_diverging(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_partial_argument_publication_rolls_back_both_views(monkeypatch):
+    executions = []
+
+    class RejectingValidated:
+        def __init__(self, call, tool):
+            self.call = call
+            self.tool = tool
+            self.args_valid = True
+            self.validation_error = None
+            self.deferral = None
+            self._validated_args = {"value": 1}
+            self.assignments = 0
+
+        @property
+        def validated_args(self):
+            return self._validated_args
+
+        @validated_args.setter
+        def validated_args(self, value):
+            self.assignments += 1
+            if self.assignments == 1:
+                raise RuntimeError("reject replacement")
+            self._validated_args = value
+
+    async def execute(self, validated, **kwargs):
+        _ = self, kwargs
+        executions.append(validated)
+        return "should not run"
+
+    def mutate(tool_name, tool_args, context=None):
+        _ = tool_name, context
+        tool_args["value"] = 2
+
+    callbacks.clear_callbacks("pre_tool_call")
+    callbacks.clear_callbacks("post_tool_call")
+    callbacks.clear_callbacks("final_tool_result")
+    callbacks.register_callback("pre_tool_call", mutate)
+    _install_callback_patch(monkeypatch, execute)
+    call = _call(args='{ "value": 1 }')
+    validated = RejectingValidated(call, _tool())
+
+    result = await ToolManager.execute_tool_call(_manager(), validated)
+
+    assert "cannot be serialized safely" in result
+    assert executions == []
+    assert call.args == '{ "value": 1 }'
+    assert validated.validated_args == {"value": 1}
+    assert validated.assignments == 2
+
+
+@pytest.mark.asyncio
 async def test_json_repair_preserves_valid_bytes_and_rejects_non_object_repair(
     monkeypatch,
 ):

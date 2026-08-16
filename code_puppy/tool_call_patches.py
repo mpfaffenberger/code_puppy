@@ -91,13 +91,16 @@ def _compose_hook_result_envelope(
     return {"hook_context": context, "tool_result": output}
 
 
-def _tool_args(validated: Any, call: Any) -> tuple[dict, str, bytes]:
-    """Isolate hook mutations and snapshot their model-facing JSON form."""
+def _tool_args(validated: Any, call: Any) -> tuple[dict, str, bytes | None]:
+    """Isolate hook mutations and snapshot their generic JSON form when possible."""
     execution_args = validated.validated_args
     if type(execution_args) is not dict:
         raise TypeError("tool callbacks require a built-in argument dictionary")
     hook_args = copy.deepcopy(execution_args)
-    before = to_json(execution_args)
+    try:
+        before = to_json(execution_args)
+    except Exception:
+        before = None
     if type(call.args) is dict:
         mode = "dict"
     elif type(call.args) is str:
@@ -109,16 +112,51 @@ def _tool_args(validated: Any, call: Any) -> tuple[dict, str, bytes]:
     return hook_args, mode, before
 
 
+def _argument_values_unchanged(original: Any, candidate: Any) -> bool:
+    """Compare copied argument trees without invoking application-owned behavior."""
+    if original is candidate:
+        return True
+    value_type = type(original)
+    if type(candidate) is not value_type:
+        return False
+    if value_type is dict:
+        original_keys = tuple(dict.__iter__(original))
+        candidate_keys = tuple(dict.__iter__(candidate))
+        if (
+            len(original_keys) != len(candidate_keys)
+            or any(type(key) is not str for key in (*original_keys, *candidate_keys))
+            or original_keys != candidate_keys
+        ):
+            return False
+        return all(
+            _argument_values_unchanged(
+                dict.__getitem__(original, key),
+                dict.__getitem__(candidate, key),
+            )
+            for key in original_keys
+        )
+    if value_type in (list, tuple):
+        if len(original) != len(candidate):
+            return False
+        return all(
+            _argument_values_unchanged(left, right)
+            for left, right in zip(original, candidate, strict=True)
+        )
+    if value_type in (str, bytes, bool, int, float, range, type(None)):
+        return original == candidate
+    return False
+
+
 def _apply_tool_arg_changes(
     validated: Any,
     call: Any,
     hook_args: dict,
     mode: str,
-    before: bytes,
+    before: bytes | None,
 ) -> None:
     """Atomically publish detached, serializable execution and history values."""
     after = to_json(hook_args)
-    if after == before:
+    if before is not None and after == before:
         return
     if mode == "unsupported":
         raise TypeError("unsupported model-history argument representation")
@@ -212,10 +250,11 @@ def patch_tool_call_callbacks() -> bool:
             original_validate,
             original_handle_tool_calls,
         )
-        if all(
-            getattr(target, _TOOL_CALLBACK_PATCH_MARKER, False)
+        target_is_patched = tuple(
+            bool(getattr(target, _TOOL_CALLBACK_PATCH_MARKER, False))
             for target in patch_targets
-        ):
+        )
+        if all(target_is_patched):
             return True
 
         def manager_uses_claude_code(self) -> bool:
@@ -330,16 +369,23 @@ def patch_tool_call_callbacks() -> bool:
                 _context_messages(callback_results) if reason is None else []
             )
             if reason is None:
-                try:
-                    _apply_tool_arg_changes(
-                        validated,
-                        call,
-                        tool_args,
-                        writeback_mode,
-                        before,
-                    )
-                except Exception:
-                    reason = "Hook produced arguments that cannot be serialized safely"
+                unchanged_without_json = before is None and _argument_values_unchanged(
+                    validated.validated_args,
+                    tool_args,
+                )
+                if not unchanged_without_json:
+                    try:
+                        _apply_tool_arg_changes(
+                            validated,
+                            call,
+                            tool_args,
+                            writeback_mode,
+                            before,
+                        )
+                    except Exception:
+                        reason = (
+                            "Hook produced arguments that cannot be serialized safely"
+                        )
 
             if reason is not None:
                 block_message = f"Hook blocked this tool call: {reason}"
@@ -422,24 +468,42 @@ def patch_tool_call_callbacks() -> bool:
                     pass
             return result
 
-        for patched in (
-            patched_execute,
-            patched_get_tool_def,
-            patched_output_validate,
-            patched_validate,
-            patched_handle_tool_calls,
-        ):
-            setattr(patched, _TOOL_CALLBACK_PATCH_MARKER, True)
-        ToolManager.get_tool_def = patched_get_tool_def
-        ToolManager.validate_tool_call = patched_validate
-        ToolManager.validate_output_tool_call = patched_output_validate
-        ToolManager.execute_tool_call = patched_execute
-        CallToolsNode._handle_tool_calls = patched_handle_tool_calls
-        assert ToolManager.get_tool_def is patched_get_tool_def
-        assert ToolManager.validate_tool_call is patched_validate
-        assert ToolManager.validate_output_tool_call is patched_output_validate
-        assert ToolManager.execute_tool_call is patched_execute
-        assert CallToolsNode._handle_tool_calls is patched_handle_tool_calls
+        selected_execute = original_execute if target_is_patched[0] else patched_execute
+        selected_get = (
+            original_get_tool_def if target_is_patched[1] else patched_get_tool_def
+        )
+        selected_output_validate = (
+            original_output_validate
+            if target_is_patched[2]
+            else patched_output_validate
+        )
+        selected_validate = (
+            original_validate if target_is_patched[3] else patched_validate
+        )
+        selected_handle = (
+            original_handle_tool_calls
+            if target_is_patched[4]
+            else patched_handle_tool_calls
+        )
+        selected_targets = (
+            selected_execute,
+            selected_get,
+            selected_output_validate,
+            selected_validate,
+            selected_handle,
+        )
+        for selected in selected_targets:
+            setattr(selected, _TOOL_CALLBACK_PATCH_MARKER, True)
+        ToolManager.execute_tool_call = selected_execute
+        ToolManager.get_tool_def = selected_get
+        ToolManager.validate_output_tool_call = selected_output_validate
+        ToolManager.validate_tool_call = selected_validate
+        CallToolsNode._handle_tool_calls = selected_handle
+        assert ToolManager.execute_tool_call is selected_execute
+        assert ToolManager.get_tool_def is selected_get
+        assert ToolManager.validate_output_tool_call is selected_output_validate
+        assert ToolManager.validate_tool_call is selected_validate
+        assert CallToolsNode._handle_tool_calls is selected_handle
         return True
     except Exception as exc:
         return patch_failed(
