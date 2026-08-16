@@ -1,22 +1,7 @@
-"""Regression tests for the streaming-retry classifier's JSONDecodeError branch.
+"""Regression tests: bare JSONDecodeError must be classified as retryable.
 
-Covers PUP-634: a bare ``json.decoder.JSONDecodeError`` raised inside the
-installed ``anthropic`` SDK's ``ServerSentEvent.json()`` (malformed/concatenated
-``data:`` line) used to escape ``_is_retryable_one`` entirely -- it isn't an
-``httpx``/``httpcore`` transport error, isn't one of the ``isinstance`` types
-already checked, and its default message doesn't match the
-``_RETRYABLE_SNIPPETS`` substrings. That meant zero retries were attempted and
-the exception crashed the whole interactive session via ``run_agent_task``'s
-``except* Exception`` re-raise.
-
-These tests pin the fix at the two levels that matter:
-1. The leaf classifier (`_is_retryable_one`) recognizes the exception type.
-2. The public entry point (`should_retry_streaming`) still reaches that leaf
-   when the exception arrives wrapped in a ``BaseExceptionGroup`` -- which is
-   how pydantic-ai's anyio TaskGroup actually delivers it in production.
-
-Plus a negative guardrail so the new branch doesn't quietly widen the
-classifier into retrying every deterministic parse error under the sun.
+A malformed SSE line raises ``json.JSONDecodeError``, which used to escape
+``_is_retryable_one`` and crash the session.
 """
 
 from __future__ import annotations
@@ -27,9 +12,7 @@ from code_puppy.agents._runtime import _is_retryable_one, should_retry_streaming
 
 
 def _malformed_sse_json_decode_error() -> json.JSONDecodeError:
-    """Build the same exception shape ``json.loads`` raises on a
-    concatenated SSE ``data:`` payload (two JSON objects on one line).
-    """
+    """Same exception shape as a concatenated SSE ``data:`` payload."""
     doc = '{"ok": 1}{"oops": 2}'
     try:
         json.loads(doc)
@@ -45,10 +28,7 @@ def test_is_retryable_one_recognizes_json_decode_error() -> None:
 
 
 def test_should_retry_streaming_reaches_json_decode_error_inside_group() -> None:
-    """pydantic-ai's anyio TaskGroup wraps stream failures in an
-    ExceptionGroup; ``should_retry_streaming`` must descend into it rather
-    than only inspecting the top-level exception.
-    """
+    """Must unwrap the BaseExceptionGroup pydantic-ai raises in practice."""
     exc = _malformed_sse_json_decode_error()
     group = BaseExceptionGroup("stream failed", [exc])
 
@@ -56,8 +36,5 @@ def test_should_retry_streaming_reaches_json_decode_error_inside_group() -> None
 
 
 def test_is_retryable_one_does_not_widen_to_unrelated_value_errors() -> None:
-    """Regression guard: the new branch is scoped to JSONDecodeError, not to
-    every parse-ish failure. A generic deterministic ValueError must still
-    be treated as non-retryable.
-    """
+    """Guard against over-widening: unrelated ValueErrors stay non-retryable."""
     assert _is_retryable_one(ValueError("nope")) is False
