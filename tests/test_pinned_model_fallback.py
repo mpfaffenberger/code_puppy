@@ -110,7 +110,8 @@ async def _invoke_with_dead_pin(
     result = MagicMock()
     result.output = "subagent response"
     result.all_messages.return_value = ["updated-history"]
-    result.usage = MagicMock(return_value=None)
+    # `result.usage` is a property since pydantic-ai 1.107 (no parentheses).
+    result.usage = None
 
     mock_temp_agent = MagicMock()
     mock_temp_agent.run = AsyncMock(return_value=result)

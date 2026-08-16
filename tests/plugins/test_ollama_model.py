@@ -4,7 +4,6 @@ import asyncio
 from unittest.mock import patch
 
 import httpx
-
 from code_puppy_core_plugins.ollama.register_callbacks import create_ollama_model
 
 

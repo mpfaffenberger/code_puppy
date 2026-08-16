@@ -20,7 +20,6 @@ from rich.console import Console
 
 from code_puppy import __version__, callbacks, plugins
 from code_puppy.agents import get_current_agent
-from code_puppy.i18n import t
 from code_puppy.command_line.attachments import (
     parse_prompt_attachments,
     resolve_user_prompt,
@@ -36,6 +35,7 @@ from code_puppy.config import (
     save_command_to_history,
 )
 from code_puppy.http_utils import find_available_port
+from code_puppy.i18n import t
 from code_puppy.keymap import (
     KeymapError,
     get_cancel_agent_display_name,
@@ -183,7 +183,10 @@ async def main():
         "-r",
         type=str,
         metavar="PATH",
-        help="Resume a saved session from a .pkl file (e.g. ~/.code_puppy/contexts/foo.pkl)",
+        help=(
+            "Resume a saved session by name or file path "
+            "(.json envelope; legacy .pkl files migrate automatically)"
+        ),
     )
     parser.add_argument(
         "--quick-resume",
@@ -384,6 +387,17 @@ async def main():
         sweep_contexts_to_autosaves()
     except Exception:
         # Sweep failure must never block startup -- it logs internally.
+        pass
+
+    # One-time format migration: legacy pickle sessions -> versioned JSON
+    # envelopes (idempotent via marker file). Runs after the location sweep so
+    # freshly-moved contexts/ files are migrated in the same boot.
+    try:
+        from code_puppy.session_format_migration import sweep_legacy_pickle_sessions
+
+        sweep_legacy_pickle_sessions()
+    except Exception:
+        # Never block startup; failures are logged/warned internally.
         pass
 
     await callbacks.on_startup()
@@ -972,13 +986,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 emit_success,
                                 emit_warning,
                             )
+                            from code_puppy.messaging.run_ui import (
+                                suspended_run_ui,
+                            )
                             from code_puppy.session_storage import (
                                 load_session,
                                 restore_autosave_interactively,
-                            )
-
-                            from code_puppy.messaging.run_ui import (
-                                suspended_run_ui,
                             )
 
                             with suspended_run_ui():
@@ -1002,7 +1015,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 agent.estimate_tokens_for_message(msg)
                                 for msg in history
                             )
-                            session_path = base_dir / f"{chosen_session}.pkl"
+                            session_path = base_dir / f"{chosen_session}.json"
 
                             emit_success(
                                 t(

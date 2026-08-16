@@ -674,9 +674,11 @@ class TestSessionPathsDataclass:
         paths = session_storage.SessionPaths(
             pickle_path=tmp_path / "test.pkl",
             metadata_path=tmp_path / "test_meta.json",
+            json_path=tmp_path / "test.json",
         )
         assert paths.pickle_path == tmp_path / "test.pkl"
         assert paths.metadata_path == tmp_path / "test_meta.json"
+        assert paths.json_path == tmp_path / "test.json"
 
 
 class TestCleanupSessionsEdgeCases:

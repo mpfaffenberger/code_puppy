@@ -22,7 +22,6 @@ from typing import Any, List, Optional, Tuple
 
 import pytest
 import pytest_asyncio
-
 from acp.schema import (
     AllowedOutcome,
     ClientCapabilities,
@@ -35,9 +34,8 @@ from acp.schema import (
     TerminalOutputResponse,
     WaitForTerminalExitResponse,
 )
-
+from code_puppy_core_plugins.acp import bridge as bridge_mod
 from code_puppy_core_plugins.acp import (
-    bridge as bridge_mod,
     capabilities,
     content,
     io_delegation,
@@ -118,7 +116,8 @@ class FakeAgent:
                 "part_delta", {"delta_type": "TextPartDelta", "delta": delta}
             )
         usage = SimpleNamespace(input_tokens=12, output_tokens=8, total_tokens=20)
-        return SimpleNamespace(output="Hello puppy", usage=lambda: usage)
+        # pydantic-ai 1.107.5+/v2: ``result.usage`` is a property, not a method.
+        return SimpleNamespace(output="Hello puppy", usage=usage)
 
 
 def _update_types(conn: FakeConnection) -> List[str]:
@@ -308,9 +307,7 @@ async def test_prompt_absorbs_history_for_memory_and_persistence(monkeypatch):
                 ModelRequest(parts=[UserPromptPart(content=prompt)]),
                 ModelResponse(parts=[TextPart(content=f"reply:{prompt}")]),
             ]
-            return SimpleNamespace(
-                all_messages=lambda: new, usage=lambda: None, output="reply"
-            )
+            return SimpleNamespace(all_messages=lambda: new, usage=None, output="reply")
 
     monkeypatch.setattr(
         "code_puppy.agents.agent_manager.load_agent", lambda name: MemAgent()
@@ -1205,7 +1202,7 @@ def test_persistence_save_writes_listable_session(tmp_path):
         additional_directories=["/aux"],
         base_dir=tmp_path,
     )
-    assert (tmp_path / "sess_saved.pkl").exists()
+    assert (tmp_path / "sess_saved.json").exists()
     assert (tmp_path / "sess_saved_acp.json").exists()
     records = persistence.list_persisted(base_dir=tmp_path)
     assert [r.session_id for r in records] == ["sess_saved"]
@@ -1269,7 +1266,7 @@ async def test_slash_command_string_result_runs_model(wired_agent, monkeypatch):
     async def echo_run(prompt, **_):
         captured["prompt"] = prompt
         return SimpleNamespace(
-            output="modelled reply", usage=lambda: None, all_messages=lambda: []
+            output="modelled reply", usage=None, all_messages=lambda: []
         )
 
     agent._sessions[new.session_id].agent.run_with_mcp = echo_run
@@ -1297,7 +1294,7 @@ async def test_slash_command_sentinel_not_modelled(wired_agent, monkeypatch):
 
     async def guard_run(prompt, **_):
         modelled["called"] = True
-        return SimpleNamespace(output="x", usage=lambda: None, all_messages=lambda: [])
+        return SimpleNamespace(output="x", usage=None, all_messages=lambda: [])
 
     agent._sessions[new.session_id].agent.run_with_mcp = guard_run
     resp = await agent.prompt(

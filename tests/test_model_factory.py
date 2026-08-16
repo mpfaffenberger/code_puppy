@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from code_puppy.model_factory import ModelFactory
+from code_puppy.model_factory import ModelFactory, make_model_settings
 
 TEST_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../code_puppy/models.json")
 
@@ -33,6 +33,39 @@ def test_anthropic_load_model():
     assert hasattr(model, "_provider")
     assert hasattr(model._provider, "_client")
     # Note: Do not make actual Anthropic network calls in CI, just validate instantiation.
+
+
+def test_anthropic_cache_settings_use_native_ttls():
+    """Anthropic settings configure native cache breakpoints for each path."""
+    model_configs = {
+        "anthropic-test": {
+            "type": "anthropic",
+            "name": "claude-sonnet-4-5",
+        },
+        "claude-code-test": {
+            "type": "claude_code",
+            "name": "claude-opus-4-7",
+        },
+    }
+
+    with (
+        patch.object(ModelFactory, "load_config", return_value=model_configs),
+        patch("code_puppy.config.get_custom_model_settings", return_value={}),
+    ):
+        api_key_settings = make_model_settings("anthropic-test")
+        oauth_settings = make_model_settings("claude-code-test")
+
+    cache_fields = (
+        "anthropic_cache_instructions",
+        "anthropic_cache_tool_definitions",
+        "anthropic_cache_messages",
+    )
+    assert {field: api_key_settings[field] for field in cache_fields} == {
+        field: True for field in cache_fields
+    }
+    assert {field: oauth_settings[field] for field in cache_fields} == {
+        field: "1h" for field in cache_fields
+    }
 
 
 @pytest.mark.parametrize(

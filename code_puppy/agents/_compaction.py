@@ -447,7 +447,7 @@ def make_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
         # pydantic-ai picks 1-arg vs 2-arg processor by the first parameter's
         # type annotation (``RunContext`` = 2-arg). We don't need ctx.
         history: List[ModelMessage] = agent._message_history
-        compacted_hashes: Set[int] = agent._compacted_message_hashes
+        compacted_hashes: Set[str] = agent._compacted_message_hashes
 
         on_message_history_processor_start(
             agent_name=getattr(agent, "name", None),

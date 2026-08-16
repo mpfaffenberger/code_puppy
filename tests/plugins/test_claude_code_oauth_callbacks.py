@@ -529,7 +529,6 @@ def _patch_model_deps():
     def _ctx():
         with (
             patch("code_puppy.claude_cache_client.ClaudeCacheAsyncClient"),
-            patch("code_puppy.claude_cache_client.patch_anthropic_client_messages"),
             patch(f"{MOD}.AsyncAnthropic", create=True),
             patch(f"{MOD}.AnthropicModel", create=True),
             patch(f"{MOD}.AnthropicProvider", create=True),
@@ -554,7 +553,6 @@ class TestCreateClaudeCodeModel:
             patch("pydantic_ai.models.anthropic.AnthropicModel"),
             patch("pydantic_ai.providers.anthropic.AnthropicProvider"),
             patch("code_puppy.claude_cache_client.ClaudeCacheAsyncClient"),
-            patch("code_puppy.claude_cache_client.patch_anthropic_client_messages"),
         ):
             mock_anthropic = MagicMock()
             mock_anthropic.api_key = None
@@ -836,8 +834,6 @@ class TestAgentRunEnd:
 
 class TestCallbackRegistration:
     def test_callbacks_registered(self):
-        from code_puppy.callbacks import get_callbacks, register_callback
-
         from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _custom_help,
             _handle_custom_command,
@@ -845,6 +841,8 @@ class TestCallbackRegistration:
             _on_agent_run_start,
             _register_model_types,
         )
+
+        from code_puppy.callbacks import get_callbacks, register_callback
 
         # Re-register explicitly: a bare `import` won't re-execute module-scope
         # register_callbacks after clear_callbacks() (dedup makes this safe anyway).

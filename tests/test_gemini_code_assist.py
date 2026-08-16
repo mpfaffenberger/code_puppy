@@ -41,7 +41,8 @@ def default_params():
 
 class TestGeminiCodeAssistModel:
     def test_model_name(self, model):
-        assert model.model_name() == "gemini-2.0-flash"
+        # v2 Model ABC: model_name is a property.
+        assert model.model_name == "gemini-2.0-flash"
 
     def test_system_property(self, model):
         assert model.system == "google"
@@ -333,17 +334,23 @@ class TestStreamedResponse:
 
     def test_usage_default(self, mock_response):
         sr = StreamedResponse(mock_response, "test-model")
-        usage = sr.usage()
+        # v2 StreamedResponse contract: usage is a property.
+        usage = sr.usage
         assert usage.input_tokens == 0
         assert usage.output_tokens == 0
 
     def test_model_name(self, mock_response):
         sr = StreamedResponse(mock_response, "my-model")
-        assert sr.model_name() == "my-model"
+        assert sr.model_name == "my-model"
 
     def test_timestamp(self, mock_response):
         sr = StreamedResponse(mock_response, "m")
-        assert isinstance(sr.timestamp(), datetime)
+        assert isinstance(sr.timestamp, datetime)
+
+    async def test_close_stream_closes_response(self, mock_response):
+        sr = StreamedResponse(mock_response, "m")
+        await sr.close_stream()
+        mock_response.aclose.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_iter_chunks_text(self, mock_response):

@@ -290,8 +290,12 @@ class TestGeminiModelProperties:
         assert model._get_instructions([], None) is None
 
     def test_prepare_request(self, model):
-        s, p = model.prepare_request(None, None)
-        assert s is None and p is None
+        """v2: the base Model.prepare_request runs (identity override deleted)."""
+        from pydantic_ai.models import ModelRequestParameters
+
+        s, p = model.prepare_request(None, ModelRequestParameters())
+        assert s is None
+        assert isinstance(p, ModelRequestParameters)
 
     def test_get_headers(self, model):
         h = model._get_headers()

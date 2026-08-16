@@ -10,9 +10,11 @@ import logging
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
-from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP
+from pydantic_ai.toolsets import AbstractToolset
+
+from code_puppy.mcp_.toolset_utils import toolset_is_running, unwrap_toolset
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,7 @@ class ManagedServerContext:
     """Represents a managed MCP server with its async context."""
 
     server_id: str
-    server: Union[MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP]
+    server: AbstractToolset[Any]
     exit_stack: AsyncExitStack
     start_time: datetime
     task: asyncio.Task  # The task that manages this server's lifecycle
@@ -45,17 +47,17 @@ class AsyncServerLifecycleManager:
     async def start_server(
         self,
         server_id: str,
-        server: Union[MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP],
+        server: AbstractToolset[Any],
     ) -> bool:
         """
-        Start an MCP server and maintain its context.
+        Start an MCP server toolset and maintain its context.
 
-        This creates a dedicated task that enters the server's context
+        This creates a dedicated task that enters the toolset's context
         and keeps it alive until explicitly stopped.
 
         Args:
             server_id: Unique identifier for the server
-            server: The pydantic-ai MCP server instance
+            server: The pydantic-ai toolset (``MCPToolset`` or a wrapper)
 
         Returns:
             True if server started successfully, False otherwise
@@ -63,7 +65,7 @@ class AsyncServerLifecycleManager:
         async with self._lock:
             # Check if already running
             if server_id in self._servers:
-                if self._servers[server_id].server.is_running:
+                if toolset_is_running(self._servers[server_id].server):
                     logger.info(f"Server {server_id} is already running")
                     return True
                 else:
@@ -108,7 +110,7 @@ class AsyncServerLifecycleManager:
     async def _server_lifecycle_task(
         self,
         server_id: str,
-        server: Union[MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP],
+        server: AbstractToolset[Any],
         ready_event: asyncio.Event,
     ) -> None:
         """
@@ -118,18 +120,19 @@ class AsyncServerLifecycleManager:
         until the server is stopped or an error occurs.
         """
         exit_stack = AsyncExitStack()
+        leaf = unwrap_toolset(server)
 
         try:
             logger.info(f"Starting server lifecycle for {server_id}")
             logger.info(
-                f"Server {server_id} _running_count before enter: {getattr(server, '_running_count', 'N/A')}"
+                f"Server {server_id} _running_count before enter: {getattr(leaf, '_running_count', 'N/A')}"
             )
 
             # Enter the server's context
             await exit_stack.enter_async_context(server)
 
             logger.info(
-                f"Server {server_id} _running_count after enter: {getattr(server, '_running_count', 'N/A')}"
+                f"Server {server_id} _running_count after enter: {getattr(leaf, '_running_count', 'N/A')}"
             )
 
             # Store the managed context
@@ -156,8 +159,8 @@ class AsyncServerLifecycleManager:
                 loop_count += 1
 
                 # Check if server is still running
-                running_count = getattr(server, "_running_count", "N/A")
-                is_running = server.is_running
+                running_count = getattr(leaf, "_running_count", "N/A")
+                is_running = toolset_is_running(server)
                 logger.debug(
                     f"Server {server_id} heartbeat #{loop_count}: "
                     f"is_running={is_running}, _running_count={running_count}"
@@ -178,7 +181,7 @@ class AsyncServerLifecycleManager:
             # (/mcp logs hint); full traceback preserved at debug level.
             logger.debug(f"Error in server {server_id} lifecycle: {e}", exc_info=True)
         finally:
-            running_count = getattr(server, "_running_count", "N/A")
+            running_count = getattr(leaf, "_running_count", "N/A")
             logger.info(
                 f"Server {server_id} lifecycle ending, _running_count={running_count}"
             )
@@ -198,7 +201,7 @@ class AsyncServerLifecycleManager:
                     exc_info=True,
                 )
 
-            running_count_after = getattr(server, "_running_count", "N/A")
+            running_count_after = getattr(leaf, "_running_count", "N/A")
             logger.info(
                 f"Server {server_id} context closed, _running_count={running_count_after}"
             )
@@ -261,7 +264,7 @@ class AsyncServerLifecycleManager:
             True if server is running, False otherwise
         """
         context = self._servers.get(server_id)
-        return context.server.is_running if context else False
+        return toolset_is_running(context.server) if context else False
 
     def list_servers(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -274,8 +277,8 @@ class AsyncServerLifecycleManager:
         for server_id, context in self._servers.items():
             uptime = (datetime.now() - context.start_time).total_seconds()
             servers[server_id] = {
-                "type": context.server.__class__.__name__,
-                "is_running": context.server.is_running,
+                "type": unwrap_toolset(context.server).__class__.__name__,
+                "is_running": toolset_is_running(context.server),
                 "uptime_seconds": uptime,
                 "start_time": context.start_time.isoformat(),
             }

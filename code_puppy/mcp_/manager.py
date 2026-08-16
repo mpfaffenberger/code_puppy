@@ -11,9 +11,9 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
-from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP
+from pydantic_ai.toolsets import AbstractToolset
 
 from code_puppy.messaging import emit_warning
 
@@ -300,13 +300,14 @@ class MCPManager:
     def get_servers_for_agent(
         self,
         agent_name: Optional[str] = None,
-    ) -> List[Union[MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP]]:
+    ) -> List[AbstractToolset[Any]]:
         """
-        Get pydantic-ai compatible servers for agent use.
+        Get pydantic-ai compatible toolsets for agent use.
 
-        This is the critical method that must return actual pydantic-ai server
-        instances (not wrappers). Only returns enabled, non-quarantined servers.
-        Handles errors gracefully by logging but not crashing.
+        Returns each server's ``MCPToolset`` wrapped in its ``PrefixedToolset``
+        (see ``ManagedMCPServer.get_pydantic_server``). Only returns enabled,
+        non-quarantined servers. Handles errors gracefully by logging but not
+        crashing.
 
         Args:
             agent_name: If provided, restrict to servers explicitly bound to
@@ -315,7 +316,7 @@ class MCPManager:
                 used by status / listing code paths).
 
         Returns:
-            List of actual pydantic-ai MCP server instances ready for use
+            List of pydantic-ai toolsets ready for ``Agent(toolsets=...)``
         """
         bound_names: Optional[set] = None
         if agent_name is not None:

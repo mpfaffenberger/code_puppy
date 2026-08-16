@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 from pydantic_ai import Agent
-from pydantic_ai._tool_manager import ToolManager
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.tool_manager import ToolManager
 
 from code_puppy import callbacks
 from code_puppy.pydantic_patches import (
@@ -44,9 +44,9 @@ async def test_repair_precedes_hook_inspection_writeback_and_blocking(blocked):
         tool_args["command"] = "mutated"
         return None
 
-    original_call_tool = ToolManager._call_tool
+    original_execute_tool_call = ToolManager.execute_tool_call
     original_get_tool_def = ToolManager.get_tool_def
-    original_handle_call = ToolManager.handle_call
+    original_validate_tool_call = ToolManager.validate_tool_call
     callbacks.register_callback("pre_tool_call", policy_hook)
     patch_tool_call_json_repair()
     patch_tool_call_callbacks()
@@ -60,9 +60,9 @@ async def test_repair_precedes_hook_inspection_writeback_and_blocking(blocked):
 
         run_result = await agent.run("go")
     finally:
-        ToolManager._call_tool = original_call_tool
+        ToolManager.execute_tool_call = original_execute_tool_call
         ToolManager.get_tool_def = original_get_tool_def
-        ToolManager.handle_call = original_handle_call
+        ToolManager.validate_tool_call = original_validate_tool_call
         callbacks.unregister_callback("pre_tool_call", policy_hook)
 
     assert run_result.output == "done"

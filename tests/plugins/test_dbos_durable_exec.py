@@ -14,6 +14,12 @@ from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from code_puppy_core_plugins.dbos_durable_exec import cancel as cancel_mod
+from code_puppy_core_plugins.dbos_durable_exec import commands as commands_mod
+from code_puppy_core_plugins.dbos_durable_exec import config as config_mod
+from code_puppy_core_plugins.dbos_durable_exec import runtime as runtime_mod
+from code_puppy_core_plugins.dbos_durable_exec import workflow_ids as workflow_ids_mod
+from code_puppy_core_plugins.dbos_durable_exec import wrapper as wrapper_mod
 
 from code_puppy.callbacks import (
     clear_callbacks,
@@ -21,12 +27,6 @@ from code_puppy.callbacks import (
     get_callbacks,
     get_feature_capability,
 )
-from code_puppy_core_plugins.dbos_durable_exec import cancel as cancel_mod
-from code_puppy_core_plugins.dbos_durable_exec import commands as commands_mod
-from code_puppy_core_plugins.dbos_durable_exec import config as config_mod
-from code_puppy_core_plugins.dbos_durable_exec import runtime as runtime_mod
-from code_puppy_core_plugins.dbos_durable_exec import workflow_ids as workflow_ids_mod
-from code_puppy_core_plugins.dbos_durable_exec import wrapper as wrapper_mod
 
 # ─────────────────────── config.is_enabled ────────────────────────────
 
@@ -161,8 +161,9 @@ class TestWrapWithDbosAgent:
         assert isinstance(result, FakeDBOSAgent)
         assert captured["kwargs"]["event_stream_handler"] is handler
         assert captured["kwargs"]["name"].startswith("main-agent-main-")
-        # Toolsets are reset (pickleability fix).
-        assert pydantic_agent._toolsets == []
+        # Plugins 0.0.6+: DBOSAgent owns MCP toolset conversion at construction;
+        # the wrapper must NOT mutate the agent's private toolsets anymore.
+        assert pydantic_agent._toolsets == ["toolset-1"]
 
     def test_no_stash_attribute_left_behind(self, monkeypatch):
         """YAGNI cleanup: the dead _dbos_stashed_mcp_toolsets attr must be gone."""
@@ -247,17 +248,19 @@ class TestDbosRunContext:
                 assert wid == "main_run_xyz"
             assert _FakeSetWorkflowID.calls == ["main_run_xyz"]
 
-    async def test_mcp_servers_swap_and_restore_on_success(self, monkeypatch):
+    async def test_mcp_servers_left_untouched_on_success(self, monkeypatch):
+        """Plugins 0.0.6+: no runtime toolset swap — DBOSAgent converts MCP
+        toolsets at construction, so the context must not touch them."""
         with _install_fake_dbos(monkeypatch):
             inner = types.SimpleNamespace(_toolsets=["orig-a"])
             pydantic_agent = types.SimpleNamespace(wrapped=inner)
             async with runtime_mod.dbos_run_context(
                 None, pydantic_agent, "main_run", ["mcp-1", "mcp-2"]
             ):
-                assert inner._toolsets == ["orig-a", "mcp-1", "mcp-2"]
+                assert inner._toolsets == ["orig-a"]
             assert inner._toolsets == ["orig-a"]
 
-    async def test_mcp_servers_restored_on_exception(self, monkeypatch):
+    async def test_mcp_servers_left_untouched_on_exception(self, monkeypatch):
         with _install_fake_dbos(monkeypatch):
             inner = types.SimpleNamespace(_toolsets=["orig"])
             pydantic_agent = types.SimpleNamespace(wrapped=inner)
@@ -265,7 +268,7 @@ class TestDbosRunContext:
                 async with runtime_mod.dbos_run_context(
                     None, pydantic_agent, "main_run", ["mcp-1"]
                 ):
-                    assert inner._toolsets == ["orig", "mcp-1"]
+                    assert inner._toolsets == ["orig"]
                     raise RuntimeError("boom")
             assert inner._toolsets == ["orig"]
 

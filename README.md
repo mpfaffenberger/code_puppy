@@ -504,7 +504,7 @@ Create JSON files in your agents directory following this schema:
 - **`tools_config`**: Per-agent tool/plugin configuration object
 
 > **Release ordering:** these spill controls and Pydantic-result guarantees
-> require `code-puppy-core-plugins>=0.0.7`. Publish that core-plugin release,
+> require `code-puppy-core-plugins>=0.0.9`. Publish that core-plugin release,
 > then raise Code Puppy's dependency floor and regenerate `uv.lock` before
 > publishing this runtime/documentation change. PyPI `0.0.6` predates them.
 

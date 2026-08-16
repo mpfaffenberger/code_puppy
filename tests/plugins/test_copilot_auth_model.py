@@ -56,7 +56,6 @@ class TestCopilotAuth:
         the real wiring.
         """
         import httpx as _httpx
-
         from code_puppy_core_plugins.copilot_auth.utils import get_valid_session_token
 
         class _CopilotAuth(_httpx.Auth):
@@ -414,13 +413,12 @@ class TestCreateCopilotModel:
         result = _create_copilot_model("copilot-claude-sonnet-4", config, {})
         assert result is not None
 
-        from pydantic_ai.profiles.openai import OpenAIModelProfile
-
-        profile = OpenAIModelProfile.from_profile(result.profile)
-        assert profile.openai_chat_thinking_field == "reasoning_text"
-        assert profile.openai_supports_reasoning is True
+        # pydantic-ai v2: ModelProfile is a TypedDict — read keys directly.
+        profile = result.profile
+        assert profile.get("openai_chat_thinking_field") == "reasoning_text"
+        assert profile.get("openai_supports_reasoning") is True
         # Must be 'field' — NOT False — so thinking persists across tool calls
-        assert profile.openai_chat_send_back_thinking_parts == "field"
+        assert profile.get("openai_chat_send_back_thinking_parts") == "field"
 
     @patch(
         "code_puppy_core_plugins.copilot_auth.register_callbacks.get_api_endpoint_for_host"
@@ -448,8 +446,7 @@ class TestCreateCopilotModel:
         result = _create_copilot_model("copilot-gpt-4o", config, {})
         assert result is not None
 
-        from pydantic_ai.profiles.openai import OpenAIModelProfile
-
-        profile = OpenAIModelProfile.from_profile(result.profile)
+        # pydantic-ai v2: ModelProfile is a TypedDict — read keys directly.
+        profile = result.profile
         # No thinking field should be configured for GPT models
-        assert profile.openai_chat_thinking_field is None
+        assert profile.get("openai_chat_thinking_field") is None
