@@ -72,8 +72,12 @@ def test_fork_model_completion_with_prefix():
 
     with (
         patch(
-            "code_puppy.command_line.model_picker_completion.load_model_names",
-            return_value=["codex-gpt-5.6-luna", "gpt-4o", "claude-sonnet"],
+            "code_puppy.command_line.model_picker_completion._load_models_config",
+            return_value={
+                "codex-gpt-5.6-luna": {},
+                "gpt-4o": {},
+                "claude-sonnet": {},
+            },
         ),
         patch(
             "code_puppy.command_line.model_picker_completion.get_active_model",
@@ -102,8 +106,8 @@ def test_fork_model_completion_requires_at_prefix():
     )
 
     with patch(
-        "code_puppy.command_line.model_picker_completion.load_model_names",
-        return_value=["gpt-4o"],
+        "code_puppy.command_line.model_picker_completion._load_models_config",
+        return_value={"gpt-4o": {}},
     ):
         models = list(
             ModelNameCompleter(trigger="/fork", prefix="@").get_completions(
@@ -123,8 +127,8 @@ def test_fork_model_completion_no_prefix_still_works():
 
     with (
         patch(
-            "code_puppy.command_line.model_picker_completion.load_model_names",
-            return_value=["gpt-4o", "claude-sonnet"],
+            "code_puppy.command_line.model_picker_completion._load_models_config",
+            return_value={"gpt-4o": {}, "claude-sonnet": {}},
         ),
         patch(
             "code_puppy.command_line.model_picker_completion.get_active_model",
