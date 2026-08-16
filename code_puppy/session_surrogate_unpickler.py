@@ -19,9 +19,12 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 import pickle
-from datetime import date, datetime, time
-from typing import Any, Dict, List, Tuple
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Any, Callable, Dict, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 # Modules whose classes are safe (and necessary) to unpickle for real.
 # Everything else -- pydantic_ai.*, pydantic.*, unknown user modules --
@@ -39,6 +42,26 @@ _ALLOWED_MODULES = frozenset(
         "_codecs",
     }
 )
+
+
+# Known third-party tzinfo classes rebuilt as stdlib equivalents WITHOUT
+# importing their home module. A surrogated tzinfo makes datetime's C
+# constructor raise ``TypeError: bad tzinfo state arg``, quarantining the
+# whole session. pydantic-core's ``TzInfo`` pickles as ``TzInfo(seconds)``,
+# which maps 1:1 onto ``timezone(timedelta(seconds=...))``.
+def _tz_from_utc_offset(seconds: float) -> timezone:
+    return timezone(timedelta(seconds=seconds))
+
+
+_TZINFO_EQUIVALENTS: Dict[Tuple[str, str], Callable[..., Any]] = {
+    ("pydantic_core._pydantic_core", "TzInfo"): _tz_from_utc_offset,
+    ("pydantic_core", "TzInfo"): _tz_from_utc_offset,
+}
+
+# Genuine timezone libraries: unpickle their classes for real when the
+# library is installed; otherwise fall back to surrogates as usual.
+_TZ_LIBRARY_PREFIXES = ("pytz", "dateutil.tz")
+
 
 # Even within builtins, never hand the pickle VM anything executable.
 _BLOCKED_BUILTINS = frozenset(
@@ -120,8 +143,46 @@ class SurrogateUnpickler(pickle.Unpickler):
         if root in _ALLOWED_MODULES and not (
             module == "builtins" and name in _BLOCKED_BUILTINS
         ):
-            return super().find_class(module, name)
+            return self._tz_tolerant(super().find_class(module, name))
+        equivalent = _TZINFO_EQUIVALENTS.get((module, name))
+        if equivalent is not None:
+            return equivalent
+        if any(
+            module == prefix or module.startswith(prefix + ".")
+            for prefix in _TZ_LIBRARY_PREFIXES
+        ):
+            try:
+                return super().find_class(module, name)
+            except Exception:  # noqa: BLE001 - library absent/renamed
+                pass
         return self._surrogate_for(module, name)
+
+    def _tz_tolerant(self, obj: Any) -> Any:
+        """Belt and braces for tzinfo-bearing constructors.
+
+        If an unknown tzinfo class still slips through as a surrogate,
+        constructing the real ``datetime``/``time`` raises ``TypeError``.
+        Retry without the tzinfo: a lossy naive timestamp beats losing the
+        whole session to quarantine.
+        """
+        if obj is not datetime and obj is not time:
+            return obj
+
+        def construct(*args: Any) -> Any:
+            try:
+                return obj(*args)
+            except TypeError:
+                if args and is_surrogate(args[-1]):
+                    logger.debug(
+                        "Stripped surrogate tzinfo %s.%s from pickled %s",
+                        args[-1].__cp_module__,
+                        args[-1].__cp_qualname__,
+                        obj.__name__,
+                    )
+                    return obj(*args[:-1])
+                raise
+
+        return construct
 
     def _surrogate_for(self, module: str, name: str) -> type:
         key = (module, name)

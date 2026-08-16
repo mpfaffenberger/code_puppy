@@ -16,6 +16,7 @@ import pickle
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 
 import pytest
@@ -144,6 +145,75 @@ class TestGoldenFixtureMigration:
         assert "expected a list" in result.error
 
 
+class _WeirdTz(tzinfo):
+    """A tzinfo from a module the unpickler will never allowlist."""
+
+    def utcoffset(self, dt):
+        return timedelta(hours=2)
+
+    def dst(self, dt):
+        return timedelta(0)
+
+    def tzname(self, dt):
+        return "WEIRD"
+
+
+class TestTzAwareDatetimes:
+    """Regression: surrogated tzinfo classes must not quarantine sessions.
+
+    Real-world failure: pickled timestamps carried
+    ``pydantic_core._pydantic_core.TzInfo``; surrogating it made datetime's
+    C constructor raise ``TypeError: bad tzinfo state arg``.
+    """
+
+    def test_pydantic_core_tzinfo_maps_to_stdlib_timezone(self):
+        from pydantic_core import TzInfo
+
+        from code_puppy import session_surrogate_unpickler as ssu
+
+        aware = datetime(2025, 5, 1, 12, 30, tzinfo=TzInfo(3600))
+        history, _ = ssu.load_surrogate_pickle(pickle.dumps([aware]))
+
+        restored = history[0]
+        assert restored.tzinfo == timezone(timedelta(hours=1))
+        assert restored.isoformat() == "2025-05-01T12:30:00+01:00"
+
+    def test_unknown_tzinfo_degrades_to_naive_datetime(self):
+        from code_puppy import session_surrogate_unpickler as ssu
+
+        aware = datetime(2025, 5, 1, 12, 30, tzinfo=_WeirdTz())
+        history, had_surrogates = ssu.load_surrogate_pickle(pickle.dumps([aware]))
+
+        # Lossy naive timestamp beats a quarantined session.
+        assert had_surrogates
+        assert history[0] == datetime(2025, 5, 1, 12, 30)
+        assert history[0].tzinfo is None
+
+    def test_migrate_file_with_pydantic_core_tzinfo_timestamps(self, tmp_path):
+        from pydantic_ai.messages import (
+            ModelRequest,
+            ModelResponse,
+            TextPart,
+            UserPromptPart,
+        )
+        from pydantic_core import TzInfo
+
+        aware = datetime(2025, 5, 1, 12, 30, tzinfo=TzInfo(3600))
+        history = [
+            ModelRequest(parts=[UserPromptPart(content="hi", timestamp=aware)]),
+            ModelResponse(parts=[TextPart(content="woof")], timestamp=aware),
+        ]
+        pkl_path = tmp_path / "tzaware.pkl"
+        pkl_path.write_bytes(pickle.dumps(history))
+
+        result = sfm.migrate_pickle_file(pkl_path)
+
+        assert result.success, result.error
+        restored = load_session("tzaware", tmp_path)
+        assert restored[0].parts[0].timestamp == aware
+        assert restored[1].timestamp == aware
+
+
 class TestNoPydanticAiImportGuard:
     def test_unpickler_module_migrates_fixture_without_pydantic_ai(self):
         """The surrogate unpickler must work with pydantic_ai fully absent."""
@@ -247,6 +317,60 @@ class TestStartupSweep:
         # Dual-format pair left exactly as found.
         assert (autosaves / "twin.pkl").exists()
         assert (autosaves / "twin.json").read_text(encoding="utf-8") == "{}"
+
+    def test_failures_produce_single_summary_warning(self, sweep_dirs, monkeypatch):
+        autosaves, _contexts, _data, _config = sweep_dirs
+        (autosaves / "bad1.pkl").write_bytes(b"garbage one")
+        (autosaves / "bad2.pkl").write_bytes(b"garbage two")
+        warnings: list[str] = []
+        from code_puppy import messaging
+
+        monkeypatch.setattr(
+            messaging, "emit_warning", lambda msg, **kw: warnings.append(msg)
+        )
+
+        sfm.sweep_legacy_pickle_sessions()
+
+        # Per-file details are debug-only; users get ONE summary line.
+        assert len(warnings) == 1
+        assert "2 session(s)" in warnings[0]
+
+
+class TestQuarantineRecovery:
+    """The retry pass must rescue quarantined pickles once the unpickler
+    learns new tricks -- even after the one-time marker exists."""
+
+    def test_retry_rescues_quarantined_sessions(self, sweep_dirs):
+        autosaves, _contexts, _data, _config = sweep_dirs
+        sfm.sweep_legacy_pickle_sessions()  # writes the marker
+        failed_dir = autosaves / "pre_v2_backup" / "failed"
+        failed_dir.mkdir(parents=True)
+        shutil.copy(PLAIN_FIXTURE, failed_dir / "rescued.pkl")
+        (failed_dir / "stuck.pkl").write_bytes(b"still not a pickle")
+
+        sfm.sweep_legacy_pickle_sessions()
+
+        # Rescued: JSON in the sessions dir, pkl graduated out of failed/.
+        assert (autosaves / "rescued.json").exists()
+        assert (autosaves / "pre_v2_backup" / "rescued.pkl").exists()
+        assert not (failed_dir / "rescued.pkl").exists()
+        # Stuck: left in quarantine, no exception, no churn.
+        assert (failed_dir / "stuck.pkl").exists()
+        _assert_golden_history(load_session("rescued", autosaves))
+
+    def test_retry_never_clobbers_existing_json_twin(self, sweep_dirs):
+        autosaves, _contexts, _data, _config = sweep_dirs
+        sfm.sweep_legacy_pickle_sessions()
+        failed_dir = autosaves / "pre_v2_backup" / "failed"
+        failed_dir.mkdir(parents=True)
+        shutil.copy(PLAIN_FIXTURE, failed_dir / "twin.pkl")
+        (autosaves / "twin.json").write_text("{}", encoding="utf-8")
+
+        sfm.sweep_legacy_pickle_sessions()
+
+        # Live JSON wins; the quarantined pkl stays put untouched.
+        assert (autosaves / "twin.json").read_text(encoding="utf-8") == "{}"
+        assert (failed_dir / "twin.pkl").exists()
 
 
 class TestJsonRoundTrip:
