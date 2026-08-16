@@ -69,7 +69,7 @@ class BaseAgent(ABC):
     def __init__(self) -> None:
         self.id: str = str(uuid.uuid4())
         self._message_history: List[Any] = []
-        self._compacted_message_hashes: Set[int] = set()
+        self._compacted_message_hashes: Set[str] = set()
         self._code_generation_agent: Any = None
         self._last_model_name: Optional[str] = None
         self._runtime_model_name_override: Optional[str] = None
@@ -194,7 +194,7 @@ class BaseAgent(ABC):
     def estimate_tokens_for_message(self, message: Any) -> int:
         return estimate_tokens_for_message(message, self.get_model_name())
 
-    def hash_message(self, message: Any) -> int:
+    def hash_message(self, message: Any) -> str:
         return hash_message(message)
 
     def _get_model_context_length(self) -> int:

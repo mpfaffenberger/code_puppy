@@ -8,6 +8,7 @@ needed, already-resolved strings / tool dicts) in explicitly.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import math
 import re
@@ -18,14 +19,35 @@ from pydantic_ai import BinaryContent
 from pydantic_ai.messages import ModelMessage
 
 
+def _digest(text: str) -> str:
+    """Deterministic 16-hex-char digest of ``text``.
+
+    First 16 hex chars (64 bits) of SHA-256 over the utf-8 encoding — stable
+    across processes and Python versions, unlike the PYTHONHASHSEED-salted
+    builtin ``hash()``. 64 bits is plenty for dedup-set collision resistance.
+    """
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _digest_bytes(data: bytes) -> str:
+    """Deterministic 16-hex-char digest of raw bytes (BinaryContent data)."""
+    return hashlib.sha256(data).hexdigest()[:16]
+
+
 def stringify_part(part: Any) -> str:
     """Return a stable, timestamp-free string representation of a message part.
 
     Used for both hashing and token estimation. Ignoring timestamps means two
     otherwise-identical parts emitted at different times collapse to the same
     string, which is exactly what we want for dedup.
+
+    Keyed on the part's ``part_kind`` (a stable dataclass field string like
+    ``"user-prompt"`` / ``"tool-call"``) rather than the class name, so hashes
+    survive pydantic-ai class renames across versions. ``__class__.__name__``
+    is only a fallback for objects lacking ``part_kind``.
     """
-    attributes: List[str] = [part.__class__.__name__]
+    kind = getattr(part, "part_kind", None) or part.__class__.__name__
+    attributes: List[str] = [kind]
 
     if hasattr(part, "role") and part.role:
         attributes.append(f"role={part.role}")
@@ -51,15 +73,20 @@ def stringify_part(part: Any) -> str:
             if isinstance(item, str):
                 attributes.append(f"content={item}")
             elif isinstance(item, BinaryContent):
-                attributes.append(f"BinaryContent={hash(item.data)}")
+                attributes.append(f"BinaryContent={_digest_bytes(item.data)}")
     else:
         attributes.append(f"content={repr(content)}")
 
     return "|".join(attributes)
 
 
-def hash_message(message: Any) -> int:
-    """Stable hash for a ``ModelMessage`` that ignores timestamps."""
+def hash_message(message: Any) -> str:
+    """Stable content-based hash for a ``ModelMessage``; ignores timestamps.
+
+    Returns the first 16 hex chars of SHA-256 over the canonical string (see
+    :func:`_digest`), so hashes are deterministic across processes and
+    resilient to pydantic-ai class renames (parts are keyed on ``part_kind``).
+    """
     role = getattr(message, "role", None)
     instructions = getattr(message, "instructions", None)
     header_bits: List[str] = []
@@ -70,7 +97,7 @@ def hash_message(message: Any) -> int:
 
     part_strings = [stringify_part(part) for part in getattr(message, "parts", [])]
     canonical = "||".join(header_bits + part_strings)
-    return hash(canonical)
+    return _digest(canonical)
 
 
 def estimate_tokens(text: str) -> int:
