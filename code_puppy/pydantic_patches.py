@@ -9,9 +9,11 @@ Usage:
     apply_all_patches()
 """
 
+import functools
 import importlib.metadata
 from typing import Any
 
+_JSON_REPAIR_PATCH_MARKER = "__code_puppy_json_repair_patch_v1__"
 _TOOL_CALLBACK_PATCH_MARKER = "__code_puppy_tool_callbacks_patch_v2__"
 
 
@@ -136,9 +138,11 @@ def patch_tool_call_json_repair() -> None:
         import json_repair
         from pydantic_ai._tool_manager import ToolManager
 
-        # Store the original method
+        if getattr(ToolManager._call_tool, _JSON_REPAIR_PATCH_MARKER, False):
+            return
         _original_call_tool = ToolManager._call_tool
 
+        @functools.wraps(_original_call_tool)
         async def _patched_call_tool(
             self,
             call,
@@ -169,7 +173,7 @@ def patch_tool_call_json_repair() -> None:
                 metadata=metadata,
             )
 
-        # Apply the patch
+        setattr(_patched_call_tool, _JSON_REPAIR_PATCH_MARKER, True)
         ToolManager._call_tool = _patched_call_tool
 
     except ImportError:
@@ -454,6 +458,7 @@ def patch_tool_call_callbacks() -> None:
                 pass  # never block tool execution
             return result
 
+        functools.update_wrapper(_patched_call_tool, _original_call_tool)
         setattr(_patched_call_tool, _TOOL_CALLBACK_PATCH_MARKER, True)
         ToolManager.get_tool_def = _patched_get_tool_def
         ToolManager.handle_call = _patched_handle_call

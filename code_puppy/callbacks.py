@@ -288,7 +288,19 @@ def _register_callback(
     callback_name = _callback_name(func)
     owner = get_loading_context()
     priority_key = (phase, identity)
+    duplicate = False
     with _callback_registry_lock:
+        if terminal and any(
+            _callback_identity(callback) != identity
+            and (
+                record := _callback_priorities.get(
+                    (phase, _callback_identity(callback))
+                )
+            )
+            and record[1] == _TERMINAL_CALLBACK_PRIORITY
+            for callback in _callbacks[phase]
+        ):
+            raise RuntimeError(f"Phase '{phase}' already has a terminal callback")
         existing = next(
             (
                 callback
@@ -308,33 +320,37 @@ def _register_callback(
                     "Terminal callback priority cannot be changed publicly"
                 )
             _callback_priorities[priority_key] = (existing, priority)
-            logger.debug(
-                "Callback %s already registered for phase '%s', updated priority to %d",
-                _callback_name(existing),
-                phase,
-                priority,
-            )
-            return
+            duplicate = True
+        else:
+            previous_priority = _callback_priorities.get(priority_key)
+            previous_owner = _callback_owners.get(identity)
+            _callback_priorities[priority_key] = (func, priority)
+            if owner is not None:
+                _callback_owners[identity] = (func, owner)
+            try:
+                _callbacks[phase].append(func)
+            except BaseException:
+                if previous_priority is None:
+                    _callback_priorities.pop(priority_key, None)
+                else:
+                    _callback_priorities[priority_key] = previous_priority
+                if previous_owner is None:
+                    _callback_owners.pop(identity, None)
+                else:
+                    _callback_owners[identity] = previous_owner
+                raise
 
-        previous_priority = _callback_priorities.get(priority_key)
-        previous_owner = _callback_owners.get(identity)
-        _callback_priorities[priority_key] = (func, priority)
-        if owner is not None:
-            _callback_owners[identity] = (func, owner)
-        try:
-            _callbacks[phase].append(func)
-        except BaseException:
-            if previous_priority is None:
-                _callback_priorities.pop(priority_key, None)
-            else:
-                _callback_priorities[priority_key] = previous_priority
-            if previous_owner is None:
-                _callback_owners.pop(identity, None)
-            else:
-                _callback_owners[identity] = previous_owner
-            raise
-
-    logger.debug("Registered async callback %s for phase '%s'", callback_name, phase)
+    if duplicate:
+        logger.debug(
+            "Callback %s already registered for phase '%s', updated priority to %d",
+            callback_name,
+            phase,
+            priority,
+        )
+    else:
+        logger.debug(
+            "Registered async callback %s for phase '%s'", callback_name, phase
+        )
 
 
 def register_callback(
@@ -349,28 +365,12 @@ def register_callback(
 
 def _register_terminal_callback(phase: PhaseType, func: CallbackFunc) -> None:
     """Register the single reserved callback that closes a public phase."""
-    with _callback_registry_lock:
-        terminal_callbacks = [
-            callback
-            for callback in _callbacks.get(phase, [])
-            if (
-                record := _callback_priorities.get(
-                    (phase, _callback_identity(callback))
-                )
-            )
-            and record[1] == _TERMINAL_CALLBACK_PRIORITY
-        ]
-        if terminal_callbacks and not any(
-            _callback_identity(callback) == _callback_identity(func)
-            for callback in terminal_callbacks
-        ):
-            raise RuntimeError(f"Phase '{phase}' already has a terminal callback")
-        _register_callback(
-            phase,
-            func,
-            _TERMINAL_CALLBACK_PRIORITY,
-            terminal=True,
-        )
+    _register_callback(
+        phase,
+        func,
+        _TERMINAL_CALLBACK_PRIORITY,
+        terminal=True,
+    )
 
 
 def unregister_callback(phase: PhaseType, func: CallbackFunc) -> bool:
@@ -403,12 +403,13 @@ def unregister_callback(phase: PhaseType, func: CallbackFunc) -> bool:
 
 
 def clear_callbacks(phase: Optional[PhaseType] = None) -> None:
+    message: str | None = None
     with _callback_registry_lock:
         if phase is None:
             for registered in _callbacks.values():
                 registered.clear()
             _callback_priorities.clear()
-            logger.debug("Cleared all async callbacks")
+            message = "Cleared all async callbacks"
         elif phase in _callbacks:
             removed_identities = {
                 _callback_identity(callback) for callback in _callbacks[phase]
@@ -416,7 +417,9 @@ def clear_callbacks(phase: Optional[PhaseType] = None) -> None:
             _callbacks[phase].clear()
             for identity in removed_identities:
                 _callback_priorities.pop((phase, identity), None)
-            logger.debug(f"Cleared async callbacks for phase '{phase}'")
+            message = f"Cleared async callbacks for phase '{phase}'"
+    if message is not None:
+        logger.debug(message)
 
 
 def snapshot_callback_registry() -> CallbackRegistrySnapshot:

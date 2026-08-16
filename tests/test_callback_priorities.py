@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 
 import pytest
@@ -331,6 +332,39 @@ def test_registry_snapshot_restores_owner_and_priority_together():
         assert callbacks.get_callback_owner(prioritized) == "owned-plugin"
     finally:
         callbacks.restore_callback_registry(original)
+
+
+def test_registry_logging_occurs_after_releasing_registry_lock():
+    snapshot = callbacks.snapshot_callback_registry()
+    completed = []
+
+    class ReentrantHandler(logging.Handler):
+        def emit(self, record):
+            _ = record
+            worker = threading.Thread(
+                target=lambda: completed.append(callbacks.count_callbacks(_PHASE))
+            )
+            worker.start()
+            worker.join(timeout=0.5)
+            assert not worker.is_alive()
+
+    def callback():
+        return None
+
+    handler = ReentrantHandler()
+    previous_level = callbacks.logger.level
+    callbacks.logger.addHandler(handler)
+    callbacks.logger.setLevel(logging.DEBUG)
+    try:
+        callbacks.register_callback(_PHASE, callback)
+        callbacks.register_callback(_PHASE, callback, priority=10)
+        callbacks.clear_callbacks(_PHASE)
+    finally:
+        callbacks.logger.removeHandler(handler)
+        callbacks.logger.setLevel(previous_level)
+        callbacks.restore_callback_registry(snapshot)
+
+    assert completed
 
 
 def test_registration_and_get_snapshot_are_atomic():

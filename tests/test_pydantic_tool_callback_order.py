@@ -15,7 +15,10 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolRetu
 from pydantic_ai.models.function import FunctionModel
 
 from code_puppy import callbacks, pydantic_patches
-from code_puppy.pydantic_patches import patch_tool_call_callbacks
+from code_puppy.pydantic_patches import (
+    patch_tool_call_callbacks,
+    patch_tool_call_json_repair,
+)
 
 
 class _StructuredOutput(BaseModel):
@@ -56,15 +59,18 @@ async def test_post_callbacks_mutate_structured_result_before_context_stringific
 
     def add_context(tool_name, tool_args, context=None):
         _ = tool_name, tool_args, context
+        observed["pre_calls"] = observed.get("pre_calls", 0) + 1
         return {"context_message": "policy context"}
 
     def mutate_result(tool_name, tool_args, result, duration_ms, context=None):
         _ = tool_name, tool_args, duration_ms, context
+        observed["post_calls"] = observed.get("post_calls", 0) + 1
         observed["post_type"] = type(result)
         result.content = "bounded"
 
     def observe_final(tool_name, tool_args, result, duration_ms, context=None):
         _ = tool_name, tool_args, duration_ms, context
+        observed["final_calls"] = observed.get("final_calls", 0) + 1
         observed["final_result"] = result.copy()
 
     original_call_tool = ToolManager._call_tool
@@ -73,8 +79,10 @@ async def test_post_callbacks_mutate_structured_result_before_context_stringific
     callbacks.register_callback("pre_tool_call", add_context)
     callbacks.register_callback("post_tool_call", mutate_result)
     callbacks.register_callback("final_tool_result", observe_final)
+    patch_tool_call_json_repair()
     patch_tool_call_callbacks()
     patched_call_tool = ToolManager._call_tool
+    patch_tool_call_json_repair()
     patch_tool_call_callbacks()
     assert ToolManager._call_tool is patched_call_tool
     try:
@@ -107,6 +115,9 @@ async def test_post_callbacks_mutate_structured_result_before_context_stringific
 
     envelope = json.loads(observed["model_response"])
     assert run_result.output == "done"
+    assert observed["pre_calls"] == 1
+    assert observed["post_calls"] == 1
+    assert observed["final_calls"] == 1
     assert observed["post_type"] is _StructuredOutput
     assert compose_threads and compose_threads[0] != threading.current_thread().name
     assert ticks >= 5
