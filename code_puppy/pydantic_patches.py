@@ -22,6 +22,7 @@ Usage:
 
 import importlib.metadata
 import logging
+import warnings
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -572,7 +573,33 @@ def patch_termflow_code_padding() -> bool:
         )
 
 
+def patch_silence_anthropic_sampling_warnings() -> bool:
+    """Silence pydantic-ai's unsupported-sampling-parameter UserWarning.
+
+    Some Claude models (e.g. Fable 5) reject sampling params like
+    ``temperature``; pydantic-ai already drops them before sending, then
+    warns on every single request:
+
+        Sampling parameters ['temperature'] are not supported by
+        'claude-fable-5'. These settings will be ignored.
+
+    We avoid sending those params in the first place (see
+    ``make_model_settings``), so any residual warning is pure console noise
+    in the TUI. The filter is scoped to this exact message shape — NOT a
+    blanket UserWarning ignore. Module-based scoping is intentionally
+    omitted: warnings' module matching keys off the stacklevel-adjusted
+    frame and is unreliable here.
+    """
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Sampling parameters .* are not supported by .*",
+        category=UserWarning,
+    )
+    return True
+
+
 _ALL_PATCHES = (
+    patch_silence_anthropic_sampling_warnings,
     patch_user_agent,
     patch_message_history_cleaning,
     patch_tool_call_json_repair,

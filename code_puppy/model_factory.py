@@ -361,21 +361,29 @@ def make_model_settings(
                 }
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif _is_anthropic_model(model_name, model_config):
-        # Handle Anthropic extended thinking settings
-        # Remove top_p as Anthropic doesn't support it with extended thinking
-        model_settings_dict.pop("top_p", None)
-
-        # Claude extended thinking requires temperature=1.0 (API restriction)
-        # Default to 1.0 if not explicitly set by user
-        if model_settings_dict.get("temperature") is None:
-            model_settings_dict["temperature"] = 1.0
-
         from code_puppy.model_utils import (
+            anthropic_disallows_sampling_settings,
             get_default_extended_thinking,
             resolve_anthropic_thinking_payload,
         )
 
         actual_model_id = model_config.get("name", model_name)
+
+        # Handle Anthropic extended thinking settings
+        # Remove top_p as Anthropic doesn't support it with extended thinking
+        model_settings_dict.pop("top_p", None)
+
+        if anthropic_disallows_sampling_settings(model_name, actual_model_id):
+            # pydantic-ai's profile says this model rejects sampling params
+            # outright; sending them just earns a UserWarning before they get
+            # dropped anyway. Strip them instead of injecting defaults.
+            for sampling_param in ("temperature", "top_p", "top_k"):
+                model_settings_dict.pop(sampling_param, None)
+        elif model_settings_dict.get("temperature") is None:
+            # Claude extended thinking requires temperature=1.0 (API
+            # restriction). Default to 1.0 if not explicitly set by user.
+            model_settings_dict["temperature"] = 1.0
+
         default_thinking = get_default_extended_thinking(model_name, actual_model_id)
         extended_thinking = effective_settings.get(
             "extended_thinking", default_thinking
