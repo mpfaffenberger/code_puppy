@@ -43,9 +43,16 @@ plugin surface:
 
 ## (c) Release-ordering checklist
 
-1. Publish `code-puppy-plugins` 0.0.7.
-2. In core: delete the `[tool.uv]` `override-dependencies` and
-   `[tool.uv.sources]` blocks from `pyproject.toml`.
+Current interim state: core's `[tool.uv.sources]` pins
+`code-puppy-core-plugins` to git rev `3a661bc` (the 0.0.7 commit on the
+plugins repo's main). The old `override-dependencies` block is already gone
+(plugins main now declares `pydantic-ai-slim>=2.31.0,<3`, so no override is
+needed).
+
+1. Publish `code-puppy-core-plugins` 0.0.7 to PyPI.
+2. In core: delete the `[tool.uv.sources]` git-source block from
+   `pyproject.toml` and raise the dependency floor to
+   `code-puppy-core-plugins>=0.0.7` (resolved from PyPI).
 3. Re-lock (`uv lock`).
 4. Bump version and release core.
 5. Then (and only then) sweep the table in section (a).

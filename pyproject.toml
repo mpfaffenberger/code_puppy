@@ -105,19 +105,12 @@ omit = ["code_puppy/main.py"]
 [tool.uv]
 python-preference = "only-managed"
 
-# TEMPORARY (pydantic-ai v2 migration): the plugins branch still caps
-# pydantic-ai-slim at <2. RELEASE PREP: plugins must raise the cap to
-# ">=2.31.0,<3" and publish BEFORE core; then delete this override.
-override-dependencies = [
-    "pydantic-ai-slim[openai,anthropic,mcp]==2.31.0",
-]
-
-# TEMPORARY (pydantic-ai v2 migration): code-puppy-core-plugins 0.0.6 is not
-# published yet — resolve it from the sibling checkout (branch
-# pydantic-ai-2-hop1). RELEASE PREP: publish code-puppy-core-plugins first,
-# then delete this source override.
+# TEMPORARY (pydantic-ai v2 migration): code-puppy-core-plugins 0.0.7
+# (v2-compatible) is on GitHub main but not yet on PyPI — resolve it from the
+# pinned git rev. RELEASE PREP: once code-puppy-core-plugins 0.0.7 is on PyPI,
+# delete this source override and depend on ">=0.0.7" from PyPI.
 [tool.uv.sources]
-code-puppy-core-plugins = { path = "../code_puppy_core_plugins" }
+code-puppy-core-plugins = { git = "https://github.com/mpfaffenberger/code_puppy_core_plugins", rev = "3a661bc64d5372cfd6eb8c5c3c05be70f88e3a5b" }
 
 [dependency-groups]
 dev = [

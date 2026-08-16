@@ -6,9 +6,6 @@ resolution-markers = [
     "python_full_version < '3.12' or sys_platform != 'emscripten'",
 ]
 
-[manifest]
-overrides = [{ name = "pydantic-ai-slim", extras = ["openai", "anthropic", "mcp"], specifier = "==2.31.0" }]
-
 [[package]]
 name = "agent-client-protocol"
 version = "0.11.0"
@@ -465,7 +462,7 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
-    { name = "code-puppy-core-plugins", directory = "../code_puppy_core_plugins" },
+    { name = "code-puppy-core-plugins", git = "https://github.com/mpfaffenberger/code_puppy_core_plugins?rev=3a661bc64d5372cfd6eb8c5c3c05be70f88e3a5b" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "json-repair", specifier = ">=0.46.2" },
@@ -503,25 +500,10 @@ dev = [
 [[package]]
 name = "code-puppy-core-plugins"
 version = "0.0.7"
-source = { directory = "../code_puppy_core_plugins" }
+source = { git = "https://github.com/mpfaffenberger/code_puppy_core_plugins?rev=3a661bc64d5372cfd6eb8c5c3c05be70f88e3a5b#3a661bc64d5372cfd6eb8c5c3c05be70f88e3a5b" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", specifier = ">=0.24.1,<1" },
-    { name = "pydantic-ai-slim", extras = ["openai", "anthropic", "mcp"], specifier = ">=2.31.0,<3" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pexpect", specifier = ">=4.9.0" },
-    { name = "pytest", specifier = ">=8.3.4" },
-    { name = "pytest-asyncio", specifier = ">=0.23.1" },
-    { name = "pytest-cov", specifier = ">=6.1.1" },
-    { name = "ruff", specifier = ">=0.15,<0.16" },
 ]
 
 [[package]]
