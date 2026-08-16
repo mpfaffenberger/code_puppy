@@ -18,9 +18,8 @@ from pathlib import Path
 
 from rich.console import Console
 
-from code_puppy import __version__, callbacks, plugins
+from code_puppy import __version__, callbacks, get_core_plugins_version, plugins
 from code_puppy.agents import get_current_agent
-from code_puppy.i18n import t
 from code_puppy.command_line.attachments import (
     parse_prompt_attachments,
     resolve_user_prompt,
@@ -36,6 +35,7 @@ from code_puppy.config import (
     save_command_to_history,
 )
 from code_puppy.http_utils import find_available_port
+from code_puppy.i18n import t
 from code_puppy.keymap import (
     KeymapError,
     get_cancel_agent_display_name,
@@ -374,6 +374,9 @@ async def main():
             await callbacks.on_version_check(current_version)
         else:
             default_version_mismatch_behavior(current_version)
+
+    core_plugins_version = get_core_plugins_version() or t("version.unknown")
+    emit_system_message(t("version.core_plugins", version=core_plugins_version))
 
     # One-shot sweep of legacy ~/.code_puppy/contexts/ into autosaves/ (idempotent
     # via sentinel). Must run before plugin startup callbacks read AUTOSAVE_DIR and
@@ -972,13 +975,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 emit_success,
                                 emit_warning,
                             )
+                            from code_puppy.messaging.run_ui import (
+                                suspended_run_ui,
+                            )
                             from code_puppy.session_storage import (
                                 load_session,
                                 restore_autosave_interactively,
-                            )
-
-                            from code_puppy.messaging.run_ui import (
-                                suspended_run_ui,
                             )
 
                             with suspended_run_ui():

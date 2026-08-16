@@ -14,6 +14,8 @@
   },
   "error.generic": "Une erreur s'est produite : {detail}",
   "version.current": "Version actuelle : {version}",
+  "version.core_plugins": "Version des modules d’extension principaux : {version}",
+  "version.unknown": "inconnue",
   "version.latest": "Dernière version : {version}",
   "version.update_available": "Une nouvelle version de code puppy est disponible : {version}",
   "version.please_update": "Pensez à faire la mise à jour!",

@@ -118,6 +118,24 @@ def test_interpolation():
     assert i18n.t("startup.welcome", name="TJ") == "Welcome to Code Puppy, TJ!"
 
 
+@pytest.mark.parametrize(
+    ("locale_name", "unknown", "expected"),
+    [
+        ("en-US", "unknown", "Core plugins version: 0.0.2"),
+        ("es", "desconocida", "Versión de los complementos principales: 0.0.2"),
+        (
+            "fr-CA",
+            "inconnue",
+            "Version des modules d’extension principaux : 0.0.2",
+        ),
+    ],
+)
+def test_core_plugins_version_catalog_interpolates(locale_name, unknown, expected):
+    translate.set_locale(locale_name)
+    assert i18n.t("version.core_plugins", version="0.0.2") == expected
+    assert i18n.t("version.unknown") == unknown
+
+
 def test_missing_param_leaves_placeholder():
     # A DIFFERENT param present -> the forgiving-missing path is exercised and
     # the unknown {name} placeholder is preserved verbatim.
