@@ -17,7 +17,6 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
-from rich.text import Text
 
 from code_puppy.agents._compaction import make_history_processor
 from code_puppy.agents._steer_processor import make_steer_history_processor
@@ -455,38 +454,28 @@ def filter_conflicting_mcp_tools(
     mcp_servers: List[Any],
     existing_tool_names: Set[str],
 ) -> List[Any]:
-    """Strip any MCP tools whose names collide with already-registered tools.
+    """Hide MCP tools whose names collide with already-registered tools.
 
-    Returns a new list of MCP toolsets (possibly containing filtered ``ToolSet``
-    replacements). If a server doesn't expose a ``.tools`` attribute we pass it
-    through unchanged — better to risk a duplicate than to drop the whole server.
+    Wraps each toolset in a public ``FilteredToolset`` (via
+    ``AbstractToolset.filtered``) that drops colliding tool names at
+    ``get_tools`` time — no private-attribute surgery. Objects that aren't
+    pydantic-ai toolsets pass through unchanged; better to risk a duplicate
+    than to drop the whole server.
     """
     if not mcp_servers or not existing_tool_names:
         return list(mcp_servers) if mcp_servers else []
 
-    from pydantic_ai.tools import ToolSet
+    from pydantic_ai.toolsets import AbstractToolset
 
-    filtered: List[Any] = []
-    for server in mcp_servers:
-        server_tools = getattr(server, "tools", None)
-        if server_tools is None:
-            filtered.append(server)
-            continue
+    conflicts = frozenset(existing_tool_names)
 
-        kept = {
-            name: func
-            for name, func in server_tools.items()
-            if name not in existing_tool_names
-        }
-        if not kept:
-            continue  # whole server was conflicts — drop it
+    def _keep(ctx: Any, tool_def: Any) -> bool:
+        return tool_def.name not in conflicts
 
-        replacement = ToolSet()
-        for name, func in kept.items():
-            replacement._tools[name] = func
-        filtered.append(replacement)
-
-    return filtered
+    return [
+        server.filtered(_keep) if isinstance(server, AbstractToolset) else server
+        for server in mcp_servers
+    ]
 
 
 def _build_gpt_5_6_invoke_agent_guard_text() -> str:
@@ -638,12 +627,6 @@ def build_pydantic_agent(
     filtered_mcp_servers = filter_conflicting_mcp_tools(
         mcp_servers, existing_tool_names
     )
-
-    dropped = len(mcp_servers) - len(filtered_mcp_servers)
-    if dropped:
-        emit_info(
-            Text.from_markup(f"[dim]Filtered {dropped} conflicting MCP tools[/dim]")
-        )
 
     # Pass 2: real build. MCP servers always go in the constructor; plugins
     # (e.g. DBOS) may swap them at run time via ``agent_run_context``.

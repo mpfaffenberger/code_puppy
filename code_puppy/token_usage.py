@@ -173,21 +173,15 @@ def _raw_tokens_for_mcp_servers(mcp_servers: Optional[List[Any]]) -> int:
     if not mcp_servers:
         return 0
 
+    from code_puppy.mcp_.toolset_utils import iter_cached_tool_defs
+
     total = 0
     for server in mcp_servers:
-        cached = getattr(server, "_cached_tools", None)
-        if not cached:
-            continue
-        prefix = getattr(server, "tool_prefix", None) or ""
-        for mcp_tool in cached:
-            name = getattr(mcp_tool, "name", "") or ""
-            full_name = f"{prefix}_{name}" if prefix else name
+        for full_name, description, schema in iter_cached_tool_defs(server):
             if full_name:
                 total += _raw_estimate_tokens(full_name)
-            description = getattr(mcp_tool, "description", "") or ""
             if description:
                 total += _raw_estimate_tokens(description)
-            schema = getattr(mcp_tool, "inputSchema", None)
             if schema:
                 try:
                     total += _raw_estimate_tokens(json.dumps(schema, sort_keys=True))

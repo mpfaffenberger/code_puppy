@@ -274,9 +274,9 @@ class BaseAgent(ABC):
 
     # ---- MCP integration shims --------------------------------------------
     def update_mcp_tool_cache_sync(self) -> None:
-        """Best-effort warm of each MCP server's ``_cached_tools``.
+        """Best-effort warm of each MCP toolset's tool-definition cache.
 
-        Pydantic-ai caches MCP tool defs on each server after the first
+        Pydantic-ai caches MCP tool defs on each toolset after the first
         ``list_tools()`` call. We piggy-back on that cache for context-window
         overhead estimates (see ``_history._estimate_mcp_tool_tokens``).
 
@@ -300,12 +300,15 @@ class BaseAgent(ABC):
             return None
 
         async def _warm(server: Any) -> None:
+            from code_puppy.mcp_.toolset_utils import toolset_is_running, unwrap_toolset
+
             try:
-                if getattr(server, "_cached_tools", None):
+                leaf = unwrap_toolset(server)
+                if getattr(leaf, "_cached_tools", None):
                     return
-                if not getattr(server, "is_running", False):
+                if not toolset_is_running(leaf):
                     return
-                await server.list_tools()
+                await leaf.list_tools()
             except Exception:
                 # Cache stays empty; estimator handles that gracefully.
                 return
