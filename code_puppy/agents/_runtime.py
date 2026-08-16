@@ -18,6 +18,7 @@ preserved verbatim:
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import signal
 import threading
@@ -107,6 +108,15 @@ from code_puppy.tools.command_runner import is_awaiting_user_input
 
 # Provider "please retry" signals or SSE/transport artifacts that reliably
 # succeed on retry. Keep substring-based and lower-case.
+#
+# NOTE: "malformed streamed sse event" and "extra json data in sse payload"
+# below only match *wrapped/reworded* provider messages. A bare stdlib
+# ``json.JSONDecodeError("Extra data: line 1 column ...", ...)`` -- what the
+# installed anthropic SDK's ``ServerSentEvent.json()`` actually raises when a
+# stream ``data:`` line is malformed/concatenated -- does NOT contain either
+# substring. That case is handled separately by the ``json.JSONDecodeError``
+# isinstance check in ``_is_retryable_one`` below; don't assume these two
+# snippets already cover it.
 _RETRYABLE_SNIPPETS = (
     "streamed response ended without content",
     "malformed streamed sse event",
@@ -300,6 +310,19 @@ def _is_retryable_one(exc: BaseException) -> bool:
     if ModelAPIError is not None and isinstance(exc, ModelAPIError):
         if _matches_retryable_snippet(msg):
             return True
+
+    # A JSONDecodeError escaping the Anthropic stream iterator means the SSE
+    # transport delivered a malformed/concatenated `data:` line (see the
+    # anthropic SDK's ServerSentEvent.json() -> json.loads(self.data)). This is a
+    # transport/framing artifact, not a data-integrity problem with the
+    # conversation itself, so retry it exactly like any other transient
+    # stream corruption. NOTE: the default JSONDecodeError message ("Extra
+    # data: line N column M (char K)") does NOT match the
+    # "malformed streamed sse event" / "extra json data in sse payload"
+    # snippets above -- that's why an isinstance check is required here
+    # rather than relying on snippet matching alone.
+    if isinstance(exc, json.JSONDecodeError):
+        return True
 
     return False
 
