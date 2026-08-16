@@ -122,7 +122,8 @@ def patch_message_history_cleaning() -> bool:
                 "pydantic_ai._agent_graph._clean_message_history not found"
             )
 
-        _identity = lambda messages: messages  # noqa: E731
+        # v2 signature: _clean_message_history(messages, *, repair_last_response=False)
+        _identity = lambda messages, **_kwargs: messages  # noqa: E731
         _agent_graph._clean_message_history = _identity
         assert _agent_graph._clean_message_history is _identity
         return True
@@ -225,6 +226,20 @@ def patch_tool_call_callbacks() -> bool:
     execution in the public ``pydantic_ai.tool_manager`` module) so every tool
     invocation also triggers the ``pre_tool_call`` and ``post_tool_call``
     callbacks defined in ``code_puppy.callbacks``.
+
+    Why not the v2 ``Hooks`` capability? Evaluated against pydantic-ai
+    2.31.0 and rejected:
+
+    - ``cp_`` normalization must run BEFORE tool classification:
+      ``ToolManager._resolve_tool`` marks unknown names as unclassified
+      before any ``before_tool_validate`` hook fires, so a capability hook
+      is structurally too late — exactly the bug this patch fixes.
+    - Hook arg-rewrites feed execution only (``validated_args``); they never
+      write back to ``call.args``, so mutations would vanish from message
+      history (see ``_writeback_tool_args``).
+    - Capabilities are per-``Agent`` wiring; this patch is process-global and
+      covers every construction site (builder, sub-agents, summarizer,
+      plugin-created agents) with one mechanism instead of two.
     """
     import time
 

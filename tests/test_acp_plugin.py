@@ -309,9 +309,7 @@ async def test_prompt_absorbs_history_for_memory_and_persistence(monkeypatch):
                 ModelRequest(parts=[UserPromptPart(content=prompt)]),
                 ModelResponse(parts=[TextPart(content=f"reply:{prompt}")]),
             ]
-            return SimpleNamespace(
-                all_messages=lambda: new, usage=None, output="reply"
-            )
+            return SimpleNamespace(all_messages=lambda: new, usage=None, output="reply")
 
     monkeypatch.setattr(
         "code_puppy.agents.agent_manager.load_agent", lambda name: MemAgent()
