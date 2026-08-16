@@ -16,32 +16,48 @@ from code_puppy.mcp_.managed_server import (
     process_tool_call,
 )
 
-SSE = "code_puppy.mcp_.managed_server.MCPServerSSE"
-STDIO = "code_puppy.mcp_.managed_server.BlockingMCPServerStdio"
-HTTP = "code_puppy.mcp_.managed_server.MCPServerStreamableHTTP"
-
-
-def _server(srv_type, inner, patch_target=SSE, enabled=True):
-    config = ServerConfig(
-        id="test-id", name="test-server", type=srv_type, enabled=enabled, config=inner
-    )
-    with patch(patch_target) as mock_cls:
-        mock_cls.return_value = MagicMock()
-        server = ManagedMCPServer(config)
-    return server, mock_cls
+TOOLSET = "code_puppy.mcp_.managed_server.MCPToolset"
+SSE_TRANSPORT = "code_puppy.mcp_.managed_server.SSETransport"
+HTTP_TRANSPORT = "code_puppy.mcp_.managed_server.StreamableHttpTransport"
+STDIO = "code_puppy.mcp_.managed_server.BlockingStdioToolset"
 
 
 def _sse(inner=None, enabled=True):
-    """Build an SSE-backed server with the standard config."""
-    return _server("sse", inner or {"url": "http://x"}, enabled=enabled)
+    """Build an SSE-backed server with MCPToolset + SSETransport mocked."""
+    config = ServerConfig(
+        id="test-id",
+        name="test-server",
+        type="sse",
+        enabled=enabled,
+        config=inner or {"url": "http://x"},
+    )
+    with patch(TOOLSET) as mock_toolset, patch(SSE_TRANSPORT) as mock_transport:
+        mock_toolset.return_value = MagicMock()
+        server = ManagedMCPServer(config)
+    return server, mock_toolset, mock_transport
+
+
+def _http(inner=None, enabled=True):
+    """Build a streamable-HTTP-backed server with construction mocked."""
+    config = ServerConfig(
+        id="test-id",
+        name="test-server",
+        type="http",
+        enabled=enabled,
+        config=inner or {"url": "http://x"},
+    )
+    with patch(TOOLSET) as mock_toolset, patch(HTTP_TRANSPORT) as mock_transport:
+        mock_toolset.return_value = MagicMock()
+        server = ManagedMCPServer(config)
+    return server, mock_toolset, mock_transport
 
 
 def _stdio(inner=None, spec=True):
-    """Build a stdio-backed server whose blocking server is mocked."""
-    from code_puppy.mcp_.blocking_startup import BlockingMCPServerStdio
+    """Build a stdio-backed server whose blocking toolset is mocked."""
+    from code_puppy.mcp_.blocking_startup import BlockingStdioToolset
 
-    mock = MagicMock(spec=BlockingMCPServerStdio) if spec else MagicMock()
-    with patch(STDIO, return_value=mock):
+    mock = MagicMock(spec=BlockingStdioToolset) if spec else MagicMock()
+    with patch(STDIO, return_value=mock) as mock_cls:
         server = ManagedMCPServer(
             ServerConfig(
                 id="test-id",
@@ -50,7 +66,7 @@ def _stdio(inner=None, spec=True):
                 config=inner or {"command": "python"},
             )
         )
-    return server, mock
+    return server, mock, mock_cls
 
 
 # --- env-var expansion + tool prefixes ---
@@ -72,55 +88,61 @@ async def test_managed_server_header_env_expansion_mocked():
         id="test-id", name="test-server", type="http", config=config_dict
     )
 
-    mock_http_server = MagicMock()
-
     with (
         patch.dict(os.environ, {"TEST_API_KEY": "secret-123"}),
-        patch(HTTP, return_value=mock_http_server) as mock_constructor,
+        patch(TOOLSET) as mock_toolset,
+        patch(HTTP_TRANSPORT) as mock_transport,
     ):
+        mock_toolset.return_value = MagicMock()
         ManagedMCPServer(server_config)
 
-        mock_constructor.assert_called_once()
-        call_kwargs = mock_constructor.call_args.kwargs
+        mock_transport.assert_called_once()
+        call_kwargs = mock_transport.call_args.kwargs
 
         assert call_kwargs["headers"]["Authorization"] == "Bearer secret-123"
         assert call_kwargs["headers"]["X-Custom"] == "FixedValue"
         assert call_kwargs["url"] == "http://test.com"
-        assert call_kwargs["tool_prefix"] == "test-server"
+        mock_toolset.return_value.prefixed.assert_called_once_with("test-server")
 
 
-@pytest.mark.parametrize(
-    "name,type,inner,target,prefix,env",
-    [
-        (
-            "filesystem",
-            "stdio",
-            {"command": "python", "tool_prefix": "repo"},
-            STDIO,
-            "filesystem_repo",
-            None,
-        ),
-        ("docs", "sse", {"url": "http://localhost:8080/sse"}, SSE, "docs", None),
-        (
-            "github",
-            "http",
-            {"url": "http://localhost:8080/mcp", "tool_prefix": "$MCP_SCOPE"},
-            HTTP,
-            "github_issues",
-            {"MCP_SCOPE": "issues"},
-        ),
-    ],
-)
-def test_tool_prefix_nests_server_name(name, type, inner, target, prefix, env):
-    """Configured MCP prefixes are nested under the server name."""
-    config = ServerConfig(id="test-id", name=name, type=type, config=inner)
-    with (
-        patch.dict(os.environ, env or {}),
-        patch(target) as mock_cls,
-    ):
+def test_tool_prefix_nests_server_name_stdio():
+    """Configured MCP prefixes are nested under the server name (stdio)."""
+    config = ServerConfig(
+        id="test-id",
+        name="filesystem",
+        type="stdio",
+        config={"command": "python", "tool_prefix": "repo"},
+    )
+    with patch(STDIO) as mock_cls:
         mock_cls.return_value = MagicMock()
         ManagedMCPServer(config)
-    assert mock_cls.call_args.kwargs["tool_prefix"] == prefix
+    mock_cls.return_value.prefixed.assert_called_once_with("filesystem_repo")
+    # Log/messaging name follows the prefix, matching old behavior
+    assert mock_cls.call_args.kwargs["server_name"] == "filesystem_repo"
+
+
+def test_tool_prefix_defaults_to_server_name_sse():
+    """Without a configured prefix the server name is used (sse)."""
+    _, mock_toolset, _ = _sse({"url": "http://localhost:8080/sse"})
+    mock_toolset.return_value.prefixed.assert_called_once_with("test-server")
+
+
+def test_tool_prefix_expands_env_vars_http():
+    """Env vars in tool_prefix are expanded (http)."""
+    config = ServerConfig(
+        id="test-id",
+        name="github",
+        type="http",
+        config={"url": "http://localhost:8080/mcp", "tool_prefix": "$MCP_SCOPE"},
+    )
+    with (
+        patch.dict(os.environ, {"MCP_SCOPE": "issues"}),
+        patch(TOOLSET) as mock_toolset,
+        patch(HTTP_TRANSPORT),
+    ):
+        mock_toolset.return_value = MagicMock()
+        ManagedMCPServer(config)
+    mock_toolset.return_value.prefixed.assert_called_once_with("github_issues")
 
 
 @pytest.mark.parametrize(
@@ -226,7 +248,7 @@ class TestProcessToolCall:
         mock_console.print.assert_called_once()
         assert "test_tool" in mock_console.print.call_args[0][0]
         mock_call_tool.assert_called_once_with(
-            "test_tool", {"arg1": "value1"}, {"deps": mock_ctx.deps}
+            "test_tool", {"arg1": "value1"}, metadata={"deps": mock_ctx.deps}
         )
         assert result == "tool_result"
 
@@ -241,8 +263,40 @@ class TestProcessToolCall:
                 ctx=mock_ctx, call_tool=mock_call_tool, name="t", tool_args={}
             )
 
-        mock_call_tool.assert_called_once_with("t", {}, {"deps": None})
+        mock_call_tool.assert_called_once_with("t", {}, metadata={"deps": None})
         assert result == "result"
+
+    @pytest.mark.asyncio
+    async def test_unwraps_functools_partial_for_schema_lookup(self):
+        """Schema lookup unwraps functools.partial (MCPToolset.call_tool shape)."""
+        import functools
+
+        mock_ctx = Mock()
+        mock_ctx.deps = None
+
+        class FakeToolset:
+            async def list_tools(self):
+                tool = Mock()
+                tool.name = "t"
+                tool.inputSchema = {
+                    "type": "object",
+                    "properties": {"flag": {"type": "boolean"}},
+                }
+                return [tool]
+
+            async def direct_call_tool(self, name, args, *, metadata=None):
+                return args
+
+        toolset = FakeToolset()
+        call_tool = functools.partial(toolset.direct_call_tool)
+
+        with patch("rich.console.Console"):
+            result = await process_tool_call(
+                ctx=mock_ctx, call_tool=call_tool, name="t", tool_args={"flag": "true"}
+            )
+
+        # Stringified bool got coerced using the schema found via the partial
+        assert result == {"flag": True}
 
 
 # --- init / get_pydantic_server ---
@@ -256,7 +310,10 @@ class TestManagedMCPServerInit:
             type="sse",
             config={"url": "http://localhost:8080"},
         )
-        with patch(SSE, side_effect=Exception("Connection failed")):
+        with (
+            patch(TOOLSET, side_effect=Exception("Connection failed")),
+            patch(SSE_TRANSPORT),
+        ):
             server = ManagedMCPServer(config)
         assert server._state == ServerState.ERROR
         assert server._error_message == "Connection failed"
@@ -265,28 +322,30 @@ class TestManagedMCPServerInit:
 
 class TestGetPydanticServer:
     def test_raises_when_server_is_none(self):
-        server, _ = _server("sse", {"url": "http://localhost:8080"})
+        server, _, _ = _sse()
         server._pydantic_server = None
         with pytest.raises(RuntimeError, match="is not available"):
             server.get_pydantic_server()
 
     def test_raises_when_disabled(self):
-        server, _ = _server("sse", {"url": "http://localhost:8080"})
+        server, _, _ = _sse()
         server._enabled = False
         with pytest.raises(RuntimeError, match="disabled or quarantined"):
             server.get_pydantic_server()
 
     def test_raises_when_quarantined(self):
-        server, _ = _server("sse", {"url": "http://localhost:8080"})
+        server, _, _ = _sse()
         server.quarantine(3600)
         with pytest.raises(RuntimeError, match="disabled or quarantined"):
             server.get_pydantic_server()
 
-    def test_returns_server_when_enabled(self):
-        server, _ = _server("sse", {"url": "http://localhost:8080"})
-        mock_pydantic = server._pydantic_server
+    def test_returns_prefixed_toolset_when_enabled(self):
+        server, mock_toolset, _ = _sse()
         server.enable()
-        assert server.get_pydantic_server() is mock_pydantic
+        assert (
+            server.get_pydantic_server()
+            is mock_toolset.return_value.prefixed.return_value
+        )
 
 
 # --- _create_server option handling ---
@@ -300,32 +359,42 @@ class TestCreateServerSSE:
         assert server._state == ServerState.ERROR
         assert "url" in server._error_message.lower()
 
-    @pytest.mark.parametrize(
-        "inner,key,expected",
-        [
-            ({"url": "http://x", "timeout": 30}, "timeout", 30),
-            ({"url": "http://x", "read_timeout": 120}, "read_timeout", 120),
-        ],
-    )
-    def test_options_passed_through(self, inner, key, expected):
-        _, mock_sse = _server("sse", inner)
-        assert mock_sse.call_args.kwargs[key] == expected
+    def test_timeout_maps_to_init_timeout(self):
+        _, mock_toolset, _ = _sse({"url": "http://x", "timeout": 30})
+        assert mock_toolset.call_args.kwargs["init_timeout"] == 30
 
-    def test_explicit_http_client_passed_through(self):
+    def test_read_timeout_passed_through(self):
+        _, mock_toolset, mock_transport = _sse({"url": "http://x", "read_timeout": 120})
+        assert mock_toolset.call_args.kwargs["read_timeout"] == 120
+        assert mock_transport.call_args.kwargs["sse_read_timeout"] == 120
+
+    def test_read_timeout_defaults_on_transport(self):
+        _, mock_toolset, mock_transport = _sse({"url": "http://x"})
+        assert mock_transport.call_args.kwargs["sse_read_timeout"] == 300
+        assert "read_timeout" not in mock_toolset.call_args.kwargs
+
+    def test_process_tool_call_wired(self):
+        _, mock_toolset, _ = _sse()
+        assert mock_toolset.call_args.kwargs["process_tool_call"] is process_tool_call
+
+    def test_explicit_http_client_becomes_factory(self):
         mock_client = MagicMock()
-        _, mock_sse = _server("sse", {"url": "http://x", "http_client": mock_client})
-        assert mock_sse.call_args.kwargs["http_client"] is mock_client
+        _, _, mock_transport = _sse({"url": "http://x", "http_client": mock_client})
+        factory = mock_transport.call_args.kwargs["httpx_client_factory"]
+        assert factory is not None
+        assert factory() is mock_client
 
     def test_headers_create_http_client(self):
         mock_http_client = MagicMock()
         with (
-            patch(SSE) as mock_sse,
+            patch(TOOLSET) as mock_toolset,
+            patch(SSE_TRANSPORT) as mock_transport,
             patch(
                 "code_puppy.mcp_.managed_server.create_async_client",
                 return_value=mock_http_client,
             ),
         ):
-            mock_sse.return_value = MagicMock()
+            mock_toolset.return_value = MagicMock()
             ManagedMCPServer(
                 ServerConfig(
                     id="test-id",
@@ -337,7 +406,12 @@ class TestCreateServerSSE:
                     },
                 )
             )
-        assert mock_sse.call_args.kwargs["http_client"] is mock_http_client
+        factory = mock_transport.call_args.kwargs["httpx_client_factory"]
+        assert factory() is mock_http_client
+
+    def test_no_headers_no_factory(self):
+        _, _, mock_transport = _sse({"url": "http://x"})
+        assert mock_transport.call_args.kwargs["httpx_client_factory"] is None
 
 
 class TestCreateServerStdio:
@@ -363,14 +437,22 @@ class TestCreateServerStdio:
                 {"MY_VAR": "value"},
             ),
             ({"command": "python", "cwd": "/some/path"}, "cwd", "/some/path"),
-            ({"command": "python"}, "timeout", 60),
-            ({"command": "python", "timeout": 120}, "timeout", 120),
+            ({"command": "python"}, "init_timeout", 60),
+            ({"command": "python", "timeout": 120}, "init_timeout", 120),
             ({"command": "python", "read_timeout": 300}, "read_timeout", 300),
         ],
     )
     def test_options_passed_through(self, inner, key, expected):
-        _, mock_stdio = _server("stdio", inner, patch_target=STDIO)
-        assert mock_stdio.call_args.kwargs[key] == expected
+        # Env assertions ignore the CA-bundle injection (covered below).
+        with patch(
+            "code_puppy.mcp_.managed_server.get_cert_bundle_path", return_value=None
+        ):
+            _, _, mock_cls = _stdio(inner)
+        assert mock_cls.call_args.kwargs[key] == expected
+
+    def test_process_tool_call_wired(self):
+        _, _, mock_cls = _stdio()
+        assert mock_cls.call_args.kwargs["process_tool_call"] is process_tool_call
 
     @staticmethod
     def _stdio_env(ca_bundle, inner_config):
@@ -420,16 +502,17 @@ class TestCreateServerHTTP:
         assert server._state == ServerState.ERROR
         assert "url" in server._error_message.lower()
 
-    @pytest.mark.parametrize(
-        "inner,key,expected",
-        [
-            ({"url": "http://x", "timeout": 45}, "timeout", 45),
-            ({"url": "http://x", "read_timeout": 200}, "read_timeout", 200),
-        ],
-    )
-    def test_options_passed_through(self, inner, key, expected):
-        _, mock_http = _server("http", inner, patch_target=HTTP)
-        assert mock_http.call_args.kwargs[key] == expected
+    def test_timeout_maps_to_init_timeout(self):
+        _, mock_toolset, _ = _http({"url": "http://x", "timeout": 45})
+        assert mock_toolset.call_args.kwargs["init_timeout"] == 45
+
+    def test_read_timeout_passed_through(self):
+        _, mock_toolset, _ = _http({"url": "http://x", "read_timeout": 200})
+        assert mock_toolset.call_args.kwargs["read_timeout"] == 200
+
+    def test_process_tool_call_wired(self):
+        _, mock_toolset, _ = _http()
+        assert mock_toolset.call_args.kwargs["process_tool_call"] is process_tool_call
 
 
 class TestCreateServerUnsupported:
@@ -467,10 +550,11 @@ class TestGetHttpClient:
     def test_creates_client_with_headers(self, headers, expected_headers):
         with (
             patch.dict(os.environ, {"TEST_TOKEN": "secret123"}),
-            patch(SSE) as mock_sse,
+            patch(TOOLSET) as mock_toolset,
+            patch(SSE_TRANSPORT),
             patch("code_puppy.mcp_.managed_server.create_async_client") as mock_create,
         ):
-            mock_sse.return_value = MagicMock()
+            mock_toolset.return_value = MagicMock()
             mock_create.return_value = MagicMock()
             server = ManagedMCPServer(
                 ServerConfig(
@@ -485,10 +569,11 @@ class TestGetHttpClient:
 
     def test_creates_client_with_custom_timeout(self):
         with (
-            patch(SSE) as mock_sse,
+            patch(TOOLSET) as mock_toolset,
+            patch(SSE_TRANSPORT),
             patch("code_puppy.mcp_.managed_server.create_async_client") as mock_create,
         ):
-            mock_sse.return_value = MagicMock()
+            mock_toolset.return_value = MagicMock()
             mock_create.return_value = MagicMock()
             server = ManagedMCPServer(
                 ServerConfig(
@@ -504,18 +589,18 @@ class TestGetHttpClient:
 
 class TestQuarantine:
     def test_quarantine_sets_state(self):
-        server, _ = _sse()
+        server, _, _ = _sse()
         server.enable()
         server.quarantine(3600)
         assert server._state == ServerState.QUARANTINED
         assert server.is_quarantined() is True
 
     def test_is_quarantined_when_not_quarantined(self):
-        server, _ = _sse()
+        server, _, _ = _sse()
         assert server.is_quarantined() is False
 
     def test_quarantine_expires(self):
-        server, _ = _sse()
+        server, _, _ = _sse()
         server.enable()
         server._quarantine_until = datetime.now() - timedelta(seconds=1)
         server._state = ServerState.QUARANTINED
@@ -524,7 +609,7 @@ class TestQuarantine:
         assert server._state == ServerState.RUNNING
 
     def test_quarantine_expires_to_stopped_when_disabled(self):
-        server, _ = _sse(enabled=False)
+        server, _, _ = _sse(enabled=False)
         server._quarantine_until = datetime.now() - timedelta(seconds=1)
         server._state = ServerState.QUARANTINED
         assert server.is_quarantined() is False
@@ -536,11 +621,11 @@ class TestQuarantine:
 
 class TestGetCapturedStderr:
     def test_returns_empty_for_non_stdio_server(self):
-        server, _ = _sse()
+        server, _, _ = _sse()
         assert server.get_captured_stderr() == []
 
     def test_returns_stderr_for_stdio_server(self):
-        server, mock_stdio = _stdio()
+        server, mock_stdio, _ = _stdio()
         mock_stdio.get_captured_stderr.return_value = ["error line 1", "error line 2"]
         assert server.get_captured_stderr() == ["error line 1", "error line 2"]
 
@@ -548,19 +633,19 @@ class TestGetCapturedStderr:
 class TestWaitUntilReady:
     @pytest.mark.asyncio
     async def test_non_stdio_returns_true_immediately(self):
-        server, _ = _sse()
+        server, _, _ = _sse()
         assert await server.wait_until_ready() is True
 
     @pytest.mark.asyncio
     async def test_stdio_waits_for_ready(self):
-        server, mock_stdio = _stdio()
+        server, mock_stdio, _ = _stdio()
         mock_stdio.wait_until_ready = AsyncMock()
         assert await server.wait_until_ready(timeout=10.0) is True
         mock_stdio.wait_until_ready.assert_called_once_with(10.0)
 
     @pytest.mark.asyncio
     async def test_stdio_returns_false_on_exception(self):
-        server, mock_stdio = _stdio()
+        server, mock_stdio, _ = _stdio()
         mock_stdio.wait_until_ready = AsyncMock(side_effect=Exception("Timeout"))
         assert await server.wait_until_ready() is False
 
@@ -568,12 +653,12 @@ class TestWaitUntilReady:
 class TestEnsureReady:
     @pytest.mark.asyncio
     async def test_non_stdio_does_nothing(self):
-        server, _ = _sse()
+        server, _, _ = _sse()
         await server.ensure_ready()
 
     @pytest.mark.asyncio
     async def test_stdio_calls_ensure_ready(self):
-        server, mock_stdio = _stdio()
+        server, mock_stdio, _ = _stdio()
         mock_stdio.ensure_ready = AsyncMock()
         await server.ensure_ready(timeout=15.0)
         mock_stdio.ensure_ready.assert_called_once_with(15.0)
@@ -581,7 +666,7 @@ class TestEnsureReady:
 
 class TestGetStatus:
     def test_returns_complete_status(self):
-        server, _ = _sse(enabled=False)
+        server, _, _ = _sse(enabled=False)
         status = server.get_status()
         assert status["id"] == "test-id"
         assert status["name"] == "test-server"
@@ -598,7 +683,7 @@ class TestGetStatus:
         assert status["server_available"] is False
 
     def test_status_with_running_server(self):
-        server, _ = _sse()
+        server, _, _ = _sse()
         server.enable()
         status = server.get_status()
         assert status["state"] == "running"
@@ -608,7 +693,7 @@ class TestGetStatus:
         assert status["server_available"] is True
 
     def test_status_with_quarantined_server(self):
-        server, _ = _sse()
+        server, _, _ = _sse()
         server.enable()
         server.quarantine(3600)
         status = server.get_status()
@@ -628,7 +713,7 @@ class TestGetStatus:
         assert status["server_available"] is False
 
     def test_status_config_is_copy(self):
-        server, _ = _sse()
+        server, _, _ = _sse()
         status = server.get_status()
         status["config"]["url"] = "modified"
         assert server.config.config["url"] == "http://x"

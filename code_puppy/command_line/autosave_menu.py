@@ -592,16 +592,6 @@ async def interactive_autosave_picker() -> Optional[str]:
         selected_idx[0] = min(selected_idx[0], len(filtered) - 1)
         current_page[0] = get_page_for_index(selected_idx[0], PAGE_SIZE)
 
-    def update_visible_entries() -> None:
-        """Synchronous re-filter -- only safe when the cache is warm or empty.
-
-        Used for the picker's initial setup (no filter active -> trivial)
-        and as a fallback. The post-Enter path goes through
-        :func:`asyncio.to_thread` instead so a cold-cache filter does not
-        freeze the event loop.
-        """
-        _apply_filter_result(_filter_entries(search_text[0]))
-
     # Build UI
     menu_control = FormattedTextControl(text="")
     preview_control = FormattedTextControl(text="")

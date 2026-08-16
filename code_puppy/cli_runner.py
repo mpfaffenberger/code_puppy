@@ -183,7 +183,10 @@ async def main():
         "-r",
         type=str,
         metavar="PATH",
-        help="Resume a saved session from a .pkl file (e.g. ~/.code_puppy/contexts/foo.pkl)",
+        help=(
+            "Resume a saved session by name or file path "
+            "(.json envelope; legacy .pkl files migrate automatically)"
+        ),
     )
     parser.add_argument(
         "--quick-resume",
@@ -391,6 +394,17 @@ async def main():
         sweep_contexts_to_autosaves()
     except Exception:
         # Sweep failure must never block startup -- it logs internally.
+        pass
+
+    # One-time format migration: legacy pickle sessions -> versioned JSON
+    # envelopes (idempotent via marker file). Runs after the location sweep so
+    # freshly-moved contexts/ files are migrated in the same boot.
+    try:
+        from code_puppy.session_format_migration import sweep_legacy_pickle_sessions
+
+        sweep_legacy_pickle_sessions()
+    except Exception:
+        # Never block startup; failures are logged/warned internally.
         pass
 
     await callbacks.on_startup()
@@ -1009,7 +1023,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 agent.estimate_tokens_for_message(msg)
                                 for msg in history
                             )
-                            session_path = base_dir / f"{chosen_session}.pkl"
+                            session_path = base_dir / f"{chosen_session}.json"
 
                             emit_success(
                                 t(

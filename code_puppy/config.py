@@ -2608,11 +2608,6 @@ def observe_quick_resume_path(target_path: str, *, path_kind: str = "auto") -> b
         return False
 
 
-def clear_observed_quick_resume_paths() -> None:
-    """Clear the observed-workspace set (used by tests)."""
-    _OBSERVED_QUICK_RESUME_KEYS.clear()
-
-
 def record_quick_resume_sessions(session_name: str) -> None:
     """Record cwd plus every observed child workspace for ``session_name``."""
     record_directory_session(session_name)
@@ -2654,21 +2649,25 @@ def get_last_directory_session(
 def resolve_quick_resume_pickle(
     target_path: Optional[str] = None, *, path_kind: str = "auto"
 ) -> Optional[str]:
-    """Return the absolute ``.pkl`` path for a scope's latest session, or None.
+    """Return the absolute session-file path for a scope's latest session.
 
-    The single source of truth the CLI ``--quick-resume`` flag consults. Resolves
-    strictly inside ``AUTOSAVE_DIR`` (rejecting any path-traversal) and only
-    returns a path that is an existing file.
+    The single source of truth the CLI ``--quick-resume`` flag consults.
+    Prefers the ``.json`` envelope and falls back to a legacy ``.pkl`` (which
+    ``load_session`` lazily migrates). Resolves strictly inside
+    ``AUTOSAVE_DIR`` (rejecting any path-traversal) and only returns a path
+    that is an existing file. Name kept for API stability; "pickle" is
+    historical.
     """
     session_name = get_last_directory_session(target_path, path_kind=path_kind)
     if not session_name:
         return None
     try:
         autosave_dir = pathlib.Path(AUTOSAVE_DIR).resolve()
-        candidate = (autosave_dir / f"{session_name}.pkl").resolve(strict=False)
-        if candidate.parent != autosave_dir or not candidate.is_file():
-            return None
-        return str(candidate)
+        for suffix in (".json", ".pkl"):
+            candidate = (autosave_dir / f"{session_name}{suffix}").resolve(strict=False)
+            if candidate.parent == autosave_dir and candidate.is_file():
+                return str(candidate)
+        return None
     except OSError:
         logger.debug("Unable to resolve quick-resume autosave path", exc_info=True)
         return None

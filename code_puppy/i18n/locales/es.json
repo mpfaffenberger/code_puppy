@@ -132,7 +132,7 @@
   "cmd.dump_context.invalid_name": "Nombre de sesión no válido: {name}. Los nombres de sesión deben tener de 1 a 128 caracteres de [A-Za-z0-9._-] y no pueden comenzar con 'auto_session_' (reservado).",
   "cmd.dump_context.no_history": "¡No hay historial de mensajes para exportar!",
   "cmd.dump_context.failed": "Error al exportar el contexto: {error}",
-  "cmd.dump_context.success": "✅ Contexto guardado: {message_count} mensajes ({total_tokens} tokens)\n📁 Archivos: {pickle_path}, {metadata_path}",
+  "cmd.dump_context.success": "✅ Contexto guardado: {message_count} mensajes ({total_tokens} tokens)\n📁 Archivos: {json_path}, {metadata_path}",
   "cmd.load_context.usage": "Uso: /load_context <session_name>",
   "cmd.load_context.not_found": "Archivo de contexto no encontrado: {path}",
   "cmd.load_context.available": "Contextos disponibles: {contexts}",

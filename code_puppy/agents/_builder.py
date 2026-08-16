@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pydantic_ai import Agent as PydanticAgent
-from rich.text import Text
+from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agents._compaction import make_history_processor
 from code_puppy.agents._steer_processor import make_steer_history_processor
@@ -217,8 +217,7 @@ def _iter_autostart_targets(manager: Any, agent_name: str):
 
 
 # Dedupe set of ``(agent_name, server_name)`` pairs already warned about — no
-# TTLs, a fresh process resets it ("warn once per session"). Cleared in tests
-# via ``_reset_missing_warning_cache``.
+# TTLs, a fresh process resets it ("warn once per session").
 _WARNED_MISSING: set[tuple[str, str]] = set()
 
 
@@ -235,11 +234,6 @@ def _warn_missing_server(agent_name: str, server_name: str) -> None:
     )
 
 
-def _reset_missing_warning_cache() -> None:
-    """Clear the warn-once cache. Test hook only."""
-    _WARNED_MISSING.clear()
-
-
 def _autostart_bound_servers(manager: Any, agent_name: str) -> None:
     """Start any stopped servers bound to ``agent_name`` with auto_start=True.
 
@@ -247,13 +241,11 @@ def _autostart_bound_servers(manager: Any, agent_name: str) -> None:
     immediately. **The server is NOT guaranteed to be ready** when this
     returns — it just kicks off a background task. Safe for the main agent
     boot path because there's plenty of wall-clock time before the first
-    ``agent.run()``. **Not safe** for callers that immediately spin up a
-    pydantic-ai agent against the same MCP singleton in a different task
-    (e.g. ``invoke_agent`` wrapping ``temp_agent.run`` in
-    ``asyncio.create_task``) — those should use
-    :func:`autostart_bound_servers_async` instead, which awaits readiness so
-    pydantic-ai's re-entry hits the refcount fast-path and never creates a
-    competing cancel scope.
+    ``agent.run()``. Callers that immediately spin up a pydantic-ai agent
+    against the same MCP singleton (e.g. ``invoke_agent`` wrapping
+    ``temp_agent.run`` in ``asyncio.create_task``) should use
+    :func:`autostart_bound_servers_async` instead, which awaits readiness
+    so the run starts against a fully started server.
     """
     targets = list(_iter_autostart_targets(manager, agent_name))
     if not targets:
@@ -274,9 +266,8 @@ async def autostart_bound_servers_async(manager: Any, agent_name: str) -> None:
 
     Calls ``manager.start_server`` (the async API) and awaits it, so when
     this coroutine returns the lifecycle task has finished entering the
-    pydantic-ai MCP singleton's context. A subsequent re-entry from
-    pydantic-ai inside ``agent.run()`` will see ``_running_count > 0`` and
-    take the no-op fast-path, avoiding the cross-task cancel-scope crash.
+    pydantic-ai MCP singleton's context and a subsequent re-entry from
+    pydantic-ai inside ``agent.run()`` takes the no-op fast-path.
 
     Use this from any async caller that's about to immediately invoke a
     pydantic-ai agent against the same MCP servers (sub-agent invocation,
@@ -454,38 +445,28 @@ def filter_conflicting_mcp_tools(
     mcp_servers: List[Any],
     existing_tool_names: Set[str],
 ) -> List[Any]:
-    """Strip any MCP tools whose names collide with already-registered tools.
+    """Hide MCP tools whose names collide with already-registered tools.
 
-    Returns a new list of MCP toolsets (possibly containing filtered ``ToolSet``
-    replacements). If a server doesn't expose a ``.tools`` attribute we pass it
-    through unchanged — better to risk a duplicate than to drop the whole server.
+    Wraps each toolset in a public ``FilteredToolset`` (via
+    ``AbstractToolset.filtered``) that drops colliding tool names at
+    ``get_tools`` time — no private-attribute surgery. Objects that aren't
+    pydantic-ai toolsets pass through unchanged; better to risk a duplicate
+    than to drop the whole server.
     """
     if not mcp_servers or not existing_tool_names:
         return list(mcp_servers) if mcp_servers else []
 
-    from pydantic_ai.tools import ToolSet
+    from pydantic_ai.toolsets import AbstractToolset
 
-    filtered: List[Any] = []
-    for server in mcp_servers:
-        server_tools = getattr(server, "tools", None)
-        if server_tools is None:
-            filtered.append(server)
-            continue
+    conflicts = frozenset(existing_tool_names)
 
-        kept = {
-            name: func
-            for name, func in server_tools.items()
-            if name not in existing_tool_names
-        }
-        if not kept:
-            continue  # whole server was conflicts — drop it
+    def _keep(ctx: Any, tool_def: Any) -> bool:
+        return tool_def.name not in conflicts
 
-        replacement = ToolSet()
-        for name, func in kept.items():
-            replacement._tools[name] = func
-        filtered.append(replacement)
-
-    return filtered
+    return [
+        server.filtered(_keep) if isinstance(server, AbstractToolset) else server
+        for server in mcp_servers
+    ]
 
 
 def _build_gpt_5_6_invoke_agent_guard_text() -> str:
@@ -611,8 +592,13 @@ def build_pydantic_agent(
             toolsets=toolsets,
             # Order matters: compaction first (may trim history to fit
             # context), THEN steer injection (a fresh steer must not be
-            # compacted away).
-            history_processors=[history_processor, steer_processor],
+            # compacted away). ProcessHistory capabilities apply in
+            # registration order (replaces the deprecated
+            # `history_processors=` kwarg, removed in pydantic-ai v2).
+            capabilities=[
+                ProcessHistory(history_processor),
+                ProcessHistory(steer_processor),
+            ],
             model_settings=model_settings,
         )
 
@@ -632,12 +618,6 @@ def build_pydantic_agent(
     filtered_mcp_servers = filter_conflicting_mcp_tools(
         mcp_servers, existing_tool_names
     )
-
-    dropped = len(mcp_servers) - len(filtered_mcp_servers)
-    if dropped:
-        emit_info(
-            Text.from_markup(f"[dim]Filtered {dropped} conflicting MCP tools[/dim]")
-        )
 
     # Pass 2: real build. MCP servers always go in the constructor; plugins
     # (e.g. DBOS) may swap them at run time via ``agent_run_context``.

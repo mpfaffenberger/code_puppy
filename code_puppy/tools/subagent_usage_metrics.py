@@ -144,13 +144,15 @@ def _extract_usage_metrics(usage: Any) -> dict[str, int | None]:
 
 
 def _safe_usage_metrics(result: Any) -> dict[str, int | None]:
-    """Best-effort ``result.usage()`` extraction that never breaks the run.
+    """Best-effort ``result.usage`` extraction that never breaks the run.
 
     Usage is secondary metadata; a failure here must not prevent a successful
     sub-agent invocation from returning its response.
     """
     try:
-        usage = result.usage()
+        # Property access (not a call): `result.usage()` is a deprecated
+        # callable-property since pydantic-ai 1.107 and warns when called.
+        usage = result.usage
         return _extract_usage_metrics(usage)
     except Exception:
         return _extract_usage_metrics(None)

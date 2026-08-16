@@ -29,8 +29,12 @@ if TYPE_CHECKING:
     from code_puppy.agents.base_agent import BaseAgent
 
 # Write-side validator. Read-side stays permissive (absolute paths to existing
-# ``.pkl``); lazy-create is the only place we create files from user input.
+# session files); lazy-create is the only place we create files from user input.
 _SESSION_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+# Session-file suffixes accepted on the read side. ``.json`` is canonical;
+# ``.pkl`` stays accepted so legacy files lazy-migrate on load.
+_SESSION_FILE_SUFFIXES = (".json", ".pkl")
 
 # Reserved prefix for system-generated names. User input matching it is
 # rejected so users can't squat on the namespace or break TTY-keyed resume.
@@ -45,8 +49,8 @@ def is_valid_session_name(name: str, *, allow_reserved_prefix: bool = False) -> 
     """Return True if ``name`` is a safe slug.
 
     Bare-slug regex + an explicit reject of all-dot names. All-dot names
-    would not actually escape the sessions dir (the ``.pkl`` suffix is
-    appended, so ``.`` becomes ``.pkl`` rather than ``.``), but they still
+    would not actually escape the sessions dir (the ``.json`` suffix is
+    appended, so ``.`` becomes ``.json`` rather than ``.``), but they still
     produce cosmetically broken hidden filenames with no recoverable session
     name and so are rejected on quality-of-life grounds.
 
@@ -83,8 +87,9 @@ def persist_named_session(
 
     ``success_message_key`` (optional) is an i18n catalog key. When provided,
     the helper resolves it via ``t()`` with the following available named
-    parameters -- ``{message_count}``, ``{total_tokens}``, ``{pickle_path}``,
-    ``{metadata_path}``, ``{session_name}`` -- and emits the result via
+    parameters -- ``{message_count}``, ``{total_tokens}``, ``{json_path}``,
+    ``{pickle_path}`` (legacy), ``{metadata_path}``, ``{session_name}`` --
+    and emits the result via
     ``emit_success`` so a caller like ``/dump_context`` can keep its
     user-facing line without bifurcating the helper. When omitted, no success
     line is emitted (the correct behavior for silent save-back paths like
@@ -118,6 +123,7 @@ def persist_named_session(
                 message_count=metadata.message_count,
                 total_tokens=metadata.total_tokens,
                 pickle_path=metadata.pickle_path,
+                json_path=metadata.json_path,
                 metadata_path=metadata.metadata_path,
                 session_name=session_name,
             )
@@ -152,18 +158,17 @@ def resolve_or_create_resume_target(
 
     Resolution order:
 
-    1. ``<resume_target>`` is a path ending in ``.pkl`` that exists --
-       load directly from that file. ``lazy_created=False``.
-    2. ``<sessions_dir>/<resume_target>.pkl`` exists -- load that named
-       session. ``lazy_created=False``.
+    1. ``<resume_target>`` is a path ending in ``.json`` or ``.pkl`` that
+       exists -- load directly from that file. ``lazy_created=False``.
+    2. ``<sessions_dir>/<resume_target>.json`` (or legacy ``.pkl``) exists --
+       load that named session. ``lazy_created=False``.
     3. ``<resume_target>`` is a path (any extension) that exists -- load it.
        ``lazy_created=False``.
-    4. ``<resume_target>`` is a bare slug ending in ``.pkl`` with no path
-       separator -- strip the ``.pkl`` suffix and fall through to lazy-create
-       under the bare name. Prevents accidental ``foo.pkl.pkl`` creation
-       when users instinctively append the extension. Case-sensitive
-       match against ``.pkl`` exactly (``Path.suffix`` semantics); ``foo.PKL``
-       does NOT normalize -- ``.pkl`` is the documented spelling.
+    4. ``<resume_target>`` is a bare slug ending in ``.json``/``.pkl`` with no
+       path separator -- strip the suffix and fall through to lazy-create
+       under the bare name. Prevents accidental ``foo.json.json`` creation
+       when users instinctively append the extension. Case-sensitive match
+       (``Path.suffix`` semantics); ``foo.JSON`` does NOT normalize.
     5. Nothing matched. If ``allow_lazy_create`` is True AND the target is a
        safe slug, lazy-create an empty session under that name in
        ``sessions_dir`` and return ``lazy_created=True``. Otherwise raise
@@ -185,27 +190,27 @@ def resolve_or_create_resume_target(
     guard.
     """
     resume_path = Path(resume_target)
-    if resume_path.suffix == ".pkl" and resume_path.exists():
+    if resume_path.suffix in _SESSION_FILE_SUFFIXES and resume_path.exists():
         return _validated_branch_result(
             resume_path.stem, resume_path.parent, False, sessions_dir
         )
 
-    named = sessions_dir / f"{resume_target}.pkl"
-    if named.exists():
-        return _validated_branch_result(
-            resume_target, sessions_dir, False, sessions_dir
-        )
+    for suffix in _SESSION_FILE_SUFFIXES:
+        if (sessions_dir / f"{resume_target}{suffix}").exists():
+            return _validated_branch_result(
+                resume_target, sessions_dir, False, sessions_dir
+            )
 
     if resume_path.exists():
         return _validated_branch_result(
             resume_path.stem, resume_path.parent, False, sessions_dir
         )
 
-    # Branch 4: "foo.pkl" with no separator + valid slug -> "foo" (avoids
-    # the historical ``foo.pkl.pkl`` lazy-create bug).
+    # Branch 4: "foo.json"/"foo.pkl" with no separator + valid slug -> "foo"
+    # (avoids the historical ``foo.pkl.pkl`` lazy-create bug).
     normalized_target = resume_target
     if (
-        resume_path.suffix == ".pkl"
+        resume_path.suffix in _SESSION_FILE_SUFFIXES
         and "/" not in resume_target
         and "\\" not in resume_target
         and is_valid_session_name(resume_path.stem, allow_reserved_prefix=False)

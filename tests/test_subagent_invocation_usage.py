@@ -23,7 +23,7 @@ from contextlib import ExitStack, contextmanager
 import asyncio
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 
@@ -132,9 +132,12 @@ async def _run_invoke(
         result.output = "subagent response"
         result.all_messages.return_value = ["updated-history"]
         if usage_raises:
-            result.usage = MagicMock(side_effect=RuntimeError("no usage"))
+            # `result.usage` is a property since pydantic-ai 1.107; simulate
+            # a property that raises on attribute access. (Safe: each
+            # MagicMock instance gets its own subclass, so no leak.)
+            type(result).usage = PropertyMock(side_effect=RuntimeError("no usage"))
         else:
-            result.usage = MagicMock(return_value=usage)
+            result.usage = usage
         mock_temp_agent.run = AsyncMock(return_value=result)
 
     with ExitStack() as stack:
