@@ -1,6 +1,6 @@
+import logging
 import os
 import sys
-import logging
 from typing import Iterable, Optional
 
 from prompt_toolkit import Application, PromptSession
@@ -11,12 +11,14 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 
+from code_puppy.callbacks import on_prompt_toolkit_style
 from code_puppy.command_line.pagination import (
     ensure_visible_page,
     get_page_bounds,
     get_page_for_index,
     get_total_pages,
 )
+from code_puppy.command_line.utils import safe_input
 from code_puppy.config import get_global_model_name
 from code_puppy.list_filtering import query_matches_text
 from code_puppy.model_switching import set_model_and_reload_agent
@@ -26,8 +28,6 @@ from code_puppy.provider_credentials import (
     required_env_var_for_model,
     save_credential,
 )
-from code_puppy.command_line.utils import safe_input
-from code_puppy.callbacks import on_prompt_toolkit_style
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +63,10 @@ def set_active_model(model_name: str):
 
 class ModelNameCompleter(Completer):
     """
-    A completer that triggers on '/model' to show available models from models.json.
-    Only '/model' (not just '/') will trigger the dropdown.
+    A completer that triggers on '/model' to show available models from the
+    merged model config (bundled models.json + extra_models.json + OAuth
+    model files + plugin models). Only '/model' (not just '/') will trigger
+    the dropdown.
 
     When ``prefix`` is set (e.g. ``"@"``), it also matches patterns like
     ``/fork @agent @model`` — the text after the last ``@`` following the
@@ -74,7 +76,6 @@ class ModelNameCompleter(Completer):
     def __init__(self, trigger: str = "/model", prefix: str = ""):
         self.trigger = trigger
         self.prefix = prefix
-        self.model_names = load_model_names()
 
     def get_completions(
         self, document: Document, complete_event
@@ -111,8 +112,11 @@ class ModelNameCompleter(Completer):
             ].lstrip()
             start_position = -len(text_after_prefix)
 
-        # Filter model names based on what's typed (case-insensitive)
-        for model_name in self.model_names:
+        # Filter model names based on what's typed (case-insensitive).
+        # Iterate the freshly loaded config -- NOT a snapshot from __init__:
+        # long-lived completer stacks (persistent prompt caches them once)
+        # must see models added later via /add_model -> extra_models.json.
+        for model_name in models_config:
             if text_after_prefix and not query_matches_text(
                 text_after_prefix, model_name
             ):
