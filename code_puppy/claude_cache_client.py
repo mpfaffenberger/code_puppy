@@ -33,9 +33,6 @@ TOOL_PREFIX = "cp_"
 
 CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
 
-# Compatibility value for older core-plugin releases; settings own the TTL.
-CACHE_TTL_1H = "1h"
-
 
 def _model_requires_thinking_summary(model_name):
     if not model_name:
@@ -59,19 +56,6 @@ def _enforce_thinking_display_summary(payload):
     return True
 
 
-def patch_anthropic_client_messages(
-    _client: Any, *, cache_ttl: str | None = None
-) -> None:
-    """Compatibility no-op for core-plugin releases before native caching.
-
-    Current model construction never calls this hook: pydantic-ai 2.31.0
-    applies cache settings before SDK serialization. Older separately shipped
-    plugins still import it, so keeping an inert boundary avoids breaking
-    those handlers while they upgrade. ``cache_ttl`` is intentionally ignored.
-    """
-    del cache_ttl
-
-
 class ClaudeCacheAsyncClient(httpx.AsyncClient):
     """Async HTTP client with Claude Code OAuth transformations.
 
@@ -89,10 +73,8 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         oauth_reauthentication_callback: Callable[[], str | None] | None = None,
         token_update_callback: Callable[[str], None] | None = None,
         apply_claude_code_prefix: bool = False,
-        cache_ttl: str | None = None,
         **kwargs: Any,
     ) -> None:
-        del cache_ttl
         super().__init__(*args, **kwargs)
         self._oauth_reauthentication_callback = oauth_reauthentication_callback
         self._token_update_callback = token_update_callback

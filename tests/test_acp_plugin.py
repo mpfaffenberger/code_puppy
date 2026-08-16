@@ -1204,7 +1204,7 @@ def test_persistence_save_writes_listable_session(tmp_path):
         additional_directories=["/aux"],
         base_dir=tmp_path,
     )
-    assert (tmp_path / "sess_saved.pkl").exists()
+    assert (tmp_path / "sess_saved.json").exists()
     assert (tmp_path / "sess_saved_acp.json").exists()
     records = persistence.list_persisted(base_dir=tmp_path)
     assert [r.session_id for r in records] == ["sess_saved"]

@@ -378,7 +378,7 @@ class TestResumeFlag:
         )
 
         # Verify the session was saved
-        assert metadata.pickle_path.exists()
+        assert metadata.json_path.exists()
 
         # Load session using the standard load_session function
         loaded_history = load_session(session_name, tmp_path)
@@ -466,9 +466,9 @@ class TestHeadlessSessionPersistence:
                 session_name="mywork",
             )
 
-        # Canonical JSON envelope plus the legacy pickle twin (compat shim).
+        # Canonical JSON envelope; the legacy pickle twin is gone.
         assert (tmp_path / "mywork.json").exists()
-        assert (tmp_path / "mywork.pkl").exists()
+        assert not (tmp_path / "mywork.pkl").exists()
         # post_autosave is reserved for the periodic auto-save path - the headless
         # ``-r NAME -p`` save-back must NOT fire it (decorator plugins double-print).
         assert fire_cb.call_count == 0
@@ -535,7 +535,7 @@ class TestHeadlessSessionPersistence:
         ):
             await execute_single_prompt("hi", self._renderer(), session_name="mywork")
 
-        assert (tmp_path / "mywork.pkl").exists()
+        assert (tmp_path / "mywork.json").exists()
 
     @pytest.mark.asyncio
     async def test_save_back_on_generic_exception(self, tmp_path):
@@ -555,7 +555,7 @@ class TestHeadlessSessionPersistence:
         ):
             await execute_single_prompt("hi", self._renderer(), session_name="mywork")
 
-        assert (tmp_path / "mywork.pkl").exists()
+        assert (tmp_path / "mywork.json").exists()
 
     @pytest.mark.asyncio
     async def test_default_autosave_uses_generated_session_name(self, tmp_path):

@@ -5,16 +5,12 @@ Sessions are stored as a versioned JSON envelope (``<name>.json``) with a
 pydantic-ai's ``ModelMessagesTypeAdapter`` so it survives library upgrades
 (unlike the pickle format it replaced). Legacy ``<name>.pkl`` files are
 lazily migrated on load via :mod:`code_puppy.session_format_migration`.
-
-A legacy ``.pkl`` twin is still written alongside the JSON for now -- see
-``WRITE_LEGACY_PICKLE`` below for the rationale and removal plan.
 """
 
 from __future__ import annotations
 
 import importlib.metadata
 import json
-import pickle
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,13 +30,6 @@ ENCODING_MESSAGES = "pydantic-ai-messages"
 #   - plain JSON payloads stored/returned verbatim (empty histories, plugin
 #     histories that are not ModelMessage lists, migrated non-message pickles)
 ENCODING_JSON = "json"
-
-# Compat shim: external consumers (notably the ACP core plugin's
-# ``list_persisted``) still key on ``<name>.pkl`` existing on disk, and a
-# pickle twin keeps downgrade-to-old-code-puppy rollbacks working during the
-# pydantic-ai v2 transition. Loads NEVER prefer the pickle -- flip this to
-# False (and delete the branch) once the plugins stop looking for ``.pkl``.
-WRITE_LEGACY_PICKLE = True
 
 # Sidecar suffixes that share the ``.json`` extension with session envelopes
 # and must never be listed as sessions themselves.
@@ -220,16 +209,6 @@ def save_session(
     envelope = build_envelope(history)
     write_envelope_file(paths.json_path, envelope)
 
-    if WRITE_LEGACY_PICKLE:
-        # Best-effort twin for external ``.pkl`` consumers; never load-bearing.
-        try:
-            tmp_pickle = paths.pickle_path.with_suffix(".tmp")
-            with tmp_pickle.open("wb") as pickle_file:
-                pickle_file.write(pickle.dumps(history))
-            tmp_pickle.replace(paths.pickle_path)
-        except Exception:
-            pass
-
     total_tokens = sum(token_estimator(message) for message in history)
     metadata = SessionMetadata(
         session_name=session_name,
@@ -250,12 +229,7 @@ def save_session(
     return metadata
 
 
-def load_session(
-    session_name: str, base_dir: Path, *, allow_legacy: bool = False
-) -> SessionHistory:
-    # Kept for API compatibility; legacy loading is always supported now.
-    _ = allow_legacy
-
+def load_session(session_name: str, base_dir: Path) -> SessionHistory:
     paths = build_session_paths(base_dir, session_name)
     if paths.json_path.exists():
         return decode_envelope(read_envelope_file(paths.json_path))

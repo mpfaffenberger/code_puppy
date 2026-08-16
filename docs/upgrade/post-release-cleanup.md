@@ -1,21 +1,26 @@
 # Post-Release Cleanup Tracker (pydantic-ai v2 migration)
 
 Status snapshot after the Phase D.1 dead-code sweep. Everything that was
-unambiguously dead has already been deleted. What remains is intentionally
-deferred and gated — do NOT delete these early.
+unambiguously dead has already been deleted. What remains needs an owner
+decision or manual verification.
 
-## (a) Gated on `code-puppy-plugins` 0.0.7 shipping
+## (a) DONE — swept after `code-puppy-core-plugins` 0.0.8 shipped to PyPI
 
-Delete these only after plugins 0.0.7 is published and adopted:
+Verified first that the published 0.0.8 wheel imports none of these
+(runtime code only touches `ClaudeCacheAsyncClient` and
+`session_storage.save_session/load_session/build_session_paths`).
+Note: the plugins repo's own *tests* still `mock.patch`
+`code_puppy.claude_cache_client.patch_anthropic_client_messages` — those
+mocks need updating in the plugins repo, but they do not affect runtime.
 
-| Item | Location | Notes |
-| --- | --- | --- |
-| `patch_anthropic_client_messages` no-op shim | `code_puppy/claude_cache_client.py:62` | Inert compat boundary for pre-native-caching plugins. |
-| `cache_ttl` kwarg on that shim | `code_puppy/claude_cache_client.py:63` | Intentionally ignored; dies with the shim. |
-| `CACHE_TTL_1H` constant | `code_puppy/claude_cache_client.py:37` | Only consumed by the shim's callers in old plugins. |
-| `allow_legacy` kwarg | `code_puppy/session_storage.py:254` | Accepted-and-ignored for old plugin call sites. |
-| `WRITE_LEGACY_PICKLE` flag + dual-write branch | `code_puppy/session_storage.py:43` and `:223` | See module docstring for the removal plan. |
-| Temporary `[tool.uv]` blocks | `pyproject.toml:105` (`override-dependencies` at `:111`, `[tool.uv.sources]` at `:119`) | Pins/overrides only needed until plugins 0.0.7 declares correct deps. |
+| Item | Status |
+| --- | --- |
+| `patch_anthropic_client_messages` no-op shim | deleted |
+| `cache_ttl` kwarg (shim + `ClaudeCacheAsyncClient.__init__`) | deleted |
+| `CACHE_TTL_1H` constant | deleted |
+| `allow_legacy` kwarg on `load_session` | deleted |
+| `WRITE_LEGACY_PICKLE` flag + dual-write branch | flipped off and deleted (ACP plugin reads JSON since 0.0.7) |
+| Temporary `[tool.uv.sources]` git pin | deleted; dependency floor is now `code-puppy-core-plugins>=0.0.8` from PyPI |
 
 ## (b) Deferred — needs an owner decision (potential public plugin API)
 
@@ -41,21 +46,11 @@ plugin surface:
   should offer a synchronous pre-render hook, or document fire-and-forget
   as the supported contract.
 
-## (c) Release-ordering checklist
+## (c) Release-ordering checklist — DONE
 
-Current interim state: core's `[tool.uv.sources]` pins
-`code-puppy-core-plugins` to git rev `3a661bc` (the 0.0.7 commit on the
-plugins repo's main). The old `override-dependencies` block is already gone
-(plugins main now declares `pydantic-ai-slim>=2.31.0,<3`, so no override is
-needed).
-
-1. Publish `code-puppy-core-plugins` 0.0.7 to PyPI.
-2. In core: delete the `[tool.uv.sources]` git-source block from
-   `pyproject.toml` and raise the dependency floor to
-   `code-puppy-core-plugins>=0.0.7` (resolved from PyPI).
-3. Re-lock (`uv lock`).
-4. Bump version and release core.
-5. Then (and only then) sweep the table in section (a).
+`code-puppy-core-plugins` 0.0.8 is on PyPI; core depends on `>=0.0.8`,
+the git-source pin is gone, the lockfile resolves from PyPI, and the
+section (a) sweep is complete.
 
 ## (d) Pending manual verification
 
