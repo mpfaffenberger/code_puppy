@@ -126,11 +126,16 @@ def _apply_tool_arg_changes(
     history_args = from_json(after)
     if type(execution_args) is not dict or type(history_args) is not dict:
         raise TypeError("tool argument mutation did not produce a dictionary")
-    validated.validated_args = execution_args
-    if mode == "str":
-        call.args = after.decode("utf-8")
-    else:
-        call.args = history_args
+    history_value = after.decode("utf-8") if mode == "str" else history_args
+    original_execution = validated.validated_args
+    original_history = call.args
+    try:
+        call.args = history_value
+        validated.validated_args = execution_args
+    except Exception:
+        call.args = original_history
+        validated.validated_args = original_execution
+        raise
 
 
 _MISSING = object()
