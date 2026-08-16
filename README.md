@@ -526,7 +526,7 @@ registered names:
 {
   "tools_config": {
     "spill": {
-      "skip_tools": ["custom_report", "agent_run_shell_command"]
+      "skip_tools": ["custom_report", "replace_in_file"]
     }
   }
 }
