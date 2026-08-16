@@ -517,7 +517,9 @@ spill configuration alone and add:
 ```
 
 Only the JSON boolean `false` opts out; omitting this setting keeps the global
-spill behavior.
+spill behavior. Spill bounds declared top-level string fields in plain dict and
+Pydantic-model results; strings nested in containers and `ToolReturn` payloads
+are left untouched.
 
 To keep spill enabled but exempt selected tools for this agent, add their exact
 registered names:
@@ -534,8 +536,8 @@ registered names:
 
 Per-agent `skip_tools` are additive to the effective global
 `spill_skip_tools` setting: they can only add exemptions, never remove global
-ones (`read_file` by default). Invalid values are ignored rather than disabling
-spill accidentally.
+ones (`read_file` and `activate_skill` by default). Invalid values are ignored
+rather than disabling spill accidentally.
 
 ## Available Tools
 
