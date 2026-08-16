@@ -248,7 +248,11 @@ class AgentInvokeWithModelOutput(AgentInvokeOutput):
 
     Each bucket resolves availability independently and stays ``None`` when the
     provider did not report it unambiguously -- including buckets a provider has
-    no concept of (only Anthropic bills cache writes).
+    no concept of (not every provider reports cache writes).
+
+    ``input_tokens`` here is cache-EXCLUSIVE. Do not hand it to
+    ``genai_prices.calc_price``, which expects the inclusive combined input and
+    subtracts the cache buckets itself.
 
     The root token fields are run-level TOTALS: fine for coarse telemetry, but
     insufficient for cost. Use ``per_request_usage`` for that.

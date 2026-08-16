@@ -163,23 +163,32 @@ class TestPromptMatchesTheSchema:
 
 
 class TestCacheWritePricingClaim:
-    """OpenAI and Gemini do not charge for cache writes.
+    """Cache-write pricing follows the price sheet, not the provider name.
 
     genai-prices lists ``cache_write_mtok`` for 0 of 71 OpenAI models, and every
-    Google entry with one is Claude-on-Vertex, not a gemini-*. Pricing an
-    estimated write there invents a cost and biases the verdict.
+    entry under provider ``google`` with one is Claude-on-Vertex, not a
+    gemini-*. But 10 ``gemini-*`` entries under ``openrouter`` DO carry a write
+    rate, so a blanket "never price Gemini writes" rule would silently drop a
+    real charge. Both directions of the error bias the verdict.
     """
 
-    def test_prompt_says_writes_are_free_there(self):
+    def test_prompt_says_writes_are_free_where_they_are(self):
         prompt = ModelJudgeAgent().get_system_prompt()
 
         assert "writes are free" in prompt
-        assert "NEVER price it for OpenAI or Gemini" in prompt
+        assert "Never price it from the provider NAME" in prompt
 
     def test_prompt_does_not_claim_they_charge_a_premium(self):
         prompt = ModelJudgeAgent().get_system_prompt()
 
         assert "charges a premium rate for cache writes" not in prompt
+
+    def test_prompt_does_not_blanket_ban_pricing_gemini_writes(self):
+        """OpenRouter-served Gemini really is billed for writes."""
+        prompt = ModelJudgeAgent().get_system_prompt()
+
+        assert "NEVER price it for OpenAI or Gemini" not in prompt
+        assert "OpenRouter" in prompt
 
     def test_anthropic_is_still_described_as_billable(self):
         """The asymmetry is the point -- don't over-correct into the reverse."""

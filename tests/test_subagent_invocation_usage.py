@@ -450,6 +450,18 @@ class TestExtractUsageMetrics:
         assert metrics["output_tokens"] is None
         assert metrics["num_requests"] is None
 
+    def test_zero_requests_is_normalized_to_none(self):
+        """A completed run never made zero calls, so 0 is the default showing.
+
+        Normalization lives in ``_safe_usage_metrics``, not the pure extractor,
+        so this must assert at that boundary to bite.
+        """
+        result = SimpleNamespace(
+            usage=lambda: _usage(input_tokens=10, output_tokens=5, requests=0)
+        )
+
+        assert _safe_usage_metrics(result)["num_requests"] is None
+
 
 class TestProviderOnlyUsage:
     """Billing metrics never substitute estimated token counts."""

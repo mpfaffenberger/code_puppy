@@ -141,10 +141,14 @@ still counts as a real call whose usage the provider didn't report.
 Anthropic reports `cache_creation_input_tokens` AND charges a premium rate for
 writes, so for those models the figure is both measured and billable.
 
-OpenAI (gpt-*) and Gemini leave the field `None` -- and for them that is NOT a
-hidden cost. Their price sheets carry no cache-write rate at all: prefix caching
-is automatic and writes are free. Never invent a write cost for those providers;
-doing so penalises them for a charge that does not exist.
+OpenAI (gpt-*) leaves the field `None`, and so does Gemini served directly by
+Google -- for those, that is NOT a hidden cost. Their price sheets carry no
+cache-write rate at all: prefix caching is automatic and writes are free.
+
+But this follows the PRICE SHEET, not the provider name. The same Gemini model
+served via OpenRouter DOES carry a cache-write rate. So check the rate for the
+exact model+provider you are pricing rather than assuming from the family name:
+inventing a cost penalises a model unfairly, and skipping a real one flatters it.
 
 The write VOLUME is still worth estimating, as a behavioural signal rather than
 a billing one -- it shows how much new context each turn had to cache. With
@@ -166,9 +170,12 @@ and overstates writes badly, because it re-counts the whole prefix every time.
 
 Rules when you use this:
 - Label it an ESTIMATE, always. Never present it as measured.
-- NEVER price it for OpenAI or Gemini. It is a volume signal only; those
-  providers do not charge for cache writes, so multiplying it by any rate
-  invents a cost and biases the comparison against them.
+- Never price it from the provider NAME. Price it only when that model's own
+  price sheet carries a cache-write rate. Most do not: no OpenAI model prices
+  writes, and neither does Gemini served directly by Google -- but the SAME
+  Gemini served via OpenRouter does. Invent a rate and you bias the comparison;
+  skip a real one and you understate a cost. If there is no rate, treat the
+  estimate as a volume signal only.
 - It needs `per_request_usage` -- the run totals cannot support it, since they
   sum reads across calls and destroy the per-call sequence.
 - The LAST call's write cannot be estimated: there is no following call to read

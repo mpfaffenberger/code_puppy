@@ -1,7 +1,9 @@
 """Per-run token usage/latency extraction for ``invoke_agent_with_model``.
 
 Pure functions mapping a pydantic-ai usage object to our schema fields, plus
-the output builder. ``invoke_agent`` never calls into this module.
+the output builder. ``invoke_agent`` shares ``build_invoke_output`` but passes
+``include_usage_metrics=False``, so it still returns a plain
+``AgentInvokeOutput`` carrying no usage fields.
 
 **Availability is per field.** ``RunUsage`` counters each default to ``0``, so a
 bare ``0`` may mean "reported zero" or "not reported". Each counter resolves
@@ -129,7 +131,8 @@ def _extract_token_buckets(usage: Any) -> dict[str, int | None]:
 
     pydantic-ai folds cached tokens INTO ``input_tokens`` for every provider we
     use, so the cache components are subtracted back out and the buckets never
-    overlap. Cache creation is Anthropic-only; OpenAI and Gemini leave it
+    overlap. Cache creation is reported only by adapters that expose a write
+    bucket (Anthropic, and OpenRouter for some models); others leave it
     ``None``. Aliases may arrive as attributes or in ``details``.
     """
     metrics: dict[str, int | None] = dict(_EMPTY_TOKEN_BUCKETS)
