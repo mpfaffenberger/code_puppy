@@ -256,9 +256,10 @@ def test_steer_queued_mid_run_is_injected_via_history_processor():
     This is a unit test on the processor itself (we can't drive a real
     pydantic-ai agent in CI), but it locks the contract: queue a steer,
     invoke the processor, the steer shows up in the returned messages.
-    The actual pydantic-ai → history_processors → model wiring is verified
+    The actual pydantic-ai → ProcessHistory → model wiring is verified
     by the unit tests in ``test_steer_history_processor.py`` and by the
-    ``_builder.py`` wiring (``history_processors=[compaction, steer]``).
+    ``_builder.py`` wiring (``capabilities=[ProcessHistory(compaction),
+    ProcessHistory(steer)]``).
     """
     from unittest.mock import Mock
 
@@ -297,15 +298,14 @@ def test_steer_processor_is_wired_into_builder_after_compaction():
     # Both processors must be referenced in the builder.
     assert "make_steer_history_processor" in src
     assert "make_history_processor" in src
-    # Order is checked textually against the list literal; the wiring test below
-    # (test_steer_processor_appended_after_compaction) verifies real ordering.
-    history_processors_line = next(
-        line for line in src.splitlines() if "history_processors=" in line
-    )
-    # Format is `history_processors=[history_processor, steer_processor]`.
+    # Order is checked textually against the capabilities list literal;
+    # ProcessHistory capabilities apply in registration order.
+    cap_start = src.find("capabilities=[")
+    assert cap_start >= 0, "builder must register capabilities=[ProcessHistory(...)]"
+    cap_block = src[cap_start : src.find("]", cap_start)]
     # Just sanity-check both names appear and history_processor comes first.
-    h_idx = history_processors_line.find("history_processor")
-    s_idx = history_processors_line.find("steer_processor")
+    h_idx = cap_block.find("ProcessHistory(history_processor)")
+    s_idx = cap_block.find("ProcessHistory(steer_processor)")
     assert h_idx >= 0 and s_idx > h_idx, (
-        f"steer_processor must come AFTER history_processor: {history_processors_line!r}"
+        f"steer_processor must come AFTER history_processor: {cap_block!r}"
     )

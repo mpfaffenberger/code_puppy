@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pydantic_ai import Agent as PydanticAgent
+from pydantic_ai.capabilities import ProcessHistory
 from rich.text import Text
 
 from code_puppy.agents._compaction import make_history_processor
@@ -611,8 +612,13 @@ def build_pydantic_agent(
             toolsets=toolsets,
             # Order matters: compaction first (may trim history to fit
             # context), THEN steer injection (a fresh steer must not be
-            # compacted away).
-            history_processors=[history_processor, steer_processor],
+            # compacted away). ProcessHistory capabilities apply in
+            # registration order (replaces the deprecated
+            # `history_processors=` kwarg, removed in pydantic-ai v2).
+            capabilities=[
+                ProcessHistory(history_processor),
+                ProcessHistory(steer_processor),
+            ],
             model_settings=model_settings,
         )
 

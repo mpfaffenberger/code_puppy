@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from pydantic_ai._run_context import RunContext
+from pydantic_ai import RunContext
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,

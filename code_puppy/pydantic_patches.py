@@ -134,82 +134,15 @@ def patch_message_history_cleaning() -> bool:
         )
 
 
-def patch_process_message_history() -> bool:
-    """Patch _process_message_history to skip strict ModelRequest validation.
-
-    Pydantic AI added a validation that history must end with ModelRequest,
-    but this breaks valid conversation flows. We patch it to skip that validation.
-    """
-    try:
-        from pydantic_ai import _agent_graph
-
-        # Import the internals we depend on at APPLY time so a changed
-        # pydantic-ai surface is detected immediately, not on first run.
-        from pydantic_ai._agent_graph import (
-            _HistoryProcessorAsync,
-            _HistoryProcessorSync,
-            _HistoryProcessorSyncWithCtx,
-            cast,
-            exceptions,
-            is_async_callable,
-            is_takes_ctx,
-            run_in_executor,
-        )
-
-        if not hasattr(_agent_graph, "_process_message_history"):
-            raise AttributeError(
-                "pydantic_ai._agent_graph._process_message_history not found"
-            )
-
-        async def _patched_process_message_history(messages, processors, run_context):
-            """Patched version that doesn't enforce ModelRequest at end."""
-            for processor in processors:
-                takes_ctx = is_takes_ctx(processor)
-
-                if is_async_callable(processor):
-                    if takes_ctx:
-                        messages = await processor(run_context, messages)
-                    else:
-                        async_processor = cast(_HistoryProcessorAsync, processor)
-                        messages = await async_processor(messages)
-                else:
-                    if takes_ctx:
-                        sync_processor_with_ctx = cast(
-                            _HistoryProcessorSyncWithCtx, processor
-                        )
-                        messages = await run_in_executor(
-                            sync_processor_with_ctx, run_context, messages
-                        )
-                    else:
-                        sync_processor = cast(_HistoryProcessorSync, processor)
-                        messages = await run_in_executor(sync_processor, messages)
-
-            if len(messages) == 0:
-                raise exceptions.UserError("Processed history cannot be empty.")
-
-            # NOTE: We intentionally skip the "must end with ModelRequest" validation
-            # that was added in newer Pydantic AI versions.
-
-            return messages
-
-        _agent_graph._process_message_history = _patched_process_message_history
-        assert _agent_graph._process_message_history is _patched_process_message_history
-        return True
-    except Exception as exc:
-        return _patch_failed(
-            "patch_process_message_history",
-            exc,
-            "lenient history processing is DISABLED; strict ModelRequest-at-end "
-            "validation may reject valid conversation flows.",
-        )
-
-
 def patch_tool_call_json_repair() -> bool:
-    """Patch pydantic-ai's _call_tool to auto-repair malformed JSON arguments.
+    """Patch pydantic-ai's tool-call validation to auto-repair malformed JSON.
 
     LLMs sometimes produce slightly broken JSON in tool calls (trailing commas,
-    missing quotes, etc.). This patch intercepts tool calls and runs json_repair
-    on the arguments before validation, preventing unnecessary retries.
+    missing quotes, etc.). This patch intercepts ``validate_tool_call`` (the
+    single validation entry point since pydantic-ai split validation from
+    execution in the public ``pydantic_ai.tool_manager`` module) and runs
+    json_repair on the raw arguments before validation, preventing
+    unnecessary retries.
     """
     try:
         import json_repair
@@ -217,21 +150,14 @@ def patch_tool_call_json_repair() -> bool:
         return _optional_lib_missing("patch_tool_call_json_repair", exc)
 
     try:
-        from pydantic_ai._tool_manager import ToolManager
+        from pydantic_ai.tool_manager import ToolManager
 
-        # Store the original method
-        _original_call_tool = ToolManager._call_tool
+        # Store the original method (resolved at APPLY time so a changed
+        # pydantic-ai surface is detected immediately, not on first run).
+        _original_validate_tool_call = ToolManager.validate_tool_call
 
-        async def _patched_call_tool(
-            self,
-            call,
-            *,
-            allow_partial: bool,
-            wrap_validation_errors: bool,
-            approved: bool,
-            metadata: Any = None,
-        ):
-            """Patched _call_tool that repairs malformed JSON before validation."""
+        async def _patched_validate_tool_call(self, call, **kwargs):
+            """Repair malformed JSON args before pydantic-ai validates them."""
             # Only attempt repair if args is a string (JSON)
             if isinstance(call.args, str) and call.args:
                 try:
@@ -242,19 +168,11 @@ def patch_tool_call_json_repair() -> bool:
                 except Exception:
                     pass  # If repair fails, let original validation handle it
 
-            # Call the original method
-            return await _original_call_tool(
-                self,
-                call,
-                allow_partial=allow_partial,
-                wrap_validation_errors=wrap_validation_errors,
-                approved=approved,
-                metadata=metadata,
-            )
+            return await _original_validate_tool_call(self, call, **kwargs)
 
         # Apply the patch
-        ToolManager._call_tool = _patched_call_tool
-        assert ToolManager._call_tool is _patched_call_tool
+        ToolManager.validate_tool_call = _patched_validate_tool_call
+        assert ToolManager.validate_tool_call is _patched_validate_tool_call
         return True
     except Exception as exc:
         return _patch_failed(
@@ -301,19 +219,21 @@ def patch_tool_call_callbacks() -> bool:
     ``_call_tool`` is too late: prefixed tools get marked as ``unknown`` and can
     burn through result retries, eventually raising ``UnexpectedModelBehavior``.
 
-    This patch normalizes Claude Code tool names early (during lookup/dispatch)
-    and wraps ``_call_tool`` so every tool invocation also triggers the
-    ``pre_tool_call`` and ``post_tool_call`` callbacks defined in
-    ``code_puppy.callbacks``.
+    This patch normalizes Claude Code tool names early (during lookup and
+    validation, before classification) and wraps ``execute_tool_call`` (the
+    single execution entry point since pydantic-ai split validation from
+    execution in the public ``pydantic_ai.tool_manager`` module) so every tool
+    invocation also triggers the ``pre_tool_call`` and ``post_tool_call``
+    callbacks defined in ``code_puppy.callbacks``.
     """
     import time
 
     try:
-        from pydantic_ai._tool_manager import ToolManager
+        from pydantic_ai.tool_manager import ToolManager
 
-        _original_call_tool = ToolManager._call_tool
+        _original_execute_tool_call = ToolManager.execute_tool_call
         _original_get_tool_def = ToolManager.get_tool_def
-        _original_handle_call = ToolManager.handle_call
+        _original_validate_tool_call = ToolManager.validate_tool_call
 
         # Strip the cp_ prefix on return only while a claude-code model is active;
         # unconditional stripping would corrupt legit ``cp_`` names from other types.
@@ -363,43 +283,30 @@ def patch_tool_call_callbacks() -> bool:
         def _patched_get_tool_def(self, name: str):
             return _original_get_tool_def(self, _normalize_tool_name(name))
 
-        async def _patched_handle_call(
-            self,
-            call,
-            allow_partial: bool = False,
-            wrap_validation_errors: bool = True,
-            *,
-            approved: bool = False,
-            metadata: Any = None,
-        ):
+        async def _patched_validate_tool_call(self, call, **kwargs):
+            """Normalize the tool name before pydantic-ai classifies the call."""
             _normalize_call_tool_name(call)
-            return await _original_handle_call(
-                self,
-                call,
-                allow_partial=allow_partial,
-                wrap_validation_errors=wrap_validation_errors,
-                approved=approved,
-                metadata=metadata,
-            )
+            return await _original_validate_tool_call(self, call, **kwargs)
 
-        # -- _call_tool wrapper with callbacks -----------------------------------
+        # -- execute_tool_call wrapper with callbacks ----------------------------
 
-        async def _patched_call_tool(
-            self,
-            call,
-            *,
-            allow_partial: bool,
-            wrap_validation_errors: bool,
-            approved: bool,
-            metadata: Any = None,
-        ):
+        async def _patched_execute_tool_call(self, validated, **kwargs):
+            call = validated.call
             tool_name, call = _normalize_call_tool_name(call)
 
-            # Normalise args for hooks, but remember the original shape so in-place
-            # mutations survive a JSON-string call.args. Mode: "str"/"dict"/None.
+            # Give hooks a dict view of the args. Prefer the already-validated
+            # dict — execution passes it to the tool, so in-place mutations
+            # flow through automatically. Remember the original call.args shape
+            # so mutations also land in message history. Mode: "str"/"dict"/None.
             tool_args: dict = {}
             _args_writeback_mode: str | None = None
-            if isinstance(call.args, dict):
+            if isinstance(validated.validated_args, dict):
+                tool_args = validated.validated_args
+                if isinstance(call.args, dict):
+                    _args_writeback_mode = "dict"
+                elif isinstance(call.args, str):
+                    _args_writeback_mode = "str"
+            elif isinstance(call.args, dict):
                 tool_args = call.args
                 _args_writeback_mode = "dict"
             elif isinstance(call.args, str):
@@ -462,22 +369,16 @@ def patch_tool_call_callbacks() -> bool:
             except Exception:
                 pass  # other errors don't block tool execution
 
-            # Write pre_tool_call mutations back to call.args so dispatch and
-            # history see them. See ``_writeback_tool_args``.
+            # Write pre_tool_call mutations back to call.args so message
+            # history sees them (execution itself reads validated.validated_args,
+            # which IS ``tool_args`` when validation succeeded).
             _writeback_tool_args(call, tool_args, _args_writeback_mode)
 
             start = time.perf_counter()
             error: Exception | None = None
             result = None
             try:
-                result = await _original_call_tool(
-                    self,
-                    call,
-                    allow_partial=allow_partial,
-                    wrap_validation_errors=wrap_validation_errors,
-                    approved=approved,
-                    metadata=metadata,
-                )
+                result = await _original_execute_tool_call(self, validated, **kwargs)
                 # Prepend collected hook stdout (PreToolUse "additional
                 # context") so the model sees it as part of the tool result.
                 if hook_context_messages:
@@ -508,11 +409,11 @@ def patch_tool_call_callbacks() -> bool:
                     pass  # never block tool execution
 
         ToolManager.get_tool_def = _patched_get_tool_def
-        ToolManager.handle_call = _patched_handle_call
-        ToolManager._call_tool = _patched_call_tool
+        ToolManager.validate_tool_call = _patched_validate_tool_call
+        ToolManager.execute_tool_call = _patched_execute_tool_call
         assert ToolManager.get_tool_def is _patched_get_tool_def
-        assert ToolManager.handle_call is _patched_handle_call
-        assert ToolManager._call_tool is _patched_call_tool
+        assert ToolManager.validate_tool_call is _patched_validate_tool_call
+        assert ToolManager.execute_tool_call is _patched_execute_tool_call
         return True
     except Exception as exc:
         return _patch_failed(
@@ -659,7 +560,6 @@ def patch_termflow_code_padding() -> bool:
 _ALL_PATCHES = (
     patch_user_agent,
     patch_message_history_cleaning,
-    patch_process_message_history,
     patch_tool_call_json_repair,
     patch_tool_call_callbacks,
     patch_prompt_toolkit_emoji_width,

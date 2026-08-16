@@ -409,7 +409,7 @@ def make_model_settings(
             extra_body["output_config"] = {"effort": effort}
             model_settings_dict["extra_body"] = extra_body
 
-        # pydantic-ai 1.56.0 handles all three Anthropic cache breakpoints
+        # pydantic-ai (>=1.56.0) handles all three Anthropic cache breakpoints
         # natively. OAuth subscription models get their free one-hour TTL;
         # API-key and custom endpoints use Anthropic's five-minute default.
         cache_setting: bool | str = (

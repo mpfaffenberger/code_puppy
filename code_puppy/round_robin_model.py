@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, List
 
-from pydantic_ai._run_context import RunContext
+from pydantic_ai import RunContext
 from pydantic_ai.models import (
     Model,
     ModelMessage,

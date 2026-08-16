@@ -18,6 +18,7 @@ preserved verbatim:
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import signal
 import threading
@@ -563,6 +564,30 @@ def _should_prepend_system_prompt(agent: Any, prompt: str) -> str:
     return prepared.user_prompt
 
 
+# Count of cancel-scope corruption suppressions this process (exposed for
+# tests and for the Phase C proof-of-death gate). pydantic-ai 1.92+ fixed the
+# upstream stream/MCP teardown bugs (#5313, #4514) that caused these, so this
+# counter is expected to stay at ZERO — any increment is a signal the
+# suppression below is still load-bearing and must NOT be deleted yet.
+_cancel_scope_suppression_count = 0
+
+
+def get_cancel_scope_suppression_count() -> int:
+    """Return how many times cancel-scope corruption was suppressed."""
+    return _cancel_scope_suppression_count
+
+
+def _record_cancel_scope_suppression(exc: BaseException) -> None:
+    """Log LOUDLY and count a cancel-scope suppression (Phase C gate)."""
+    global _cancel_scope_suppression_count
+    _cancel_scope_suppression_count += 1
+    logging.getLogger(__name__).warning(
+        "cancel-scope corruption suppressed "
+        "(expected extinct after pydantic-ai 1.92+): %r",
+        exc,
+    )
+
+
 def _is_cancel_scope_corruption(exc: BaseException) -> bool:
     """True for anyio's cross-task cancel-scope ``RuntimeError``.
 
@@ -863,11 +888,8 @@ async def _run_with_mcp_impl(
             scope_noise = [e for e in unexpected if _is_cancel_scope_corruption(e)]
             unexpected = [e for e in unexpected if e not in scope_noise]
             if scope_noise:
-                import logging as _logging
-
-                _logging.getLogger(__name__).debug(
-                    "Suppressed cross-task cancel-scope error(s): %s", scope_noise
-                )
+                for noise in scope_noise:
+                    _record_cancel_scope_suppression(noise)
                 emit_warning(
                     "An MCP server connection died during this run (its async "
                     "teardown crossed task boundaries). The response above is "
@@ -1011,7 +1033,9 @@ async def _run_with_mcp_impl(
         run_success = True
         run_response_text = _extract_response_text(result)
         try:
-            usage = result.usage()
+            # Property access (not a call): `result.usage()` is a deprecated
+            # callable-property since pydantic-ai 1.107 and warns when called.
+            usage = result.usage
 
             def _pick_usage_int(*names: str) -> int | None:
                 for name in names:

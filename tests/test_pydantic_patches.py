@@ -64,16 +64,16 @@ def test_apply_all_patches_returns_all_patch_names():
             lambda mp: mp.delattr("pydantic_ai._agent_graph._clean_message_history"),
         ),
         (
-            "patch_process_message_history",
-            lambda mp: mp.delattr("pydantic_ai._agent_graph._process_message_history"),
-        ),
-        (
             "patch_tool_call_callbacks",
-            lambda mp: mp.delattr("pydantic_ai._tool_manager.ToolManager._call_tool"),
+            lambda mp: mp.delattr(
+                "pydantic_ai.tool_manager.ToolManager.execute_tool_call"
+            ),
         ),
         (
             "patch_tool_call_json_repair",
-            lambda mp: mp.delattr("pydantic_ai._tool_manager.ToolManager._call_tool"),
+            lambda mp: mp.delattr(
+                "pydantic_ai.tool_manager.ToolManager.validate_tool_call"
+            ),
         ),
     ],
 )
@@ -96,7 +96,7 @@ def test_missing_pydantic_internal_logs_error(
 
 def test_tool_call_callbacks_failure_names_disabled_hooks(monkeypatch, caplog):
     """The security-critical patch must spell out the consequence."""
-    monkeypatch.delattr("pydantic_ai._tool_manager.ToolManager._call_tool")
+    monkeypatch.delattr("pydantic_ai.tool_manager.ToolManager.execute_tool_call")
     with caplog.at_level(logging.ERROR, logger=LOGGER_NAME):
         assert pydantic_patches.patch_tool_call_callbacks() is False
     message = _error_records(caplog)[0].getMessage()
