@@ -217,8 +217,7 @@ def _iter_autostart_targets(manager: Any, agent_name: str):
 
 
 # Dedupe set of ``(agent_name, server_name)`` pairs already warned about — no
-# TTLs, a fresh process resets it ("warn once per session"). Cleared in tests
-# via ``_reset_missing_warning_cache``.
+# TTLs, a fresh process resets it ("warn once per session").
 _WARNED_MISSING: set[tuple[str, str]] = set()
 
 
@@ -233,11 +232,6 @@ def _warn_missing_server(agent_name: str, server_name: str) -> None:
         f"not installed. Run `/mcp install` to add it, or remove the entry "
         f"from the agent's JSON config."
     )
-
-
-def _reset_missing_warning_cache() -> None:
-    """Clear the warn-once cache. Test hook only."""
-    _WARNED_MISSING.clear()
 
 
 def _autostart_bound_servers(manager: Any, agent_name: str) -> None:

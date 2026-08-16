@@ -64,7 +64,7 @@ def patch_anthropic_client_messages(
 ) -> None:
     """Compatibility no-op for core-plugin releases before native caching.
 
-    Current model construction never calls this hook: pydantic-ai 1.56.0
+    Current model construction never calls this hook: pydantic-ai 2.31.0
     applies cache settings before SDK serialization. Older separately shipped
     plugins still import it, so keeping an inert boundary avoids breaking
     those handlers while they upgrade. ``cache_ttl`` is intentionally ignored.

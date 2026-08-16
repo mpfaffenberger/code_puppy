@@ -2608,11 +2608,6 @@ def observe_quick_resume_path(target_path: str, *, path_kind: str = "auto") -> b
         return False
 
 
-def clear_observed_quick_resume_paths() -> None:
-    """Clear the observed-workspace set (used by tests)."""
-    _OBSERVED_QUICK_RESUME_KEYS.clear()
-
-
 def record_quick_resume_sessions(session_name: str) -> None:
     """Record cwd plus every observed child workspace for ``session_name``."""
     record_directory_session(session_name)
