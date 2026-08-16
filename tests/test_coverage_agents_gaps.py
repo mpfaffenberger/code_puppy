@@ -195,21 +195,47 @@ class TestInitVersionFallback:
             assert code_puppy.__version__ == "0.0.0-dev"
             mock_version.assert_called_once_with("code-puppy")
 
-    def test_core_plugins_version_uses_installed_distribution_metadata(self):
+    @pytest.mark.parametrize("metadata_version", ["0.0.2", "  1.2.3rc1+build.5  "])
+    def test_core_plugins_version_uses_installed_distribution_metadata(
+        self, metadata_version
+    ):
         import code_puppy
 
-        with patch("importlib.metadata.version", return_value="0.0.2") as mock_version:
-            assert code_puppy.get_core_plugins_version() == "0.0.2"
+        with patch(
+            "importlib.metadata.version", return_value=metadata_version
+        ) as mock_version:
+            assert code_puppy.get_core_plugins_version() == metadata_version.strip()
 
         mock_version.assert_called_once_with("code-puppy-core-plugins")
 
-    @pytest.mark.parametrize("metadata_version", ["", "   ", None, object()])
+    @pytest.mark.parametrize(
+        "metadata_version",
+        [
+            "",
+            "   ",
+            None,
+            object(),
+            "not-a-version",
+            "1.2.3\nInjected second line",
+            "\x1b[2J",
+        ],
+    )
     def test_core_plugins_version_rejects_empty_or_malformed_metadata(
         self, metadata_version
     ):
         import code_puppy
 
         with patch("importlib.metadata.version", return_value=metadata_version):
+            assert code_puppy.get_core_plugins_version() is None
+
+    def test_core_plugins_version_handles_normalization_failure(self):
+        import code_puppy
+
+        class BrokenVersion(str):
+            def strip(self):
+                raise RuntimeError("broken metadata")
+
+        with patch("importlib.metadata.version", return_value=BrokenVersion("1.2.3")):
             assert code_puppy.get_core_plugins_version() is None
 
     def test_core_plugins_version_handles_missing_distribution(self):
@@ -221,6 +247,19 @@ class TestInitVersionFallback:
         ):
             assert code_puppy.get_core_plugins_version() is None
 
+    @pytest.mark.parametrize("metadata_version", [" 1.2.3 ", object()])
+    def test_code_puppy_version_preserves_truthy_metadata(self, metadata_version):
+        import importlib
+
+        import code_puppy
+
+        try:
+            with patch("importlib.metadata.version", return_value=metadata_version):
+                importlib.reload(code_puppy)
+                assert code_puppy.__version__ is metadata_version
+        finally:
+            importlib.reload(code_puppy)
+
 
 # =============================================================================
 # __main__.py lines 7-10
@@ -231,7 +270,6 @@ class TestMainModule:
     def test_main_module_importable(self):
         """Cover the import of __main__ (lines 7-10 minus __name__ guard)."""
         import code_puppy.__main__  # noqa: F401
-
         # The if __name__ == '__main__' guard won't fire, but the import covers lines 7-8
 
 

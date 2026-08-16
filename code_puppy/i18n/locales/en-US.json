@@ -17,7 +17,7 @@
   "subagent.gpt_5_6_recursion_blocked": "Cannot invoke '{agent}' at sub-agent depth {depth}: GPT-5.6 callers are limited to depth {limit}.",
   "version.current": "Current version: {version}",
   "version.core_plugins": "Core plugins version: {version}",
-  "version.unknown": "unknown",
+  "version.core_plugins_unknown": "Core plugins version: unknown",
   "version.latest": "Latest version: {version}",
   "version.update_available": "A new version of code puppy is available: {version}",
   "version.please_update": "Please consider updating!",

@@ -392,6 +392,71 @@ class TestMain:
         _assert_core_plugins_message_once(mock_emit, "0.0.2")
 
     @pytest.mark.anyio
+    async def test_core_plugins_version_renders_once_through_message_pipeline(self):
+        from io import StringIO
+
+        from rich.console import Console as RichConsole
+
+        from code_puppy.messaging.message_queue import MessageQueue
+
+        output = StringIO()
+        queue = MessageQueue()
+        queue.start()
+        console = RichConsole(file=output, force_terminal=False, width=120)
+
+        async def execute_and_drain(*_args, **_kwargs):
+            assert queue.drain()
+
+        patches = _base_main_patches()
+        patches["code_puppy.cli_runner.get_core_plugins_version"] = MagicMock(
+            return_value="0.0.2"
+        )
+
+        try:
+            with ExitStack() as stack:
+                stack.enter_context(patch.dict(os.environ, {"NO_VERSION_UPDATE": "1"}))
+                stack.enter_context(patch("sys.argv", ["code-puppy", "-p", "hi"]))
+                stack.enter_context(
+                    patch("code_puppy.cli_runner.Console", return_value=console)
+                )
+                stack.enter_context(
+                    patch(
+                        "code_puppy.messaging.RichConsoleRenderer",
+                        return_value=_mock_renderer(),
+                    )
+                )
+                stack.enter_context(
+                    patch("code_puppy.messaging.get_global_queue", return_value=queue)
+                )
+                stack.enter_context(
+                    patch(
+                        "code_puppy.messaging.message_queue.get_global_queue",
+                        return_value=queue,
+                    )
+                )
+                stack.enter_context(
+                    patch(
+                        "code_puppy.messaging.get_message_bus",
+                        return_value=MagicMock(),
+                    )
+                )
+                stack.enter_context(
+                    patch(
+                        "code_puppy.cli_runner.execute_single_prompt",
+                        side_effect=execute_and_drain,
+                    )
+                )
+                _apply_patches(stack, patches)
+
+                from code_puppy.cli_runner import main
+
+                await main()
+        finally:
+            queue.stop()
+
+        assert output.getvalue().count("Core plugins version: 0.0.2") == 1
+
+    @pytest.mark.anyio
     async def test_core_plugins_version_uses_localized_unknown_fallback(self):
         mock_emit = MagicMock()
 
