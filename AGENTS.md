@@ -80,7 +80,7 @@ all public priorities and cannot be selected through `register_callback`.
 | `file_permission` | Before file op | `(context, file_path, operation, ...) -> bool` |
 | `pre_tool_call` | Before tool executes | `(tool_name, tool_args, context=None) -> Any` |
 | `post_tool_call` | After tool finishes, before hook-context composition | `(tool_name, tool_args, result, duration_ms, context=None) -> Any` |
-| `final_tool_result` | After context composition, immediately before the result returns to pydantic-ai | `(tool_name, tool_args, result, duration_ms, context=None) -> Any` |
+| `final_tool_result` | After context composition for successfully executed tools, immediately before return to pydantic-ai; pre-hook-blocked and raised calls skip this phase | `(tool_name, tool_args, result, duration_ms, context=None) -> Any` |
 | `custom_command` | Unknown `/slash` cmd | `(command, name) -> True \| str \| None` |
 | `custom_command_help` | `/help` menu | `() -> list[tuple[str, str]]` |
 | `register_tools` | Tool registration | `() -> list[dict]` with `{"name": str, "register_func": callable}` |

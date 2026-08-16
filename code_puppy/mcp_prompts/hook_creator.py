@@ -17,7 +17,7 @@ Register Python functions that run at specific phases:
 - `custom_command` - User types /slash command
 - `pre_tool_call` - Before any tool executes
 - `post_tool_call` - After a tool finishes, before hook-context composition
-- `final_tool_result` - After context composition, before pydantic-ai sees the result
+- `final_tool_result` - After context composition for successfully executed tools; blocked and raised calls skip it
 - `agent_run_start` - Agent run begins
 - `agent_run_end` - Agent run completes
 - `custom_command_help` - Build /help menu

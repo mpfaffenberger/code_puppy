@@ -127,6 +127,20 @@ def patch_process_message_history() -> None:
         pass
 
 
+def _repair_tool_call_args(call: Any) -> None:
+    """Repair string JSON in place before hooks or tool validation inspect it."""
+    if not isinstance(call.args, str) or not call.args:
+        return
+    try:
+        import json_repair
+
+        repaired = json_repair.repair_json(call.args)
+        if repaired != call.args:
+            call.args = repaired
+    except Exception:
+        pass
+
+
 def patch_tool_call_json_repair() -> None:
     """Patch pydantic-ai's _call_tool to auto-repair malformed JSON arguments.
 
@@ -135,7 +149,7 @@ def patch_tool_call_json_repair() -> None:
     on the arguments before validation, preventing unnecessary retries.
     """
     try:
-        import json_repair
+        import json_repair  # noqa: F401  # availability gate for this optional patch
         from pydantic_ai._tool_manager import ToolManager
 
         if getattr(ToolManager._call_tool, _JSON_REPAIR_PATCH_MARKER, False):
@@ -153,15 +167,7 @@ def patch_tool_call_json_repair() -> None:
             metadata: Any = None,
         ):
             """Patched _call_tool that repairs malformed JSON before validation."""
-            # Only attempt repair if args is a string (JSON)
-            if isinstance(call.args, str) and call.args:
-                try:
-                    repaired = json_repair.repair_json(call.args)
-                    if repaired != call.args:
-                        # Update the call args with repaired JSON
-                        call.args = repaired
-                except Exception:
-                    pass  # If repair fails, let original validation handle it
+            _repair_tool_call_args(call)
 
             # Call the original method
             return await _original_call_tool(
@@ -334,6 +340,7 @@ def patch_tool_call_callbacks() -> None:
             metadata: Any = None,
         ):
             tool_name, call = _normalize_call_tool_name(call)
+            _repair_tool_call_args(call)
 
             # Normalise args for hooks, but remember the original shape so in-place
             # mutations survive a JSON-string call.args. Mode: "str"/"dict"/None.
