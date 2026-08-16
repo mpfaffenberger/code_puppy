@@ -181,6 +181,41 @@ _SUMMARY_TAGS: tuple[str, ...] = (
 )
 
 
+def anthropic_disallows_sampling_settings(
+    model_name: str, actual_model_id: str | None = None
+) -> bool:
+    """Return whether an Anthropic model rejects sampling params entirely.
+
+    Some newer Claude models (e.g. Fable 5, Sonnet 5) reject ``temperature``,
+    ``top_p``, and ``top_k`` at the API level. pydantic-ai records this on the
+    model profile as ``anthropic_disallows_sampling_settings`` and warns (then
+    drops) any such settings we send. We consult the same profile so we never
+    put those settings in the request in the first place.
+
+    Args:
+        model_name: The model alias/key from models.json (e.g. ``"fable"``).
+        actual_model_id: The real API model ID from config (e.g.
+            ``"claude-fable-5"``). This is what pydantic-ai profiles at
+            runtime, so it is checked too.
+    """
+    try:
+        from pydantic_ai.profiles.anthropic import anthropic_model_profile
+    except ImportError:  # pragma: no cover - pydantic-ai is a hard dep
+        return False
+
+    candidates = {model_name}
+    if actual_model_id:
+        candidates.add(actual_model_id)
+    for candidate in candidates:
+        try:
+            profile = anthropic_model_profile(candidate)
+        except Exception:  # pragma: no cover - defensive against API drift
+            continue
+        if profile and profile.get("anthropic_disallows_sampling_settings", False):
+            return True
+    return False
+
+
 def supports_adaptive_thinking(
     model_name: str, actual_model_id: str | None = None
 ) -> bool:

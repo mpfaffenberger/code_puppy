@@ -34,19 +34,19 @@ class LoadContextCompleter(Completer):
         session_filter = text_before_cursor[trigger_end:cursor_position].lstrip()
         start_position = -(len(session_filter))
 
-        # Get available context files
+        # Get available context files (.json envelopes + legacy .pkl)
         try:
+            from code_puppy.session_storage import list_sessions
+
             contexts_dir = Path(CONFIG_DIR) / "contexts"
-            if contexts_dir.exists():
-                for pkl_file in contexts_dir.glob("*.pkl"):
-                    session_name = pkl_file.stem  # removes .pkl extension
-                    if session_name.startswith(session_filter):
-                        yield Completion(
-                            session_name,
-                            start_position=start_position,
-                            display=session_name,
-                            display_meta="saved context session",
-                        )
+            for session_name in list_sessions(contexts_dir):
+                if session_name.startswith(session_filter):
+                    yield Completion(
+                        session_name,
+                        start_position=start_position,
+                        display=session_name,
+                        display_meta="saved context session",
+                    )
         except Exception:
             # Silently ignore errors (e.g., permission issues, non-existent dir)
             pass

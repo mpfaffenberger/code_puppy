@@ -11,6 +11,7 @@ from functools import partial
 from typing import Set
 
 from pydantic_ai import Agent, RunContext, UsageLimits
+from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.callbacks import (
     on_agent_run_cancel,
@@ -408,7 +409,9 @@ async def _invoke_agent_impl(
                 output_type=str,
                 retries=3,
                 toolsets=mcp_servers,
-                history_processors=[make_history_processor(agent_config)],
+                # ProcessHistory capability replaces the deprecated
+                # `history_processors=` kwarg (removed in pydantic-ai v2).
+                capabilities=[ProcessHistory(make_history_processor(agent_config))],
                 model_settings=model_settings,
             )
 

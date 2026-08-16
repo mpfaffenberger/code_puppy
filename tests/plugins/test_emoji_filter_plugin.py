@@ -224,67 +224,140 @@ def test_pre_tool_call_context_message_for_edit_file_payload():
 
 
 # ---------------------------------------------------------------------------
-# Streaming patch (TextPart / TextPartDelta) — DOES NOT touch ThinkingPart
+# Streaming filter — stream_event callback seam (raw parts)
+#
+# The plugin no longer monkeypatches TextPart/TextPartDelta.__init__; it
+# registers a ``stream_event`` callback that mutates the raw part objects
+# core exposes at its stream seam. Exhaustive unit coverage of
+# ``_on_stream_event`` / ``_install_render_wrapper`` lives in the plugins
+# repo (code_puppy_core_plugins/tests/test_emoji_filter_plugin.py); here we
+# assert core's side of the contract: the exact event shapes fired by
+# ``code_puppy.agents.event_stream_handler._fire_stream_event`` carry raw
+# parts the plugin can filter in place.
 # ---------------------------------------------------------------------------
 
 
-def test_streaming_patch_strips_text_part_delta():
+def test_stream_event_strips_text_part_with_core_event_shape():
+    """part_start fires {"index", "part_type", "part"} with the raw part."""
     module = _plugin_module()
-    module._install_streaming_patch()
-
-    from pydantic_ai.messages import TextPartDelta
-
-    with patch.object(module, "is_enabled", return_value=True):
-        delta = TextPartDelta(content_delta="hello 🐶 world")
-    assert delta.content_delta == "hello  world"
-
-
-def test_streaming_patch_strips_text_part():
-    module = _plugin_module()
-    module._install_streaming_patch()
-
     from pydantic_ai.messages import TextPart
 
+    part = TextPart(content="hi \U0001f680 there")
     with patch.object(module, "is_enabled", return_value=True):
-        part = TextPart(content="hi 🚀 there")
+        module._on_stream_event(
+            "part_start",
+            {"index": 0, "part_type": "TextPart", "part": part},
+        )
     assert part.content == "hi  there"
 
 
-def test_streaming_patch_leaves_thinking_alone():
+def test_stream_event_strips_text_part_delta_with_core_event_shape():
+    """part_delta fires {"index", "delta_type", "delta"} with the raw delta."""
+    module = _plugin_module()
+    from pydantic_ai.messages import TextPartDelta
+
+    delta = TextPartDelta(content_delta="hello \U0001f436 world")
+    with patch.object(module, "is_enabled", return_value=True):
+        module._on_stream_event(
+            "part_delta",
+            {"index": 0, "delta_type": "TextPartDelta", "delta": delta},
+        )
+    assert delta.content_delta == "hello  world"
+
+
+def test_stream_event_leaves_thinking_alone():
     """Thinking output must NEVER be touched."""
     module = _plugin_module()
-    module._install_streaming_patch()
-
     from pydantic_ai.messages import ThinkingPart, ThinkingPartDelta
 
+    tp = ThinkingPart(content="thinking \U0001f914 hard")
+    td = ThinkingPartDelta(content_delta="more \U0001f4ad thoughts")
     with patch.object(module, "is_enabled", return_value=True):
-        tp = ThinkingPart(content="thinking 🤔 hard")
-        td = ThinkingPartDelta(content_delta="more 💭 thoughts")
+        module._on_stream_event(
+            "part_start",
+            {"index": 0, "part_type": "ThinkingPart", "part": tp},
+        )
+        module._on_stream_event(
+            "part_delta",
+            {"index": 0, "delta_type": "ThinkingPartDelta", "delta": td},
+        )
 
-    assert tp.content == "thinking 🤔 hard"
-    assert td.content_delta == "more 💭 thoughts"
+    assert tp.content == "thinking \U0001f914 hard"
+    assert td.content_delta == "more \U0001f4ad thoughts"
 
 
-def test_streaming_patch_respects_disabled_flag():
+def test_stream_event_respects_disabled_flag():
     module = _plugin_module()
-    module._install_streaming_patch()
-
     from pydantic_ai.messages import TextPartDelta
 
+    delta = TextPartDelta(content_delta="keep \U0001f436 me")
     with patch.object(module, "is_enabled", return_value=False):
-        delta = TextPartDelta(content_delta="keep 🐶 me")
-    assert delta.content_delta == "keep 🐶 me"
+        module._on_stream_event(
+            "part_delta",
+            {"index": 0, "delta_type": "TextPartDelta", "delta": delta},
+        )
+    assert delta.content_delta == "keep \U0001f436 me"
 
 
-def test_streaming_patch_is_idempotent():
+def test_stream_event_does_not_monkeypatch_pydantic_constructors():
+    """The old constructor-patch API is gone; pydantic-ai must stay pristine."""
     module = _plugin_module()
+    from pydantic_ai.messages import TextPart, TextPartDelta
+
+    assert not hasattr(module, "_install_streaming_patch")
+    text_init = TextPart.__init__
+    delta_init = TextPartDelta.__init__
+    with patch.object(module, "is_enabled", return_value=True):
+        module._on_stream_event(
+            "part_start",
+            {"index": 0, "part_type": "TextPart", "part": TextPart(content="x")},
+        )
+        # Constructors are untouched: emojis survive plain instantiation.
+        assert TextPart(content="raw \U0001f436").content == "raw \U0001f436"
+    assert TextPart.__init__ is text_init
+    assert TextPartDelta.__init__ is delta_init
+
+
+def test_core_stream_seam_delivers_raw_parts_to_plugin():
+    """Integration: core's _fire_stream_event reaches the plugin callback.
+
+    Core schedules stream_event callbacks via asyncio.create_task
+    (fire-and-forget), so the filter is not a guaranteed synchronous
+    pre-render transform — we drain pending tasks before asserting.
+    (The plugin's termflow writer wrapper is its deterministic last mile
+    for terminal output; that path is covered in the plugins repo.)
+    """
+    import asyncio
+
     from pydantic_ai.messages import TextPartDelta
 
-    module._install_streaming_patch()
-    first_init = TextPartDelta.__init__
-    module._install_streaming_patch()
-    second_init = TextPartDelta.__init__
-    assert first_init is second_init
+    from code_puppy import callbacks
+    from code_puppy.agents.event_stream_handler import _fire_stream_event
+
+    module = _plugin_module()
+    delta = TextPartDelta(content_delta="stream \U0001f389 me")
+
+    already_registered = module._on_stream_event in callbacks._callbacks["stream_event"]
+    callbacks.register_callback("stream_event", module._on_stream_event)
+    try:
+        with patch.object(module, "is_enabled", return_value=True):
+
+            async def _run() -> None:
+                _fire_stream_event(
+                    "part_delta",
+                    {"index": 0, "delta_type": "TextPartDelta", "delta": delta},
+                )
+                pending = [
+                    t for t in asyncio.all_tasks() if t is not asyncio.current_task()
+                ]
+                await asyncio.gather(*pending)
+
+            asyncio.run(_run())
+    finally:
+        if not already_registered:
+            callbacks.unregister_callback("stream_event", module._on_stream_event)
+
+    assert delta.content_delta == "stream  me"
 
 
 # ---------------------------------------------------------------------------

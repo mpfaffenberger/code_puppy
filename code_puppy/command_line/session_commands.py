@@ -434,7 +434,7 @@ def handle_load_context_command(command: str) -> bool:
 
     session_name = tokens[1]
     sessions_dir = Path(AUTOSAVE_DIR)
-    session_path = sessions_dir / f"{session_name}.pkl"
+    session_path = sessions_dir / f"{session_name}.json"
 
     try:
         history = load_session(session_name, sessions_dir)

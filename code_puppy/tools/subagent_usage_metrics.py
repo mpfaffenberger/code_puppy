@@ -184,17 +184,21 @@ def _extract_usage_metrics(usage: Any) -> dict[str, int | None]:
 def _safe_usage_metrics(result: Any) -> dict[str, int | None]:
     """Extract usage for a completed run, without inventing billable tokens.
 
+    Best-effort: usage is secondary metadata, so a failure here must never stop
+    a successful invocation from returning its response.
+
     Availability is already resolved per field during extraction, so there is no
     global "was anything reported?" rescue pass. ``num_requests`` is normalized
     here because it is local bookkeeping, not a provider figure: a completed run
     reporting zero requests is the dataclass default showing through.
     """
     try:
-        usage = result.usage()
+        # Property access (not a call): ``result.usage()`` is a deprecated
+        # callable-property since pydantic-ai 1.107 and warns when called.
+        metrics = _extract_usage_metrics(result.usage)
     except Exception:
         return _extract_usage_metrics(None)
 
-    metrics = _extract_usage_metrics(usage)
     if metrics["num_requests"] == 0:
         metrics["num_requests"] = None
     return metrics

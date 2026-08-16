@@ -23,7 +23,7 @@ from code_puppy.gemini_model import GeminiModel
 from code_puppy.messaging import emit_warning
 
 from . import callbacks
-from .claude_cache_client import ClaudeCacheAsyncClient, patch_anthropic_client_messages
+from .claude_cache_client import ClaudeCacheAsyncClient
 from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
 from .provider_identity import (
@@ -123,7 +123,7 @@ def get_api_key(env_var_name: str) -> str | None:
 # Model types that use the Anthropic Messages API under the hood.
 # These all need Anthropic-specific settings (thinking, effort, etc.).
 _ANTHROPIC_MODEL_TYPES = frozenset(
-    {"anthropic", "aws_bedrock", "azure_foundry", "claude_code"}
+    {"anthropic", "aws_bedrock", "azure_foundry", "claude_code", "custom_anthropic"}
 )
 
 
@@ -332,8 +332,13 @@ def make_model_settings(
             underlying_name = str(model_config.get("name", "")).lower()
             is_gpt_5_6 = "gpt-5.6" in model_name.lower() or "gpt-5.6" in underlying_name
             if is_gpt_5_6:
-                # pydantic-ai lacks context/mode fields; supply the full reasoning
-                # object via extra_body (partial would clobber its effort/summary).
+                # pydantic-ai 2.31.0 HAS openai_reasoning_mode/context settings,
+                # but they're gated on profile flags
+                # (openai_responses_supports_reasoning_{mode,context}) that
+                # custom-endpoint GPT-5.6 routes don't reliably carry — the
+                # fields would be silently dropped. extra_body delivers the
+                # full reasoning object unconditionally, so keep it (and pop
+                # effort/summary so pydantic-ai's partial doesn't clobber it).
                 reasoning = {
                     "effort": model_settings_dict.pop("openai_reasoning_effort"),
                     "summary": model_settings_dict.pop("openai_reasoning_summary"),
@@ -356,21 +361,29 @@ def make_model_settings(
                 }
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif _is_anthropic_model(model_name, model_config):
-        # Handle Anthropic extended thinking settings
-        # Remove top_p as Anthropic doesn't support it with extended thinking
-        model_settings_dict.pop("top_p", None)
-
-        # Claude extended thinking requires temperature=1.0 (API restriction)
-        # Default to 1.0 if not explicitly set by user
-        if model_settings_dict.get("temperature") is None:
-            model_settings_dict["temperature"] = 1.0
-
         from code_puppy.model_utils import (
+            anthropic_disallows_sampling_settings,
             get_default_extended_thinking,
             resolve_anthropic_thinking_payload,
         )
 
         actual_model_id = model_config.get("name", model_name)
+
+        # Handle Anthropic extended thinking settings
+        # Remove top_p as Anthropic doesn't support it with extended thinking
+        model_settings_dict.pop("top_p", None)
+
+        if anthropic_disallows_sampling_settings(model_name, actual_model_id):
+            # pydantic-ai's profile says this model rejects sampling params
+            # outright; sending them just earns a UserWarning before they get
+            # dropped anyway. Strip them instead of injecting defaults.
+            for sampling_param in ("temperature", "top_p", "top_k"):
+                model_settings_dict.pop(sampling_param, None)
+        elif model_settings_dict.get("temperature") is None:
+            # Claude extended thinking requires temperature=1.0 (API
+            # restriction). Default to 1.0 if not explicitly set by user.
+            model_settings_dict["temperature"] = 1.0
+
         default_thinking = get_default_extended_thinking(model_name, actual_model_id)
         extended_thinking = effective_settings.get(
             "extended_thinking", default_thinking
@@ -409,6 +422,21 @@ def make_model_settings(
             extra_body["output_config"] = {"effort": effort}
             model_settings_dict["extra_body"] = extra_body
 
+        # pydantic-ai (>=1.56.0) handles all three Anthropic cache breakpoints
+        # natively. OAuth subscription models get their free one-hour TTL;
+        # API-key and custom endpoints use Anthropic's five-minute default.
+        cache_setting: bool | str = (
+            "1h"
+            if model_type == "claude_code" or model_name.startswith("claude-code-")
+            else True
+        )
+        model_settings_dict.update(
+            {
+                "anthropic_cache_instructions": cache_setting,
+                "anthropic_cache_tool_definitions": cache_setting,
+                "anthropic_cache_messages": cache_setting,
+            }
+        )
         model_settings = AnthropicModelSettings(**model_settings_dict)
 
     # Apply thinking defaults if the model supports them
@@ -726,9 +754,6 @@ class ModelFactory:
                 default_headers=default_headers if default_headers else None,
             )
 
-            # Ensure cache_control is injected at the Anthropic SDK layer
-            patch_anthropic_client_messages(anthropic_client)
-
             provider = make_anthropic_provider(
                 provider_identity, anthropic_client=anthropic_client
             )
@@ -774,9 +799,6 @@ class ModelFactory:
                 api_key=api_key,
                 default_headers=default_headers if default_headers else None,
             )
-
-            # Ensure cache_control is injected at the Anthropic SDK layer
-            patch_anthropic_client_messages(anthropic_client)
 
             provider = make_anthropic_provider(
                 provider_identity, anthropic_client=anthropic_client

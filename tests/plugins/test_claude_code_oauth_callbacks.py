@@ -529,7 +529,6 @@ def _patch_model_deps():
     def _ctx():
         with (
             patch("code_puppy.claude_cache_client.ClaudeCacheAsyncClient"),
-            patch("code_puppy.claude_cache_client.patch_anthropic_client_messages"),
             patch(f"{MOD}.AsyncAnthropic", create=True),
             patch(f"{MOD}.AnthropicModel", create=True),
             patch(f"{MOD}.AnthropicProvider", create=True),
@@ -554,7 +553,6 @@ class TestCreateClaudeCodeModel:
             patch("pydantic_ai.models.anthropic.AnthropicModel"),
             patch("pydantic_ai.providers.anthropic.AnthropicProvider"),
             patch("code_puppy.claude_cache_client.ClaudeCacheAsyncClient"),
-            patch("code_puppy.claude_cache_client.patch_anthropic_client_messages"),
         ):
             mock_anthropic = MagicMock()
             mock_anthropic.api_key = None
