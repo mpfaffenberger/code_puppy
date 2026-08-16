@@ -245,6 +245,8 @@ class GeminiModel(Model):
         base_url: str = "https://generativelanguage.googleapis.com/v1beta",
         http_client: httpx.AsyncClient | None = None,
     ):
+        # v2 Model.__init__ wires settings/profile state and pricing preload.
+        super().__init__()
         self._model_name = model_name
         self.api_key = api_key
         self._base_url = base_url.rstrip("/")
@@ -277,17 +279,6 @@ class GeminiModel(Model):
         Override in subclasses to inject custom instructions.
         """
         return None
-
-    def prepare_request(
-        self,
-        model_settings: ModelSettings | None,
-        model_request_parameters,
-    ) -> tuple:
-        """Prepare request by normalizing settings.
-
-        This is a compatibility method for pydantic-ai interface.
-        """
-        return model_settings, model_request_parameters
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
@@ -822,6 +813,16 @@ class GeminiStreamingResponse(StreamedResponse):
                         )
                         if event is not None:
                             yield event
+
+    async def close_stream(self) -> None:
+        """Close the SSE chunk generator (v2 cancellation contract).
+
+        ``_chunks`` is an async generator holding the ``client.stream``
+        context; ``aclose()`` unwinds it and tears down the HTTP stream.
+        """
+        aclose = getattr(self._chunks, "aclose", None)
+        if aclose is not None:
+            await aclose()
 
     @property
     def model_name(self) -> str:
