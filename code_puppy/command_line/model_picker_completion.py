@@ -1,6 +1,6 @@
+import logging
 import os
 import sys
-import logging
 from typing import Iterable, Optional
 
 from prompt_toolkit import Application, PromptSession
@@ -11,12 +11,14 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 
+from code_puppy.callbacks import on_prompt_toolkit_style
 from code_puppy.command_line.pagination import (
     ensure_visible_page,
     get_page_bounds,
     get_page_for_index,
     get_total_pages,
 )
+from code_puppy.command_line.utils import safe_input
 from code_puppy.config import get_global_model_name
 from code_puppy.list_filtering import query_matches_text
 from code_puppy.model_switching import set_model_and_reload_agent
@@ -26,8 +28,6 @@ from code_puppy.provider_credentials import (
     required_env_var_for_model,
     save_credential,
 )
-from code_puppy.command_line.utils import safe_input
-from code_puppy.callbacks import on_prompt_toolkit_style
 
 logger = logging.getLogger(__name__)
 
