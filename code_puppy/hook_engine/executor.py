@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -259,8 +260,12 @@ def _substitute_variables(
 
     result = command
     for var, value in substitutions.items():
-        result = result.replace(f"${{{var}}}", str(value))
-        result = re.sub(rf"\${re.escape(var)}(?=\W|$)", lambda m: str(value), result)
+        # Quote each interpolated value so a normal path/value is spliced in
+        # unchanged while shell metacharacters in the value are treated as
+        # literal text by the shell rather than as syntax.
+        quoted = shlex.quote(str(value))
+        result = result.replace(f"${{{var}}}", quoted)
+        result = re.sub(rf"\${re.escape(var)}(?=\W|$)", lambda m: quoted, result)
     return result
 
 

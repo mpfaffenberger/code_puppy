@@ -14,6 +14,12 @@ logger = logging.getLogger(__name__)
 # User plugins directory
 USER_PLUGINS_DIR = Path.home() / ".code_puppy" / "plugins"
 
+# Out-of-repo location for compiled bytecode of project plugins. Redirecting the
+# cache here keeps the import machinery from consulting or writing a __pycache__
+# entry inside the project tree, so a project plugin always runs from the source
+# that was reviewed and trusted.
+_PROJECT_PLUGIN_PYCACHE = str(Path.home() / ".code_puppy" / "plugin_bytecode_cache")
+
 PLUGIN_ENTRY_POINT_GROUP = "code_puppy.plugins"
 
 # Track if plugins have already been loaded to prevent duplicate registration
@@ -339,6 +345,12 @@ def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
     if parent_str not in sys.path:
         sys.path.insert(0, parent_str)
 
+    # Compile from the reviewed source: redirect the bytecode cache out of the
+    # project tree so any in-repo __pycache__ entry is never consulted or
+    # written back. Restored in ``finally`` so unrelated imports are unaffected.
+    previous_pycache_prefix = sys.pycache_prefix
+    sys.pycache_prefix = _PROJECT_PLUGIN_PYCACHE
+
     try:
         if callbacks_file.exists():
             # Register parent package so relative imports resolve
@@ -384,6 +396,8 @@ def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
             exc_info=True,
         )
         return False
+    finally:
+        sys.pycache_prefix = previous_pycache_prefix
 
 
 def _load_project_plugins(

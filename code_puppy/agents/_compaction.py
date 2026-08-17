@@ -20,6 +20,7 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    TextPart,
     ThinkingPart,
     UserPromptPart,
 )
@@ -178,6 +179,68 @@ def truncate(
     return prune_interrupted_tool_calls(result)
 
 
+def _framing_request() -> ModelRequest:
+    """A short neutral user-role message used to repair request boundaries."""
+    return ModelRequest(
+        parts=[UserPromptPart(content="Conversation history to summarize:")]
+    )
+
+
+def _framing_response() -> ModelResponse:
+    """A short neutral assistant-role message used to repair request boundaries."""
+    return ModelResponse(parts=[TextPart(content="Acknowledged; continuing.")])
+
+
+def _same_role(left: ModelMessage, right: ModelMessage) -> bool:
+    """True iff both messages are assistant turns or both are user turns."""
+    return isinstance(left, ModelResponse) == isinstance(right, ModelResponse)
+
+
+def _normalize_for_summarization(
+    messages: List[ModelMessage],
+) -> List[ModelMessage]:
+    """Shape a summarization slice into a provider-valid request body.
+
+    Providers such as Anthropic require a request to open on a user-role
+    message and never place two same-role messages adjacently. A slice taken
+    from the middle of a conversation — then trimmed by orphan-pruning — can
+    open on an assistant turn, carry an internal same-role adjacency, or end on
+    a user turn. The trailing case matters because ``run_summarization_sync``
+    appends the summarization instruction as a trailing user-role message; a
+    slice that already ends on a user turn would collide with it, producing a
+    user→user adjacency the provider rejects. Any such rejection makes the
+    summarization request fail and compaction silently fall back to truncation.
+
+    Each boundary is repaired by inserting a short neutral framing message
+    rather than dropping real content, so the summary still sees every step.
+    Returns the slice unchanged when it is empty.
+    """
+    if not messages:
+        return messages
+
+    normalized: List[ModelMessage] = []
+    if isinstance(messages[0], ModelResponse):
+        normalized.append(_framing_request())
+
+    for msg in messages:
+        if normalized and _same_role(normalized[-1], msg):
+            filler = (
+                _framing_request()
+                if isinstance(msg, ModelResponse)
+                else _framing_response()
+            )
+            normalized.append(filler)
+        normalized.append(msg)
+
+    # run_summarization_sync appends the instruction as a trailing user-role
+    # message; cap a user-ending slice with an assistant turn so that append
+    # continues the alternation instead of colliding.
+    if isinstance(normalized[-1], ModelRequest):
+        normalized.append(_framing_response())
+
+    return normalized
+
+
 def _run_summarization_core(
     messages: List[ModelMessage],
     protected_tokens: int,
@@ -210,6 +273,8 @@ def _run_summarization_core(
     pruned = prune_interrupted_tool_calls(messages_to_summarize)
     if not pruned:
         return prune_interrupted_tool_calls(messages), []
+
+    pruned = _normalize_for_summarization(pruned)
 
     summary_text = run_summarization_sync(
         _SUMMARIZATION_INSTRUCTIONS, message_history=pruned

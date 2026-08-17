@@ -710,6 +710,58 @@ def _tokenize_flag_string(search_string: str) -> list[str] | None:
         return None
 
 
+# Flags the local ripgrep path forwards. Only content/context flags the tool
+# understands are allowed through; anything else -- including flags that run a
+# command per file (``--pre``) or read patterns from a file (``-f``) -- is
+# rejected so an unexpected flag can't reshape the ripgrep invocation.
+_SUPPORTED_RG_FLAGS = frozenset(
+    {
+        "-i",
+        "--ignore-case",
+        "-s",
+        "--case-sensitive",
+        "-w",
+        "--word-regexp",
+        "-F",
+        "--fixed-strings",
+        "-e",
+        "--regexp",
+        "-t",
+        "--type",
+        "-A",
+        "--after-context",
+        "-B",
+        "--before-context",
+        "-C",
+        "--context",
+        "-g",
+        "--glob",
+    }
+)
+
+# Supported flags whose following token is their value. That value is forwarded
+# verbatim and never checked against the flag allowlist, so patterns and globs
+# may themselves begin with ``-`` (e.g. ``-e '->foo'``).
+_RG_FLAGS_WITH_VALUE = frozenset(
+    {
+        "-e",
+        "--regexp",
+        "-t",
+        "--type",
+        "-A",
+        "--after-context",
+        "-B",
+        "--before-context",
+        "-C",
+        "--context",
+        "-g",
+        "--glob",
+    }
+)
+
+_SUPPORTED_RG_FLAGS_HINT = "-i, -s, -w, -F, -e, -t/--type, -A, -B, -C, -g"
+
+
 def _build_grep_args(search_string: str) -> tuple[list[str], str | None]:
     """Convert ``search_string`` into ripgrep arguments, identically on all OSes.
 
@@ -725,8 +777,11 @@ def _build_grep_args(search_string: str) -> tuple[list[str], str | None]:
       Windows paths (``\\b``, ``C:\\Users``) are never mangled; quotes
       group words and one surrounding pair is stripped per token.
 
-    Returns ``(args, error)``. ``error`` is set when an unsupported
-    output-format flag is requested.
+    In flag mode only the flags in :data:`_SUPPORTED_RG_FLAGS` are forwarded;
+    any other flag is rejected with an ``error`` string.
+
+    Returns ``(args, error)``. ``error`` is set when an unsupported flag is
+    requested.
     """
     if not search_string.startswith("-"):
         return ["-e", search_string], None
@@ -737,15 +792,22 @@ def _build_grep_args(search_string: str) -> tuple[list[str], str | None]:
         # treat the whole string as a literal pattern.
         return ["-e", search_string], None
 
-    for token in tokens:
-        flag = token.split("=", 1)[0]
-        if flag in _INCOMPATIBLE_RG_FLAGS:
-            return [], (
-                f"ripgrep flag '{flag}' is not supported: this tool parses "
-                "per-match JSON output, and that flag changes the output "
-                "format (it would silently return zero matches). Use a plain "
-                "pattern, or content flags like -i, -w, -F, --type instead."
-            )
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token.startswith("-"):
+            flag = token.split("=", 1)[0]
+            if flag not in _SUPPORTED_RG_FLAGS:
+                return [], (
+                    f"grep flag '{flag}' is not supported. Supported flags: "
+                    f"{_SUPPORTED_RG_FLAGS_HINT}. Use a plain pattern for "
+                    "anything else."
+                )
+            if flag in _RG_FLAGS_WITH_VALUE and "=" not in token:
+                # Skip the value token so a pattern/glob beginning with ``-``
+                # is not mistaken for an unsupported flag.
+                index += 1
+        index += 1
     return tokens, None
 
 

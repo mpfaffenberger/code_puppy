@@ -1067,6 +1067,22 @@ def _normalize_cwd(cwd: str | None) -> str | None:
     return stripped
 
 
+_SECRET_ENV_SUFFIXES = ("_API_KEY", "_TOKEN", "_SECRET")
+
+
+def _child_process_env() -> dict[str, str]:
+    """Environment for spawned shell commands.
+
+    Copies the current environment but drops the agent's own provider
+    credentials so a child command does not inherit them.
+    """
+    env = dict(os.environ)
+    for name in list(env):
+        if name.upper().endswith(_SECRET_ENV_SUFFIXES):
+            del env[name]
+    return env
+
+
 async def run_shell_command(
     context: RunContext,
     command: str,
@@ -1139,6 +1155,7 @@ async def run_shell_command(
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL,
                     cwd=cwd,
+                    env=_child_process_env(),
                     creationflags=creationflags,
                 )
             else:
@@ -1149,6 +1166,7 @@ async def run_shell_command(
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL,
                     cwd=cwd,
+                    env=_child_process_env(),
                     start_new_session=True,  # Fully detach on POSIX
                 )
 
@@ -1440,6 +1458,7 @@ def _run_command_sync(
         stderr=subprocess.PIPE,
         stdin=subprocess.DEVNULL,
         cwd=cwd,
+        env=_child_process_env(),
         bufsize=0,  # Unbuffered for real-time output
         preexec_fn=preexec_fn,
         creationflags=creationflags,
