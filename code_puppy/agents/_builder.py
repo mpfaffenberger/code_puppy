@@ -58,6 +58,48 @@ def _friendly_path(candidate: Path) -> str:
         return str(candidate)
 
 
+# BOM signatures mapped to their codecs. Check UTF-32 before UTF-16:
+# the UTF-32 LE BOM starts with the UTF-16 LE BOM bytes.
+_BOM_CODECS = (
+    (b"\xef\xbb\xbf", "utf-8-sig"),
+    (b"\xff\xfe\x00\x00", "utf-32-le"),
+    (b"\x00\x00\xfe\xff", "utf-32-be"),
+    (b"\xff\xfe", "utf-16-le"),
+    (b"\xfe\xff", "utf-16-be"),
+)
+
+
+def _read_rules_text(candidate: Path) -> Optional[str]:
+    """Read a rules file and detect its encoding from the BOM.
+
+    PowerShell redirection (``echo hi > AGENTS.md``) writes UTF-16 LE
+    with a BOM. A plain UTF-8 read crashes on it. This helper sniffs
+    the BOM, decodes with the correct codec, and never raises. It
+    returns ``None`` when the file is not readable.
+    """
+    try:
+        raw = candidate.read_bytes()
+    except OSError as exc:
+        emit_warning(f"Could not read {candidate}: {exc}")
+        return None
+    for bom, codec in _BOM_CODECS:
+        if raw.startswith(bom):
+            try:
+                text = raw.decode(codec)
+            except UnicodeDecodeError:
+                break
+            # Drop the BOM character that non-sig codecs keep.
+            return text.lstrip("\ufeff")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        emit_warning(
+            f"{candidate} is not valid UTF-8; bad bytes were replaced. "
+            f"Save the file as UTF-8 to fix this."
+        )
+        return raw.decode("utf-8", errors="replace")
+
+
 def _truncate_agents_md(content: str, source: str, max_chars: int) -> str:
     """Cap one AGENTS.md file at ``max_chars`` with a labelled notice.
 
@@ -110,8 +152,11 @@ def load_puppy_rules() -> Optional[str]:
     for name in _AGENT_RULE_FILES:
         candidate = Path(CONFIG_DIR) / name
         if candidate.exists():
+            text = _read_rules_text(candidate)
+            if text is None:
+                continue
             global_rules = _truncate_agents_md(
-                candidate.read_text(encoding="utf-8-sig"),
+                text,
                 source=f"global {_friendly_path(candidate)}",
                 max_chars=max_chars,
             )
@@ -125,8 +170,11 @@ def load_puppy_rules() -> Optional[str]:
         for name in _AGENT_RULE_FILES:
             candidate = code_puppy_dir / name
             if candidate.exists():
+                text = _read_rules_text(candidate)
+                if text is None:
+                    continue
                 project_rules = _truncate_agents_md(
-                    candidate.read_text(encoding="utf-8-sig"),
+                    text,
                     source=f"project {candidate}",
                     max_chars=max_chars,
                 )
@@ -137,8 +185,11 @@ def load_puppy_rules() -> Optional[str]:
         for name in _AGENT_RULE_FILES:
             candidate = Path(name)
             if candidate.exists():
+                text = _read_rules_text(candidate)
+                if text is None:
+                    continue
                 project_rules = _truncate_agents_md(
-                    candidate.read_text(encoding="utf-8-sig"),
+                    text,
                     source=f"project {candidate}",
                     max_chars=max_chars,
                 )
