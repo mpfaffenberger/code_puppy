@@ -5,13 +5,14 @@ for direct viewing by multimodal models.
 """
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic_ai import BinaryContent, ToolReturn
 
 from code_puppy.tools.browser.browser_screenshot import (
     _capture_screenshot,
+    register_take_screenshot_and_analyze,
     take_screenshot,
 )
 
@@ -51,15 +52,41 @@ class TestScreenshotCapture:
 
     @pytest.mark.asyncio
     async def test_capture_element_screenshot(self):
-        """Test screenshot of specific element - skipped due to complex async mocking."""
-        # Note: Element screenshots require complex mocking of Playwright's
-        # async/await patterns, so we test the basic flow instead
-        pytest.skip("Element screenshots require deep Playwright mocking")
+        """Test screenshot of a specific visible element."""
+        page = MagicMock()
+        elem = AsyncMock()
+        elem.is_visible.return_value = True
+        elem.screenshot.return_value = b"PNG"
+
+        async def fake_first():
+            return elem
+
+        locator_obj = MagicMock()
+        locator_obj.first = fake_first()
+        page.locator.return_value = locator_obj
+        result = await _capture_screenshot(
+            page, element_selector="#x", save_screenshot=False
+        )
+        assert result["success"] is True
+        assert result["screenshot_bytes"] == b"PNG"
+        elem.screenshot.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_capture_hidden_element_error(self):
-        """Test screenshot of hidden element returns error - skipped due to async mocking."""
-        pytest.skip("Element visibility checks require deep Playwright mocking")
+        """Test screenshot of a hidden element returns an error."""
+        page = MagicMock()
+        elem = AsyncMock()
+        elem.is_visible.return_value = False
+
+        async def fake_first():
+            return elem
+
+        locator_obj = MagicMock()
+        locator_obj.first = fake_first()
+        page.locator.return_value = locator_obj
+        result = await _capture_screenshot(page, element_selector="#x")
+        assert result["success"] is False
+        assert "not visible" in result["error"]
 
     @pytest.mark.asyncio
     async def test_capture_screenshot_with_save(self, tmp_path):
@@ -207,6 +234,47 @@ class TestTakeScreenshot:
                 # Metadata should reflect full_page
                 assert result.metadata["full_page"] is True
                 assert result.metadata["target"] == "full_page"
+
+    @pytest.mark.asyncio
+    async def test_take_screenshot_capture_fails(self):
+        """Test take_screenshot when the underlying capture raises."""
+        mock_manager = AsyncMock()
+        mock_page = AsyncMock()
+        mock_page.screenshot.side_effect = RuntimeError("boom")
+        mock_manager.get_current_page.return_value = mock_page
+
+        with patch(
+            "code_puppy.tools.browser.browser_screenshot.get_session_browser_manager",
+            return_value=mock_manager,
+        ):
+            with patch("code_puppy.tools.browser.browser_screenshot.emit_info"):
+                with patch("code_puppy.tools.browser.browser_screenshot.emit_error"):
+                    result = await take_screenshot()
+                    assert isinstance(result, dict)
+                    assert result["success"] is False
+
+    @pytest.mark.asyncio
+    async def test_take_screenshot_outer_exception(self):
+        """Test take_screenshot when fetching the page itself raises."""
+        mock_manager = AsyncMock()
+        mock_manager.get_current_page.side_effect = RuntimeError("boom")
+
+        with patch(
+            "code_puppy.tools.browser.browser_screenshot.get_session_browser_manager",
+            return_value=mock_manager,
+        ):
+            with patch("code_puppy.tools.browser.browser_screenshot.emit_info"):
+                with patch("code_puppy.tools.browser.browser_screenshot.emit_error"):
+                    result = await take_screenshot()
+                    assert isinstance(result, dict)
+                    assert result["success"] is False
+                    assert "Screenshot failed" in result["error"]
+
+    def test_register_screenshot_tool(self):
+        """Test that the screenshot tool registers with the agent."""
+        agent = MagicMock()
+        register_take_screenshot_and_analyze(agent)
+        agent.tool.assert_called_once()
 
 
 class TestScreenshotIntegration:

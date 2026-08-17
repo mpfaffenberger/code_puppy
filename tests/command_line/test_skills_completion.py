@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from prompt_toolkit.document import Document
 
 from code_puppy.command_line.skills_completion import (
@@ -11,20 +12,28 @@ from code_puppy.command_line.skills_completion import (
 
 
 class TestLoadCatalogSkillIds:
-    @patch("code_puppy.plugins.agent_skills.skill_catalog.catalog")
-    def test_success(self, mock_catalog):
-        mock_entry = MagicMock()
-        mock_entry.id = "test-skill"
-        mock_catalog.get_all.return_value = [mock_entry]
-        result = load_catalog_skill_ids()
-        assert result == ["test-skill"]
-
-    def test_import_failure(self):
-        with patch.dict(
-            "sys.modules", {"code_puppy.plugins.agent_skills.skill_catalog": None}
+    def test_success(self):
+        provider = MagicMock()
+        provider.get_catalog_skill_ids.return_value = ["test-skill"]
+        with patch(
+            "code_puppy.command_line.skills_completion.get_skill_provider",
+            return_value=provider,
         ):
-            result = load_catalog_skill_ids()
-            assert result == []
+            assert load_catalog_skill_ids() == ["test-skill"]
+
+    def test_no_plugin(self):
+        with patch(
+            "code_puppy.command_line.skills_completion.get_skill_provider",
+            return_value=None,
+        ):
+            assert load_catalog_skill_ids() == []
+
+    def test_provider_failure(self):
+        with patch(
+            "code_puppy.command_line.skills_completion.get_skill_provider",
+            side_effect=RuntimeError("boom"),
+        ):
+            assert load_catalog_skill_ids() == []
 
 
 class TestSkillsCompleter:
@@ -38,11 +47,9 @@ class TestSkillsCompleter:
         doc = Document(text, cursor_pos)
         return list(self.completer.get_completions(doc, self.event))
 
-    def test_no_trigger(self):
-        assert self._get_completions("hello") == []
-
-    def test_trigger_no_space(self):
-        assert self._get_completions("/skills") == []
+    @pytest.mark.parametrize("text", ["hello", "/skills"])
+    def test_no_completions(self, text):
+        assert self._get_completions(text) == []
 
     def test_show_all_subcommands(self):
         result = self._get_completions("/skills ")
@@ -73,9 +80,10 @@ class TestSkillsCompleter:
         assert "alpha" in names
         assert "beta" not in names
 
-    def test_no_further_completion(self):
-        # After a full subcommand + space (non-install)
-        result = self._get_completions("/skills list ")
+    @pytest.mark.parametrize("text", ["/skills list ", "hello /skills "])
+    def test_no_further_completion(self, text):
+        # After a full subcommand + space (non-install), or not at start
+        result = self._get_completions(text)
         assert result == []
 
     def test_get_skill_ids_cache(self):
@@ -93,7 +101,3 @@ class TestSkillsCompleter:
         ):
             result = self.completer._get_skill_ids()
             assert result == ["new"]
-
-    def test_not_at_beginning(self):
-        result = self._get_completions("hello /skills ")
-        assert result == []

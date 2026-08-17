@@ -88,9 +88,8 @@ Important rules:
 {r["loop_rule"]}
 - Continue autonomously unless user input is definitively required
 """
-        # NOTE: runtime ``load_prompt`` fragments (plugin-injected notes such
-        # as environment context, file-permission rules, memory recall, ...)
-        # are intentionally NOT appended here — they're injected fresh at
-        # runtime by ``BaseAgent.get_full_system_prompt`` so they never get
-        # baked into a cloned/persisted agent definition.
+        # NOTE: runtime ``load_prompt`` fragments (env context, permission
+        # rules, memory recall) are intentionally NOT appended here — injected
+        # fresh by ``BaseAgent.get_full_system_prompt`` so they never get baked
+        # into a cloned/persisted definition.
         return result

@@ -1,9 +1,10 @@
 """JSON-based agent configuration system."""
 
-import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from code_puppy import atomic_json
 
 from .base_agent import BaseAgent
 
@@ -25,14 +26,24 @@ class JSONAgent(BaseAgent):
         self._validate_config()
 
     def _load_config(self) -> Dict:
-        """Load configuration from JSON file."""
+        """Load configuration from JSON file.
+
+        Bounded via :mod:`code_puppy.atomic_json` -- a pathologically large
+        agent file dropped in ``~/.code_puppy/agents/`` can no longer
+        balloon memory the way the original ``configparser`` bug did.
+        """
         try:
-            with open(self.json_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError) as e:
+            data = atomic_json.load_json(self.json_path)
+        except (atomic_json.JsonFileCorrupt, OSError) as e:
             raise ValueError(
                 f"Failed to load JSON agent config from {self.json_path}: {e}"
             ) from e
+        if data is None:
+            raise ValueError(
+                f"Failed to load JSON agent config from {self.json_path}: "
+                "file not found or empty"
+            )
+        return data
 
     def _validate_config(self) -> None:
         """Validate required fields in configuration."""
@@ -56,10 +67,9 @@ class JSONAgent(BaseAgent):
                 f"'system_prompt' must be a string or list in JSON agent config: {self.json_path}"
             )
 
-        # Validate optional mcp_servers field. Accept either:
-        #   - list[str]  -> shorthand, each defaults to auto_start=True
-        #   - dict[str, dict]  -> per-server options (e.g. {"auto_start": false})
-        # Anything else is a config error so users get a clear message.
+        # mcp_servers: list[str] (shorthand, auto_start=True) or dict[str, dict]
+        # (per-server options). Anything else is a config error with a clear
+        # message.
         if "mcp_servers" in self._config:
             mcp_servers = self._config["mcp_servers"]
             if isinstance(mcp_servers, list):
@@ -126,10 +136,12 @@ class JSONAgent(BaseAgent):
         # Also get UC tool names
         uc_tool_names = set()
         try:
-            from code_puppy.plugins.universal_constructor.registry import get_registry
+            from code_puppy.universal_constructor_provider import (
+                get_universal_constructor_provider,
+            )
 
-            registry = get_registry()
-            for tool in registry.list_tools():
+            provider = get_universal_constructor_provider()
+            for tool in provider.list_tools() if provider else []:
                 if tool.meta.enabled:
                     uc_tool_names.add(tool.full_name)
         except ImportError:

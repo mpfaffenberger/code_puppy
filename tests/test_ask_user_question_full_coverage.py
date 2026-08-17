@@ -61,16 +61,16 @@ class TestAskUserQuestion:
             assert result.error is not None
             assert "sub-agent" in result.error
 
-    def test_wiggum_blocked(self):
+    def test_autonomous_loop_blocked(self):
         # Validation happens first now, so use a fully valid question payload
-        # (2-6 options) to actually reach the wiggum gate.
+        # (2-6 options) to actually reach the autonomous-loop gate.
         with (
             patch(
                 "code_puppy.tools.ask_user_question.handler.is_subagent",
                 return_value=False,
             ),
             patch(
-                "code_puppy.tools.ask_user_question.handler.is_wiggum_active",
+                "code_puppy.tools.ask_user_question.handler._autonomous_mode_active",
                 return_value=True,
             ),
         ):
@@ -83,7 +83,7 @@ class TestAskUserQuestion:
                     }
                 ]
             )
-            assert "wiggum" in result.error.lower()
+            assert "autonomous loop" in result.error.lower()
 
     def test_non_interactive(self):
         with (
@@ -92,7 +92,7 @@ class TestAskUserQuestion:
                 return_value=False,
             ),
             patch(
-                "code_puppy.tools.ask_user_question.handler.is_wiggum_active",
+                "code_puppy.tools.ask_user_question.handler._autonomous_mode_active",
                 return_value=False,
             ),
             patch(
@@ -118,7 +118,7 @@ class TestAskUserQuestion:
                 return_value=False,
             ),
             patch(
-                "code_puppy.tools.ask_user_question.handler.is_wiggum_active",
+                "code_puppy.tools.ask_user_question.handler._autonomous_mode_active",
                 return_value=False,
             ),
             patch(
@@ -136,7 +136,7 @@ class TestAskUserQuestion:
                 return_value=False,
             ),
             patch(
-                "code_puppy.tools.ask_user_question.handler.is_wiggum_active",
+                "code_puppy.tools.ask_user_question.handler._autonomous_mode_active",
                 return_value=False,
             ),
             patch(
@@ -158,7 +158,7 @@ class TestAskUserQuestion:
                 return_value=False,
             ),
             patch(
-                "code_puppy.tools.ask_user_question.handler.is_wiggum_active",
+                "code_puppy.tools.ask_user_question.handler._autonomous_mode_active",
                 return_value=False,
             ),
             patch(
@@ -192,7 +192,7 @@ class TestAskUserQuestion:
                 return_value=False,
             ),
             patch(
-                "code_puppy.tools.ask_user_question.handler.is_wiggum_active",
+                "code_puppy.tools.ask_user_question.handler._autonomous_mode_active",
                 return_value=False,
             ),
             patch(
@@ -226,7 +226,7 @@ class TestAskUserQuestion:
                 return_value=False,
             ),
             patch(
-                "code_puppy.tools.ask_user_question.handler.is_wiggum_active",
+                "code_puppy.tools.ask_user_question.handler._autonomous_mode_active",
                 return_value=False,
             ),
             patch(
@@ -260,7 +260,7 @@ class TestAskUserQuestion:
                 return_value=False,
             ),
             patch(
-                "code_puppy.tools.ask_user_question.handler.is_wiggum_active",
+                "code_puppy.tools.ask_user_question.handler._autonomous_mode_active",
                 return_value=False,
             ),
             patch(
@@ -299,7 +299,7 @@ class TestAskUserQuestion:
                 return_value=False,
             ),
             patch(
-                "code_puppy.tools.ask_user_question.handler.is_wiggum_active",
+                "code_puppy.tools.ask_user_question.handler._autonomous_mode_active",
                 return_value=False,
             ),
             patch(

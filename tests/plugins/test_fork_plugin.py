@@ -12,7 +12,7 @@ from rich.console import Console, Group
 from rich.text import Text
 
 from code_puppy.messaging.messages import MessageLevel
-from code_puppy.plugins.fork import register_callbacks as rc
+from code_puppy_core_plugins.fork import register_callbacks as rc
 
 _AGENTS = {"code-puppy": "the default pup", "qa-kitten": "meow"}
 

@@ -349,12 +349,9 @@ class RunningLineEditor:
             return None
 
         if ch == _CTRL_C:
-            # Raw ^C only reaches the editor when the console can't turn
-            # it into SIGINT (Windows clamps ENABLE_PROCESSED_INPUT for
-            # the whole session — see cli_runner startup).
-            # Mirror the SIGINT path: discard composed input / cancel
-            # reverse search, never submit or kill anything — cancel
-            # semantics stay with the hotkey/signal layers.
+            # Raw ^C reaches the editor only when the console can't turn it into
+            # SIGINT (Windows clamp); mirror the SIGINT path — discard input,
+            # never submit/kill (cancel stays with the hotkey/signal layers).
             self.clear_buffer()
             return None
 
@@ -368,12 +365,9 @@ class RunningLineEditor:
             if self._completion_open():
                 before = self._buffer
                 self._completion.accept()  # apply the highlighted item
-                # A real pick changed the buffer -> close menu, don't submit
-                # (classic editor behavior). But if accepting was a NO-OP
-                # (you'd already typed the whole word, so the highlighted
-                # item == what's there), don't swallow Enter: fall through
-                # to submit/newline. Otherwise a fully-typed command needs
-                # two Enters.
+                # A real pick changed the buffer -> close menu, don't submit.
+                # A no-op accept (word already fully typed) must NOT swallow Enter,
+                # or a fully-typed command would need two presses.
                 if self._buffer != before:
                     return None
             if self._multiline:
@@ -601,10 +595,8 @@ class RunningLineEditor:
         if not stripped:
             return None
         if stripped.startswith("/"):
-            # Fast path: /steer hands its text straight to the now-queue.
-            # Routing it through the command drain would PAUSE the agent
-            # just to request a steer (plus pause/resume transcript noise)
-            # — the exact opposite of "interrupt ASAP".
+            # /steer fast path → now-queue directly: routing through the command
+            # drain would PAUSE the agent just to request a steer ("interrupt ASAP").
             steer_text = _parse_steer_command(stripped)
             if steer_text is not None:
                 if not steer_text:
@@ -629,10 +621,8 @@ class RunningLineEditor:
         if mode == "queue":
             # Queued steers get no later confirmation, so ack at submit time.
             return _QueuedFeedback(f"for next turn: {stripped[:60]}")
-        # "now" steers: stay quiet here. The steer history processor emits
-        # "Injecting steer mid-turn — model will see: ..." when the text
-        # actually reaches the model; acking at submit time too was a lie
-        # (nothing has been injected yet) and doubled up the transcript.
+        # "now" steers: stay quiet — the history processor announces the injection
+        # when the model sees it; acking at submit time was a lie + transcript noise.
         return None
 
     @staticmethod

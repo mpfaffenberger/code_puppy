@@ -1,5 +1,10 @@
 """Tests for code_puppy/command_line/onboarding_slides.py"""
 
+import sys
+from unittest.mock import patch
+
+import pytest
+
 MODULE = "code_puppy.command_line.onboarding_slides"
 
 
@@ -35,6 +40,16 @@ class TestGetNavFooter:
 
 
 class TestGetGradientBanner:
+    def test_android_uses_compact_banner(self, monkeypatch):
+        import code_puppy.command_line.onboarding_slides as mod
+
+        monkeypatch.setattr(sys, "platform", "android")
+        with patch("pyfiglet.figlet_format", return_value="BANNER") as figlet:
+            content = mod.get_gradient_banner()
+
+        assert _plain(content) == "BANNER"
+        figlet.assert_called_once_with("PUP", font="ansi_shadow")
+
     def test_with_pyfiglet(self):
         from code_puppy.command_line.onboarding_slides import get_gradient_banner
 
@@ -89,21 +104,21 @@ class TestSlideModels:
         result = _plain(content)
         assert "Claude" in result
 
-    def test_api_keys_context(self):
+    @pytest.mark.parametrize(
+        "option,display,expected",
+        [
+            ("api_keys", "API Keys", "API Key"),
+            ("openrouter", "OpenRouter", "OpenRouter"),
+        ],
+        ids=["api_keys", "openrouter"],
+    )
+    def test_provider_context(self, option, display, expected):
         from code_puppy.command_line.onboarding_slides import slide_models
 
-        options = [("api_keys", "API Keys")]
+        options = [(option, display)]
         content = slide_models(0, options)
         result = _plain(content)
-        assert "API Key" in result
-
-    def test_openrouter_context(self):
-        from code_puppy.command_line.onboarding_slides import slide_models
-
-        options = [("openrouter", "OpenRouter")]
-        content = slide_models(0, options)
-        result = _plain(content)
-        assert "OpenRouter" in result
+        assert expected in result
 
     def test_skip_context(self):
         from code_puppy.command_line.onboarding_slides import slide_models

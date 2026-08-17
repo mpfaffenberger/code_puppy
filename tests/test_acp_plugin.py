@@ -36,7 +36,7 @@ from acp.schema import (
     WaitForTerminalExitResponse,
 )
 
-from code_puppy.plugins.acp import (
+from code_puppy_core_plugins.acp import (
     bridge as bridge_mod,
     capabilities,
     content,
@@ -44,7 +44,7 @@ from code_puppy.plugins.acp import (
     permissions,
     state,
 )
-from code_puppy.plugins.acp.agent import CodePuppyAgent
+from code_puppy_core_plugins.acp.agent import CodePuppyAgent
 
 
 # --------------------------------------------------------------------------- #
@@ -118,7 +118,8 @@ class FakeAgent:
                 "part_delta", {"delta_type": "TextPartDelta", "delta": delta}
             )
         usage = SimpleNamespace(input_tokens=12, output_tokens=8, total_tokens=20)
-        return SimpleNamespace(output="Hello puppy", usage=lambda: usage)
+        # pydantic-ai 1.107.5+/v2: ``result.usage`` is a property, not a method.
+        return SimpleNamespace(output="Hello puppy", usage=usage)
 
 
 def _update_types(conn: FakeConnection) -> List[str]:
@@ -222,6 +223,55 @@ async def test_new_session_and_prompt_streams(wired_agent):
 
 
 @pytest.mark.asyncio
+async def test_new_session_resets_model_fallback_warnings(wired_agent, monkeypatch):
+    """``_warned_model_fallbacks``'s shared/unscoped bucket (code_puppy/
+    agents/_builder.py) backs the main-agent-build warning, which -- unlike
+    sub-agent invocation's own per-session-scoped warnings -- has no
+    per-session identity of its own. Every new/loaded/forked session must
+    reset that shared bucket (scope=None only) so session A's dead-pin
+    warning during its own agent build can't silently suppress the identical
+    warning for session B's build.
+    """
+    agent, _ = wired_agent
+    calls = []
+    monkeypatch.setattr(
+        "code_puppy.agents._builder.reset_model_fallback_warnings",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    await agent.new_session(cwd="/tmp")
+
+    assert calls == [{"scope": None}]
+
+
+@pytest.mark.asyncio
+async def test_close_session_purges_its_own_fallback_warning_bucket(
+    wired_agent, monkeypatch
+):
+    """Sub-agent invocation scopes its dead-model-warning dedup by this
+    session's own conversation-root id (see subagent_context.py /
+    subagent_invocation.py) precisely so it never leaks into any OTHER
+    session -- but that also means nothing else will ever clean it up. A
+    long-running server churning through many short-lived sessions must not
+    accumulate one dangling bucket per closed session forever, so
+    close_session must purge exactly this session's own scope.
+    """
+    agent, _ = wired_agent
+    calls = []
+    monkeypatch.setattr(
+        "code_puppy.agents._builder.reset_model_fallback_warnings",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    session = await agent.new_session(cwd="/tmp")
+    calls.clear()  # drop the new_session's own scope=None reset call
+
+    await agent.close_session(session.session_id)
+
+    assert calls == [{"scope": session.session_id}]
+
+
+@pytest.mark.asyncio
 async def test_prompt_absorbs_history_for_memory_and_persistence(monkeypatch):
     """A completed turn must fold result.all_messages() back into the agent.
 
@@ -259,9 +309,7 @@ async def test_prompt_absorbs_history_for_memory_and_persistence(monkeypatch):
                 ModelRequest(parts=[UserPromptPart(content=prompt)]),
                 ModelResponse(parts=[TextPart(content=f"reply:{prompt}")]),
             ]
-            return SimpleNamespace(
-                all_messages=lambda: new, usage=lambda: None, output="reply"
-            )
+            return SimpleNamespace(all_messages=lambda: new, usage=None, output="reply")
 
     monkeypatch.setattr(
         "code_puppy.agents.agent_manager.load_agent", lambda name: MemAgent()
@@ -293,7 +341,7 @@ async def test_stream_part_start_content_not_dropped(wired_agent):
     truncates the start of every message (the reported bug). Start + deltas are
     disjoint, so both are emitted and reconstruct the full text.
     """
-    from code_puppy.plugins.acp.bridge import EventBridge
+    from code_puppy_core_plugins.acp.bridge import EventBridge
 
     agent, conn = wired_agent
     state.begin_run("sess_stream")
@@ -412,6 +460,63 @@ async def test_cancel_stops_run(monkeypatch):
         await agent.cancel(new.session_id)
         resp = await task
         assert resp.stop_reason == "cancelled"
+    finally:
+        permissions.uninstall()
+        io_delegation.uninstall()
+        state.set_connection(None, None)
+
+
+@pytest.mark.asyncio
+async def test_close_session_waits_for_in_flight_run_before_purging(monkeypatch):
+    """Round-4 adversarial review finding: closing a session while a prompt
+    is still running against it raced ``reset_model_fallback_warnings``
+    against that prompt's own (synchronous) write into the same bucket --
+    ``cancel()`` alone only *requests* cancellation, it doesn't wait for the
+    run to actually unwind, so the purge could complete before the write
+    ever happens, leaking that one warning-bucket entry forever (nothing
+    else will ever purge it once the session is closed).
+
+    ``close_session`` must use ``cancel_and_wait`` -- confirmed here by
+    hanging a slow run just past the point where it (would) write into the
+    dedup bucket, and asserting ``close_session`` only returns once that run
+    has actually finished, not merely been asked to stop.
+    """
+    monkeypatch.setattr(
+        "code_puppy.agents.agent_manager.get_current_agent_name", lambda: "code-puppy"
+    )
+    run_finished = asyncio.Event()
+
+    class SlowAgent:
+        _message_history: list = []
+
+        async def run_with_mcp(self, prompt, **_):
+            try:
+                await asyncio.sleep(30)
+                return SimpleNamespace(output="never")
+            finally:
+                # Stands in for where load_model_with_fallback syncs into
+                # _warned_model_fallbacks — if close_session's purge races ahead, it leaks.
+                run_finished.set()
+
+    monkeypatch.setattr(
+        "code_puppy.agents.agent_manager.load_agent", lambda name: SlowAgent()
+    )
+    conn = FakeConnection()
+    agent = CodePuppyAgent()
+    agent.on_connect(conn)
+    try:
+        new = await agent.new_session(cwd="/tmp")
+        prompt_task = asyncio.ensure_future(
+            agent.prompt([SimpleNamespace(type="text", text="go")], new.session_id)
+        )
+        await asyncio.sleep(0.05)  # let the run actually start
+
+        await agent.close_session(new.session_id)
+
+        # close_session must not have returned until the run's own cleanup
+        # (here standing in for the warn-dedup write) had already happened.
+        assert run_finished.is_set()
+        prompt_task.cancel()
     finally:
         permissions.uninstall()
         io_delegation.uninstall()
@@ -923,7 +1028,7 @@ async def test_fork_session_copies_history(wired_agent):
 async def test_load_session_rehydrates_history(wired_agent, monkeypatch):
     agent, _ = wired_agent
     monkeypatch.setattr(
-        "code_puppy.plugins.acp.persistence.load_history",
+        "code_puppy_core_plugins.acp.persistence.load_history",
         lambda sid: ["persisted-a", "persisted-b"],
     )
     await agent.load_session(cwd="/tmp", session_id="sess_restored")
@@ -952,7 +1057,7 @@ async def test_load_session_replays_history_to_client(wired_agent, monkeypatch):
         ModelResponse(parts=[TextPart(content="hi there")]),
     ]
     monkeypatch.setattr(
-        "code_puppy.plugins.acp.persistence.load_history", lambda sid: history
+        "code_puppy_core_plugins.acp.persistence.load_history", lambda sid: history
     )
     await agent.load_session(cwd="/tmp", session_id="sess_replay")
     kinds = [getattr(u, "session_update", None) for _, u in conn.updates]
@@ -978,7 +1083,7 @@ async def test_list_sessions_includes_persisted_after_restart(wired_agent, monke
     but a session pickled to disk. ``list_sessions`` must surface it (with the
     required ``cwd``) so the client's picker can revive it.
     """
-    from code_puppy.plugins.acp import persistence
+    from code_puppy_core_plugins.acp import persistence
 
     agent, _ = wired_agent
     monkeypatch.setattr(
@@ -1002,7 +1107,7 @@ async def test_list_sessions_includes_persisted_after_restart(wired_agent, monke
 @pytest.mark.asyncio
 async def test_list_sessions_live_wins_over_persisted(wired_agent, monkeypatch):
     """A live session and its on-disk copy must dedupe to a single entry."""
-    from code_puppy.plugins.acp import persistence
+    from code_puppy_core_plugins.acp import persistence
 
     agent, _ = wired_agent
     live = await agent.new_session(cwd="/live")
@@ -1022,7 +1127,7 @@ async def test_list_sessions_live_wins_over_persisted(wired_agent, monkeypatch):
 @pytest.mark.asyncio
 async def test_close_session_deletes_persisted(wired_agent, monkeypatch):
     """Closing a session tombstones its disk copy so it can't resurrect."""
-    from code_puppy.plugins.acp import persistence
+    from code_puppy_core_plugins.acp import persistence
 
     agent, _ = wired_agent
     deleted: list = []
@@ -1045,7 +1150,7 @@ def test_persistence_roundtrip_lists_and_deletes(tmp_path):
     import json
     import pickle
 
-    from code_puppy.plugins.acp import persistence
+    from code_puppy_core_plugins.acp import persistence
 
     # A complete session: pickle + sidecar (what list_persisted keys on).
     (tmp_path / "sess_x.pkl").write_bytes(pickle.dumps(["turn-1"]))
@@ -1086,7 +1191,7 @@ def test_persistence_save_writes_listable_session(tmp_path):
     globals). Kept separate from the list/delete unit test so a failure points
     at the right half.
     """
-    from code_puppy.plugins.acp import persistence
+    from code_puppy_core_plugins.acp import persistence
 
     class _Agent:
         def get_message_history(self):
@@ -1099,7 +1204,7 @@ def test_persistence_save_writes_listable_session(tmp_path):
         additional_directories=["/aux"],
         base_dir=tmp_path,
     )
-    assert (tmp_path / "sess_saved.pkl").exists()
+    assert (tmp_path / "sess_saved.json").exists()
     assert (tmp_path / "sess_saved_acp.json").exists()
     records = persistence.list_persisted(base_dir=tmp_path)
     assert [r.session_id for r in records] == ["sess_saved"]
@@ -1163,7 +1268,7 @@ async def test_slash_command_string_result_runs_model(wired_agent, monkeypatch):
     async def echo_run(prompt, **_):
         captured["prompt"] = prompt
         return SimpleNamespace(
-            output="modelled reply", usage=lambda: None, all_messages=lambda: []
+            output="modelled reply", usage=None, all_messages=lambda: []
         )
 
     agent._sessions[new.session_id].agent.run_with_mcp = echo_run
@@ -1191,7 +1296,7 @@ async def test_slash_command_sentinel_not_modelled(wired_agent, monkeypatch):
 
     async def guard_run(prompt, **_):
         modelled["called"] = True
-        return SimpleNamespace(output="x", usage=lambda: None, all_messages=lambda: [])
+        return SimpleNamespace(output="x", usage=None, all_messages=lambda: [])
 
     agent._sessions[new.session_id].agent.run_with_mcp = guard_run
     resp = await agent.prompt(
@@ -1217,7 +1322,7 @@ def test_image_block_becomes_attachment():
 
 
 def test_mcp_config_attach_stdio():
-    from code_puppy.plugins.acp import mcp_config
+    from code_puppy_core_plugins.acp import mcp_config
 
     class _Agent:
         _mcp_servers: list = []
@@ -1285,7 +1390,7 @@ async def test_set_session_mode_is_noop(wired_agent, monkeypatch):
 
 def test_config_options_expose_model_select(monkeypatch):
     """The model picker is a category='model', type='select' config option."""
-    from code_puppy.plugins.acp import session_config
+    from code_puppy_core_plugins.acp import session_config
 
     monkeypatch.setattr(
         "code_puppy.command_line.model_picker_completion.load_model_names",
@@ -1306,7 +1411,7 @@ def test_config_options_expose_model_select(monkeypatch):
 
 def test_mode_state_is_single_default():
     """We advertise one 'default' mode as a category=mode select (not blank)."""
-    from code_puppy.plugins.acp import session_config
+    from code_puppy_core_plugins.acp import session_config
 
     opts = session_config.config_options()
     mode_opt = next(o for o in opts if o.id == "mode")
@@ -1495,7 +1600,7 @@ async def test_set_config_model_reattaches_mcp(wired_agent, monkeypatch):
     monkeypatch.setattr("code_puppy.config.set_model_name", lambda m: None)
     reattached = {}
     monkeypatch.setattr(
-        "code_puppy.plugins.acp.mcp_config.attach",
+        "code_puppy_core_plugins.acp.mcp_config.attach",
         lambda ag, specs: reattached.update(specs=specs),
     )
     new = await agent.new_session(cwd="/tmp")

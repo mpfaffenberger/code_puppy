@@ -8,6 +8,8 @@ make_model_settings.
 import json
 from unittest.mock import patch
 
+import pytest
+
 import code_puppy.config as cp_config
 from code_puppy.model_factory import _merge_dotted_key
 
@@ -36,30 +38,23 @@ class TestParseConfigScalar:
 class TestGetCustomModelSettings:
     """Tests for reading the custom params JSON blob."""
 
-    @patch.object(cp_config, "get_value", return_value=None)
-    def test_returns_empty_dict_when_unset(self, _mock):
-        assert cp_config.get_custom_model_settings("test-model") == {}
-
-    @patch.object(cp_config, "get_value", return_value="   ")
-    def test_returns_empty_dict_when_blank(self, _mock):
-        assert cp_config.get_custom_model_settings("test-model") == {}
-
-    @patch.object(
-        cp_config,
-        "get_value",
-        return_value='{"chat_template_kwargs.thinking": "medium", "top_k": 5}',
+    @pytest.mark.parametrize(
+        "stored,expected",
+        [
+            (None, {}),
+            ("   ", {}),
+            (
+                '{"chat_template_kwargs.thinking": "medium", "top_k": 5}',
+                {"chat_template_kwargs.thinking": "medium", "top_k": 5},
+            ),
+            ("{not valid json", {}),
+            ('["a", "list"]', {}),
+        ],
     )
-    def test_returns_parsed_dict(self, _mock):
-        result = cp_config.get_custom_model_settings("test-model")
-        assert result == {"chat_template_kwargs.thinking": "medium", "top_k": 5}
-
-    @patch.object(cp_config, "get_value", return_value="{not valid json")
-    def test_fails_closed_on_corrupt_json(self, _mock):
-        assert cp_config.get_custom_model_settings("test-model") == {}
-
-    @patch.object(cp_config, "get_value", return_value='["a", "list"]')
-    def test_fails_closed_on_non_dict_json(self, _mock):
-        assert cp_config.get_custom_model_settings("test-model") == {}
+    @patch.object(cp_config, "get_value")
+    def test_get_custom_model_settings(self, _mock, stored, expected):
+        _mock.return_value = stored
+        assert cp_config.get_custom_model_settings("test-model") == expected
 
     @patch.object(cp_config, "get_value")
     def test_uses_reserved_config_key(self, mock_get_value):

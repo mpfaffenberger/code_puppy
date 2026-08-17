@@ -27,31 +27,22 @@ class TestLoadCatalogSkillIds:
     def test_success(self):
         from code_puppy.command_line.skills_completion import load_catalog_skill_ids
 
-        mock_entry = MagicMock()
-        mock_entry.id = "skill-1"
-        mock_catalog = MagicMock()
-        mock_catalog.get_all.return_value = [mock_entry]
-        mock_module = MagicMock()
-        mock_module.catalog = mock_catalog
-
-        import sys
-
-        with patch.dict(
-            sys.modules, {"code_puppy.plugins.agent_skills.skill_catalog": mock_module}
+        provider = MagicMock()
+        provider.get_catalog_skill_ids.return_value = ["skill-1"]
+        with patch(
+            "code_puppy.command_line.skills_completion.get_skill_provider",
+            return_value=provider,
         ):
-            result = load_catalog_skill_ids()
-        assert result == ["skill-1"]
+            assert load_catalog_skill_ids() == ["skill-1"]
 
     def test_exception(self):
-        import sys
-
         from code_puppy.command_line.skills_completion import load_catalog_skill_ids
 
-        with patch.dict(
-            sys.modules, {"code_puppy.plugins.agent_skills.skill_catalog": None}
+        with patch(
+            "code_puppy.command_line.skills_completion.get_skill_provider",
+            side_effect=RuntimeError("boom"),
         ):
-            result = load_catalog_skill_ids()
-        assert result == []
+            assert load_catalog_skill_ids() == []
 
 
 class TestSkillsCompleterGetCompletions:
@@ -147,25 +138,15 @@ class TestFilePathCompleterMissedLines:
 
     def test_hidden_files_shown_when_dot_typed(self):
         """Line 41: text_after_symbol ends with '.' in dir listing branch."""
-        # To hit the dir listing branch (line 30-42), pattern.strip("*") must be
-        # empty or end with "/". We use the directory path ending with "/"
-        # and text_after_symbol ending with "." to cover line 41.
+        # Hit the dir-listing branch (line 30-42): pattern.strip("*") must be empty
+        # or end with "/" - use a trailing-"/" path with text_after_symbol ending ".".
         with tempfile.TemporaryDirectory() as tmpdir:
             subdir = Path(tmpdir, "sub")
             subdir.mkdir()
             Path(subdir, ".hidden").touch()
             Path(subdir, "visible").touch()
-            # text_after_symbol = "{subdir}/" -> hits dir listing, but doesn't end with "."
-            # We need a different approach: use "@" then just "*" pattern
-            # Actually line 41 condition: `not f.startswith(".") or text_after_symbol.endswith(".")`
-            # To show hidden files, text_after_symbol must end with "."
-            # And to be in the dir listing branch, pattern.strip("*") must be empty or end with "/"
-            # pattern = text_after_symbol + "*", so if text_after_symbol=".", pattern=".*"
-            # pattern.strip("*") = "." which doesn't end with "/" and isn't empty -> goes to glob
-            # Hmm, we need text ending with "." AND hitting dir listing branch.
-            # That's only possible if text_after_symbol ends with "." AND (is empty or ends with "/")
-            # which is contradictory. So line 41 is about showing non-hidden files by default.
-            # Let's just ensure the dir listing branch works.
+            # Line 41's filter means the dir-listing branch shows non-hidden files by
+            # default; ".*" patterns (hidden files) fall through to the glob branch.
             doc = Document(f"@{subdir}/")
             completions = list(self.completer.get_completions(doc, None))
             texts = [c.text for c in completions]

@@ -2,7 +2,18 @@
 
 Historically pydantic-ai focused, this module now collects all runtime
 monkey patches code-puppy applies to its dependencies.  Each patch is
-idempotent and fails silently if the target library is absent.
+idempotent and NEVER raises, but failures are not silent:
+
+- A missing OPTIONAL third-party lib (json_repair, wcwidth, prompt_toolkit,
+  termflow) is genuinely fine and only logged at DEBUG level.
+- Failure to locate/patch a pydantic-ai (or other patched-lib) internal —
+  missing module, missing attribute, changed shape detected at apply time —
+  is logged LOUDLY via ``logger.error``, because it means a security or
+  correctness layer silently degraded (e.g. tool-call hooks not firing).
+
+Logging uses the stdlib ``logging`` module, NOT ``code_puppy.messaging``:
+patches apply at the very top of ``cli_runner`` before the messaging
+system is up (see cli_runner.py lines 6-9).
 
 Usage:
     from code_puppy.pydantic_patches import apply_all_patches
@@ -10,7 +21,43 @@ Usage:
 """
 
 import importlib.metadata
+import logging
+import warnings
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# Loud failures recorded during the current apply_all_patches() run, so the
+# summary line can distinguish real breakage from skipped optional deps.
+_LOUD_FAILURES: list[str] = []
+
+
+def _patch_failed(
+    patch_name: str,
+    exc: BaseException,
+    consequence: str,
+    target: str = "pydantic-ai",
+) -> bool:
+    """Log a loud, actionable error for a patch that failed to apply."""
+    _LOUD_FAILURES.append(patch_name)
+    logger.error(
+        "pydantic_patches: %s FAILED to apply (%s internals changed?): %r — %s",
+        patch_name,
+        target,
+        exc,
+        consequence,
+    )
+    return False
+
+
+def _optional_lib_missing(patch_name: str, exc: ImportError) -> bool:
+    """Quietly skip a patch whose optional third-party dependency is absent."""
+    logger.debug(
+        "pydantic_patches: %s skipped (optional dependency missing): %r",
+        patch_name,
+        exc,
+    )
+    return False
 
 
 def _get_code_puppy_version() -> str:
@@ -21,7 +68,7 @@ def _get_code_puppy_version() -> str:
         return "0.0.0-dev"
 
 
-def patch_user_agent() -> None:
+def patch_user_agent() -> bool:
     """Patch pydantic-ai's User-Agent to use Code-Puppy's version.
 
     pydantic-ai sets its own User-Agent ('pydantic-ai/x.x.x') via a @cache-decorated
@@ -33,6 +80,9 @@ def patch_user_agent() -> None:
     """
     try:
         import pydantic_ai.models as pydantic_models
+
+        if not hasattr(pydantic_models, "get_user_agent"):
+            raise AttributeError("pydantic_ai.models.get_user_agent not found")
 
         version = _get_code_puppy_version()
 
@@ -53,100 +103,63 @@ def patch_user_agent() -> None:
             return f"Code-Puppy/{version}"
 
         pydantic_models.get_user_agent = _get_dynamic_user_agent
-    except Exception:
-        pass  # Don't crash on patch failure
+        assert pydantic_models.get_user_agent is _get_dynamic_user_agent
+        return True
+    except Exception as exc:
+        return _patch_failed(
+            "patch_user_agent",
+            exc,
+            "the Code-Puppy User-Agent is DISABLED; requests use pydantic-ai's default.",
+        )
 
 
-def patch_message_history_cleaning() -> None:
+def patch_message_history_cleaning() -> bool:
     """Disable overly strict message history cleaning in pydantic-ai."""
     try:
         from pydantic_ai import _agent_graph
 
-        _agent_graph._clean_message_history = lambda messages: messages
-    except Exception:
-        pass
-
-
-def patch_process_message_history() -> None:
-    """Patch _process_message_history to skip strict ModelRequest validation.
-
-    Pydantic AI added a validation that history must end with ModelRequest,
-    but this breaks valid conversation flows. We patch it to skip that validation.
-    """
-    try:
-        from pydantic_ai import _agent_graph
-
-        async def _patched_process_message_history(messages, processors, run_context):
-            """Patched version that doesn't enforce ModelRequest at end."""
-            from pydantic_ai._agent_graph import (
-                _HistoryProcessorAsync,
-                _HistoryProcessorSync,
-                _HistoryProcessorSyncWithCtx,
-                cast,
-                exceptions,
-                is_async_callable,
-                is_takes_ctx,
-                run_in_executor,
+        if not hasattr(_agent_graph, "_clean_message_history"):
+            raise AttributeError(
+                "pydantic_ai._agent_graph._clean_message_history not found"
             )
 
-            for processor in processors:
-                takes_ctx = is_takes_ctx(processor)
-
-                if is_async_callable(processor):
-                    if takes_ctx:
-                        messages = await processor(run_context, messages)
-                    else:
-                        async_processor = cast(_HistoryProcessorAsync, processor)
-                        messages = await async_processor(messages)
-                else:
-                    if takes_ctx:
-                        sync_processor_with_ctx = cast(
-                            _HistoryProcessorSyncWithCtx, processor
-                        )
-                        messages = await run_in_executor(
-                            sync_processor_with_ctx, run_context, messages
-                        )
-                    else:
-                        sync_processor = cast(_HistoryProcessorSync, processor)
-                        messages = await run_in_executor(sync_processor, messages)
-
-            if len(messages) == 0:
-                raise exceptions.UserError("Processed history cannot be empty.")
-
-            # NOTE: We intentionally skip the "must end with ModelRequest" validation
-            # that was added in newer Pydantic AI versions.
-
-            return messages
-
-        _agent_graph._process_message_history = _patched_process_message_history
-    except Exception:
-        pass
+        # v2 signature: _clean_message_history(messages, *, repair_last_response=False)
+        _identity = lambda messages, **_kwargs: messages  # noqa: E731
+        _agent_graph._clean_message_history = _identity
+        assert _agent_graph._clean_message_history is _identity
+        return True
+    except Exception as exc:
+        return _patch_failed(
+            "patch_message_history_cleaning",
+            exc,
+            "strict history cleaning is ACTIVE and may drop valid messages.",
+        )
 
 
-def patch_tool_call_json_repair() -> None:
-    """Patch pydantic-ai's _call_tool to auto-repair malformed JSON arguments.
+def patch_tool_call_json_repair() -> bool:
+    """Patch pydantic-ai's tool-call validation to auto-repair malformed JSON.
 
     LLMs sometimes produce slightly broken JSON in tool calls (trailing commas,
-    missing quotes, etc.). This patch intercepts tool calls and runs json_repair
-    on the arguments before validation, preventing unnecessary retries.
+    missing quotes, etc.). This patch intercepts ``validate_tool_call`` (the
+    single validation entry point since pydantic-ai split validation from
+    execution in the public ``pydantic_ai.tool_manager`` module) and runs
+    json_repair on the raw arguments before validation, preventing
+    unnecessary retries.
     """
     try:
         import json_repair
-        from pydantic_ai._tool_manager import ToolManager
+    except ImportError as exc:
+        return _optional_lib_missing("patch_tool_call_json_repair", exc)
 
-        # Store the original method
-        _original_call_tool = ToolManager._call_tool
+    try:
+        from pydantic_ai.tool_manager import ToolManager
 
-        async def _patched_call_tool(
-            self,
-            call,
-            *,
-            allow_partial: bool,
-            wrap_validation_errors: bool,
-            approved: bool,
-            metadata: Any = None,
-        ):
-            """Patched _call_tool that repairs malformed JSON before validation."""
+        # Store the original method (resolved at APPLY time so a changed
+        # pydantic-ai surface is detected immediately, not on first run).
+        _original_validate_tool_call = ToolManager.validate_tool_call
+
+        async def _patched_validate_tool_call(self, call, **kwargs):
+            """Repair malformed JSON args before pydantic-ai validates them."""
             # Only attempt repair if args is a string (JSON)
             if isinstance(call.args, str) and call.args:
                 try:
@@ -157,23 +170,18 @@ def patch_tool_call_json_repair() -> None:
                 except Exception:
                     pass  # If repair fails, let original validation handle it
 
-            # Call the original method
-            return await _original_call_tool(
-                self,
-                call,
-                allow_partial=allow_partial,
-                wrap_validation_errors=wrap_validation_errors,
-                approved=approved,
-                metadata=metadata,
-            )
+            return await _original_validate_tool_call(self, call, **kwargs)
 
         # Apply the patch
-        ToolManager._call_tool = _patched_call_tool
-
-    except ImportError:
-        pass  # json_repair or pydantic_ai not available
-    except Exception:
-        pass  # Don't crash on patch failure
+        ToolManager.validate_tool_call = _patched_validate_tool_call
+        assert ToolManager.validate_tool_call is _patched_validate_tool_call
+        return True
+    except Exception as exc:
+        return _patch_failed(
+            "patch_tool_call_json_repair",
+            exc,
+            "automatic JSON repair of malformed tool-call arguments is DISABLED.",
+        )
 
 
 def _writeback_tool_args(call: Any, tool_args: dict, mode: str | None) -> None:
@@ -205,7 +213,7 @@ def _writeback_tool_args(call: Any, tool_args: dict, mode: str | None) -> None:
         pass  # never block tool execution on writeback failure
 
 
-def patch_tool_call_callbacks() -> None:
+def patch_tool_call_callbacks() -> bool:
     """Patch pydantic-ai tool handling to support callbacks and Claude Code tool names.
 
     Claude Code OAuth prefixes tool names with ``cp_`` on the wire.  pydantic-ai
@@ -213,29 +221,40 @@ def patch_tool_call_callbacks() -> None:
     ``_call_tool`` is too late: prefixed tools get marked as ``unknown`` and can
     burn through result retries, eventually raising ``UnexpectedModelBehavior``.
 
-    This patch normalizes Claude Code tool names early (during lookup/dispatch)
-    and wraps ``_call_tool`` so every tool invocation also triggers the
-    ``pre_tool_call`` and ``post_tool_call`` callbacks defined in
-    ``code_puppy.callbacks``.
+    This patch normalizes Claude Code tool names early (during lookup and
+    validation, before classification) and wraps ``execute_tool_call`` (the
+    single execution entry point since pydantic-ai split validation from
+    execution in the public ``pydantic_ai.tool_manager`` module) so every tool
+    invocation also triggers the ``pre_tool_call`` and ``post_tool_call``
+    callbacks defined in ``code_puppy.callbacks``.
+
+    Why not the v2 ``Hooks`` capability? Evaluated against pydantic-ai
+    2.31.0 and rejected:
+
+    - ``cp_`` normalization must run BEFORE tool classification:
+      ``ToolManager._resolve_tool`` marks unknown names as unclassified
+      before any ``before_tool_validate`` hook fires, so a capability hook
+      is structurally too late — exactly the bug this patch fixes.
+    - Hook arg-rewrites feed execution only (``validated_args``); they never
+      write back to ``call.args``, so mutations would vanish from message
+      history (see ``_writeback_tool_args``).
+    - Capabilities are per-``Agent`` wiring; this patch is process-global and
+      covers every construction site (builder, sub-agents, summarizer,
+      plugin-created agents) with one mechanism instead of two.
     """
     import time
 
     try:
-        from pydantic_ai._tool_manager import ToolManager
+        from pydantic_ai.tool_manager import ToolManager
 
-        _original_call_tool = ToolManager._call_tool
+        _original_execute_tool_call = ToolManager.execute_tool_call
         _original_get_tool_def = ToolManager.get_tool_def
-        _original_handle_call = ToolManager.handle_call
+        _original_validate_tool_call = ToolManager.validate_tool_call
 
-        # Tool name prefix used by Claude Code OAuth - tools are prefixed on
-        # outgoing requests, so we need to unprefix them when they come back.
-        # This prefix MUST only be stripped when a claude-code OAuth model is
-        # active. Stripping unconditionally would corrupt legitimate tool names
-        # that happen to begin with ``cp_`` when other model types are in use
-        # (e.g. ``custom_anthropic``, ``custom_openai``, etc.).
+        # Strip the cp_ prefix on return only while a claude-code model is active;
+        # unconditional stripping would corrupt legit ``cp_`` names from other types.
         TOOL_PREFIX = "cp_"
-        # Match the prefix used by the claude_code_oauth plugin's model name
-        # convention (see plugins/claude_code_oauth/prompt_handler.py).
+        # Matches claude_code_oauth's model-name convention (prompt_handler.py).
         _CLAUDE_CODE_MODEL_PREFIX = "claude-code"
 
         def _is_claude_code_model_active() -> bool:
@@ -275,60 +294,35 @@ def patch_tool_call_callbacks() -> None:
             return normalized_name, call
 
         # -- Early normalization patches -----------------------------------------
-        # These run *before* pydantic-ai classifies the tool as function/output/
-        # unknown, so prefixed names resolve correctly.
+        # Run before classification so prefixed names resolve correctly.
 
         def _patched_get_tool_def(self, name: str):
             return _original_get_tool_def(self, _normalize_tool_name(name))
 
-        async def _patched_handle_call(
-            self,
-            call,
-            allow_partial: bool = False,
-            wrap_validation_errors: bool = True,
-            *,
-            approved: bool = False,
-            metadata: Any = None,
-        ):
+        async def _patched_validate_tool_call(self, call, **kwargs):
+            """Normalize the tool name before pydantic-ai classifies the call."""
             _normalize_call_tool_name(call)
-            return await _original_handle_call(
-                self,
-                call,
-                allow_partial=allow_partial,
-                wrap_validation_errors=wrap_validation_errors,
-                approved=approved,
-                metadata=metadata,
-            )
+            return await _original_validate_tool_call(self, call, **kwargs)
 
-        # -- _call_tool wrapper with callbacks -----------------------------------
+        # -- execute_tool_call wrapper with callbacks ----------------------------
 
-        async def _patched_call_tool(
-            self,
-            call,
-            *,
-            allow_partial: bool,
-            wrap_validation_errors: bool,
-            approved: bool,
-            metadata: Any = None,
-        ):
+        async def _patched_execute_tool_call(self, validated, **kwargs):
+            call = validated.call
             tool_name, call = _normalize_call_tool_name(call)
 
-            # Normalise args to a dict for the callback contract.
-            #
-            # We also remember the *shape* of ``call.args`` so we can write
-            # mutations back in the same shape after pre_tool_call hooks run.
-            # Without this, hooks mutating ``tool_args`` in place have zero
-            # effect when ``call.args`` is a JSON string (the common case for
-            # LLM-emitted tool calls): ``json.loads`` returns a fresh dict and
-            # the original ``call.args`` string is what the tool actually sees.
-            #
-            # ``_args_writeback_mode`` values:
-            #   "str"  → re-serialize ``tool_args`` to JSON and assign
-            #   "dict" → assign the (possibly mutated) dict directly
-            #   None   → do not write back (unparseable / unknown shape)
+            # Give hooks a dict view of the args. Prefer the already-validated
+            # dict — execution passes it to the tool, so in-place mutations
+            # flow through automatically. Remember the original call.args shape
+            # so mutations also land in message history. Mode: "str"/"dict"/None.
             tool_args: dict = {}
             _args_writeback_mode: str | None = None
-            if isinstance(call.args, dict):
+            if isinstance(validated.validated_args, dict):
+                tool_args = validated.validated_args
+                if isinstance(call.args, dict):
+                    _args_writeback_mode = "dict"
+                elif isinstance(call.args, str):
+                    _args_writeback_mode = "str"
+            elif isinstance(call.args, dict):
                 tool_args = call.args
                 _args_writeback_mode = "dict"
             elif isinstance(call.args, str):
@@ -346,9 +340,8 @@ def patch_tool_call_callbacks() -> None:
             hook_context_messages: list[str] = []
 
             # --- pre_tool_call (with blocking support) ---
-            # Returns a string tool-result on block so pydantic-ai sees a clean
-            # "BLOCKED: ..." message and the agent can react gracefully, without
-            # triggering UnexpectedModelBehavior crashes.
+            # Block returns a string result so pydantic-ai sees a clean "BLOCKED: ..."
+            # instead of crashing with UnexpectedModelBehavior.
             try:
                 from code_puppy import callbacks
                 from code_puppy.messaging import emit_warning
@@ -357,10 +350,8 @@ def patch_tool_call_callbacks() -> None:
                     tool_name, tool_args
                 )
 
-                # Collect any non-blocking hook context messages (e.g. stdout
-                # from Claude Code-style PreToolUse hooks) so we can inject
-                # them into the tool's result and the model can actually see
-                # them. Without this, hook stdout is captured-and-lost.
+                # Collect non-blocking hook context messages (e.g. PreToolUse
+                # stdout) so the model sees them — otherwise they're lost.
                 for callback_result in callback_results:
                     if isinstance(callback_result, dict) and not callback_result.get(
                         "blocked"
@@ -394,23 +385,16 @@ def patch_tool_call_callbacks() -> None:
             except Exception:
                 pass  # other errors don't block tool execution
 
-            # Persist pre_tool_call mutations back onto call.args so the
-            # downstream tool dispatch (and the conversation history) sees
-            # the modified args. See ``_writeback_tool_args`` for the why.
+            # Write pre_tool_call mutations back to call.args so message
+            # history sees them (execution itself reads validated.validated_args,
+            # which IS ``tool_args`` when validation succeeded).
             _writeback_tool_args(call, tool_args, _args_writeback_mode)
 
             start = time.perf_counter()
             error: Exception | None = None
             result = None
             try:
-                result = await _original_call_tool(
-                    self,
-                    call,
-                    allow_partial=allow_partial,
-                    wrap_validation_errors=wrap_validation_errors,
-                    approved=approved,
-                    metadata=metadata,
-                )
+                result = await _original_execute_tool_call(self, validated, **kwargs)
                 # Prepend collected hook stdout (PreToolUse "additional
                 # context") so the model sees it as part of the tool result.
                 if hook_context_messages:
@@ -441,16 +425,21 @@ def patch_tool_call_callbacks() -> None:
                     pass  # never block tool execution
 
         ToolManager.get_tool_def = _patched_get_tool_def
-        ToolManager.handle_call = _patched_handle_call
-        ToolManager._call_tool = _patched_call_tool
+        ToolManager.validate_tool_call = _patched_validate_tool_call
+        ToolManager.execute_tool_call = _patched_execute_tool_call
+        assert ToolManager.get_tool_def is _patched_get_tool_def
+        assert ToolManager.validate_tool_call is _patched_validate_tool_call
+        assert ToolManager.execute_tool_call is _patched_execute_tool_call
+        return True
+    except Exception as exc:
+        return _patch_failed(
+            "patch_tool_call_callbacks",
+            exc,
+            "pre/post tool hooks and hook-blocking are DISABLED.",
+        )
 
-    except ImportError:
-        pass
-    except Exception:
-        pass
 
-
-def patch_prompt_toolkit_emoji_width() -> None:
+def patch_prompt_toolkit_emoji_width() -> bool:
     """Patch prompt_toolkit's character width calculation for emojis.
 
     Modern terminals render most emojis as 2 cells wide, but wcwidth often
@@ -464,7 +453,10 @@ def patch_prompt_toolkit_emoji_width() -> None:
     try:
         import wcwidth
         from prompt_toolkit import utils as pt_utils
+    except ImportError as exc:
+        return _optional_lib_missing("patch_prompt_toolkit_emoji_width", exc)
 
+    try:
         _original_get_cwidth = pt_utils.get_cwidth
 
         def _patched_get_cwidth(char: str) -> int:
@@ -496,14 +488,18 @@ def patch_prompt_toolkit_emoji_width() -> None:
             return _original_get_cwidth(char)
 
         pt_utils.get_cwidth = _patched_get_cwidth
+        assert pt_utils.get_cwidth is _patched_get_cwidth
+        return True
+    except Exception as exc:
+        return _patch_failed(
+            "patch_prompt_toolkit_emoji_width",
+            exc,
+            "emoji cursor alignment fixes are DISABLED.",
+            target="prompt_toolkit",
+        )
 
-    except ImportError:
-        pass  # wcwidth or prompt_toolkit not available
-    except Exception:
-        pass  # Don't crash on patch failure
 
-
-def patch_termflow_clipboard() -> None:
+def patch_termflow_clipboard() -> bool:
     """Disable termflow's OSC 52 clipboard hijacking globally.
 
     termflow's ``RenderFeatures.clipboard`` defaults to ``True``.  When a
@@ -521,12 +517,22 @@ def patch_termflow_clipboard() -> None:
     """
     try:
         from termflow.render.renderer import Renderer
+    except ImportError as exc:
+        return _optional_lib_missing("patch_termflow_clipboard", exc)
 
+    try:
+        if not hasattr(Renderer, "_copy_to_clipboard"):
+            raise AttributeError("termflow Renderer._copy_to_clipboard not found")
         Renderer._copy_to_clipboard = lambda self, text: None  # type: ignore[method-assign]
-    except ImportError:
-        pass  # termflow not available
-    except Exception:
-        pass  # never crash on patch failure
+        return True
+    except Exception as exc:
+        return _patch_failed(
+            "patch_termflow_clipboard",
+            exc,
+            "OSC 52 clipboard hijacking is ACTIVE; code blocks may silently "
+            "overwrite the user's clipboard.",
+            target="termflow",
+        )
 
 
 def _no_pad_render_code_line(_line, highlighted, width, margin, style, pretty_pad=True):
@@ -534,7 +540,7 @@ def _no_pad_render_code_line(_line, highlighted, width, margin, style, pretty_pa
     return f"{margin}{highlighted}"
 
 
-def patch_termflow_code_padding() -> None:
+def patch_termflow_code_padding() -> bool:
     """Strip trailing-space padding from termflow code lines (#505).
 
     termflow's ``render_code_line`` right-pads to render width, but
@@ -547,25 +553,88 @@ def patch_termflow_code_padding() -> None:
     try:
         import termflow.render.code as _termflow_code
         import termflow.render.renderer as _termflow_renderer
+    except ImportError as exc:
+        return _optional_lib_missing("patch_termflow_code_padding", exc)
 
+    try:
+        if not hasattr(_termflow_code, "render_code_line") or not hasattr(
+            _termflow_renderer, "render_code_line"
+        ):
+            raise AttributeError("termflow render_code_line not found")
         _termflow_code.render_code_line = _no_pad_render_code_line
         _termflow_renderer.render_code_line = _no_pad_render_code_line
-    except ImportError:
-        pass  # termflow not available
-    except Exception:
-        pass  # never crash on patch failure
+        return True
+    except Exception as exc:
+        return _patch_failed(
+            "patch_termflow_code_padding",
+            exc,
+            "code lines keep invisible trailing-space padding (copy/paste corruption).",
+            target="termflow",
+        )
 
 
-def apply_all_patches() -> None:
+def patch_silence_anthropic_sampling_warnings() -> bool:
+    """Silence pydantic-ai's unsupported-sampling-parameter UserWarning.
+
+    Some Claude models (e.g. Fable 5) reject sampling params like
+    ``temperature``; pydantic-ai already drops them before sending, then
+    warns on every single request:
+
+        Sampling parameters ['temperature'] are not supported by
+        'claude-fable-5'. These settings will be ignored.
+
+    We avoid sending those params in the first place (see
+    ``make_model_settings``), so any residual warning is pure console noise
+    in the TUI. The filter is scoped to this exact message shape — NOT a
+    blanket UserWarning ignore. Module-based scoping is intentionally
+    omitted: warnings' module matching keys off the stacklevel-adjusted
+    frame and is unreliable here.
+    """
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Sampling parameters .* are not supported by .*",
+        category=UserWarning,
+    )
+    return True
+
+
+_ALL_PATCHES = (
+    patch_silence_anthropic_sampling_warnings,
+    patch_user_agent,
+    patch_message_history_cleaning,
+    patch_tool_call_json_repair,
+    patch_tool_call_callbacks,
+    patch_prompt_toolkit_emoji_width,
+    patch_termflow_clipboard,
+    patch_termflow_code_padding,
+)
+
+
+def apply_all_patches() -> dict[str, bool]:
     """Apply all monkey patches.
 
     Call this at the very top of main.py, before any other imports.
+
+    Returns a mapping of patch name -> whether it applied. Never raises:
+    failures are logged (loudly for real breakage, quietly for missing
+    optional dependencies) and reflected as ``False`` in the result.
     """
-    patch_user_agent()
-    patch_message_history_cleaning()
-    patch_process_message_history()
-    patch_tool_call_json_repair()
-    patch_tool_call_callbacks()
-    patch_prompt_toolkit_emoji_width()
-    patch_termflow_clipboard()
-    patch_termflow_code_padding()
+    _LOUD_FAILURES.clear()
+    results: dict[str, bool] = {}
+    for patch in _ALL_PATCHES:
+        try:
+            results[patch.__name__] = bool(patch())
+        except Exception as exc:  # pragma: no cover - patches must not raise
+            _LOUD_FAILURES.append(patch.__name__)
+            logger.error(
+                "pydantic_patches: %s raised unexpectedly: %r", patch.__name__, exc
+            )
+            results[patch.__name__] = False
+    if _LOUD_FAILURES:
+        logger.error(
+            "pydantic_patches: %d patch(es) FAILED to apply: %s — "
+            "behavior may be degraded.",
+            len(_LOUD_FAILURES),
+            ", ".join(_LOUD_FAILURES),
+        )
+    return results

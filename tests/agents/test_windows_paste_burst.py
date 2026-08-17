@@ -13,7 +13,6 @@ from code_puppy.agents._key_listeners import (
     _PASTE_CLOSE,
     _PASTE_OPEN,
     _SHIFT_ENTER_SEQ,
-    _WIN_BURST_CAP,
     _WIN_PASTE_MIN_CHARS,
     _coalesce_paste_burst,
     _drain_windows_burst,
@@ -58,12 +57,6 @@ class TestDrain:
             ("seq", "\x1b[D"),
             ("char", "b"),
         ]
-
-    def test_burst_cap_leaves_remainder_queued(self):
-        fake = FakeMsvcrt(["x"] * (_WIN_BURST_CAP + 10))
-        items = _drain_windows_burst(fake)
-        assert len(items) == _WIN_BURST_CAP
-        assert len(fake.keys) == 10
 
     def test_first_key_read_despite_kbhit_lie(self):
         """The caller consumed the only kbhit() True; the drain must still

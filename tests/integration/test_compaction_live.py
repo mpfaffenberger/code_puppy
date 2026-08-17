@@ -1,7 +1,7 @@
 """Live integration tests for message-history compaction.
 
 Drives a REAL ``CodePuppyAgent`` through ``run_with_mcp`` with a pre-populated
-~180k-token message history, pinned to ``firepass-kimi-k2p5-turbo`` (262k ctx window).
+~180k-token message history, pinned to ``LILAC_MODEL`` (Kimi K2.6, 262k ctx window).
 Compaction MUST fire, the run MUST complete, and history MUST shrink.
 
 This is the kind of test that would have caught the Phase 4 signature bug
@@ -36,8 +36,9 @@ from pydantic_ai.messages import (
 # -- Gate on SYN_API_KEY ------------------------------------------------------
 
 
-# The lilac-hosted GLM-5.1 model (200k+ ctx window) we drive these tests with.
-LILAC_MODEL = "lilac-zai-org-glm-5.1"
+# The lilac-hosted Kimi K2.6 model (262k ctx window) we drive these tests with.
+# (Was GLM-5.1 until Lilac retired it — see /v1/models for the current catalog.)
+LILAC_MODEL = "lilac-moonshotai-kimi-k2.6"
 
 
 # Fake CI placeholder values — not real API keys
@@ -267,7 +268,7 @@ def huge_history() -> List[ModelMessage]:
 
 @pytest.fixture
 def pinned_code_puppy_agent(monkeypatch):
-    """Fresh CodePuppyAgent pinned to lilac-zai-org-glm-5.1.
+    """Fresh CodePuppyAgent pinned to ``LILAC_MODEL``.
 
     Uses monkeypatch to override the global model getter so we don't touch
     the user's on-disk config during the test run.
@@ -409,7 +410,7 @@ async def test_live_compaction_summarization_strategy(
 
     Exercises the full real-world path: history_processor closure →
     compact() → summarize() → summarization sub-agent makes a REAL LLM call →
-    compacted history handed back to pydantic-ai → GLM-5.1 answers the prompt.
+    compacted history handed back to pydantic-ai → the lilac model answers the prompt.
 
     This test validates TWO acceptable outcomes:
       1. ✨ Summarization succeeds: history shrinks dramatically.

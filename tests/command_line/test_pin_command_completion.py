@@ -2,6 +2,7 @@
 
 from unittest.mock import mock_open, patch
 
+import pytest
 from prompt_toolkit.document import Document
 
 
@@ -176,27 +177,21 @@ class TestGetModelDisplayMeta:
 
 
 class TestGetAgentDisplayMeta:
-    def test_with_pinned_model(self):
+    @pytest.mark.parametrize(
+        ("pinned", "expected"),
+        [("gpt-4", "→ gpt-4"), (None, "default")],
+        ids=["with_pinned_model", "without_pinned_model"],
+    )
+    def test_display_meta(self, pinned, expected):
         from code_puppy.command_line.pin_command_completion import (
             _get_agent_display_meta,
         )
 
         with patch(
             "code_puppy.command_line.pin_command_completion._get_pinned_model_for_agent",
-            return_value="gpt-4",
+            return_value=pinned,
         ):
-            assert _get_agent_display_meta("test") == "→ gpt-4"
-
-    def test_without_pinned_model(self):
-        from code_puppy.command_line.pin_command_completion import (
-            _get_agent_display_meta,
-        )
-
-        with patch(
-            "code_puppy.command_line.pin_command_completion._get_pinned_model_for_agent",
-            return_value=None,
-        ):
-            assert _get_agent_display_meta("test") == "default"
+            assert _get_agent_display_meta("test") == expected
 
 
 class TestLoadAgentNames:
@@ -260,11 +255,20 @@ class TestPinCompleter:
             cursor_pos = len(text)
         return Document(text=text, cursor_position=cursor_pos)
 
-    def test_no_trigger(self):
+    @pytest.mark.parametrize(
+        "doc_text",
+        [
+            "/other ",
+            "/pin_model agent1 (unpin) extra",
+            "/pin_model agent1 model1 extra",
+        ],
+        ids=["no_trigger", "unpin_selected_no_more", "three_or_more_tokens"],
+    )
+    def test_no_completions(self, doc_text):
         from code_puppy.command_line.pin_command_completion import PinCompleter
 
         c = PinCompleter()
-        completions = list(c.get_completions(self._make_doc("/other "), None))
+        completions = list(c.get_completions(self._make_doc(doc_text), None))
         assert completions == []
 
     def test_no_args_shows_agents(self):
@@ -284,64 +288,42 @@ class TestPinCompleter:
             completions = list(c.get_completions(self._make_doc("/pin_model "), None))
             assert len(completions) == 2
 
-    def test_partial_agent(self):
+    @pytest.mark.parametrize(
+        ("doc", "agent_names", "model_names", "expected_len", "expected_text"),
+        [
+            ("/pin_model ag", ["agent1", "bot1"], [], 1, "agent1"),
+            ("/pin_model agent1 ", [], ["gpt-4", "claude-3"], 3, "(unpin)"),
+            ("/pin_model agent1 gpt", [], ["gpt-4", "claude-3"], 1, "gpt-4"),
+        ],
+        ids=["partial_agent", "agent_then_space_shows_models", "partial_model"],
+    )
+    def test_agent_or_model_completions(
+        self, doc, agent_names, model_names, expected_len, expected_text
+    ):
         from code_puppy.command_line.pin_command_completion import PinCompleter
 
         c = PinCompleter()
         with (
             patch(
                 "code_puppy.command_line.pin_command_completion.load_agent_names",
-                return_value=["agent1", "bot1"],
+                return_value=agent_names,
+            ),
+            patch(
+                "code_puppy.command_line.pin_command_completion.load_model_names",
+                return_value=model_names,
             ),
             patch(
                 "code_puppy.command_line.pin_command_completion._get_agent_display_meta",
                 return_value="default",
             ),
-        ):
-            completions = list(c.get_completions(self._make_doc("/pin_model ag"), None))
-            assert len(completions) == 1
-            assert completions[0].text == "agent1"
-
-    def test_agent_then_space_shows_models(self):
-        from code_puppy.command_line.pin_command_completion import PinCompleter
-
-        c = PinCompleter()
-        with (
-            patch(
-                "code_puppy.command_line.pin_command_completion.load_model_names",
-                return_value=["gpt-4", "claude-3"],
-            ),
             patch(
                 "code_puppy.command_line.pin_command_completion._get_model_display_meta",
                 return_value="Model",
             ),
         ):
-            completions = list(
-                c.get_completions(self._make_doc("/pin_model agent1 "), None)
-            )
-            # (unpin) + 2 models
-            assert len(completions) == 3
-            assert completions[0].text == "(unpin)"
-
-    def test_partial_model(self):
-        from code_puppy.command_line.pin_command_completion import PinCompleter
-
-        c = PinCompleter()
-        with (
-            patch(
-                "code_puppy.command_line.pin_command_completion.load_model_names",
-                return_value=["gpt-4", "claude-3"],
-            ),
-            patch(
-                "code_puppy.command_line.pin_command_completion._get_model_display_meta",
-                return_value="Model",
-            ),
-        ):
-            completions = list(
-                c.get_completions(self._make_doc("/pin_model agent1 gpt"), None)
-            )
-            assert len(completions) == 1
-            assert completions[0].text == "gpt-4"
+            completions = list(c.get_completions(self._make_doc(doc), None))
+            assert len(completions) == expected_len
+            assert completions[0].text == expected_text
 
     def test_partial_model_unpin_match(self):
         from code_puppy.command_line.pin_command_completion import PinCompleter
@@ -361,24 +343,6 @@ class TestPinCompleter:
                 c.get_completions(self._make_doc("/pin_model agent1 (un"), None)
             )
             assert any(c.text == "(unpin)" for c in completions)
-
-    def test_unpin_selected_no_more_completions(self):
-        from code_puppy.command_line.pin_command_completion import PinCompleter
-
-        c = PinCompleter()
-        completions = list(
-            c.get_completions(self._make_doc("/pin_model agent1 (unpin) extra"), None)
-        )
-        assert completions == []
-
-    def test_three_or_more_tokens_no_completions(self):
-        from code_puppy.command_line.pin_command_completion import PinCompleter
-
-        c = PinCompleter()
-        completions = list(
-            c.get_completions(self._make_doc("/pin_model agent1 model1 extra"), None)
-        )
-        assert completions == []
 
     def test_empty_partial_model(self):
         """Test case 3 with empty partial_model (shouldn't happen with split but covers the branch)."""
@@ -419,48 +383,36 @@ class TestUnpinCompleter:
             cursor_pos = len(text)
         return Document(text=text, cursor_position=cursor_pos)
 
-    def test_no_trigger(self):
+    @pytest.mark.parametrize(
+        "doc_text", ["/other ", "/unpin a1 extra"], ids=["no_trigger", "too_many_args"]
+    )
+    def test_no_completions(self, doc_text):
         from code_puppy.command_line.pin_command_completion import UnpinCompleter
 
         c = UnpinCompleter()
-        assert list(c.get_completions(self._make_doc("/other "), None)) == []
+        assert list(c.get_completions(self._make_doc(doc_text), None)) == []
 
-    def test_no_args_shows_agents(self):
-        from code_puppy.command_line.pin_command_completion import UnpinCompleter
-
-        c = UnpinCompleter()
-        with (
-            patch(
-                "code_puppy.command_line.pin_command_completion.load_agent_names",
-                return_value=["a1", "a2"],
-            ),
-            patch(
-                "code_puppy.command_line.pin_command_completion._get_agent_display_meta",
-                return_value="default",
-            ),
-        ):
-            completions = list(c.get_completions(self._make_doc("/unpin "), None))
-            assert len(completions) == 2
-
-    def test_partial_agent(self):
+    @pytest.mark.parametrize(
+        "doc_text,agent_names,expected_len",
+        [
+            ("/unpin ", ["a1", "a2"], 2),
+            ("/unpin ag", ["agent1", "bot1"], 1),
+        ],
+        ids=["no_args_shows_agents", "partial_agent"],
+    )
+    def test_agent_completions(self, doc_text, agent_names, expected_len):
         from code_puppy.command_line.pin_command_completion import UnpinCompleter
 
         c = UnpinCompleter()
         with (
             patch(
                 "code_puppy.command_line.pin_command_completion.load_agent_names",
-                return_value=["agent1", "bot1"],
+                return_value=agent_names,
             ),
             patch(
                 "code_puppy.command_line.pin_command_completion._get_agent_display_meta",
                 return_value="default",
             ),
         ):
-            completions = list(c.get_completions(self._make_doc("/unpin ag"), None))
-            assert len(completions) == 1
-
-    def test_too_many_args(self):
-        from code_puppy.command_line.pin_command_completion import UnpinCompleter
-
-        c = UnpinCompleter()
-        assert list(c.get_completions(self._make_doc("/unpin a1 extra"), None)) == []
+            completions = list(c.get_completions(self._make_doc(doc_text), None))
+            assert len(completions) == expected_len

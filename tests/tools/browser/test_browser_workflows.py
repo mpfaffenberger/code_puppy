@@ -251,16 +251,6 @@ class TestSaveWorkflow(BrowserWorkflowsBaseTest):
         workflow_file = temp_workflows_dir / "test.md"
         assert workflow_file.exists()
 
-    def test_register_save_workflow(self, mock_context):
-        """Test registration of save_workflow tool."""
-        agent = MagicMock()
-
-        register_save_workflow(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_save_workflow"
-
 
 class TestListWorkflows(BrowserWorkflowsBaseTest):
     """Test list_workflows function and its registration."""
@@ -396,16 +386,6 @@ class TestListWorkflows(BrowserWorkflowsBaseTest):
             # Restore permissions for cleanup
             if bad_file.exists():
                 bad_file.chmod(0o644)
-
-    def test_register_list_workflows(self, mock_context):
-        """Test registration of list_workflows tool."""
-        agent = MagicMock()
-
-        register_list_workflows(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_list_workflows"
 
 
 class TestReadWorkflow(BrowserWorkflowsBaseTest):
@@ -545,16 +525,6 @@ class TestReadWorkflow(BrowserWorkflowsBaseTest):
         assert result["success"] is True
         assert result["content"] == unicode_content
 
-    def test_register_read_workflow(self, mock_context):
-        """Test registration of read_workflow tool."""
-        agent = MagicMock()
-
-        register_read_workflow(agent)
-
-        agent.tool.assert_called_once()
-        tool_name = agent.tool.call_args[0][0]
-        assert tool_name.__name__ == "browser_read_workflow"
-
 
 class TestIntegrationScenarios(BrowserWorkflowsBaseTest):
     """Integration test scenarios for workflow management."""
@@ -640,3 +610,25 @@ class TestIntegrationScenarios(BrowserWorkflowsBaseTest):
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+@pytest.mark.parametrize(
+    "register_func,expected_tool",
+    [
+        (register_save_workflow, "browser_save_workflow"),
+        (register_list_workflows, "browser_list_workflows"),
+        (register_read_workflow, "browser_read_workflow"),
+    ],
+    ids=["save_workflow", "list_workflows", "read_workflow"],
+)
+class TestToolRegistration:
+    """Parametrized registration checks for every tool in this module."""
+
+    def test_register_tool(self, register_func, expected_tool):
+        agent = MagicMock()
+
+        register_func(agent)
+
+        agent.tool.assert_called_once()
+        tool_name = agent.tool.call_args[0][0]
+        assert tool_name.__name__ == expected_tool

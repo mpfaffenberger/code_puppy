@@ -7,19 +7,16 @@ import os
 import pathlib
 from typing import Any, Optional
 
+from code_puppy.config_file import load_config, mutate_config
 from code_puppy.session_storage import save_session
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_SUBAGENT_RECURSION_LIMIT = 4
 
-# GPT-5.6 has demonstrated a runaway-delegation failure mode where a sub-agent
-# invokes another sub-agent that invokes another, chewing through tokens
-# without converging. This overlay cap sits on top of the generic
-# ``subagent_recursion_limit`` and applies only when the immediate caller is
-# on a GPT-5.6 model. The default of ``2`` (main -> level 1 -> level 2)
-# preserves useful two-hop delegation without re-opening the runaway door;
-# operators who understand the risk can raise it via ``/set``.
+# GPT-5.6 runaway-delegation guard: overlay cap on ``subagent_recursion_limit``
+# when the immediate caller is GPT-5.6. Default 2 (main→L1→L2) keeps two-hop
+# delegation; operators can raise it via /set.
 DEFAULT_SUBAGENT_RECURSION_LIMIT_GPT_5_6 = 2
 
 
@@ -307,6 +304,11 @@ _default_vision_model_cache = None
 _warned_no_model = False
 
 
+def _load_config() -> configparser.ConfigParser:
+    """Load ``CONFIG_FILE`` through the bounded, recoverable I/O layer."""
+    return load_config(CONFIG_FILE)
+
+
 def ensure_config_exists():
     """
     Ensure that XDG directories and puppy.cfg exist, prompting if needed.
@@ -317,15 +319,17 @@ def ensure_config_exists():
         if not os.path.exists(directory):
             os.makedirs(directory, mode=0o700, exist_ok=True)
     exists = os.path.isfile(CONFIG_FILE)
-    config = configparser.ConfigParser()
-    if exists:
-        config.read(CONFIG_FILE)
+    # Skip the read entirely when we already know there's nothing to read --
+    # matches configparser's own no-op-on-missing-file behavior and avoids an
+    # unnecessary open() attempt during first-run setup.
+    config = _load_config() if exists else configparser.ConfigParser()
     missing = []
     if DEFAULT_SECTION not in config:
         config[DEFAULT_SECTION] = {}
     for key in REQUIRED_KEYS:
         if not config[DEFAULT_SECTION].get(key):
             missing.append(key)
+    prompted_values: dict[str, str] = {}
     if missing:
         # Note: Using sys.stdout here for initial setup before messaging system is available
         import sys
@@ -341,22 +345,33 @@ def ensure_config_exists():
                 ).strip()
             else:
                 val = input(f"Enter {key}: ").strip()
+            prompted_values[key] = val
             config[DEFAULT_SECTION][key] = val
 
     # Set default values for important config keys if they don't exist
     if not config[DEFAULT_SECTION].get("auto_save_session"):
         config[DEFAULT_SECTION]["auto_save_session"] = "true"
 
-    # Write the config if we made any changes
+    # Write the config if we made any changes. Re-reads under the config lock
+    # and re-applies the prompted values on top of that fresh snapshot, so a
+    # file that was corrupted or replaced between the read above and now is
+    # quarantined and recovered from rather than blindly overwritten.
     if missing or not exists:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            config.write(f)
+
+        def _apply(cfg: configparser.ConfigParser) -> None:
+            if DEFAULT_SECTION not in cfg:
+                cfg[DEFAULT_SECTION] = {}
+            for key, val in prompted_values.items():
+                cfg[DEFAULT_SECTION][key] = val
+            if not cfg[DEFAULT_SECTION].get("auto_save_session"):
+                cfg[DEFAULT_SECTION]["auto_save_session"] = "true"
+
+        config = mutate_config(CONFIG_FILE, _apply)
     return config
 
 
 def get_value(key: str):
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
+    config = _load_config()
     val = config.get(DEFAULT_SECTION, key, fallback=None)
     return val
 
@@ -386,9 +401,8 @@ def get_locale() -> str:
     return ensure_detected(get_value("locale"))
 
 
-# Legacy function removed - message history limit is no longer used
-# Message history is now managed by token-based compaction system
-# using get_protected_token_count() and get_summarization_threshold()
+# Legacy function removed — history limit is now managed by token-based
+# compaction (get_protected_token_count() / get_summarization_threshold()).
 
 
 def get_allow_recursion() -> bool:
@@ -451,8 +465,7 @@ def get_config_keys():
         "locale",
         "timestamp_heartbeat_interval",
     ]
-    # 'enable_dbos' is reserved for the dbos_durable_exec plugin and is read
-    # via the generic get_value API; intentionally not in default_keys.
+    # 'enable_dbos' is plugin-reserved (read via get_value); not in default_keys.
     # Add pack agents control key
     default_keys.append("enable_pack_agents")
     # Add universal constructor control key
@@ -465,9 +478,8 @@ def get_config_keys():
     default_keys.append("suppress_directory_listing")
     # Add cancel agent key configuration
     default_keys.append("cancel_agent_key")
-    # Add max pause seconds configuration (used by event_stream_handler's
-    # wait_if_paused() to auto-resume long pauses before SSE upstream
-    # times out).
+    # Max pause seconds: event_stream_handler's wait_if_paused() auto-resumes
+    # long pauses before SSE upstream times out.
     default_keys.append("max_pause_seconds")
     # Add banner color keys
     for banner_name in DEFAULT_BANNER_COLORS:
@@ -481,9 +493,8 @@ def get_config_keys():
     default_keys.append("goal_max_iterations")
     # Add dangerous command guard disable (skips force push and destructive command guards)
     default_keys.append("disable_dangerous_command_guard")
-    # Granular per-pattern allowlist for the command guards: comma-separated
-    # pattern names (e.g. "git reset --hard, --force") that bypass the guards
-    # while everything else stays protected. See get_dangerous_command_guard_allowlist().
+    # Per-pattern allowlist bypassing the command guards (e.g. "git reset
+    # --hard, --force"); see get_dangerous_command_guard_allowlist().
     default_keys.append("dangerous_command_guard_allow")
     # Add retry profile keys (backoff policy for streaming retries). Per-model
     # overrides live under the model_settings_ namespace; these are the globals.
@@ -492,8 +503,7 @@ def get_config_keys():
     default_keys.append("retry_subagent_strategy")
     default_keys.append("retry_subagent_max_attempts")
 
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
+    config = _load_config()
     keys = set(config[DEFAULT_SECTION].keys()) if DEFAULT_SECTION in config else set()
     keys.update(default_keys)
     return sorted(keys)
@@ -503,13 +513,13 @@ def set_config_value(key: str, value: str):
     """
     Sets a config value in the persistent config file.
     """
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-    if DEFAULT_SECTION not in config:
-        config[DEFAULT_SECTION] = {}
-    config[DEFAULT_SECTION][key] = value
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        config.write(f)
+
+    def _apply(config: configparser.ConfigParser) -> None:
+        if DEFAULT_SECTION not in config:
+            config[DEFAULT_SECTION] = {}
+        config[DEFAULT_SECTION][key] = value
+
+    mutate_config(CONFIG_FILE, _apply)
 
 
 # Alias for API compatibility
@@ -520,12 +530,14 @@ def set_value(key: str, value: str) -> None:
 
 def reset_value(key: str) -> None:
     """Remove a key from the config file, resetting it to default."""
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-    if DEFAULT_SECTION in config and key in config[DEFAULT_SECTION]:
-        del config[DEFAULT_SECTION][key]
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            config.write(f)
+
+    def _apply(config: configparser.ConfigParser) -> bool:
+        if DEFAULT_SECTION in config and key in config[DEFAULT_SECTION]:
+            del config[DEFAULT_SECTION][key]
+            return True
+        return False  # nothing to remove -- skip the write entirely
+
+    mutate_config(CONFIG_FILE, _apply)
 
 
 # --- MODEL STICKY EXTENSION STARTS HERE ---
@@ -738,9 +750,8 @@ def model_supports_setting(model_name: str, setting: str) -> bool:
         if supports_glm_reasoning_effort(model_name):
             return True
     if setting in ("reasoning_context", "reasoning_mode"):
-        # OpenAI added these Responses API controls with GPT-5.6. Capability
-        # detection belongs here so injected/custom 5.6 model definitions do
-        # not all need to duplicate the same supported_settings metadata.
+        # GPT-5.6 Responses API controls; detect here so injected/custom 5.6
+        # definitions needn't duplicate supported_settings metadata.
         if "gpt-5.6" in model_name.lower():
             return True
 
@@ -854,13 +865,12 @@ def set_model_name(model: str):
     _SESSION_MODEL = model
 
     # Also persist to file for new terminal sessions
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-    if DEFAULT_SECTION not in config:
-        config[DEFAULT_SECTION] = {}
-    config[DEFAULT_SECTION]["model"] = model or ""
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        config.write(f)
+    def _apply(config: configparser.ConfigParser) -> None:
+        if DEFAULT_SECTION not in config:
+            config[DEFAULT_SECTION] = {}
+        config[DEFAULT_SECTION]["model"] = model or ""
+
+    mutate_config(CONFIG_FILE, _apply)
 
     # Clear model cache when switching models to ensure fresh validation
     clear_model_cache()
@@ -1023,9 +1033,8 @@ def set_model_setting(model_name: str, setting: str, value: Any | None) -> None:
 
 
 # Reserved per-model setting name that holds user-defined custom request
-# params as a JSON object, e.g. {"chat_template_kwargs.thinking": "medium"}.
-# It lives in the model_settings_ namespace on disk but is structured data,
-# so the generic scalar readers must never treat it as a plain setting.
+# params as JSON, e.g. {"chat_template_kwargs.thinking": "medium"}. Structured
+# data — generic scalar readers must never treat it as a plain setting.
 CUSTOM_MODEL_SETTING = "custom"
 
 
@@ -1056,13 +1065,10 @@ def get_all_model_settings(model_name: str) -> dict:
     Returns:
         Dictionary of setting_name -> value for all configured settings.
     """
-    import configparser
-
     sanitized_name = _sanitize_model_name_for_key(model_name)
     prefix = f"model_settings_{sanitized_name}_"
 
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
+    config = _load_config()
 
     settings = {}
     if DEFAULT_SECTION in config:
@@ -1130,23 +1136,20 @@ def clear_model_settings(model_name: str) -> None:
     Args:
         model_name: The model name
     """
-    import configparser
-
     sanitized_name = _sanitize_model_name_for_key(model_name)
     prefix = f"model_settings_{sanitized_name}_"
 
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
-
-    if DEFAULT_SECTION in config:
+    def _apply(config: configparser.ConfigParser) -> bool:
+        if DEFAULT_SECTION not in config:
+            return False
         keys_to_remove = [
             key for key in config[DEFAULT_SECTION] if key.startswith(prefix)
         ]
         for key in keys_to_remove:
             del config[DEFAULT_SECTION][key]
+        return bool(keys_to_remove)  # nothing matched -- skip the write entirely
 
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            config.write(f)
+    mutate_config(CONFIG_FILE, _apply)
 
 
 def get_effective_model_settings(model_name: Optional[str] = None) -> dict:
@@ -1582,12 +1585,8 @@ def get_resume_message_count() -> int:
         return 50
 
 
-# Default cap (in characters) for any single AGENTS.md file injected into
-# the system prompt. Users can override this via
-# ``/set agents_md_max_chars=<int>`` — any positive integer is honoured so
-# models with very large context windows (1M+ tokens) can opt into bigger
-# AGENTS.md files when it makes sense. The default of 10,000 just keeps
-# the unbounded out-of-the-box behaviour from regressing.
+# Per-file AGENTS.md char cap, /settable via agents_md_max_chars; any positive
+# int honoured (1M-token models can opt bigger). 10k default keeps behavior sane.
 AGENTS_MD_MAX_CHARS_DEFAULT = 10_000
 
 
@@ -1772,8 +1771,7 @@ def get_all_agent_pinned_models() -> dict:
         Dict mapping agent names to their pinned model names.
         Only includes agents that have a pinned model (non-empty value).
     """
-    config = configparser.ConfigParser()
-    config.read(CONFIG_FILE)
+    config = _load_config()
 
     pinnings = {}
     if DEFAULT_SECTION in config:
@@ -1993,13 +1991,8 @@ def set_diff_deletion_color(color: str):
 # Banner Color Configuration
 # =============================================================================
 
-# Default banner colors (Rich color names)
-# A beautiful jewel-tone palette with semantic meaning:
-#   - Blues/Teals: Reading & navigation (calm, informational)
-#   - Warm tones: Actions & changes (edits, shell commands)
-#   - Purples: AI thinking & reasoning (the "brain" colors)
-#   - Greens: Completions & success
-#   - Neutrals: Search & listings
+# Default banner colors: jewel-tone palette — blues/teals=read/nav, warm=actions,
+# purples=thinking, greens=success, neutrals=search/listings.
 DEFAULT_BANNER_COLORS = {
     "thinking": "deep_sky_blue4",  # Sapphire - contemplation
     "agent_response": "medium_purple4",  # Amethyst - main AI output
@@ -2140,15 +2133,10 @@ def pin_current_session_name(name: str) -> str:
 
 # ----- Deprecated aliases (the unified-autosave migration) ---------------------------------
 #
-# The pre-unification API stored a bare ID in the singleton and synthesized
-# ``auto_session_<id>`` on every read. That scheme broke the moment a
-# user-named string (e.g. ``"mywork"``) was pinned: the next read produced
-# ``"auto_session_mywork"`` and named-session save-back wrote the wrong file.
-#
-# These aliases preserve external plugin compatibility for ONE release. Every
-# internal caller in this PR has been migrated to the new API; the aliases
-# never fire from in-repo code (otherwise ``-W error`` test runs would fail
-# and every startup would spam ``DeprecationWarning`` in user terminals).
+# Pre-unification API pinned a bare ID and synthesized ``auto_session_<id>`` per
+# read; that broke once a user-named string was pinned (wrong save-back file).
+# These aliases keep external plugins working for ONE release — never fired
+# in-repo (would fail -W error runs and spam DeprecationWarnings).
 
 
 def get_current_autosave_id() -> str:
@@ -2274,10 +2262,8 @@ def auto_save_session_if_enabled() -> bool:
             auto_saved=True,
         )
 
-        # Point quick-resume at this just-saved session. Every turn, exit, and
-        # finalize routes through this single autosave chokepoint, so cwd and
-        # any tool-observed child workspaces always map to a loadable pickle.
-        # Best-effort: never let pointer bookkeeping block the autosave.
+        # Point quick-resume at this save; every turn/exit/finalize routes through
+        # this chokepoint. Best-effort, never blocks the autosave.
         record_quick_resume_sessions(session_name)
 
         # Append conversation-wide TTFT + TG averages if we have any data.
@@ -2298,11 +2284,8 @@ def auto_save_session_if_enabled() -> bool:
             f"({metadata.total_tokens} tokens){stats_suffix}"
         )
 
-        # Fire post_autosave so plugins can render follow-up lines
-        # (token quota, etc.) without us knowing about them here.
-        # Delegates to the shared lifecycle helper -- see its docstring for
-        # why an executor wrap is needed and where to add disk-level
-        # forensics if we ever want them across all callers.
+        # Fire post_autosave so plugins can append lines (token quota) without
+        # us knowing about them. See session_lifecycle's docstring re executor wrap.
         from code_puppy.session_lifecycle import fire_post_autosave_callback
 
         fire_post_autosave_callback(metadata)
@@ -2411,12 +2394,8 @@ def get_last_terminal_session() -> Optional[str]:
 
 # --------------------------------------------------------------------------- #
 # Quick-resume: resume the latest autosave for a directory + git branch.
-#
-# Unlike terminal sessions (keyed by TTY, which is POSIX-only), quick-resume is
-# keyed by canonical workspace + branch, so it works identically on Windows and
-# macOS/Linux. All filesystem access goes through ``os.path``/``pathlib`` and
-# git is probed via subprocess with failures swallowed, so a missing git or a
-# non-repo directory degrades gracefully rather than raising.
+# Keyed by workspace+branch (not TTY, so it works on Windows too); git probing
+# and fs access swallow failures so non-repos degrade gracefully.
 # --------------------------------------------------------------------------- #
 
 # Child workspaces touched by tools this run; flushed to pointers on next save.
@@ -2491,12 +2470,9 @@ def _detect_git_toplevel(path: str) -> Optional[str]:
         import subprocess
         import tempfile
 
-        # Windows hardening: capture_output=True uses reader threads, and if the
-        # spawned git (or a grandchild) keeps a pipe write-handle open,
-        # subprocess.run hangs FOREVER joining those threads -- even with a
-        # timeout -- which deadlocks the ACP event loop from post_tool_call.
-        # Route output through a temp file (no reader threads) and detach stdin
-        # from any inherited pipe so run() can never block on a thread join.
+        # Windows hardening: capture_output=True can hang FOREVER joining reader
+        # threads if a grandchild keeps the pipe open. Use a temp file (no reader
+        # threads) + detached stdin so run() never blocks on a thread join.
         with tempfile.TemporaryFile() as out_f:
             proc = subprocess.run(
                 ["git", "-C", probe_dir, "rev-parse", "--show-toplevel"],
@@ -2556,9 +2532,9 @@ def get_quick_resume_location(
     branch: Optional[str] = None
     if git_root:
         try:
-            from code_puppy.plugins.statusline.payload import detect_git_branch
+            from code_puppy.callbacks import get_git_branch
 
-            branch = detect_git_branch(cwd)
+            branch = get_git_branch(cwd)
         except Exception:
             branch = None
     return os.path.realpath(cwd), branch
@@ -2632,11 +2608,6 @@ def observe_quick_resume_path(target_path: str, *, path_kind: str = "auto") -> b
         return False
 
 
-def clear_observed_quick_resume_paths() -> None:
-    """Clear the observed-workspace set (used by tests)."""
-    _OBSERVED_QUICK_RESUME_KEYS.clear()
-
-
 def record_quick_resume_sessions(session_name: str) -> None:
     """Record cwd plus every observed child workspace for ``session_name``."""
     record_directory_session(session_name)
@@ -2678,21 +2649,25 @@ def get_last_directory_session(
 def resolve_quick_resume_pickle(
     target_path: Optional[str] = None, *, path_kind: str = "auto"
 ) -> Optional[str]:
-    """Return the absolute ``.pkl`` path for a scope's latest session, or None.
+    """Return the absolute session-file path for a scope's latest session.
 
-    The single source of truth the CLI ``--quick-resume`` flag consults. Resolves
-    strictly inside ``AUTOSAVE_DIR`` (rejecting any path-traversal) and only
-    returns a path that is an existing file.
+    The single source of truth the CLI ``--quick-resume`` flag consults.
+    Prefers the ``.json`` envelope and falls back to a legacy ``.pkl`` (which
+    ``load_session`` lazily migrates). Resolves strictly inside
+    ``AUTOSAVE_DIR`` (rejecting any path-traversal) and only returns a path
+    that is an existing file. Name kept for API stability; "pickle" is
+    historical.
     """
     session_name = get_last_directory_session(target_path, path_kind=path_kind)
     if not session_name:
         return None
     try:
         autosave_dir = pathlib.Path(AUTOSAVE_DIR).resolve()
-        candidate = (autosave_dir / f"{session_name}.pkl").resolve(strict=False)
-        if candidate.parent != autosave_dir or not candidate.is_file():
-            return None
-        return str(candidate)
+        for suffix in (".json", ".pkl"):
+            candidate = (autosave_dir / f"{session_name}{suffix}").resolve(strict=False)
+            if candidate.parent == autosave_dir and candidate.is_file():
+                return str(candidate)
+        return None
     except OSError:
         logger.debug("Unable to resolve quick-resume autosave path", exc_info=True)
         return None
@@ -2899,10 +2874,8 @@ def load_api_keys_to_environment():
         "ZAI_API_KEY",
     ]
 
-    # Dynamically include every env var referenced by a configured model
-    # (e.g. FIREWORKS_API_KEY / WAFER_API_KEY / CROF_API_KEY for local custom
-    # providers). Without this, such keys saved in puppy.cfg never hydrate into
-    # os.environ at startup. Best-effort: never let discovery break startup.
+    # Include env vars referenced by configured models (e.g. FIREWORKS_API_KEY
+    # for local custom providers) so puppy.cfg keys hydrate at startup. Best-effort.
     try:
         from code_puppy.provider_credentials import all_required_env_vars
 

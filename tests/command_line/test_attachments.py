@@ -32,39 +32,37 @@ from code_puppy.command_line.attachments import (
 # _is_probable_path
 # ---------------------------------------------------------------------------
 class TestIsProbablePath:
-    def test_empty(self):
-        assert _is_probable_path("") is False
-
-    def test_too_long(self):
-        assert _is_probable_path("a" * (MAX_PATH_LENGTH + 1)) is False
-
-    def test_hash_prefix(self):
-        assert _is_probable_path("#comment") is False
-
-    def test_absolute_unix(self):
-        assert _is_probable_path("/tmp/foo.png") is True
-
-    def test_tilde(self):
-        assert _is_probable_path("~/pic.png") is True
-
-    def test_dot_slash(self):
-        assert _is_probable_path("./pic.png") is True
-
-    def test_dot_dot_slash(self):
-        assert _is_probable_path("../pic.png") is True
-
-    def test_windows_drive(self):
-        assert _is_probable_path("C:foo") is True
-
-    def test_contains_sep(self):
-        assert _is_probable_path(f"a{os.sep}b") is True
-
-    def test_contains_quote(self):
-        assert _is_probable_path('a"b') is True
-
-    def test_plain_word(self):
-        # No sep, no quote, no special prefix
-        assert _is_probable_path("hello") is False
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("", False),
+            ("a" * (MAX_PATH_LENGTH + 1), False),
+            ("#comment", False),
+            ("/tmp/foo.png", True),
+            ("~/pic.png", True),
+            ("./pic.png", True),
+            ("../pic.png", True),
+            ("C:foo", True),
+            (f"a{os.sep}b", True),
+            ('a"b', True),
+            ("hello", False),
+        ],
+        ids=[
+            "empty",
+            "too_long",
+            "hash_prefix",
+            "absolute_unix",
+            "tilde",
+            "dot_slash",
+            "dot_dot_slash",
+            "windows_drive",
+            "contains_sep",
+            "contains_quote",
+            "plain_word",
+        ],
+    )
+    def test_is_probable_path(self, text, expected):
+        assert _is_probable_path(text) is expected
 
 
 # ---------------------------------------------------------------------------
@@ -100,23 +98,20 @@ def test_determine_media_type_known():
     assert "image" in _determine_media_type(Path("pic.png"))
 
 
-def test_determine_media_type_unknown_image_ext():
-    # .webp might not be in mimetypes on all systems, but is in our set
-    # Use a definitely-unknown extension that's also in our accepted set
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("pic.bmp", "image/png"),
+        ("file.xyz123", "application/octet-stream"),
+    ],
+    ids=["unknown_image_ext", "totally_unknown"],
+)
+def test_determine_media_type_unknown_ext(name, expected):
     with patch(
         "code_puppy.command_line.attachments.mimetypes.guess_type",
         return_value=(None, None),
     ):
-        # suffix in DEFAULT_ACCEPTED_IMAGE_EXTENSIONS -> "image/png"
-        assert _determine_media_type(Path("pic.bmp")) == "image/png"
-
-
-def test_determine_media_type_totally_unknown():
-    with patch(
-        "code_puppy.command_line.attachments.mimetypes.guess_type",
-        return_value=(None, None),
-    ):
-        assert _determine_media_type(Path("file.xyz123")) == "application/octet-stream"
+        assert _determine_media_type(Path(name)) == expected
 
 
 # ---------------------------------------------------------------------------

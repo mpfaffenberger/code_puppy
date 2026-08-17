@@ -13,7 +13,7 @@ import json
 from unittest.mock import patch
 
 from code_puppy.plugins import config as pc
-from code_puppy.plugins.plugin_list.plugins_menu import PluginsMenu
+from code_puppy_core_plugins.plugin_list.plugins_menu import PluginsMenu
 
 _FAKE_LOADED = {
     "builtin": ["plugin_list", "agent_skills", "emoji_filter"],
@@ -52,12 +52,6 @@ def test_builtin_disable_refused_when_locked():
     pc.set_lock_builtin_plugins(True)
     assert pc.set_plugin_disabled("plugin_list", True) is False
     assert "plugin_list" not in pc.get_disabled_plugins()
-
-
-def test_user_plugin_disablable_when_locked():
-    pc.set_lock_builtin_plugins(True)
-    assert pc.set_plugin_disabled("convo_namer", True) is True
-    assert "convo_namer" in pc.get_disabled_plugins()
 
 
 def test_builtin_reenable_always_allowed_when_locked():

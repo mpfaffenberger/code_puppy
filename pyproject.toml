@@ -4,16 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "code-puppy"
-version = "0.0.679"
+version = "0.0.729"
 description = "Code generation agent"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
-    "pydantic-ai-slim[openai,anthropic,mcp]==1.56.0",
+    "code-puppy-core-plugins>=0.0.8",
+    "pydantic-ai-slim[openai,anthropic,mcp]==2.31.0",
+    "anyio>=4.7.0",
     "typer>=0.12.0",
     "mcp>=1.9.4",
     "httpx[http2]>=0.24.1",
     "requests>=2.28.0",
+    "packaging>=24.0",
     "rich>=13.4.2",
     "pydantic>=2.4.0",
     "python-dotenv>=1.0.0",
@@ -21,13 +24,13 @@ dependencies = [
     "json-repair>=0.46.2",
     "pyfiglet>=0.8.post1",
     "rapidfuzz>=3.13.0",
-    "openai>=1.99.1",
-    "ripgrep==14.1.0",
-    "playwright>=1.40.0",
+    "openai>=2.45.0",
+    "ripgrep==14.1.0; sys_platform != 'android'",
+    "playwright>=1.40.0; sys_platform != 'android'",
     "termflow-md>=0.1.11",
     "Pillow>=10.0.0",
     "azure-identity>=1.15.0",
-    "anthropic==0.79.0",
+    "anthropic>=0.108.0",
     "boto3>=1.43.9",
     "keyring>=24.0.0",
     "agent-client-protocol>=0.11.0,<0.12",
@@ -87,16 +90,6 @@ path = "code_puppy/models.json"
 [[tool.hatch.build.targets.sdist.include]]
 path = "code_puppy/models_dev_api.json"
 
-# Ship the bundled Flux command suite (markdown + helper scripts) in the sdist
-# so flux_bootstrap can install it into ~/.code_puppy at runtime. (The wheel
-# already includes package-dir data files by default.)
-[[tool.hatch.build.targets.sdist.include]]
-path = "code_puppy/plugins/flux_bootstrap/bundled"
-
-[tool.ruff]
-# The bundled Flux helper scripts are vendored third-party data, not our source
-# -- don't lint/format them (they install verbatim into ~/.code_puppy/scripts).
-extend-exclude = ["code_puppy/plugins/flux_bootstrap/bundled"]
 [tool.ruff.lint.per-file-ignores]
 "code_puppy/main.py" = ["E402"]
 "code_puppy/cli_runner.py" = ["E402"]

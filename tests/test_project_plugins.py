@@ -302,6 +302,38 @@ class TestGetProjectPluginsDirectory:
             assert result is not None
             assert result == plugins_dir
 
+    def test_home_user_plugins_are_not_treated_as_project_plugins(self, tmp_path: Path):
+        """Launching from home must not scan the user tier as a project tier."""
+        import code_puppy.plugins as plugins_module
+
+        plugins_dir = tmp_path / ".code_puppy" / "plugins"
+        plugins_dir.mkdir(parents=True)
+
+        with (
+            patch("code_puppy.plugins.Path.cwd", return_value=tmp_path),
+            patch.object(plugins_module, "USER_PLUGINS_DIR", plugins_dir),
+        ):
+            assert get_project_plugins_directory() is None
+
+    def test_user_plugins_path_alias_is_not_a_project(self, tmp_path: Path):
+        """Physical identity, not path spelling, determines the plugin tier."""
+        import code_puppy.plugins as plugins_module
+
+        home = tmp_path / "home"
+        plugins_dir = home / ".code_puppy" / "plugins"
+        plugins_dir.mkdir(parents=True)
+        home_alias = tmp_path / "home-alias"
+        try:
+            home_alias.symlink_to(home, target_is_directory=True)
+        except (NotImplementedError, OSError):
+            pytest.skip("directory symlinks are unavailable on this platform")
+
+        with (
+            patch("code_puppy.plugins.Path.cwd", return_value=home_alias),
+            patch.object(plugins_module, "USER_PLUGINS_DIR", plugins_dir),
+        ):
+            assert get_project_plugins_directory() is None
+
 
 # ---------------------------------------------------------------------------
 # 8. load_plugin_callbacks() includes "project" key in result dict
@@ -671,7 +703,7 @@ class TestTrustGate:
 
     def test_plugin_list_startup_hook_emits_notice(self, project_plugins_dir: Path):
         """plugin_list's startup callback wires statuses into the banner."""
-        from code_puppy.plugins.plugin_list.register_callbacks import _on_startup
+        from code_puppy_core_plugins.plugin_list.register_callbacks import _on_startup
 
         with (
             patch(
@@ -690,7 +722,7 @@ class TestTrustGate:
 
         project_dir = tmp_path / ".code_puppy" / "plugins"
         project_dir.mkdir(parents=True)
-        _make_plugin(project_dir, "force_push_guard")
+        _make_plugin(project_dir, "user_only_plugin")
 
         original_loaded = plugins_module._PLUGINS_LOADED
         plugins_module._PLUGINS_LOADED = False
@@ -718,4 +750,4 @@ class TestTrustGate:
         # skip_names passed to the user loader must NOT contain the
         # untrusted project plugin's name.
         _, kwargs = mock_user.call_args
-        assert "force_push_guard" not in kwargs["skip_names"]
+        assert "user_only_plugin" not in kwargs["skip_names"]

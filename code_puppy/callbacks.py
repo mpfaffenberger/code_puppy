@@ -23,6 +23,7 @@ PhaseType = Literal[
     "agent_reload",
     "custom_command",
     "custom_command_help",
+    "usage_status",
     "file_permission",
     "pre_tool_call",
     "post_tool_call",
@@ -37,6 +38,7 @@ PhaseType = Literal[
     "register_agents",
     "register_model_type",
     "register_skills",
+    "register_kennel_memory",
     "register_cli_args",
     "handle_cli_args",
     "get_model_system_prompt",
@@ -47,6 +49,11 @@ PhaseType = Literal[
     "register_mcp_catalog_servers",
     "register_browser_types",
     "register_model_providers",
+    "register_completion_provider",
+    "check_claude_oauth_token_expiry",
+    "refresh_claude_oauth_token",
+    "load_claude_oauth_models",
+    "claude_oauth_authenticate",
     "message_history_processor_start",
     "message_history_processor_end",
     "on_message",
@@ -63,8 +70,24 @@ PhaseType = Literal[
     "post_autosave",
     "notification",
     "awaiting_user_input",
+    "git_branch_provider",
+    "feature_capability",
 ]
 CallbackFunc = Callable[..., Any]
+
+
+class CustomCommandResult:
+    """Custom command content that should be processed as user input."""
+
+    def __init__(self, content: str):
+        self.content = content
+
+    def __str__(self) -> str:
+        return self.content
+
+    def __repr__(self) -> str:
+        return f"CustomCommandResult({len(self.content)} chars)"
+
 
 _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "startup": [],
@@ -86,6 +109,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "agent_reload": [],
     "custom_command": [],
     "custom_command_help": [],
+    "usage_status": [],
     "file_permission": [],
     "pre_tool_call": [],
     "post_tool_call": [],
@@ -100,6 +124,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_agents": [],
     "register_model_type": [],
     "register_skills": [],
+    "register_kennel_memory": [],
     "register_cli_args": [],
     "handle_cli_args": [],
     "get_model_system_prompt": [],
@@ -110,6 +135,11 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "register_mcp_catalog_servers": [],
     "register_browser_types": [],
     "register_model_providers": [],
+    "register_completion_provider": [],
+    "check_claude_oauth_token_expiry": [],
+    "refresh_claude_oauth_token": [],
+    "load_claude_oauth_models": [],
+    "claude_oauth_authenticate": [],
     "message_history_processor_start": [],
     "message_history_processor_end": [],
     "on_message": [],
@@ -126,6 +156,8 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "post_autosave": [],
     "notification": [],
     "awaiting_user_input": [],
+    "git_branch_provider": [],
+    "feature_capability": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -157,6 +189,11 @@ def clear_loading_context() -> None:
     """Clear the current plugin loading context."""
     global _current_loading_plugin
     _current_loading_plugin = None
+
+
+def get_loading_context() -> Optional[str]:
+    """Return the plugin currently being loaded, if any."""
+    return _current_loading_plugin
 
 
 def get_callback_owner(func: CallbackFunc) -> Optional[str]:
@@ -225,6 +262,11 @@ def clear_callbacks(phase: Optional[PhaseType] = None) -> None:
             logger.debug(f"Cleared async callbacks for phase '{phase}'")
 
 
+def is_callback_owner_enabled(owner: Optional[str]) -> bool:
+    """Return whether callbacks and providers owned by *owner* are enabled."""
+    return owner is None or owner not in _get_disabled_plugins()
+
+
 def get_callbacks(
     phase: PhaseType, *, include_disabled: bool = False
 ) -> List[CallbackFunc]:
@@ -237,17 +279,38 @@ def get_callbacks(
     if include_disabled:
         return all_cbs
 
-    disabled = _get_disabled_plugins()
-    if not disabled:
-        return all_cbs
+    return [
+        callback
+        for callback in all_cbs
+        if is_callback_owner_enabled(_callback_owners.get(callback))
+    ]
 
-    return [cb for cb in all_cbs if _callback_owners.get(cb) not in disabled]
+
+def get_completion_providers() -> List[Any]:
+    """Build completers contributed by enabled plugins.
+
+    Provider failures are isolated by the normal callback machinery, and
+    ``None`` lets an optional provider decline registration at runtime.
+    """
+    return [
+        completer
+        for completer in _trigger_callbacks_sync("register_completion_provider")
+        if completer is not None
+    ]
 
 
 def count_callbacks(phase: Optional[PhaseType] = None) -> int:
     if phase is None:
         return sum(len(callbacks) for callbacks in _callbacks.values())
     return len(_callbacks.get(phase, []))
+
+
+def get_feature_capability(name: str) -> bool:
+    """Return the last plugin-provided state for *name*, or safely default false."""
+    results = _trigger_callbacks_sync("feature_capability", name)
+    return next(
+        (result for result in reversed(results) if isinstance(result, bool)), False
+    )
 
 
 def _trigger_callbacks_sync(
@@ -276,16 +339,17 @@ def _trigger_callbacks_sync(
                 # Try to get the running event loop
                 try:
                     asyncio.get_running_loop()
-                    # We're in an async context already - this shouldn't happen for sync triggers
-                    # but if it does, we can't use run_until_complete
+                    # Already in an async context — can't use run_until_complete.
                     logger.warning(
                         f"Async callback {callback.__name__} called from async context in sync trigger"
                     )
+                    # Can't await with the loop running; close the coroutine to
+                    # avoid an unawaited-coroutine warning.
+                    result.close()
                     results.append(None)
                     continue
                 except RuntimeError:
-                    # No running loop - we're in a sync/worker thread context
-                    # Use asyncio.run() which is safe here since we're in an isolated thread
+                    # No running loop — isolated thread, so asyncio.run() is safe.
                     result = asyncio.run(result)
             results.append(result)
             logger.debug(f"Successfully executed callback {callback.__name__}")
@@ -350,6 +414,14 @@ async def on_version_check(*args, **kwargs) -> List[Any]:
 
 def on_load_model_config(*args, **kwargs) -> List[Any]:
     return _trigger_callbacks_sync("load_model_config", *args, **kwargs)
+
+
+def get_git_branch(cwd: str) -> Optional[str]:
+    """Return a branch from the first plugin provider that can detect one."""
+    for branch in _trigger_callbacks_sync("git_branch_provider", cwd):
+        if branch:
+            return str(branch)
+    return None
 
 
 def on_load_models_config() -> List[Any]:
@@ -458,6 +530,21 @@ def on_custom_command(command: str, name: str) -> List[Any]:
         - None to indicate not handled
     """
     return _trigger_callbacks_sync("custom_command", command, name)
+
+
+def get_usage_status() -> str:
+    """Return cached provider quota status supplied by plugins.
+
+    Plugins (e.g. ``chatgpt_oauth``) register a ``usage_status`` callback that
+    returns a short cached-quota string and never performs I/O. The first
+    non-empty result wins; ``""`` is returned when no handler is registered or
+    none produced output. Sync and error-isolated, so it is safe on rendering
+    hot paths and can never raise.
+    """
+    for result in _trigger_callbacks_sync("usage_status"):
+        if result:
+            return str(result)
+    return ""
 
 
 def on_file_permission(
@@ -840,8 +927,10 @@ def on_register_skills() -> List[Dict[str, Any]]:
     - "name": str, "skill_md_path": str | Path
     - "name": str, "skill_md": str
     - "name": str, "frontmatter": dict, "body": str
+    - "provider": object implementing the neutral SkillProvider contract
 
-    Optional keys on every variant:
+    Provider entries expose an optional skills integration to core and are not
+    materialized as skill files. Optional keys on every skill variant:
     - "tags": list[str]
     - "description": str
     - "version": str
@@ -849,6 +938,17 @@ def on_register_skills() -> List[Dict[str, Any]]:
     - "scripts_dir": str | Path
     """
     return _trigger_callbacks_sync("register_skills")
+
+
+def on_register_kennel_memory() -> List[Any]:
+    """Collect kennel memory providers from plugins.
+
+    Each callback should return either a callable ``() -> str | None`` that
+    yields the current recall block, or ``None``. Core consumes providers via
+    the neutral ``code_puppy.kennel_provider`` seam instead of importing the
+    plugin directly.
+    """
+    return _trigger_callbacks_sync("register_kennel_memory")
 
 
 def on_get_model_system_prompt(
@@ -1119,6 +1219,59 @@ def on_register_model_providers() -> List[Any]:
         List of dicts from all registered callbacks.
     """
     return _trigger_callbacks_sync("register_model_providers")
+
+
+def on_check_claude_oauth_token_expiry() -> List[Any]:
+    """Ask the claude_code_oauth plugin whether the stored token is expiring.
+
+    The plugin self-registers this capability; core consumes it so it never
+    imports the plugin directly. An empty result (plugin not loaded) means
+    ``False`` to callers.
+
+    Returns:
+        List of bool results from registered callbacks.
+    """
+    return _trigger_callbacks_sync("check_claude_oauth_token_expiry")
+
+
+async def on_check_claude_oauth_token_expiry_async() -> List[Any]:
+    """Async variant for consumers already running inside an event loop."""
+    return await _trigger_callbacks("check_claude_oauth_token_expiry")
+
+
+def on_refresh_claude_oauth_token() -> List[Any]:
+    """Ask the claude_code_oauth plugin to force a refresh-token exchange.
+
+    Returns:
+        List containing the refreshed access token (or ``None``) from
+        registered callbacks; empty when the plugin is not loaded.
+    """
+    return _trigger_callbacks_sync("refresh_claude_oauth_token")
+
+
+async def on_refresh_claude_oauth_token_async() -> List[Any]:
+    """Async variant for consumers already running inside an event loop."""
+    return await _trigger_callbacks("refresh_claude_oauth_token")
+
+
+def on_load_claude_oauth_models() -> List[Any]:
+    """Load the claude_code_oauth plugin's own Claude model configurations.
+
+    Returns:
+        List of model-config dicts from registered callbacks; empty when the
+        plugin is not loaded (core then falls back to plain JSON loading).
+    """
+    return _trigger_callbacks_sync("load_claude_oauth_models")
+
+
+def on_claude_oauth_authenticate() -> List[Any]:
+    """Run the claude_code_oauth plugin's interactive authentication flow.
+
+    Returns:
+        List of results from registered callbacks; empty when the plugin is
+        not loaded (core skips authentication).
+    """
+    return _trigger_callbacks_sync("claude_oauth_authenticate")
 
 
 def on_message_history_processor_start(

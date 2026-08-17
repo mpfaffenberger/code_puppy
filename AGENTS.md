@@ -1,7 +1,8 @@
 # Contributing to Code Puppy
 
-> **Golden rule:** nearly all new functionality should be a **plugin** under `code_puppy/plugins/`
-> that hooks into core via `code_puppy/callbacks.py`. Don't edit `code_puppy/command_line/`.
+> **Golden rule:** nearly all new functionality should be a **plugin** in the
+> `code_puppy_core_plugins` repository that hooks into core via
+> `code_puppy/callbacks.py`. Don't edit `code_puppy/command_line/`.
 
 ## How Plugins Work
 
@@ -9,7 +10,7 @@ Plugins are discovered from three tiers, loaded in order:
 
 | Tier | Location | When to use |
 |------|----------|-------------|
-| **Builtin** | `code_puppy/plugins/<name>/register_callbacks.py` | Core functionality shipped with Code Puppy |
+| **Builtin** | `code_puppy_core_plugins/<name>/register_callbacks.py` | Official package discovered via Python entry points |
 | **User** | `~/.code_puppy/plugins/<name>/register_callbacks.py` | Personal plugins, applied to every project |
 | **Project** | `<CWD>/.code_puppy/plugins/<name>/register_callbacks.py` | Repo-specific plugins, shared with your team via git |
 

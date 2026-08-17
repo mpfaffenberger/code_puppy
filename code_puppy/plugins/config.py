@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Set
 
@@ -19,10 +20,9 @@ from code_puppy.config import get_value, set_value
 
 logger = logging.getLogger(__name__)
 
-# Hidden config key. When truthy, builtin plugins cannot be disabled and are
-# hidden from the /plugins menu. A general-purpose deployment lock: managed
-# distributions (corporate forks, kiosk installs) can flip it to protect the
-# shipped plugin set from being switched off by end users.
+# Hidden config key: when truthy, builtins can't be disabled and are hidden from
+# the /plugins menu — a deployment lock for managed distributions to protect the
+# shipped plugin set from end users.
 LOCK_BUILTIN_KEY = "lock_builtin_plugins"
 
 
@@ -40,10 +40,16 @@ def set_lock_builtin_plugins(locked: bool) -> None:
 
 
 def is_builtin_plugin(plugin_name: str) -> bool:
-    """True if *plugin_name* is a builtin (shipped in code_puppy/plugins/).
+    """True if *plugin_name* belongs to the builtin plugin tier.
 
-    Filesystem ground-truth so the check is independent of plugin load order.
+    Distribution entry points are the primary source of truth. The filesystem
+    fallback keeps older core installations compatible during migration.
     """
+    if any(
+        item.name == plugin_name for item in entry_points(group="code_puppy.plugins")
+    ):
+        return True
+
     import code_puppy.plugins as plugins_pkg
 
     plugin_dir = Path(plugins_pkg.__file__).parent / plugin_name

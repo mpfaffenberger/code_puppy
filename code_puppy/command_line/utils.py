@@ -88,10 +88,9 @@ def safe_input(prompt_text: str = "") -> str:
     # Reset Windows console to normal mode before reading input
     _reset_windows_console()
 
-    # Drain the message queue so any preceding emit_info/emit_warning text
-    # actually paints to the terminal BEFORE we put up our prompt. Without
-    # this, the async render queue can lose the race against input() and
-    # the user sees a bare prompt with no context above it.
+    # Drain the message queue so preceding emit_* text paints BEFORE our
+    # prompt — else the async render queue loses the race against input() and
+    # the user sees a bare prompt with no context.
     try:
         from code_puppy.messaging.message_queue import get_global_queue
 

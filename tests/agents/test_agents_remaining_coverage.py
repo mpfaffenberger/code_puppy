@@ -55,20 +55,75 @@ def test_qa_kitten():
     assert "visual assertions" in lowered or "visual assertion" in lowered
 
 
-def test_helios_agent():
-    from code_puppy.agents.agent_helios import HeliosAgent
+def test_web_retriever():
+    from code_puppy.agents.agent_web_retriever import WebRetrieverAgent
 
-    agent = HeliosAgent()
+    agent = WebRetrieverAgent()
     tools = agent.get_available_tools()
     assert isinstance(tools, list)
     prompt = agent.get_system_prompt()
     assert isinstance(prompt, str)
 
+    # DOM-first progression tools, same as qa-kitten.
+    for tool in (
+        "browser_page_snapshot",
+        "browser_click_by_role",
+        "browser_click_by_text",
+        "browser_set_text_by_label",
+    ):
+        assert tool in tools
 
-def test_code_puppy_agent():
+    # Screenshot capability preserved for genuinely visual fallback.
+    assert "browser_screenshot_analyze" in tools
+
+    # Unlike qa-kitten, this agent can persist extracted data to disk.
+    for tool in ("create_file", "replace_in_file", "read_file"):
+        assert tool in tools
+
+    lowered = prompt.lower()
+    assert "dom-first" in lowered
+
+    # Anti-injection boundary: scraped page content must be treated as
+    # data, never as instructions to follow.
+    assert "data, never" in lowered or "never a command" in lowered
+
+    # Credential-persistence guardrail: never write literal secrets to
+    # saved workflows/extraction output.
+    assert "plaintext passwords" in lowered
+
+
+def test_code_puppy_prompt_omits_web_retriever_guidance():
+    """Keep web-retriever routing policy out of Code Puppy's prompt."""
     from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 
-    agent = CodePuppyAgent()
+    prompt = CodePuppyAgent().get_system_prompt()
+    assert "web-retriever" not in prompt
+    assert "simple one-shot HTTP request" not in prompt
+
+
+def test_planning_agent_routes_scraping_but_allows_direct_curl():
+    """Keep the same scraping/fetch boundary in planning guidance."""
+    from code_puppy.agents.agent_planning import PlanningAgent
+
+    prompt = PlanningAgent().get_system_prompt()
+    assert "web-retriever" in prompt
+    assert "simple one-shot curl/wget requests do not require delegation" in prompt
+
+
+@pytest.mark.parametrize(
+    ("module_path", "cls_name"),
+    [
+        pytest.param("code_puppy.agents.agent_helios", "HeliosAgent", id="helios"),
+        pytest.param(
+            "code_puppy.agents.agent_code_puppy", "CodePuppyAgent", id="code_puppy"
+        ),
+    ],
+)
+def test_agent_has_tools_and_prompt(module_path, cls_name):
+    import importlib
+
+    agent_cls = getattr(importlib.import_module(module_path), cls_name)
+    agent = agent_cls()
     tools = agent.get_available_tools()
     assert isinstance(tools, list)
     prompt = agent.get_system_prompt()
@@ -138,7 +193,7 @@ def test_creator_agent_get_system_prompt_with_uc_tools():
     mock_registry.list_tools.return_value = [mock_tool]
 
     with patch(
-        "code_puppy.plugins.universal_constructor.registry.get_registry",
+        "code_puppy_core_plugins.universal_constructor.registry.get_registry",
         return_value=mock_registry,
     ):
         prompt = agent.get_system_prompt()
@@ -152,7 +207,7 @@ def test_creator_agent_get_system_prompt_uc_import_error():
     agent = AgentCreatorAgent()
 
     with patch(
-        "code_puppy.plugins.universal_constructor.registry.get_registry",
+        "code_puppy_core_plugins.universal_constructor.registry.get_registry",
         side_effect=Exception("boom"),
     ):
         prompt = agent.get_system_prompt()
@@ -411,30 +466,27 @@ def test_creator_get_user_prompt():
 # ---------------------------------------------------------------------------
 
 
-def test_agent_manager_is_process_alive_dead_process():
-    """Cover ProcessLookupError branch in _is_process_alive."""
+@pytest.mark.parametrize(
+    ("side_effect", "expected"),
+    [
+        pytest.param(
+            ProcessLookupError, False, id="dead_process"
+        ),  # covers ProcessLookupError branch
+        pytest.param(
+            PermissionError, True, id="permission"
+        ),  # covers PermissionError branch
+    ],
+)
+def test_agent_manager_is_process_alive(side_effect, expected):
     import sys
 
     from code_puppy.agents.agent_manager import _is_process_alive
 
     if sys.platform == "win32":
         pytest.skip("Unix-only")
-    with patch("os.kill", side_effect=ProcessLookupError):
+    with patch("os.kill", side_effect=side_effect):
         result = _is_process_alive(999999999)
-        assert result is False
-
-
-def test_agent_manager_is_process_alive_permission():
-    """Cover PermissionError branch (process exists but no permission)."""
-    import sys
-
-    from code_puppy.agents.agent_manager import _is_process_alive
-
-    if sys.platform == "win32":
-        pytest.skip("Unix-only")
-    with patch("os.kill", side_effect=PermissionError):
-        result = _is_process_alive(999999999)
-        assert result is True
+        assert result is expected
 
 
 def test_agent_manager_discover_agents_error():
@@ -573,7 +625,7 @@ def test_json_agent_uc_tools(tmp_path):
     mock_registry.list_tools.return_value = [mock_tool]
 
     with patch(
-        "code_puppy.plugins.universal_constructor.registry.get_registry",
+        "code_puppy_core_plugins.universal_constructor.registry.get_registry",
         return_value=mock_registry,
     ):
         tools = agent.get_available_tools()
@@ -595,7 +647,7 @@ def test_json_agent_uc_import_error(tmp_path):
 
     # The import is inside get_available_tools, so we patch at source
     with patch.dict(
-        "sys.modules", {"code_puppy.plugins.universal_constructor.registry": None}
+        "sys.modules", {"code_puppy_core_plugins.universal_constructor.registry": None}
     ):
         tools = agent.get_available_tools()
         assert "list_files" in tools

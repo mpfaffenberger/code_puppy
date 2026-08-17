@@ -8,6 +8,7 @@ needed, already-resolved strings / tool dicts) in explicitly.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import math
 import re
@@ -18,14 +19,35 @@ from pydantic_ai import BinaryContent
 from pydantic_ai.messages import ModelMessage
 
 
+def _digest(text: str) -> str:
+    """Deterministic 16-hex-char digest of ``text``.
+
+    First 16 hex chars (64 bits) of SHA-256 over the utf-8 encoding — stable
+    across processes and Python versions, unlike the PYTHONHASHSEED-salted
+    builtin ``hash()``. 64 bits is plenty for dedup-set collision resistance.
+    """
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _digest_bytes(data: bytes) -> str:
+    """Deterministic 16-hex-char digest of raw bytes (BinaryContent data)."""
+    return hashlib.sha256(data).hexdigest()[:16]
+
+
 def stringify_part(part: Any) -> str:
     """Return a stable, timestamp-free string representation of a message part.
 
     Used for both hashing and token estimation. Ignoring timestamps means two
     otherwise-identical parts emitted at different times collapse to the same
     string, which is exactly what we want for dedup.
+
+    Keyed on the part's ``part_kind`` (a stable dataclass field string like
+    ``"user-prompt"`` / ``"tool-call"``) rather than the class name, so hashes
+    survive pydantic-ai class renames across versions. ``__class__.__name__``
+    is only a fallback for objects lacking ``part_kind``.
     """
-    attributes: List[str] = [part.__class__.__name__]
+    kind = getattr(part, "part_kind", None) or part.__class__.__name__
+    attributes: List[str] = [kind]
 
     if hasattr(part, "role") and part.role:
         attributes.append(f"role={part.role}")
@@ -51,15 +73,20 @@ def stringify_part(part: Any) -> str:
             if isinstance(item, str):
                 attributes.append(f"content={item}")
             elif isinstance(item, BinaryContent):
-                attributes.append(f"BinaryContent={hash(item.data)}")
+                attributes.append(f"BinaryContent={_digest_bytes(item.data)}")
     else:
         attributes.append(f"content={repr(content)}")
 
     return "|".join(attributes)
 
 
-def hash_message(message: Any) -> int:
-    """Stable hash for a ``ModelMessage`` that ignores timestamps."""
+def hash_message(message: Any) -> str:
+    """Stable content-based hash for a ``ModelMessage``; ignores timestamps.
+
+    Returns the first 16 hex chars of SHA-256 over the canonical string (see
+    :func:`_digest`), so hashes are deterministic across processes and
+    resilient to pydantic-ai class renames (parts are keyed on ``part_kind``).
+    """
     role = getattr(message, "role", None)
     instructions = getattr(message, "instructions", None)
     header_bits: List[str] = []
@@ -70,7 +97,7 @@ def hash_message(message: Any) -> int:
 
     part_strings = [stringify_part(part) for part in getattr(message, "parts", [])]
     canonical = "||".join(header_bits + part_strings)
-    return hash(canonical)
+    return _digest(canonical)
 
 
 def estimate_tokens(text: str) -> int:
@@ -78,10 +105,9 @@ def estimate_tokens(text: str) -> int:
     return max(1, math.floor(len(text) / 2.5))
 
 
-# Models whose tokenizer the char/2.5 heuristic systematically *under*counts.
-# Bump these by a calibration factor so context-usage math stops lying to us.
-# Substring match is case-insensitive; both naming orders are accepted because
-# vendor naming is a coin flip.
+# Models whose tokenizer the char/2.5 heuristic systematically *under*counts;
+# bump by a calibration factor. Case-insensitive substring match — vendor
+# naming order is a coin flip.
 _TOKEN_MULTIPLIER_RULES: tuple[tuple[tuple[str, ...], float], ...] = (
     (("opus-4-7", "4-7-opus"), 1.35),
 )
@@ -163,34 +189,29 @@ def _extract_tool_json_schema(tool_obj: Any) -> Optional[dict]:
 def _estimate_mcp_tool_tokens(mcp_servers: Optional[List[Any]]) -> int:
     """Count tokens contributed by MCP toolsets' tool definitions.
 
-    Reads each server's ``_cached_tools`` (populated by pydantic-ai after the
-    first ``list_tools()`` call). Servers that haven't been queried yet show
-    up as zero — so the badge is conservative until the first turn, then
-    snaps to the real number. We deliberately don't trigger ``list_tools()``
-    here: this function must stay sync + side-effect-free.
+    Reads each toolset's cached tool definitions (populated by pydantic-ai
+    after the first ``list_tools()`` call) via
+    ``mcp_.toolset_utils.iter_cached_tool_defs``. Servers that haven't been
+    queried yet show up as zero — so the badge is conservative until the
+    first turn, then snaps to the real number. We deliberately don't trigger
+    ``list_tools()`` here: this function must stay sync + side-effect-free.
 
-    Each ``mcp_types.Tool`` contributes its (prefixed) name, description, and
-    JSON input schema — the same three things pydantic-ai serializes into
-    the request payload.
+    Each tool contributes its (prefixed) name, description, and JSON input
+    schema — the same three things pydantic-ai serializes into the request
+    payload.
     """
     if not mcp_servers:
         return 0
 
+    from code_puppy.mcp_.toolset_utils import iter_cached_tool_defs
+
     total = 0
     for server in mcp_servers:
-        cached = getattr(server, "_cached_tools", None)
-        if not cached:
-            continue
-        prefix = getattr(server, "tool_prefix", None) or ""
-        for mcp_tool in cached:
-            name = getattr(mcp_tool, "name", "") or ""
-            full_name = f"{prefix}_{name}" if prefix else name
+        for full_name, description, schema in iter_cached_tool_defs(server):
             if full_name:
                 total += estimate_tokens(full_name)
-            description = getattr(mcp_tool, "description", "") or ""
             if description:
                 total += estimate_tokens(description)
-            schema = getattr(mcp_tool, "inputSchema", None)
             if schema:
                 try:
                     total += estimate_tokens(json.dumps(schema, sort_keys=True))
@@ -219,8 +240,9 @@ def estimate_context_overhead(
             or a bare callable (legacy shape — falls back to ``__doc__`` /
             ``__annotations__``).
         mcp_servers: Optional list of pydantic-ai MCP server toolsets. Each
-            server's ``_cached_tools`` (populated lazily by pydantic-ai) is
-            inspected for tool name/description/schema overhead.
+            toolset's cached tool definitions (populated lazily by
+            pydantic-ai) are inspected for tool name/description/schema
+            overhead.
 
     Returns:
         Estimated total token overhead.
@@ -250,16 +272,17 @@ def estimate_context_overhead(
     return _apply_multiplier(total, model_name)
 
 
-# Pydantic-AI has FOUR part kinds that carry a tool_call_id:
-#   * tool-call            -> ToolCallPart            (regular tool call)
-#   * tool-return          -> ToolReturnPart          (regular tool response)
-#   * builtin-tool-call    -> BuiltinToolCallPart     (claude extended-thinking, etc.)
-#   * builtin-tool-return  -> BuiltinToolReturnPart   (builtin tool response)
-#   * retry-prompt         -> RetryPromptPart         (assistant told to retry; acts as a response)
+# Pydantic-AI has FIVE part kinds carrying a tool_call_id that participate in
+# call/return pairing: tool-call/-return, builtin-tool-call/-return (claude
+# extended-thinking), and retry-prompt (acts as a response). Counting only
+# tool-call/-return caused bugs: e.g. builtin calls on Claude Opus stayed
+# "pending" forever, deferring summarization.
 #
-# Treating only `tool-call` / `tool-return` (and ignoring the others) caused
-# subtle bugs: e.g. builtin tool calls on Claude Opus were counted as pending
-# forever, deferring summarization on every turn.
+# v2.31.0 vocabulary audit: the only new part kinds are
+# 'tool-availability-delta' (carries an *optional* tool_call_id but is an
+# additive tool-reveal marker, NOT a call or return — must stay unpaired so
+# pruning never drops it) and 'speech' (realtime audio, no tool_call_id).
+# Neither joins these sets.
 _TOOL_CALL_PART_KINDS: frozenset[str] = frozenset({"tool-call", "builtin-tool-call"})
 _TOOL_RETURN_PART_KINDS: frozenset[str] = frozenset(
     {"tool-return", "builtin-tool-return", "retry-prompt"}
@@ -355,10 +378,9 @@ def filter_huge_messages(
     return prune_interrupted_tool_calls(filtered)
 
 
-# Anthropic's API requires tool_use IDs to match this pattern.
-# Other providers (Kimi, etc.) may generate IDs with dots, colons, etc.
-# that violate this constraint. When switching models mid-conversation,
-# those dirty IDs persist in the message history and cause 400 errors.
+# Anthropic requires tool_use IDs to match this pattern; other providers
+# (Kimi, etc.) may emit IDs with dots/colons that violate it. Those dirty IDs
+# persist through mid-conversation model switches and cause 400 errors.
 _ANTHROPIC_TOOL_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 # Character-level replacement: swap any character NOT in the allowed set.
 _BAD_TOOL_ID_CHAR_RE = re.compile(r"[^a-zA-Z0-9_-]")
@@ -390,21 +412,18 @@ def sanitize_tool_call_ids(
     for msg in messages:
         for part in getattr(msg, "parts", []) or []:
             tcid = getattr(part, "tool_call_id", None)
-            # Gemini's native API puts thoughtSignature on FunctionCall as a
-            # separate field. The OpenAI-compat schema has no such field, so
-            # LiteLLM smuggles it into tool_call_id: `<id>__thought__<base64>`.
-            # Gemini requires this to round-trip intact — even the `_<6digit>`
-            # collision-guard suffix below corrupts it and causes a 400 on the
-            # next tool turn. The collision guard isn't needed here anyway: the
-            # embedded signature makes each id globally unique. _LITELLM_THOUGHT_RE
-            # matches the exact suffix so only genuine carrier ids are exempted.
+            # Gemini puts thoughtSignature on FunctionCall; the OpenAI-compat
+            # schema has no such field, so LiteLLM smuggles it into tool_call_id
+            # as `<id>__thought__<base64>`. It must round-trip intact — even the
+            # collision-guard suffix corrupts it (400 next turn), and it's
+            # unneeded anyway (the signature makes ids globally unique).
+            # _LITELLM_THOUGHT_RE matches the exact suffix to exempt carriers.
             if tcid and _LITELLM_THOUGHT_RE.search(tcid):
                 continue
             if tcid and not _ANTHROPIC_TOOL_ID_RE.match(tcid):
                 if tcid not in bad_ids:
-                    # Replace non-matching chars with '_' and append a short
-                    # hash suffix to avoid collisions from different dirty IDs
-                    # that sanitize to the same string.
+                    # Replace non-matching chars with '_' plus a short hash
+                    # suffix to avoid collisions between IDs that sanitize alike.
                     sanitized_base = _BAD_TOOL_ID_CHAR_RE.sub("_", tcid)
                     collision_guard = format(abs(hash(tcid)) % (10**6), "06d")
                     candidate = f"{sanitized_base}_{collision_guard}"

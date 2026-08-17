@@ -195,7 +195,7 @@ class TestVersionHandling:
 
 
 class TestLogoDisplay:
-    """Test CODE PUPPY logo display."""
+    """Test platform-aware logo display."""
 
     def test_logo_not_displayed_in_prompt_only_mode(self):
         """Test that logo is skipped in prompt-only mode (-p flag)."""
@@ -378,7 +378,7 @@ class TestResumeFlag:
         )
 
         # Verify the session was saved
-        assert metadata.pickle_path.exists()
+        assert metadata.json_path.exists()
 
         # Load session using the standard load_session function
         loaded_history = load_session(session_name, tmp_path)
@@ -466,16 +466,14 @@ class TestHeadlessSessionPersistence:
                 session_name="mywork",
             )
 
-        assert (tmp_path / "mywork.pkl").exists()
-        # post_autosave hook is reserved for the periodic background save
-        # path (``config.auto_save_session_if_enabled``). The headless
-        # ``-r NAME -p ...`` save-back deliberately does NOT fire it, so
-        # plugins that decorate the auto-save line (e.g. the walmart
-        # token-quota plugin) don't double-print.
+        # Canonical JSON envelope; the legacy pickle twin is gone.
+        assert (tmp_path / "mywork.json").exists()
+        assert not (tmp_path / "mywork.pkl").exists()
+        # post_autosave is reserved for the periodic auto-save path - the headless
+        # ``-r NAME -p`` save-back must NOT fire it (decorator plugins double-print).
         assert fire_cb.call_count == 0
-        # quick-resume pointer must be written after a successful persist so
-        # ``--quick-resume`` can rediscover both auto-generated and ``-r``
-        # headless saves.
+        # Write the quick-resume pointer only after a successful persist, so
+        # ``--quick-resume`` rediscovers both auto-generated and ``-r`` saves.
         mock_qr.assert_called_once_with("mywork")
 
     @pytest.mark.asyncio
@@ -537,7 +535,7 @@ class TestHeadlessSessionPersistence:
         ):
             await execute_single_prompt("hi", self._renderer(), session_name="mywork")
 
-        assert (tmp_path / "mywork.pkl").exists()
+        assert (tmp_path / "mywork.json").exists()
 
     @pytest.mark.asyncio
     async def test_save_back_on_generic_exception(self, tmp_path):
@@ -557,7 +555,7 @@ class TestHeadlessSessionPersistence:
         ):
             await execute_single_prompt("hi", self._renderer(), session_name="mywork")
 
-        assert (tmp_path / "mywork.pkl").exists()
+        assert (tmp_path / "mywork.json").exists()
 
     @pytest.mark.asyncio
     async def test_default_autosave_uses_generated_session_name(self, tmp_path):

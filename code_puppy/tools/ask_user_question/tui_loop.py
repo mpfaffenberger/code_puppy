@@ -220,9 +220,8 @@ async def run_question_tui(
             state.next_question()
             event.app.invalidate()
         else:
-            # On the last question:
-            # Only submit if cursor was already on the selected option (confirming)
-            # This prevents accidental submission when browsing options
+            # Last question: submit only if the cursor was already on the option
+            # (confirming) — prevents accidental submit while browsing.
             if cursor_is_on_selected:
                 result.confirmed = True
                 event.app.exit()
@@ -452,10 +451,8 @@ async def run_question_tui(
     timeout_task = asyncio.create_task(timeout_checker())
     app_exception: BaseException | None = None
 
-    # Suspend the whole run UI: the bottom bar's scroll region is reset
-    # (prompt_toolkit needs the full screen) AND the background key
-    # listener releases stdin -- otherwise the listener thread eats
-    # keystrokes and CPR replies (see _key_listeners.py).
+    # Suspend the whole run UI: full-screen prompt_toolkit needs the scroll
+    # region reset AND stdin freed, or the listener eats keystrokes/CPR replies.
     from code_puppy.messaging.run_ui import suspended_run_ui
 
     try:

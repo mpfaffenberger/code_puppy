@@ -10,20 +10,16 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional
 
 import httpx
+from fastmcp.client.transports import SSETransport, StreamableHttpTransport
 from pydantic_ai import RunContext
-from pydantic_ai.mcp import (
-    CallToolFunc,
-    MCPServerSSE,
-    MCPServerStdio,
-    MCPServerStreamableHTTP,
-    ToolResult,
-)
+from pydantic_ai.mcp import CallToolFunc, MCPToolset, ToolResult
+from pydantic_ai.toolsets import AbstractToolset
 
 from code_puppy.http_utils import create_async_client, get_cert_bundle_path
-from code_puppy.mcp_.blocking_startup import BlockingMCPServerStdio
+from code_puppy.mcp_.blocking_startup import BlockingStdioToolset
 from code_puppy.mcp_.tool_arg_coercion import coerce_tool_args
 
 
@@ -60,14 +56,34 @@ def _build_tool_prefix(server_name: str, config: Dict[str, Any]) -> str:
     return server_name
 
 
+def _httpx_client_factory(
+    http_client: httpx.AsyncClient,
+) -> Callable[..., httpx.AsyncClient]:
+    """Adapt a pre-built ``httpx.AsyncClient`` to fastmcp's factory shape.
+
+    fastmcp's HTTP transports accept an ``httpx_client_factory`` rather than
+    a client instance; returning the same client from the factory preserves
+    our custom CA bundle / proxy / retry configuration.
+    """
+
+    def factory(
+        headers: Optional[Dict[str, str]] = None,
+        timeout: Any = None,
+        auth: Any = None,
+    ) -> httpx.AsyncClient:
+        return http_client
+
+    return factory
+
+
 def _with_inherited_ca_bundle(
     env: Optional[Dict[str, str]],
 ) -> Optional[Dict[str, str]]:
     """Propagate our CA bundle into a stdio server's child environment.
 
     A stdio MCP server is a subprocess (often ``uvx``/``npx`` launching a
-    Python or Node program) that makes its own HTTPS calls. pydantic-ai's
-    ``MCPServerStdio`` does NOT pass code_puppy's environment to that child
+    Python or Node program) that makes its own HTTPS calls. The stdio
+    transport does NOT pass code_puppy's environment to that child
     -- it runs with only the ``env`` dict we hand it (plus a minimal set the
     MCP SDK adds back). So a ``SSL_CERT_FILE`` that lets code_puppy itself
     reach the internet (see ``get_cert_bundle_path``) never reaches the
@@ -125,15 +141,17 @@ async def _input_schema_for_tool(
 ) -> Optional[Dict[str, Any]]:
     """Best-effort lookup of an MCP tool's JSON inputSchema.
 
-    ``call_tool`` is pydantic-ai's bound ``direct_call_tool`` method, so its
-    ``__self__`` is the underlying MCP server, which exposes a (cached)
-    ``list_tools()``. The ``name`` here is already prefix-stripped, matching the
-    raw tool names returned by ``list_tools()``.
+    ``call_tool`` is pydantic-ai's ``MCPToolset.direct_call_tool`` — either
+    the bound method itself or a ``functools.partial`` around it — so
+    unwrapping ``.func``/``__self__`` yields the toolset, which exposes a
+    (cached) ``list_tools()``. The ``name`` here is already prefix-stripped,
+    matching the raw tool names returned by ``list_tools()``.
 
     Returns ``None`` if the schema cannot be resolved for any reason -- callers
     must treat that as "don't coerce".
     """
-    server = getattr(call_tool, "__self__", None)
+    func = getattr(call_tool, "func", call_tool)  # unwrap functools.partial
+    server = getattr(func, "__self__", None)
     list_tools = getattr(server, "list_tools", None)
     if list_tools is None:
         return None
@@ -171,12 +189,12 @@ async def process_tool_call(
     input_schema = await _input_schema_for_tool(call_tool, name)
     tool_args = coerce_tool_args(tool_args, input_schema)
 
-    return await call_tool(name, tool_args, {"deps": ctx.deps})
+    return await call_tool(name, tool_args, metadata={"deps": ctx.deps})
 
 
 class ManagedMCPServer:
     """
-    Managed wrapper around pydantic-ai MCP server classes.
+    Managed wrapper around pydantic-ai MCP toolsets.
 
     This class provides management capabilities like enable/disable,
     quarantine, and status tracking while maintaining 100% compatibility
@@ -190,7 +208,7 @@ class ManagedMCPServer:
             config={"url": "http://localhost:8080"}
         )
         managed = ManagedMCPServer(config)
-        pydantic_server = managed.get_pydantic_server()  # Returns actual MCPServerSSE
+        toolset = managed.get_pydantic_server()  # PrefixedToolset over MCPToolset
     """
 
     def __init__(self, server_config: ServerConfig):
@@ -201,9 +219,8 @@ class ManagedMCPServer:
             server_config: Server configuration containing type, connection details, etc.
         """
         self.config = server_config
-        self._pydantic_server: Optional[
-            Union[MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP]
-        ] = None
+        self._toolset: Optional[MCPToolset] = None
+        self._pydantic_server: Optional[AbstractToolset[Any]] = None
         self._state = ServerState.STOPPED
         self._enabled = server_config.enabled
         self._quarantine_until: Optional[datetime] = None
@@ -220,17 +237,13 @@ class ManagedMCPServer:
             self._state = ServerState.ERROR
             self._error_message = str(e)
 
-    def get_pydantic_server(
-        self,
-    ) -> Union[MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP]:
+    def get_pydantic_server(self) -> AbstractToolset[Any]:
         """
-        Get the actual pydantic-ai server instance.
+        Get the pydantic-ai toolset for this server.
 
-        This method returns the real pydantic-ai MCP server objects for 100% compatibility
-        with the existing Agent interface. Do not return custom classes or proxies.
-
-        Returns:
-            Actual pydantic-ai MCP server instance (MCPServerSSE, MCPServerStdio, or MCPServerStreamableHTTP)
+        Returns the ``MCPToolset`` wrapped in a ``PrefixedToolset`` (the
+        public replacement for the old ``tool_prefix=`` kwarg), ready to be
+        passed to ``Agent(toolsets=...)``.
 
         Raises:
             RuntimeError: If server creation failed or server is not available
@@ -243,9 +256,33 @@ class ManagedMCPServer:
 
         return self._pydantic_server
 
+    def _toolset_kwargs(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Map our config keys onto ``MCPToolset`` constructor kwargs.
+
+        ``timeout`` (time allowed for the initialize handshake) maps to
+        ``init_timeout``; ``read_timeout`` keeps its name. Omitted keys fall
+        through to pydantic-ai's defaults (5s / 300s — same as the old
+        ``MCPServer*`` defaults).
+
+        ``prefer_tasks=False``: pydantic-ai v2 defaults to task-augmented
+        execution (SEP-1686) for tools whose server marks task support
+        'optional'. Pinned off to preserve the direct-call semantics our
+        timeout/stderr-capture/blocking-startup plumbing was built against;
+        servers that *require* tasks still get them regardless of this flag.
+        """
+        kwargs: Dict[str, Any] = {
+            "process_tool_call": process_tool_call,
+            "prefer_tasks": False,
+        }
+        if "timeout" in config:
+            kwargs["init_timeout"] = config["timeout"]
+        if "read_timeout" in config:
+            kwargs["read_timeout"] = config["read_timeout"]
+        return kwargs
+
     def _create_server(self) -> None:
         """
-        Create appropriate pydantic-ai server based on config type.
+        Create the appropriate ``MCPToolset`` based on config type.
 
         Raises:
             ValueError: If server type is unsupported or config is invalid
@@ -255,107 +292,86 @@ class ManagedMCPServer:
         config = self.config.config
         tool_prefix = _build_tool_prefix(self.config.name, config)
 
-        try:
-            if server_type == "sse":
-                if "url" not in config:
-                    raise ValueError("SSE server requires 'url' in config")
+        if server_type == "sse":
+            if "url" not in config:
+                raise ValueError("SSE server requires 'url' in config")
 
-                # Prepare arguments for MCPServerSSE (expand env vars in URL)
-                sse_kwargs = {
-                    "url": _expand_env_vars(config["url"]),
-                    "tool_prefix": tool_prefix,
-                }
+            # Build the SSE transport explicitly — fastmcp's URL inference
+            # would pick streamable-HTTP for URLs not ending in /sse, but our
+            # config declares the transport type authoritatively.
+            http_client = config.get("http_client")
+            if http_client is None and config.get("headers"):
+                # Create HTTP client if headers are provided but no client
+                # specified (preserves CA bundle / proxy / retry behavior).
+                http_client = self._get_http_client()
 
-                # Add optional parameters if provided
-                if "timeout" in config:
-                    sse_kwargs["timeout"] = config["timeout"]
-                if "read_timeout" in config:
-                    sse_kwargs["read_timeout"] = config["read_timeout"]
-                if "http_client" in config:
-                    sse_kwargs["http_client"] = config["http_client"]
-                elif config.get("headers"):
-                    # Create HTTP client if headers are provided but no client specified
-                    sse_kwargs["http_client"] = self._get_http_client()
+            read_timeout = config.get("read_timeout")
+            transport = SSETransport(
+                url=_expand_env_vars(config["url"]),
+                sse_read_timeout=read_timeout if read_timeout is not None else 300,
+                httpx_client_factory=(
+                    _httpx_client_factory(http_client)
+                    if http_client is not None
+                    else None
+                ),
+            )
+            self._toolset = MCPToolset(transport, **self._toolset_kwargs(config))
 
-                self._pydantic_server = MCPServerSSE(
-                    **sse_kwargs, process_tool_call=process_tool_call
-                )
+        elif server_type == "stdio":
+            if "command" not in config:
+                raise ValueError("Stdio server requires 'command' in config")
 
-            elif server_type == "stdio":
-                if "command" not in config:
-                    raise ValueError("Stdio server requires 'command' in config")
-
-                # Handle command and arguments (expand env vars)
-                command = _expand_env_vars(config["command"])
-                args = config.get("args", [])
-                if isinstance(args, str):
-                    # If args is a string, split it then expand
-                    args = [_expand_env_vars(a) for a in args.split()]
-                else:
-                    args = _expand_env_vars(args)
-
-                # Prepare arguments for MCPServerStdio
-                stdio_kwargs = {"command": command, "args": list(args) if args else []}
-
-                # Add optional parameters if provided (expand env vars in env and cwd)
-                if "env" in config:
-                    stdio_kwargs["env"] = _expand_env_vars(config["env"])
-                # Always run (even with no configured env) so the child trusts
-                # our CA bundle; see _with_inherited_ca_bundle for why.
-                stdio_kwargs["env"] = _with_inherited_ca_bundle(stdio_kwargs.get("env"))
-                if "cwd" in config:
-                    stdio_kwargs["cwd"] = _expand_env_vars(config["cwd"])
-                # Default timeout of 60s for stdio servers - some servers like Serena take a while to start
-                # Users can override this in their config
-                stdio_kwargs["timeout"] = config.get("timeout", 60)
-                if "read_timeout" in config:
-                    stdio_kwargs["read_timeout"] = config["read_timeout"]
-
-                # Use BlockingMCPServerStdio for proper initialization blocking and stderr capture
-                # Create a unique message group for this server
-                message_group = uuid.uuid4()
-                self._pydantic_server = BlockingMCPServerStdio(
-                    **stdio_kwargs,
-                    process_tool_call=process_tool_call,
-                    tool_prefix=tool_prefix,
-                    emit_stderr=False,  # Logs go to file, not console (use /mcp logs to view)
-                    message_group=message_group,
-                )
-
-            elif server_type == "http":
-                if "url" not in config:
-                    raise ValueError("HTTP server requires 'url' in config")
-
-                # Prepare arguments for MCPServerStreamableHTTP (expand env vars in URL)
-                http_kwargs = {
-                    "url": _expand_env_vars(config["url"]),
-                    "tool_prefix": tool_prefix,
-                }
-
-                # Add optional parameters if provided
-                if "timeout" in config:
-                    http_kwargs["timeout"] = config["timeout"]
-                if "read_timeout" in config:
-                    http_kwargs["read_timeout"] = config["read_timeout"]
-
-                # Pass headers directly instead of creating http_client
-                # Note: There's a bug in MCP 1.25.0 where passing http_client
-                # causes "'_AsyncGeneratorContextManager' object has no attribute 'stream'"
-                # The workaround is to pass headers directly and let pydantic-ai
-                # create the http_client internally.
-                if config.get("headers"):
-                    # Expand environment variables in headers
-                    http_kwargs["headers"] = _expand_env_vars(config["headers"])
-
-                self._pydantic_server = MCPServerStreamableHTTP(
-                    **http_kwargs, process_tool_call=process_tool_call
-                )
-
+            # Handle command and arguments (expand env vars)
+            command = _expand_env_vars(config["command"])
+            args = config.get("args", [])
+            if isinstance(args, str):
+                # If args is a string, split it then expand
+                args = [_expand_env_vars(a) for a in args.split()]
             else:
-                raise ValueError(f"Unsupported server type: {server_type}")
+                args = _expand_env_vars(args)
 
-        except Exception:
-            raise
+            env = _expand_env_vars(config["env"]) if "env" in config else None
+            # Always run (even with no configured env) so the child trusts
+            # our CA bundle; see _with_inherited_ca_bundle for why.
+            env = _with_inherited_ca_bundle(env)
+            cwd = _expand_env_vars(config["cwd"]) if "cwd" in config else None
+
+            # Default timeout of 60s for stdio servers - some servers like
+            # Serena take a while to start. Users can override in config.
+            stdio_config = dict(config)
+            stdio_config.setdefault("timeout", 60)
+
+            self._toolset = BlockingStdioToolset(
+                command=command,
+                args=list(args) if args else [],
+                env=env,
+                cwd=cwd,
+                server_name=tool_prefix,
+                emit_stderr=False,  # Logs go to file (use /mcp logs to view)
+                message_group=uuid.uuid4(),
+                **self._toolset_kwargs(stdio_config),
+            )
+
+        elif server_type == "http":
+            if "url" not in config:
+                raise ValueError("HTTP server requires 'url' in config")
+
+            headers = (
+                _expand_env_vars(config["headers"]) if config.get("headers") else None
+            )
+            transport = StreamableHttpTransport(
+                url=_expand_env_vars(config["url"]),
+                headers=headers,
+            )
+            self._toolset = MCPToolset(transport, **self._toolset_kwargs(config))
+
+        else:
+            raise ValueError(f"Unsupported server type: {server_type}")
+
+        # The prefixed wrapper is what agents (and the lifecycle manager)
+        # consume; tool names come out as f"{tool_prefix}_{name}", matching
+        # the old tool_prefix= behavior.
+        self._pydantic_server = self._toolset.prefixed(tool_prefix)
 
     def _get_http_client(self) -> httpx.AsyncClient:
         """
@@ -441,8 +457,8 @@ class ManagedMCPServer:
         Returns:
             List of captured stderr lines, or empty list if not applicable
         """
-        if isinstance(self._pydantic_server, BlockingMCPServerStdio):
-            return self._pydantic_server.get_captured_stderr()
+        if isinstance(self._toolset, BlockingStdioToolset):
+            return self._toolset.get_captured_stderr()
         return []
 
     async def wait_until_ready(self, timeout: float = 30.0) -> bool:
@@ -455,9 +471,9 @@ class ManagedMCPServer:
         Returns:
             True if server is ready, False otherwise
         """
-        if isinstance(self._pydantic_server, BlockingMCPServerStdio):
+        if isinstance(self._toolset, BlockingStdioToolset):
             try:
-                await self._pydantic_server.wait_until_ready(timeout)
+                await self._toolset.wait_until_ready(timeout)
                 return True
             except Exception:
                 return False
@@ -475,8 +491,8 @@ class ManagedMCPServer:
             TimeoutError: If server doesn't initialize within timeout
             Exception: If server initialization failed
         """
-        if isinstance(self._pydantic_server, BlockingMCPServerStdio):
-            await self._pydantic_server.ensure_ready(timeout)
+        if isinstance(self._toolset, BlockingStdioToolset):
+            await self._toolset.ensure_ready(timeout)
 
     def get_status(self) -> Dict[str, Any]:
         """

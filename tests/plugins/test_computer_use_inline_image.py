@@ -4,7 +4,7 @@ import io
 
 import pytest
 
-from code_puppy.plugins.computer_use import inline_image
+from code_puppy_core_plugins.computer_use import inline_image
 
 
 @pytest.fixture(autouse=True)

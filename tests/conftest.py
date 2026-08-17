@@ -15,9 +15,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Config paths are resolved while code_puppy.config is imported, before any
-# fixture can run. Point every XDG category at one session-scoped temp root now
-# so collection, plugin imports, and tests cannot touch the developer's config.
+# Config paths resolve at import time, before fixtures run - point every XDG category
+# at one session-scoped temp root so collection/tests never touch the dev's config.
 _XDG_TEMP_DIR = tempfile.TemporaryDirectory(prefix="code_puppy_pytest_xdg_")
 _XDG_ENV_VARS = (
     "XDG_CONFIG_HOME",
@@ -68,9 +67,9 @@ def _ensure_builtin_plugin_callback_registrations() -> None:
     registrations, so restore the key builtin registrations explicitly.
     ``register_callback`` deduplicates, making this safe to call per test.
     """
-    from code_puppy.plugins.azure_foundry import register_callbacks as foundry
-    from code_puppy.plugins.claude_code_hooks import register_callbacks as hooks
-    from code_puppy.plugins.universal_constructor import register_callbacks as uc
+    from code_puppy_core_plugins.azure_foundry import register_callbacks as foundry
+    from code_puppy_core_plugins.claude_code_hooks import register_callbacks as hooks
+    from code_puppy_core_plugins.universal_constructor import register_callbacks as uc
 
     cp_callbacks.register_callback("custom_command_help", foundry._custom_help)
     cp_callbacks.register_callback("custom_command", foundry._handle_custom_command)

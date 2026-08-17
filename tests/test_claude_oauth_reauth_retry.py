@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from code_puppy.claude_cache_client import ClaudeCacheAsyncClient
-from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
     _reauthenticate_after_expired_oauth,
 )
 
@@ -111,10 +111,10 @@ async def test_auth_retry_does_not_run_oauth_callback_when_refresh_succeeds():
 def test_claude_code_reauth_helper_ignores_non_prefixed_models():
     with (
         patch(
-            "code_puppy.plugins.claude_code_oauth.register_callbacks._perform_authentication"
+            "code_puppy_core_plugins.claude_code_oauth.register_callbacks._perform_authentication"
         ) as mock_auth,
         patch(
-            "code_puppy.plugins.claude_code_oauth.register_callbacks.get_valid_access_token"
+            "code_puppy_core_plugins.claude_code_oauth.register_callbacks.get_valid_access_token"
         ) as mock_token,
     ):
         token = _reauthenticate_after_expired_oauth("claude-opus-4-7")
@@ -127,14 +127,18 @@ def test_claude_code_reauth_helper_ignores_non_prefixed_models():
 def test_claude_code_reauth_helper_runs_flow_for_prefixed_models():
     with (
         patch(
-            "code_puppy.plugins.claude_code_oauth.register_callbacks._perform_authentication"
+            "code_puppy_core_plugins.claude_code_oauth.register_callbacks._perform_authentication"
         ) as mock_auth,
         patch(
-            "code_puppy.plugins.claude_code_oauth.register_callbacks.get_valid_access_token",
+            "code_puppy_core_plugins.claude_code_oauth.register_callbacks.get_valid_access_token",
             return_value="new_oauth_token",
         ),
-        patch("code_puppy.plugins.claude_code_oauth.register_callbacks.emit_warning"),
-        patch("code_puppy.plugins.claude_code_oauth.register_callbacks.emit_success"),
+        patch(
+            "code_puppy_core_plugins.claude_code_oauth.register_callbacks.emit_warning"
+        ),
+        patch(
+            "code_puppy_core_plugins.claude_code_oauth.register_callbacks.emit_success"
+        ),
     ):
         token = _reauthenticate_after_expired_oauth("claude-code-claude-opus-4-7")
 

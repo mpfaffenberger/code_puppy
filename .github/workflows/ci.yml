@@ -6,67 +6,6 @@ on:
       - '**'
 
 jobs:
-  computer-use-macos:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Python 3.13
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: Install uv
-        run: pip install uv
-
-      - name: Install Computer Use extra
-        run: uv sync --extra computer-use
-
-      - name: Verify Swift toolchain
-        run: swiftc --version
-
-      - name: Compile native capture helper
-        run: |
-          swiftc \
-            -parse-as-library \
-            -framework AppKit \
-            -framework ScreenCaptureKit \
-            code_puppy/plugins/computer_use/NativeCapture.swift \
-            -o "$RUNNER_TEMP/code-puppy-native-capture"
-          "$RUNNER_TEMP/code-puppy-native-capture" --help || test $? -eq 2
-
-      - name: Run Computer Use tests
-        run: uv run pytest tests/plugins/test_computer_use_*.py -q --no-cov
-
-      - name: Build distributions
-        run: uv build
-
-      - name: Verify Computer Use is packaged
-        run: |
-          python - <<'PY'
-          import glob
-          import tarfile
-          import zipfile
-
-          wheel = glob.glob("dist/*.whl")[0]
-          sdist = glob.glob("dist/*.tar.gz")[0]
-          required = {
-              "code_puppy/plugins/computer_use/NativeCapture.swift",
-              "code_puppy/plugins/computer_use/README.md",
-          }
-          with zipfile.ZipFile(wheel) as archive:
-              wheel_names = set(archive.namelist())
-          with tarfile.open(sdist) as archive:
-              sdist_names = {
-                  "/".join(name.split("/")[1:])
-                  for name in archive.getnames()
-                  if "/" in name
-              }
-          assert required <= wheel_names, required - wheel_names
-          assert required <= sdist_names, required - sdist_names
-          PY
-
   test:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -95,22 +34,33 @@ jobs:
       - name: Install pexpect for integration tests
         run: uv pip install pexpect>=4.9.0
 
-      - name: Provision CI model (lilac synthetic GLM-5.1)
+      - name: Provision CI model (lilac GLM-5.2 + Kimi K2.6)
         # models.json ships empty. CI gets its model from extra_models.json,
         # exactly like a real user would after running /add_model.
         run: |
           mkdir -p "$HOME/.code_puppy"
           cat > "$HOME/.code_puppy/extra_models.json" <<'JSON'
           {
-            "lilac-zai-org-glm-5.1": {
+            "lilac-zai-org-glm-5.2": {
               "type": "custom_openai",
               "provider": "lilac",
-              "name": "zai-org/glm-5.1",
+              "name": "zai-org/glm-5.2",
               "custom_endpoint": {
                 "url": "https://api.getlilac.com/v1",
                 "api_key": "$LILAC_API_KEY"
               },
-              "context_length": 202800,
+              "context_length": 524288,
+              "supported_settings": ["temperature", "seed", "top_p"]
+            },
+            "lilac-moonshotai-kimi-k2.6": {
+              "type": "custom_openai",
+              "provider": "lilac",
+              "name": "moonshotai/kimi-k2.6",
+              "custom_endpoint": {
+                "url": "https://api.getlilac.com/v1",
+                "api_key": "$LILAC_API_KEY"
+              },
+              "context_length": 262144,
               "supported_settings": ["temperature", "seed", "top_p"]
             }
           }
@@ -185,7 +135,7 @@ jobs:
         run: uv pip install -e .
 
       - name: Run Windows encoding regression tests
-        run: uv run pytest tests/plugins/test_customizable_commands_callbacks.py -v --no-cov
+        run: uv run pytest tests/test_windows_encoding.py -v --no-cov
 
   quality:
     runs-on: ubuntu-latest

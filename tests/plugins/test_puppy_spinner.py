@@ -11,7 +11,7 @@ import asyncio
 
 import pytest
 
-from code_puppy.plugins.puppy_spinner import register_callbacks as rc
+from code_puppy_core_plugins.puppy_spinner import register_callbacks as rc
 
 
 class FakeBar:

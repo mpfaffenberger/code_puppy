@@ -63,20 +63,14 @@ from .bar_rendering import (
 #: Maximum rows for the multiline prompt viewport.
 PROMPT_MAX_ROWS = 5
 
-#: Chrome dimming (SGR 2): popup/status/panel rows render faint so they
-#: read as UI chrome, not transcript content. Applied AFTER sanitization
-#: and AFTER clipping — sanitize strips completer/user-supplied escapes,
-#: and clip math must never count our own SGR bytes as cells.
+#: Chrome dimming (SGR 2): faint popup/status/panel chrome — applied AFTER
+#: sanitize + clip (own SGR bytes must never count as cells).
 _DIM_ON = "\x1b[2m"
 _DIM_OFF = "\x1b[22m"
 
-#: Selected popup row: full-brightness brand accent (bold + ANSI cyan,
-#: SGR 1;36) instead of reverse video. WHY ANSI cyan and not truecolor:
-#: the theme plugin recolors the terminal by remapping ANSI palette
-#: slots via OSC 4 (osc_palette.py) — there is no runtime accent-token
-#: accessor to query — so emitting the standard cyan slot means themes
-#: restyle the selection automatically, and the default palette shows
-#: the repo-wide "bold cyan" brand accent (rich_renderer et al.).
+#: Selected popup row: bold ANSI cyan (SGR 1;36) accent, not reverse video.
+#: ANSI cyan because themes remap palette slots via OSC 4 (no runtime accent
+#: token to query) — standard cyan restyles automatically in every theme.
 _SELECT_ON = "\x1b[1;36m"
 _SELECT_OFF = "\x1b[22;39m"  # reset weight + foreground only
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")

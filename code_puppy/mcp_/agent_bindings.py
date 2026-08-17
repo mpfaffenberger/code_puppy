@@ -41,10 +41,8 @@ BINDINGS_FILE = os.path.join(CONFIG_DIR, "mcp_agent_bindings.json")
 
 _EMPTY: Dict[str, Any] = {"bindings": {}}
 
-# In-memory bindings that live ONLY for the current process. Used by ephemeral
-# flows like ``/mcp start`` which should make a server visible to the current
-# agent right now without permanently editing ``mcp_agent_bindings.json``.
-# Same shape as the persisted bindings: ``{agent: {server: {"auto_start": bool}}}``.
+# In-memory bindings, current process only (e.g. /mcp start) — no persistent
+# edit. Same shape as persisted: ``{agent: {server: {"auto_start": bool}}}``.
 _session_bindings: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
 
@@ -132,10 +130,8 @@ def get_bound_servers(agent_name: str) -> Dict[str, Dict[str, Any]]:
     file_bindings = load_bindings().get(agent_name, {})
     session = _session_bindings.get(agent_name, {})
 
-    # Merge with explicit precedence (lowest → highest):
-    #   declared (JSON config)  <  file (persistent)  <  session (in-memory)
-    # Session wins so the most recent user action (e.g. /mcp start xyz) is
-    # what the agent actually sees this run.
+    # Merge with precedence (low→high): declared < file < session, so the most
+    # recent user action (e.g. /mcp start xyz) is what the agent sees.
     merged: Dict[str, Dict[str, Any]] = {
         name: dict(opts) for name, opts in declared.items()
     }

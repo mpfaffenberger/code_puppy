@@ -125,62 +125,78 @@ class TestModelNameCompleter:
             assert len(completions) == 1
             assert completions[0].text == "claude-3"
 
+    def test_sees_model_added_after_construction(self):
+        """Regression: /add_model writes extra_models.json, but completer
+        stacks (the persistent prompt caches its stack for the whole
+        session) were built before the add -- completions must reflect the
+        config as of *each keystroke*, not as of construction time."""
+        from code_puppy.command_line.model_picker_completion import ModelNameCompleter
+
+        before_add = {"gpt-4o": {}, "claude-3": {}}
+        after_add = {**before_add, "xai-grok-4": {}}
+        states = iter([before_add, after_add])
+
+        def _load():
+            try:
+                return next(states)
+            except StopIteration:
+                raise AssertionError(
+                    "_load_models_config called more times than expected"
+                ) from None
+
+        with (
+            patch(
+                "code_puppy.command_line.model_picker_completion._load_models_config",
+                side_effect=_load,
+            ),
+            patch(
+                "code_puppy.command_line.model_picker_completion.get_active_model",
+                return_value="gpt-4o",
+            ),
+        ):
+            completer = ModelNameCompleter(trigger="/model")
+
+            # Before /add_model: no grok suggestions.
+            completions = list(
+                completer.get_completions(self._make_doc("/model grok"), None)
+            )
+            assert completions == []
+
+            # After /add_model: the newly added model is suggested immediately.
+            completions = list(
+                completer.get_completions(self._make_doc("/model grok"), None)
+            )
+            assert [c.text for c in completions] == ["xai-grok-4"]
+
 
 class TestFindMatchingModel:
-    def test_exact_match(self):
+    @pytest.mark.parametrize(
+        "query,models,expected",
+        [
+            ("gpt-4", ["gpt-4", "claude-3"], "gpt-4"),
+            ("GPT-4", ["gpt-4"], "gpt-4"),
+            ("gpt-4 tell me a joke", ["gpt-4", "gpt-4o"], "gpt-4"),
+            ("gpt", ["gpt-4", "claude-3"], "gpt-4"),
+            ("4.1", ["gpt-4o", "gpt-4.1-mini"], "gpt-4.1-mini"),
+            ("xyz", ["gpt-4", "claude-3"], None),
+            ("gpt-4-turbo hello", ["gpt-4", "gpt-4-turbo"], "gpt-4-turbo"),
+        ],
+        ids=[
+            "exact_match",
+            "case_insensitive",
+            "input_starts_with_model",
+            "prefix_match",
+            "query_match_fallback",
+            "no_match",
+            "longest_model_wins",
+        ],
+    )
+    def test_find_matching_model(self, query, models, expected):
         from code_puppy.command_line.model_picker_completion import (
             _find_matching_model,
         )
 
-        assert _find_matching_model("gpt-4", ["gpt-4", "claude-3"]) == "gpt-4"
-
-    def test_case_insensitive(self):
-        from code_puppy.command_line.model_picker_completion import (
-            _find_matching_model,
-        )
-
-        assert _find_matching_model("GPT-4", ["gpt-4"]) == "gpt-4"
-
-    def test_input_starts_with_model(self):
-        from code_puppy.command_line.model_picker_completion import (
-            _find_matching_model,
-        )
-
-        assert (
-            _find_matching_model("gpt-4 tell me a joke", ["gpt-4", "gpt-4o"]) == "gpt-4"
-        )
-
-    def test_prefix_match(self):
-        from code_puppy.command_line.model_picker_completion import (
-            _find_matching_model,
-        )
-
-        assert _find_matching_model("gpt", ["gpt-4", "claude-3"]) == "gpt-4"
-
-    def test_query_match_fallback(self):
-        from code_puppy.command_line.model_picker_completion import (
-            _find_matching_model,
-        )
-
-        assert _find_matching_model("4.1", ["gpt-4o", "gpt-4.1-mini"]) == "gpt-4.1-mini"
-
-    def test_no_match(self):
-        from code_puppy.command_line.model_picker_completion import (
-            _find_matching_model,
-        )
-
-        assert _find_matching_model("xyz", ["gpt-4", "claude-3"]) is None
-
-    def test_longest_model_wins(self):
-        from code_puppy.command_line.model_picker_completion import (
-            _find_matching_model,
-        )
-
-        # "gpt-4-turbo hello" should match "gpt-4-turbo" not "gpt-4"
-        assert (
-            _find_matching_model("gpt-4-turbo hello", ["gpt-4", "gpt-4-turbo"])
-            == "gpt-4-turbo"
-        )
+        assert _find_matching_model(query, models) == expected
 
 
 class TestUpdateModelInInput:
@@ -227,7 +243,8 @@ class TestUpdateModelInInput:
 
         assert update_model_in_input("hello world") is None
 
-    def test_model_command_no_match(self):
+    @pytest.mark.parametrize("cmd", ["/model xyz", "/m xyz"], ids=["model", "m"])
+    def test_command_no_match(self, cmd):
         from code_puppy.command_line.model_picker_completion import (
             update_model_in_input,
         )
@@ -236,20 +253,14 @@ class TestUpdateModelInInput:
             "code_puppy.command_line.model_picker_completion._load_models_config",
             return_value={"gpt-4": {}},
         ):
-            assert update_model_in_input("/model xyz") is None
+            assert update_model_in_input(cmd) is None
 
-    def test_m_command_no_match(self):
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        with patch(
-            "code_puppy.command_line.model_picker_completion._load_models_config",
-            return_value={"gpt-4": {}},
-        ):
-            assert update_model_in_input("/m xyz") is None
-
-    def test_model_with_trailing_text(self):
+    @pytest.mark.parametrize(
+        "cmd",
+        ["/model gpt-4 tell me a joke", "/m gpt-4 tell me a joke"],
+        ids=["model", "m"],
+    )
+    def test_command_with_trailing_text(self, cmd):
         from code_puppy.command_line.model_picker_completion import (
             update_model_in_input,
         )
@@ -263,7 +274,7 @@ class TestUpdateModelInInput:
                 "code_puppy.command_line.model_picker_completion.set_model_and_reload_agent"
             ),
         ):
-            result = update_model_in_input("/model gpt-4 tell me a joke")
+            result = update_model_in_input(cmd)
             assert result is not None
             assert "tell me a joke" in result
 
@@ -595,8 +606,11 @@ class TestGetInputWithModelCompletion:
     async def _make_coro(value):
         return value
 
-    def test_model_idx_not_found(self):
-        """Cover the return None when idx == -1 for /model."""
+    @pytest.mark.parametrize(
+        "cmd", ["  /model  gpt-4", "  /m  gpt-4"], ids=["model", "m"]
+    )
+    def test_idx_not_found(self, cmd):
+        """Cover the return None when idx == -1 (extra spacing hides pattern)."""
         from code_puppy.command_line.model_picker_completion import (
             update_model_in_input,
         )
@@ -610,50 +624,5 @@ class TestGetInputWithModelCompletion:
                 "code_puppy.command_line.model_picker_completion.set_model_and_reload_agent"
             ),
         ):
-            # Create a case where text.find won't match the pattern
-            # This happens when original text has different spacing
-            result = update_model_in_input("  /model  gpt-4")
-            # The cmd extracted is "/model", rest is "gpt-4"
-            # Pattern is "/model gpt-4" but original has extra spaces
-            # Actually let me trace: content = "/model  gpt-4" (stripped)
-            # content.lower().startswith("/model ") -> True
-            # model_cmd = "/model", rest = " gpt-4".strip() = "gpt-4"
-            # pattern = "/model gpt-4", text = "  /model  gpt-4"
-            # text.find("/model gpt-4") -> -1 because of double space
+            result = update_model_in_input(cmd)
             assert result is None
-
-    def test_m_idx_not_found(self):
-        """Cover the return None when idx == -1 for /m."""
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        with (
-            patch(
-                "code_puppy.command_line.model_picker_completion._load_models_config",
-                return_value={"gpt-4": {}},
-            ),
-            patch(
-                "code_puppy.command_line.model_picker_completion.set_model_and_reload_agent"
-            ),
-        ):
-            result = update_model_in_input("  /m  gpt-4")
-            assert result is None
-
-    def test_m_with_trailing_text(self):
-        from code_puppy.command_line.model_picker_completion import (
-            update_model_in_input,
-        )
-
-        with (
-            patch(
-                "code_puppy.command_line.model_picker_completion._load_models_config",
-                return_value={"gpt-4": {}},
-            ),
-            patch(
-                "code_puppy.command_line.model_picker_completion.set_model_and_reload_agent"
-            ),
-        ):
-            result = update_model_in_input("/m gpt-4 tell me a joke")
-            assert result is not None
-            assert "tell me a joke" in result

@@ -5,6 +5,7 @@ import json
 import os
 import pkgutil
 import re
+import sys
 import threading
 import uuid
 from pathlib import Path
@@ -28,15 +29,23 @@ _SESSION_AGENTS_CACHE: dict[str, str] = {}
 _SESSION_FILE_LOADED: bool = False
 _SESSION_LOCK = threading.Lock()
 
-# Serializes _discover_agents(): it clears + repopulates the shared registry,
-# so concurrent passes must not interleave. RLock so plugin callbacks fired
-# during discovery may safely re-enter agent-manager APIs on the same thread.
+# Serializes _discover_agents() (clears + repopulates the registry) so passes
+# can't interleave. RLock so plugin callbacks may re-enter on the same thread.
 _DISCOVERY_LOCK = threading.RLock()
 
-# JSON-agent names we've already warned about being shadowed by builtin
-# Python agents. Discovery runs constantly; warn once per process, not once
-# per pass.
+# JSON-agent names already warned about being shadowed by builtin Python
+# agents — warn once per process, not per discovery pass.
 _WARNED_JSON_SHADOWED: set = set()
+
+_PLAYWRIGHT_AGENT_MODULES = {"agent_qa_kitten", "agent_web_retriever"}
+
+
+def _builtin_agent_modules_to_skip() -> set[str]:
+    """Return builtin agent modules unavailable on the current platform."""
+    modules = {"base_agent", "json_agent", "agent_manager"}
+    if sys.platform == "android":
+        modules.update(_PLAYWRIGHT_AGENT_MODULES)
+    return modules
 
 
 # Session persistence file path
@@ -254,12 +263,10 @@ def _discover_agents_locked(message_group_id: Optional[str] = None):
     import code_puppy.agents as agents_package
 
     # Iterate through all modules in the agents package
+    skip_modules = _builtin_agent_modules_to_skip()
+
     for _, modname, _ in pkgutil.iter_modules(agents_package.__path__):
-        if modname.startswith("_") or modname in [
-            "base_agent",
-            "json_agent",
-            "agent_manager",
-        ]:
+        if modname.startswith("_") or modname in skip_modules:
             continue
 
         try:
@@ -344,9 +351,8 @@ def _discover_agents_locked(message_group_id: Optional[str] = None):
         for agent_name, json_path in json_agents.items():
             existing = _AGENT_REGISTRY.get(agent_name)
             if isinstance(existing, type):
-                # Genuine collision with a builtin Python agent class.
-                # Warn once per process — discovery re-runs on every agent
-                # load, and repeating the same warning is pure noise.
+                # Genuine collision with a builtin Python agent class; warn
+                # once per process (discovery re-runs and would repeat it).
                 if agent_name not in _WARNED_JSON_SHADOWED:
                     _WARNED_JSON_SHADOWED.add(agent_name)
                     emit_warning(
@@ -720,11 +726,10 @@ def clone_agent(agent_name: str) -> Optional[str]:
                     agent_instance.display_name, clone_index
                 ),
                 "description": agent_instance.description,
-                # Persist the AUTHORED prompt only. ``get_full_system_prompt``
-                # would bake in runtime ``load_prompt`` fragments (live
-                # timestamp/CWD, kennel memory, ...) and the instance identity
-                # ID — all of which must be (re)injected fresh at runtime, not
-                # frozen into a static clone definition.
+                # Persist ONLY the authored prompt: get_full_system_prompt would
+                # bake in runtime load_prompt fragments (live timestamp/CWD,
+                # kennel memory) and the identity ID — all of which must be
+                # re-injected fresh at runtime, not frozen into a clone.
                 "system_prompt": agent_instance.get_system_prompt(),
                 "tools": _filter_available_tools(agent_instance.get_available_tools()),
             }

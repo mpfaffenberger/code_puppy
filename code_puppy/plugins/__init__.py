@@ -2,6 +2,7 @@ import importlib
 import importlib.util
 import logging
 import sys
+from importlib.metadata import entry_points
 import types
 from pathlib import Path
 
@@ -13,6 +14,8 @@ logger = logging.getLogger(__name__)
 # User plugins directory
 USER_PLUGINS_DIR = Path.home() / ".code_puppy" / "plugins"
 
+PLUGIN_ENTRY_POINT_GROUP = "code_puppy.plugins"
+
 # Track if plugins have already been loaded to prevent duplicate registration
 _PLUGINS_LOADED = False
 
@@ -20,26 +23,71 @@ _PLUGINS_LOADED = False
 # Populated once, then read by get_loaded_plugins().
 _loaded_plugin_names: dict[str, list[str]] = {"builtin": [], "user": [], "project": []}
 
-# Status of every discovered project plugin, keyed by name:
-# "loaded" | "untrusted" | "changed" | "disabled" | "error".
-# Read by /plugins UI via get_project_plugin_status().
+# Discovered project-plugin status by name (loaded|untrusted|changed|disabled|error); read by /plugins UI.
 _project_plugin_status: dict[str, str] = {}
 
 
-def _load_builtin_plugins(plugins_dir: Path) -> list[str]:
-    """Load built-in plugins from the package plugins directory.
+def _load_installed_plugins() -> list[str]:
+    """Load distribution-provided plugins advertised through entry points.
 
-    Returns list of successfully loaded plugin names.
+    Installed plugin bundles are the builtin tier: they load before user and
+    project plugins, but remain physically independent from the core package.
+    Entry points are sorted for deterministic startup and test behavior.
+    """
+    from code_puppy.config import get_safety_permission_level
+
+    loaded: list[str] = []
+    discovered = sorted(
+        entry_points(group=PLUGIN_ENTRY_POINT_GROUP), key=lambda item: item.name
+    )
+    for entry_point in discovered:
+        plugin_name = entry_point.name
+        if plugin_name == "shell_safety" and get_safety_permission_level() not in (
+            "none",
+            "low",
+        ):
+            logger.debug("Skipping shell_safety plugin due to safety permission level")
+            continue
+        try:
+            set_loading_context(plugin_name)
+            entry_point.load()
+            loaded.append(plugin_name)
+        except ImportError as exc:
+            logger.warning("Failed to import installed plugin %s: %s", plugin_name, exc)
+        except Exception as exc:
+            logger.error(
+                "Unexpected error loading installed plugin %s: %s",
+                plugin_name,
+                exc,
+                exc_info=True,
+            )
+        finally:
+            clear_loading_context()
+    return loaded
+
+
+def _load_builtin_plugins(
+    plugins_dir: Path, skip_names: set[str] | None = None
+) -> list[str]:
+    """Load legacy plugins still bundled in the core package.
+
+    ``skip_names`` prevents duplicate registration during the migration when
+    the same plugin is both installed through an entry point and still present
+    in an older core checkout.
     """
     # Import safety permission check for shell_safety plugin
     from code_puppy.config import get_safety_permission_level
 
     loaded = []
+    skip_names = set(skip_names or ())
 
     for item in plugins_dir.iterdir():
         if item.is_dir() and not item.name.startswith("_"):
             plugin_name = item.name
             callbacks_file = item / "register_callbacks.py"
+
+            if plugin_name in skip_names:
+                continue
 
             if callbacks_file.exists():
                 # Skip shell_safety plugin unless safety_permission_level is "low" or "none"
@@ -392,10 +440,8 @@ def _load_project_plugins(
             # Trust gate — fail closed BEFORE any import machinery runs.
             status = _trust.get_trust_status(project_root, plugin_name, item)
             if status != _trust.TRUSTED:
-                # Recorded here; surfaced to the human by plugin_list's
-                # startup hook (orange banner) once renderers are live.
-                # logger.info only — a logger.warning would splat onto
-                # stderr above the logo, duplicating the banner.
+                # Recorded here; surfaced by plugin_list's startup hook (orange banner).
+                # logger.info only — warning would duplicate the banner above the logo.
                 _project_plugin_status[plugin_name] = status
                 logger.info(
                     "Skipping project plugin '%s' (%s). "
@@ -440,18 +486,32 @@ def get_project_plugins_directory() -> Path | None:
         Path to the project's plugins directory if it exists, or None.
     """
     project_plugins_dir = Path.cwd() / ".code_puppy" / "plugins"
-    if project_plugins_dir.is_dir():
-        return project_plugins_dir
-    return None
+    if not project_plugins_dir.is_dir():
+        return None
+
+    try:
+        if project_plugins_dir.samefile(USER_PLUGINS_DIR):
+            logger.debug(
+                "Ignoring project plugins directory because it is the user plugins directory: %s",
+                project_plugins_dir,
+            )
+            return None
+    except OSError:
+        # A missing/unreadable user directory cannot be the discovered project
+        # directory, so retain normal project discovery.
+        pass
+
+    return project_plugins_dir
 
 
 def load_plugin_callbacks() -> dict[str, list[str]]:
     """Dynamically load register_callbacks.py from all plugin sources.
 
     Loads plugins from:
-    1. Built-in plugins in the code_puppy/plugins/ directory
-    2. User plugins in ~/.code_puppy/plugins/
-    3. Project plugins in <CWD>/.code_puppy/plugins/
+    1. Installed ``code_puppy.plugins`` entry points (builtin tier)
+    2. Legacy bundled directories, when present during migration
+    3. User plugins in ~/.code_puppy/plugins/
+    4. Project plugins in <CWD>/.code_puppy/plugins/
 
     Returns dict with 'builtin', 'user', and 'project' keys containing
     lists of loaded plugin names.
@@ -469,11 +529,9 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
 
     plugins_dir = Path(__file__).parent
 
-    # Pre-scan project plugin names so we can skip user plugins that the
-    # project tier will supersede (project wins, matching agents dedup).
-    # SECURITY: only TRUSTED project plugins participate in dedup — otherwise
-    # an untrusted repo could knock out user plugins (e.g. force_push_guard)
-    # just by squatting on their names.
+    # Pre-scan project plugin names so the project tier supersedes user plugins.
+    # SECURITY: only TRUSTED project plugins dedup — an untrusted repo could otherwise
+    # squat on user plugin names (e.g. force_push_guard).
     project_plugins_dir = get_project_plugins_directory()
     project_plugin_names: set[str] = set()
     if project_plugins_dir is not None:
@@ -484,7 +542,9 @@ def load_plugin_callbacks() -> dict[str, list[str]]:
             if _trust.is_plugin_trusted(project_root, name, project_plugins_dir / name)
         }
 
-    builtin_loaded = _load_builtin_plugins(plugins_dir)
+    installed_loaded = _load_installed_plugins()
+    legacy_loaded = _load_builtin_plugins(plugins_dir, skip_names=set(installed_loaded))
+    builtin_loaded = installed_loaded + legacy_loaded
     user_skip_names = set(builtin_loaded) | project_plugin_names
     user_loaded = _load_user_plugins(USER_PLUGINS_DIR, skip_names=user_skip_names)
 

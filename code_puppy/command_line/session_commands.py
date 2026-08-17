@@ -109,6 +109,7 @@ def handle_session_command(command: str) -> bool:
 )
 def handle_clear_command(command: str) -> bool:
     """Clear conversation history and rotate autosave session."""
+    from code_puppy.agents._builder import reset_model_fallback_warnings
     from code_puppy.agents.agent_manager import get_current_agent
     from code_puppy.command_line.clipboard import get_clipboard_manager
     from code_puppy.config import finalize_autosave_session
@@ -117,6 +118,9 @@ def handle_clear_command(command: str) -> bool:
     agent = get_current_agent()
     new_session_id = finalize_autosave_session()
     agent.clear_message_history()
+    # New conversation: a stale pinned-model warning deserves to resurface
+    # rather than staying silenced from the previous conversation forever.
+    reset_model_fallback_warnings()
     emit_warning(t("cmd.clear.cleared"))
     emit_system_message(t("cmd.clear.agent_notice"))
     emit_info(t("cmd.clear.session_rotated", id=new_session_id))
@@ -201,10 +205,9 @@ def handle_compact_command(command: str) -> bool:
             else 0
         )
 
-        # Whole-sentence keys per strategy so translators can reorder or
-        # inflect the verb naturally. Do NOT reintroduce a shared success
-        # template with a ``{strategy_info}`` fragment -- fragment gluing
-        # doesn't agree grammatically outside English.
+        # Whole-sentence keys per strategy so translators can reorder/inflect;
+        # do NOT reintroduce a shared template with a ``{strategy_info}``
+        # fragment — gluing doesn't agree grammatically outside English.
         success_key = (
             "cmd.compact.success.truncation"
             if compaction_strategy == "truncation"
@@ -394,13 +397,11 @@ def handle_dump_context_command(command: str) -> bool:
         return True
 
     try:
-        # The user-facing success line is preserved verbatim via
-        # ``success_message_key`` so /dump_context UX doesn't regress.
-        # The silent save-back paths (``-r``, periodic autosave) omit the
-        # key and stay quiet. NOTE: we pass a *catalog key*, not raw text --
-        # ``t()`` is the only safe interpolator for catalog strings
-        # (see docs/I18N.md); routing catalog text through ``str.format``
-        # is forbidden.
+        # Success line preserved verbatim via ``success_message_key``; the
+        # silent save-back paths (``-r``, periodic autosave) omit it. NOTE:
+        # pass a catalog KEY, not raw text — ``t()`` is the only safe
+        # interpolator (docs/I18N.md); ``str.format`` on catalog text is
+        # forbidden.
         persist_named_session(
             agent,
             session_name,
@@ -433,7 +434,7 @@ def handle_load_context_command(command: str) -> bool:
 
     session_name = tokens[1]
     sessions_dir = Path(AUTOSAVE_DIR)
-    session_path = sessions_dir / f"{session_name}.pkl"
+    session_path = sessions_dir / f"{session_name}.json"
 
     try:
         history = load_session(session_name, sessions_dir)
@@ -451,31 +452,17 @@ def handle_load_context_command(command: str) -> bool:
     agent.set_message_history(history)
     total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
 
-    # Rotate the singleton to a fresh ``auto_session_<TS>`` so subsequent
-    # autosaves do NOT overwrite the loaded snapshot. This asymmetry with
-    # ``-r NAME`` (which pins and saves back in place) is INTENTIONAL --
-    # the two verbs encode two different intents:
-    #
-    #   * ``/dump_context NAME`` + ``/load_context NAME`` are a snapshot
-    #     pair (think ``pg_dump`` / ``pg_restore``, save games, git
-    #     stash). The named file is a stable reference point; loading
-    #     it lets you inspect / branch from it without dirtying the
-    #     original.
-    #   * ``-r NAME`` / ``--resume NAME`` is a continuation verb (pick
-    #     up where you left off). That path pins and saves back.
-    #
-    # Origin: commit ``cc04629b`` (Mike Pfaffenberger, 2025-10-11)
-    # introduced this rotate-on-load behavior as a deliberate design
-    # choice; the commit message explicitly says "Automatically rotate
-    # session ID when loading saved context to prevent overwrites." The
-    # ``-r`` flag was added 4 months later (commit ``92bb0f90``) and
-    # the asymmetry was preserved -- on purpose. Do NOT "unify" these
-    # two paths in the name of symmetry; you'd be deleting the encoded
-    # distinction between snapshot-load and continuation-resume.
-    #
-    # If a user wants to continue working on the loaded snapshot in
-    # place, the explicit move is ``/load_context NAME`` followed by
-    # ``/dump_context NAME`` later -- or relaunch via ``-r NAME``.
+    # Rotate the singleton to a fresh ``auto_session_<TS>`` so autosaves don't
+    # overwrite the loaded snapshot — an INTENTIONAL asymmetry with ``-r NAME``
+    # (which pins and saves back in place). The verbs encode two intents:
+    #   * /dump + /load are a snapshot pair (pg_dump/restore, save games): the
+    #     named file stays a stable reference point you branch from.
+    #   * -r/--resume is a continuation verb: pins and saves back.
+    # Origin: commit ``cc04629b`` (2025-10-11) introduced rotate-on-load; ``-r``
+    # came 4 months later (``92bb0f90``) and the asymmetry was kept on purpose.
+    # Do NOT "unify" these paths — you'd delete the snapshot-vs-resume
+    # distinction. To keep working in place, /load_context then dump later, or
+    # relaunch with -r.
     new_autosave_id = rotate_session_name()
 
     emit_success(

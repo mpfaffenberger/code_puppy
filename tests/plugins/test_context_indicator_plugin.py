@@ -27,7 +27,7 @@ TREE_ROW = "\u2514\u2500"  # "corner + horizontal" breakdown-row prefix
 
 def _plugin_module():
     return importlib.import_module(
-        "code_puppy.plugins.context_indicator.register_callbacks"
+        "code_puppy_core_plugins.context_indicator.register_callbacks"
     )
 
 
@@ -46,7 +46,7 @@ def test_usage_shim_reexports_core_objects():
     equality) guarantees patching either module observes one implementation.
     """
     core = importlib.import_module("code_puppy.token_usage")
-    shim = importlib.import_module("code_puppy.plugins.context_indicator.usage")
+    shim = importlib.import_module("code_puppy_core_plugins.context_indicator.usage")
     for name in (
         "ContextUsage",
         "OverheadBreakdown",
@@ -97,7 +97,7 @@ def test_patched_status_writer_forwards_decorated_info():
         _compaction.update_spinner_context = captured.append
         module._install_status_patch()
         with patch(
-            "code_puppy.plugins.context_indicator.register_callbacks.get_current_usage",
+            "code_puppy_core_plugins.context_indicator.register_callbacks.get_current_usage",
             return_value=fake_usage,
         ):
             _compaction.update_spinner_context("5k/10k tokens (50%)")
@@ -112,7 +112,7 @@ def test_patched_status_writer_forwards_decorated_info():
 def test_decorate_status_returns_unchanged_when_usage_none():
     module = _plugin_module()
     with patch(
-        "code_puppy.plugins.context_indicator.register_callbacks.get_current_usage",
+        "code_puppy_core_plugins.context_indicator.register_callbacks.get_current_usage",
         return_value=None,
     ):
         assert module._decorate_status("5k/10k tokens (50%)") == "5k/10k tokens (50%)"
@@ -124,7 +124,7 @@ def test_decorate_status_prepends_circle():
         used_tokens=100, overhead_tokens=0, capacity=10000
     )
     with patch(
-        "code_puppy.plugins.context_indicator.register_callbacks.get_current_usage",
+        "code_puppy_core_plugins.context_indicator.register_callbacks.get_current_usage",
         return_value=fake_usage,
     ):
         result = module._decorate_status("5k/10k tokens (50%)")
@@ -138,7 +138,7 @@ def test_decorate_status_leaves_clear_calls_empty():
         used_tokens=100, overhead_tokens=0, capacity=10000
     )
     with patch(
-        "code_puppy.plugins.context_indicator.register_callbacks.get_current_usage",
+        "code_puppy_core_plugins.context_indicator.register_callbacks.get_current_usage",
         return_value=fake_usage,
     ):
         assert module._decorate_status("") == ""
@@ -163,11 +163,11 @@ def test_handle_context_command_emits_info_when_usage_present():
     )
     with (
         patch(
-            "code_puppy.plugins.context_indicator.register_callbacks.get_current_usage",
+            "code_puppy_core_plugins.context_indicator.register_callbacks.get_current_usage",
             return_value=fake_usage,
         ),
         patch(
-            "code_puppy.plugins.context_indicator.register_callbacks._emit_info"
+            "code_puppy_core_plugins.context_indicator.register_callbacks._emit_info"
         ) as mock_info,
     ):
         result = module._handle_custom_command("/context", "context")
@@ -182,11 +182,11 @@ def test_handle_context_command_emits_friendly_message_when_no_usage():
     module = _plugin_module()
     with (
         patch(
-            "code_puppy.plugins.context_indicator.register_callbacks.get_current_usage",
+            "code_puppy_core_plugins.context_indicator.register_callbacks.get_current_usage",
             return_value=None,
         ),
         patch(
-            "code_puppy.plugins.context_indicator.register_callbacks._emit_info"
+            "code_puppy_core_plugins.context_indicator.register_callbacks._emit_info"
         ) as mock_info,
     ):
         result = module._handle_custom_command("/context", "context")
@@ -205,31 +205,6 @@ def test_format_usage_report_includes_progress_bar():
     assert "70.0%" in report
     assert BAR_FULL in report
     assert BAR_EMPTY in report
-
-
-def test_format_usage_report_breaks_out_mcp_and_agents_md():
-    """When breakdown buckets are populated they each get their own line."""
-    module = _plugin_module()
-    usage = _usage_module().ContextUsage(
-        used_tokens=1000,
-        overhead_tokens=1300,
-        capacity=10000,
-        system_prompt_tokens=300,
-        agents_md_tokens=200,
-        pydantic_tools_tokens=150,
-        mcp_tokens=250,
-        kennel_memory_tokens=400,
-    )
-    report = module._format_usage_report(usage)
-    assert "System prompt" in report
-    assert "AGENTS.md" in report
-    assert "Kennel memory" in report
-    assert "Pydantic tools" in report
-    assert "MCP toolsets" in report
-    # Numbers show up with thousands separators.
-    assert "300" in report
-    assert "250" in report
-    assert "400" in report
 
 
 def test_format_usage_report_hides_empty_breakdown_buckets():

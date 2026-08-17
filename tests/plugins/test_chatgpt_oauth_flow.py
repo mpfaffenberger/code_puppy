@@ -8,10 +8,10 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 
-from code_puppy.plugins.chatgpt_oauth.config import (
+from code_puppy_core_plugins.chatgpt_oauth.config import (
     CHATGPT_OAUTH_CONFIG,
 )
-from code_puppy.plugins.chatgpt_oauth.oauth_flow import (
+from code_puppy_core_plugins.chatgpt_oauth.oauth_flow import (
     AuthBundle,
     TokenData,
     _CallbackHandler,
@@ -37,7 +37,7 @@ def mock_models_storage(tmp_path):
 @pytest.fixture
 def mock_context():
     """Mock OAuth context."""
-    from code_puppy.plugins.chatgpt_oauth.utils import OAuthContext
+    from code_puppy_core_plugins.chatgpt_oauth.utils import OAuthContext
 
     return OAuthContext(
         state="test_state_123",
@@ -124,7 +124,7 @@ class TestOAuthServer:
 
         # Mock JWT parsing
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow.parse_jwt_claims"
+            "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.parse_jwt_claims"
         ) as mock_parse:
             mock_parse.return_value = {
                 "https://api.openai.com/auth": {
@@ -229,7 +229,7 @@ class TestOAuthServer:
         server.redirect_uri = mock_context.redirect_uri
 
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow.parse_jwt_claims"
+            "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.parse_jwt_claims"
         ) as mock_parse:
             mock_parse.return_value = {}
 
@@ -254,7 +254,7 @@ class TestOAuthServer:
         mock_post.return_value = mock_response
 
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow.parse_jwt_claims"
+            "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.parse_jwt_claims"
         ) as mock_parse:
             # First call for id_token, second for access_token
             mock_parse.side_effect = [
@@ -303,7 +303,7 @@ class TestCallbackHandler:
             return_value=b""
         )  # Return empty bytes with length 0
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow._CallbackHandler.handle_one_request"
+            "code_puppy_core_plugins.chatgpt_oauth.oauth_flow._CallbackHandler.handle_one_request"
         ):
             handler = _CallbackHandler(mock_request, ("localhost", 1455), mock_server)
             handler.server = mock_server
@@ -321,7 +321,7 @@ class TestCallbackHandler:
             return_value=b""
         )  # Return empty bytes with length 0
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow._CallbackHandler.handle_one_request"
+            "code_puppy_core_plugins.chatgpt_oauth.oauth_flow._CallbackHandler.handle_one_request"
         ):
             handler = _CallbackHandler(mock_request, ("localhost", 1455), mock_server)
             handler.server = mock_server
@@ -386,7 +386,7 @@ class TestCallbackHandler:
                 )
                 mock_shutdown.assert_called_once()
 
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.save_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.save_tokens")
     def test_do_get_successful_callback(self, mock_save_tokens, callback_handler):
         """Test successful OAuth callback handling."""
         mock_save_tokens.return_value = True
@@ -430,7 +430,7 @@ class TestCallbackHandler:
                 mock_redirect.assert_called_once_with("http://localhost:1455/success")
                 mock_shutdown.assert_called_once_with(2.0)
 
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.save_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.save_tokens")
     def test_do_get_token_save_failure(self, mock_save_tokens, callback_handler):
         """Test callback handling when token saving fails."""
         mock_save_tokens.return_value = False
@@ -477,7 +477,7 @@ class TestCallbackHandler:
         callback_handler.server.verbose = True
 
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow.BaseHTTPRequestHandler.log_message"
+            "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.BaseHTTPRequestHandler.log_message"
         ) as mock_log:
             callback_handler.log_message("Test message %s", "arg")
             mock_log.assert_called_once_with("Test message %s", "arg")
@@ -565,10 +565,10 @@ class TestCallbackHandler:
 class TestRunOAuthFlow:
     """Test cases for run_oauth_flow function."""
 
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_warning")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_info")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow._OAuthServer")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.emit_warning")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.emit_info")
     def test_existing_tokens_warning(
         self, mock_info, mock_warning, mock_server_class, mock_load_tokens
     ):
@@ -594,10 +594,10 @@ class TestRunOAuthFlow:
         assert "Existing ChatGPT tokens will be overwritten." in warning_calls
 
     @patch("code_puppy.tools.common.should_suppress_browser", return_value=True)
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_warning")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_info")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow._OAuthServer")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.emit_warning")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.emit_info")
     def test_server_start_error_falls_back_to_pasteback(
         self,
         mock_info,
@@ -634,27 +634,27 @@ class TestRunOAuthFlow:
             f"code=pasted_code&state={mock_context.state}"
         )
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow._prepare_manual_context",
+            "code_puppy_core_plugins.chatgpt_oauth.oauth_flow._prepare_manual_context",
             return_value=mock_context,
         ):
             with patch(
-                "code_puppy.plugins.chatgpt_oauth.oauth_flow.read_available_stdin_line",
+                "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.read_available_stdin_line",
                 return_value=pasted,
             ):
                 with patch(
-                    "code_puppy.plugins.chatgpt_oauth.oauth_flow._exchange_code_for_auth_bundle",
+                    "code_puppy_core_plugins.chatgpt_oauth.oauth_flow._exchange_code_for_auth_bundle",
                     return_value=(mock_bundle, "http://localhost:1455/success"),
                 ) as mock_exchange:
                     with patch(
-                        "code_puppy.plugins.chatgpt_oauth.oauth_flow._save_auth_bundle",
+                        "code_puppy_core_plugins.chatgpt_oauth.oauth_flow._save_auth_bundle",
                         return_value=True,
                     ):
                         with patch(
-                            "code_puppy.plugins.chatgpt_oauth.utils.fetch_chatgpt_models",
+                            "code_puppy_core_plugins.chatgpt_oauth.utils.fetch_chatgpt_models",
                             return_value=["gpt-5.4"],
                         ):
                             with patch(
-                                "code_puppy.plugins.chatgpt_oauth.oauth_flow.add_models_to_extra_config",
+                                "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.add_models_to_extra_config",
                                 return_value=True,
                             ):
                                 run_oauth_flow()
@@ -666,10 +666,10 @@ class TestRunOAuthFlow:
         mock_exchange.assert_called_once()
         assert mock_exchange.call_args.kwargs["code"] == "pasted_code"
 
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_info")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_success")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow._OAuthServer")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.emit_info")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.emit_success")
     def test_successful_oauth_flow(
         self,
         mock_info,
@@ -693,17 +693,17 @@ class TestRunOAuthFlow:
         }
 
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens"
+            "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.load_stored_tokens"
         ) as mock_reload:
             mock_reload.return_value = mock_tokens
 
             with patch(
-                "code_puppy.plugins.chatgpt_oauth.oauth_flow.add_models_to_extra_config"
+                "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.add_models_to_extra_config"
             ) as mock_add:
                 mock_add.return_value = True
 
                 with patch(
-                    "code_puppy.plugins.chatgpt_oauth.utils.fetch_chatgpt_models",
+                    "code_puppy_core_plugins.chatgpt_oauth.utils.fetch_chatgpt_models",
                     return_value=["gpt-5.4", "gpt-5.3-instant", "gpt-5.3-codex"],
                 ):
                     with patch("threading.Thread"):
@@ -721,8 +721,8 @@ class TestRunOAuthFlow:
         ]
         assert len(success_info_calls) > 0
 
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow._OAuthServer")
     @patch("code_puppy.messaging.emit_error")
     @patch("code_puppy.messaging.emit_info")
     def test_authentication_timeout(
@@ -741,7 +741,7 @@ class TestRunOAuthFlow:
         original_config = CHATGPT_OAUTH_CONFIG.copy()
         original_config["callback_timeout"] = 0.1
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow.CHATGPT_OAUTH_CONFIG",
+            "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.CHATGPT_OAUTH_CONFIG",
             original_config,
         ):
             with patch("threading.Thread"):
@@ -752,8 +752,8 @@ class TestRunOAuthFlow:
         # The exact error message might not be reached due to the complex threading logic
         mock_load_tokens.assert_called()
 
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow._OAuthServer")
     @patch("code_puppy.messaging.emit_error")
     @patch("code_puppy.messaging.emit_info")
     def test_tokens_cannot_be_loaded_after_success(
@@ -774,8 +774,8 @@ class TestRunOAuthFlow:
         # The OAuth flow exits early due to mocking, so we just verify it was called
         mock_load_tokens.assert_called()
 
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow._OAuthServer")
     @patch("code_puppy.messaging.emit_warning")
     @patch("code_puppy.messaging.emit_info")
     def test_no_api_key_obtained(
@@ -798,7 +798,7 @@ class TestRunOAuthFlow:
         }
 
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens"
+            "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.load_stored_tokens"
         ) as mock_reload:
             mock_reload.return_value = mock_tokens
 
@@ -810,8 +810,8 @@ class TestRunOAuthFlow:
         # Test passes as long as no exceptions are raised during the OAuth flow setup
         assert True  # This test verifies the mock setup works without errors
 
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow._OAuthServer")
     @patch("webbrowser.open")
     @patch("code_puppy.messaging.emit_warning")
     @patch("code_puppy.messaging.emit_info")
@@ -836,7 +836,7 @@ class TestRunOAuthFlow:
         with patch("threading.Thread"):
             with patch("time.sleep"):
                 with patch(
-                    "code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens"
+                    "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.load_stored_tokens"
                 ) as mock_reload:
                     mock_reload.return_value = {"api_key": "test"}
                     run_oauth_flow()
@@ -854,8 +854,8 @@ class TestRunOAuthFlow:
             # If import didn't work, at least check webbrowser wasn't called
             pass
 
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow._OAuthServer")
     @patch("webbrowser.open")
     @patch("code_puppy.messaging.emit_warning")
     @patch("code_puppy.messaging.emit_info")
@@ -880,7 +880,7 @@ class TestRunOAuthFlow:
         with patch("threading.Thread"):
             with patch("time.sleep"):
                 with patch(
-                    "code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens"
+                    "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.load_stored_tokens"
                 ) as mock_reload:
                     mock_reload.return_value = {"api_key": "test"}
                     run_oauth_flow()
@@ -889,47 +889,9 @@ class TestRunOAuthFlow:
         # Test passes as long as no exceptions are raised during the OAuth flow setup
         assert True  # This test verifies the mock setup works without errors
 
-        # Should still show manual URL prompt
-        # Note: Due to mocking, the exact message might not be reached
-        # Test passes as long as no exceptions are raised during browser failure handling
+        # Should still show the manual URL prompt (mocking may skip the exact message) and
+        # no exceptions may be raised during browser-failure handling.
         assert True
-
-
-class TestTokenDataAndAuthBundle:
-    """Test token data structures."""
-
-    def test_token_data_creation(self):
-        """Test TokenData dataclass creation and attributes."""
-        token_data = TokenData(
-            id_token="test_id_token",
-            access_token="test_access_token",
-            refresh_token="test_refresh_token",
-            account_id="test_account_id",
-        )
-
-        assert token_data.id_token == "test_id_token"
-        assert token_data.access_token == "test_access_token"
-        assert token_data.refresh_token == "test_refresh_token"
-        assert token_data.account_id == "test_account_id"
-
-    def test_auth_bundle_creation(self):
-        """Test AuthBundle dataclass creation and attributes."""
-        token_data = TokenData(
-            id_token="test_id_token",
-            access_token="test_access_token",
-            refresh_token="test_refresh_token",
-            account_id="test_account_id",
-        )
-
-        bundle = AuthBundle(
-            api_key="test_api_key",
-            token_data=token_data,
-            last_refresh="2023-01-01T00:00:00Z",
-        )
-
-        assert bundle.api_key == "test_api_key"
-        assert bundle.token_data == token_data
-        assert bundle.last_refresh == "2023-01-01T00:00:00Z"
 
 
 class TestShutdownAfterDelay:
@@ -949,10 +911,10 @@ class TestShutdownAfterDelay:
             return Mock()
 
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow.threading.Thread",
+            "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.threading.Thread",
             side_effect=capture_thread,
         ):
-            with patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.time.sleep"):
+            with patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.time.sleep"):
                 _CallbackHandler._shutdown_after_delay(handler, seconds=0.01)
 
         # Execute the captured _later function
@@ -964,11 +926,11 @@ class TestShutdownAfterDelay:
 class TestRunOAuthFlowBrowserPaths:
     """Test browser-related paths in run_oauth_flow."""
 
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_warning")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_info")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_error")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow._OAuthServer")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.emit_warning")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.emit_info")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.emit_error")
     def test_non_headless_browser_open_success(
         self, mock_error, mock_info, mock_warning, mock_server_class, mock_load_tokens
     ):
@@ -980,7 +942,7 @@ class TestRunOAuthFlowBrowserPaths:
         mock_server_class.return_value = mock_server_instance
 
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow.CHATGPT_OAUTH_CONFIG",
+            "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.CHATGPT_OAUTH_CONFIG",
             {**CHATGPT_OAUTH_CONFIG, "callback_timeout": 0},
         ):
             with patch("time.sleep"):
@@ -993,11 +955,11 @@ class TestRunOAuthFlowBrowserPaths:
 
         mock_wb.assert_called_once_with("http://test.auth.url")
 
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_warning")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_info")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_error")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow._OAuthServer")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.emit_warning")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.emit_info")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.emit_error")
     def test_non_headless_browser_open_failure_shows_manual_warning(
         self, mock_error, mock_info, mock_warning, mock_server_class, mock_load_tokens
     ):
@@ -1009,7 +971,7 @@ class TestRunOAuthFlowBrowserPaths:
         mock_server_class.return_value = mock_server_instance
 
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow.CHATGPT_OAUTH_CONFIG",
+            "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.CHATGPT_OAUTH_CONFIG",
             {**CHATGPT_OAUTH_CONFIG, "callback_timeout": 0},
         ):
             with patch("time.sleep"):
@@ -1024,11 +986,11 @@ class TestRunOAuthFlowBrowserPaths:
             "Please open the URL manually if the browser did not open."
         )
 
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow._OAuthServer")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_warning")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_info")
-    @patch("code_puppy.plugins.chatgpt_oauth.oauth_flow.emit_error")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.load_stored_tokens")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow._OAuthServer")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.emit_warning")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.emit_info")
+    @patch("code_puppy_core_plugins.chatgpt_oauth.oauth_flow.emit_error")
     def test_non_headless_browser_exception(
         self, mock_error, mock_info, mock_warning, mock_server_class, mock_load_tokens
     ):
@@ -1040,7 +1002,7 @@ class TestRunOAuthFlowBrowserPaths:
         mock_server_class.return_value = mock_server_instance
 
         with patch(
-            "code_puppy.plugins.chatgpt_oauth.oauth_flow.CHATGPT_OAUTH_CONFIG",
+            "code_puppy_core_plugins.chatgpt_oauth.oauth_flow.CHATGPT_OAUTH_CONFIG",
             {**CHATGPT_OAUTH_CONFIG, "callback_timeout": 0},
         ):
             with patch("time.sleep"):

@@ -53,14 +53,12 @@ import keyring
 
 from code_puppy.config import CONFIG_DIR
 
-# Namespace under which every secret is stored in the OS keyring. Downstream
-# distributions call ``configure_service_name`` to use a distinct name so
-# secrets never bleed across builds.
+# Keyring namespace for every secret. Downstream distributions override via
+# ``configure_service_name`` so secrets never bleed across builds.
 _service_name = "code-puppy"
 
-# The default service namespace.  A legacy flat fallback file (pre per-service
-# scoping) is migrated under this name so it stays readable on the default
-# build without leaking into another distribution's namespace.
+# Default service namespace; legacy flat fallback migrates under it so the
+# default build stays readable without leaking across distributions.
 _DEFAULT_SERVICE = "code-puppy"
 
 # Permission-hardened JSON fallback used only when the keyring backend is
@@ -119,15 +117,12 @@ def configure_service_name(name: str) -> None:
     _service_name = name
 
 
-# Maximum characters per keyring entry.  Windows Credential Manager encodes
-# credential blobs as UTF-16-LE (2 bytes per char) and caps them at ~2 560
-# bytes, giving a ~1 280-char ceiling.  We stay conservatively below that so
-# typical ASCII padding in the JWT header/signature doesn't push us over.
+# Max chars per keyring entry. Windows CM encodes UTF-16-LE (2B/char, ~2560B
+# cap → ~1280 chars); stay below it so JWT ASCII padding doesn't push us over.
 _CHUNK_SIZE = 1200
 
-# Suffix tokens used to build chunk-related keyring entry names.  The ``cp``
-# prefix scopes them to Code Puppy and makes accidental collisions with real
-# secret names essentially impossible.
+# Tokens for chunked keyring entry names; ``cp`` prefix makes collisions with
+# real secret names essentially impossible.
 _CHUNK_NS = ":cp:"
 _COUNT_SUFFIX = ":cp:n"
 
@@ -417,12 +412,9 @@ def _keyring_delete(name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-# Cross-process advisory lock guarding the fallback read-modify-write. Atomic
-# os.replace() prevents truncated reads but not *lost updates*: two processes
-# (e.g. the main app and an MCP subprocess) can each read the document, add a
-# different key, and the second writer clobbers the first. The lock serializes
-# the whole read->mutate->write cycle. The chunked keyring path activates on
-# Windows, so this lock is cross-platform (fcntl on POSIX, msvcrt on Windows).
+# Cross-process lock for fallback read-modify-write: os.replace() prevents
+# truncated reads but not lost updates (two writers clobber each other). Lock
+# serializes the cycle; cross-platform (fcntl POSIX / msvcrt Windows).
 _FALLBACK_LOCK_FILE = os.path.join(CONFIG_DIR, ".secrets.lock")
 _fallback_thread_lock = threading.RLock()
 
@@ -726,9 +718,8 @@ def get_secret(name: str) -> str | None:
     if value:
         return value
 
-    # Always check the fallback file: a prior set_secret may have ended up
-    # there after both keyring paths failed.  Only emit the headless warning
-    # when the keyring backend itself is unavailable.
+    # Check the fallback too: a prior set_secret may have landed there after
+    # keyring failed. Warn only when the backend itself is unavailable.
     if not keyring_available():
         _warn_fallback_active()
     stored = _read_fallback().get(name)
@@ -755,28 +746,19 @@ def set_secret(name: str, value: str) -> None:
     _validate_value(value)
     _ensure_backend()
 
-    # F12: Only trust the keyring when a usable backend is present. A backend
-    # with priority <= 0 (e.g. keyring.backends.null.Keyring) is treated as
-    # unavailable -- crucially, its set_password is a *silent no-op* that
-    # returns without raising, so an unconditional _keyring_set() would report
-    # success while the credential is discarded (and, worse, then scrub the
-    # fallback). Gating on keyring_available() routes straight to the hardened
-    # fallback instead of losing the secret. The fail backend (priority 0,
-    # raises) already fell through correctly; this closes the null-backend
-    # silent-loss hole and honors the availability contract for both.
+    # F12: trust the keyring only when usable — null backend's set_password is a
+    # silent no-op, so unguarded calls would report success while discarding the
+    # secret (then scrub the fallback). Gate on keyring_available() instead.
     if keyring_available():
         if _keyring_set(name, value):
-            # F6: scrub any stale plaintext copy so a rotated secret can't
-            # linger on disk and be resurrected later if the keyring entry
-            # vanishes.
+            # F6: scrub stale plaintext so a rotated secret can't be resurrected
+            # from the fallback if the keyring entry vanishes.
             _fallback_scrub(name)
             return
 
     if keyring_available():
-        # Both direct and chunked writes failed despite a healthy backend.
-        # Unexpected (transient error, backend crash, prompt dismissed).
-        # Warn so it's diagnosable, then persist to the file so the secret
-        # is not lost.
+        # Healthy backend but both writes failed (transient/crash/dismissed);
+        # warn and persist to file so the secret isn't lost.
         _notify(
             f"Keyring write failed for {name!r} despite a healthy backend "
             "(transient error or backend crash). Storing in the secure file "

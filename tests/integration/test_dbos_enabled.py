@@ -12,9 +12,8 @@ def test_dbos_initializes_and_creates_db(spawned_cli):
     home = Path(spawned_cli.temp_home)
     db_path = home / ".code_puppy" / "dbos_store.sqlite"
 
-    # DBOS init runs via the dbos_durable_exec plugin's startup callback. On
-    # slower CI runners, sqlite migrations can lag behind the interactive prompt
-    # becoming ready. Poll for up to 10s before giving up.
+    # DBOS init runs via the plugin's startup callback; on slow CI the sqlite
+    # migrations can lag behind the prompt — poll up to 10s before giving up.
     deadline = time.time() + 10.0
     while time.time() < deadline:
         if db_path.exists():

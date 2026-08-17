@@ -6,6 +6,7 @@ Targeted tests to reach 100% on specific missed lines.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from importlib.metadata import PackageNotFoundError
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -170,8 +171,10 @@ class TestDisplaySubagentSkip:
 
 class TestInitVersionFallback:
     def test_version_fallback_on_exception(self):
-        """Cover lines 8-10: exception branch."""
-        with patch("importlib.metadata.version", side_effect=Exception("nope")):
+        """The Code Puppy version keeps its development fallback on lookup errors."""
+        with patch(
+            "importlib.metadata.version", side_effect=Exception("nope")
+        ) as mock_version:
             # Re-exec the module code
             import importlib
 
@@ -179,16 +182,83 @@ class TestInitVersionFallback:
 
             importlib.reload(code_puppy)
             assert code_puppy.__version__ == "0.0.0-dev"
+            mock_version.assert_called_once_with("code-puppy")
 
     def test_version_fallback_on_empty(self):
-        """Cover the empty-string branch."""
-        with patch("importlib.metadata.version", return_value=""):
+        """The Code Puppy version keeps its development fallback when empty."""
+        with patch("importlib.metadata.version", return_value="") as mock_version:
             import importlib
 
             import code_puppy
 
             importlib.reload(code_puppy)
             assert code_puppy.__version__ == "0.0.0-dev"
+            mock_version.assert_called_once_with("code-puppy")
+
+    @pytest.mark.parametrize("metadata_version", ["0.0.2", "  1.2.3rc1+build.5  "])
+    def test_core_plugins_version_uses_installed_distribution_metadata(
+        self, metadata_version
+    ):
+        import code_puppy
+
+        with patch(
+            "importlib.metadata.version", return_value=metadata_version
+        ) as mock_version:
+            assert code_puppy.get_core_plugins_version() == metadata_version.strip()
+
+        mock_version.assert_called_once_with("code-puppy-core-plugins")
+
+    @pytest.mark.parametrize(
+        "metadata_version",
+        [
+            "",
+            "   ",
+            None,
+            object(),
+            "not-a-version",
+            "1.2.3\nInjected second line",
+            "\x1b[2J",
+        ],
+    )
+    def test_core_plugins_version_rejects_empty_or_malformed_metadata(
+        self, metadata_version
+    ):
+        import code_puppy
+
+        with patch("importlib.metadata.version", return_value=metadata_version):
+            assert code_puppy.get_core_plugins_version() is None
+
+    def test_core_plugins_version_handles_normalization_failure(self):
+        import code_puppy
+
+        class BrokenVersion(str):
+            def strip(self):
+                raise RuntimeError("broken metadata")
+
+        with patch("importlib.metadata.version", return_value=BrokenVersion("1.2.3")):
+            assert code_puppy.get_core_plugins_version() is None
+
+    def test_core_plugins_version_handles_missing_distribution(self):
+        import code_puppy
+
+        with patch(
+            "importlib.metadata.version",
+            side_effect=PackageNotFoundError("code-puppy-core-plugins"),
+        ):
+            assert code_puppy.get_core_plugins_version() is None
+
+    @pytest.mark.parametrize("metadata_version", [" 1.2.3 ", object()])
+    def test_code_puppy_version_preserves_truthy_metadata(self, metadata_version):
+        import importlib
+
+        import code_puppy
+
+        try:
+            with patch("importlib.metadata.version", return_value=metadata_version):
+                importlib.reload(code_puppy)
+                assert code_puppy.__version__ is metadata_version
+        finally:
+            importlib.reload(code_puppy)
 
 
 # =============================================================================

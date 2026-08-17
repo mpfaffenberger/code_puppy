@@ -2,8 +2,11 @@
 
 from prompt_toolkit.styles import Style
 
-from code_puppy.plugins.theme.bundled_palettes import CATPPUCCIN_MOCHA, SOLARIZED_LIGHT
-from code_puppy.plugins.theme.prompt_toolkit_theme import (
+from code_puppy_core_plugins.theme.bundled_palettes import (
+    CATPPUCCIN_MOCHA,
+    SOLARIZED_LIGHT,
+)
+from code_puppy_core_plugins.theme.prompt_toolkit_theme import (
     _contrast_ratio,
     get_style_rules,
     merge_with_active_style,
@@ -43,7 +46,7 @@ _COMPLETION_ADAPTER_ROLES = {
 
 def test_active_adapter_exposes_shared_semantic_roles(monkeypatch):
     monkeypatch.setattr(
-        "code_puppy.plugins.theme.prompt_toolkit_theme._active_palette",
+        "code_puppy_core_plugins.theme.prompt_toolkit_theme._active_palette",
         lambda: SOLARIZED_LIGHT,
     )
 
@@ -56,7 +59,7 @@ def test_active_adapter_exposes_shared_semantic_roles(monkeypatch):
 
 def test_solarized_light_muted_text_does_not_use_its_background(monkeypatch):
     monkeypatch.setattr(
-        "code_puppy.plugins.theme.prompt_toolkit_theme._active_palette",
+        "code_puppy_core_plugins.theme.prompt_toolkit_theme._active_palette",
         lambda: SOLARIZED_LIGHT,
     )
 
@@ -68,7 +71,7 @@ def test_solarized_light_muted_text_does_not_use_its_background(monkeypatch):
 
 def test_dark_theme_muted_text_meets_wcag_contrast(monkeypatch):
     monkeypatch.setattr(
-        "code_puppy.plugins.theme.prompt_toolkit_theme._active_palette",
+        "code_puppy_core_plugins.theme.prompt_toolkit_theme._active_palette",
         lambda: CATPPUCCIN_MOCHA,
     )
 
@@ -80,7 +83,7 @@ def test_dark_theme_muted_text_meets_wcag_contrast(monkeypatch):
 
 def test_menu_style_merges_over_semantic_base(monkeypatch):
     monkeypatch.setattr(
-        "code_puppy.plugins.theme.prompt_toolkit_theme._active_palette",
+        "code_puppy_core_plugins.theme.prompt_toolkit_theme._active_palette",
         lambda: SOLARIZED_LIGHT,
     )
     local_style = Style.from_dict(

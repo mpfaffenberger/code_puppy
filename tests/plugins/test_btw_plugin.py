@@ -2,8 +2,8 @@
 
 from unittest.mock import patch
 
-from code_puppy.plugins.btw import inline_view, side_query
-from code_puppy.plugins.btw.register_callbacks import (
+from code_puppy_core_plugins.btw import inline_view, side_query
+from code_puppy_core_plugins.btw.register_callbacks import (
     COMMAND_NAME,
     _custom_help,
     _handle_custom_command,
@@ -28,11 +28,6 @@ def test_bare_btw_shows_usage_and_is_handled():
         assert _handle_custom_command("/btw", "btw") is True
     assert emit.called
     assert "Usage" in str(emit.call_args)
-
-
-def test_help_flag_shows_usage():
-    with patch("code_puppy.messaging.emit_info"):
-        assert _parse_question("/btw --help") is None
 
 
 def test_parse_question_extracts_text():

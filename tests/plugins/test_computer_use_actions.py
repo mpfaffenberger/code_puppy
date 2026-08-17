@@ -4,8 +4,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from code_puppy.plugins.computer_use.backend import MacOSBackend
-from code_puppy.plugins.computer_use.backend_types import ComputerUseError
+from code_puppy_core_plugins.computer_use.backend import MacOSBackend
+from code_puppy_core_plugins.computer_use.backend_types import ComputerUseError
 
 
 class ActionAPI:

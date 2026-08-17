@@ -20,7 +20,7 @@ import time
 from unittest.mock import patch
 
 
-from code_puppy.plugins.herdr.reporter import (
+from code_puppy_core_plugins.herdr.reporter import (
     AWAITING,
     BLOCKED,
     IDLE,
@@ -190,7 +190,7 @@ def test_reporter_reports_durable_session_once_on_prompt():
     r = HerdrReporter(fake)
     ref = ("auto_session_x", "/tmp/autosaves/auto_session_x.pkl")
     with patch(
-        "code_puppy.plugins.herdr.reporter.sources.current_session_ref",
+        "code_puppy_core_plugins.herdr.reporter.sources.current_session_ref",
         return_value=ref,
     ):
         r.on_user_prompt("group-uuid-ignored")
@@ -208,7 +208,7 @@ def test_reporter_reports_session_again_when_ref_changes():
     ref1 = ("auto_session_a", "/tmp/a.pkl")
     ref2 = ("auto_session_b", "/tmp/b.pkl")
     with patch(
-        "code_puppy.plugins.herdr.reporter.sources.current_session_ref",
+        "code_puppy_core_plugins.herdr.reporter.sources.current_session_ref",
         side_effect=[ref1, ref2],
     ):
         r.on_user_prompt()
@@ -221,7 +221,7 @@ def test_reporter_ignores_per_run_group_id_for_session():
     fake = FakeClient()
     r = HerdrReporter(fake)
     with patch(
-        "code_puppy.plugins.herdr.reporter.sources.current_session_ref",
+        "code_puppy_core_plugins.herdr.reporter.sources.current_session_ref",
         return_value=None,
     ):
         r.on_run_start("group-uuid")
@@ -239,7 +239,7 @@ def test_reporter_session_resolved_outside_lock():
         return ("n", "/p")
 
     with patch(
-        "code_puppy.plugins.herdr.reporter.sources.current_session_ref",
+        "code_puppy_core_plugins.herdr.reporter.sources.current_session_ref",
         side_effect=_probe,
     ):
         r.on_user_prompt()
@@ -266,7 +266,7 @@ def test_reporter_emits_metadata_at_turn_end():
     r = HerdrReporter(fake)
     payload = {"model": "claude", "context": "42%", "tokens": "48k/200k"}
     with patch(
-        "code_puppy.plugins.herdr.reporter.sources.current_tokens_payload",
+        "code_puppy_core_plugins.herdr.reporter.sources.current_tokens_payload",
         return_value=payload,
     ):
         r.on_run_start()
@@ -279,7 +279,7 @@ def test_reporter_skips_metadata_when_payload_unavailable():
     fake = FakeClient()
     r = HerdrReporter(fake)
     with patch(
-        "code_puppy.plugins.herdr.reporter.sources.current_tokens_payload",
+        "code_puppy_core_plugins.herdr.reporter.sources.current_tokens_payload",
         return_value=None,
     ):
         r.on_run_start()
@@ -298,7 +298,7 @@ def test_reporter_metadata_computed_outside_lock():
         return {"context": "1%", "tokens": "1k/200k"}
 
     with patch(
-        "code_puppy.plugins.herdr.reporter.sources.current_tokens_payload",
+        "code_puppy_core_plugins.herdr.reporter.sources.current_tokens_payload",
         side_effect=_probe,
     ):
         r.on_turn_end()
@@ -407,7 +407,7 @@ def test_tool_start_resolves_message_outside_lock():
         return f"running {name}"
 
     with patch(
-        "code_puppy.plugins.herdr.reporter.sources.activity_message",
+        "code_puppy_core_plugins.herdr.reporter.sources.activity_message",
         side_effect=_probe,
     ):
         r.on_run_start()

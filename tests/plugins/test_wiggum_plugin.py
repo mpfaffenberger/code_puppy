@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 
 def _plugin_module():
-    return importlib.import_module("code_puppy.plugins.wiggum.register_callbacks")
+    return importlib.import_module("code_puppy_core_plugins.wiggum.register_callbacks")
 
 
 def test_goal_command_uses_banner_for_activation():
@@ -95,7 +95,7 @@ def test_judges_command_invokes_menu():
             return_value=_ExecCtx(),
         ),
         patch(
-            "code_puppy.command_line.judges_menu.interactive_judges_menu"
+            "code_puppy_core_plugins.wiggum.judges_menu.interactive_judges_menu"
         ) as mock_menu,
     ):
         mock_asyncio.run.return_value = None
@@ -123,7 +123,7 @@ def test_goal_command_has_puppy_themed_aliases():
     from code_puppy.command_line.command_registry import get_all_commands
 
     # Importing the plugin module triggers @register_command via side-effect.
-    import code_puppy.plugins.wiggum.register_callbacks  # noqa: F401
+    import code_puppy_core_plugins.wiggum.register_callbacks  # noqa: F401
 
     cmds = get_all_commands()
     goal = cmds.get("goal")
@@ -140,7 +140,7 @@ def test_goal_command_has_puppy_themed_aliases():
 def test_prompt_extraction_is_command_word_agnostic():
     """_extract_prompt drops the first whitespace-delimited token, so the
     same prompt is extracted regardless of which alias the user typed."""
-    from code_puppy.plugins.wiggum.register_callbacks import _extract_prompt
+    from code_puppy_core_plugins.wiggum.register_callbacks import _extract_prompt
 
     expected = "make the tests pass for the auth flow"
     assert _extract_prompt(f"/goal {expected}") == expected
@@ -153,7 +153,7 @@ def test_usage_hint_mentions_aliases():
     hint should advertise the aliases so they're discoverable."""
     from unittest.mock import patch
 
-    from code_puppy.plugins.wiggum.register_callbacks import handle_goal_command
+    from code_puppy_core_plugins.wiggum.register_callbacks import handle_goal_command
 
     captured: list[str] = []
 
@@ -162,11 +162,11 @@ def test_usage_hint_mentions_aliases():
 
     with (
         patch(
-            "code_puppy.plugins.wiggum.register_callbacks.emit_warning",
+            "code_puppy_core_plugins.wiggum.register_callbacks.emit_warning",
             side_effect=capture,
         ),
         patch(
-            "code_puppy.plugins.wiggum.register_callbacks.emit_info",
+            "code_puppy_core_plugins.wiggum.register_callbacks.emit_info",
             side_effect=capture,
         ),
     ):
@@ -177,3 +177,19 @@ def test_usage_hint_mentions_aliases():
     joined = " ".join(captured)
     assert "/kibble" in joined
     assert "/chow" in joined
+
+
+def test_autonomous_loop_capability_tracks_state():
+    """The feature_capability seam mirrors live wiggum state (no core import)."""
+    from code_puppy_core_plugins.wiggum import state
+    from code_puppy_core_plugins.wiggum.register_callbacks import (
+        _autonomous_loop_capability,
+    )
+
+    assert _autonomous_loop_capability("something_else") is None
+    state.start("loop it")
+    try:
+        assert _autonomous_loop_capability("autonomous_loop") is True
+    finally:
+        state.stop()
+    assert _autonomous_loop_capability("autonomous_loop") is False

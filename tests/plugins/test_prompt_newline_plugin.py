@@ -12,12 +12,12 @@ import pytest
 def _plugin_module():
     sys.modules.setdefault("dbos", MagicMock())
     return importlib.import_module(
-        "code_puppy.plugins.prompt_newline.register_callbacks"
+        "code_puppy_core_plugins.prompt_newline.register_callbacks"
     )
 
 
 def _config_module():
-    return importlib.import_module("code_puppy.plugins.prompt_newline.config")
+    return importlib.import_module("code_puppy_core_plugins.prompt_newline.config")
 
 
 def test_custom_help_lists_command():
@@ -92,13 +92,13 @@ def test_patched_prompt_appends_newline_only_when_enabled():
         module._install_prompt_patch()
 
         with patch(
-            "code_puppy.plugins.prompt_newline.register_callbacks.is_enabled",
+            "code_puppy_core_plugins.prompt_newline.register_callbacks.is_enabled",
             return_value=False,
         ):
             disabled_result = ptc.get_prompt_with_active_model()
 
         with patch(
-            "code_puppy.plugins.prompt_newline.register_callbacks.is_enabled",
+            "code_puppy_core_plugins.prompt_newline.register_callbacks.is_enabled",
             return_value=True,
         ):
             enabled_result = ptc.get_prompt_with_active_model()
@@ -121,9 +121,9 @@ def test_handle_command_persists_explicit_on(tmp_path, monkeypatch):
 
     with (
         patch(
-            "code_puppy.plugins.prompt_newline.register_callbacks._emit_success"
+            "code_puppy_core_plugins.prompt_newline.register_callbacks._emit_success"
         ) as mock_success,
-        patch("code_puppy.plugins.prompt_newline.register_callbacks._emit_info"),
+        patch("code_puppy_core_plugins.prompt_newline.register_callbacks._emit_info"),
     ):
         result = module._handle_custom_command("/prompt_newline on", "prompt_newline")
 
@@ -141,15 +141,19 @@ def test_handle_command_flips_when_no_arg(tmp_path, monkeypatch):
 
     cfg.set_enabled(False)
     with (
-        patch("code_puppy.plugins.prompt_newline.register_callbacks._emit_success"),
-        patch("code_puppy.plugins.prompt_newline.register_callbacks._emit_info"),
+        patch(
+            "code_puppy_core_plugins.prompt_newline.register_callbacks._emit_success"
+        ),
+        patch("code_puppy_core_plugins.prompt_newline.register_callbacks._emit_info"),
     ):
         module._handle_custom_command("/prompt_newline", "prompt_newline")
     assert cfg.is_enabled() is True
 
     with (
-        patch("code_puppy.plugins.prompt_newline.register_callbacks._emit_success"),
-        patch("code_puppy.plugins.prompt_newline.register_callbacks._emit_info"),
+        patch(
+            "code_puppy_core_plugins.prompt_newline.register_callbacks._emit_success"
+        ),
+        patch("code_puppy_core_plugins.prompt_newline.register_callbacks._emit_info"),
     ):
         module._handle_custom_command("/prompt_newline", "prompt_newline")
     assert cfg.is_enabled() is False
@@ -162,7 +166,7 @@ def test_handle_command_rejects_garbage_arg(tmp_path, monkeypatch):
     module = _plugin_module()
 
     with patch(
-        "code_puppy.plugins.prompt_newline.register_callbacks._emit_error"
+        "code_puppy_core_plugins.prompt_newline.register_callbacks._emit_error"
     ) as mock_error:
         result = module._handle_custom_command(
             "/prompt_newline banana", "prompt_newline"

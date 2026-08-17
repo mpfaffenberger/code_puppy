@@ -592,16 +592,6 @@ async def interactive_autosave_picker() -> Optional[str]:
         selected_idx[0] = min(selected_idx[0], len(filtered) - 1)
         current_page[0] = get_page_for_index(selected_idx[0], PAGE_SIZE)
 
-    def update_visible_entries() -> None:
-        """Synchronous re-filter -- only safe when the cache is warm or empty.
-
-        Used for the picker's initial setup (no filter active -> trivial)
-        and as a fallback. The post-Enter path goes through
-        :func:`asyncio.to_thread` instead so a cold-cache filter does not
-        freeze the event loop.
-        """
-        _apply_filter_result(_filter_entries(search_text[0]))
-
     # Build UI
     menu_control = FormattedTextControl(text="")
     preview_control = FormattedTextControl(text="")
@@ -728,9 +718,8 @@ async def interactive_autosave_picker() -> Optional[str]:
     def _(event):
         if in_search_mode[0]:
             return
-        # Recompute total_pages from visible_entries every call -- filtering
-        # changes the list length and a stale captured value would let users
-        # page past the end of a filtered result.
+        # Recompute total_pages every call: filtering changes the count and a
+        # stale value would let users page past a filtered result.
         total_pages = get_total_pages(len(visible_entries[0]), PAGE_SIZE)
         if current_page[0] < total_pages - 1:
             current_page[0] += 1
@@ -793,19 +782,17 @@ async def interactive_autosave_picker() -> Optional[str]:
     @kb.add("enter")
     async def _(event):
         if in_search_mode[0]:
-            # Commit the buffer as the active filter. Repaint "Filtering..."
-            # BEFORE doing the work so users get feedback even when the
-            # content index is cold and the lookup has to read pickles.
+            # Commit the buffer as the active filter. Paint "Filtering..."
+            # first so users get feedback even when the lookup reads pickles.
             search_text[0] = search_buffer[0]
             in_search_mode[0] = False
             search_buffer[0] = ""
             is_filtering[0] = True
             update_display()
             event.app.invalidate()
-            # Run the (potentially blocking) filter on a worker thread
-            # so the event loop stays responsive. ``await`` yields here,
-            # which also gives prompt_toolkit the tick it needs to paint
-            # the "Filtering..." indicator before the worker starts.
+            # Run the blocking filter on a worker thread so the loop stays
+            # responsive; the await also lets prompt_toolkit paint the
+            # indicator before the worker starts.
             try:
                 filtered = await asyncio.to_thread(_filter_entries, search_text[0])
                 _apply_filter_result(filtered)

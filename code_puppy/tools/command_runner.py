@@ -74,13 +74,7 @@ if sys.platform.startswith("win"):
             # Get the Windows handle from the file descriptor
             handle = msvcrt.get_osfhandle(pipe.fileno())
 
-            # PeekNamedPipe parameters:
-            # - hNamedPipe: handle to the pipe
-            # - lpBuffer: buffer to receive data (NULL = don't read)
-            # - nBufferSize: size of buffer (0 = don't read)
-            # - lpBytesRead: receives bytes read (NULL)
-            # - lpTotalBytesAvail: receives total bytes available
-            # - lpBytesLeftThisMessage: receives bytes left (NULL)
+            # PeekNamedPipe: NULL buffer/0 size = peek only; grab lpTotalBytesAvail.
             bytes_available = ctypes.c_ulong(0)
 
             result = _kernel32.PeekNamedPipe(
@@ -108,11 +102,8 @@ _AWAITING_USER_INPUT = threading.Event()
 _AWAITING_USER_INPUT_NOTIFY = threading.Event()
 _AWAITING_USER_INPUT_NOTIFY.set()
 
-# NOTE: The previous module-level ``_CONFIRMATION_LOCK`` was removed --
-# queueing of parallel approval prompts now lives inside
-# ``get_user_approval_async`` itself, so every caller (shell commands,
-# destructive-command guard, force-push guard, ...) benefits without
-# bolting on their own lock.
+# NOTE: module-level _CONFIRMATION_LOCK removed — approval-prompt queueing now
+# lives inside get_user_approval_async itself, benefiting all callers.
 
 # Track running shell processes so we can kill them on Ctrl-C from the UI
 _RUNNING_PROCESSES: Set[subprocess.Popen] = set()
@@ -125,12 +116,9 @@ _SHELL_CTRL_X_THREAD: Optional[threading.Thread] = None
 _SHELL_CTRL_X_HANDLE = None  # KeyListenerHandle when WE spawned the listener
 _ORIGINAL_SIGINT_HANDLER = None
 
-# Bridge from the shell SIGINT handler back to the active agent run's cancel
-# callback (``make_schedule_cancel``'s closure). Registered by the runtime at
-# run start, cleared at run end. Lets a single Ctrl+C during a sub-agent swarm
-# kill the shells AND cancel every sub-agent task + the main agent, instead of
-# only killing the current batch of shells (which forced the user to mash
-# Ctrl+C once per still-running sub-agent).
+# Bridge shell SIGINT back to the run's cancel callback (registered at run
+# start): one Ctrl+C during a sub-agent swarm kills the shells AND cancels every
+# sub-agent + the main agent (no more mashing Ctrl+C per shell).
 _AGENT_CANCEL_CB: Optional[Callable[..., None]] = None
 # One-shot dedupe so mashing Ctrl+C during teardown doesn't reprint the banner
 # or re-fire the cancel sweep N times. Reset when a new cancel cb registers.
@@ -144,13 +132,11 @@ _KEYBOARD_CONTEXT_LOCK = threading.Lock()
 _ACTIVE_STOP_EVENTS: Set[threading.Event] = set()
 _ACTIVE_STOP_EVENTS_LOCK = threading.Lock()
 
-# Mid-flight backgrounding (Ctrl+X Ctrl+B) machinery lives in
-# ``shell_backgrounding`` (600-line cap); re-exported here because the
-# chord handler and the streaming pumps are the consumers.
+# Ctrl+X Ctrl+B machinery lives in shell_backgrounding (600-line cap);
+# re-exported for the chord handler and streaming pumps.
 
 
-# Thread pool for running blocking shell commands without blocking the event loop
-# This allows multiple sub-agents to run shell commands in parallel
+# Thread pool so blocking shell commands don't block the loop; enables parallel sub-agents.
 _SHELL_EXECUTOR = ThreadPoolExecutor(max_workers=16, thread_name_prefix="shell_cmd_")
 
 
@@ -201,12 +187,8 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
         pid = proc.pid
         try:
             pgid = os.getpgid(pid)
-            # SAFETY: never signal our OWN process group. Production spawns
-            # every child with start_new_session=True/os.setsid so it lands
-            # in its own group -- but a child spawned WITHOUT that isolation
-            # inherits our group, and killpg(our_pgid, SIGKILL) would take
-            # out this process (pytest, or the CI runner's step shell) too.
-            # That footgun is exactly what canceled CI. Fall back to a
+            # SAFETY: never killpg our OWN group — a non-isolated child inherits
+            # it, and killpg(our_pgid) kills us (pytest/CI). Fall back to a
             # single-process kill when the group isn't isolated.
             if pgid == os.getpgrp():
                 raise ProcessLookupError("refusing to killpg our own process group")
@@ -347,7 +329,7 @@ class ShellCommandOutput(BaseModel):
     stdout: str | None
     stderr: str | None
     exit_code: int | None
-    execution_time: float | None
+    execution_time: float | None = None
     timeout: bool | None = False
     user_interrupted: bool | None = False
     user_feedback: str | None = None  # User feedback when command is rejected
@@ -584,9 +566,8 @@ def _start_keyboard_listener() -> None:
     global _SHELL_CTRL_X_STOP_EVENT, _SHELL_CTRL_X_THREAD, _ORIGINAL_SIGINT_HANDLER
 
     _register_shell_chords()
-    # Reuse-or-spawn is atomic inside the shim: an agent-run/persistent
-    # listener is reused (the chords above own Ctrl+X dispatch); only
-    # headless / tool-only invocations actually spawn.
+    # Reuse-or-spawn is atomic: agent-run/persistent listener is reused (chords
+    # own Ctrl+X dispatch); only headless/tool-only invocations actually spawn.
     _SHELL_CTRL_X_STOP_EVENT = threading.Event()
     _SHELL_CTRL_X_THREAD = _spawn_ctrl_x_key_listener(
         _SHELL_CTRL_X_STOP_EVENT,
@@ -712,10 +693,8 @@ def run_shell_command_streaming(
     stdout_thread = None
     stderr_thread = None
 
-    # Mid-flight backgrounding (Ctrl+X Ctrl+B): once the divert log is
-    # set, the reader threads pump every further line into it instead of
-    # the transcript -- keeping the pipes drained so the child can't
-    # block on a full pipe buffer after this function returns.
+    # Ctrl+X Ctrl+B: once the divert log is set, readers pump lines into it
+    # instead of the transcript, keeping pipes drained after this returns.
     bg_generation_at_start = background_generation()
     divert_log: list = [None]
 
@@ -742,9 +721,7 @@ def run_shell_command_streaming(
 
                 # Use select to check if data is available (with timeout)
                 if sys.platform.startswith("win"):
-                    # Windows doesn't support select on pipes
-                    # Use PeekNamedPipe via _win32_pipe_has_data() to check
-                    # if data is available without blocking
+                    # Windows: no select on pipes — PeekNamedPipe to check availability
                     try:
                         if _win32_pipe_has_data(process.stdout):
                             line = process.stdout.readline()
@@ -762,11 +739,9 @@ def run_shell_command_streaming(
                                     remaining = process.stdout.read()
                                     if remaining:
                                         for line in remaining.split("\n"):
-                                            # Normalize trailing CR/LF to match
-                                            # the main readline path; otherwise
-                                            # Windows CRLF leaves a stray \r that
-                                            # can re-trigger the renderer's redraw
-                                            # bypass.
+                                            # Strip CR/LF like the readline path —
+                                            # Windows CRLF's stray \r would retrigger
+                                            # the renderer's redraw bypass.
                                             line = line.rstrip("\r\n")
                                             line = _truncate_line(line)
                                             _sink(line, stdout_lines, "stdout")
@@ -811,9 +786,7 @@ def run_shell_command_streaming(
                     break
 
                 if sys.platform.startswith("win"):
-                    # Windows doesn't support select on pipes
-                    # Use PeekNamedPipe via _win32_pipe_has_data() to check
-                    # if data is available without blocking
+                    # Windows: no select on pipes — PeekNamedPipe to check availability
                     try:
                         if _win32_pipe_has_data(process.stderr):
                             line = process.stderr.readline()
@@ -831,11 +804,9 @@ def run_shell_command_streaming(
                                     remaining = process.stderr.read()
                                     if remaining:
                                         for line in remaining.split("\n"):
-                                            # Normalize trailing CR/LF to match
-                                            # the main readline path; otherwise
-                                            # Windows CRLF leaves a stray \r that
-                                            # can re-trigger the renderer's redraw
-                                            # bypass.
+                                            # Strip CR/LF like the readline path —
+                                            # Windows CRLF's stray \r would retrigger
+                                            # the renderer's redraw bypass.
                                             line = line.rstrip("\r\n")
                                             line = _truncate_line(line)
                                             _sink(line, stderr_lines, "stderr")
@@ -1080,13 +1051,31 @@ def run_shell_command_streaming(
         )
 
 
+def _normalize_cwd(cwd: str | None) -> str | None:
+    """Coerce None-ish ``cwd`` values from model tool calls into a real None.
+
+    LLMs sometimes serialize a null working directory as the literal strings
+    ``"null"``/``"none"`` (or whitespace) because the tool schema advertises a
+    string. Passing those to ``subprocess.Popen`` explodes with
+    ``FileNotFoundError: 'null'`` — normalize them to None (inherit our cwd).
+    """
+    if cwd is None:
+        return None
+    stripped = cwd.strip()
+    if not stripped or stripped.lower() in ("null", "none"):
+        return None
+    return stripped
+
+
 async def run_shell_command(
     context: RunContext,
     command: str,
-    cwd: str = None,
+    cwd: str | None = None,
     timeout: int = 60,
     background: bool = False,
 ) -> ShellCommandOutput:
+    cwd = _normalize_cwd(cwd)
+
     # Generate unique group_id for this command execution
     group_id = generate_group_id("shell_command", command)
 
@@ -1111,13 +1100,9 @@ async def run_shell_command(
                 execution_time=None,
             )
 
-    # Apply any command rewrites requested by callbacks.
-    # A callback can return {"rewrite": "<new command>"} to transparently
-    # transform the command before execution (e.g. inject a git trailer,
-    # redact a secret, prepend a corporate proxy). Rewrites are applied in
-    # callback registration order; each one sees whatever the previous ones
-    # produced. A visible info line surfaces the change so users always know
-    # what actually ran -- rewriting must never be sneaky.
+    # Apply callback rewrites: {"rewrite": "<new command>"} transforms before
+    # execution (git trailer, secret redaction, proxy prepend), in registration
+    # order, each seeing the previous output. Always surface the change — no sneaky rewrites.
     for result in callback_results:
         if result and isinstance(result, dict) and "rewrite" in result:
             new_command = result["rewrite"]
@@ -1141,9 +1126,8 @@ async def run_shell_command(
         log_file_path = log_file.name
 
         try:
-            # Platform-specific process detachment. CREATE_NO_WINDOW:
-            # own hidden console so the background tree can't stomp OUR
-            # console input mode (see _run_command_sync docstring).
+            # CREATE_NO_WINDOW: own hidden console so the background tree
+            # can't stomp our console input mode.
             if sys.platform.startswith("win"):
                 creationflags = (
                     subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
@@ -1245,9 +1229,8 @@ async def run_shell_command(
     # Only ask for confirmation if we're in an interactive TTY, not in yolo mode,
     # and NOT running as a sub-agent (sub-agents run without user interaction)
     if not yolo_mode and not running_as_subagent and sys.stdin.isatty():
-        # No local lock needed -- get_user_approval_async serializes
-        # parallel prompts internally so the 2nd, 3rd, 4th... destructive
-        # commands queue up cleanly instead of vanishing.
+        # No local lock — get_user_approval_async serializes parallel prompts
+        # internally, so repeated destructive commands queue instead of vanishing.
 
         # Get puppy name for personalized messages
         from code_puppy.config import get_puppy_name
@@ -1340,15 +1323,13 @@ async def _execute_shell_command(
         )
     )
 
-    # Shell output (including \r progress bars) streams inside the bottom
-    # bar's scroll region — nothing to pause anymore.
-    # Acquire shared keyboard context - Ctrl-X/Ctrl-C will kill ALL running commands
-    # This is reference-counted: listener starts on first command, stops on last
+    # Shell output streams inside the bottom bar's scroll region — nothing to pause.
+    # Shared keyboard context: Ctrl-X/Ctrl-C kills ALL running commands; refcounted
+    # (listener starts on first command, stops on last).
     _acquire_keyboard_context()
     try:
-        # When a command executor backend is installed (e.g. an editor host
-        # running commands in its own terminal), delegate execution to it.
-        # This runs on the event loop, so we can await the host directly.
+        # If a command-executor backend is installed (e.g. editor host), delegate
+        # to it — we're on the event loop, so await the host directly.
         from code_puppy.tools.io_backends import get_command_executor
 
         executor = get_command_executor()
@@ -1564,7 +1545,7 @@ def register_agent_run_shell_command(agent):
     async def agent_run_shell_command(
         context: RunContext,
         command: str,
-        cwd: str = None,
+        cwd: str | None = None,
         timeout: int = 60,
         background: bool = False,
     ) -> ShellCommandOutput:

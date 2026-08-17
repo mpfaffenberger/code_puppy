@@ -76,15 +76,12 @@ _active_handle: Optional[KeyListenerHandle] = None
 _active_handle_lock = threading.Lock()
 
 # =============================================================================
-# =============================================================================
 # Line-editor feed target (Phase 3 of the bottom-bar rewrite)
 # =============================================================================
 #
-# The run UI installs a ``RunningLineEditor`` here; the single listener
-# thread routes every NON-hotkey character into it (one stdin reader,
-# dynamic dispatch). The cancel-agent key keeps priority and is never
-# fed to the editor; Ctrl+X always flows INTO the editor as the chord
-# prefix (bindings live in ``messaging.chords``) — the spawn-time
+# The run UI installs a ``RunningLineEditor`` here; every NON-hotkey char
+# is routed into it. The cancel key keeps priority; Ctrl+X enters the
+# editor as a chord prefix (``messaging.chords``); the spawn-time
 # ``on_escape`` fallback only fires when no editor is installed.
 
 _line_editor: Optional[Any] = None
@@ -131,11 +128,9 @@ def _tick_line_editor() -> None:
 # Dynamic cancel-agent handler (persistent listener, Phase A)
 # =============================================================================
 #
-# The cancel-agent hotkey callback is per-RUN (closes over the agent
-# task + loop): the runtime arms it here while a run is active and
-# clears it afterwards — same dynamic-dispatch pattern as the
-# line-editor feed target above. With no
-# handler armed the cancel key is inert (never fed to the editor).
+# Per-run callback (closes over agent task + loop): armed while a run is
+# active, cleared after — same pattern as the line-editor target above;
+# with no handler armed the key is inert (never fed to the editor).
 
 _cancel_handler: Optional[Callable[[], None]] = None
 _cancel_handler_lock = threading.Lock()
@@ -346,10 +341,8 @@ def _dispatch_key(
     if cancel_agent_char and data == cancel_agent_char:
         handler = _resolve_cancel_handler(on_cancel_agent)
         if handler is None:
-            # No handler (idle): a remapped cancel key is inert —
-            # swallowed, never fed to the editor as a stray control
-            # character. Raw ^C keeps its clear-the-line meaning via
-            # the editor's own \x03 handling.
+            # Idle (no handler): a remapped cancel key is inert — never
+            # fed to the editor. Raw ^C keeps its clear-the-line meaning.
             if data == _RAW_CTRL_C:
                 _feed_line_editor(data)
             return
@@ -515,14 +508,11 @@ def _coalesce_paste_burst(items: list) -> Optional[str]:
         return None
     payload = "".join(value for _, value in items)
     if "\x1b" in payload and _PASTE_OPEN not in payload and _PASTE_CLOSE not in payload:
-        # With ENABLE_VIRTUAL_TERMINAL_INPUT, special keys arrive as VT
-        # escape sequences instead of \x00/\xe0 extended-key pairs — an
-        # arrow press (or a key-repeat flood of them) is a 3+ char all-
-        # text burst that would otherwise classify as a paste and land
-        # in the buffer as literal ESC garbage. Real terminal pastes are
-        # always bracketed while ?2004h is armed, so an ESC-bearing
-        # burst WITHOUT markers is typing: dispatch per key and let the
-        # editor's CSI state machine handle the sequences.
+        # With VT input, special keys arrive as ESC sequences, not
+        # \x00/\xe0 pairs — an arrow press is a 3+ all-text burst that
+        # would read as a paste. Pastes are always bracketed (while
+        # ?2004h is armed), so an ESC burst without markers is typing:
+        # dispatch per key and let the editor's CSI state machine cope.
         return None
     return payload
 
@@ -627,11 +617,9 @@ def _listen_windows_loop(
     next_clamp_check = 0.0  # first lap re-clamps immediately
 
     while not stop_event.is_set():
-        # Honor suspend. Whoever suspended us (prompt_toolkit TUIs, the
-        # ask_user picker) reads via ReadConsoleInput and expects classic
-        # key events — hand the console back without VT input, and
-        # re-clamp immediately (not up to 1s later) on resume so a paste
-        # right after a menu closes isn't dropped.
+        # Suspend: whoever suspended us reads via ReadConsoleInput and
+        # expects classic key events — hand back without VT, re-clamp
+        # immediately on resume so a post-menu paste isn't dropped.
         if suspend_event is not None and suspend_event.is_set():
             disable_windows_vt_input()
             _wait_while_suspended(stop_event, suspend_event, released_event)
@@ -640,18 +628,11 @@ def _listen_windows_loop(
             next_clamp_check = 0.0
             continue
 
-        # Self-healing console clamp. Anything sharing the console (shell
-        # children, conda hooks, full-screen TUIs) can flip
-        # ENABLE_PROCESSED_INPUT back on — then ^C stops arriving as a raw
-        # \x03 and instead fires console-wide CTRL_C_EVENTs that kill
-        # wrapper launchers (uvx.exe) and wake the parent shell into
-        # fighting us for stdin (the 2026-07-08 uvx incident). Re-clamp on
-        # a ~1s cadence so a regressed console heals even at idle, BEFORE
-        # the user presses ^C into it. ensure_ctrl_c_disabled() is a
-        # no-op unless the sticky startup clamp is set AND the mode
-        # actually regressed — one cheap GetConsoleMode per second.
-        # Deliberately NOT run while suspended: whoever suspended us
-        # (prompt_toolkit, ask_user TUI) owns the console mode then.
+        # Self-healing console clamp: another console user can flip
+        # ENABLE_PROCESSED_INPUT back on, so ^C fires CTRL_C_EVENTs that
+        # kill launchers (2026-07-08 uvx incident). Re-clamp on a ~1s
+        # cadence (cheap no-op unless it regressed). Skipped while
+        # suspended — the suspender owns the console mode then.
         now = time.monotonic()
         if now >= next_clamp_check:
             next_clamp_check = now + 1.0
@@ -659,12 +640,10 @@ def _listen_windows_loop(
                 ensure_ctrl_c_disabled()
             except Exception:
                 pass
-            # VT-input clamp, same self-healing cadence: without
-            # ENABLE_VIRTUAL_TERMINAL_INPUT, ConPTY silently drops the
-            # bracketed-paste markers Windows Terminal sends for an
-            # image-only Ctrl+V (an EMPTY paste has no key events to
-            # synthesize) — the Windows image-paste-goes-dead bug.
-            # No-op (one GetConsoleMode) when the flag is already set.
+            # Same cadence for the VT-input clamp: without it ConPTY
+            # drops the paste markers on image-only Ctrl+V (empty paste,
+            # no key events to synthesize) — the paste-goes-dead bug.
+            # No-op when the flag is already set.
             try:
                 enable_windows_vt_input()
             except Exception:
@@ -673,17 +652,12 @@ def _listen_windows_loop(
         try:
             if msvcrt.kbhit():
                 # Drain the WHOLE pending burst this tick (one char per
-                # 50ms tick made a 200-char paste take ten seconds).
-                # Extended-key note: the second half of a \x00/\xe0 pair
-                # sits in the CRT's internal pushback buffer, which
-                # kbhit() CANNOT see (it only peeks the console input
-                # queue) — so per the _getwch docs the drain reads again
-                # unconditionally. Gating on kbhit() here leaked the
-                # prefix into the editor as a literal 'à' (\xe0) on
-                # every arrow press. Unknown pairs are swallowed.
-                # Known wart: a literal typed 'à' (U+00E0, non-US
-                # layouts) is indistinguishable from the prefix and
-                # briefly blocks the read until the next keypress.
+                # 50ms tick made a 200-char paste take ten seconds). Note
+                # the pair's second half sits in the CRT pushback buffer
+                # kbhit() can't see — per _getwch docs once read, always
+                # read again unconditionally (gating leaked '\xe0' into
+                # the editor); unknown pairs are swallowed. Wart: a
+                # literal typed 'à' is indistinguishable and blocks briefly.
                 items = _drain_windows_burst(msvcrt)
                 _route_windows_burst(
                     items, on_escape, cancel_agent_char, on_cancel_agent
@@ -692,8 +666,8 @@ def _listen_windows_loop(
                 # Idle tick: let a pending bare ESC expire.
                 _tick_line_editor()
         except Exception as exc:
-            # Recover instead of dying: warn once per outage, back off,
-            # and keep retrying — a dead listener means a dead prompt.
+            # Recover instead of dying: warn once, back off, retry — a
+            # dead listener means a dead prompt.
             if not in_outage:
                 in_outage = True
                 emit_warning(
@@ -824,8 +798,7 @@ def _listen_posix(
         except Exception as exc:  # a bug must not kill input forever
             reason = f"unexpected error: {exc!r}"
         if reason == "stop" or stop_event.is_set():
-            # Clean shutdown — including a stop that landed mid-session:
-            # never cry "outage" over the app simply exiting.
+            # Clean shutdown — don't cry outage over the app simply exiting.
             return
         if not in_outage[0]:
             in_outage[0] = True
@@ -871,38 +844,17 @@ def _posix_read_session(
         nonlocal cbreak_active
         if not cbreak_active:
             tty.setcbreak(fd)
-            # Phase B: distinguish Enter (\r) from Ctrl+J (\n) for the
-            # persistent editor — setcbreak leaves ICRNL on, which maps
-            # CR->LF and makes them identical. Best-effort; the editor
-            # treats a stray \n as newline-insert either way.
-            #
-            # setcbreak also leaves IEXTEN on, and on BSD/macOS the tty
-            # driver honors VLNEXT (Ctrl+V = "literal next") even in
-            # non-canonical mode when IEXTEN is set: the kernel EATS the
-            # first ^V as a quote-prefix and only the SECOND one reaches
-            # us (the live 'press Ctrl+V twice to paste an image' bug).
-            # VDISCARD (Ctrl+O) is likewise IEXTEN-gated. Clear IEXTEN so
-            # every control char is delivered verbatim, exactly like the
-            # raw mode (tty.setraw) the classic prompt_toolkit path used.
-            #
-            # setcbreak ALSO leaves software flow control enabled. With
-            # IXON set, an accidental Ctrl+S tells the tty to STOP output;
-            # the next editor repaint then blocks forever in stdout.flush()
-            # ON THE KEY-LISTENER THREAD. Input is alive but can't dispatch
-            # another key (including Ctrl+Q) because it is trapped writing
-            # the prompt — indistinguishable from a bricked terminal. This
-            # exact stack was captured live on 2026-07-11. Clear IXON/IXOFF
-            # while we own stdin; original attrs restore on suspend/exit.
-            #
-            # Pure-keybinding Ctrl+C: disable the tty's INTR character so
-            # ^C is delivered as a raw \x03 byte instead of becoming a
-            # SIGINT — the POSIX mirror of Windows' session-wide
-            # ENABLE_PROCESSED_INPUT strip. Disabling just VINTR (set to
-            # _POSIX_VDISABLE, via fpathconf — '\0' on Linux, '\xff' on
-            # BSD/macOS) rather than clearing ISIG keeps ^Z (SIGTSTP) and
-            # ^\ (SIGQUIT) job control intact. Restored with the rest of
-            # the original attrs on suspend/exit, so plain SIGINT
-            # semantics return whenever we release stdin.
+            # Post-setcbreak termios cleanup (the raw-mode emulation
+            # prompt_toolkit's classic path used):
+            #  - ICRNL off: keep Enter (\r) distinct from Ctrl+J (\n).
+            #  - IEXTEN off: BSD/macOS VLNEXT eats the first ^V as a
+            #    quote-prefix (the 'Ctrl+V twice to paste an image' bug);
+            #    VDISCARD (Ctrl+O) is likewise IEXTEN-gated.
+            #  - IXON/IXOFF off: Ctrl+S would freeze output and brick a
+            #    repaint on this thread (2026-07-11 incident).
+            #  - VINTR to _POSIX_VDISABLE: deliver ^C raw as \x03 instead
+            #    of SIGINT, keeping ^Z/^\ job control (ISIG stays on).
+            # Restored with the original attrs on suspend/exit.
             try:
                 attrs = termios.tcgetattr(fd)
                 attrs[0] &= ~termios.ICRNL  # preserve Ctrl+J vs Enter
@@ -963,11 +915,9 @@ def _posix_read_session(
             if chunk is None:
                 return "stdin EOF or fatal read error"
             if not chunk:
-                # Transient failure (EIO while another process group
-                # briefly owns the tty) or a split multibyte char still
-                # buffering in the decoder. Retry — paced, and bounded
-                # per session; the supervisor keeps retrying beyond that
-                # with its slower backoff.
+                # Transient failure (EIO while another process group owns
+                # the tty) or a split multibyte char still buffering.
+                # Retry, paced and bounded per session.
                 transient_reads += 1
                 if transient_reads >= _MAX_TRANSIENT_READS:
                     return "stdin unreadable (persistent EIO)"
@@ -977,15 +927,13 @@ def _posix_read_session(
             if not reported_ok:
                 reported_ok = True
                 on_input_ok()
-            # Per-char dispatch: hotkeys keep priority even mid-burst;
-            # everything else streams into the editor, whose ESC state
-            # machine assembles sequences byte-at-a-time.
+            # Hotkeys keep priority even mid-burst; the rest streams into
+            # the editor, whose ESC state machine assembles sequences.
             for ch in chunk:
                 _dispatch_key(ch, on_escape, cancel_agent_char, on_cancel_agent)
         return "stop"
     finally:
-        # GUARANTEE termios restoration — even if something exploded inside
-        # the suspend block.
+        # GUARANTEE termios restoration, even if the suspend block exploded.
         _exit_cbreak()
         try:
             termios.tcsetattr(fd, termios.TCSADRAIN, original_attrs)
@@ -997,17 +945,10 @@ def _posix_read_session(
 # Reentrant suspend context manager
 # =============================================================================
 #
-# Any code that wants exclusive ownership of stdin (prompt_toolkit
-# Applications, Rich Prompt.ask, raw input(), etc.) MUST wrap the call
-# in ``suspended_key_listener()``. Without this, two readers fight over
-# stdin -- prompt_toolkit will emit the dreaded "your terminal doesn't
-# support cursor position requests (CPR)" warning and arrow keys will
-# behave erratically because the key-listener thread eats half of them.
-#
-# The context manager is reentrant via a refcount, so nested usage
-# (e.g. ``get_user_approval_async`` -> ``arrow_select_async``) only
-# actually suspends the listener once and only resumes after the
-# outermost scope exits.
+# Any code wanting exclusive stdin (prompt_toolkit, Rich Prompt.ask,
+# raw input()) MUST wrap in ``suspended_key_listener()`` or the two
+# readers fight over stdin (CPR warnings, arrow keys eaten). Reentrant
+# via a refcount: only the outermost scope actually suspends/resumes.
 
 _suspend_lock = threading.Lock()
 _suspend_depth = 0
@@ -1033,12 +974,9 @@ def suspended_key_listener(timeout: float = 1.0) -> Iterator[None]:
         if _suspend_depth == 1 and handle is not None:
             is_outermost = True
     if is_outermost:
-        # A silently-failed suspend means the caller launches its own stdin
-        # reader (prompt_toolkit, input()) while the listener is STILL in
-        # cbreak mode — two readers, keystrokes split between them. Give
-        # the listener one extended grace period, then warn loudly so the
-        # flakiness is at least diagnosable instead of "sometimes my keys
-        # vanish".
+        # A failed suspend splits keystrokes between the caller's reader
+        # and the listener still in cbreak mode. Give one grace period,
+        # then warn loudly so the flakiness is diagnosable.
         if not handle.suspend(timeout=timeout):
             if not handle.released_event.wait(timeout=2.0):
                 emit_warning(
