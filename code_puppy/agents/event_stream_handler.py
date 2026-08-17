@@ -88,15 +88,19 @@ def get_streaming_console() -> Console:
     return Console()
 
 
-def _should_suppress_output() -> bool:
+def _should_suppress_output(output_level: str | None = None) -> bool:
     """Check if sub-agent output should be suppressed.
 
     In ``high`` output mode, sub-agent output is never suppressed.
 
+    Args:
+        output_level: Pre-resolved output level, or None to read configuration.
+
     Returns:
         True if we're in a sub-agent context and verbose mode is disabled.
     """
-    if get_output_level() == "high":
+    level = get_output_level() if output_level is None else output_level
+    if level == "high":
         return False
     return is_subagent() and not get_subagent_verbose()
 
@@ -139,8 +143,10 @@ async def event_stream_handler(
         ctx: The run context.
         events: Async iterable of streaming events (PartStartEvent, PartDeltaEvent, etc.).
     """
-    # If we're in a sub-agent and verbose mode is disabled, silently consume events
-    if _should_suppress_output():
+    output_level = get_output_level()
+
+    # If we're in a sub-agent and verbose mode is disabled, silently consume events.
+    if _should_suppress_output(output_level):
         async for _ in events:
             pass  # Just consume events without rendering
         return
@@ -172,7 +178,14 @@ async def event_stream_handler(
     tool_names: dict[int, str] = {}  # Track tool name per tool part index
     tool_args_buffer: dict[int, str] = {}  # Accumulate raw tool-call args JSON
     did_stream_anything = False  # Track if we streamed any content
-    is_high_mode = get_output_level() == "high"
+
+    is_high_mode = output_level == "high"
+    suppress_thinking_stream = (
+        False
+        if is_high_mode
+        else output_level == "low" or get_suppress_thinking_messages()
+    )
+    suppress_tool_progress = output_level == "low"
 
     # Termflow streaming state for text parts
     termflow_parsers: dict[int, TermflowParser] = {}
@@ -353,7 +366,7 @@ async def event_stream_handler(
                     # If there's initial content, print banner + content now
                     # (unless thinking is suppressed by output level or toggle).
                     if part.content and part.content.strip():
-                        if not _suppress_thinking_stream():
+                        if not suppress_thinking_stream:
                             await _print_thinking_banner()
                             _emit_thinking(event.index, part.content)
                         banner_printed.add(event.index)
@@ -424,7 +437,7 @@ async def event_stream_handler(
                                 # Stream thinking parts smoothly (dim) via a
                                 # rate-limited buffer; gate on output level /
                                 # suppress_thinking toggle.
-                                if not _suppress_thinking_stream():
+                                if not suppress_thinking_stream:
                                     if event.index not in banner_printed:
                                         await _print_thinking_banner()
                                         banner_printed.add(event.index)
@@ -454,7 +467,7 @@ async def event_stream_handler(
 
                         # Use stored tool name; in low mode skip the progress
                         # counter — the RichConsoleRenderer peek suffices.
-                        if not _suppress_tool_progress():
+                        if not suppress_tool_progress:
                             tool_name = tool_names.get(event.index, "")
                             count = token_count[event.index]
                             # Display tool progress without decorative icons.
