@@ -2886,17 +2886,22 @@ def load_api_keys_to_environment():
         pass
 
     # Step 1: Load from .env file if it exists (highest priority)
-    # Look for .env in current working directory
+    # Only the known API-key names are imported from a project-local .env;
+    # unrelated names (base URLs, proxies, CODE_PUPPY_* toggles) are ignored so
+    # a project's .env cannot redirect requests or change runtime settings.
     env_file = Path.cwd() / ".env"
     if env_file.exists():
         try:
-            from dotenv import load_dotenv
-
-            # override=True means .env values take precedence over existing env vars
-            load_dotenv(env_file, override=True)
+            from dotenv import dotenv_values
         except ImportError:
             # python-dotenv not installed, skip .env loading
-            pass
+            dotenv_values = None
+        if dotenv_values is not None:
+            env_values = dotenv_values(env_file)
+            for key_name in api_key_names:
+                value = env_values.get(key_name)
+                if value:
+                    os.environ[key_name] = value
 
     # Step 2: Load from puppy.cfg, but only if not already set
     # This ensures .env has priority over puppy.cfg
