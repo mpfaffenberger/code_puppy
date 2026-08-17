@@ -790,20 +790,18 @@ async def _delete_file_async(
     permission_results = await on_file_permission_async(
         context, file_path, "delete", None, message_group, operation_data
     )
+
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
     try:
         if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
             res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
+
         else:
-            original = fs_access.read_text(file_path)
-            try:
-                original = original.encode("utf-8", errors="surrogatepass").decode(
-                    "utf-8", errors="replace"
-                )
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
+            # Sanitize any surrogate characters from reading.
+            original = read_text_sanitized(file_path)
+
             from code_puppy.config import get_diff_context_lines
 
             diff_text = "".join(
@@ -815,7 +813,9 @@ async def _delete_file_async(
                     n=get_diff_context_lines(),
                 )
             )
+
             fs_access.delete_file(file_path)
+
             res = {
                 "success": True,
                 "path": file_path,
@@ -823,6 +823,7 @@ async def _delete_file_async(
                 "changed": True,
                 "diff": diff_text,
             }
+
     except Exception as exc:
         _log_error("Unhandled exception in delete_file", exc)
         res = {"error": str(exc), "diff": ""}
