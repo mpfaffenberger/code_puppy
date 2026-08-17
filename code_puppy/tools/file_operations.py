@@ -362,7 +362,12 @@ def _list_files(
                                         )
                                     )
 
-                    # Add the entry (file or directory)
+                    # Directories only land here via a TOCTOU race (rg lists files
+                    # only); dedupe against seen_dir_paths like synthesized parents.
+                    if entry_type == "directory":
+                        if file_path in seen_dir_paths:
+                            continue
+                        seen_dir_paths.add(file_path)
                     results.append(
                         ListedFile(
                             path=file_path,

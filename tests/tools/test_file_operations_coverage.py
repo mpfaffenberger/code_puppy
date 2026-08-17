@@ -926,6 +926,67 @@ class TestListFilesParentDirectorySynthesis:
         assert dirs.count("holder") == 1, f"expected one 'holder' entry in: {dirs}"
 
 
+class TestListFilesDirectoryToctouRace:
+    """A directory can reach the main append site if rg's listed path turns
+    into a directory before the isfile/isdir recheck. Mock rg's output to
+    force that deterministically and confirm it doesn't duplicate.
+    """
+
+    @staticmethod
+    def _dir_entries(content):
+        entries = []
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.endswith("/"):
+                entries.append(stripped.rstrip("/"))
+        return entries
+
+    @patch("shutil.which", return_value="rg")
+    @patch("subprocess.run")
+    def test_raced_directory_listed_before_sibling_file(
+        self, mock_run, _mock_which, tmp_path
+    ):
+        """A directory entry from rg, followed by a file under it, dedupes."""
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        (shared / "leaf.txt").write_text("x")
+
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=f"{shared}\n{shared / 'leaf.txt'}\n",
+            stderr="",
+        )
+
+        result = _list_files(None, str(tmp_path), recursive=True)
+        dirs = self._dir_entries(result.content)
+
+        assert dirs.count("shared") == 1, f"expected one 'shared' entry in: {dirs}"
+
+    @patch("shutil.which", return_value="rg")
+    @patch("subprocess.run")
+    def test_raced_directory_listed_after_sibling_file(
+        self, mock_run, _mock_which, tmp_path
+    ):
+        """A file synthesizing the parent first, then rg's own directory
+        entry for it, still dedupes (reverse ordering)."""
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        (shared / "leaf.txt").write_text("x")
+
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=f"{shared / 'leaf.txt'}\n{shared}\n",
+            stderr="",
+        )
+
+        result = _list_files(None, str(tmp_path), recursive=True)
+        dirs = self._dir_entries(result.content)
+
+        assert dirs.count("shared") == 1, f"expected one 'shared' entry in: {dirs}"
+
+
 class TestIgnoreFileCleanup:
     """Test that temporary ignore files are cleaned up."""
 
