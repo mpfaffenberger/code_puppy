@@ -21,6 +21,7 @@ from code_puppy.agents.agent_code_puppy import CodePuppyAgent
 from code_puppy.callbacks import (
     clear_callbacks,
     register_callback,
+    unregister_callback,
 )
 
 
@@ -87,6 +88,32 @@ class TestAgentRunStartOrdering:
             await agent.run_with_mcp("hello")
 
         assert observed_agent is agent
+        assert get_executing_agent() is None
+
+    @pytest.mark.asyncio
+    async def test_agent_run_lifecycle_hooks_resolve_executing_agent(self, agent):
+        """agent_run_start/end fire outside the run task but see its agent."""
+        observed = {}
+
+        def capture_start(agent_name, model_name, session_id):
+            observed["start"] = get_executing_agent()
+
+        def capture_end(*args, **kwargs):
+            _ = args, kwargs
+            observed["end"] = get_executing_agent()
+
+        register_callback("agent_run_start", capture_start)
+        register_callback("agent_run_end", capture_end)
+        try:
+            with patch.object(agent, "_code_generation_agent") as mock_agent:
+                mock_agent.run = AsyncMock(return_value=MagicMock(data="response"))
+                await agent.run_with_mcp("hello")
+        finally:
+            unregister_callback("agent_run_start", capture_start)
+            unregister_callback("agent_run_end", capture_end)
+
+        assert observed["start"] is agent
+        assert observed["end"] is agent
         assert get_executing_agent() is None
 
     @pytest.mark.asyncio
