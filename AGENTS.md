@@ -63,6 +63,12 @@ and skills (`<CWD>/.code_puppy/skills/`).
 
 `register_callback("<hook>", func)` — deduplicated, async hooks accept sync or async functions.
 
+`register_callback("<hook>", func, fail_closed=True)` — for security callbacks on `pre_tool_call`
+and `run_shell_command` only. Error isolation normally reports a crashed callback as `None`, and
+both of those consumers read `None` as "no objection", so a guard that raises currently reads as
+approval. With `fail_closed=True` its exception is reported as a block instead. Defaults to
+`False`; the flag is rejected on other hooks, whose consumers would misread a block result.
+
 | Hook | When | Signature |
 |------|------|-----------|
 | `startup` | App boot | `() -> None` |
