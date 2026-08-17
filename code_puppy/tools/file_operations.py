@@ -209,6 +209,10 @@ def _list_files(
     import sys
 
     results = []
+    # Synthesized parent directories already added to ``results``. Membership is
+    # checked once per path component of every file, so this has to be O(1);
+    # rescanning ``results`` made the loop O(n^2) and hung large listings.
+    seen_dir_paths = set()
     directory = resolve_path(directory)
 
     # Plain text output for LLM consumption
@@ -344,10 +348,8 @@ def _list_files(
                             for i in range(len(path_parts)):
                                 partial_path = os.sep.join(path_parts[: i + 1])
                                 # Check if we already added this directory
-                                if not any(
-                                    f.path == partial_path and f.type == "directory"
-                                    for f in results
-                                ):
+                                if partial_path not in seen_dir_paths:
+                                    seen_dir_paths.add(partial_path)
                                     results.append(
                                         ListedFile(
                                             path=partial_path,
