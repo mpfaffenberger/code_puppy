@@ -388,6 +388,27 @@ def test_render_shell_start_background(mock_sub, renderer, console):
     assert "BACKGROUND" in out
 
 
+def test_shell_line_resolves_output_level_once(renderer):
+    msg = ShellLineMessage(line="hello output", stream="stdout")
+
+    # Tool output is collapsed by default (see _should_drop_tool_output); make
+    # it visible so the message actually reaches the output-level gate this
+    # test is targeting instead of getting dropped a step earlier.
+    with (
+        patch(
+            "code_puppy.messaging.rich_renderer.tool_output_visible",
+            return_value=True,
+        ),
+        patch(
+            "code_puppy.messaging.rich_renderer.get_output_level",
+            return_value="medium",
+        ) as mock_output_level,
+    ):
+        renderer._do_render_uncoordinated(msg)
+
+    assert mock_output_level.call_count == 1
+
+
 def test_render_shell_line(renderer, console):
     msg = ShellLineMessage(line="hello output", stream="stdout")
     renderer._render_shell_line(msg)
