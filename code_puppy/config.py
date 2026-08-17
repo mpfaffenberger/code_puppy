@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import pathlib
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from code_puppy.config_file import load_config, mutate_config
 from code_puppy.session_storage import save_session
@@ -304,9 +304,49 @@ _default_vision_model_cache = None
 _warned_no_model = False
 
 
+_CONFIG_CACHE: configparser.ConfigParser | None = None
+_CONFIG_CACHE_SIGNATURE: tuple[int, int] | None = None
+
+
+def _config_signature() -> tuple[int, int] | None:
+    """Return the filesystem signature used to validate the parsed config cache."""
+    try:
+        stat = os.stat(CONFIG_FILE)
+    except FileNotFoundError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
+def _invalidate_config_cache() -> None:
+    """Discard the process-local parsed config cache."""
+    global _CONFIG_CACHE, _CONFIG_CACHE_SIGNATURE
+    _CONFIG_CACHE = None
+    _CONFIG_CACHE_SIGNATURE = None
+
+
+def _mutate_config(
+    mutation: Callable[[configparser.ConfigParser], bool | None],
+) -> configparser.ConfigParser:
+    """Mutate persistent config and invalidate the parsed read cache."""
+    config = mutate_config(CONFIG_FILE, mutation)
+    _invalidate_config_cache()
+    return config
+
+
 def _load_config() -> configparser.ConfigParser:
-    """Load ``CONFIG_FILE`` through the bounded, recoverable I/O layer."""
-    return load_config(CONFIG_FILE)
+    """Load ``CONFIG_FILE``, reusing the parsed config while unchanged."""
+    global _CONFIG_CACHE, _CONFIG_CACHE_SIGNATURE
+
+    signature = _config_signature()
+    if _CONFIG_CACHE is not None and signature == _CONFIG_CACHE_SIGNATURE:
+        return _CONFIG_CACHE
+
+    config = load_config(CONFIG_FILE)
+    _CONFIG_CACHE = config
+    # load_config() may quarantine/recover the file, so capture its signature
+    # only after the load completes.
+    _CONFIG_CACHE_SIGNATURE = _config_signature()
+    return config
 
 
 def ensure_config_exists():
@@ -322,7 +362,7 @@ def ensure_config_exists():
     # Skip the read entirely when we already know there's nothing to read --
     # matches configparser's own no-op-on-missing-file behavior and avoids an
     # unnecessary open() attempt during first-run setup.
-    config = _load_config() if exists else configparser.ConfigParser()
+    config = load_config(CONFIG_FILE) if exists else configparser.ConfigParser()
     missing = []
     if DEFAULT_SECTION not in config:
         config[DEFAULT_SECTION] = {}
@@ -366,7 +406,7 @@ def ensure_config_exists():
             if not cfg[DEFAULT_SECTION].get("auto_save_session"):
                 cfg[DEFAULT_SECTION]["auto_save_session"] = "true"
 
-        config = mutate_config(CONFIG_FILE, _apply)
+        config = _mutate_config(_apply)
     return config
 
 
@@ -519,7 +559,7 @@ def set_config_value(key: str, value: str):
             config[DEFAULT_SECTION] = {}
         config[DEFAULT_SECTION][key] = value
 
-    mutate_config(CONFIG_FILE, _apply)
+    _mutate_config(_apply)
 
 
 # Alias for API compatibility
@@ -537,7 +577,7 @@ def reset_value(key: str) -> None:
             return True
         return False  # nothing to remove -- skip the write entirely
 
-    mutate_config(CONFIG_FILE, _apply)
+    _mutate_config(_apply)
 
 
 # --- MODEL STICKY EXTENSION STARTS HERE ---
@@ -870,7 +910,7 @@ def set_model_name(model: str):
             config[DEFAULT_SECTION] = {}
         config[DEFAULT_SECTION]["model"] = model or ""
 
-    mutate_config(CONFIG_FILE, _apply)
+    _mutate_config(_apply)
 
     # Clear model cache when switching models to ensure fresh validation
     clear_model_cache()
@@ -1149,7 +1189,7 @@ def clear_model_settings(model_name: str) -> None:
             del config[DEFAULT_SECTION][key]
         return bool(keys_to_remove)  # nothing matched -- skip the write entirely
 
-    mutate_config(CONFIG_FILE, _apply)
+    _mutate_config(_apply)
 
 
 def get_effective_model_settings(model_name: Optional[str] = None) -> dict:

@@ -16,6 +16,68 @@ from code_puppy import config as cp_config
 
 
 # ---------------------------------------------------------------------------
+# Parsed config cache
+# ---------------------------------------------------------------------------
+class TestParsedConfigCache:
+    def test_unchanged_config_is_parsed_once(self):
+        cp_config.set_config_value("cache_probe", "first")
+        cp_config._invalidate_config_cache()
+
+        with patch.object(
+            cp_config,
+            "load_config",
+            wraps=cp_config.load_config,
+        ) as mock_load:
+            assert cp_config.get_value("cache_probe") == "first"
+            assert cp_config.get_value("cache_probe") == "first"
+            assert cp_config.get_value("cache_probe") == "first"
+
+        assert mock_load.call_count == 1
+
+    def test_external_file_change_reloads_cached_config(self):
+        cp_config.set_config_value("cache_probe", "before")
+
+        assert cp_config.get_value("cache_probe") == "before"
+
+        with open(cp_config.CONFIG_FILE, "w", encoding="utf-8") as f:
+            f.write("[puppy]\\ncache_probe = externally-changed\\n")
+
+        assert cp_config.get_value("cache_probe") == "externally-changed"
+
+    def test_internal_mutation_invalidates_even_if_signature_is_unchanged(
+        self, monkeypatch
+    ):
+        cp_config.set_config_value("cache_probe", "one")
+
+        monkeypatch.setattr(cp_config, "_config_signature", lambda: (1, 1))
+
+        cp_config._invalidate_config_cache()
+        assert cp_config.get_value("cache_probe") == "one"
+
+        cp_config.set_config_value("cache_probe", "two")
+
+        assert cp_config.get_value("cache_probe") == "two"
+
+    def test_reset_value_invalidates_cached_config(self, monkeypatch):
+        cp_config.set_config_value("cache_probe", "present")
+
+        monkeypatch.setattr(cp_config, "_config_signature", lambda: (1, 1))
+
+        cp_config._invalidate_config_cache()
+        assert cp_config.get_value("cache_probe") == "present"
+
+        cp_config.reset_value("cache_probe")
+
+        assert cp_config.get_value("cache_probe") is None
+
+    def test_missing_config_file_can_be_cached_safely(self):
+        cp_config._invalidate_config_cache()
+
+        assert cp_config.get_value("does_not_exist") is None
+        assert cp_config.get_value("does_not_exist") is None
+
+
+# ---------------------------------------------------------------------------
 # _get_xdg_dir
 # ---------------------------------------------------------------------------
 class TestGetXdgDir:
