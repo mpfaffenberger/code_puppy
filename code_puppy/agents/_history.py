@@ -305,6 +305,24 @@ def _classify_tool_part(part: object) -> str | None:
     return None
 
 
+def _collect_tool_ids(messages: List[ModelMessage]) -> tuple[Set[str], Set[str]]:
+    """Return (call_ids, return_ids) across all message parts."""
+    tool_call_ids: Set[str] = set()
+    tool_return_ids: Set[str] = set()
+
+    for msg in messages:
+        for part in getattr(msg, "parts", []) or []:
+            kind = _classify_tool_part(part)
+
+            if kind == "call":
+                tool_call_ids.add(part.tool_call_id)
+
+            elif kind == "return":
+                tool_return_ids.add(part.tool_call_id)
+
+    return tool_call_ids, tool_return_ids
+
+
 def prune_interrupted_tool_calls(
     messages: List[ModelMessage],
 ) -> List[ModelMessage]:
@@ -317,29 +335,23 @@ def prune_interrupted_tool_calls(
     if not messages:
         return messages
 
-    tool_call_ids: Set[str] = set()
-    tool_return_ids: Set[str] = set()
-
-    for msg in messages:
-        for part in getattr(msg, "parts", []) or []:
-            kind = _classify_tool_part(part)
-            if kind == "call":
-                tool_call_ids.add(part.tool_call_id)
-            elif kind == "return":
-                tool_return_ids.add(part.tool_call_id)
+    tool_call_ids, tool_return_ids = _collect_tool_ids(messages)
 
     mismatched = tool_call_ids.symmetric_difference(tool_return_ids)
     if not mismatched:
         return messages
 
     pruned: List[ModelMessage] = []
+
     for msg in messages:
         if any(
             getattr(part, "tool_call_id", None) in mismatched
             for part in getattr(msg, "parts", []) or []
         ):
             continue
+
         pruned.append(msg)
+
     return pruned
 
 
@@ -353,17 +365,7 @@ def has_pending_tool_calls(messages: List[ModelMessage]) -> bool:
     if not messages:
         return False
 
-    tool_call_ids: Set[str] = set()
-    tool_return_ids: Set[str] = set()
-
-    for msg in messages:
-        for part in getattr(msg, "parts", []) or []:
-            kind = _classify_tool_part(part)
-            if kind == "call":
-                tool_call_ids.add(part.tool_call_id)
-            elif kind == "return":
-                tool_return_ids.add(part.tool_call_id)
-
+    tool_call_ids, tool_return_ids = _collect_tool_ids(messages)
     return bool(tool_call_ids - tool_return_ids)
 
 
