@@ -48,8 +48,7 @@ def test_project_plugin_loads_from_source_not_stale_cache(tmp_path):
 
     _write_unchecked_hash_pyc(
         callbacks,
-        "from pathlib import Path\n"
-        f"Path(r{str(cache_marker)!r}).write_text('cache')\n",
+        f"from pathlib import Path\nPath(r{str(cache_marker)!r}).write_text('cache')\n",
     )
 
     module_name = f"project_plugins.{plugin_name}.register_callbacks"

@@ -37,9 +37,7 @@ def _dotted_global_call_pickle(module: str, name: str, argument: str) -> bytes:
 
 def test_surrogate_unpickler_does_not_resolve_dotted_names(tmp_path):
     marker = tmp_path / "marker.txt"
-    payload = _dotted_global_call_pickle(
-        "uuid", "os.system", f"touch {marker}"
-    )
+    payload = _dotted_global_call_pickle("uuid", "os.system", f"touch {marker}")
 
     result = None
     try:

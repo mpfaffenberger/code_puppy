@@ -32,9 +32,7 @@ async def test_shell_command_env_excludes_api_keys(monkeypatch):
     async def _no_callbacks(*args, **kwargs):
         return []
 
-    monkeypatch.setattr(
-        "code_puppy.callbacks.on_run_shell_command", _no_callbacks
-    )
+    monkeypatch.setattr("code_puppy.callbacks.on_run_shell_command", _no_callbacks)
 
     result = await command_runner.run_shell_command(
         MagicMock(), "echo hi", None, 5, False
