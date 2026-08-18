@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import traceback
-from typing import Any, Callable, Dict, List, Literal, Optional, Set
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple
 
 PhaseType = Literal[
     "startup",
@@ -169,6 +169,42 @@ logger = logging.getLogger(__name__)
 # Populated by register_callback() when a loading context is active.
 _callback_owners: Dict[CallbackFunc, str] = {}
 
+# Phases whose consumers act on a {"blocked": True} result. fail_closed is only
+# meaningful there, so asking for it elsewhere is rejected rather than injecting
+# a dict into a phase with an unrelated return protocol.
+BLOCKING_PHASES: frozenset = frozenset({"pre_tool_call", "run_shell_command"})
+
+# (phase, callback) pairs registered with fail_closed=True. Keyed by pair, not
+# by callable: the same helper may be registered on several phases with
+# different policies, and one phase's choice must not leak into another.
+_fail_closed_callbacks: Set[Tuple[PhaseType, CallbackFunc]] = set()
+
+
+def _failure_result(
+    callback: CallbackFunc, phase: PhaseType, error: Exception
+) -> Dict[str, Any]:
+    """Build the block result standing in for a callback that could not decide.
+
+    Shaped for the existing {"blocked": True} consumers so none of them needs to
+    learn a new result type. The message is [BLOCKED]-tagged because
+    pydantic_patches strips everything before that marker when rendering.
+
+    The exception's text is deliberately omitted: this string reaches the user
+    and the model, and an exception may carry paths, command lines, or tokens.
+    The full traceback is already in the log line beside the caller.
+    """
+    name = getattr(callback, "__name__", repr(callback))
+    return {
+        "blocked": True,
+        "error_message": (
+            f"[BLOCKED] Security callback {name} failed in phase '{phase}' "
+            f"({type(error).__name__}); denying because a check that could not "
+            f"complete is not an approval. See the log for details."
+        ),
+        "reasoning": f"Fail-closed callback {name} raised {type(error).__name__}.",
+    }
+
+
 # Set by the plugin loader before importing each plugin's register_callbacks.py,
 # cleared immediately after.  register_callback() reads this to record ownership.
 _current_loading_plugin: Optional[str] = None
@@ -211,7 +247,26 @@ def _get_disabled_plugins() -> Set[str]:
         return set()
 
 
-def register_callback(phase: PhaseType, func: CallbackFunc) -> None:
+def register_callback(
+    phase: PhaseType, func: CallbackFunc, fail_closed: bool = False
+) -> None:
+    """Register ``func`` for ``phase``.
+
+    Args:
+        phase: Hook phase to register on.
+        func: Sync or async callable.
+        fail_closed: Opt-in for security callbacks on a phase in
+            :data:`BLOCKING_PHASES`. Error isolation normally turns a crashed
+            callback into ``None``, which those consumers read as approval;
+            with this set, a raised exception is reported as a block instead.
+            Defaults to ``False``, so every existing callback keeps its current
+            behavior.
+
+    Raises:
+        ValueError: unknown phase, or ``fail_closed`` on a phase whose
+            consumers do not act on a block result.
+        TypeError: ``func`` is not callable.
+    """
     if phase not in _callbacks:
         raise ValueError(
             f"Unsupported phase: {phase}. Supported phases: {list(_callbacks.keys())}"
@@ -220,15 +275,29 @@ def register_callback(phase: PhaseType, func: CallbackFunc) -> None:
     if not callable(func):
         raise TypeError(f"Callback must be callable, got {type(func)}")
 
+    if fail_closed and phase not in BLOCKING_PHASES:
+        raise ValueError(
+            f"fail_closed=True is only meaningful on phases whose consumers act on "
+            f"a block result ({sorted(BLOCKING_PHASES)}); phase '{phase}' would "
+            f"receive a dict it does not understand."
+        )
+
     # Prevent duplicate registration of the same callback function
     # This can happen if plugins are accidentally loaded multiple times
     if func in _callbacks[phase]:
+        # A repeat registration may still be tightening the policy; honor that
+        # rather than silently keeping the weaker fail-open behavior.
+        if fail_closed:
+            _fail_closed_callbacks.add((phase, func))
         logger.debug(
             f"Callback {func.__name__} already registered for phase '{phase}', skipping"
         )
         return
 
     _callbacks[phase].append(func)
+
+    if fail_closed:
+        _fail_closed_callbacks.add((phase, func))
 
     # Record ownership if we know which plugin is loading.
     if _current_loading_plugin is not None:
@@ -243,6 +312,7 @@ def unregister_callback(phase: PhaseType, func: CallbackFunc) -> bool:
 
     try:
         _callbacks[phase].remove(func)
+        _fail_closed_callbacks.discard((phase, func))
         logger.debug(
             f"Unregistered async callback {func.__name__} from phase '{phase}'"
         )
@@ -255,10 +325,13 @@ def clear_callbacks(phase: Optional[PhaseType] = None) -> None:
     if phase is None:
         for p in _callbacks:
             _callbacks[p].clear()
+        _fail_closed_callbacks.clear()
         logger.debug("Cleared all async callbacks")
     else:
         if phase in _callbacks:
             _callbacks[phase].clear()
+            for entry in [e for e in _fail_closed_callbacks if e[0] == phase]:
+                _fail_closed_callbacks.discard(entry)
             logger.debug(f"Cleared async callbacks for phase '{phase}'")
 
 
@@ -346,7 +419,20 @@ def _trigger_callbacks_sync(
                     # Can't await with the loop running; close the coroutine to
                     # avoid an unawaited-coroutine warning.
                     result.close()
-                    results.append(None)
+                    # Undecided, not unopposed: a fail-closed callback that
+                    # could not run must not read as approval here either.
+                    if (phase, callback) in _fail_closed_callbacks:
+                        results.append(
+                            _failure_result(
+                                callback,
+                                phase,
+                                RuntimeError(
+                                    "async callback reached the sync trigger from a running loop"
+                                ),
+                            )
+                        )
+                    else:
+                        results.append(None)
                     continue
                 except RuntimeError:
                     # No running loop — isolated thread, so asyncio.run() is safe.
@@ -360,7 +446,10 @@ def _trigger_callbacks_sync(
             )
             if raise_on_error:
                 raise
-            results.append(None)
+            if (phase, callback) in _fail_closed_callbacks:
+                results.append(_failure_result(callback, phase, e))
+            else:
+                results.append(None)
 
     return results
 
@@ -387,7 +476,10 @@ async def _trigger_callbacks(phase: PhaseType, *args, **kwargs) -> List[Any]:
                 f"Async callback {callback.__name__} failed in phase '{phase}': {e}\n"
                 f"{traceback.format_exc()}"
             )
-            results.append(None)
+            if (phase, callback) in _fail_closed_callbacks:
+                results.append(_failure_result(callback, phase, e))
+            else:
+                results.append(None)
 
     return results
 

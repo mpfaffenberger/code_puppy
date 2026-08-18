@@ -126,6 +126,10 @@ def isolate_global_state_between_tests(tmp_path_factory):
     original_config_dir = cp_config.CONFIG_DIR
     original_history_file = cp_config.COMMAND_HISTORY_FILE
     original_callbacks = deepcopy(cp_callbacks._callbacks)
+    # The fail-closed policy set is keyed by (phase, callback) and lives
+    # beside the registry; restoring one without the other would hand the
+    # next test callbacks whose security policy silently went missing.
+    original_fail_closed = set(cp_callbacks._fail_closed_callbacks)
 
     # Create a completely separate temp directory for config isolation
     # (not using tmp_path which tests may use for their own purposes).
@@ -160,6 +164,8 @@ def isolate_global_state_between_tests(tmp_path_factory):
     cp_config.COMMAND_HISTORY_FILE = original_history_file
     cp_callbacks._callbacks.clear()
     cp_callbacks._callbacks.update(original_callbacks)
+    cp_callbacks._fail_closed_callbacks.clear()
+    cp_callbacks._fail_closed_callbacks.update(original_fail_closed)
     _ensure_builtin_plugin_callback_registrations()
 
     # Clear cache again after test.
