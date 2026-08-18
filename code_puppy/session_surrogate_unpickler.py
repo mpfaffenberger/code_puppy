@@ -139,6 +139,11 @@ class SurrogateUnpickler(pickle.Unpickler):
         self.created_surrogates = False
 
     def find_class(self, module: str, name: str) -> Any:  # noqa: D102
+        # A dotted ``name`` makes the base unpickler (protocol 4+ STACK_GLOBAL)
+        # walk attributes from the module, which can reach objects the module
+        # allowlist was never meant to expose. Route these to a surrogate.
+        if "." in name:
+            return self._surrogate_for(module, name)
         root = module.split(".", 1)[0]
         if root in _ALLOWED_MODULES and not (
             module == "builtins" and name in _BLOCKED_BUILTINS

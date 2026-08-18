@@ -24,6 +24,7 @@ from code_puppy.command_line.pagination import (
 )
 from code_puppy.command_line.utils import safe_input
 from code_puppy.config import EXTRA_MODELS_FILE, set_config_value
+from code_puppy.i18n import t
 from code_puppy.list_filtering import query_matches_text
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.models_dev_parser import ModelInfo, ModelsDevRegistry, ProviderInfo
@@ -143,11 +144,11 @@ class AddModelMenu:
             )  # Will try API first, then bundled fallback
             self.providers = self.registry.get_providers()
             if not self.providers:
-                emit_error("No providers found in models database")
+                emit_error(t("model_menu.registry.no_providers"))
         except FileNotFoundError as e:
-            emit_error(f"Models database unavailable: {e}")
+            emit_error(t("model_menu.registry.unavailable", error=e))
         except Exception as e:
-            emit_error(f"Error loading models registry: {e}")
+            emit_error(t("model_menu.registry.load_error", error=e))
 
     def _get_current_provider(self) -> Optional[ProviderInfo]:
         """Get the currently selected provider."""
@@ -786,19 +787,19 @@ class AddModelMenu:
         try:
             atomic_json.mutate_json(EXTRA_MODELS_FILE, _mutate, default={})
         except _ExtraModelsNotADict:
-            emit_error("extra_models.json must be a dictionary, not a list")
+            emit_error(t("model_menu.extra_models.invalid_format"))
             return False
         except atomic_json.JsonFileCorrupt as e:
-            emit_error(f"Error parsing extra_models.json: {e}")
+            emit_error(t("model_menu.extra_models.parse_error", error=e))
             return False
         except Exception as e:
-            emit_error(f"Error adding model to extra_models.json: {e}")
+            emit_error(t("model_menu.extra_models.add_error", error=e))
             return False
 
         if already_present:
-            emit_info(f"Model {model_key} is already in extra_models.json")
+            emit_info(t("model_menu.extra_models.already_exists", model_key=model_key))
         else:
-            emit_info(f"Added {model_key} to extra_models.json")
+            emit_info(t("model_menu.extra_models.added", model_key=model_key))
         return True
 
     def _build_model_config(self, model: ModelInfo, provider: ProviderInfo) -> dict:
@@ -986,12 +987,10 @@ class AddModelMenu:
         missing_vars = self._get_missing_env_vars(provider)
 
         if not missing_vars:
-            emit_info(
-                f"✅ All required credentials for {provider.name} are already set!"
-            )
+            emit_info(t("model_menu.credentials.all_set", provider=provider.name))
             return True
 
-        emit_info(f"\n🔑 {provider.name} requires the following credentials:\n")
+        emit_info(t("model_menu.credentials.required_header", provider=provider.name))
 
         for env_var in missing_vars:
             # Show helpful hints based on common env var patterns
@@ -1004,20 +1003,18 @@ class AddModelMenu:
                 value = safe_input(f"  Enter {env_var} (or press Enter to skip): ")
 
                 if not value:
-                    emit_warning(
-                        f"Skipped {env_var} - you can set it later with /set {env_var}=<value>"
-                    )
+                    emit_warning(t("model_menu.credentials.skipped", env_var=env_var))
                     continue
 
                 # Save to config
                 set_config_value(env_var, value)
                 # Also set in current environment so it's immediately available
                 os.environ[env_var] = value
-                emit_info(f"✅ Saved {env_var} to config")
+                emit_info(t("model_menu.credentials.saved_to_config", env_var=env_var))
 
             except (KeyboardInterrupt, EOFError):
                 emit_info("")  # Clean newline
-                emit_warning("Credential input cancelled")
+                emit_warning(t("model_menu.credentials.input_cancelled"))
                 return False
 
         return True
@@ -1031,24 +1028,26 @@ class AddModelMenu:
         if not provider.env:
             return True
 
-        emit_info(f"\n🔑 {provider.name} credentials:\n")
+        emit_info(t("model_menu.credentials.edit_header", provider=provider.name))
         for env_var in provider.env:
             status = credential_display(env_var)
             hint = credential_hint(env_var)
-            emit_info(f"  {env_var}: {status}")
+            emit_info(
+                t("model_menu.credentials.edit_status", env_var=env_var, status=status)
+            )
             if hint:
                 emit_info(f"    {hint}")
 
-        emit_info("\n  Press Enter to skip, or type a new value to replace.\n")
+        emit_info(t("model_menu.credentials.edit_skip_hint"))
         for env_var in provider.env:
             try:
                 value = safe_input(f"  {env_var}: ")
                 if value:
                     save_credential(env_var, value)
-                    emit_info(f"✅ Saved {env_var}")
+                    emit_info(t("model_menu.credentials.edit_saved", env_var=env_var))
             except (KeyboardInterrupt, EOFError):
                 emit_info("")  # Clean newline
-                emit_warning("Credential edit cancelled")
+                emit_warning(t("model_menu.credentials.edit_cancelled"))
                 return False
         return True
 
@@ -1084,22 +1083,20 @@ class AddModelMenu:
         if not provider:
             return None
 
-        emit_info(f"\n✨ Adding custom model for {provider.name}\n")
-        emit_info("  Enter the model ID exactly as the provider expects it.")
-        emit_info(
-            "  Examples: gpt-4-turbo-preview, claude-3-opus-20240229, gemini-1.5-pro-latest\n"
-        )
+        emit_info(t("model_menu.custom_model.header", provider=provider.name))
+        emit_info(t("model_menu.custom_model.id_hint"))
+        emit_info(t("model_menu.custom_model.id_examples"))
 
         try:
             model_name = safe_input("  Model ID: ")
 
             if not model_name:
-                emit_warning("No model name provided, cancelled.")
+                emit_warning(t("model_menu.custom_model.no_name"))
                 return None
 
             # Ask for context size
-            emit_info("\n  Enter the context window size (in tokens).")
-            emit_info("  Common sizes: 8192, 32768, 128000, 200000, 1000000\n")
+            emit_info(t("model_menu.custom_model.context_hint"))
+            emit_info(t("model_menu.custom_model.context_examples"))
 
             context_input = safe_input("  Context size [128000]: ")
 
@@ -1112,26 +1109,26 @@ class AddModelMenu:
                     try:
                         context_length = int(float(context_input_lower[:-1]) * 1000)
                     except ValueError:
-                        emit_warning("Invalid context size, using default 128000")
+                        emit_warning(t("model_menu.custom_model.invalid_context"))
                         context_length = 128000
                 elif context_input_lower.endswith("m"):
                     try:
                         context_length = int(float(context_input_lower[:-1]) * 1000000)
                     except ValueError:
-                        emit_warning("Invalid context size, using default 128000")
+                        emit_warning(t("model_menu.custom_model.invalid_context"))
                         context_length = 128000
                 else:
                     try:
                         context_length = int(context_input)
                     except ValueError:
-                        emit_warning("Invalid context size, using default 128000")
+                        emit_warning(t("model_menu.custom_model.invalid_context"))
                         context_length = 128000
 
             return (model_name, context_length)
 
         except (KeyboardInterrupt, EOFError):
             emit_info("")  # Clean newline
-            emit_warning("Custom model input cancelled")
+            emit_warning(t("model_menu.custom_model.input_cancelled"))
             return None
 
     def _get_env_var_hint(self, env_var: str) -> str:
@@ -1164,7 +1161,7 @@ class AddModelMenu:
             True if a model was added, False otherwise
         """
         if not self.registry or not self.providers:
-            emit_warning("No models data available.")
+            emit_warning(t("model_menu.browser.no_data"))
             return False
 
         # Build UI
@@ -1325,14 +1322,20 @@ class AddModelMenu:
 
         # Clear exit message (unless we're about to prompt for more input)
         if self.result not in ("pending_credentials", "pending_custom_model"):
-            emit_info("✓ Exited model browser")
+            emit_info(t("model_menu.browser.exited"))
 
         # Handle unsupported provider
         if self.result == "unsupported" and self.current_provider:
             reason = UNSUPPORTED_PROVIDERS.get(
                 self.current_provider.id, "Not supported"
             )
-            emit_error(f"Cannot add model from {self.current_provider.name}: {reason}")
+            emit_error(
+                t(
+                    "model_menu.browser.unsupported_provider",
+                    provider=self.current_provider.name,
+                    reason=reason,
+                )
+            )
             return False
 
         # Handle custom model flow after TUI exits
@@ -1368,16 +1371,17 @@ class AddModelMenu:
             # Warn about non-tool-calling models
             if not self.pending_model.tool_call:
                 emit_warning(
-                    f"⚠️  {self.pending_model.name} does NOT support tool calling!\n"
-                    f"   This model won't be able to edit files, run commands, or use any tools.\n"
-                    f"   It will be very limited for coding tasks."
+                    t(
+                        "model_menu.browser.no_tool_call_warning",
+                        model=self.pending_model.name,
+                    )
                 )
                 try:
                     confirm = safe_input(
                         "\n  Are you sure you want to add this model? (y/N): "
                     ).lower()
                     if confirm not in ("y", "yes"):
-                        emit_info("Model addition cancelled.")
+                        emit_info(t("model_menu.browser.add_cancelled"))
                         return False
                 except (KeyboardInterrupt, EOFError):
                     emit_info("")

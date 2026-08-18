@@ -832,6 +832,100 @@ class TestEdgeCasesInListFiles:
         assert "test.txt" in result.content
 
 
+class TestListFilesParentDirectorySynthesis:
+    """Test the synthesized parent-directory entries in recursive listings.
+
+    ``ripgrep --files`` returns files only, so ``_list_files`` derives the
+    intermediate directory entries itself and de-duplicates them. These tests
+    pin that behaviour down: every ancestor must appear, and each must appear
+    exactly once no matter how many files share it.
+    """
+
+    @staticmethod
+    def _dir_entries(content):
+        """Directory paths from a listing, in order of appearance."""
+        entries = []
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.endswith("/"):
+                entries.append(stripped.rstrip("/"))
+        return entries
+
+    def test_shared_parents_are_not_duplicated(self, tmp_path):
+        """Many files under one directory yield a single entry for it."""
+        shared = tmp_path / "pkg" / "sub"
+        shared.mkdir(parents=True)
+        for i in range(5):
+            (shared / f"file{i}.py").write_text("x")
+
+        result = _list_files(None, str(tmp_path), recursive=True)
+        dirs = self._dir_entries(result.content)
+
+        assert len(dirs) == len(set(dirs)), f"duplicate directories: {dirs}"
+
+    def test_all_ancestors_are_present(self, tmp_path):
+        """Every level of a deep path shows up in the listing, exactly once."""
+        deep = tmp_path / "a" / "b" / "c"
+        deep.mkdir(parents=True)
+        (deep / "leaf.txt").write_text("x")
+
+        result = _list_files(None, str(tmp_path), recursive=True)
+        dirs = self._dir_entries(result.content)
+
+        assert dirs == ["a", "b", "c"], f"expected synthesized chain a/b/c, got: {dirs}"
+        assert "leaf.txt" in result.content
+
+    def test_sibling_branches_each_appear_once(self, tmp_path):
+        """Separate branches sharing a prefix are each listed once."""
+        for branch in ("one", "two"):
+            leaf = tmp_path / "common" / branch
+            leaf.mkdir(parents=True)
+            (leaf / "f.txt").write_text("x")
+
+        result = _list_files(None, str(tmp_path), recursive=True)
+        dirs = self._dir_entries(result.content)
+
+        assert len(dirs) == len(set(dirs)), f"duplicate directories: {dirs}"
+        for name in ("common", "one", "two"):
+            assert name in dirs, f"missing directory {name!r} in: {dirs}"
+
+    def test_files_at_mixed_depths_are_all_listed(self, tmp_path):
+        """Files at the root and nested levels coexist without loss."""
+        (tmp_path / "root.txt").write_text("x")
+        mid = tmp_path / "mid"
+        mid.mkdir()
+        (mid / "mid.txt").write_text("x")
+        deep = mid / "deeper"
+        deep.mkdir()
+        (deep / "deep.txt").write_text("x")
+
+        result = _list_files(None, str(tmp_path), recursive=True)
+        dirs = self._dir_entries(result.content)
+
+        assert len(dirs) == len(set(dirs)), f"duplicate directories: {dirs}"
+        for name in ("root.txt", "mid.txt", "deep.txt"):
+            assert name in result.content
+
+    def test_parent_referenced_at_multiple_depths_appears_once(self, tmp_path):
+        """A parent named by files at different depths is synthesized once.
+
+        ``holder`` is a path component of ``holder/c.txt`` (depth 1) and of
+        ``holder/inner/a.txt`` / ``holder/inner/b.txt`` (depth 2), so the
+        de-duplication sees it repeatedly and must still emit a single entry.
+        """
+        nested = tmp_path / "holder" / "inner"
+        nested.mkdir(parents=True)
+        (nested / "a.txt").write_text("x")
+        (nested / "b.txt").write_text("x")
+        (tmp_path / "holder" / "c.txt").write_text("x")
+
+        result = _list_files(None, str(tmp_path), recursive=True)
+        dirs = self._dir_entries(result.content)
+
+        assert len(dirs) == len(set(dirs)), f"duplicate directories: {dirs}"
+        assert dirs.count("holder") == 1, f"expected one 'holder' entry in: {dirs}"
+
+
 class TestIgnoreFileCleanup:
     """Test that temporary ignore files are cleaned up."""
 
