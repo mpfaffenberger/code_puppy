@@ -258,22 +258,121 @@ def _substitute_variables(
             substitutions["duration_ms"] = str(event_data.context["duration_ms"])
     substitutions.update(env_vars)
 
-    result = command
-    for var, value in substitutions.items():
-        # Quote each interpolated value so a normal path/value is spliced in
-        # unchanged while shell metacharacters in the value are treated as
-        # literal text by the shell rather than as syntax.
-        quoted = shlex.quote(str(value))
-        result = result.replace(f"${{{var}}}", quoted)
-        result = re.sub(rf"\${re.escape(var)}(?=\W|$)", lambda m: quoted, result)
-    return result
+    return _interpolate_placeholders(command, substitutions)
+
+
+_PLACEHOLDER_RE = re.compile(r"\$\{(\w+)\}|\$(\w+)")
+
+
+def _interpolate_placeholders(template: str, values: Dict[str, str]) -> str:
+    """Splice ``$var``/``${var}`` values into ``template`` as literal text.
+
+    The shell must never re-interpret a substituted value: each splice is
+    made safe in the quoting context the template itself established
+    (tracked by scanning only the template's literal segments), and
+    substituted values are not re-scanned, so a value containing ``$`` or
+    quote characters cannot inject further placeholders, close the author's
+    quotes, or run commands in the hook's own shell. Unknown ``$``
+    sequences pass through for the shell to expand as the hook author wrote
+    them.
+
+    A template that itself invokes a nested interpreter — ``sh -c
+    '...${file}...'`` — hands the value to that interpreter as code; no
+    quoting at this level can prevent that. Hooks that need untrusted
+    values inside evaluation should read them from the provided environment
+    (``CLAUDE_FILE_PATH`` et al.) or stdin JSON instead of interpolation.
+    """
+    if os.name == "nt":
+        # Hooks run via cmd /c, where POSIX single-quoting is literal text.
+        return _PLACEHOLDER_RE.sub(_nt_replacement(values), template)
+
+    pieces: List[str] = []
+    position = 0
+    quote: Optional[str] = None  # "'", '"', or None outside any quotes
+    for match in _PLACEHOLDER_RE.finditer(template):
+        literal = template[position : match.start()]
+        pieces.append(literal)
+        quote = _shell_quote_state(literal, quote)
+        position = match.end()
+
+        name = match.group(1) or match.group(2)
+        if name not in values:
+            pieces.append(match.group(0))
+            continue
+        value = str(values[name])
+        if quote is None:
+            pieces.append(shlex.quote(value))
+        elif quote == "'":
+            # Inside the author's single quotes only a single quote is
+            # special: splice each one as close-quote + escaped quote +
+            # reopen (''' idiom) so the value stays literal text.
+            pieces.append(value.replace("'", "'\\''"))
+        else:
+            pieces.append(_double_quote_escape(value))
+    pieces.append(template[position:])
+    return "".join(pieces)
+
+
+def _nt_replacement(values: Dict[str, str]):
+    def _replace(match: "re.Match") -> str:
+        name = match.group(1) or match.group(2)
+        if name in values:
+            return _cmd_quote(str(values[name]))
+        return match.group(0)
+
+    return _replace
+
+
+def _shell_quote_state(text: str, state: Optional[str]) -> Optional[str]:
+    """Track single/double-quote state across a literal template segment."""
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if state is None:
+            if char in ("'", '"'):
+                state = char
+            elif char == "\\":
+                i += 1  # escaped character cannot open a quote
+        elif state == "'":
+            if char == "'":
+                state = None
+        else:  # inside double quotes
+            if char == "\\":
+                i += 1
+            elif char == '"':
+                state = None
+        i += 1
+    return state
+
+
+def _double_quote_escape(value: str) -> str:
+    """Escape a value for splicing inside an open double-quoted string."""
+    for char, escaped in (("\\", "\\\\"), ('"', '\\"'), ("$", "\\$"), ("`", "\\`")):
+        value = value.replace(char, escaped)
+    return value
+
+
+def _cmd_quote(value: str) -> str:
+    """Quote a value for cmd.exe.
+
+    Double quotes group and make ``& | < > ( ) ^`` inert; inner quotes are
+    doubled. ``%`` cannot be escaped outside batch files, so a value naming
+    an existing ``%VAR%`` still expands — text substitution only, never
+    command execution, since expansion cannot introduce a closing quote.
+    """
+    return '"' + value.replace('"', '""') + '"'
 
 
 def _build_environment(
     event_data: EventData,
     env_vars: Optional[Dict[str, str]] = None,
 ) -> Dict[str, str]:
-    env = os.environ.copy()
+    from code_puppy.provider_credentials import environment_without_credentials
+
+    # Hooks fire on model-triggered tool calls, so they get the same
+    # credential scrub as child shell commands: the agent's own provider
+    # keys never ride along in the hook environment.
+    env = environment_without_credentials()
     env["CLAUDE_PROJECT_DIR"] = os.getcwd()
     env["CLAUDE_TOOL_INPUT"] = json.dumps(event_data.tool_args)
     env["CLAUDE_TOOL_NAME"] = event_data.tool_name

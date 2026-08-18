@@ -736,6 +736,19 @@ _SUPPORTED_RG_FLAGS = frozenset(
         "--context",
         "-g",
         "--glob",
+        "-v",
+        "--invert-match",
+        "-n",
+        "--line-number",
+        "-o",
+        "--only-matching",
+        "-S",
+        "--smart-case",
+        "-T",
+        "--trim",
+        "-U",
+        "--multiline",
+        "--multiline-dotall",
     }
 )
 
@@ -759,7 +772,9 @@ _RG_FLAGS_WITH_VALUE = frozenset(
     }
 )
 
-_SUPPORTED_RG_FLAGS_HINT = "-i, -s, -w, -F, -e, -t/--type, -A, -B, -C, -g"
+_SUPPORTED_RG_FLAGS_HINT = (
+    "-i, -s, -w, -F, -e, -t/--type, -A, -B, -C, -g, -v, -S, -o, -T, -U"
+)
 
 
 def _build_grep_args(search_string: str) -> tuple[list[str], str | None]:
@@ -792,6 +807,12 @@ def _build_grep_args(search_string: str) -> tuple[list[str], str | None]:
         # treat the whole string as a literal pattern.
         return ["-e", search_string], None
 
+    expanded: list[str] = []
+    for token in tokens:
+        pieces, expandable = _expand_short_flag_cluster(token)
+        expanded.extend(pieces if expandable else [token])
+    tokens = expanded
+
     index = 0
     while index < len(tokens):
         token = tokens[index]
@@ -804,11 +825,42 @@ def _build_grep_args(search_string: str) -> tuple[list[str], str | None]:
                     "anything else."
                 )
             if flag in _RG_FLAGS_WITH_VALUE and "=" not in token:
+                if index + 1 >= len(tokens):
+                    return [], (
+                        f"grep flag '{flag}' needs a value. Supported flags: "
+                        f"{_SUPPORTED_RG_FLAGS_HINT}."
+                    )
                 # Skip the value token so a pattern/glob beginning with ``-``
                 # is not mistaken for an unsupported flag.
                 index += 1
         index += 1
     return tokens, None
+
+
+def _expand_short_flag_cluster(token: str) -> tuple[list[str], bool]:
+    """Split clustered short flags the way ripgrep itself does.
+
+    ``-iw`` becomes ``["-i", "-w"]``; a value-taking short flag consumes the
+    rest of the token as its value, so ``-C3`` becomes ``["-C", "3"]`` and
+    ``-tpy`` becomes ``["-t", "py"]``. Returns ``(tokens, False)`` when the
+    token is not a cluster of supported short flags (long options, values,
+    patterns), leaving the caller to handle it verbatim.
+    """
+    if (
+        len(token) > 2
+        and token.startswith("-")
+        and not token.startswith("--")
+        and "=" not in token
+    ):
+        chars = token[1:]
+        if f"-{chars[0]}" in _RG_FLAGS_WITH_VALUE:
+            return [f"-{chars[0]}", chars[1:]], True
+        if all(
+            f"-{char}" in _SUPPORTED_RG_FLAGS and f"-{char}" not in _RG_FLAGS_WITH_VALUE
+            for char in chars
+        ):
+            return [f"-{char}" for char in chars], True
+    return [token], False
 
 
 # ripgrep --type name → extensions for the backend grep path; unknown types
@@ -839,7 +891,7 @@ _RG_TYPE_EXTS: dict[str, set[str]] = {
     "sql": {".sql"},
 }
 
-_BACKEND_GREP_SUPPORTED = "-i, -s, -w, -F, --type/-t, -e, or a plain pattern"
+_BACKEND_GREP_SUPPORTED = "-i, -s, -S, -w, -F, -v, --type/-t, -e, or a plain pattern"
 
 
 def _build_backend_matcher(
@@ -867,13 +919,19 @@ def _build_backend_matcher(
     exts: set[str] | None = None
     pattern: str | None = None
 
+    invert = False
+    smart_case = False
     if not search_string.startswith("-"):
         pattern = search_string
     else:
-        tokens = _tokenize_flag_string(search_string)
-        if tokens is None:
+        raw_tokens = _tokenize_flag_string(search_string)
+        if raw_tokens is None:
             pattern = search_string  # unmatched quote -> treat as literal
         else:
+            tokens: list[str] = []
+            for tok in raw_tokens:
+                pieces, expandable = _expand_short_flag_cluster(tok)
+                tokens.extend(pieces if expandable else [tok])
             i = 0
             while i < len(tokens):
                 tok = tokens[i]
@@ -888,6 +946,20 @@ def _build_backend_matcher(
                         return tokens[i]
                     return None
 
+                if (
+                    key in ("-t", "--type", "-e", "--regexp")
+                    and not eq
+                    and i + 1 >= len(tokens)
+                ):
+                    return (
+                        None,
+                        None,
+                        (
+                            f"grep flag '{key}' needs a value. "
+                            f"Supported: {_BACKEND_GREP_SUPPORTED}."
+                        ),
+                    )
+
                 if key in _INCOMPATIBLE_RG_FLAGS:
                     return (
                         None,
@@ -901,6 +973,10 @@ def _build_backend_matcher(
                     flags |= re.IGNORECASE
                 elif key in ("-s", "--case-sensitive"):
                     flags &= ~re.IGNORECASE
+                elif key in ("-v", "--invert-match"):
+                    invert = True
+                elif key in ("-S", "--smart-case"):
+                    smart_case = True
                 elif key in ("-w", "--word-regexp"):
                     word = True
                 elif key in ("-F", "--fixed-strings"):
@@ -939,6 +1015,12 @@ def _build_backend_matcher(
         pattern = re.escape(pattern)
     if word:
         pattern = r"\b(?:" + pattern + r")\b"
+    if smart_case and not any(char.isupper() for char in pattern):
+        flags |= re.IGNORECASE
+    if invert:
+        # A line matches the inverted search when no position starts a
+        # match of the original pattern (whole-line negative lookahead).
+        pattern = r"^(?:(?!" + pattern + r").)*$"
     try:
         return re.compile(pattern, flags), exts, None
     except re.error as exc:
@@ -1041,6 +1123,14 @@ def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
     return _emit_grep_result(search_string, directory, matches, None)
 
 
+def _carries_type_filter(rg_args: list[str]) -> bool:
+    """True when the forwarded ripgrep args already select file types."""
+    return any(
+        token == "-t" or token == "--type" or token.startswith("--type=")
+        for token in rg_args
+    )
+
+
 def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
     import json
     import os
@@ -1094,15 +1184,11 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         if args_error is not None:
             return GrepOutput(matches=[], error=args_error)
 
-        cmd = [
-            rg_path,
-            "--json",
-            "--max-count",
-            "50",
-            "--max-filesize",
-            "5M",
-            "--type=all",
-        ]
+        cmd = [rg_path, "--json", "--max-count", "50", "--max-filesize", "5M"]
+        # rg's type filters are additive, so the default all-types selection
+        # must not dilute an explicit -t/--type from the search string.
+        if not _carries_type_filter(rg_args):
+            cmd.append("--type=all")
 
         # Add ignore patterns to the command via a temporary file
         from code_puppy.tools.common import DIR_IGNORE_PATTERNS
@@ -1143,8 +1229,10 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                 continue
             try:
                 match_data = json.loads(line)
-                # Only process match events, not context or summary
-                if match_data.get("type") == "match":
+                # Process match and context events (-A/-B/-C context lines
+                # carry the same path/lines/line_number shape); skip begin,
+                # end, and summary bookkeeping events.
+                if match_data.get("type") in ("match", "context"):
                     data = match_data.get("data", {})
                     path_data = data.get("path", {})
                     file_path = (
@@ -1278,7 +1366,9 @@ def register_grep(agent):
         or 'foo|bar baz' work as-is, on every OS).
 
         To pass ripgrep flags, start the string with a flag and quote the
-        pattern, e.g.: -i --type py 'def \\w+_handler'
+        pattern, e.g.: -i --type py 'def \\w+_handler'. Supported flags:
+        -i, -s, -w, -F, -e, -t/--type, -A, -B, -C, -g, -v, -S, -o, -T, -U
+        (long forms and clustered shorts like -iw or -C3 work too).
 
         Output-format flags (-l, -c, --files, --count, --json, -q) are not
         supported and return an error. To search for a pattern that itself

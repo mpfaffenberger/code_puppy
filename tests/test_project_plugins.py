@@ -232,7 +232,7 @@ class TestBrokenPlugin:
 
         call_count = 0
 
-        def spec_side_effect(_name, _path):
+        def spec_side_effect(_name, _path, **_kwargs):
             nonlocal call_count
             call_count += 1
             # Return bad spec for first call, good for second

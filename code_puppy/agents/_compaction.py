@@ -26,12 +26,14 @@ from pydantic_ai.messages import (
 )
 
 from code_puppy.agents._history import (
+    _classify_tool_part,
     estimate_tokens_for_message,
     filter_huge_messages,
     has_pending_tool_calls,
     hash_message,
     prune_interrupted_tool_calls,
     sanitize_tool_call_ids,
+    stringify_part,
 )
 from code_puppy.callbacks import (
     on_message_history_processor_end,
@@ -180,65 +182,62 @@ def truncate(
 
 
 def _framing_request() -> ModelRequest:
-    """A short neutral user-role message used to repair request boundaries."""
+    """A short neutral user-role message used to repair the slice opening."""
     return ModelRequest(
         parts=[UserPromptPart(content="Conversation history to summarize:")]
     )
 
 
-def _framing_response() -> ModelResponse:
-    """A short neutral assistant-role message used to repair request boundaries."""
-    return ModelResponse(parts=[TextPart(content="Acknowledged; continuing.")])
+def _ensure_leading_request(messages: List[ModelMessage]) -> List[ModelMessage]:
+    """Prefix a slice that opens on an assistant turn (Anthropic requires it)."""
+    if messages and isinstance(messages[0], ModelResponse):
+        return [_framing_request(), *messages]
+    return messages
 
 
-def _same_role(left: ModelMessage, right: ModelMessage) -> bool:
-    """True iff both messages are assistant turns or both are user turns."""
-    return isinstance(left, ModelResponse) == isinstance(right, ModelResponse)
+def _merge_consecutive_same_role(messages: List[ModelMessage]) -> List[ModelMessage]:
+    """Losslessly collapse adjacent same-role turns by concatenating parts.
 
-
-def _normalize_for_summarization(
-    messages: List[ModelMessage],
-) -> List[ModelMessage]:
-    """Shape a summarization slice into a provider-valid request body.
-
-    Providers such as Anthropic require a request to open on a user-role
-    message and never place two same-role messages adjacently. A slice taken
-    from the middle of a conversation — then trimmed by orphan-pruning — can
-    open on an assistant turn, carry an internal same-role adjacency, or end on
-    a user turn. The trailing case matters because ``run_summarization_sync``
-    appends the summarization instruction as a trailing user-role message; a
-    slice that already ends on a user turn would collide with it, producing a
-    user→user adjacency the provider rejects. Any such rejection makes the
-    summarization request fail and compaction silently fall back to truncation.
-
-    Each boundary is repaired by inserting a short neutral framing message
-    rather than dropping real content, so the summary still sees every step.
-    Returns the slice unchanged when it is empty.
+    Production replaces pydantic-ai's history cleaner with identity, so a
+    user→user or assistant→assistant pair is forwarded to the provider.
     """
     if not messages:
         return messages
-
-    normalized: List[ModelMessage] = []
-    if isinstance(messages[0], ModelResponse):
-        normalized.append(_framing_request())
-
-    for msg in messages:
-        if normalized and _same_role(normalized[-1], msg):
-            filler = (
-                _framing_request()
-                if isinstance(msg, ModelResponse)
-                else _framing_response()
+    merged: List[ModelMessage] = [messages[0]]
+    for message in messages[1:]:
+        previous = merged[-1]
+        if isinstance(message, ModelResponse) == isinstance(previous, ModelResponse):
+            previous_parts = list(getattr(previous, "parts", []) or [])
+            next_parts = list(getattr(message, "parts", []) or [])
+            merged[-1] = dataclasses.replace(
+                previous, parts=[*previous_parts, *next_parts]
             )
-            normalized.append(filler)
-        normalized.append(msg)
+        else:
+            merged.append(message)
+    return merged
 
-    # run_summarization_sync appends the instruction as a trailing user-role
-    # message; cap a user-ending slice with an assistant turn so that append
-    # continues the alternation instead of colliding.
-    if isinstance(normalized[-1], ModelRequest):
-        normalized.append(_framing_response())
 
-    return normalized
+def _detach_trailing_request(
+    messages: List[ModelMessage],
+) -> Tuple[List[ModelMessage], Optional[ModelRequest]]:
+    """Peel a final user turn so ``agent.run`` can append the instruction."""
+    if messages and isinstance(messages[-1], ModelRequest):
+        return messages[:-1], messages[-1]
+    return messages, None
+
+
+def _request_text(message: ModelRequest) -> str:
+    """Flatten a user turn's parts into prompt text."""
+    pieces: List[str] = []
+    for part in message.parts:
+        content = getattr(part, "content", None)
+        if isinstance(content, str) and content:
+            pieces.append(content)
+        else:
+            rendered = stringify_part(part)
+            if rendered:
+                pieces.append(rendered)
+    return "\n".join(pieces)
 
 
 def _run_summarization_core(
@@ -274,11 +273,23 @@ def _run_summarization_core(
     if not pruned:
         return prune_interrupted_tool_calls(messages), []
 
-    pruned = _normalize_for_summarization(pruned)
+    pruned = _merge_consecutive_same_role(_ensure_leading_request(pruned))
+    pruned, trailing = _detach_trailing_request(pruned)
+    prompt = _SUMMARIZATION_INSTRUCTIONS
+    if trailing is not None:
+        if any(_classify_tool_part(part) == "return" for part in trailing.parts):
+            # Keep returns paired; one-token break so agent.run can alternate.
+            pruned = [
+                *pruned,
+                trailing,
+                ModelResponse(parts=[TextPart(content=".")]),
+            ]
+        else:
+            trailing_text = _request_text(trailing)
+            if trailing_text:
+                prompt = f"{trailing_text}\n\n{_SUMMARIZATION_INSTRUCTIONS}"
 
-    summary_text = run_summarization_sync(
-        _SUMMARIZATION_INSTRUCTIONS, message_history=pruned
-    )
+    summary_text = run_summarization_sync(prompt, message_history=pruned)
 
     # Splice ONLY the summary into context — not the summarization run's
     # request/response envelope (which would drag the prompt + full history

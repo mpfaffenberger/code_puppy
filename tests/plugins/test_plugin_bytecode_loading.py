@@ -71,3 +71,65 @@ def test_project_plugin_loads_from_source_not_stale_cache(tmp_path):
     assert loaded
     assert source_marker.exists()
     assert not cache_marker.exists()
+
+
+def test_project_plugin_load_writes_no_bytecode_and_touches_no_globals(tmp_path):
+    """Loading runs source directly: no __pycache__ anywhere, no global
+    ``sys.pycache_prefix`` mutation, and sibling imports resolve too."""
+    import sys as _sys
+
+    plugin_name = "no_bytecode_plugin"
+    plugin_dir = tmp_path / ".code_puppy" / "plugins" / plugin_name
+    plugin_dir.mkdir(parents=True)
+
+    (plugin_dir / "helper.py").write_text("VALUE = 41\n")
+    (plugin_dir / "register_callbacks.py").write_text(
+        "from . import helper\n"
+        "from pathlib import Path\n"
+        "import sys\n"
+        f"Path(r{str(tmp_path / 'pycache_at_load')!r}).write_text(str(sys.pycache_prefix))\n"
+        f"Path(r{str(tmp_path / 'helper_value')!r}).write_text(str(helper.VALUE + 1))\n"
+    )
+
+    module_name = f"project_plugins.{plugin_name}.register_callbacks"
+    prefix_before = _sys.pycache_prefix
+    try:
+        _ensure_project_ns()
+        loaded = _load_one_project_plugin(plugin_dir, plugin_name)
+    finally:
+        for name in (
+            module_name,
+            f"project_plugins.{plugin_name}",
+            f"project_plugins.{plugin_name}.helper",
+        ):
+            _sys.modules.pop(name, None)
+        parent = str(plugin_dir.parent)
+        if parent in _sys.path:
+            _sys.path.remove(parent)
+
+    assert loaded
+    # Sibling import resolved through the source-only loader.
+    assert (tmp_path / "helper_value").read_text() == "42"
+    # The plugin observed an untouched global during its own import.
+    assert (tmp_path / "pycache_at_load").read_text() == str(prefix_before)
+    # No bytecode cache was written inside the project tree.
+    assert not list(plugin_dir.rglob("__pycache__"))
+    assert not list(plugin_dir.rglob("*.pyc"))
+
+
+def test_project_plugin_finder_scoped_to_namespace(tmp_path):
+    """The meta-path finder only serves project_plugins.* imports."""
+    from code_puppy.plugins import _ProjectPluginFinder
+
+    finder = _ProjectPluginFinder()
+    plugin_dir = tmp_path / "plug"
+    plugin_dir.mkdir()
+    (plugin_dir / "mod.py").write_text("X = 1\n")
+
+    spec = finder.find_spec("project_plugins.plug.mod", path=[str(plugin_dir)])
+    assert spec is not None and spec.loader is not None
+    assert type(spec.loader).__name__ == "_ProjectPluginLoader"
+
+    # Anything outside the namespace is not ours to answer.
+    assert finder.find_spec("os", path=[str(plugin_dir)]) is None
+    assert finder.find_spec("code_puppy.plugins", path=[str(plugin_dir)]) is None

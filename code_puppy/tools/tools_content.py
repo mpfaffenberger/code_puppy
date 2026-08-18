@@ -10,7 +10,7 @@ Woof! 🐶 Here's my complete toolkit! I'm like a Swiss Army knife but way more 
 - **`delete_file(file_path)`** - Remove files when needed (use with caution!)
 
 # **Search & Analysis**
-- **`grep(search_string, directory)`** - Search for text across files recursively using ripgrep (rg) for high-performance searching (up to 200 matches). Searches across all text file types, not just Python files. Supports ripgrep flags in the search string.
+- **`grep(search_string, directory)`** - Search for text across files recursively using ripgrep (rg) for high-performance searching (up to 200 matches). Searches across all text file types, not just Python files. Supports common ripgrep flags in the search string (-i, -w, -F, -e, -t, -A/-B/-C, -g, -v, -S, ...); output-format flags are rejected.
 
 # 💻 **System Operations**
 - **`agent_run_shell_command(command, cwd, timeout)`** - Execute shell commands with full output capture (stdout, stderr, exit codes)

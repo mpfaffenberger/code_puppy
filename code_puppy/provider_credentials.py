@@ -12,39 +12,62 @@ Used by:
 
 from __future__ import annotations
 
+import functools
 import os
 from typing import Dict, List, Optional
 
 
-def extract_env_var_from_model_config(model_config: dict) -> Optional[str]:
-    """Return the ``$ENV`` key a single model config depends on, if any.
+def extract_env_vars_from_model_config(model_config: dict) -> List[str]:
+    """Every ``$ENV`` name a single model config depends on.
 
-    Mirrors ``model_factory`` resolution: a credential is referenced as a
-    string of the form ``"$ENV_NAME"`` either at the top-level ``api_key`` or
-    nested under ``custom_endpoint.api_key``. Returns the env var name without
-    the leading ``$`` (e.g. ``"FIREWORKS_API_KEY"``), or ``None``.
+    Mirrors ``model_factory.get_custom_config``: ``custom_endpoint.api_key``,
+    string values of ``custom_endpoint.headers`` (a whole-value ``$ENV`` or a
+    space-separated token such as ``Authorization: Bearer $MY_SERVICE_TOKEN``),
+    and the top-level ``api_key``. Returns env var names without the leading
+    ``$`` (e.g. ``"FIREWORKS_API_KEY"``), de-duplicated in precedence order.
     """
     if not isinstance(model_config, dict):
-        return None
+        return []
 
-    candidates = []
+    names: List[str] = []
+
+    def _add(value: object) -> None:
+        if not isinstance(value, str):
+            return
+        if value.startswith("$"):
+            env_var = value[1:].strip()
+            if env_var and env_var not in names:
+                names.append(env_var)
+            return
+        if "$" not in value:
+            return
+        # Same split as model_factory.get_custom_config: only a space-
+        # separated token that itself starts with ``$`` is a credential.
+        for token in value.split(" "):
+            if token.startswith("$"):
+                env_var = token[1:].strip()
+                if env_var and env_var not in names:
+                    names.append(env_var)
+
     # Prefer custom_endpoint.api_key over top-level api_key (mirrors model_factory)
     custom_endpoint = model_config.get("custom_endpoint")
     if isinstance(custom_endpoint, dict):
-        endpoint_key = custom_endpoint.get("api_key")
-        if isinstance(endpoint_key, str):
-            candidates.append(endpoint_key)
+        _add(custom_endpoint.get("api_key"))
+        headers = custom_endpoint.get("headers")
+        if isinstance(headers, dict):
+            for header_value in headers.values():
+                _add(header_value)
+    _add(model_config.get("api_key"))
+    return names
 
-    top_level = model_config.get("api_key")
-    if isinstance(top_level, str):
-        candidates.append(top_level)
 
-    for value in candidates:
-        if value.startswith("$"):
-            env_var = value[1:].strip()
-            if env_var:
-                return env_var
-    return None
+def extract_env_var_from_model_config(model_config: dict) -> Optional[str]:
+    """Return the primary ``$ENV`` key a single model config depends on, if any.
+
+    The first of :func:`extract_env_vars_from_model_config`, or ``None``.
+    """
+    names = extract_env_vars_from_model_config(model_config)
+    return names[0] if names else None
 
 
 def _load_merged_model_config() -> Dict[str, dict]:
@@ -71,11 +94,9 @@ def required_env_vars_by_provider() -> Dict[str, List[str]]:
     for _model_name, model_config in _load_merged_model_config().items():
         if not isinstance(model_config, dict):
             continue
-        env_var = extract_env_var_from_model_config(model_config)
-        if not env_var:
-            continue
         provider = str(model_config.get("provider") or "unknown")
-        grouped.setdefault(provider, set()).add(env_var)
+        for env_var in extract_env_vars_from_model_config(model_config):
+            grouped.setdefault(provider, set()).add(env_var)
     return {provider: sorted(vars_) for provider, vars_ in sorted(grouped.items())}
 
 
@@ -144,6 +165,54 @@ def save_credential(env_var: str, value: str) -> None:
     set_config_value(env_var.lower(), value)
     if value:
         os.environ[env_var] = value
+
+
+_WELL_KNOWN_CREDENTIAL_ENV_VARS = frozenset(
+    {
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "CEREBRAS_API_KEY",
+        "SYN_API_KEY",
+        "AZURE_OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "ZAI_API_KEY",
+    }
+)
+
+
+@functools.lru_cache(maxsize=1)
+def credential_env_var_names() -> frozenset:
+    """Every env var name that carries an agent provider credential.
+
+    The well-known provider keys plus every ``$ENV`` name referenced by a
+    configured model (including custom-endpoint header credentials), so the
+    scrub below cannot miss a custom provider. Cached because the model
+    catalog is read from disk and this runs on every child-process spawn; a
+    catalog edited mid-session applies after restart.
+    """
+    names = set(_WELL_KNOWN_CREDENTIAL_ENV_VARS)
+    try:
+        names.update(all_required_env_vars())
+    except Exception:
+        # A broken catalog must not break environment scrubbing.
+        pass
+    return frozenset(names)
+
+
+def environment_without_credentials() -> Dict[str, str]:
+    """``os.environ`` minus the agent's own provider credentials.
+
+    Child shell commands and hooks have no legitimate use for the keys the
+    agent itself authenticates with; removing them keeps a child process
+    from inheriting and exfiltrating them. Everything else in the user's
+    environment (``GITHUB_TOKEN``, ``AWS_*``, proxies) passes through so
+    routine tooling keeps working.
+    """
+    credentials = credential_env_var_names()
+    return {
+        name: value for name, value in os.environ.items() if name not in credentials
+    }
 
 
 def credential_hint(env_var: str) -> str:

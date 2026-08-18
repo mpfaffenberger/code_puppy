@@ -1,4 +1,6 @@
 import importlib
+import importlib.abc
+import importlib.machinery
 import importlib.util
 import logging
 import sys
@@ -14,11 +16,62 @@ logger = logging.getLogger(__name__)
 # User plugins directory
 USER_PLUGINS_DIR = Path.home() / ".code_puppy" / "plugins"
 
-# Out-of-repo location for compiled bytecode of project plugins. Redirecting the
-# cache here keeps the import machinery from consulting or writing a __pycache__
-# entry inside the project tree, so a project plugin always runs from the source
-# that was reviewed and trusted.
-_PROJECT_PLUGIN_PYCACHE = str(Path.home() / ".code_puppy" / "plugin_bytecode_cache")
+
+class _ProjectPluginLoader(importlib.machinery.SourceFileLoader):
+    """Load project plugin source directly; never read or write ``.pyc`` caches.
+
+    Keeps a plugin executing exactly the file that was trusted: a stale or
+    planted bytecode cache beside the source (including an unchecked
+    hash-based ``.pyc``) is never consulted, and no cache is written back —
+    into the project tree or anywhere else.
+    """
+
+    def get_code(self, fullname):  # noqa: D102
+        return compile(self.get_source(fullname), self.path, "exec", dont_inherit=True)
+
+
+class _ProjectPluginFinder(importlib.abc.MetaPathFinder):
+    """Serve ``project_plugins.*`` imports with :class:`_ProjectPluginLoader`.
+
+    Installed at the front of ``sys.meta_path`` before any trusted project
+    plugin is imported (see ``_install_project_plugin_finder``), so a plugin's
+    own module and every sibling it imports resolve through the source-only
+    loader instead of the default path finder and its bytecode cache.
+    """
+
+    def find_spec(self, fullname, path=None, target=None):  # noqa: D102
+        if not fullname.startswith(_PROJECT_PLUGINS_NS + "."):
+            return None
+        last = fullname.rsplit(".", 1)[-1]
+        for entry in list(path or []):
+            pkg_dir = Path(entry) / last
+            if pkg_dir.is_dir():
+                init_file = pkg_dir / "__init__.py"
+                if init_file.is_file():
+                    return importlib.util.spec_from_file_location(
+                        fullname,
+                        init_file,
+                        loader=_ProjectPluginLoader(fullname, str(init_file)),
+                        submodule_search_locations=[str(pkg_dir)],
+                    )
+                spec = importlib.machinery.ModuleSpec(fullname, None, is_package=True)
+                spec.submodule_search_locations = [str(pkg_dir)]
+                return spec
+            module_file = Path(entry) / f"{last}.py"
+            if module_file.is_file():
+                return importlib.util.spec_from_file_location(
+                    fullname,
+                    module_file,
+                    loader=_ProjectPluginLoader(fullname, str(module_file)),
+                )
+        return None
+
+
+def _install_project_plugin_finder() -> None:
+    """Register the project-plugin finder once, ahead of the path finder."""
+    if not any(isinstance(finder, _ProjectPluginFinder) for finder in sys.meta_path):
+        sys.meta_path.insert(0, _ProjectPluginFinder())
+
 
 PLUGIN_ENTRY_POINT_GROUP = "code_puppy.plugins"
 
@@ -299,10 +352,10 @@ def _ensure_plugin_package(plugin_dir: Path, plugin_name: str) -> bool:
         spec_init = importlib.util.spec_from_file_location(
             pkg_name,
             init_file,
+            loader=_ProjectPluginLoader(pkg_name, str(init_file)),
             submodule_search_locations=[str(plugin_dir)],
         )
         if spec_init is None or spec_init.loader is None:
-            # Fallback: bare namespace (init exists but can't be loaded)
             pkg_mod = types.ModuleType(pkg_name)
             pkg_mod.__path__ = [str(plugin_dir)]
             pkg_mod.__package__ = pkg_name
@@ -345,19 +398,20 @@ def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
     if parent_str not in sys.path:
         sys.path.insert(0, parent_str)
 
-    # Compile from the reviewed source: redirect the bytecode cache out of the
-    # project tree so any in-repo __pycache__ entry is never consulted or
-    # written back. Restored in ``finally`` so unrelated imports are unaffected.
-    previous_pycache_prefix = sys.pycache_prefix
-    sys.pycache_prefix = _PROJECT_PLUGIN_PYCACHE
-
     try:
         if callbacks_file.exists():
-            # Register parent package so relative imports resolve
+            # Register parent package so relative imports resolve; the
+            # meta-path finder routes the plugin and any siblings it imports
+            # through the source-only loader (no bytecode caches anywhere).
+            _install_project_plugin_finder()
             _ensure_plugin_package(plugin_dir, plugin_name)
 
             module_name = f"{_PROJECT_PLUGINS_NS}.{plugin_name}.register_callbacks"
-            spec = importlib.util.spec_from_file_location(module_name, callbacks_file)
+            spec = importlib.util.spec_from_file_location(
+                module_name,
+                callbacks_file,
+                loader=_ProjectPluginLoader(module_name, str(callbacks_file)),
+            )
             if spec is None or spec.loader is None:
                 logger.warning(
                     f"Could not create module spec for project plugin: {plugin_name}"
@@ -396,8 +450,6 @@ def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
             exc_info=True,
         )
         return False
-    finally:
-        sys.pycache_prefix = previous_pycache_prefix
 
 
 def _load_project_plugins(

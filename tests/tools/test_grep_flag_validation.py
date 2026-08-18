@@ -32,3 +32,38 @@ def test_build_grep_args_plain_pattern_unaffected():
     args, error = _build_grep_args("foo bar")
     assert error is None
     assert args == ["-e", "foo bar"]
+
+
+def test_build_grep_args_value_flag_as_last_token_errors():
+    """A trailing value-taking flag must error, not eat the target directory."""
+    args, error = _build_grep_args("-e")
+    assert args == []
+    assert error is not None
+    assert "-e" in error and "value" in error
+
+
+def test_build_grep_args_expands_clustered_short_flags():
+    """-iw and -C3 cluster the way ripgrep itself parses them."""
+    args, error = _build_grep_args("-iw foo")
+    assert error is None
+    assert args == ["-i", "-w", "foo"]
+
+    args, error = _build_grep_args("-C3 foo")
+    assert error is None
+    assert args == ["-C", "3", "foo"]
+
+    args, error = _build_grep_args("-tpy foo")
+    assert error is None
+    assert args == ["-t", "py", "foo"]
+
+
+def test_build_grep_args_expanded_invert_and_smart_case():
+    args, error = _build_grep_args("-vS foo")
+    assert error is None
+    assert args == ["-v", "-S", "foo"]
+
+
+def test_build_grep_args_unknown_cluster_member_still_rejected():
+    args, error = _build_grep_args("-iZ foo")
+    assert args == []
+    assert error is not None

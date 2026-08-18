@@ -10,6 +10,7 @@ from code_puppy.provider_credentials import (
     credential_display,
     credential_hint,
     extract_env_var_from_model_config,
+    extract_env_vars_from_model_config,
     get_credential_value,
     is_credential_set,
     mask_secret,
@@ -48,6 +49,22 @@ class TestExtractEnvVarFromModelConfig:
     )
     def test_extract_env_var_from_model_config(self, config, expected):
         assert extract_env_var_from_model_config(config) == expected
+
+    def test_extract_env_vars_includes_header_credentials(self):
+        names = extract_env_vars_from_model_config(
+            {
+                "provider": "custom",
+                "custom_endpoint": {
+                    "api_key": "$ENDPOINT_KEY",
+                    "headers": {
+                        "Authorization": "Bearer $MY_SERVICE_TOKEN",
+                        "X-Unused": "literal",
+                    },
+                },
+                "api_key": "$TOP_KEY",
+            }
+        )
+        assert names == ["ENDPOINT_KEY", "MY_SERVICE_TOKEN", "TOP_KEY"]
 
 
 class TestMaskSecret:

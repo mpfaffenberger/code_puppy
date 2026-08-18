@@ -77,6 +77,8 @@ _BLOCKED_BUILTINS = frozenset(
         "setattr",
         "delattr",
         "vars",
+        "globals",
+        "locals",
     }
 )
 

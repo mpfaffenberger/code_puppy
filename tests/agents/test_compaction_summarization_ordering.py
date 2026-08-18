@@ -16,7 +16,9 @@ These tests drive the real ``compact`` -> ``summarize`` ->
 summarization model. The stand-in mirrors the provider contract: it inspects the
 full incoming request and refuses one whose first message is an assistant turn
 or that places two same-role messages next to each other, exactly as the
-provider would.
+provider would. The production CLI disables pydantic-ai's history cleaner,
+so the tests apply the same identity patch: shaping must hold without a
+framework merge.
 """
 
 from __future__ import annotations
@@ -158,27 +160,37 @@ def _run_compaction(
 ):
     if history is None:
         history = _realistic_history()
-    with (
-        patch.object(
-            summarization_agent,
-            "get_summarization_agent",
-            lambda *a, **kw: _make_capturing_summarization_agent(capture),
-        ),
-        patch.object(
-            summarization_agent,
-            "get_summarization_model_name",
-            lambda: "function-model",
-        ),
-        patch.multiple(
-            _compaction,
-            get_compaction_threshold=lambda: 0.01,
-            get_compaction_strategy=lambda: "summarization",
-            get_protected_token_count=lambda: protected_tokens,
-        ),
-    ):
-        new_messages, dropped = _compaction.compact(
-            agent=None, messages=history, model_max=10_000, context_overhead=0
-        )
+    # Production replaces pydantic-ai's history cleaner with identity
+    # (``patch_message_history_cleaning``). Shape the request the same way
+    # the CLI does, then restore whatever the rest of the suite had.
+    from pydantic_ai import _agent_graph
+
+    previous_cleaner = _agent_graph._clean_message_history
+    _agent_graph._clean_message_history = lambda messages, **_kwargs: messages
+    try:
+        with (
+            patch.object(
+                summarization_agent,
+                "get_summarization_agent",
+                lambda *a, **kw: _make_capturing_summarization_agent(capture),
+            ),
+            patch.object(
+                summarization_agent,
+                "get_summarization_model_name",
+                lambda: "function-model",
+            ),
+            patch.multiple(
+                _compaction,
+                get_compaction_threshold=lambda: 0.01,
+                get_compaction_strategy=lambda: "summarization",
+                get_protected_token_count=lambda: protected_tokens,
+            ),
+        ):
+            new_messages, dropped = _compaction.compact(
+                agent=None, messages=history, model_max=10_000, context_overhead=0
+            )
+    finally:
+        _agent_graph._clean_message_history = previous_cleaner
     return history, new_messages, dropped
 
 
@@ -274,27 +286,66 @@ _ADVERSARIAL_SLICES = {
 
 
 @pytest.mark.parametrize("slice_key", sorted(_ADVERSARIAL_SLICES))
-def test_normalize_for_summarization_yields_appendable_alternation(slice_key):
-    """``_normalize_for_summarization`` must return a body that opens on a user
-    turn, ends on an assistant turn, and never repeats a role — so the trailing
-    user instruction ``run_summarization_sync`` appends continues to alternate —
-    while preserving every original message (framing is inserted, never
-    substituted for real content)."""
+def test_ensure_leading_request_repairs_only_the_opening(slice_key):
+    """``_ensure_leading_request`` prepends a user turn only when the slice
+    opens on an assistant one, and never fabricates other turns.
+
+    Interior same-role adjacencies and a user-final slice are left to
+    pydantic-ai's lossless consecutive-message merge — fabricated filler
+    turns would be read (and described) by the summarizer as if they were
+    real exchanges, so none may be inserted."""
     original = _ADVERSARIAL_SLICES[slice_key]
-    normalized = _compaction._normalize_for_summarization(list(original))
+    normalized = _compaction._ensure_leading_request(list(original))
 
-    assert isinstance(normalized[0], ModelRequest), "must open on a user turn"
-    assert isinstance(normalized[-1], ModelResponse), (
-        "must end on an assistant turn so the appended user instruction alternates"
+    opens_on_assistant = isinstance(original[0], ModelResponse)
+    if opens_on_assistant:
+        assert isinstance(normalized[0], ModelRequest), "must open on a user turn"
+        assert normalized[1:] == original, (
+            "real content must follow the framing verbatim"
+        )
+    else:
+        assert normalized == original, "a user-opened slice must pass through unchanged"
+
+    # No filler: every message beyond an optional leading framing request is
+    # an original one, and nothing was appended.
+    extras = [m for m in normalized if not any(m is o for o in original)]
+    if opens_on_assistant:
+        assert len(extras) == 1 and extras[0] is normalized[0]
+    else:
+        assert extras == []
+
+
+def test_merge_consecutive_same_role_is_lossless():
+    left = _user("one")
+    right = _user("two")
+    assistant = _assistant("ok")
+    merged = _compaction._merge_consecutive_same_role([left, right, assistant])
+    assert [type(m) for m in merged] == [ModelRequest, ModelResponse]
+    assert [getattr(p, "content", None) for p in merged[0].parts] == ["one", "two"]
+
+
+def test_detach_trailing_request_peels_final_user():
+    history = [_assistant("ok"), _user("last")]
+    rest, trailing = _compaction._detach_trailing_request(history)
+    assert rest == history[:1]
+    assert trailing is history[1]
+
+
+def test_no_fabricated_content_reaches_the_summarizer(capture):
+    """The summarizer must never be shown invented filler exchanges."""
+    _run_compaction(capture)
+
+    contents = [
+        getattr(part, "content", None)
+        for message in capture.get("messages") or []
+        for part in message.parts
+    ]
+    assert not any(content == "Acknowledged; continuing." for content in contents), (
+        "fabricated assistant filler reached the summarizer"
     )
-
-    # No two adjacent messages share a role, and appending a trailing user
-    # request keeps that true.
-    full = [*normalized, _user("trailing instruction")]
-    roles = _roles(full)
-    assert roles[0] == "user"
-    assert not [i for i in range(len(roles) - 1) if roles[i] == roles[i + 1]]
-
-    # Every original message survives, in order (framing is additive).
-    kept = [m for m in normalized if any(m is o for o in original)]
-    assert kept == original, "a real message was dropped or reordered"
+    assert (
+        sum(
+            1 for content in contents if content == "Conversation history to summarize:"
+        )
+        <= 1
+    ), "more than one framing message was injected"
