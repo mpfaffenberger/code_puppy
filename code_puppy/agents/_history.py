@@ -357,6 +357,22 @@ def _insert_tool_returns(
     return dataclasses.replace(request, parts=parts)
 
 
+def _collect_tool_ids(messages: List[ModelMessage]) -> tuple[Set[str], Set[str]]:
+    """Return (tool_call_ids, tool_return_ids) across all message parts."""
+    tool_call_ids: Set[str] = set()
+    tool_return_ids: Set[str] = set()
+
+    for msg in messages:
+        for part in getattr(msg, "parts", []) or []:
+            if _is_repairable_call(part):
+                tool_call_ids.add(part.tool_call_id)
+
+            elif _is_repairable_return(part):
+                tool_return_ids.add(part.tool_call_id)
+
+    return tool_call_ids, tool_return_ids
+
+
 def prune_interrupted_tool_calls(
     messages: List[ModelMessage],
 ) -> List[ModelMessage]:
@@ -385,15 +401,7 @@ def prune_interrupted_tool_calls(
     if not messages:
         return messages
 
-    tool_call_ids: Set[str] = set()
-    tool_return_ids: Set[str] = set()
-
-    for msg in messages:
-        for part in getattr(msg, "parts", []) or []:
-            if _is_repairable_call(part):
-                tool_call_ids.add(part.tool_call_id)
-            elif _is_repairable_return(part):
-                tool_return_ids.add(part.tool_call_id)
+    tool_call_ids, tool_return_ids = _collect_tool_ids(messages)
 
     dangling_calls = tool_call_ids - tool_return_ids
     orphaned_returns = tool_return_ids - tool_call_ids
@@ -405,6 +413,7 @@ def prune_interrupted_tool_calls(
 
     pruned: List[ModelMessage] = []
     synthesized: List[ToolReturnPart] = []
+
     for index, msg in enumerate(messages):
         if isinstance(msg, ModelResponse):
             if synthesized:
@@ -413,6 +422,7 @@ def prune_interrupted_tool_calls(
                 # their own in between.
                 pruned.append(ModelRequest(parts=synthesized))
                 synthesized = []
+
             for part in getattr(msg, "parts", []) or []:
                 if _is_dangling_call(part):
                     synthesized.append(
@@ -426,6 +436,7 @@ def prune_interrupted_tool_calls(
                             outcome="interrupted",
                         )
                     )
+
             pruned.append(msg)
             continue
 
@@ -434,6 +445,7 @@ def prune_interrupted_tool_calls(
             synthesized = []
 
         original_parts = list(getattr(msg, "parts", []) or [])
+
         kept_parts = [
             part
             for part in original_parts
@@ -441,11 +453,13 @@ def prune_interrupted_tool_calls(
                 _is_repairable_return(part) and part.tool_call_id in orphaned_returns
             )
         ]
+
         if len(kept_parts) != len(original_parts):
             if not kept_parts and index != len(messages) - 1:
                 # An interior request emptied of parts carries nothing.
                 continue
             msg = dataclasses.replace(msg, parts=kept_parts)
+
         pruned.append(msg)
 
     if synthesized:
@@ -465,16 +479,7 @@ def has_pending_tool_calls(messages: List[ModelMessage]) -> bool:
     if not messages:
         return False
 
-    tool_call_ids: Set[str] = set()
-    tool_return_ids: Set[str] = set()
-
-    for msg in messages:
-        for part in getattr(msg, "parts", []) or []:
-            if _is_repairable_call(part):
-                tool_call_ids.add(part.tool_call_id)
-            elif _is_repairable_return(part):
-                tool_return_ids.add(part.tool_call_id)
-
+    tool_call_ids, tool_return_ids = _collect_tool_ids(messages)
     return bool(tool_call_ids - tool_return_ids)
 
 
