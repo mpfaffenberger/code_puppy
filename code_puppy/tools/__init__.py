@@ -217,6 +217,14 @@ def register_tools_for_agent(
                 seen.add(extra)
         tool_names = merged
 
+    if os.environ.get("CODE_PUPPY_DISABLE_ASK_USER_QUESTION", "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        tool_names = [name for name in tool_names if name != "ask_user_question"]
+
     # Expand compound tools (e.g. "edit_file" → three individual tools)
     expanded_tools: list[str] = []
     seen: set[str] = set()

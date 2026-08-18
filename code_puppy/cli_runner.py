@@ -167,6 +167,11 @@ async def main():
         help="Execute a single prompt and exit (no interactive mode)",
     )
     parser.add_argument(
+        "--disable-ask-user-question",
+        action="store_true",
+        help="Disable only the interactive ask_user_question tool",
+    )
+    parser.add_argument(
         "--agent",
         "-a",
         type=str,
@@ -209,6 +214,8 @@ async def main():
     callbacks.on_register_cli_args(parser)
 
     args = parser.parse_args()
+    if args.disable_ask_user_question:
+        os.environ["CODE_PUPPY_DISABLE_ASK_USER_QUESTION"] = "1"
 
     # Plugins may act on parsed args and short-circuit startup; first dict
     # with handled=True wins (exits with its exit_code).
