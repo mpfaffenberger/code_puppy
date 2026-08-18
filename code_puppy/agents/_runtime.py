@@ -37,7 +37,6 @@ from pydantic_ai import (
     UsageLimitExceeded,
     UsageLimits,
 )
-
 from pydantic_ai.exceptions import RunCancelled
 
 try:  # pragma: no cover - pydantic-ai version dependent
@@ -68,6 +67,7 @@ try:
 except ImportError:  # pragma: no cover - 3.10 only
     BaseExceptionGroup = Exception  # type: ignore[misc,assignment]
 
+from code_puppy.agent_execution_context import executing_agent_context
 from code_puppy.agents import _history, _key_listeners
 from code_puppy.agents._builder import build_pydantic_agent
 from code_puppy.agents._diagnostics import emit_exception_diagnostics
@@ -827,6 +827,15 @@ async def _run_with_mcp_impl(
         return result
 
     async def run_agent_task() -> Any:
+        # Scope the agent for the whole task body so run-scoped plugin hooks
+        # resolve it without the process-global agent manager (unsafe under
+        # concurrent runs). Owning the scope here — rather than wrapping the
+        # create_task call — keeps it correct regardless of how this coroutine
+        # is scheduled.
+        with executing_agent_context(agent):
+            return await _run_agent_task_body()
+
+    async def _run_agent_task_body() -> Any:
         try:
             agent._message_history = _history.prune_interrupted_tool_calls(
                 agent._message_history
@@ -905,11 +914,12 @@ async def _run_with_mcp_impl(
     # refresh, credential minting) finish before any HTTP leaves — else the
     # task races ahead with stale credentials (issue #338).
     try:
-        await on_agent_run_start(
-            agent_name=agent.name,
-            model_name=agent.get_model_name(),
-            session_id=group_id,
-        )
+        with executing_agent_context(agent):
+            await on_agent_run_start(
+                agent_name=agent.name,
+                model_name=agent.get_model_name(),
+                session_id=group_id,
+            )
     except Exception:
         # Hook failures never block the agent.
         pass
@@ -1085,18 +1095,19 @@ async def _run_with_mcp_impl(
             except Exception:
                 pass
         try:
-            await on_agent_run_end(
-                agent_name=agent.name,
-                model_name=agent.get_model_name(),
-                session_id=group_id,
-                success=run_success,
-                error=run_error,
-                response_text=run_response_text,
-                metadata={
-                    "model": agent.get_model_name(),
-                    **run_usage_metadata,
-                },
-            )
+            with executing_agent_context(agent):
+                await on_agent_run_end(
+                    agent_name=agent.name,
+                    model_name=agent.get_model_name(),
+                    session_id=group_id,
+                    success=run_success,
+                    error=run_error,
+                    response_text=run_response_text,
+                    metadata={
+                        "model": agent.get_model_name(),
+                        **run_usage_metadata,
+                    },
+                )
         except Exception:
             pass
 

@@ -113,7 +113,7 @@ def _matches_model_tag(candidate: str, tag: str) -> bool:
     ``claude-4-5-sonnet`` both look like a hypothetical ``5-sonnet`` model.
     That is cute, but wrong: those are Sonnet 3.5 and Sonnet 4.5 respectively,
     NOT Sonnet 5. Treat tags as alphanumeric-delimited segments and reject
-    any ``X-5-sonnet`` / ``X.5-sonnet`` (or ``-fable``) shape where ``X`` is
+    any ``X-5-sonnet`` / ``X.5-sonnet`` (or ``-opus`` / ``-fable``) shape where ``X`` is
     any leading major-version digit.
     """
     start = 0
@@ -126,7 +126,7 @@ def _matches_model_tag(candidate: str, tag: str) -> bool:
         left_is_boundary = index == 0 or not candidate[index - 1].isalnum()
         right_is_boundary = end == len(candidate) or not candidate[end].isalnum()
         old_minor_version_shape = (
-            tag in {"5-sonnet", "5-fable"}
+            tag in {"5-sonnet", "5-opus", "5-fable"}
             and index >= 2
             and candidate[index - 1] in "-."
             and candidate[index - 2].isdigit()
@@ -165,6 +165,8 @@ _ADAPTIVE_TAGS: tuple[str, ...] = (
     "4-6-sonnet",
     "sonnet-5",
     "5-sonnet",
+    "opus-5",
+    "5-opus",
     "fable-5",
     "5-fable",
 )
@@ -176,6 +178,8 @@ _SUMMARY_TAGS: tuple[str, ...] = (
     "4-8-opus",
     "sonnet-5",
     "5-sonnet",
+    "opus-5",
+    "5-opus",
     "fable-5",
     "5-fable",
 )
@@ -221,7 +225,7 @@ def supports_adaptive_thinking(
 ) -> bool:
     """Return whether a model supports adaptive extended-thinking.
 
-    Opus 4-6/4-7/4-8, Sonnet 4-6, Sonnet 5, and Fable 5 accept (and require)
+    Opus 4-6/4-7/4-8, Sonnet 4-6, Sonnet 5, Opus 5, and Fable 5 accept (and require)
     ``thinking={"type": "adaptive"}`` at the wire level. Every other Claude
     variant wants the classic ``type: "enabled"`` shape.
 
@@ -238,8 +242,8 @@ def get_default_extended_thinking(
 ) -> str:
     """Return the default extended_thinking mode for an Anthropic model.
 
-    Opus 4-6, Opus 4-7, Opus 4-8, Sonnet 4-6, Sonnet 5, and Fable 5 models
-    default to ``"adaptive"`` thinking; all other Anthropic models default to
+    Opus 4-6, Opus 4-7, Opus 4-8, Sonnet 4-6, Sonnet 5, Opus 5, and Fable 5
+    models default to ``"adaptive"`` thinking; all other Anthropic models default to
     ``"enabled"``.
 
     Args:
@@ -260,7 +264,7 @@ def should_use_anthropic_thinking_summary(
 ) -> bool:
     """Return whether Anthropic adaptive thinking should request summary display.
 
-    Anthropic's newer Opus 4.7+, Opus 4.8, Sonnet 5, and Fable 5 models accept
+    Anthropic's newer Opus 4.7+, Opus 4.8, Sonnet 5, Opus 5, and Fable 5 models accept
     ``display: \"summarized\"`` alongside ``thinking={"type": "adaptive"}`` to
     surface a condensed reasoning trace instead of the full block.
     """
@@ -282,7 +286,7 @@ def resolve_anthropic_thinking_payload(
       (with ``budget_tokens``) or ``type: "disabled"``. Sending ``"adaptive"``
       yields the reporter's error:
       ``Input tag 'adaptive' does not match any of the expected tags: 'disabled', 'enabled'``.
-    * **Adaptive** (Opus 4.6/4.7/4.8, Sonnet 4.6, Sonnet 5, Fable 5): the
+    * **Adaptive** (Opus 4.6/4.7/4.8, Sonnet 4.6, Sonnet 5, Opus 5, Fable 5): the
       opposite — rejects ``type: "enabled"`` with
       ``"thinking.type.enabled" is not supported for this model. Use adaptive."``.
       These models want ``type: "adaptive"`` and optionally ``display: "summarized"``.

@@ -13,6 +13,7 @@ from typing import Set
 from pydantic_ai import Agent, RunContext, UsageLimits
 from pydantic_ai.capabilities import ProcessHistory
 
+from code_puppy.agent_execution_context import executing_agent_context
 from code_puppy.callbacks import (
     on_agent_run_cancel,
     on_agent_run_context,
@@ -55,8 +56,8 @@ from code_puppy.tools.subagent_context import (
 from code_puppy.tools.subagent_usage_metrics import (
     _safe_usage_metrics,
     build_invoke_output,
-    extract_per_request_usage,
     extract_final_context_tokens,
+    extract_per_request_usage,
 )
 
 # Set to track active subagent invocation tasks
@@ -453,7 +454,10 @@ async def _invoke_agent_impl(
             else:
                 stream_handler = partial(subagent_stream_handler, session_id=session_id)
 
-            with subagent_context(agent_name, effective_model_name):
+            with (
+                subagent_context(agent_name, effective_model_name),
+                executing_agent_context(agent_config),
+            ):
                 run_ctxs = on_agent_run_context(
                     agent_config, temp_agent, group_id, mcp_servers
                 )

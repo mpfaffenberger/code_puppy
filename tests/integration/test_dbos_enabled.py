@@ -1,12 +1,20 @@
+import importlib.util
 import time
 from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    importlib.util.find_spec("dbos") is None,
+    reason="DBOS optional dependency is not installed",
+)
 
 
 def test_dbos_initializes_and_creates_db(spawned_cli):
     # spawned_cli fixture starts the app and waits until interactive mode
     # Confirm DBOS initialization message appeared
     log = spawned_cli.read_log()
-    assert "Initializing DBOS with database at:" in log or "DBOS is disabled" not in log
+    assert "Initializing DBOS with database at:" in log
 
     # Database path should be under temp HOME/.code_puppy by default
     home = Path(spawned_cli.temp_home)

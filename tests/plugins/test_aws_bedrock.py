@@ -393,6 +393,9 @@ class TestSupportsAdaptiveThinking:
             ("claude-opus-4-7", None, True),
             ("claude-opus-4-6", None, True),
             ("claude-sonnet-4-6", None, True),
+            ("claude-opus-5", None, True),
+            ("claude-5-opus", None, True),
+            ("claude-4.5-opus", None, False),
             ("claude-haiku-4-5", None, False),
             # The alias doesn't contain the tag, but the actual_model_id does
             ("bedrock-opus", "us.anthropic.claude-opus-4-7", True),
@@ -402,6 +405,9 @@ class TestSupportsAdaptiveThinking:
             "opus_4_7_by_alias",
             "opus_4_6_by_alias",
             "sonnet_4_6_by_alias",
+            "opus_5_by_alias",
+            "five_opus_by_alias",
+            "opus_4_5_minor_version_not_adaptive",
             "haiku_not_adaptive",
             "bedrock_opus_via_actual_model_id",
             "unknown_model",
@@ -460,3 +466,25 @@ class TestShouldUseThinkingSummary:
             )
             is True
         )
+
+
+class TestResolveAnthropicThinkingPayload:
+    """Opus 5 must always resolve to the adaptive wire shape."""
+
+    @pytest.mark.parametrize(
+        "mode, expected",
+        [
+            ("enabled", {"type": "adaptive", "display": "summarized"}),
+            ("adaptive", {"type": "adaptive", "display": "summarized"}),
+            ("disabled", None),
+        ],
+        ids=["enabled_coerced_to_adaptive", "adaptive_passthrough", "disabled_omits"],
+    )
+    @pytest.mark.parametrize("alias", ["claude-opus-5", "claude-5-opus"])
+    def test_opus_5_payload(self, alias, mode, expected):
+        from code_puppy.model_utils import resolve_anthropic_thinking_payload
+
+        result = resolve_anthropic_thinking_payload(
+            mode, budget_tokens=1024, model_name=alias, actual_model_id=None
+        )
+        assert result == expected

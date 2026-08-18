@@ -480,16 +480,12 @@ class TestFindAvailablePort:
     def test_returns_none_when_all_busy(self):
         from code_puppy.http_utils import find_available_port
 
-        # Use a very narrow range and bind to all ports
-        socks = []
+        occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            for p in range(49900, 49903):
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s.bind(("127.0.0.1", p))
-                socks.append(s)
-            result = find_available_port(start_port=49900, end_port=49902)
+            occupied.bind(("127.0.0.1", 0))
+            occupied.listen(1)
+            port = occupied.getsockname()[1]
+            result = find_available_port(start_port=port, end_port=port)
             assert result is None
         finally:
-            for s in socks:
-                s.close()
+            occupied.close()
