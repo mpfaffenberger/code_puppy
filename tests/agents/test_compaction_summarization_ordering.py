@@ -31,6 +31,7 @@ import pytest
 from pydantic_ai import Agent
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.messages import (
+    BinaryContent,
     ModelMessage,
     ModelRequest,
     ModelResponse,
@@ -125,6 +126,37 @@ def _user_ending_history(payload_chars: int = 400) -> List[ModelMessage]:
         ModelRequest(parts=[UserPromptPart(content=f"question b: {payload}")]),
         ModelResponse(parts=[TextPart(content=f"answer b: {payload}")]),
         ModelRequest(parts=[UserPromptPart(content=f"question c: {payload}")]),
+    ]
+
+
+_IMAGE_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+
+def _image_ending_history(payload_chars: int = 400) -> List[ModelMessage]:
+    """A history whose summarizable slice ends on a user turn carrying an image.
+
+    ``UserPromptPart.content`` is a list of content objects rather than a
+    string, which is how a screenshot or attachment reaches the model.
+    """
+    payload = "x" * payload_chars
+    return [
+        ModelRequest(
+            parts=[
+                SystemPromptPart(content="You are a helpful test agent."),
+                UserPromptPart(content=f"opening question: {payload}"),
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content=f"answer a: {payload}")]),
+        ModelRequest(
+            parts=[
+                UserPromptPart(
+                    content=[
+                        "check this screenshot",
+                        BinaryContent(data=_IMAGE_BYTES, media_type="image/png"),
+                    ]
+                )
+            ]
+        ),
     ]
 
 
@@ -432,3 +464,44 @@ def test_no_fabricated_content_reaches_the_summarizer(capture):
         )
         <= 1
     ), "more than one framing message was injected"
+
+
+def test_trailing_image_turn_reaches_the_summarizer_intact(capture):
+    """A trailing user turn carrying an image stays in ``message_history``.
+
+    Folding such a turn into the prompt would flatten its content list to a
+    hash digest, so the summarizer would see a placeholder where the image
+    should be."""
+    _run_compaction(capture, history=_image_ending_history(), protected_tokens=1)
+
+    messages = capture.get("messages") or []
+    _assert_valid_provider_ordering(messages)
+
+    attachments = [
+        item
+        for message in messages
+        for part in message.parts
+        if isinstance(getattr(part, "content", None), list)
+        for item in part.content
+        if isinstance(item, BinaryContent)
+    ]
+    assert len(attachments) == 1, "the image did not reach the summarizer"
+    assert attachments[0].data == _IMAGE_BYTES
+    assert attachments[0].media_type == "image/png"
+
+    contents = [
+        getattr(part, "content", None) for message in messages for part in message.parts
+    ]
+    assert not any(
+        isinstance(content, str) and "BinaryContent=" in content for content in contents
+    ), "a hash digest of the image reached the summarizer in place of the image"
+
+
+def test_trailing_image_turn_is_not_folded_into_the_prompt(capture):
+    """The instruction stays bare when the trailing turn is kept in history."""
+    _run_compaction(capture, history=_image_ending_history(), protected_tokens=1)
+
+    prompt_message = (capture.get("messages") or [])[-1]
+    assert [part.content for part in prompt_message.parts] == [
+        _compaction._SUMMARIZATION_INSTRUCTIONS
+    ]

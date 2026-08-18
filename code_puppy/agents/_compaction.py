@@ -35,7 +35,6 @@ from code_puppy.agents._history import (
     hash_message,
     prune_interrupted_tool_calls,
     sanitize_tool_call_ids,
-    stringify_part,
 )
 from code_puppy.callbacks import (
     on_message_history_processor_end,
@@ -272,17 +271,24 @@ def _detach_trailing_request(
     return messages, None
 
 
+def _is_plain_text_request(message: ModelRequest) -> bool:
+    """True when every part's content is a plain string, so it can be flattened.
+
+    Multi-modal content (images, audio, documents) lives in a list of content
+    objects; flattening it would drop the attachments.
+    """
+    return all(
+        isinstance(getattr(part, "content", None), str) for part in message.parts
+    )
+
+
 def _request_text(message: ModelRequest) -> str:
-    """Flatten a user turn's parts into prompt text."""
+    """Flatten a plain-text user turn's parts into prompt text."""
     pieces: List[str] = []
     for part in message.parts:
         content = getattr(part, "content", None)
         if isinstance(content, str) and content:
             pieces.append(content)
-        else:
-            rendered = stringify_part(part)
-            if rendered:
-                pieces.append(rendered)
     return "\n".join(pieces)
 
 
@@ -323,8 +329,12 @@ def _run_summarization_core(
     pruned, trailing = _detach_trailing_request(pruned)
     prompt = _SUMMARIZATION_INSTRUCTIONS
     if trailing is not None:
-        if any(_classify_tool_part(part) == "return" for part in trailing.parts):
-            # Keep returns paired; one-token break so agent.run can alternate.
+        keep_in_history = any(
+            _classify_tool_part(part) == "return" for part in trailing.parts
+        ) or not _is_plain_text_request(trailing)
+        if keep_in_history:
+            # Keep returns paired and multi-modal content intact; one-token
+            # break so agent.run can alternate.
             pruned = [
                 *pruned,
                 trailing,
