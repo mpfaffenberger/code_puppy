@@ -213,6 +213,36 @@ def _writeback_tool_args(call: Any, tool_args: dict, mode: str | None) -> None:
         pass  # never block tool execution on writeback failure
 
 
+#: Shown when a hook denies without a usable reason, or when producing its
+#: reason fails. A deny always renders as a deny — never as an allow.
+_GENERIC_BLOCK_REASON = "Tool execution blocked by hook"
+
+
+def _block_reason(callback_result: dict) -> str:
+    """Render a hook's deny reason, tolerating any value it supplied.
+
+    `error_message`/`reason` come from plugin code and are not guaranteed to be
+    strings. A non-string previously raised inside the caller's broad `except`,
+    which silently turned an explicit deny into an allow.
+
+    Total by construction: extraction is inside the guard too, because `.get`
+    and the truthiness of a plugin's own object can raise just as easily as
+    `__str__`, and none of that may escape into the caller.
+    """
+    try:
+        raw = (
+            callback_result.get("error_message") or callback_result.get("reason") or ""
+        )
+        if not isinstance(raw, str):
+            raw = str(raw)
+        marker = raw.find("[BLOCKED]")
+        if marker != -1:
+            return raw[marker:].strip() or _GENERIC_BLOCK_REASON
+        return raw.strip() or _GENERIC_BLOCK_REASON
+    except Exception:
+        return _GENERIC_BLOCK_REASON
+
+
 def patch_tool_call_callbacks() -> bool:
     """Patch pydantic-ai tool handling to support callbacks and Claude Code tool names.
 
@@ -342,48 +372,42 @@ def patch_tool_call_callbacks() -> bool:
             # --- pre_tool_call (with blocking support) ---
             # Block returns a string result so pydantic-ai sees a clean "BLOCKED: ..."
             # instead of crashing with UnexpectedModelBehavior.
+            # Dispatching is isolated, but the block decision below is NOT: an
+            # error while rendering a deny must not silently become an allow.
+            callback_results: list = []
             try:
                 from code_puppy import callbacks
-                from code_puppy.messaging import emit_warning
 
                 callback_results = await callbacks.on_pre_tool_call(
                     tool_name, tool_args
                 )
-
-                # Collect non-blocking hook context messages (e.g. PreToolUse
-                # stdout) so the model sees them — otherwise they're lost.
-                for callback_result in callback_results:
-                    if isinstance(callback_result, dict) and not callback_result.get(
-                        "blocked"
-                    ):
-                        ctx_msg = callback_result.get("context_message")
-                        if isinstance(ctx_msg, str) and ctx_msg.strip():
-                            hook_context_messages.append(ctx_msg.strip())
-
-                for callback_result in callback_results:
-                    if (
-                        callback_result
-                        and isinstance(callback_result, dict)
-                        and callback_result.get("blocked")
-                    ):
-                        raw_reason = (
-                            callback_result.get("error_message")
-                            or callback_result.get("reason")
-                            or ""
-                        )
-                        if "[BLOCKED]" in raw_reason:
-                            clean_reason = raw_reason[
-                                raw_reason.index("[BLOCKED]") :
-                            ].strip()
-                        else:
-                            clean_reason = (
-                                raw_reason.strip() or "Tool execution blocked by hook"
-                            )
-                        block_msg = f"🚫 Hook blocked this tool call: {clean_reason}"
-                        emit_warning(block_msg)
-                        return f"ERROR: {block_msg}\n\nThe hook policy prevented this tool from running. Please inform the user and do not retry this specific command."
             except Exception:
-                pass  # other errors don't block tool execution
+                pass  # import/dispatch failure leaves nothing to act on
+
+            # Collect non-blocking hook context messages (e.g. PreToolUse
+            # stdout) so the model sees them — otherwise they're lost.
+            for callback_result in callback_results:
+                if isinstance(callback_result, dict) and not callback_result.get(
+                    "blocked"
+                ):
+                    ctx_msg = callback_result.get("context_message")
+                    if isinstance(ctx_msg, str) and ctx_msg.strip():
+                        hook_context_messages.append(ctx_msg.strip())
+
+            for callback_result in callback_results:
+                if (
+                    callback_result
+                    and isinstance(callback_result, dict)
+                    and callback_result.get("blocked")
+                ):
+                    block_msg = f"🚫 Hook blocked this tool call: {_block_reason(callback_result)}"
+                    try:
+                        from code_puppy.messaging import emit_warning
+
+                        emit_warning(block_msg)
+                    except Exception:
+                        pass  # surfacing the warning is best-effort; the deny stands
+                    return f"ERROR: {block_msg}\n\nThe hook policy prevented this tool from running. Please inform the user and do not retry this specific command."
 
             # Write pre_tool_call mutations back to call.args so message
             # history sees them (execution itself reads validated.validated_args,
