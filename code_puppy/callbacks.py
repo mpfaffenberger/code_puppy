@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import traceback
-from typing import Any, Callable, Dict, List, Literal, Optional, Set
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple
 
 PhaseType = Literal[
     "startup",
@@ -177,7 +177,7 @@ BLOCKING_PHASES: frozenset = frozenset({"pre_tool_call", "run_shell_command"})
 # (phase, callback) pairs registered with fail_closed=True. Keyed by pair, not
 # by callable: the same helper may be registered on several phases with
 # different policies, and one phase's choice must not leak into another.
-_fail_closed_callbacks: Set[tuple] = set()
+_fail_closed_callbacks: Set[Tuple[PhaseType, CallbackFunc]] = set()
 
 
 def _failure_result(
