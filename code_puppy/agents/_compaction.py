@@ -20,12 +20,15 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    RetryPromptPart,
     TextPart,
     ThinkingPart,
+    ToolReturnPart,
     UserPromptPart,
 )
 
 from code_puppy.agents._history import (
+    _classify_tool_part,
     estimate_tokens_for_message,
     filter_huge_messages,
     has_pending_tool_calls,
@@ -114,22 +117,32 @@ def split_for_protected_summarization(
     system_message = messages[0]
     system_tokens = estimate_tokens_for_message(system_message, model_name)
 
-    protected_messages: List[ModelMessage] = []
     running_tokens = system_tokens
-
+    protected_count = 0
     for i in range(len(messages) - 1, 0, -1):
         msg_tokens = estimate_tokens_for_message(messages[i], model_name)
         if running_tokens + msg_tokens > protected_tokens:
             break
-        protected_messages.append(messages[i])
+        protected_count += 1
         running_tokens += msg_tokens
 
-    protected_messages.reverse()
-    protected_messages.insert(0, system_message)
-
-    protected_start_idx = max(1, len(messages) - (len(protected_messages) - 1))
+    protected_start_idx = max(1, len(messages) - protected_count)
     protected_start_idx = _find_safe_split_index(messages, protected_start_idx)
+
+    # Derive both slices from the (possibly earlier) adjusted boundary so no
+    # message falls into a gap between them. _find_safe_split_index can move the
+    # split back to keep a tool call with its return; basing the protected tail
+    # on the unadjusted boundary would drop that call's ModelResponse and orphan
+    # the return in the protected tail.
+    protected_messages: List[ModelMessage] = [
+        system_message,
+        *messages[protected_start_idx:],
+    ]
     messages_to_summarize = messages[1:protected_start_idx]
+
+    running_tokens = sum(
+        estimate_tokens_for_message(m, model_name) for m in protected_messages
+    )
 
     emit_info(
         f"🔒 Protecting {len(protected_messages)} recent messages "
@@ -180,65 +193,103 @@ def truncate(
 
 
 def _framing_request() -> ModelRequest:
-    """A short neutral user-role message used to repair request boundaries."""
+    """A short neutral user-role message used to repair the slice opening."""
     return ModelRequest(
         parts=[UserPromptPart(content="Conversation history to summarize:")]
     )
 
 
-def _framing_response() -> ModelResponse:
-    """A short neutral assistant-role message used to repair request boundaries."""
-    return ModelResponse(parts=[TextPart(content="Acknowledged; continuing.")])
+def _ensure_leading_request(messages: List[ModelMessage]) -> List[ModelMessage]:
+    """Prefix a slice that opens on an assistant turn (Anthropic requires it)."""
+    if messages and isinstance(messages[0], ModelResponse):
+        return [_framing_request(), *messages]
+    return messages
 
 
-def _same_role(left: ModelMessage, right: ModelMessage) -> bool:
-    """True iff both messages are assistant turns or both are user turns."""
-    return isinstance(left, ModelResponse) == isinstance(right, ModelResponse)
+def _is_api_sourced_response(message: ModelMessage) -> bool:
+    """True for a ``ModelResponse`` that really came back from a provider."""
+    return isinstance(message, ModelResponse) and (
+        message.provider_response_id is not None
+        or message.provider_name is not None
+        or message.model_name is not None
+    )
 
 
-def _normalize_for_summarization(
-    messages: List[ModelMessage],
-) -> List[ModelMessage]:
-    """Shape a summarization slice into a provider-valid request body.
+def _merge_consecutive_same_role(messages: List[ModelMessage]) -> List[ModelMessage]:
+    """Collapse adjacent same-role turns so each role stays one turn.
 
-    Providers such as Anthropic require a request to open on a user-role
-    message and never place two same-role messages adjacently. A slice taken
-    from the middle of a conversation — then trimmed by orphan-pruning — can
-    open on an assistant turn, carry an internal same-role adjacency, or end on
-    a user turn. The trailing case matters because ``run_summarization_sync``
-    appends the summarization instruction as a trailing user-role message; a
-    slice that already ends on a user turn would collide with it, producing a
-    user→user adjacency the provider rejects. Any such rejection makes the
-    summarization request fail and compaction silently fall back to truncation.
+    Production replaces pydantic-ai's history cleaner with identity, so a
+    user→user or assistant→assistant pair is forwarded to the provider as-is.
 
-    Each boundary is repaired by inserting a short neutral framing message
-    rather than dropping real content, so the summary still sees every step.
-    Returns the slice unchanged when it is empty.
+    Merging concatenates parts, so it must not rearrange signed content:
+    - Adjacent requests are merged, hoisting tool results ahead of user-facing
+      parts (mirrors pydantic-ai) so results precede prompts as providers
+      require.
+    - Adjacent responses are merged only when both are synthetic (all provider
+      fields None). Two API-sourced responses are left apart, separated by a
+      neutral framing request: concatenating them would move a later signed
+      ThinkingPart behind the first turn's text and reattribute it to the first
+      response's id, which Anthropic rejects.
     """
     if not messages:
         return messages
-
-    normalized: List[ModelMessage] = []
-    if isinstance(messages[0], ModelResponse):
-        normalized.append(_framing_request())
-
-    for msg in messages:
-        if normalized and _same_role(normalized[-1], msg):
-            filler = (
-                _framing_request()
-                if isinstance(msg, ModelResponse)
-                else _framing_response()
+    merged: List[ModelMessage] = [messages[0]]
+    for message in messages[1:]:
+        previous = merged[-1]
+        if isinstance(message, ModelResponse) != isinstance(previous, ModelResponse):
+            merged.append(message)
+            continue
+        if isinstance(message, ModelResponse):
+            if _is_api_sourced_response(previous) or _is_api_sourced_response(message):
+                merged.append(_framing_request())
+                merged.append(message)
+            else:
+                merged[-1] = dataclasses.replace(
+                    previous, parts=[*previous.parts, *message.parts]
+                )
+        else:
+            parts = [*previous.parts, *message.parts]
+            parts.sort(
+                key=lambda x: (
+                    0 if isinstance(x, ToolReturnPart | RetryPromptPart) else 1
+                )
             )
-            normalized.append(filler)
-        normalized.append(msg)
+            merged[-1] = dataclasses.replace(
+                previous,
+                parts=parts,
+                instructions=previous.instructions or message.instructions,
+            )
+    return merged
 
-    # run_summarization_sync appends the instruction as a trailing user-role
-    # message; cap a user-ending slice with an assistant turn so that append
-    # continues the alternation instead of colliding.
-    if isinstance(normalized[-1], ModelRequest):
-        normalized.append(_framing_response())
 
-    return normalized
+def _detach_trailing_request(
+    messages: List[ModelMessage],
+) -> Tuple[List[ModelMessage], Optional[ModelRequest]]:
+    """Peel a final user turn so ``agent.run`` can append the instruction."""
+    if messages and isinstance(messages[-1], ModelRequest):
+        return messages[:-1], messages[-1]
+    return messages, None
+
+
+def _is_plain_text_request(message: ModelRequest) -> bool:
+    """True when every part's content is a plain string, so it can be flattened.
+
+    Multi-modal content (images, audio, documents) lives in a list of content
+    objects; flattening it would drop the attachments.
+    """
+    return all(
+        isinstance(getattr(part, "content", None), str) for part in message.parts
+    )
+
+
+def _request_text(message: ModelRequest) -> str:
+    """Flatten a plain-text user turn's parts into prompt text."""
+    pieces: List[str] = []
+    for part in message.parts:
+        content = getattr(part, "content", None)
+        if isinstance(content, str) and content:
+            pieces.append(content)
+    return "\n".join(pieces)
 
 
 def _run_summarization_core(
@@ -274,11 +325,27 @@ def _run_summarization_core(
     if not pruned:
         return prune_interrupted_tool_calls(messages), []
 
-    pruned = _normalize_for_summarization(pruned)
+    pruned = _merge_consecutive_same_role(_ensure_leading_request(pruned))
+    pruned, trailing = _detach_trailing_request(pruned)
+    prompt = _SUMMARIZATION_INSTRUCTIONS
+    if trailing is not None:
+        keep_in_history = any(
+            _classify_tool_part(part) == "return" for part in trailing.parts
+        ) or not _is_plain_text_request(trailing)
+        if keep_in_history:
+            # Keep returns paired and multi-modal content intact; one-token
+            # break so agent.run can alternate.
+            pruned = [
+                *pruned,
+                trailing,
+                ModelResponse(parts=[TextPart(content=".")]),
+            ]
+        else:
+            trailing_text = _request_text(trailing)
+            if trailing_text:
+                prompt = f"{trailing_text}\n\n{_SUMMARIZATION_INSTRUCTIONS}"
 
-    summary_text = run_summarization_sync(
-        _SUMMARIZATION_INSTRUCTIONS, message_history=pruned
-    )
+    summary_text = run_summarization_sync(prompt, message_history=pruned)
 
     # Splice ONLY the summary into context — not the summarization run's
     # request/response envelope (which would drag the prompt + full history

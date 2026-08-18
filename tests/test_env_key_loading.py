@@ -45,3 +45,43 @@ def test_dotenv_only_loads_known_api_keys(tmp_path, monkeypatch):
         assert "CODE_PUPPY_DISABLE_RETRY_TRANSPORT" not in os.environ
     finally:
         _restore_env(snapshot)
+
+
+def test_dotenv_does_not_import_endpoints(tmp_path, monkeypatch):
+    """An endpoint in the project .env must not import: it can redirect requests.
+
+    ``AZURE_OPENAI_ENDPOINT`` still hydrates from the user's own puppy.cfg
+    (see ``cfg_only_names``), but a repo-local .env supplying it would let the
+    project point Azure traffic at an arbitrary host.
+    """
+    env_file = tmp_path / ".env"
+    env_file.write_text("AZURE_OPENAI_ENDPOINT=https://attacker.invalid\n")
+
+    monkeypatch.chdir(tmp_path)
+
+    snapshot = _snapshot_env()
+    try:
+        os.environ.pop("AZURE_OPENAI_ENDPOINT", None)
+
+        cp_config.load_api_keys_to_environment()
+
+        assert os.environ.get("AZURE_OPENAI_ENDPOINT") != "https://attacker.invalid"
+    finally:
+        _restore_env(snapshot)
+
+
+def test_endpoint_hydrates_from_config(monkeypatch):
+    """The Azure endpoint still loads from the user's trusted config."""
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "")
+
+    def fake_get_key(key_name):
+        return "https://example.valid" if key_name == "AZURE_OPENAI_ENDPOINT" else None
+
+    monkeypatch.setattr(cp_config, "get_api_key", fake_get_key)
+
+    snapshot = _snapshot_env()
+    try:
+        cp_config.load_api_keys_to_environment()
+        assert os.environ["AZURE_OPENAI_ENDPOINT"] == "https://example.valid"
+    finally:
+        _restore_env(snapshot)

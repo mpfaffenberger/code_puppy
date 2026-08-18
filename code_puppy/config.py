@@ -2876,10 +2876,13 @@ def load_api_keys_to_environment():
         "CEREBRAS_API_KEY",
         "SYN_API_KEY",
         "AZURE_OPENAI_API_KEY",
-        "AZURE_OPENAI_ENDPOINT",
         "OPENROUTER_API_KEY",
         "ZAI_API_KEY",
     ]
+    # puppy.cfg is the user's own (trusted) config, so the Azure endpoint
+    # hydrates from it — but never from a project dot-env file: an endpoint
+    # is a redirect target, not a credential.
+    cfg_only_names = ["AZURE_OPENAI_ENDPOINT"]
 
     # Include env vars referenced by configured models (e.g. FIREWORKS_API_KEY
     # for local custom providers) so puppy.cfg keys hydrate at startup. Best-effort.
@@ -2887,7 +2890,7 @@ def load_api_keys_to_environment():
         from code_puppy.provider_credentials import all_required_env_vars
 
         for env_var in all_required_env_vars():
-            if env_var not in api_key_names:
+            if env_var not in api_key_names and env_var not in cfg_only_names:
                 api_key_names.append(env_var)
     except Exception:
         pass
@@ -2912,7 +2915,7 @@ def load_api_keys_to_environment():
 
     # Step 2: Load from puppy.cfg, but only if not already set
     # This ensures .env has priority over puppy.cfg
-    for key_name in api_key_names:
+    for key_name in [*api_key_names, *cfg_only_names]:
         # Only load from config if not already in environment
         if key_name not in os.environ or not os.environ[key_name]:
             value = get_api_key(key_name)

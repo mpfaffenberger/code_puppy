@@ -48,3 +48,22 @@ def test_surrogate_unpickler_does_not_resolve_dotted_names(tmp_path):
     assert not marker.exists()
     if result is not None:
         assert is_surrogate(result)
+
+
+def test_blocked_builtins_namespace_accessors():
+    """builtins accessors that expose module namespaces resolve to surrogates.
+
+    ``find_class`` returns the surrogate class (a ``SurrogateBase``
+    subclass), never the real builtin — a pickle calling ``globals()`` on
+    load would otherwise reach the unpickler's own module namespace.
+    """
+    import builtins
+    import io
+
+    from code_puppy.session_surrogate_unpickler import SurrogateBase, SurrogateUnpickler
+
+    for name in ("globals", "locals", "vars", "getattr"):
+        unpickler = SurrogateUnpickler(io.BytesIO(b""))
+        resolved = unpickler.find_class("builtins", name)
+        assert resolved is not getattr(builtins, name), name
+        assert issubclass(resolved, SurrogateBase), name

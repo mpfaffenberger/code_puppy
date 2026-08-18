@@ -10,6 +10,7 @@ from code_puppy.provider_credentials import (
     credential_display,
     credential_hint,
     extract_env_var_from_model_config,
+    extract_env_vars_from_model_config,
     get_credential_value,
     is_credential_set,
     mask_secret,
@@ -48,6 +49,22 @@ class TestExtractEnvVarFromModelConfig:
     )
     def test_extract_env_var_from_model_config(self, config, expected):
         assert extract_env_var_from_model_config(config) == expected
+
+    def test_extract_env_vars_includes_header_credentials(self):
+        names = extract_env_vars_from_model_config(
+            {
+                "provider": "custom",
+                "custom_endpoint": {
+                    "api_key": "$ENDPOINT_KEY",
+                    "headers": {
+                        "Authorization": "Bearer $MY_SERVICE_TOKEN",
+                        "X-Unused": "literal",
+                    },
+                },
+                "api_key": "$TOP_KEY",
+            }
+        )
+        assert names == ["ENDPOINT_KEY", "TOP_KEY", "MY_SERVICE_TOKEN"]
 
 
 class TestMaskSecret:
@@ -192,6 +209,54 @@ class TestIsCredentialSet:
             return_value=cred_value,
         ):
             assert is_credential_set("ANY_KEY") is expected
+
+
+class TestEnvironmentWithoutCredentials:
+    """The child-shell scrub set derives from api_key fields only."""
+
+    def test_keeps_custom_endpoint_header_non_secret(self, monkeypatch):
+        from code_puppy.provider_credentials import environment_without_credentials
+
+        monkeypatch.setattr(
+            "code_puppy.provider_credentials._load_merged_model_config",
+            lambda: {
+                "openrouter-model": {
+                    "provider": "openrouter",
+                    "api_key": "$OPENROUTER_API_KEY",
+                    "custom_endpoint": {"headers": {"HTTP-Referer": "$SITE_URL"}},
+                }
+            },
+        )
+        monkeypatch.setenv("OPENROUTER_API_KEY", "or-secret")
+        monkeypatch.setenv("SITE_URL", "https://example.com")
+
+        env = environment_without_credentials()
+
+        assert "OPENROUTER_API_KEY" not in env
+        assert env["SITE_URL"] == "https://example.com"
+
+    def test_catalog_change_applies_to_next_call(self, monkeypatch):
+        """A mid-session catalog edit reaches the scrub set with no invalidation step."""
+        from code_puppy.provider_credentials import (
+            credential_env_var_names,
+            environment_without_credentials,
+            save_credential,
+        )
+
+        catalog_keys: list = []
+        monkeypatch.setattr(
+            "code_puppy.provider_credentials.all_api_key_env_vars",
+            lambda: list(catalog_keys),
+        )
+        monkeypatch.setattr("code_puppy.config.set_config_value", lambda *a, **k: None)
+        monkeypatch.setenv("NEW_CUSTOM_API_KEY", "placeholder")
+        assert "NEW_CUSTOM_API_KEY" not in credential_env_var_names()
+
+        catalog_keys.append("NEW_CUSTOM_API_KEY")
+        assert "NEW_CUSTOM_API_KEY" in credential_env_var_names()
+
+        save_credential("NEW_CUSTOM_API_KEY", "brand-new-secret")
+        assert "NEW_CUSTOM_API_KEY" not in environment_without_credentials()
 
 
 if __name__ == "__main__":

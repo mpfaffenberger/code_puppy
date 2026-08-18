@@ -1067,20 +1067,17 @@ def _normalize_cwd(cwd: str | None) -> str | None:
     return stripped
 
 
-_SECRET_ENV_SUFFIXES = ("_API_KEY", "_TOKEN", "_SECRET")
-
-
 def _child_process_env() -> dict[str, str]:
     """Environment for spawned shell commands.
 
-    Copies the current environment but drops the agent's own provider
-    credentials so a child command does not inherit them.
+    The agent's own provider credentials are removed (see
+    ``provider_credentials.environment_without_credentials``); everything
+    else in the user's environment passes through so gh, git, npm and
+    friends keep working inside child commands.
     """
-    env = dict(os.environ)
-    for name in list(env):
-        if name.upper().endswith(_SECRET_ENV_SUFFIXES):
-            del env[name]
-    return env
+    from code_puppy.provider_credentials import environment_without_credentials
+
+    return environment_without_credentials()
 
 
 async def run_shell_command(
