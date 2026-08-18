@@ -10,6 +10,7 @@ apply_all_patches()
 
 import argparse
 import asyncio
+import json
 import os
 import signal
 import sys
@@ -170,6 +171,12 @@ async def main():
         "--disable-ask-user-question",
         action="store_true",
         help="Disable only the interactive ask_user_question tool",
+    )
+    parser.add_argument(
+        "--usage-file",
+        type=Path,
+        metavar="PATH",
+        help="Write aggregate headless model usage as JSON",
     )
     parser.add_argument(
         "--agent",
@@ -519,6 +526,7 @@ async def main():
                 initial_command,
                 message_renderer,
                 session_name=resolved_resume_session,
+                usage_file=args.usage_file,
             )
         else:
             # Default to interactive mode (no args = same as -i)
@@ -1339,11 +1347,33 @@ async def run_prompt_with_attachments(
     return await _await_agent()
 
 
+def _write_usage_file(path: Path, usage) -> None:
+    """Atomically serialize authoritative model usage for automation clients."""
+    cost = getattr(usage, "cost", None)
+    payload = {
+        "input_tokens": getattr(usage, "input_tokens", 0),
+        "output_tokens": getattr(usage, "output_tokens", 0),
+        "cache_read_tokens": getattr(usage, "cache_read_tokens", 0),
+        "cache_write_tokens": getattr(usage, "cache_write_tokens", 0),
+        "requests": getattr(usage, "requests", 0),
+        "tool_calls": getattr(usage, "tool_calls", 0),
+        "cost_usd": float(cost) if cost is not None else None,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(json.dumps(payload, indent=2) + "\n")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 async def execute_single_prompt(
     prompt: str,
     message_renderer,
     *,
     session_name: str | None = None,
+    usage_file: Path | None = None,
 ) -> None:
     """Execute one headless ``-p`` prompt, dispatching commands and autosaving.
 
@@ -1414,6 +1444,8 @@ async def execute_single_prompt(
         get_message_bus().emit(
             AgentResponseMessage(content=result.output, is_markdown=True)
         )
+        if usage_file is not None:
+            _write_usage_file(usage_file, result.usage())
 
         # The runtime result includes the final assistant response that the
         # incremental history can otherwise miss.
