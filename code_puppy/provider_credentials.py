@@ -12,7 +12,6 @@ Used by:
 
 from __future__ import annotations
 
-import functools
 import os
 from typing import Dict, List, Optional
 
@@ -196,8 +195,6 @@ def save_credential(env_var: str, value: str) -> None:
     set_config_value(env_var.lower(), value)
     if value:
         os.environ[env_var] = value
-    # A newly saved key must join the child-shell scrub set this session.
-    credential_env_var_names.cache_clear()
 
 
 # Every provider credential code_puppy manages a key for; mirrors the names in
@@ -226,16 +223,15 @@ _WELL_KNOWN_CREDENTIAL_ENV_VARS = frozenset(
 )
 
 
-@functools.lru_cache(maxsize=1)
 def credential_env_var_names() -> frozenset:
     """Every env var name that carries an agent provider credential.
 
     The well-known provider keys plus every configured model's api_key
     ``$ENV`` name, so the scrub below cannot miss a custom provider. Header
     env vars are deliberately excluded: they are often non-secrets (e.g.
-    ``$SITE_URL``) that belong to the user's shell. Cached because the catalog
-    is read from disk on every child-process spawn; ``save_credential`` and the
-    ``/add_model`` writer clear the cache so mid-session additions take effect.
+    ``$SITE_URL``) that belong to the user's shell. Recomputed on every call so
+    any catalog change -- including a hand-edit to ``extra_models.json`` --
+    takes effect immediately.
 
     Residual: MCP server secrets (``mcp_servers.json`` ``env``/``headers``
     ``$VAR`` references) are not folded in -- there is no clean way to tell a
