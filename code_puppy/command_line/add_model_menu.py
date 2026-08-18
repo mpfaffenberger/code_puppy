@@ -798,6 +798,11 @@ class AddModelMenu:
         if already_present:
             emit_info(f"Model {model_key} is already in extra_models.json")
         else:
+            # New model may reference a credential env var; refresh the
+            # child-shell scrub set so it applies without a restart.
+            from code_puppy.provider_credentials import credential_env_var_names
+
+            credential_env_var_names.cache_clear()
             emit_info(f"Added {model_key} to extra_models.json")
         return True
 

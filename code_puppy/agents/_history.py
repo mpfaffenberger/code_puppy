@@ -280,10 +280,12 @@ def estimate_context_overhead(
 
 # Pydantic-AI has FIVE part kinds carrying a tool_call_id that participate in
 # call/return pairing: tool-call/-return, builtin-tool-call/-return (claude
-# extended-thinking), and retry-prompt (acts as a response only when it is
-# tool-bound — a nameless retry is validation feedback, not a result).
-# Counting only tool-call/-return caused bugs: e.g. builtin calls on Claude
-# Opus stayed "pending" forever, deferring summarization.
+# extended-thinking / provider-executed), and retry-prompt (acts as a response
+# only when it is tool-bound — a nameless retry is validation feedback, not a
+# result). ``_classify_tool_part`` and these sets describe that full vocabulary
+# for consumers that want every id-bearing part. The repair and
+# pending-detection logic instead uses the narrower ``_is_repairable_*``
+# predicates below, which exclude builtin parts.
 #
 # v2.31.0 vocabulary audit: the only new part kinds are
 # 'tool-availability-delta' (carries an *optional* tool_call_id but is an
@@ -316,6 +318,32 @@ def _classify_tool_part(part: object) -> str | None:
     return None
 
 
+# Repair and pending-detection pair ONLY regular (locally-executed) tool parts.
+# Builtin/native calls and returns are left alone, mirroring pydantic-ai:
+# provider-executed results are self-contained and can even arrive in a later
+# provider turn, so a "missing" builtin return is not a defect to synthesize or
+# drop — and counting one keeps a history "pending" forever.
+def _is_repairable_call(part: object) -> bool:
+    """A regular ``tool-call`` awaiting a local ``tool-return``."""
+    return (
+        getattr(part, "part_kind", None) == "tool-call"
+        and getattr(part, "tool_call_id", None) is not None
+    )
+
+
+def _is_repairable_return(part: object) -> bool:
+    """A regular tool result (or tool-bound retry) that answers a local call."""
+    if getattr(part, "tool_call_id", None) is None:
+        return False
+    pk = getattr(part, "part_kind", None)
+    if pk == "tool-return":
+        return True
+    if pk == "retry-prompt":
+        # A nameless retry is validation feedback, not a tool result.
+        return getattr(part, "tool_name", None) is not None
+    return False
+
+
 def _insert_tool_returns(
     request: ModelMessage, returns: List[ToolReturnPart]
 ) -> ModelMessage:
@@ -323,7 +351,7 @@ def _insert_tool_returns(
     parts = list(getattr(request, "parts", []) or [])
     insert_at = 0
     for position, part in enumerate(parts):
-        if _classify_tool_part(part) == "return":
+        if _is_repairable_return(part):
             insert_at = position + 1
     parts[insert_at:insert_at] = returns
     return dataclasses.replace(request, parts=parts)
@@ -362,10 +390,9 @@ def prune_interrupted_tool_calls(
 
     for msg in messages:
         for part in getattr(msg, "parts", []) or []:
-            kind = _classify_tool_part(part)
-            if kind == "call":
+            if _is_repairable_call(part):
                 tool_call_ids.add(part.tool_call_id)
-            elif kind == "return":
+            elif _is_repairable_return(part):
                 tool_return_ids.add(part.tool_call_id)
 
     dangling_calls = tool_call_ids - tool_return_ids
@@ -374,10 +401,7 @@ def prune_interrupted_tool_calls(
         return messages
 
     def _is_dangling_call(part: object) -> bool:
-        return (
-            getattr(part, "part_kind", None) == "tool-call"
-            and part.tool_call_id in dangling_calls
-        )
+        return _is_repairable_call(part) and part.tool_call_id in dangling_calls
 
     pruned: List[ModelMessage] = []
     synthesized: List[ToolReturnPart] = []
@@ -414,8 +438,7 @@ def prune_interrupted_tool_calls(
             part
             for part in original_parts
             if not (
-                _classify_tool_part(part) == "return"
-                and part.tool_call_id in orphaned_returns
+                _is_repairable_return(part) and part.tool_call_id in orphaned_returns
             )
         ]
         if len(kept_parts) != len(original_parts):
@@ -431,11 +454,13 @@ def prune_interrupted_tool_calls(
 
 
 def has_pending_tool_calls(messages: List[ModelMessage]) -> bool:
-    """Return True if any tool call is still waiting for its response.
+    """Return True if any regular tool call is still waiting for its response.
 
-    Recognizes both regular (``tool-call`` / ``tool-return``) and builtin
-    (``builtin-tool-call`` / ``builtin-tool-return``) pairings, plus
-    ``retry-prompt`` as a valid response form.
+    Recognizes regular (``tool-call`` / ``tool-return``) pairing plus
+    ``retry-prompt`` as a valid response form. Builtin/native tool parts are
+    excluded (see ``_is_repairable_call`` / ``_is_repairable_return``): a
+    provider-executed call whose return is still to come must not read as
+    "pending" and defer compaction forever.
     """
     if not messages:
         return False
@@ -445,10 +470,9 @@ def has_pending_tool_calls(messages: List[ModelMessage]) -> bool:
 
     for msg in messages:
         for part in getattr(msg, "parts", []) or []:
-            kind = _classify_tool_part(part)
-            if kind == "call":
+            if _is_repairable_call(part):
                 tool_call_ids.add(part.tool_call_id)
-            elif kind == "return":
+            elif _is_repairable_return(part):
                 tool_return_ids.add(part.tool_call_id)
 
     return bool(tool_call_ids - tool_return_ids)

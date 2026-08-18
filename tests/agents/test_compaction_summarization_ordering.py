@@ -36,6 +36,7 @@ from pydantic_ai.messages import (
     ModelResponse,
     SystemPromptPart,
     TextPart,
+    ThinkingPart,
     ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
@@ -315,13 +316,95 @@ def test_ensure_leading_request_repairs_only_the_opening(slice_key):
         assert extras == []
 
 
-def test_merge_consecutive_same_role_is_lossless():
-    left = _user("one")
-    right = _user("two")
-    assistant = _assistant("ok")
-    merged = _compaction._merge_consecutive_same_role([left, right, assistant])
-    assert [type(m) for m in merged] == [ModelRequest, ModelResponse]
-    assert [getattr(p, "content", None) for p in merged[0].parts] == ["one", "two"]
+def _api_response(text: str, signature: str, response_id: str) -> ModelResponse:
+    """An API-sourced assistant turn carrying a signed ThinkingPart."""
+    return ModelResponse(
+        parts=[
+            ThinkingPart(content=f"reasoning {text}", signature=signature),
+            TextPart(content=text),
+        ],
+        provider_name="anthropic",
+        model_name="claude-test",
+        provider_response_id=response_id,
+    )
+
+
+def test_merge_keeps_api_responses_separate_and_hoists_tool_results():
+    """The merge must not rearrange signed thinking blocks, and must order a
+    merged request tool-results-first.
+
+    Two API-sourced responses each carry a signed ThinkingPart. Concatenating
+    them would move the second turn's signed block behind the first turn's text
+    and reattribute it to the first response's id — Anthropic rejects that — so
+    they must stay as two separate assistant turns. A ``[user-text]`` +
+    ``[tool-return]`` request pair merges into one request whose tool result
+    precedes the user-facing part."""
+    resp_a = _api_response("answer a", "sig-a", "resp_a")
+    resp_b = _api_response("answer b", "sig-b", "resp_b")
+
+    merged = _compaction._merge_consecutive_same_role([resp_a, resp_b])
+
+    # Not collapsed: the two assistant turns remain distinct, and no single
+    # turn holds both thinking blocks.
+    responses = [m for m in merged if isinstance(m, ModelResponse)]
+    assert len(responses) == 2
+    assert resp_a in merged and resp_b in merged
+    for response in responses:
+        thinking = [p for p in response.parts if isinstance(p, ThinkingPart)]
+        assert len(thinking) == 1
+
+    # A merged request hoists tool results ahead of user-facing parts.
+    user_req = ModelRequest(parts=[UserPromptPart(content="hello")])
+    return_req = ModelRequest(
+        parts=[ToolReturnPart(tool_name="edit", content="done", tool_call_id="a")]
+    )
+    merged_reqs = _compaction._merge_consecutive_same_role([user_req, return_req])
+    assert len(merged_reqs) == 1
+    assert [p.part_kind for p in merged_reqs[0].parts] == ["tool-return", "user-prompt"]
+
+
+def test_split_does_not_drop_messages_in_the_adjusted_gap():
+    """No message falls into the gap when the safe-split boundary is pulled back.
+
+    ``_find_safe_split_index`` moves the split earlier to keep a tool call with
+    its return in the protected tail. The protected slice must be derived from
+    that adjusted boundary — otherwise the call's ``ModelResponse`` lands in
+    neither slice and is silently dropped, orphaning its return."""
+    from code_puppy.agents._history import estimate_tokens_for_message as est
+
+    big = "y" * 4000
+    messages: List[ModelMessage] = [
+        ModelRequest(
+            parts=[SystemPromptPart(content="sys"), UserPromptPart(content="open")]
+        ),
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="read", args={"p": "a"}, tool_call_id="c0")]
+        ),
+        ModelRequest(
+            parts=[ToolReturnPart(tool_name="read", content=big, tool_call_id="c0")]
+        ),
+        ModelResponse(parts=[TextPart(content="answer0")]),
+        ModelRequest(parts=[UserPromptPart(content="q1")]),
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="read", args={"p": "b"}, tool_call_id="c1")]
+        ),
+        ModelRequest(
+            parts=[ToolReturnPart(tool_name="read", content=big, tool_call_id="c1")]
+        ),
+        ModelResponse(parts=[TextPart(content="answer1")]),
+    ]
+    # Budget fits the last two messages (c1's return + text) but not c1's call,
+    # so the unadjusted boundary lands between the call and its return.
+    budget = est(messages[0]) + est(messages[6]) + est(messages[7])
+
+    to_summarize, protected = _compaction.split_for_protected_summarization(
+        messages, budget
+    )
+
+    # The pulled-back split protects c1's call rather than dropping it.
+    assert messages[5] in protected
+    covered = {id(m) for m in to_summarize} | {id(m) for m in protected}
+    assert all(id(m) in covered for m in messages), "a message was dropped by the split"
 
 
 def test_detach_trailing_request_peels_final_user():

@@ -20,8 +20,10 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    RetryPromptPart,
     TextPart,
     ThinkingPart,
+    ToolReturnPart,
     UserPromptPart,
 )
 
@@ -116,22 +118,32 @@ def split_for_protected_summarization(
     system_message = messages[0]
     system_tokens = estimate_tokens_for_message(system_message, model_name)
 
-    protected_messages: List[ModelMessage] = []
     running_tokens = system_tokens
-
+    protected_count = 0
     for i in range(len(messages) - 1, 0, -1):
         msg_tokens = estimate_tokens_for_message(messages[i], model_name)
         if running_tokens + msg_tokens > protected_tokens:
             break
-        protected_messages.append(messages[i])
+        protected_count += 1
         running_tokens += msg_tokens
 
-    protected_messages.reverse()
-    protected_messages.insert(0, system_message)
-
-    protected_start_idx = max(1, len(messages) - (len(protected_messages) - 1))
+    protected_start_idx = max(1, len(messages) - protected_count)
     protected_start_idx = _find_safe_split_index(messages, protected_start_idx)
+
+    # Derive both slices from the (possibly earlier) adjusted boundary so no
+    # message falls into a gap between them. _find_safe_split_index can move the
+    # split back to keep a tool call with its return; basing the protected tail
+    # on the unadjusted boundary would drop that call's ModelResponse and orphan
+    # the return in the protected tail.
+    protected_messages: List[ModelMessage] = [
+        system_message,
+        *messages[protected_start_idx:],
+    ]
     messages_to_summarize = messages[1:protected_start_idx]
+
+    running_tokens = sum(
+        estimate_tokens_for_message(m, model_name) for m in protected_messages
+    )
 
     emit_info(
         f"🔒 Protecting {len(protected_messages)} recent messages "
@@ -195,25 +207,59 @@ def _ensure_leading_request(messages: List[ModelMessage]) -> List[ModelMessage]:
     return messages
 
 
+def _is_api_sourced_response(message: ModelMessage) -> bool:
+    """True for a ``ModelResponse`` that really came back from a provider."""
+    return isinstance(message, ModelResponse) and (
+        message.provider_response_id is not None
+        or message.provider_name is not None
+        or message.model_name is not None
+    )
+
+
 def _merge_consecutive_same_role(messages: List[ModelMessage]) -> List[ModelMessage]:
-    """Losslessly collapse adjacent same-role turns by concatenating parts.
+    """Collapse adjacent same-role turns so each role stays one turn.
 
     Production replaces pydantic-ai's history cleaner with identity, so a
-    user→user or assistant→assistant pair is forwarded to the provider.
+    user→user or assistant→assistant pair is forwarded to the provider as-is.
+
+    Merging concatenates parts, so it must not rearrange signed content:
+    - Adjacent requests are merged, hoisting tool results ahead of user-facing
+      parts (mirrors pydantic-ai) so results precede prompts as providers
+      require.
+    - Adjacent responses are merged only when both are synthetic (all provider
+      fields None). Two API-sourced responses are left apart, separated by a
+      neutral framing request: concatenating them would move a later signed
+      ThinkingPart behind the first turn's text and reattribute it to the first
+      response's id, which Anthropic rejects.
     """
     if not messages:
         return messages
     merged: List[ModelMessage] = [messages[0]]
     for message in messages[1:]:
         previous = merged[-1]
-        if isinstance(message, ModelResponse) == isinstance(previous, ModelResponse):
-            previous_parts = list(getattr(previous, "parts", []) or [])
-            next_parts = list(getattr(message, "parts", []) or [])
-            merged[-1] = dataclasses.replace(
-                previous, parts=[*previous_parts, *next_parts]
-            )
-        else:
+        if isinstance(message, ModelResponse) != isinstance(previous, ModelResponse):
             merged.append(message)
+            continue
+        if isinstance(message, ModelResponse):
+            if _is_api_sourced_response(previous) or _is_api_sourced_response(message):
+                merged.append(_framing_request())
+                merged.append(message)
+            else:
+                merged[-1] = dataclasses.replace(
+                    previous, parts=[*previous.parts, *message.parts]
+                )
+        else:
+            parts = [*previous.parts, *message.parts]
+            parts.sort(
+                key=lambda x: (
+                    0 if isinstance(x, ToolReturnPart | RetryPromptPart) else 1
+                )
+            )
+            merged[-1] = dataclasses.replace(
+                previous,
+                parts=parts,
+                instructions=previous.instructions or message.instructions,
+            )
     return merged
 
 

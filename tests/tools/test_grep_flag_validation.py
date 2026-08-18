@@ -1,6 +1,6 @@
 """Flag handling for the local ripgrep grep path (``_build_grep_args``)."""
 
-from code_puppy.tools.file_operations import _build_grep_args
+from code_puppy.tools.file_operations import _build_backend_matcher, _build_grep_args
 
 
 def test_build_grep_args_rejects_unsupported_flags():
@@ -67,3 +67,43 @@ def test_build_grep_args_unknown_cluster_member_still_rejected():
     args, error = _build_grep_args("-iZ foo")
     assert args == []
     assert error is not None
+
+
+def test_build_grep_args_rejects_short_type_not():
+    """ripgrep's -T is --type-not (value-taking), never a --trim alias."""
+    args, error = _build_grep_args("-T 'def foo'")
+    assert args == []
+    assert error is not None
+    assert "-T" in error
+
+
+def test_build_grep_args_trim_is_long_only():
+    """--trim has only a long form and stays supported."""
+    args, error = _build_grep_args("--trim foo")
+    assert error is None
+    assert args == ["--trim", "foo"]
+
+
+def test_build_grep_args_value_not_shredded():
+    """A value that looks like a flag cluster reaches ripgrep verbatim."""
+    args, error = _build_grep_args("-e -in")
+    assert error is None
+    assert args == ["-e", "-in"]
+
+
+def test_build_grep_args_value_keeps_cluster_literal():
+    """``-e '-C3'`` searches the literal ``-C3``; it is not read as ``-C 3``."""
+    args, error = _build_grep_args("-e '-C3'")
+    assert error is None
+    assert args == ["-e", "-C3"]
+
+
+def test_build_backend_matcher_value_not_shredded():
+    """The backend path agrees with the local path: the value stays intact."""
+    pattern, _exts, error = _build_backend_matcher("-e -in")
+    assert error is None
+    assert pattern is not None
+    assert pattern.pattern == "-in"
+    # A shredded "-i" search would have matched the bare "-i" line below.
+    assert pattern.search("-in") is not None
+    assert pattern.search("-i") is None

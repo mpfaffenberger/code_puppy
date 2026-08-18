@@ -17,47 +17,65 @@ import os
 from typing import Dict, List, Optional
 
 
-def extract_env_vars_from_model_config(model_config: dict) -> List[str]:
-    """Every ``$ENV`` name a single model config depends on.
+def _add_env_var_tokens(value: object, names: List[str]) -> None:
+    """Append every ``$ENV`` name inside ``value`` to ``names`` (de-duplicated).
 
-    Mirrors ``model_factory.get_custom_config``: ``custom_endpoint.api_key``,
-    string values of ``custom_endpoint.headers`` (a whole-value ``$ENV`` or a
-    space-separated token such as ``Authorization: Bearer $MY_SERVICE_TOKEN``),
-    and the top-level ``api_key``. Returns env var names without the leading
-    ``$`` (e.g. ``"FIREWORKS_API_KEY"``), de-duplicated in precedence order.
+    Either a whole-value ``$ENV`` or, mirroring
+    ``model_factory.get_custom_config``, a space-separated token that itself
+    starts with ``$`` (the token in ``Authorization: Bearer $MY_SERVICE_TOKEN``).
+    """
+    if not isinstance(value, str):
+        return
+    if value.startswith("$"):
+        env_var = value[1:].strip()
+        if env_var and env_var not in names:
+            names.append(env_var)
+        return
+    if "$" not in value:
+        return
+    for token in value.split(" "):
+        if token.startswith("$"):
+            env_var = token[1:].strip()
+            if env_var and env_var not in names:
+                names.append(env_var)
+
+
+def extract_api_key_env_vars_from_model_config(model_config: dict) -> List[str]:
+    """Every ``$ENV`` name a model's api_key fields reference.
+
+    ``custom_endpoint.api_key`` then top-level ``api_key`` (mirrors
+    ``model_factory.get_custom_config`` precedence) -- the credentials the
+    agent authenticates with, excluding header env vars. Returns names without
+    the leading ``$`` (e.g. ``"FIREWORKS_API_KEY"``), de-duplicated.
     """
     if not isinstance(model_config, dict):
         return []
-
     names: List[str] = []
-
-    def _add(value: object) -> None:
-        if not isinstance(value, str):
-            return
-        if value.startswith("$"):
-            env_var = value[1:].strip()
-            if env_var and env_var not in names:
-                names.append(env_var)
-            return
-        if "$" not in value:
-            return
-        # Same split as model_factory.get_custom_config: only a space-
-        # separated token that itself starts with ``$`` is a credential.
-        for token in value.split(" "):
-            if token.startswith("$"):
-                env_var = token[1:].strip()
-                if env_var and env_var not in names:
-                    names.append(env_var)
-
-    # Prefer custom_endpoint.api_key over top-level api_key (mirrors model_factory)
     custom_endpoint = model_config.get("custom_endpoint")
     if isinstance(custom_endpoint, dict):
-        _add(custom_endpoint.get("api_key"))
+        _add_env_var_tokens(custom_endpoint.get("api_key"), names)
+    _add_env_var_tokens(model_config.get("api_key"), names)
+    return names
+
+
+def extract_env_vars_from_model_config(model_config: dict) -> List[str]:
+    """Every ``$ENV`` name a single model config depends on.
+
+    The api_key credentials (see
+    :func:`extract_api_key_env_vars_from_model_config`) followed by any
+    ``$ENV`` referenced in ``custom_endpoint.headers``. api_key names come
+    first so :func:`extract_env_var_from_model_config` returns the real
+    credential rather than a header var such as ``$SITE_URL``.
+    """
+    if not isinstance(model_config, dict):
+        return []
+    names = extract_api_key_env_vars_from_model_config(model_config)
+    custom_endpoint = model_config.get("custom_endpoint")
+    if isinstance(custom_endpoint, dict):
         headers = custom_endpoint.get("headers")
         if isinstance(headers, dict):
             for header_value in headers.values():
-                _add(header_value)
-    _add(model_config.get("api_key"))
+                _add_env_var_tokens(header_value, names)
     return names
 
 
@@ -117,6 +135,19 @@ def all_required_env_vars() -> List[str]:
     return sorted(found)
 
 
+def all_api_key_env_vars() -> List[str]:
+    """Sorted list of every model's api_key ``$ENV`` var (headers excluded).
+
+    The header-free counterpart of :func:`all_required_env_vars`, used to build
+    the child-shell scrub set so non-secret header vars (e.g. ``$SITE_URL``)
+    still reach child commands.
+    """
+    found: set = set()
+    for model_config in _load_merged_model_config().values():
+        found.update(extract_api_key_env_vars_from_model_config(model_config))
+    return sorted(found)
+
+
 def get_credential_value(env_var: str) -> Optional[str]:
     """Resolve a credential exactly like ``model_factory.get_api_key``.
 
@@ -165,18 +196,32 @@ def save_credential(env_var: str, value: str) -> None:
     set_config_value(env_var.lower(), value)
     if value:
         os.environ[env_var] = value
+    # A newly saved key must join the child-shell scrub set this session.
+    credential_env_var_names.cache_clear()
 
 
+# Every provider credential code_puppy manages a key for; mirrors the names in
+# ``credential_hint``, plus SYN/AZURE keys hydrated by ``config``.
 _WELL_KNOWN_CREDENTIAL_ENV_VARS = frozenset(
     {
         "OPENAI_API_KEY",
-        "GEMINI_API_KEY",
         "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "GROQ_API_KEY",
+        "MISTRAL_API_KEY",
+        "COHERE_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "TOGETHER_API_KEY",
+        "FIREWORKS_API_KEY",
+        "OPENROUTER_API_KEY",
+        "PERPLEXITY_API_KEY",
         "CEREBRAS_API_KEY",
+        "HUGGINGFACE_API_KEY",
+        "XAI_API_KEY",
+        "ZAI_API_KEY",
         "SYN_API_KEY",
         "AZURE_OPENAI_API_KEY",
-        "OPENROUTER_API_KEY",
-        "ZAI_API_KEY",
     }
 )
 
@@ -185,15 +230,21 @@ _WELL_KNOWN_CREDENTIAL_ENV_VARS = frozenset(
 def credential_env_var_names() -> frozenset:
     """Every env var name that carries an agent provider credential.
 
-    The well-known provider keys plus every ``$ENV`` name referenced by a
-    configured model (including custom-endpoint header credentials), so the
-    scrub below cannot miss a custom provider. Cached because the model
-    catalog is read from disk and this runs on every child-process spawn; a
-    catalog edited mid-session applies after restart.
+    The well-known provider keys plus every configured model's api_key
+    ``$ENV`` name, so the scrub below cannot miss a custom provider. Header
+    env vars are deliberately excluded: they are often non-secrets (e.g.
+    ``$SITE_URL``) that belong to the user's shell. Cached because the catalog
+    is read from disk on every child-process spawn; ``save_credential`` and the
+    ``/add_model`` writer clear the cache so mid-session additions take effect.
+
+    Residual: MCP server secrets (``mcp_servers.json`` ``env``/``headers``
+    ``$VAR`` references) are not folded in -- there is no clean way to tell a
+    secret from a non-secret like ``$HOME``/``$PATH`` there, and scrubbing the
+    latter would re-break tooling. Left for the maintainer to decide.
     """
     names = set(_WELL_KNOWN_CREDENTIAL_ENV_VARS)
     try:
-        names.update(all_required_env_vars())
+        names.update(all_api_key_env_vars())
     except Exception:
         # A broken catalog must not break environment scrubbing.
         pass
@@ -203,11 +254,12 @@ def credential_env_var_names() -> frozenset:
 def environment_without_credentials() -> Dict[str, str]:
     """``os.environ`` minus the agent's own provider credentials.
 
-    Child shell commands and hooks have no legitimate use for the keys the
-    agent itself authenticates with; removing them keeps a child process
-    from inheriting and exfiltrating them. Everything else in the user's
-    environment (``GITHUB_TOKEN``, ``AWS_*``, proxies) passes through so
-    routine tooling keeps working.
+    Removes the well-known provider keys and every model's api_key ``$ENV``
+    var so a child process cannot inherit and exfiltrate the keys the agent
+    authenticates with. Everything else passes through so routine tooling keeps
+    working: the user's own ``GITHUB_TOKEN``, ``AWS_*`` and proxies, and
+    custom-endpoint header vars, which are commonly non-secrets like
+    ``$SITE_URL``.
     """
     credentials = credential_env_var_names()
     return {

@@ -207,5 +207,7 @@ def test_builtin_tool_call_left_alone():
 
     pruned = prune_interrupted_tool_calls(history)
 
-    # Untouched: the native call survives without a synthesized return.
-    assert pruned is history or pruned == history
+    # Untouched: the identity fast path holds (builtin parts never enter the
+    # pairing sets), so nothing is synthesized and nothing reads as pending.
+    assert pruned is history
+    assert not has_pending_tool_calls(pruned)

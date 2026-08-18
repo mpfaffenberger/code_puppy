@@ -579,6 +579,35 @@ class TestEdgeCases:
 
 
 # ---------------------------------------------------------------------------
+# Bytecode tripwire (a trusted source plugin must ship no bytecode)
+# ---------------------------------------------------------------------------
+
+
+class TestBytecodeRefusal:
+    """A trusted plugin carrying .pyc/__pycache__ is refused by the loader."""
+
+    def test_plugin_with_pyc_is_refused(self, project_plugins_dir: Path, caplog):
+        plugin_dir = _make_plugin(project_plugins_dir, "shipped_bytecode")
+        (plugin_dir / "helper.pyc").write_bytes(b"\x00")
+
+        result = _load_project_plugins(project_plugins_dir, set(), set())
+
+        assert "shipped_bytecode" not in result
+        assert "Refusing to load project plugin 'shipped_bytecode'" in caplog.text
+
+    def test_plugin_with_pycache_dir_is_refused(self, project_plugins_dir: Path):
+        import code_puppy.plugins as plugins_module
+
+        plugin_dir = _make_plugin(project_plugins_dir, "cached_plugin")
+        (plugin_dir / "__pycache__").mkdir()
+
+        result = _load_project_plugins(project_plugins_dir, set(), set())
+
+        assert result == []
+        assert plugins_module.get_project_plugin_status()["cached_plugin"] == "error"
+
+
+# ---------------------------------------------------------------------------
 # Trust gate (project plugins are disabled by default)
 # ---------------------------------------------------------------------------
 

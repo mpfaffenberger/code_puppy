@@ -64,7 +64,7 @@ class TestExtractEnvVarFromModelConfig:
                 "api_key": "$TOP_KEY",
             }
         )
-        assert names == ["ENDPOINT_KEY", "MY_SERVICE_TOKEN", "TOP_KEY"]
+        assert names == ["ENDPOINT_KEY", "TOP_KEY", "MY_SERVICE_TOKEN"]
 
 
 class TestMaskSecret:
@@ -209,6 +209,65 @@ class TestIsCredentialSet:
             return_value=cred_value,
         ):
             assert is_credential_set("ANY_KEY") is expected
+
+
+class TestEnvironmentWithoutCredentials:
+    """The child-shell scrub set derives from api_key fields only."""
+
+    def test_keeps_custom_endpoint_header_non_secret(self, monkeypatch):
+        from code_puppy.provider_credentials import (
+            credential_env_var_names,
+            environment_without_credentials,
+        )
+
+        monkeypatch.setattr(
+            "code_puppy.provider_credentials._load_merged_model_config",
+            lambda: {
+                "openrouter-model": {
+                    "provider": "openrouter",
+                    "api_key": "$OPENROUTER_API_KEY",
+                    "custom_endpoint": {"headers": {"HTTP-Referer": "$SITE_URL"}},
+                }
+            },
+        )
+        monkeypatch.setenv("OPENROUTER_API_KEY", "or-secret")
+        monkeypatch.setenv("SITE_URL", "https://example.com")
+        credential_env_var_names.cache_clear()
+        try:
+            env = environment_without_credentials()
+        finally:
+            credential_env_var_names.cache_clear()
+
+        assert "OPENROUTER_API_KEY" not in env
+        assert env["SITE_URL"] == "https://example.com"
+
+    def test_save_credential_invalidates_scrub_cache(self, monkeypatch):
+        from code_puppy.provider_credentials import (
+            credential_env_var_names,
+            environment_without_credentials,
+            save_credential,
+        )
+
+        catalog_keys: list = []
+        monkeypatch.setattr(
+            "code_puppy.provider_credentials.all_api_key_env_vars",
+            lambda: list(catalog_keys),
+        )
+        monkeypatch.setattr("code_puppy.config.set_config_value", lambda *a, **k: None)
+        monkeypatch.setenv("NEW_CUSTOM_API_KEY", "placeholder")
+        credential_env_var_names.cache_clear()
+        # Prime the cache before the catalog references the new key.
+        assert "NEW_CUSTOM_API_KEY" not in credential_env_var_names()
+        # A catalog edit the stale cache has not yet seen; save_credential must
+        # clear the cache so the key joins the scrub set this session.
+        catalog_keys.append("NEW_CUSTOM_API_KEY")
+        try:
+            save_credential("NEW_CUSTOM_API_KEY", "brand-new-secret")
+            env = environment_without_credentials()
+        finally:
+            credential_env_var_names.cache_clear()
+
+        assert "NEW_CUSTOM_API_KEY" not in env
 
 
 if __name__ == "__main__":

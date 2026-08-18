@@ -283,16 +283,42 @@ def _interpolate_placeholders(template: str, values: Dict[str, str]) -> str:
     (``CLAUDE_FILE_PATH`` et al.) or stdin JSON instead of interpolation.
     """
     if os.name == "nt":
-        # Hooks run via cmd /c, where POSIX single-quoting is literal text.
-        return _PLACEHOLDER_RE.sub(_nt_replacement(values), template)
+        # Hooks run via cmd /c, where only " groups arguments; POSIX
+        # single-quoting is literal text.
+        pieces: List[str] = []
+        position = 0
+        in_quotes = False
+        for match in _PLACEHOLDER_RE.finditer(template):
+            literal = template[position : match.start()]
+            pieces.append(literal)
+            in_quotes = _cmd_quote_state(literal, in_quotes)
+            position = match.end()
 
-    pieces: List[str] = []
+            name = match.group(1) or match.group(2)
+            if name not in values:
+                pieces.append(match.group(0))
+                continue
+            value = str(values[name])
+            if in_quotes:
+                # Already inside the author's double quotes: emit only the
+                # inner-quote-escaped value. Adding another "..." here would
+                # give a metacharacter even quote parity and re-arm cmd.exe.
+                pieces.append(value.replace('"', '""'))
+            else:
+                pieces.append(_cmd_quote(value))
+        pieces.append(template[position:])
+        return "".join(pieces)
+
+    pieces = []
     position = 0
-    quote: Optional[str] = None  # "'", '"', or None outside any quotes
+    # Stack of shell contexts, each [closer, quote]. The base command sits at
+    # the bottom; a $( or backtick pushes a nested command-substitution
+    # context (see _scan_quote_stack).
+    stack: List[List[Optional[str]]] = [[None, None]]
     for match in _PLACEHOLDER_RE.finditer(template):
         literal = template[position : match.start()]
         pieces.append(literal)
-        quote = _shell_quote_state(literal, quote)
+        _scan_quote_stack(literal, stack)
         position = match.end()
 
         name = match.group(1) or match.group(2)
@@ -300,6 +326,7 @@ def _interpolate_placeholders(template: str, values: Dict[str, str]) -> str:
             pieces.append(match.group(0))
             continue
         value = str(values[name])
+        quote = stack[-1][1]
         if quote is None:
             pieces.append(shlex.quote(value))
         elif quote == "'":
@@ -313,36 +340,60 @@ def _interpolate_placeholders(template: str, values: Dict[str, str]) -> str:
     return "".join(pieces)
 
 
-def _nt_replacement(values: Dict[str, str]):
-    def _replace(match: "re.Match") -> str:
-        name = match.group(1) or match.group(2)
-        if name in values:
-            return _cmd_quote(str(values[name]))
-        return match.group(0)
+def _cmd_quote_state(text: str, in_quotes: bool) -> bool:
+    """Track whether a cmd.exe double-quoted string is open across a literal.
 
-    return _replace
+    Only ``"`` groups arguments for cmd.exe, so it alone toggles the state.
+    """
+    for char in text:
+        if char == '"':
+            in_quotes = not in_quotes
+    return in_quotes
 
 
-def _shell_quote_state(text: str, state: Optional[str]) -> Optional[str]:
-    """Track single/double-quote state across a literal template segment."""
+def _scan_quote_stack(text: str, stack: List[List[Optional[str]]]) -> None:
+    """Advance the shell context stack across a literal template segment.
+
+    Each frame is ``[closer, quote]``: ``quote`` is the frame's active quote
+    (``None``, ``'``, or ``"``) and ``closer`` is the char that ends the frame
+    (``)`` for ``$(``, a backtick for ``` `...` ```, or ``None`` for the base
+    command). A ``$(`` or backtick opens a command substitution — a fresh
+    command context where the value is re-parsed — so it pushes a frame whose
+    quote is ``None``. An interpolated value there is therefore quoted as
+    unquoted (``shlex.quote``) even though an outer ``"`` is still open, which
+    keeps the value an inert argument instead of a live command.
+    """
     i = 0
     while i < len(text):
         char = text[i]
-        if state is None:
-            if char in ("'", '"'):
-                state = char
+        top = stack[-1]
+        quote = top[1]
+        if quote is None:
+            if char == top[0]:  # matching closer ends this substitution frame
+                stack.pop()
+            elif char in ("'", '"'):
+                top[1] = char
             elif char == "\\":
-                i += 1  # escaped character cannot open a quote
-        elif state == "'":
+                i += 1  # escaped character cannot open a quote or substitution
+            elif char == "$" and i + 1 < len(text) and text[i + 1] == "(":
+                stack.append([")", None])
+                i += 1
+            elif char == "`":
+                stack.append(["`", None])
+        elif quote == "'":
             if char == "'":
-                state = None
-        else:  # inside double quotes
+                top[1] = None
+        else:  # inside double quotes: $( and backtick still open substitutions
             if char == "\\":
                 i += 1
             elif char == '"':
-                state = None
+                top[1] = None
+            elif char == "$" and i + 1 < len(text) and text[i + 1] == "(":
+                stack.append([")", None])
+                i += 1
+            elif char == "`":
+                stack.append(["`", None])
         i += 1
-    return state
 
 
 def _double_quote_escape(value: str) -> str:

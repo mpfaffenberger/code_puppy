@@ -85,7 +85,7 @@ async def test_shell_command_env_strips_configured_model_credentials(monkeypatch
     from code_puppy.provider_credentials import credential_env_var_names
 
     monkeypatch.setattr(
-        "code_puppy.provider_credentials.all_required_env_vars",
+        "code_puppy.provider_credentials.all_api_key_env_vars",
         lambda: ["MY_CUSTOM_PROVIDER_KEY"],
     )
     credential_env_var_names.cache_clear()
@@ -113,6 +113,47 @@ async def test_shell_command_env_strips_configured_model_credentials(monkeypatch
         credential_env_var_names.cache_clear()
 
     assert "MY_CUSTOM_PROVIDER_KEY" not in captured["env"]
+
+
+async def test_shell_command_env_strips_well_known_provider_keys(monkeypatch):
+    """Provider keys beyond the original eight are stripped from the child env.
+
+    With an empty catalog the scrub set is just the well-known names, which now
+    cover every provider code_puppy manages (GROQ, MISTRAL, ...), so they no
+    longer leak into child shells.
+    """
+    from code_puppy.provider_credentials import credential_env_var_names
+
+    monkeypatch.setattr(
+        "code_puppy.provider_credentials.all_api_key_env_vars", lambda: []
+    )
+    credential_env_var_names.cache_clear()
+    monkeypatch.setenv("GROQ_API_KEY", "groq-secret")
+    monkeypatch.setenv("MISTRAL_API_KEY", "mistral-secret")
+
+    captured = {}
+
+    def fake_popen(*args, **kwargs):
+        captured["env"] = kwargs.get("env")
+        raise _StopPopen()
+
+    monkeypatch.setattr(command_runner.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(
+        command_runner, "get_command_executor", lambda: None, raising=False
+    )
+
+    async def _no_callbacks(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr("code_puppy.callbacks.on_run_shell_command", _no_callbacks)
+
+    try:
+        await command_runner.run_shell_command(MagicMock(), "echo hi", None, 5, False)
+    finally:
+        credential_env_var_names.cache_clear()
+
+    assert "GROQ_API_KEY" not in captured["env"]
+    assert "MISTRAL_API_KEY" not in captured["env"]
 
 
 def test_hook_environment_excludes_provider_credentials(monkeypatch):

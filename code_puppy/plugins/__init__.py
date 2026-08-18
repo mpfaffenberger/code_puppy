@@ -16,14 +16,22 @@ logger = logging.getLogger(__name__)
 # User plugins directory
 USER_PLUGINS_DIR = Path.home() / ".code_puppy" / "plugins"
 
+# Compiled bytecode for project plugins is redirected here, out of the project
+# tree, so a clean load never leaves a __pycache__ entry that the bytecode
+# tripwire below would then refuse next session. Set once when the first trusted
+# plugin loads and left in place (like the meta_path finder) so a later lazy
+# import stays redirected too.
+_PROJECT_PLUGIN_PYCACHE = str(Path.home() / ".code_puppy" / "plugin_bytecode_cache")
+
 
 class _ProjectPluginLoader(importlib.machinery.SourceFileLoader):
     """Load project plugin source directly; never read or write ``.pyc`` caches.
 
-    Keeps a plugin executing exactly the file that was trusted: a stale or
-    planted bytecode cache beside the source (including an unchecked
-    hash-based ``.pyc``) is never consulted, and no cache is written back —
-    into the project tree or anywhere else.
+    Compiling from source keeps a plugin executing exactly the file that was
+    trusted, and writes no cache back. Within the ``project_plugins`` namespace
+    this loader is the only one the finder hands out; a plugin directory that
+    ships any bytecode is refused before it reaches here (see
+    ``_load_one_project_plugin``).
     """
 
     def get_code(self, fullname):  # noqa: D102
@@ -36,7 +44,9 @@ class _ProjectPluginFinder(importlib.abc.MetaPathFinder):
     Installed at the front of ``sys.meta_path`` before any trusted project
     plugin is imported (see ``_install_project_plugin_finder``), so a plugin's
     own module and every sibling it imports resolve through the source-only
-    loader instead of the default path finder and its bytecode cache.
+    loader. A ``project_plugins.*`` name backed only by planted bytecode
+    (``<name>.pyc`` with no source) raises ``ImportError`` instead of falling
+    through to the default path finder's ``SourcelessFileLoader``.
     """
 
     def find_spec(self, fullname, path=None, target=None):  # noqa: D102
@@ -44,7 +54,8 @@ class _ProjectPluginFinder(importlib.abc.MetaPathFinder):
             return None
         last = fullname.rsplit(".", 1)[-1]
         for entry in list(path or []):
-            pkg_dir = Path(entry) / last
+            base = Path(entry)
+            pkg_dir = base / last
             if pkg_dir.is_dir():
                 init_file = pkg_dir / "__init__.py"
                 if init_file.is_file():
@@ -57,12 +68,19 @@ class _ProjectPluginFinder(importlib.abc.MetaPathFinder):
                 spec = importlib.machinery.ModuleSpec(fullname, None, is_package=True)
                 spec.submodule_search_locations = [str(pkg_dir)]
                 return spec
-            module_file = Path(entry) / f"{last}.py"
+            module_file = base / f"{last}.py"
             if module_file.is_file():
                 return importlib.util.spec_from_file_location(
                     fullname,
                     module_file,
                     loader=_ProjectPluginLoader(fullname, str(module_file)),
+                )
+            # No source, but planted bytecode: own the name and fail closed so
+            # the default finder's SourcelessFileLoader can't execute it.
+            if (base / f"{last}.pyc").is_file():
+                raise ImportError(
+                    f"Refusing to import {fullname!r} from bytecode "
+                    f"{base / f'{last}.pyc'} — project plugins load from source only"
                 )
         return None
 
@@ -374,6 +392,23 @@ def _ensure_plugin_package(plugin_dir: Path, plugin_name: str) -> bool:
         return False
 
 
+def _find_plugin_bytecode(plugin_dir: Path) -> Path | None:
+    """Return the first ``.pyc`` file or ``__pycache__`` dir under *plugin_dir*.
+
+    ``compute_plugin_hash`` deliberately excludes bytecode from the trust
+    digest, so a trusted-and-unchanged plugin could still gain planted or stale
+    bytecode the digest never saw. Presence of any such artifact beside a source
+    plugin is treated as tampering.
+    """
+    try:
+        for path in plugin_dir.rglob("*"):
+            if path.suffix == ".pyc" or (path.name == "__pycache__" and path.is_dir()):
+                return path
+    except OSError:
+        return None
+    return None
+
+
 def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
     """Import a single (already trusted) project plugin.
 
@@ -392,18 +427,38 @@ def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
     if not callbacks_file.exists() and not init_file.exists():
         return False
 
+    # Fail closed at the trust boundary: a source plugin has no legitimate
+    # reason to ship bytecode, and the trust hash never covers it, so any
+    # .pyc/__pycache__ in the tree is treated as tampering and the whole plugin
+    # is refused. This is the belt that also covers import paths the meta-path
+    # finder cannot see (e.g. top-level sibling imports).
+    bytecode = _find_plugin_bytecode(plugin_dir)
+    if bytecode is not None:
+        logger.warning(
+            "Refusing to load project plugin '%s': found bytecode at %s. "
+            "Remove all .pyc files and __pycache__ directories from the plugin "
+            "directory, then reload.",
+            plugin_name,
+            bytecode,
+        )
+        return False
+
     # sys.path entry is earned by trust — inserted just-in-time so sibling
     # top-level imports inside the plugin resolve during exec below.
     parent_str = str(plugin_dir.parent)
     if parent_str not in sys.path:
         sys.path.insert(0, parent_str)
 
+    # Route the plugin and every sibling it imports through the source-only
+    # loader, and redirect any bytecode the machinery still emits out of the
+    # project tree. Both are set permanently — like the meta_path finder — so a
+    # lazy import after this returns can't slip through the default loader.
+    _install_project_plugin_finder()
+    sys.pycache_prefix = _PROJECT_PLUGIN_PYCACHE
+
     try:
         if callbacks_file.exists():
-            # Register parent package so relative imports resolve; the
-            # meta-path finder routes the plugin and any siblings it imports
-            # through the source-only loader (no bytecode caches anywhere).
-            _install_project_plugin_finder()
+            # Register parent package so relative imports resolve.
             _ensure_plugin_package(plugin_dir, plugin_name)
 
             module_name = f"{_PROJECT_PLUGINS_NS}.{plugin_name}.register_callbacks"
