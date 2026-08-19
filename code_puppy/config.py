@@ -2884,12 +2884,16 @@ def load_api_keys_to_environment():
     # is a redirect target, not a credential.
     cfg_only_names = ["AZURE_OPENAI_ENDPOINT"]
 
-    # Include env vars referenced by configured models (e.g. FIREWORKS_API_KEY
-    # for local custom providers) so puppy.cfg keys hydrate at startup. Best-effort.
+    # Include api-key env vars referenced by configured models (e.g.
+    # FIREWORKS_API_KEY for local custom providers) so puppy.cfg keys hydrate at
+    # startup. Best-effort. Only api-key vars — never custom_endpoint.headers
+    # vars: a header value is spliced into outgoing request headers, so
+    # hydrating it from a project dot-env would let an untrusted repo set request
+    # headers/routing (same redirect concern as an endpoint).
     try:
-        from code_puppy.provider_credentials import all_required_env_vars
+        from code_puppy.provider_credentials import all_api_key_env_vars
 
-        for env_var in all_required_env_vars():
+        for env_var in all_api_key_env_vars():
             if env_var not in api_key_names and env_var not in cfg_only_names:
                 api_key_names.append(env_var)
     except Exception:

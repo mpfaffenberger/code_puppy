@@ -6,7 +6,12 @@ silently re-scoping the search.
 """
 
 from code_puppy.tools import file_operations
-from code_puppy.tools.file_operations import MatchInfo, _emit_grep_result, _grep
+from code_puppy.tools.file_operations import (
+    _MAX_GREP_CONTEXT_ROWS,
+    MatchInfo,
+    _emit_grep_result,
+    _grep,
+)
 
 
 def _setup(tmp_path):
@@ -62,6 +67,26 @@ def test_grep_context_lines_do_not_evict_real_matches(tmp_path):
     assert all(m.line_content == "target" for m in real)
     # Context lines are still surfaced, just never counted as matches.
     assert context
+
+
+def test_wide_context_is_capped_without_evicting_matches(tmp_path):
+    """A wide -C caps context rows separately; real matches still fill the budget.
+
+    Context is bounded by ``_MAX_GREP_CONTEXT_ROWS`` so an enormous -C can't grow
+    the output without limit, yet the 50 real matches are never evicted.
+    """
+    # A large filler preamble sits within a huge context radius of the first
+    # match, so the raw context stream far exceeds the cap; the 60 matches then
+    # exceed the 50-match budget.
+    lines = ["filler"] * 400 + ["target", "filler"] * 60
+    (tmp_path / "big.py").write_text("\n".join(lines) + "\n")
+
+    out = _grep(None, "-C 9999 target", str(tmp_path))
+
+    assert out.error is None
+    real = [m for m in out.matches if not m.is_context]
+    assert len(real) == 50
+    assert len(out.matches) <= 50 + _MAX_GREP_CONTEXT_ROWS
 
 
 def test_emit_grep_result_excludes_context_from_counts(monkeypatch):

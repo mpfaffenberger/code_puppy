@@ -1,7 +1,9 @@
 """Project plugins load from source only; any bytecode in the tree is refused."""
 
+import importlib.machinery
 import importlib.util
 import marshal
+import os
 import struct
 import sys
 from pathlib import Path
@@ -14,6 +16,31 @@ from code_puppy.plugins import (
     _ensure_project_ns,
     _load_one_project_plugin,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_import_state():
+    """Pin the process-global import state these tests plant into and mutate.
+
+    ``_write_unchecked_hash_pyc`` places its cache via
+    ``importlib.util.cache_from_source``, which honors ``sys.pycache_prefix``.
+    The in-tree tripwire only sees a planted cache when the prefix is unset, so
+    force it off while planting — otherwise a stray ``PYTHONPYCACHEPREFIX`` (or a
+    prefix leaked by an earlier plugin-loading test) redirects the cache outside
+    the plugin dir and the "refused" assertions silently invert. Also snapshot
+    ``sys.path`` and ``sys.meta_path`` (the loader inserts into both) so nothing
+    leaks in or out of these tests regardless of collection order.
+    """
+    saved_prefix = sys.pycache_prefix
+    saved_path = list(sys.path)
+    saved_meta_path = list(sys.meta_path)
+    sys.pycache_prefix = None
+    try:
+        yield
+    finally:
+        sys.pycache_prefix = saved_prefix
+        sys.path[:] = saved_path
+        sys.meta_path[:] = saved_meta_path
 
 
 def _write_unchecked_hash_pyc(source_path: Path, body: str) -> Path:
@@ -217,3 +244,142 @@ def test_finder_refuses_planted_bytecode_within_namespace(tmp_path):
 
     # A bytecode-only name outside the namespace is still not ours to answer.
     assert finder.find_spec("plug.helper", path=[str(plugin_dir)]) is None
+
+
+def test_sourceless_pyc_in_plugins_root_is_refused(tmp_path):
+    """A sourceless ``.pyc`` on the plugins root (the sys.path entry) is refused.
+
+    A trusted plugin's *top-level* ``import helper`` resolves against the plugins
+    root through the default machinery, which the source-only meta-path finder
+    never sees. ``_find_path_entry_binary`` covers that shared import root, so a
+    loose ``helper.pyc`` there is refused before any code runs.
+    """
+    plugin_name = "root_pyc_plugin"
+    plugin_dir = tmp_path / ".code_puppy" / "plugins" / plugin_name
+    plugin_dir.mkdir(parents=True)
+
+    evil_marker = tmp_path / "root_pyc_ran"
+    (plugin_dir / "register_callbacks.py").write_text("import helper\n")
+    # Planted directly on the plugins root, not inside the plugin dir.
+    _write_sourceless_pyc(
+        plugin_dir.parent / "helper.pyc",
+        f"from pathlib import Path\nPath(r{str(evil_marker)!r}).write_text('evil')\n",
+    )
+
+    try:
+        _ensure_project_ns()
+        loaded = _load_one_project_plugin(plugin_dir, plugin_name)
+    finally:
+        _cleanup(plugin_dir, plugin_name, extra=("helper",))
+
+    assert not loaded
+    assert not evil_marker.exists()
+
+
+def test_compiled_extension_in_plugin_is_refused(tmp_path):
+    """A compiled extension (``.so``/``.pyd``) beside the source is refused.
+
+    The trust hash digests only source, so an extension is refused on its suffix
+    by the tripwire — before any import machinery touches it.
+    """
+    plugin_name = "extension_plugin"
+    plugin_dir = tmp_path / ".code_puppy" / "plugins" / plugin_name
+    plugin_dir.mkdir(parents=True)
+
+    (plugin_dir / "register_callbacks.py").write_text("VALUE = 1\n")
+    ext_suffix = importlib.machinery.EXTENSION_SUFFIXES[0]
+    (plugin_dir / f"native{ext_suffix}").write_bytes(b"")
+
+    try:
+        _ensure_project_ns()
+        loaded = _load_one_project_plugin(plugin_dir, plugin_name)
+    finally:
+        _cleanup(plugin_dir, plugin_name)
+
+    assert not loaded
+
+
+def test_empty_dir_does_not_shadow_source_module(tmp_path):
+    """``<name>.py`` wins over a same-named empty directory (CPython precedence).
+
+    An empty ``state/`` dir must not shadow a trusted ``state.py`` into a
+    loader-less namespace spec — the finder must serve the source module.
+    """
+    finder = _ProjectPluginFinder()
+    plugin_dir = tmp_path / "plug"
+    plugin_dir.mkdir()
+    (plugin_dir / "state.py").write_text("X = 1\n")
+    (plugin_dir / "state").mkdir()  # empty same-named directory
+
+    spec = finder.find_spec("project_plugins.plug.state", path=[str(plugin_dir)])
+    assert spec is not None and spec.loader is not None
+    assert type(spec.loader).__name__ == "_ProjectPluginLoader"
+    assert spec.origin is not None and spec.origin.endswith("state.py")
+
+
+def test_extension_in_namespace_is_refused(tmp_path):
+    """Within the namespace, a name backed only by a compiled extension raises.
+
+    With ``native.<ext>`` present and no ``native.py``, the finder owns the name
+    and fails closed instead of falling through to the default loader.
+    """
+    finder = _ProjectPluginFinder()
+    plugin_dir = tmp_path / "plug"
+    plugin_dir.mkdir()
+    ext_suffix = importlib.machinery.EXTENSION_SUFFIXES[0]
+    (plugin_dir / f"native{ext_suffix}").write_bytes(b"")
+
+    with pytest.raises(ImportError):
+        finder.find_spec("project_plugins.plug.native", path=[str(plugin_dir)])
+
+
+def test_symlinked_subdir_is_refused(tmp_path):
+    """A symlinked subdirectory (target outside the hashed tree) is refused.
+
+    ``os.walk(followlinks=False)`` reports the link at its own level so the
+    tripwire flags it — the trust digest never followed it.
+    """
+    plugin_name = "symlink_plugin"
+    plugin_dir = tmp_path / ".code_puppy" / "plugins" / plugin_name
+    plugin_dir.mkdir(parents=True)
+
+    (plugin_dir / "register_callbacks.py").write_text("VALUE = 1\n")
+
+    outside = tmp_path / "outside_tree"
+    outside.mkdir()
+    try:
+        os.symlink(outside, plugin_dir / "link")
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink creation unsupported on this platform: {exc}")
+
+    try:
+        _ensure_project_ns()
+        loaded = _load_one_project_plugin(plugin_dir, plugin_name)
+    finally:
+        _cleanup(plugin_dir, plugin_name)
+
+    assert not loaded
+
+
+def test_pycache_prefix_restored_after_load(tmp_path):
+    """A clean load restores ``sys.pycache_prefix`` to its pre-load value.
+
+    ``_load_one_project_plugin`` redirects the process-wide prefix during exec
+    and must restore it in a ``finally`` — otherwise every unrelated import in
+    the process is diverted for the rest of the session.
+    """
+    plugin_name = "prefix_restore_plugin"
+    plugin_dir = tmp_path / ".code_puppy" / "plugins" / plugin_name
+    plugin_dir.mkdir(parents=True)
+
+    (plugin_dir / "register_callbacks.py").write_text("VALUE = 1\n")
+
+    prefix_snapshot = sys.pycache_prefix
+    try:
+        _ensure_project_ns()
+        loaded = _load_one_project_plugin(plugin_dir, plugin_name)
+    finally:
+        _cleanup(plugin_dir, plugin_name)
+
+    assert loaded
+    assert sys.pycache_prefix == prefix_snapshot

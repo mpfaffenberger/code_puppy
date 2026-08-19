@@ -144,8 +144,8 @@ async def test_shell_command_env_strips_well_known_provider_keys(monkeypatch):
     assert "MISTRAL_API_KEY" not in captured["env"]
 
 
-def test_hook_environment_excludes_provider_credentials(monkeypatch):
-    """Hook processes see the CLAUDE_* contract variables but not provider keys."""
+def test_hook_environment_includes_provider_credentials(monkeypatch):
+    """Hooks are user config, so provider keys are inherited (a hook may call an LLM)."""
     from code_puppy.hook_engine.executor import _build_environment
     from code_puppy.hook_engine.models import EventData
 
@@ -160,7 +160,7 @@ def test_hook_environment_excludes_provider_credentials(monkeypatch):
         )
     )
 
-    assert "ANTHROPIC_API_KEY" not in env
+    assert env["ANTHROPIC_API_KEY"] == "agent-key"
     assert env["GITHUB_TOKEN"] == "user-token"
     assert env["CLAUDE_TOOL_NAME"] == "Edit"
     assert env["CLAUDE_FILE_PATH"] == "a.py"

@@ -35,6 +35,7 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    RetryPromptPart,
     SystemPromptPart,
     TextPart,
     ThinkingPart,
@@ -393,6 +394,69 @@ def test_merge_keeps_api_responses_separate_and_hoists_tool_results():
     merged_reqs = _compaction._merge_consecutive_same_role([user_req, return_req])
     assert len(merged_reqs) == 1
     assert [p.part_kind for p in merged_reqs[0].parts] == ["tool-return", "user-prompt"]
+
+
+def test_merge_does_not_hoist_nameless_retry():
+    """A nameless retry is validation feedback, not a tool result, so it stays
+    after the user prompt when two same-role requests merge."""
+    merged = _compaction._merge_consecutive_same_role(
+        [
+            ModelRequest(parts=[UserPromptPart(content="USER ASKED")]),
+            ModelRequest(parts=[RetryPromptPart(content="bad", tool_name=None)]),
+        ]
+    )
+
+    assert len(merged) == 1
+    assert [p.part_kind for p in merged[0].parts] == ["user-prompt", "retry-prompt"]
+
+
+def test_merge_hoists_tool_bound_retry():
+    """A tool-bound retry answers a call like a tool result, so it hoists ahead
+    of the user prompt (results must precede prompts for providers)."""
+    merged = _compaction._merge_consecutive_same_role(
+        [
+            ModelRequest(parts=[UserPromptPart(content="USER ASKED")]),
+            ModelRequest(
+                parts=[
+                    RetryPromptPart(content="bad", tool_name="x", tool_call_id="c1")
+                ]
+            ),
+        ]
+    )
+
+    assert len(merged) == 1
+    assert [p.part_kind for p in merged[0].parts] == ["retry-prompt", "user-prompt"]
+
+
+def test_split_protects_call_answered_by_retry():
+    """A tool-bound RetryPromptPart in the protected tail pulls its call back.
+
+    ``_find_safe_split_index`` must treat a tool-bound retry as a return (it
+    answers the call, per ``_is_repairable_return``) and move the split earlier
+    so the call's ``ModelResponse`` joins the protected region — otherwise the
+    call is severed from its answer and dropped by the final prune.
+    """
+    messages: List[ModelMessage] = [
+        ModelRequest(
+            parts=[SystemPromptPart(content="sys"), UserPromptPart(content="open")]
+        ),
+        ModelRequest(parts=[UserPromptPart(content="q")]),
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="read", args={"p": "a"}, tool_call_id="c1")]
+        ),
+        ModelRequest(
+            parts=[
+                RetryPromptPart(content="bad args", tool_name="read", tool_call_id="c1")
+            ]
+        ),
+    ]
+    call_idx = 2
+    # Unadjusted boundary lands after the call (index 3), so the retry that
+    # answers it sits in the protected tail while the call would be summarized.
+    adjusted = _compaction._find_safe_split_index(messages, 3)
+
+    assert adjusted <= call_idx
+    assert messages[call_idx] in messages[adjusted:]
 
 
 def test_split_does_not_drop_messages_in_the_adjusted_gap():

@@ -67,3 +67,54 @@ def test_blocked_builtins_namespace_accessors():
         resolved = unpickler.find_class("builtins", name)
         assert resolved is not getattr(builtins, name), name
         assert issubclass(resolved, SurrogateBase), name
+
+
+def test_build_into_module_namespace_is_refused():
+    """A re-exported submodule must resolve to a surrogate, never a live module.
+
+    ``collections._sys`` is the real ``sys`` module. If it resolved to that live
+    object, a following BUILD opcode could write into its ``__dict__`` (here
+    ``_cp_pwn``) — in-process poisoning. The allowlist routes it to a surrogate,
+    so BUILD can only touch that inert bag, and a hostile payload that raises
+    must still never mutate ``sys``.
+    """
+    import sys
+
+    payload = (
+        pickle.PROTO
+        + bytes([2])
+        + b"ccollections\n_sys\n"
+        + b"}"
+        + b"X"
+        + (7).to_bytes(4, "little")
+        + b"_cp_pwn"
+        + b"\x88"
+        + b"s"
+        + b"b"
+        + b"."
+    )
+
+    assert not hasattr(sys, "_cp_pwn")
+    try:
+        load_surrogate_pickle(payload)
+    except Exception:
+        pass
+    assert not hasattr(sys, "_cp_pwn")
+
+
+def test_exit_quit_help_do_not_resolve_to_real_callables():
+    """builtins.exit/quit/help must resolve to surrogates, not the real callables.
+
+    The real ones raise ``SystemExit`` (a ``BaseException``) past the migration's
+    ``except Exception`` and would kill the process on load.
+    """
+    import builtins
+    import io
+
+    from code_puppy.session_surrogate_unpickler import SurrogateBase, SurrogateUnpickler
+
+    for name in ("exit", "quit", "help"):
+        unpickler = SurrogateUnpickler(io.BytesIO(b""))
+        resolved = unpickler.find_class("builtins", name)
+        assert resolved is not getattr(builtins, name), name
+        assert issubclass(resolved, SurrogateBase), name

@@ -1,6 +1,10 @@
 """Flag handling for the local ripgrep grep path (``_build_grep_args``)."""
 
-from code_puppy.tools.file_operations import _build_backend_matcher, _build_grep_args
+from code_puppy.tools.file_operations import (
+    _build_backend_matcher,
+    _build_grep_args,
+    _carries_type_filter,
+)
 
 
 def test_build_grep_args_rejects_unsupported_flags():
@@ -96,6 +100,24 @@ def test_build_grep_args_value_keeps_cluster_literal():
     args, error = _build_grep_args("-e '-C3'")
     assert error is None
     assert args == ["-e", "-C3"]
+
+
+def test_build_grep_args_flag_only_errors():
+    """A supported flag with no pattern errors, and both paths agree verbatim."""
+    args, error = _build_grep_args("-w")
+    assert args == []
+    assert error == "no search pattern provided"
+
+    _pattern, _exts, backend_error = _build_backend_matcher("-w")
+    assert backend_error == error
+
+
+def test_carries_type_filter_matches_short_equals():
+    """``-t=VALUE`` counts as a type filter, alongside the other type forms."""
+    assert _carries_type_filter(["-t=py", "def"]) is True
+    assert _carries_type_filter(["-t", "py", "def"]) is True
+    assert _carries_type_filter(["--type=py", "def"]) is True
+    assert _carries_type_filter(["-e", "def foo"]) is False
 
 
 def test_build_backend_matcher_value_not_shredded():

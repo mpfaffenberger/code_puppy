@@ -29,6 +29,7 @@ from pydantic_ai.messages import (
 
 from code_puppy.agents._history import (
     _classify_tool_part,
+    _is_repairable_return,
     estimate_tokens_for_message,
     filter_huge_messages,
     has_pending_tool_calls,
@@ -70,10 +71,12 @@ def _find_safe_split_index(messages: List[ModelMessage], initial_split_idx: int)
     protected_tool_return_ids: Set[str] = set()
     for msg in messages[initial_split_idx:]:
         for part in getattr(msg, "parts", []) or []:
-            if getattr(part, "part_kind", None) == "tool-return":
-                tcid = getattr(part, "tool_call_id", None)
-                if tcid:
-                    protected_tool_return_ids.add(tcid)
+            # A tool-bound RetryPromptPart answers a call just as a ToolReturnPart
+            # does (per _is_repairable_return), so both must pull the call's
+            # ModelResponse back across the split — else the call is severed and
+            # dropped by the final prune.
+            if _is_repairable_return(part):
+                protected_tool_return_ids.add(part.tool_call_id)
 
     if not protected_tool_return_ids:
         return initial_split_idx
@@ -251,7 +254,10 @@ def _merge_consecutive_same_role(messages: List[ModelMessage]) -> List[ModelMess
             parts = [*previous.parts, *message.parts]
             parts.sort(
                 key=lambda x: (
-                    0 if isinstance(x, ToolReturnPart | RetryPromptPart) else 1
+                    0
+                    if isinstance(x, ToolReturnPart)
+                    or (isinstance(x, RetryPromptPart) and x.tool_name is not None)
+                    else 1
                 )
             )
             merged[-1] = dataclasses.replace(
@@ -356,7 +362,14 @@ def _run_summarization_core(
 
     compacted: List[ModelMessage] = [system_message] + list(new_messages)
     compacted.extend(msg for msg in protected_messages if msg is not system_message)
-    return prune_interrupted_tool_calls(compacted), messages_to_summarize
+    compacted = prune_interrupted_tool_calls(compacted)
+    # Collapse any same-role adjacency the assembly introduced — the summary
+    # request meeting a user-role protected head, or two responses left adjacent
+    # by a dropped orphan request — so compact() never returns consecutive
+    # same-role turns (rejected by Bedrock/compat surfaces). Merge from index 1
+    # so the system message is never folded into the summary request.
+    merged = [compacted[0], *_merge_consecutive_same_role(compacted[1:])]
+    return merged, messages_to_summarize
 
 
 def _log_summarization_failure(error: Exception, fallback_note: str = "") -> None:

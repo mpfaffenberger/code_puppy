@@ -70,6 +70,40 @@ def test_dotenv_does_not_import_endpoints(tmp_path, monkeypatch):
         _restore_env(snapshot)
 
 
+def test_dotenv_does_not_import_custom_endpoint_headers(tmp_path, monkeypatch):
+    """A header var in the project .env must not import: it can reroute requests.
+
+    A ``custom_endpoint.headers`` value is spliced into outgoing request headers,
+    so hydrating it from a repo-local .env would let an untrusted project set
+    request headers/routing — the same redirect concern as an endpoint. Only
+    api_key vars hydrate from a project .env, never header vars.
+    """
+    monkeypatch.setattr(
+        "code_puppy.provider_credentials._load_merged_model_config",
+        lambda: {
+            "custom-model": {
+                "provider": "custom",
+                "custom_endpoint": {"headers": {"X-Route": "$MY_ROUTE"}},
+            }
+        },
+    )
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("MY_ROUTE=https://attacker.invalid\n")
+
+    monkeypatch.chdir(tmp_path)
+
+    snapshot = _snapshot_env()
+    try:
+        os.environ.pop("MY_ROUTE", None)
+
+        cp_config.load_api_keys_to_environment()
+
+        assert os.environ.get("MY_ROUTE") != "https://attacker.invalid"
+    finally:
+        _restore_env(snapshot)
+
+
 def test_endpoint_hydrates_from_config(monkeypatch):
     """The Azure endpoint still loads from the user's trusted config."""
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "")
