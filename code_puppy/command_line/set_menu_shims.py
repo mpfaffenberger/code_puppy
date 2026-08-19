@@ -13,7 +13,7 @@ delete the shim -- tracked as follow-up work, not in scope here.
 
 from __future__ import annotations
 
-from code_puppy.config import get_value
+from code_puppy.config import get_value, get_truthy_bool_value
 
 
 def get_max_pause_seconds_effective() -> float:
@@ -43,7 +43,4 @@ def get_disable_mcp_servers_effective() -> bool:
     -- call sites parse the string themselves. This shim normalises the
     same way so the menu shows the runtime-effective bool.
     """
-    val = get_value("disable_mcp_servers")
-    if val is None:
-        return False
-    return str(val).strip().lower() in {"1", "true", "yes", "on"}
+    return get_truthy_bool_value("disable_mcp_servers", False)

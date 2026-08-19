@@ -81,10 +81,7 @@ def get_subagent_verbose() -> bool:
     for parallel execution. When True, sub-agents produce full verbose output
     like the main agent (useful for debugging).
     """
-    cfg_val = get_value("subagent_verbose")
-    if cfg_val is None:
-        return False
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+    return get_truthy_bool_value("subagent_verbose", False)
 
 
 def get_subagent_recursion_limit() -> int:
@@ -145,10 +142,7 @@ def get_pack_agents_enabled() -> bool:
 
     When True, pack agents are available for use.
     """
-    cfg_val = get_value("enable_pack_agents")
-    if cfg_val is None:
-        return False
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+    return get_truthy_bool_value("enable_pack_agents", False)
 
 
 def get_universal_constructor_enabled() -> bool:
@@ -160,10 +154,8 @@ def get_universal_constructor_enabled() -> bool:
 
     When False, the universal_constructor tool is not registered with agents.
     """
-    cfg_val = get_value("enable_universal_constructor")
-    if cfg_val is None:
-        return True  # Enabled by default
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+    # Enabled to True as default.
+    return get_truthy_bool_value("enable_universal_constructor", True)
 
 
 def set_universal_constructor_enabled(enabled: bool) -> None:
@@ -184,10 +176,7 @@ def get_mcp_unbound_warning_silenced() -> bool:
     but power users who *know* about the unbound servers can silence the
     nag via ``/mcp silence-warning``.
     """
-    cfg_val = get_value("mcp_unbound_warning_silenced")
-    if cfg_val is None:
-        return False
-    return str(cfg_val).strip().lower() in {"1", "true", "yes", "on"}
+    return get_truthy_bool_value("mcp_unbound_warning_silenced", False)
 
 
 def set_mcp_unbound_warning_silenced(silenced: bool) -> None:
@@ -223,10 +212,8 @@ def get_enable_streaming() -> bool:
     Returns True if streaming is enabled, False otherwise.
     Defaults to True.
     """
-    val = get_value("enable_streaming")
-    if val is None:
-        return True  # Default to True for better UX
-    return str(val).lower() in ("1", "true", "yes", "on")
+    # Default to True for better UX.
+    return get_truthy_bool_value("enable_streaming", True)
 
 
 def get_retry_main_strategy() -> str:
@@ -240,6 +227,7 @@ def get_retry_main_strategy() -> str:
         from code_puppy.agents.retry_profiles import resolve
 
         return resolve("main").strategy
+
     except Exception:
         return "balanced"
 
@@ -250,6 +238,7 @@ def get_retry_main_max_attempts() -> int:
         from code_puppy.agents.retry_profiles import resolve
 
         return resolve("main").max_attempts
+
     except Exception:
         return 5
 
@@ -260,6 +249,7 @@ def get_retry_subagent_strategy() -> str:
         from code_puppy.agents.retry_profiles import resolve
 
         return resolve("subagent").strategy
+
     except Exception:
         return "balanced"
 
@@ -270,6 +260,7 @@ def get_retry_subagent_max_attempts() -> int:
         from code_puppy.agents.retry_profiles import resolve
 
         return resolve("subagent").max_attempts
+
     except Exception:
         return 9
 
@@ -279,10 +270,8 @@ def get_suppress_directory_listing() -> bool:
     Get the suppress_directory_listing configuration value.
     Returns True if directory listing displays should be suppressed, False otherwise.
     """
-    val = get_value("suppress_directory_listing")
-    if val is None:
-        return True  # Default to True (suppress by default)
-    return str(val).lower() in ("1", "true", "yes", "on")
+    # Default to True: suppress by default.
+    return get_truthy_bool_value("suppress_directory_listing", True)
 
 
 DEFAULT_SECTION = "puppy"
@@ -376,6 +365,24 @@ def get_value(key: str):
     return val
 
 
+def get_truthy_bool_value(key: str, default_val: bool) -> bool:
+    """Set default_val as required to enforce specification."""
+    val = get_value(key)
+    if val is None:
+        return default_val
+
+    return str(val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def get_falsy_bool_value(key: str, default_val: bool) -> bool:
+    """Set default_val as required to enforce specification."""
+    val = get_value(key)
+    if val is None:
+        return default_val
+
+    return str(val).strip().lower() in {"0", "false", "no", "off"}
+
+
 def get_puppy_name():
     return get_value("puppy_name") or "Puppy"
 
@@ -410,10 +417,8 @@ def get_allow_recursion() -> bool:
     Get the allow_recursion configuration value.
     Returns True if recursion is allowed, False otherwise.
     """
-    val = get_value("allow_recursion")
-    if val is None:
-        return True  # Default to True to allow recursion unless explicitly disabled
-    return str(val).lower() in ("1", "true", "yes", "on")
+    # Default to True to allow recursion unless explicitly disabled.
+    return get_truthy_bool_value("allow_recursion", True)
 
 
 def get_model_context_length() -> int:
@@ -1410,11 +1415,7 @@ def get_yolo_mode() -> bool:
     if _cli_yolo_override is not None:
         return _cli_yolo_override
 
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("yolo_mode")
-    if cfg_val is not None:
-        return str(cfg_val).strip().lower() in true_vals
-    return True
+    return get_truthy_bool_value("yolo_mode", True)
 
 
 def get_safety_permission_level():
@@ -1440,13 +1441,7 @@ def get_mcp_disabled():
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     When enabled, Code Puppy will skip loading MCP servers entirely.
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("disable_mcp")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return False
+    return get_truthy_bool_value("disable_mcp", False)
 
 
 def get_grep_output_verbose():
@@ -1458,13 +1453,7 @@ def get_grep_output_verbose():
     When False (default): Shows only file names with match counts
     When True: Shows full output with line numbers and content
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("grep_output_verbose")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return False
+    return get_truthy_bool_value("grep_output_verbose", False)
 
 
 def get_disable_dangerous_command_guard() -> bool:
@@ -1482,13 +1471,7 @@ def get_disable_dangerous_command_guard() -> bool:
     - Force push guard (git push --force, git push -f, etc.)
     - Destructive command guard (rm -rf, docker system prune, etc.)
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("disable_dangerous_command_guard")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return False
+    return get_truthy_bool_value("disable_dangerous_command_guard", False)
 
 
 def normalize_guard_pattern_name(name: str) -> str:
@@ -1653,10 +1636,7 @@ def get_http2() -> bool:
     Get the http2 configuration value.
     Returns False if not set (default).
     """
-    val = get_value("http2")
-    if val is None:
-        return False
-    return str(val).lower() in ("1", "true", "yes", "on")
+    return get_truthy_bool_value("http2", False)
 
 
 def set_http2(enabled: bool) -> None:
@@ -1808,13 +1788,7 @@ def get_auto_save_session() -> bool:
     Defaults to True if not set.
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("auto_save_session")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return True
+    return get_truthy_bool_value("auto_save_session", True)
 
 
 def set_auto_save_session(enabled: bool):
@@ -2694,13 +2668,7 @@ def get_suppress_thinking_messages() -> bool:
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     When enabled, thinking messages (agent_reasoning, planned_next_steps) will be hidden.
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("suppress_thinking_messages")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return False
+    return get_truthy_bool_value("suppress_thinking_messages", False)
 
 
 def set_suppress_thinking_messages(enabled: bool):
@@ -2720,12 +2688,7 @@ def get_smooth_thinking_stream() -> bool:
     When enabled, THINKING block deltas are buffered and drained to the
     console at a steady, consistent rate instead of being printed in bursts.
     """
-    false_vals = {"0", "false", "no", "off"}
-    cfg_val = get_value("smooth_thinking_stream")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in false_vals:
-            return False
-    return True
+    return get_falsy_bool_value("smooth_thinking_stream", True)
 
 
 def set_smooth_thinking_stream(enabled: bool):
@@ -2745,12 +2708,7 @@ def get_smooth_response_stream() -> bool:
     When enabled, the AGENT RESPONSE markdown is typed out one character at a
     time at a steady rate instead of appearing line-by-line in bursts.
     """
-    false_vals = {"0", "false", "no", "off"}
-    cfg_val = get_value("smooth_response_stream")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in false_vals:
-            return False
-    return True
+    return get_falsy_bool_value("smooth_response_stream", True)
 
 
 def set_smooth_response_stream(enabled: bool):
@@ -2769,13 +2727,7 @@ def get_suppress_informational_messages() -> bool:
     Allowed values for ON: 1, '1', 'true', 'yes', 'on' (all case-insensitive for value).
     When enabled, informational messages (info, success, warning) will be hidden.
     """
-    true_vals = {"1", "true", "yes", "on"}
-    cfg_val = get_value("suppress_informational_messages")
-    if cfg_val is not None:
-        if str(cfg_val).strip().lower() in true_vals:
-            return True
-        return False
-    return False
+    return get_truthy_bool_value("suppress_informational_messages", False)
 
 
 def set_suppress_informational_messages(enabled: bool):
@@ -2950,10 +2902,8 @@ def set_default_agent(agent_name: str) -> None:
 # --- FRONTEND EMITTER CONFIGURATION ---
 def get_frontend_emitter_enabled() -> bool:
     """Check if frontend emitter is enabled."""
-    val = get_value("frontend_emitter_enabled")
-    if val is None:
-        return True  # Enabled by default
-    return str(val).lower() in ("1", "true", "yes", "on")
+    # Enabled to True by default.
+    return get_truthy_bool_value("frontend_emitter_enabled", True)
 
 
 def get_frontend_emitter_max_recent_events() -> int:
