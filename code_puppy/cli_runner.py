@@ -1445,7 +1445,8 @@ async def execute_single_prompt(
             AgentResponseMessage(content=result.output, is_markdown=True)
         )
         if usage_file is not None:
-            _write_usage_file(usage_file, result.usage())
+            usage = result.usage
+            _write_usage_file(usage_file, usage() if callable(usage) else usage)
 
         # The runtime result includes the final assistant response that the
         # incremental history can otherwise miss.

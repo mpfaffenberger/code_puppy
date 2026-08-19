@@ -49,7 +49,7 @@ async def test_execute_single_prompt_writes_result_usage(tmp_path):
         cost=None,
     )
     result = MagicMock(output="done")
-    result.usage.return_value = usage
+    result.usage = usage
     result.all_messages.return_value = []
     agent = MagicMock()
     renderer = MagicMock()
@@ -74,7 +74,6 @@ async def test_execute_single_prompt_writes_result_usage(tmp_path):
     ):
         await execute_single_prompt("do it", renderer, usage_file=target)
 
-    result.usage.assert_called_once_with()
     assert json.loads(target.read_text())["input_tokens"] == 10
 
 
