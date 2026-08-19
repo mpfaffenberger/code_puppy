@@ -111,6 +111,12 @@ def test_hook_substitution_unknown_placeholder_passthrough():
         ),
         # Nested $( $( ) ) resolves against the innermost context.
         ("echo $(a $(b ${file}) c)", {"file_path": "a; touch /tmp/x"}),
+        # A bare backtick command substitution in the template: the value must
+        # not close it with its own backtick and run trailing commands.
+        ("echo `basename ${file}`", {"file_path": "`; touch /tmp/x; echo `"}),
+        # A comment line's apostrophe must not flip the scanner into single-quote
+        # mode and splice a later placeholder bare on the following line.
+        ("# c't\necho $file", {"file_path": "x; touch /tmp/x; echo INJECTED"}),
     ],
 )
 def test_hook_substitution_is_not_injectable(template, tool_args):

@@ -57,6 +57,38 @@ def extract_api_key_env_vars_from_model_config(model_config: dict) -> List[str]:
     return names
 
 
+# custom_endpoint.headers whose NAME marks the value as a bearer/API credential.
+# Only these header vars are scrubbed from the model's shell env; a non-secret
+# header like X-Title / HTTP-Referer / $SITE_URL still reaches child commands.
+_SECRET_HEADER_NAMES = frozenset(
+    {"authorization", "proxy-authorization", "x-api-key", "api-key"}
+)
+
+
+def extract_secret_header_env_vars_from_model_config(
+    model_config: dict,
+) -> List[str]:
+    """Every ``$ENV`` name a secret-named ``custom_endpoint.headers`` entry references.
+
+    A header token that authenticates provider calls (``Authorization: Bearer
+    $TOKEN``, ``X-Api-Key: $KEY``) is as sensitive as an api_key and must not
+    ride into a model-triggered child shell. Header names outside
+    :data:`_SECRET_HEADER_NAMES` are treated as non-secret (e.g. ``$SITE_URL``)
+    and left in the child environment.
+    """
+    if not isinstance(model_config, dict):
+        return []
+    names: List[str] = []
+    custom_endpoint = model_config.get("custom_endpoint")
+    if isinstance(custom_endpoint, dict):
+        headers = custom_endpoint.get("headers")
+        if isinstance(headers, dict):
+            for header_name, header_value in headers.items():
+                if str(header_name).lower() in _SECRET_HEADER_NAMES:
+                    _add_env_var_tokens(header_value, names)
+    return names
+
+
 def extract_env_vars_from_model_config(model_config: dict) -> List[str]:
     """Every ``$ENV`` name a single model config depends on.
 
@@ -147,6 +179,17 @@ def all_api_key_env_vars() -> List[str]:
     return sorted(found)
 
 
+def all_secret_header_env_vars() -> List[str]:
+    """Sorted list of every model's secret-header ``$ENV`` var.
+
+    See :func:`extract_secret_header_env_vars_from_model_config`.
+    """
+    found: set = set()
+    for model_config in _load_merged_model_config().values():
+        found.update(extract_secret_header_env_vars_from_model_config(model_config))
+    return sorted(found)
+
+
 def get_credential_value(env_var: str) -> Optional[str]:
     """Resolve a credential exactly like ``model_factory.get_api_key``.
 
@@ -226,12 +269,13 @@ _WELL_KNOWN_CREDENTIAL_ENV_VARS = frozenset(
 def credential_env_var_names() -> frozenset:
     """Every env var name that carries an agent provider credential.
 
-    The well-known provider keys plus every configured model's api_key
-    ``$ENV`` name, so the scrub below cannot miss a custom provider. Header
-    env vars are deliberately excluded: they are often non-secrets (e.g.
-    ``$SITE_URL``) that belong to the user's shell. Recomputed on every call so
-    any catalog change -- including a hand-edit to ``extra_models.json`` --
-    takes effect immediately.
+    The well-known provider keys, every configured model's api_key ``$ENV``
+    name, and every secret-named ``custom_endpoint.headers`` token (an
+    ``Authorization``/``X-Api-Key`` bearer authenticates provider calls just as
+    an api_key does), so the scrub below cannot miss a custom provider.
+    Non-secret header vars (e.g. ``$SITE_URL``) are left out -- they belong to
+    the user's shell. Recomputed on every call so any catalog change --
+    including a hand-edit to ``extra_models.json`` -- takes effect immediately.
 
     Residual: MCP server secrets (``mcp_servers.json`` ``env``/``headers``
     ``$VAR`` references) are not folded in -- there is no clean way to tell a
@@ -241,6 +285,7 @@ def credential_env_var_names() -> frozenset:
     names = set(_WELL_KNOWN_CREDENTIAL_ENV_VARS)
     try:
         names.update(all_api_key_env_vars())
+        names.update(all_secret_header_env_vars())
     except Exception:
         # A broken catalog must not break environment scrubbing.
         pass
@@ -250,11 +295,11 @@ def credential_env_var_names() -> frozenset:
 def environment_without_credentials() -> Dict[str, str]:
     """``os.environ`` minus the agent's own provider credentials.
 
-    Removes the well-known provider keys and every model's api_key ``$ENV``
-    var so a child process cannot inherit and exfiltrate the keys the agent
-    authenticates with. Everything else passes through so routine tooling keeps
-    working: the user's own ``GITHUB_TOKEN``, ``AWS_*`` and proxies, and
-    custom-endpoint header vars, which are commonly non-secrets like
+    Removes the well-known provider keys, every model's api_key ``$ENV`` var,
+    and every secret-named ``custom_endpoint.headers`` token so a child process
+    cannot inherit and exfiltrate the keys the agent authenticates with.
+    Everything else passes through so routine tooling keeps working: the user's
+    own ``GITHUB_TOKEN``, ``AWS_*`` and proxies, and non-secret header vars like
     ``$SITE_URL``.
     """
     credentials = credential_env_var_names()

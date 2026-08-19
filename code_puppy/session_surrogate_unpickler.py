@@ -26,22 +26,36 @@ from typing import Any, Callable, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Modules whose classes are safe (and necessary) to unpickle for real.
-# Everything else -- pydantic_ai.*, pydantic.*, unknown user modules --
-# becomes a surrogate. Strictly SAFER than the old bare ``pickle.loads``.
-_ALLOWED_MODULES = frozenset(
-    {
-        "builtins",
-        "collections",
-        "copyreg",
-        "datetime",
-        "decimal",
-        "fractions",
-        "uuid",
-        "zoneinfo",
-        "_codecs",
-    }
-)
+# find_class resolves ONLY these ``module -> {names}`` pairs to the real
+# object; every other global becomes a surrogate. An allowlist, not a denylist
+# -- mirroring how the normalizer allowlists known message classes and degrades
+# the rest. Two threats a module-level denylist could not close:
+#   * re-exported submodules (``collections._sys``, ``uuid.os``) resolved to
+#     live module objects, and a following BUILD opcode wrote into their
+#     ``__dict__`` (e.g. ``sys.path``) -- in-process code execution.
+#   * ``builtins.exit``/``quit``/``help`` resolved to real callables raising
+#     ``SystemExit`` (a BaseException) past the migration's ``except Exception``,
+#     killing the process.
+# Security invariant: no entry resolves to a module or to shared mutable global
+# state. BUILD cannot be intercepted -- pickle binds ``load_build`` in a
+# dispatch table at class-definition time and the C unpickler exposes only
+# ``find_class`` as an override -- so every value BUILD can reach must be made
+# safe here: a surrogate, or a leaf constructor whose instances carry no shared
+# state.
+_ALLOWED_GLOBALS: Dict[str, frozenset] = {
+    "builtins": frozenset(
+        {"set", "frozenset", "bytearray", "complex", "list", "dict", "tuple"}
+    ),
+    "collections": frozenset({"OrderedDict", "defaultdict"}),
+    "datetime": frozenset({"datetime", "date", "time", "timedelta", "timezone"}),
+    "decimal": frozenset({"Decimal"}),
+    "fractions": frozenset({"Fraction"}),
+    "uuid": frozenset({"UUID"}),
+    "zoneinfo": frozenset({"ZoneInfo"}),
+    # ``_codecs.encode`` is a function, not a class: it rebuilds bytes/bytearray
+    # pickled under protocol 2. Kept for legacy sessions -- a safe codec call.
+    "_codecs": frozenset({"encode"}),
+}
 
 
 # Known third-party tzinfo classes rebuilt as stdlib equivalents WITHOUT
@@ -61,26 +75,6 @@ _TZINFO_EQUIVALENTS: Dict[Tuple[str, str], Callable[..., Any]] = {
 # Genuine timezone libraries: unpickle their classes for real when the
 # library is installed; otherwise fall back to surrogates as usual.
 _TZ_LIBRARY_PREFIXES = ("pytz", "dateutil.tz")
-
-
-# Even within builtins, never hand the pickle VM anything executable.
-_BLOCKED_BUILTINS = frozenset(
-    {
-        "eval",
-        "exec",
-        "compile",
-        "open",
-        "input",
-        "breakpoint",
-        "__import__",
-        "getattr",
-        "setattr",
-        "delattr",
-        "vars",
-        "globals",
-        "locals",
-    }
-)
 
 
 class SurrogateBase:
@@ -142,14 +136,11 @@ class SurrogateUnpickler(pickle.Unpickler):
 
     def find_class(self, module: str, name: str) -> Any:  # noqa: D102
         # A dotted ``name`` makes the base unpickler (protocol 4+ STACK_GLOBAL)
-        # walk attributes from the module, which can reach objects the module
-        # allowlist was never meant to expose. Route these to a surrogate.
+        # walk attributes from the module, which can reach objects the allowlist
+        # never names. Route these to a surrogate.
         if "." in name:
             return self._surrogate_for(module, name)
-        root = module.split(".", 1)[0]
-        if root in _ALLOWED_MODULES and not (
-            module == "builtins" and name in _BLOCKED_BUILTINS
-        ):
+        if name in _ALLOWED_GLOBALS.get(module, frozenset()):
             return self._tz_tolerant(super().find_class(module, name))
         equivalent = _TZINFO_EQUIVALENTS.get((module, name))
         if equivalent is not None:

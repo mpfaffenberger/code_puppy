@@ -59,6 +59,13 @@ class GrepOutput(BaseModel):
     error: str | None = None
 
 
+# Upper bound on -A/-B/-C context rows returned alongside the (up to 50)
+# matches, so a wide context value can't grow the result without limit.
+# Context never evicts a real match: once this budget is full we keep scanning
+# for matches and simply stop collecting further context.
+_MAX_GREP_CONTEXT_ROWS = 200
+
+
 def is_likely_home_directory(directory):
     """Detect if directory is likely a user's home directory or common home subdirectory"""
     abs_dir = os.path.abspath(directory)
@@ -815,11 +822,13 @@ def _build_grep_args(search_string: str) -> tuple[list[str], str | None]:
         return ["-e", search_string], None
 
     result: list[str] = []
+    has_pattern = False
     index = 0
     while index < len(tokens):
         token = tokens[index]
         if not token.startswith("-"):
             result.append(token)
+            has_pattern = True
             index += 1
             continue
 
@@ -835,6 +844,8 @@ def _build_grep_args(search_string: str) -> tuple[list[str], str | None]:
                 f"{_SUPPORTED_RG_FLAGS_HINT}. Use a plain pattern for "
                 "anything else."
             )
+        if flag in ("-e", "--regexp"):
+            has_pattern = True
         result.extend(pieces)
         # A value-taking flag with no inline value (``=VALUE`` or a ``-C3``
         # cluster) takes the next token as its value, forwarded verbatim so a
@@ -848,6 +859,10 @@ def _build_grep_args(search_string: str) -> tuple[list[str], str | None]:
                 )
             result.append(tokens[index])
         index += 1
+    if not has_pattern:
+        # Match the backend path (_build_backend_matcher), which errors here
+        # instead of letting rg swallow the target directory as the pattern.
+        return [], "no search pattern provided"
     return result, None
 
 
@@ -1154,7 +1169,9 @@ def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
 def _carries_type_filter(rg_args: list[str]) -> bool:
     """True when the forwarded ripgrep args already select file types."""
     return any(
-        token == "-t" or token == "--type" or token.startswith("--type=")
+        token in ("-t", "--type")
+        or token.startswith("--type=")
+        or token.startswith("-t=")
         for token in rg_args
     )
 
@@ -1253,6 +1270,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
 
         # Parse the JSON output from ripgrep
         real_match_count = 0
+        context_row_count = 0
         for line in result.stdout.strip().split("\n"):
             if not line:
                 continue
@@ -1285,9 +1303,16 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                             line_content=_sanitize_string(line_content.strip()),
                             is_context=is_context,
                         )
+                        # Context rides along without consuming the 50-match
+                        # budget, but is itself capped so a wide -A/-B/-C can't
+                        # grow the result without bound. Real matches are never
+                        # evicted: once the context budget is full we keep
+                        # scanning for matches and just drop further context.
+                        if is_context:
+                            if context_row_count >= _MAX_GREP_CONTEXT_ROWS:
+                                continue
+                            context_row_count += 1
                         matches.append(match_info)
-                        # Cap at 50 real matches; context lines ride along in
-                        # the output without consuming the budget.
                         if not is_context:
                             real_match_count += 1
                             if real_match_count >= 50:

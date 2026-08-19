@@ -328,14 +328,21 @@ def _interpolate_placeholders(template: str, values: Dict[str, str]) -> str:
         value = str(values[name])
         quote = stack[-1][1]
         if quote is None:
-            pieces.append(shlex.quote(value))
+            piece = shlex.quote(value)
         elif quote == "'":
             # Inside the author's single quotes only a single quote is
             # special: splice each one as close-quote + escaped quote +
             # reopen (''' idiom) so the value stays literal text.
-            pieces.append(value.replace("'", "'\\''"))
+            piece = value.replace("'", "'\\''")
         else:
-            pieces.append(_double_quote_escape(value))
+            piece = _double_quote_escape(value)
+        # A raw backtick closes an enclosing `...` command substitution even
+        # from inside quotes -- the shell scans for the closer before quote
+        # removal, and shlex.quote never escapes it. Escape for every open
+        # backtick layer so the value cannot terminate the substitution.
+        if any(frame[0] == "`" for frame in stack):
+            piece = piece.replace("\\", "\\\\").replace("`", "\\`")
+        pieces.append(piece)
     pieces.append(template[position:])
     return "".join(pieces)
 
@@ -351,6 +358,12 @@ def _cmd_quote_state(text: str, in_quotes: bool) -> bool:
     return in_quotes
 
 
+# A ``#`` starts a comment only at a word boundary in an unquoted context;
+# after an ordinary word character it is a literal ``#``. These are the chars
+# that leave the shell expecting a fresh word.
+_COMMENT_BOUNDARY = frozenset({" ", "\t", "\n", ";", "&", "|", "(", ")", "<", ">"})
+
+
 def _scan_quote_stack(text: str, stack: List[List[Optional[str]]]) -> None:
     """Advance the shell context stack across a literal template segment.
 
@@ -364,6 +377,7 @@ def _scan_quote_stack(text: str, stack: List[List[Optional[str]]]) -> None:
     keeps the value an inert argument instead of a live command.
     """
     i = 0
+    prev: Optional[str] = None
     while i < len(text):
         char = text[i]
         top = stack[-1]
@@ -371,6 +385,16 @@ def _scan_quote_stack(text: str, stack: List[List[Optional[str]]]) -> None:
         if quote is None:
             if char == top[0]:  # matching closer ends this substitution frame
                 stack.pop()
+            elif char == "#" and (prev is None or prev in _COMMENT_BOUNDARY):
+                # A comment runs to end of line; its body -- quote chars
+                # included -- is inert, so skip it without disturbing the
+                # tracked quote state (an apostrophe in a comment must not flip
+                # the scanner into single-quote mode and mis-quote a later
+                # placeholder).
+                while i < len(text) and text[i] != "\n":
+                    i += 1
+                prev = "\n"
+                continue
             elif char in ("'", '"'):
                 top[1] = char
             elif char == "\\":
@@ -393,6 +417,7 @@ def _scan_quote_stack(text: str, stack: List[List[Optional[str]]]) -> None:
                 i += 1
             elif char == "`":
                 stack.append(["`", None])
+        prev = char
         i += 1
 
 
@@ -418,12 +443,13 @@ def _build_environment(
     event_data: EventData,
     env_vars: Optional[Dict[str, str]] = None,
 ) -> Dict[str, str]:
-    from code_puppy.provider_credentials import environment_without_credentials
-
-    # Hooks fire on model-triggered tool calls, so they get the same
-    # credential scrub as child shell commands: the agent's own provider
-    # keys never ride along in the hook environment.
-    env = environment_without_credentials()
+    # Hooks are user-authored config, not model-authored commands, so they
+    # inherit the full environment, provider credentials included. A hook may
+    # legitimately call an LLM (``claude -p '...'``, ``llm -m ...``, an
+    # OpenAI-SDK script) and needs ANTHROPIC_API_KEY/OPENAI_API_KEY to
+    # authenticate. The credential scrub stays on the model's own
+    # run_shell_command (command_runner._child_process_env).
+    env = dict(os.environ)
     env["CLAUDE_PROJECT_DIR"] = os.getcwd()
     env["CLAUDE_TOOL_INPUT"] = json.dumps(event_data.tool_args)
     env["CLAUDE_TOOL_NAME"] = event_data.tool_name

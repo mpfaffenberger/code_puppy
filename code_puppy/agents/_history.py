@@ -389,8 +389,9 @@ def prune_interrupted_tool_calls(
       or a trailing request when none follows — so the model sees that the
       call was interrupted instead of losing the whole turn;
     - an orphaned return (no matching call) drops only that part, keeping
-      the rest of its message. An interior request emptied this way is
-      dropped; a trailing one is kept so the history still ends on a turn.
+      the rest of its message. A request emptied of every part this way is
+      dropped wherever it sits — a kept trailing empty request would make the
+      wire history end on the assistant turn, which providers reject.
 
     Builtin (provider-executed) tool calls are left alone: their results
     arrive from the provider in a later turn, so a missing return is not a
@@ -455,8 +456,13 @@ def prune_interrupted_tool_calls(
         ]
 
         if len(kept_parts) != len(original_parts):
-            if not kept_parts and index != len(messages) - 1:
-                # An interior request emptied of parts carries nothing.
+            if not kept_parts:
+                # A request emptied of every part carries nothing — drop it
+                # wherever it sits, tail included. Provider mappers skip a
+                # zero-part request, so a kept trailing empty request would end
+                # the wire history on the assistant turn (prefill), which
+                # Anthropic/Bedrock reject, and would slip past
+                # make_history_processor's trailing-ModelResponse trim.
                 continue
             msg = dataclasses.replace(msg, parts=kept_parts)
 
@@ -483,14 +489,64 @@ def has_pending_tool_calls(messages: List[ModelMessage]) -> bool:
     return bool(tool_call_ids - tool_return_ids)
 
 
+_OVERSIZED_TOOL_RETURN_CONTENT = (
+    "[Tool result omitted: it exceeded the per-message size limit and was "
+    "dropped from history. The tool DID run and completed — do not re-issue "
+    "the same call.]"
+)
+
+
+def _shrink_oversized_tool_returns(
+    message: ModelMessage, model_name: Optional[str]
+) -> Optional[ModelMessage]:
+    """Replace an oversized message's tool-return bodies with a placeholder.
+
+    A >50k-token ``ModelRequest`` is almost always a bulky tool result. Dropping
+    the whole message would leave its ``tool-call`` dangling, and prune would
+    then close it with an ``interrupted`` return — telling the model the tool
+    never ran, so it re-issues the identical oversized call (infinite re-read
+    loop). Swapping each ``tool-return`` body for a short placeholder keeps the
+    pair intact and records that the tool completed. Returns ``None`` when the
+    message has no tool return to shrink, or stays over budget afterwards — the
+    caller then drops it as before.
+    """
+    new_parts: List[Any] = []
+    shrank = False
+    for part in getattr(message, "parts", []) or []:
+        if getattr(part, "part_kind", None) == "tool-return":
+            new_parts.append(
+                dataclasses.replace(part, content=_OVERSIZED_TOOL_RETURN_CONTENT)
+            )
+            shrank = True
+        else:
+            new_parts.append(part)
+    if not shrank:
+        return None
+    shrunk = dataclasses.replace(message, parts=new_parts)
+    if estimate_tokens_for_message(shrunk, model_name) >= 50000:
+        return None
+    return shrunk
+
+
 def filter_huge_messages(
     messages: List[ModelMessage],
     model_name: Optional[str] = None,
 ) -> List[ModelMessage]:
-    """Drop individual messages above a 50k-token budget, then repair pairing."""
-    filtered = [
-        m for m in messages if estimate_tokens_for_message(m, model_name) < 50000
-    ]
+    """Cap individual messages at a 50k-token budget, then repair pairing.
+
+    An oversized tool-result message is shrunk in place (body replaced with a
+    placeholder) rather than dropped, so a completed call is never mistaken for
+    an interrupted one; anything still over budget is dropped, then pruning
+    repairs any pairing the drop broke.
+    """
+    filtered: List[ModelMessage] = []
+    for m in messages:
+        if estimate_tokens_for_message(m, model_name) < 50000:
+            filtered.append(m)
+            continue
+        shrunk = _shrink_oversized_tool_returns(m, model_name)
+        if shrunk is not None:
+            filtered.append(shrunk)
     return prune_interrupted_tool_calls(filtered)
 
 
