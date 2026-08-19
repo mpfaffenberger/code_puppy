@@ -25,7 +25,6 @@ from code_puppy.agents._builder import (
     build_tool_probe_for_agent,
     reload_mcp_servers,
 )
-from code_puppy.agents._compaction import summarize
 from code_puppy.agents._history import (
     estimate_context_overhead,
     estimate_tokens_for_message,
@@ -35,7 +34,6 @@ from code_puppy.agents._runtime import run_with_mcp, should_retry_streaming
 from code_puppy.config import (
     get_agent_pinned_model,
     get_global_model_name,
-    get_protected_token_count,
 )
 from code_puppy.model_factory import ModelFactory
 
@@ -253,19 +251,6 @@ class BaseAgent(ABC):
         return probe
 
     # ---- Orchestration (thin delegations) ---------------------------------
-    def summarize_messages(
-        self,
-        messages: List[Any],
-        with_protection: bool = True,
-    ) -> tuple[list, list]:
-        """Delegate to ``_compaction.summarize`` with config-derived protection."""
-        return summarize(
-            messages,
-            get_protected_token_count(),
-            with_protection=with_protection,
-            model_name=self.get_model_name(),
-        )
-
     def reload_code_generation_agent(self, message_group: Optional[str] = None) -> Any:
         return build_pydantic_agent(self, output_type=str, message_group=message_group)
 
