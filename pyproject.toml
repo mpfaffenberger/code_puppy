@@ -107,6 +107,15 @@ path = "code_puppy/models_dev_api.json"
 addopts = "--cov=code_puppy --cov-report=term-missing"
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Escalate warnings so the httpx2 dependency swap cannot pass silently. The
+# ignores are this suite's pre-existing noise, measured before the swap.
+filterwarnings = [
+    "error",
+    "ignore::ResourceWarning",
+    "ignore:coroutine .* was never awaited:RuntimeWarning",
+    "ignore:.*found in sys.modules after import of package:RuntimeWarning",
+    "ignore:(set_current_autosave_from_session_name|get_current_autosave_id|rotate_autosave_id|get_current_autosave_session_name) is deprecated:DeprecationWarning",
+]
 
 [tool.coverage.run]
 omit = ["code_puppy/main.py"]
