@@ -23,6 +23,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import stat
 import tempfile
 import time
 import uuid
@@ -87,6 +88,15 @@ def path_lock(
     Uses ``fcntl.flock`` on POSIX and ``msvcrt.locking`` on Windows. Raises
     :class:`LockTimeout` rather than blocking forever if another process
     (or another lock held by this same process) doesn't release in time.
+
+    Not reentrant: ``flock`` is scoped per *open file description*, not per
+    process or thread, so a second ``path_lock(path)`` (directly, or via
+    ``mutate_config``/``mutate_json`` on the same ``path``) taken from
+    *inside* an already-held lock on that same path will not recognize the
+    outer lock as "ours" -- it will block for the full ``timeout`` and then
+    raise :class:`LockTimeout`, rather than deadlock forever, but still not
+    proceed. Do not call ``mutate_config``/``mutate_json`` for a path from
+    within a ``mutation``/``mutate`` callback already locking that path.
     """
     lock_path = f"{path}.lock"
     os.makedirs(os.path.dirname(os.path.abspath(lock_path)), exist_ok=True)
@@ -179,7 +189,7 @@ def atomic_write_bytes(path: str, data: bytes) -> None:
 
     mode = None
     try:
-        mode = os.stat(target).st_mode
+        mode = stat.S_IMODE(os.stat(target).st_mode)
     except OSError:
         pass
 

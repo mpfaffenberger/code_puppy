@@ -250,9 +250,11 @@ def load_project_mcp_server_configs(
 
     # Trusted: parse via the same chokepoint the user-level loader uses.
     try:
+        from code_puppy import atomic_io
         from code_puppy.config import _parse_mcp_servers_mapping
 
-        return _parse_mcp_servers_mapping(config_file.read_text(encoding="utf-8"))
+        raw = atomic_io.read_bounded_bytes(str(config_file))
+        return _parse_mcp_servers_mapping(raw.decode("utf-8"))
     except Exception as exc:
         from code_puppy.messaging.message_queue import emit_error
 

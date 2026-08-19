@@ -6,7 +6,6 @@ Note: This module imports ServerConfig and get_mcp_manager directly from
 """
 
 import re
-from pathlib import Path
 from typing import Dict, Optional
 from urllib.parse import urlparse
 
@@ -495,30 +494,19 @@ def run_add_wizard(group_id: str = None) -> bool:
                 message_group=group_id,
             )
 
-            # Also save to mcp_servers.json for persistence
-            import json
-            import os
-
+            # Also save to mcp_servers.json for persistence -- via the
+            # shared locked/bounded/atomic store, not a hand-rolled
+            # read-modify-write. This used to be its own unlocked writer,
+            # meaning it could clobber a concurrent update from the other
+            # four mcp_servers.json writers (the custom-server form, the
+            # custom-server installer, and /mcp remove) even though those
+            # four correctly serialize on each other.
+            from code_puppy.command_line.mcp.mcp_servers_store import (
+                upsert_mcp_server,
+            )
             from code_puppy.config import MCP_SERVERS_FILE
 
-            # Load existing configs
-            if os.path.exists(MCP_SERVERS_FILE):
-                with open(MCP_SERVERS_FILE, "r") as f:
-                    data = json.load(f)
-                    servers = data.get("mcp_servers", {})
-            else:
-                servers = {}
-                data = {"mcp_servers": servers}
-
-            # Add new server
-            servers[config.name] = config.config
-
-            # Save back
-            os.makedirs(os.path.dirname(MCP_SERVERS_FILE), exist_ok=True)
-            temp_path = Path(MCP_SERVERS_FILE).with_suffix(".tmp")
-            with open(temp_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-            temp_path.replace(MCP_SERVERS_FILE)
+            upsert_mcp_server(config.name, config.config)
 
             emit_info(
                 Text.from_markup(
