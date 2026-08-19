@@ -19,6 +19,10 @@ from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agents._compaction import make_history_processor
+from code_puppy.agents._output_limits import (
+    build_response_clamp,
+    build_tool_output_limits,
+)
 from code_puppy.agents._steer_processor import make_steer_history_processor
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
@@ -646,9 +650,15 @@ def build_pydantic_agent(
             # compacted away). ProcessHistory capabilities apply in
             # registration order (replaces the deprecated
             # `history_processors=` kwarg, removed in pydantic-ai v2).
+            # ToolOutputLimits reduces oversized tool returns on a different
+            # hook (after_tool_execute), so its position is inert; the
+            # response clamp runs before_model_request and sits LAST so it
+            # sees the final, steer-injected history.
             capabilities=[
+                *build_tool_output_limits(),
                 ProcessHistory(history_processor),
                 ProcessHistory(steer_processor),
+                build_response_clamp(),
             ],
             model_settings=model_settings,
         )

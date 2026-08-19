@@ -488,6 +488,9 @@ def get_config_keys():
     default_keys.append("resume_message_count")
     # Per-file AGENTS.md character cap (see get_agents_md_max_chars()).
     default_keys.append("agents_md_max_chars")
+    # Tool-output reduction threshold in chars for the harness ToolOutputLimits
+    # capability (see get_tool_output_limit_chars()). 0 or negative disables.
+    default_keys.append("tool_output_limit_chars")
     # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
     # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
     default_keys.append("goal_max_iterations")
@@ -1573,6 +1576,31 @@ def get_protected_token_count():
         model_context_length = get_model_context_length()
         max_protected_tokens = int(model_context_length * 0.75)
         return min(50000, max_protected_tokens)
+
+
+# Char threshold above which a tool return is reduced (spilled to a file the
+# model can read back through the harness read_tool_result tool, truncated as
+# fallback). Matches the pydantic-ai-harness ToolOutputLimits default.
+TOOL_OUTPUT_LIMIT_CHARS_DEFAULT = 10_000
+
+
+def get_tool_output_limit_chars() -> int:
+    """Return the tool-output reduction threshold in characters.
+
+    Read from the ``tool_output_limit_chars`` config key (settable via
+    ``/set tool_output_limit_chars=<int>``). Defaults to
+    ``TOOL_OUTPUT_LIMIT_CHARS_DEFAULT`` (10,000) when unset or non-numeric.
+    Zero or negative disables tool-output reduction entirely — no clamp is
+    applied here because "disable" is a legitimate choice, unlike the
+    compaction knobs where a bad value would wedge the run.
+    """
+    val = get_value("tool_output_limit_chars")
+    if not val:
+        return TOOL_OUTPUT_LIMIT_CHARS_DEFAULT
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return TOOL_OUTPUT_LIMIT_CHARS_DEFAULT
 
 
 def get_resume_message_count() -> int:
