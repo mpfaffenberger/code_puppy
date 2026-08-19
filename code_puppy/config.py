@@ -8,7 +8,7 @@ import pathlib
 from typing import Any, Optional
 
 from code_puppy.config_file import load_config, mutate_config
-from code_puppy.session_storage import save_session
+from code_puppy.session_storage import compute_scope_key, save_session
 
 logger = logging.getLogger(__name__)
 
@@ -2267,6 +2267,7 @@ def auto_save_session_if_enabled() -> bool:
             timestamp=now.isoformat(),
             token_estimator=current_agent.estimate_tokens_for_message,
             auto_saved=True,
+            scope_key=compute_scope_key(pathlib.Path.cwd()),
         )
 
         # Point quick-resume at this save; every turn/exit/finalize routes through
