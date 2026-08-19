@@ -958,6 +958,7 @@ class TestCommandRegistry:
             ("exit", "quit"),
             ("model", "m"),
             ("agent", "a"),
+            ("clear", "new"),
         ],
     )
     def test_aliased_command_registered(self, name, alias):
