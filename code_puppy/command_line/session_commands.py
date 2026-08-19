@@ -93,7 +93,7 @@ def handle_session_command(command: str) -> bool:
     name="clear",
     description="Clear conversation history (rotates autosave; agent forgets prior turns)",
     usage="/clear",
-    aliases=["cls"],
+    aliases=["cls", "new"],
     category="session",
     detailed_help="""
     Wipe the current conversation history so the agent starts fresh.
