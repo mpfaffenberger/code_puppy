@@ -71,6 +71,11 @@ class BaseAgent(ABC):
         self._code_generation_agent: Any = None
         self._last_model_name: Optional[str] = None
         self._runtime_model_name_override: Optional[str] = None
+        # Model chosen by a ``model_select`` hook for the current run. Slots
+        # BELOW an explicit runtime override but ABOVE pinned/JSON/global, and
+        # is reset at the start of every run (see resolve_run_model_selection),
+        # so it never leaks across turns.
+        self._auto_model_override: Optional[str] = None
         self._puppy_rules: Optional[str] = None
         self._mcp_servers: List[Any] = []
         self.cur_model: Optional[pydantic_ai.models.Model] = None
@@ -124,6 +129,14 @@ class BaseAgent(ABC):
         """
         self._runtime_model_name_override = model_name
 
+    def get_auto_model_override(self) -> Optional[str]:
+        """Return the model chosen by a ``model_select`` hook for this run."""
+        return self._auto_model_override
+
+    def set_auto_model_override(self, model_name: Optional[str]) -> None:
+        """Set the ``model_select``-chosen model for this run (not persisted)."""
+        self._auto_model_override = model_name
+
     @contextmanager
     def temporary_model_name_override(
         self, model_name: Optional[str]
@@ -140,6 +153,9 @@ class BaseAgent(ABC):
         override = self.get_runtime_model_name_override()
         if override:
             return override
+        auto = self.get_auto_model_override()
+        if auto:
+            return auto
         pinned = get_agent_pinned_model(self.name)
         return pinned if pinned else get_global_model_name()
 
