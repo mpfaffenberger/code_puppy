@@ -16,7 +16,7 @@ from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Set
 
-from code_puppy.config import get_value, set_value
+from code_puppy.config import get_value, get_truthy_bool_value, set_value
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +28,7 @@ LOCK_BUILTIN_KEY = "lock_builtin_plugins"
 
 def get_lock_builtin_plugins() -> bool:
     """Whether builtin plugins are locked (un-disableable + hidden)."""
-    raw = get_value(LOCK_BUILTIN_KEY)
-    if raw is None:
-        return False
-    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+    return get_truthy_bool_value(LOCK_BUILTIN_KEY, False)
 
 
 def set_lock_builtin_plugins(locked: bool) -> None:
@@ -67,8 +64,10 @@ def get_disabled_plugins() -> Set[str]:
             disabled_list = json.loads(config_value)
             if isinstance(disabled_list, list):
                 return set(disabled_list)
+
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse disabled_plugins config: {e}")
+
     return set()
 
 
@@ -102,10 +101,12 @@ def set_plugin_disabled(plugin_name: str, disabled: bool) -> bool:
             return False
         disabled_plugins.add(plugin_name)
         logger.info(f"Disabled plugin: {plugin_name}")
+
     else:
         if plugin_name not in disabled_plugins:
             logger.info(f"Plugin already enabled: {plugin_name}")
             return False
+
         disabled_plugins.remove(plugin_name)
         logger.info(f"Enabled plugin: {plugin_name}")
 
