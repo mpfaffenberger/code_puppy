@@ -14,6 +14,36 @@ from code_puppy.i18n import catalog, pseudo, translate
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 _LOCALES = ["en-US", "es", "fr-CA"]
 
+# The actual kwargs each parameterized key is called with in
+# wizard_utils.py, keyed by param name -> a representative value. Used to
+# catch a locale translation that typo'd a placeholder name (e.g.
+# {server_names} instead of {server_name}): supplying the *real* call-site
+# param name and asserting it lands in the rendered string, rather than
+# deriving the params from the string being tested (which can never detect
+# a name that diverges from what callers actually pass).
+_REAL_PARAMS = {
+    "mcp.install_wizard.env_var_prompt": {"var": "API_KEY"},
+    "mcp.install_wizard.prompt_suffix": {"prompt": "Port"},
+    "mcp.install_wizard.wizard_error": {"error": "boom"},
+    "mcp.install_wizard.server_list_item": {
+        "index": " 1",
+        "name": "GitHub",
+        "indicators": "\u2713",
+    },
+    "mcp.install_wizard.server_description": {"description": "A server"},
+    "mcp.install_wizard.select_prompt": {"count": 10},
+    "mcp.install_wizard.name_prompt": {"default_name": "github"},
+    "mcp.install_wizard.override_prompt": {"server_name": "my-srv"},
+    "mcp.install_wizard.installing": {"name": "GitHub Server"},
+    "mcp.install_wizard.name_label": {"server_name": "my-srv"},
+    "mcp.install_wizard.env_var_masked": {"var": "TOKEN"},
+    "mcp.install_wizard.cmd_arg_line": {"arg": "path", "value": "/tmp"},
+    "mcp.install_wizard.config_error": {"error": "boom"},
+    "mcp.install_wizard.install_success": {"server_name": "my-srv"},
+    "mcp.install_wizard.start_hint": {"server_name": "my-srv"},
+    "mcp.install_wizard.install_failed": {"error": "boom"},
+}
+
 
 @pytest.fixture(autouse=True)
 def _reset_locale():
@@ -116,11 +146,13 @@ def test_every_key_has_its_own_translation_per_locale(locale):
 
 @pytest.mark.parametrize("locale", _LOCALES, ids=_LOCALES)
 def test_no_leftover_placeholder_for_supplied_params_per_locale(locale):
-    """Supplying every placeholder must leave no ``{field}`` behind, in
-    every locale -- not just en-US. Catches a locale whose translation
-    typo'd a param name (e.g. ``{server_names}`` instead of
-    ``{server_name}``), which ``translate.t``'s forgiving interpolation
-    would otherwise silently leave un-substituted.
+    """Every {field} in each locale's own text gets substituted by *some*
+    value, in every locale -- not just en-US. This is a self-consistency
+    check: it derives the params to supply from the string under test, so
+    it catches malformed/unbalanced braces but -- by construction -- it
+    can *not* detect a param name that has drifted from what real call
+    sites pass (see test_real_call_site_params_interpolate_per_locale for
+    that).
     """
     translate.set_locale(locale)
     src = catalog.load_catalog(locale)
@@ -134,3 +166,24 @@ def test_no_leftover_placeholder_for_supplied_params_per_locale(locale):
         assert "{" not in rendered.replace("{{", "").replace("}}", ""), (
             f"{locale}:{key} left an un-substituted placeholder: {rendered!r}"
         )
+
+
+@pytest.mark.parametrize("locale", _LOCALES, ids=_LOCALES)
+def test_real_call_site_params_interpolate_per_locale(locale):
+    """Supply each key's *actual* wizard_utils.py call-site param name(s)
+    (not names derived from the template itself) and confirm the value
+    lands in the rendered text with no placeholder left behind, in every
+    locale. Catches a locale whose translation typo'd a placeholder name
+    (e.g. {server_names} instead of {server_name}), which self-referential
+    interpolation checks structurally cannot detect.
+    """
+    translate.set_locale(locale)
+    for key, params in _REAL_PARAMS.items():
+        rendered = translate.t(key, **params)
+        assert "{" not in rendered, (
+            f"{locale}:{key} left an un-substituted placeholder: {rendered!r}"
+        )
+        for value in params.values():
+            assert str(value) in rendered, (
+                f"{locale}:{key} did not interpolate {value!r}: {rendered!r}"
+            )
