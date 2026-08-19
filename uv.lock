@@ -403,7 +403,7 @@ wheels = [
 
 [[package]]
 name = "code-puppy"
-version = "0.0.742"
+version = "0.0.743"
 source = { editable = "." }
 dependencies = [
     { name = "agent-client-protocol" },
@@ -911,8 +911,8 @@ name = "httpcore2"
 version = "2.10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "h11", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
-    { name = "truststore", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
+    { name = "h11" },
+    { name = "truststore" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a9/83/a896fc59940fc5a6e2aff3a4be1d92fa890112936803b331cae75a993c34/httpcore2-2.10.0.tar.gz", hash = "sha256:13c0cc3d1919d4f28457f60cd2c2abe04113a8af184ccf1142811beba936f9dc", size = 67427, upload-time = "2026-08-09T09:11:32.123Z" }
 wheels = [
@@ -1874,10 +1874,10 @@ name = "pyobjc-framework-applicationservices"
 version = "12.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyobjc-core", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
-    { name = "pyobjc-framework-cocoa", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
-    { name = "pyobjc-framework-coretext", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
-    { name = "pyobjc-framework-quartz", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
+    { name = "pyobjc-core" },
+    { name = "pyobjc-framework-cocoa" },
+    { name = "pyobjc-framework-coretext" },
+    { name = "pyobjc-framework-quartz" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/5e/4d/0ebdd8144aba94b8fe9828ccee5616a4bf53d1f8bc51cff55f3cce86d695/pyobjc_framework_applicationservices-12.2.1.tar.gz", hash = "sha256:048ea663c9ac75c44a15dc7d5b8d78cbb4c97bf1c76e83835e8d5498e184001f", size = 109342, upload-time = "2026-06-19T16:19:46.149Z" }
 wheels = [
@@ -1894,7 +1894,7 @@ name = "pyobjc-framework-cocoa"
 version = "12.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyobjc-core", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
+    { name = "pyobjc-core" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/51/34/fbe38a204643aa4e1b91391cdce07a34da565a69171ebcad08de7438a556/pyobjc_framework_cocoa-12.2.1.tar.gz", hash = "sha256:b94b37fe5730e5ae1fb0052912cd174e6ec329b0bfba4a012ae5db1014b5864b", size = 3125751, upload-time = "2026-06-19T16:20:05.159Z" }
 wheels = [
@@ -1911,9 +1911,9 @@ name = "pyobjc-framework-coretext"
 version = "12.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyobjc-core", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
-    { name = "pyobjc-framework-cocoa", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
-    { name = "pyobjc-framework-quartz", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
+    { name = "pyobjc-core" },
+    { name = "pyobjc-framework-cocoa" },
+    { name = "pyobjc-framework-quartz" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/5a/9c/4c7f452059dc1d3845b8e627b9113c247a997b9b07518e848c2ab7ff3149/pyobjc_framework_coretext-12.2.1.tar.gz", hash = "sha256:af740e784d7c592c34025ec7165f4f6c1a69b5a2d9075f06e41e4f77c212aed2", size = 97349, upload-time = "2026-06-19T16:20:22.508Z" }
 wheels = [
@@ -1930,8 +1930,8 @@ name = "pyobjc-framework-quartz"
 version = "12.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyobjc-core", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
-    { name = "pyobjc-framework-cocoa", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
+    { name = "pyobjc-core" },
+    { name = "pyobjc-framework-cocoa" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/3b/f6/2a8b84dbf1fe7c04dd96ea73d991678d4e09a909f51971ecc51629bb2ab4/pyobjc_framework_quartz-12.2.1.tar.gz", hash = "sha256:b3b8b6f71e66147f8ff9e6213864cc8527e3a0b1ee90835b93ce221f4802d9b0", size = 3215521, upload-time = "2026-06-19T16:21:30.199Z" }
 wheels = [
@@ -2496,8 +2496,8 @@ name = "secretstorage"
 version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cryptography", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
-    { name = "jeepney", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
+    { name = "cryptography" },
+    { name = "jeepney" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1c/03/e834bcd866f2f8a49a85eaff47340affa3bfa391ee9912a952a1faa68c7b/secretstorage-3.5.0.tar.gz", hash = "sha256:f04b8e4689cbce351744d5537bf6b1329c6fc68f91fa666f60a380edddcd11be", size = 19884, upload-time = "2025-11-23T19:02:53.191Z" }
 wheels = [
@@ -2828,8 +2828,8 @@ name = "uvicorn"
 version = "0.47.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "click", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
-    { name = "h11", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
+    { name = "click" },
+    { name = "h11" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f6/b1/8e7077a8641086aea449e1b5752a570f1b5906c64e0a33cd6d93b63a066b/uvicorn-0.47.0.tar.gz", hash = "sha256:7c9a0ea1a9414106bbab7324609c162d8fa0cdcdcb703060987269d77c7bb533", size = 90582, upload-time = "2026-05-14T18:16:54.455Z" }
 wheels = [
