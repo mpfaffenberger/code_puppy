@@ -8,7 +8,7 @@ Codex API.
 import json
 from unittest.mock import AsyncMock, Mock, patch
 
-import httpx
+import httpx2
 import pytest
 
 from code_puppy.chatgpt_codex_client import (
@@ -67,7 +67,7 @@ class TestExtractBodyBytes:
 
     def test_extract_from_content_attribute(self):
         """Test extraction from request.content."""
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.openai.com/v1/chat/completions",
             content=b'{"model": "gpt-4"}',
@@ -77,7 +77,7 @@ class TestExtractBodyBytes:
 
     def test_extract_empty_content_returns_none(self):
         """Test that empty content returns None."""
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.openai.com/v1/chat/completions",
         )
@@ -282,7 +282,7 @@ class TestConvertStreamToResponse:
             for line in sse_lines:
                 yield line
 
-        mock_response = Mock(spec=httpx.Response)
+        mock_response = Mock(spec=httpx2.Response)
         mock_response.status_code = 200
         mock_response.headers = {"content-type": "text/event-stream"}
         mock_response.aiter_lines = mock_aiter_lines
@@ -310,7 +310,7 @@ class TestConvertStreamToResponse:
             for line in sse_lines:
                 yield line
 
-        mock_response = Mock(spec=httpx.Response)
+        mock_response = Mock(spec=httpx2.Response)
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.aiter_lines = mock_aiter_lines
@@ -343,7 +343,7 @@ class TestConvertStreamToResponse:
             for line in sse_lines:
                 yield line
 
-        mock_response = Mock(spec=httpx.Response)
+        mock_response = Mock(spec=httpx2.Response)
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.aiter_lines = mock_aiter_lines
@@ -389,7 +389,7 @@ class TestConvertStreamToResponse:
             for line in sse_lines:
                 yield line
 
-        mock_response = Mock(spec=httpx.Response)
+        mock_response = Mock(spec=httpx2.Response)
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.aiter_lines = mock_aiter_lines
@@ -414,7 +414,7 @@ class TestConvertStreamToResponse:
             for line in sse_lines:
                 yield line
 
-        mock_response = Mock(spec=httpx.Response)
+        mock_response = Mock(spec=httpx2.Response)
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.aiter_lines = mock_aiter_lines
@@ -436,7 +436,7 @@ class TestConvertStreamToResponse:
             for line in sse_lines:
                 yield line
 
-        mock_response = Mock(spec=httpx.Response)
+        mock_response = Mock(spec=httpx2.Response)
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.aiter_lines = mock_aiter_lines
@@ -463,7 +463,7 @@ class TestConvertStreamToResponse:
             for line in sse_lines:
                 yield line
 
-        mock_response = Mock(spec=httpx.Response)
+        mock_response = Mock(spec=httpx2.Response)
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.aiter_lines = mock_aiter_lines
@@ -485,19 +485,19 @@ class TestSendMethod:
     @pytest.mark.asyncio
     async def test_post_request_injects_fields(self):
         """Test that POST requests have fields injected."""
-        success_response = Mock(spec=httpx.Response)
+        success_response = Mock(spec=httpx2.Response)
         success_response.status_code = 200
         success_response.headers = {"content-type": "application/json"}
 
         with patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             return_value=success_response,
         ) as mock_send:
             client = ChatGPTCodexAsyncClient()
 
-            request = httpx.Request(
+            request = httpx2.Request(
                 "POST",
                 "https://api.openai.com/v1/chat/completions",
                 content=json.dumps({"model": "gpt-4"}).encode(),
@@ -516,12 +516,12 @@ class TestSendMethod:
     @pytest.mark.asyncio
     async def test_send_restores_configured_user_agent(self):
         """The SDK's per-request User-Agent must not replace the Codex one."""
-        success_response = Mock(spec=httpx.Response)
+        success_response = Mock(spec=httpx2.Response)
         success_response.status_code = 200
         success_response.headers = {"content-type": "application/json"}
 
         with patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             return_value=success_response,
@@ -529,7 +529,7 @@ class TestSendMethod:
             client = ChatGPTCodexAsyncClient(
                 headers={"User-Agent": "codex_cli_rs/0.144.1"}
             )
-            request = httpx.Request(
+            request = httpx2.Request(
                 "POST",
                 "https://chatgpt.com/backend-api/codex/responses",
                 headers={"User-Agent": "pydantic-ai/1.56.0"},
@@ -544,18 +544,18 @@ class TestSendMethod:
     @pytest.mark.asyncio
     async def test_get_request_passthrough(self):
         """Test that GET requests pass through unmodified."""
-        success_response = Mock(spec=httpx.Response)
+        success_response = Mock(spec=httpx2.Response)
         success_response.status_code = 200
 
         with patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             return_value=success_response,
         ) as mock_send:
             client = ChatGPTCodexAsyncClient()
 
-            request = httpx.Request(
+            request = httpx2.Request(
                 "GET",
                 "https://api.openai.com/v1/models",
             )
@@ -578,14 +578,14 @@ class TestSendMethod:
             for line in sse_lines:
                 yield line
 
-        stream_response = Mock(spec=httpx.Response)
+        stream_response = Mock(spec=httpx2.Response)
         stream_response.status_code = 200
         stream_response.headers = {"content-type": "text/event-stream"}
         stream_response.aiter_lines = mock_aiter_lines
         stream_response.request = Mock()
 
         with patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             return_value=stream_response,
@@ -593,7 +593,7 @@ class TestSendMethod:
             client = ChatGPTCodexAsyncClient()
 
             # stream=False means we force it to true and need conversion
-            request = httpx.Request(
+            request = httpx2.Request(
                 "POST",
                 "https://api.openai.com/v1/chat/completions",
                 content=json.dumps({"model": "gpt-4", "stream": False}).encode(),
@@ -608,12 +608,12 @@ class TestSendMethod:
     @pytest.mark.asyncio
     async def test_no_conversion_when_stream_already_true(self):
         """Test that no conversion happens when stream was already true."""
-        stream_response = Mock(spec=httpx.Response)
+        stream_response = Mock(spec=httpx2.Response)
         stream_response.status_code = 200
         stream_response.headers = {"content-type": "text/event-stream"}
 
         with patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             return_value=stream_response,
@@ -621,7 +621,7 @@ class TestSendMethod:
             client = ChatGPTCodexAsyncClient()
 
             # stream=True means no forced conversion
-            request = httpx.Request(
+            request = httpx2.Request(
                 "POST",
                 "https://api.openai.com/v1/chat/completions",
                 content=json.dumps(
@@ -637,19 +637,19 @@ class TestSendMethod:
     @pytest.mark.asyncio
     async def test_no_conversion_on_error_status(self):
         """Test that no conversion happens on non-200 responses."""
-        error_response = Mock(spec=httpx.Response)
+        error_response = Mock(spec=httpx2.Response)
         error_response.status_code = 400
         error_response.headers = {"content-type": "application/json"}
 
         with patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             return_value=error_response,
         ):
             client = ChatGPTCodexAsyncClient()
 
-            request = httpx.Request(
+            request = httpx2.Request(
                 "POST",
                 "https://api.openai.com/v1/chat/completions",
                 content=json.dumps({"model": "gpt-4", "stream": False}).encode(),
@@ -663,11 +663,11 @@ class TestSendMethod:
     @pytest.mark.asyncio
     async def test_exception_handling_in_body_modification(self):
         """Test that exceptions during body modification don't crash."""
-        success_response = Mock(spec=httpx.Response)
+        success_response = Mock(spec=httpx2.Response)
         success_response.status_code = 200
 
         with patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             return_value=success_response,
@@ -679,7 +679,7 @@ class TestSendMethod:
             ):
                 client = ChatGPTCodexAsyncClient()
 
-                request = httpx.Request(
+                request = httpx2.Request(
                     "POST",
                     "https://api.openai.com/v1/chat/completions",
                     content=b'{"model": "gpt-4"}',
@@ -698,20 +698,20 @@ class TestSendMethod:
             raise Exception("Stream read error")
             yield  # Make it a generator
 
-        stream_response = Mock(spec=httpx.Response)
+        stream_response = Mock(spec=httpx2.Response)
         stream_response.status_code = 200
         stream_response.headers = {}
         stream_response.aiter_lines = failing_aiter_lines
 
         with patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             return_value=stream_response,
         ):
             client = ChatGPTCodexAsyncClient()
 
-            request = httpx.Request(
+            request = httpx2.Request(
                 "POST",
                 "https://api.openai.com/v1/chat/completions",
                 content=json.dumps({"model": "gpt-4", "stream": False}).encode(),
@@ -783,18 +783,18 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_send_with_no_content(self):
         """Test send with POST request but no body content."""
-        success_response = Mock(spec=httpx.Response)
+        success_response = Mock(spec=httpx2.Response)
         success_response.status_code = 200
 
         with patch.object(
-            httpx.AsyncClient,
+            httpx2.AsyncClient,
             "send",
             new_callable=AsyncMock,
             return_value=success_response,
         ):
             client = ChatGPTCodexAsyncClient()
 
-            request = httpx.Request(
+            request = httpx2.Request(
                 "POST",
                 "https://api.openai.com/v1/chat/completions",
                 # No content
@@ -826,7 +826,7 @@ class TestEdgeCases:
             for line in sse_lines:
                 yield line
 
-        mock_response = Mock(spec=httpx.Response)
+        mock_response = Mock(spec=httpx2.Response)
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.aiter_lines = mock_aiter_lines

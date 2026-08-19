@@ -329,6 +329,43 @@ class TestCreateAsyncClient:
             assert not isinstance(client, RetryingAsyncClient)
 
 
+class TestCreateHttpx2AsyncClient:
+    def test_creates_retrying_by_default(self):
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("code_puppy.http_utils.get_cert_bundle_path", return_value=None),
+            patch("code_puppy.http_utils.get_http2", return_value=False),
+        ):
+            import httpx2
+
+            from code_puppy.http_utils import (
+                RetryingHttpx2AsyncClient,
+                create_httpx2_async_client,
+            )
+
+            client = create_httpx2_async_client()
+            assert isinstance(client, RetryingHttpx2AsyncClient)
+            assert isinstance(client, httpx2.AsyncClient)
+
+    def test_creates_plain_when_retry_disabled(self):
+        env = {"CODE_PUPPY_DISABLE_RETRY_TRANSPORT": "1"}
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch("code_puppy.http_utils.get_cert_bundle_path", return_value=None),
+            patch("code_puppy.http_utils.get_http2", return_value=False),
+        ):
+            import httpx2
+
+            from code_puppy.http_utils import (
+                RetryingHttpx2AsyncClient,
+                create_httpx2_async_client,
+            )
+
+            client = create_httpx2_async_client()
+            assert not isinstance(client, RetryingHttpx2AsyncClient)
+            assert isinstance(client, httpx2.AsyncClient)
+
+
 class TestCreateRequestsSession:
     def test_create_session_default(self):
         with patch("code_puppy.http_utils.get_cert_bundle_path", return_value=None):

@@ -4,7 +4,7 @@ import os
 import pathlib
 from typing import Any, Dict
 
-import httpx
+import httpx2
 from anthropic import AsyncAnthropic
 from openai import AsyncAzureOpenAI
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
@@ -25,7 +25,12 @@ from code_puppy.messaging import emit_warning
 from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient
 from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
-from .http_utils import create_async_client, get_cert_bundle_path, get_http2
+from .http_utils import (
+    create_async_client,
+    create_httpx2_async_client,
+    get_cert_bundle_path,
+    get_http2,
+)
 from .provider_identity import (
     make_anthropic_provider,
     make_openai_provider,
@@ -866,13 +871,13 @@ class ModelFactory:
 
         elif model_type in _CUSTOM_OPENAI_MODEL_TYPES:
             url, headers, verify, api_key, timeout = get_custom_config(model_config)
-            client = create_async_client(
+            client = create_httpx2_async_client(
                 headers=headers,
                 verify=verify,
                 timeout=timeout if timeout is not None else 180,
             )
             provider_args = {"base_url": url}
-            if isinstance(client, httpx.AsyncClient):
+            if isinstance(client, httpx2.AsyncClient):
                 provider_args["http_client"] = client
             if api_key:
                 provider_args["api_key"] = api_key
@@ -961,7 +966,7 @@ class ModelFactory:
             headers["X-Cerebras-3rd-Party-Integration"] = "code-puppy"
             # "cerebras" tells RetryingAsyncClient to ignore Cerebras's aggressive
             # Retry-After headers (they send 60s!). [name] is internal, not provider.
-            client = create_async_client(
+            client = create_httpx2_async_client(
                 headers=headers,
                 verify=verify,
                 model_name="cerebras",

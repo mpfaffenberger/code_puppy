@@ -413,6 +413,7 @@ dependencies = [
     { name = "boto3" },
     { name = "code-puppy-core-plugins" },
     { name = "httpx", extra = ["http2"] },
+    { name = "httpx2", extra = ["http2"] },
     { name = "json-repair" },
     { name = "keyring" },
     { name = "mcp" },
@@ -467,6 +468,7 @@ requires-dist = [
     { name = "code-puppy-core-plugins", specifier = ">=0.0.8" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
+    { name = "httpx2", extras = ["http2"], specifier = ">=2.10" },
     { name = "json-repair", specifier = ">=0.46.2" },
     { name = "keyring", specifier = ">=24.0.0" },
     { name = "mcp", specifier = ">=1.9.4" },
@@ -963,6 +965,11 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/bd/3d/f9a8c07a3884f3e5b26205e8436a18b3af61c5d53192c3bea235574dbbec/httpx2-2.10.0.tar.gz", hash = "sha256:8741d7329fe2c7885fc9ceb61c8217acfb87a85f75723714b89ebf7ad7196338", size = 98749, upload-time = "2026-08-09T09:11:33.24Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b9/6d/a637d52449d98a6892d9a4dc0262587afdb6a66f201871842dce5a97b1c1/httpx2-2.10.0-py3-none-any.whl", hash = "sha256:5e3194a432701e1cc6f69a8b1b2fa199ef907013fede8d9a09a2c5b7b8141a18", size = 94355, upload-time = "2026-08-09T09:11:30.882Z" },
+]
+
+[package.optional-dependencies]
+http2 = [
+    { name = "h2" },
 ]
 
 [[package]]

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 import httpx
+import httpx2
 
 if TYPE_CHECKING:
     import requests
@@ -97,15 +98,21 @@ except ImportError:
         pass
 
 
-class RetryingAsyncClient(httpx.AsyncClient):
-    """AsyncClient with built-in rate limit handling (429) and retries.
+class _RetryingSendMixin:
+    """Rate limit (429) handling and retries, shared by both HTTP stacks.
 
     This replaces the Tenacity transport with a more direct subclass implementation,
     which plays nicer with proxies and custom transports.
 
+    Mixed into an ``AsyncClient`` from either ``httpx`` or ``httpx2``; the two
+    packages define their own exception classes, so each subclass names its own in
+    ``_connection_errors``.
+
     Special handling for Cerebras: Their Retry-After headers are absurdly aggressive
     (often 60s), so we ignore them and use a 3s base backoff instead.
     """
+
+    _connection_errors: tuple[type[Exception], ...] = ()
 
     def __init__(
         self,
@@ -121,7 +128,9 @@ class RetryingAsyncClient(httpx.AsyncClient):
         # Cerebras sends crazy aggressive Retry-After headers (60s), ignore them
         self._ignore_retry_headers = "cerebras" in self.model_name
 
-    async def send(self, request: httpx.Request, **kwargs: Any) -> httpx.Response:
+    async def send(
+        self, request: Union[httpx.Request, httpx2.Request], **kwargs: Any
+    ) -> Union[httpx.Response, httpx2.Response]:
         """Send request with automatic retries for rate limits and server errors."""
         last_response = None
         last_exception = None
@@ -174,7 +183,7 @@ class RetryingAsyncClient(httpx.AsyncClient):
                     )
                     await asyncio.sleep(wait_time)
 
-            except (httpx.ConnectError, httpx.ReadTimeout, httpx.PoolTimeout) as e:
+            except self._connection_errors as e:
                 last_exception = e
                 wait_time = 1.0 * (2**attempt)
                 if attempt < self.max_retries:
@@ -196,6 +205,18 @@ class RetryingAsyncClient(httpx.AsyncClient):
             raise last_exception
 
         return last_response
+
+
+class RetryingAsyncClient(_RetryingSendMixin, httpx.AsyncClient):
+    """Retrying client on legacy ``httpx``, for the boundaries still on that stack."""
+
+    _connection_errors = (httpx.ConnectError, httpx.ReadTimeout, httpx.PoolTimeout)
+
+
+class RetryingHttpx2AsyncClient(_RetryingSendMixin, httpx2.AsyncClient):
+    """Retrying client on ``httpx2``, for pydantic-ai's OpenAI-compatible providers."""
+
+    _connection_errors = (httpx2.ConnectError, httpx2.ReadTimeout, httpx2.PoolTimeout)
 
 
 def get_cert_bundle_path() -> str | None:
@@ -249,6 +270,44 @@ def create_async_client(
         )
     else:
         return httpx.AsyncClient(
+            proxy=config.proxy_url,
+            verify=config.verify,
+            headers=headers or {},
+            timeout=timeout,
+            http2=config.http2_enabled,
+            trust_env=config.trust_env,
+        )
+
+
+def create_httpx2_async_client(
+    timeout: int = 180,
+    verify: Union[bool, str] = None,
+    headers: Optional[Dict[str, str]] = None,
+    retry_status_codes: tuple = (429, 502, 503, 504),
+    model_name: str = "",
+) -> httpx2.AsyncClient:
+    """Same client as :func:`create_async_client`, on ``httpx2`` instead of ``httpx``.
+
+    Use this for a client handed to a pydantic-ai OpenAI-compatible provider: those
+    warn on a legacy ``httpx.AsyncClient`` and drop support for it in v3. The
+    boundaries still on legacy ``httpx`` -- MCP servers, the Anthropic SDK, Code
+    Puppy's own Gemini REST client -- keep using :func:`create_async_client`.
+    """
+    config = _resolve_proxy_config(verify)
+
+    if not config.disable_retry:
+        return RetryingHttpx2AsyncClient(
+            retry_status_codes=retry_status_codes,
+            model_name=model_name,
+            proxy=config.proxy_url,
+            verify=config.verify,
+            headers=headers or {},
+            timeout=timeout,
+            http2=config.http2_enabled,
+            trust_env=config.trust_env,
+        )
+    else:
+        return httpx2.AsyncClient(
             proxy=config.proxy_url,
             verify=config.verify,
             headers=headers or {},
