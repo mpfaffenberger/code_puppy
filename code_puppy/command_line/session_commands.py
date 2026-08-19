@@ -143,7 +143,7 @@ def handle_clear_command(command: str) -> bool:
 def handle_compact_command(command: str) -> bool:
     """Compact message history using configured strategy."""
     from code_puppy.agents.agent_manager import get_current_agent
-    from code_puppy.config import get_compaction_strategy, get_protected_token_count
+    from code_puppy.config import get_compaction_strategy
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
 
     try:
@@ -162,12 +162,8 @@ def handle_compact_command(command: str) -> bool:
             emit_warning(t("cmd.compact.no_history"))
             return True
 
-        current_agent = get_current_agent()
-        before_tokens = sum(
-            current_agent.estimate_tokens_for_message(m) for m in history
-        )
+        before_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
         compaction_strategy = get_compaction_strategy()
-        protected_tokens = get_protected_token_count()
         emit_info(
             t(
                 "cmd.compact.compacting",
@@ -177,28 +173,27 @@ def handle_compact_command(command: str) -> bool:
             )
         )
 
-        current_agent = get_current_agent()
-        if compaction_strategy == "truncation":
-            from code_puppy.agents._compaction import truncate
+        # compact_now applies no trigger of its own, so a manual /compact
+        # always compacts — matching the historical command semantics.
+        from code_puppy.agents._compaction import (
+            build_compaction_strategy,
+            resolve_agent_model,
+            run_compaction_sync,
+        )
 
-            compacted = truncate(history, protected_tokens)
-            summarized_messages = []  # No summarization in truncation mode
-        else:
-            # Default to summarization
-            compacted, summarized_messages = current_agent.summarize_messages(
-                history, with_protection=True
-            )
+        compacted = run_compaction_sync(
+            build_compaction_strategy(),
+            history,
+            model=resolve_agent_model(agent),
+        )
 
         if not compacted:
             emit_error(t("cmd.compact.failed"))
             return True
 
-        agent.set_message_history(compacted)
+        agent.set_message_history(list(compacted))
 
-        current_agent = get_current_agent()
-        after_tokens = sum(
-            current_agent.estimate_tokens_for_message(m) for m in compacted
-        )
+        after_tokens = sum(agent.estimate_tokens_for_message(m) for m in compacted)
         reduction_pct = (
             ((before_tokens - after_tokens) / before_tokens * 100)
             if before_tokens > 0
@@ -265,10 +260,25 @@ def handle_truncate_command(command: str) -> bool:
         emit_info(t("cmd.truncate.already_short", current=len(history), n=n))
         return True
 
-    # Always keep the first message (system message) and then keep the N-1 most recent messages
-    truncated_history = [history[0]] + history[-(n - 1) :] if n > 1 else [history[0]]
+    # Keep the first (system) message plus the N-1 most recent, delegating to
+    # the harness sliding window so tool_call/tool_return pairs are never
+    # severed the way naive list slicing could sever them.
+    from pydantic_ai_harness.compaction import SlidingWindowCompaction
 
-    agent.set_message_history(truncated_history)
+    from code_puppy.agents._compaction import (
+        resolve_agent_model,
+        run_compaction_sync,
+    )
+
+    truncated_history = run_compaction_sync(
+        # max_messages=1 satisfies constructor validation only — compact_now
+        # drives the strategy unconditionally, so no trigger is consulted.
+        SlidingWindowCompaction(max_messages=1, keep_messages=max(1, n - 1)),
+        history,
+        model=resolve_agent_model(agent),
+    )
+
+    agent.set_message_history(list(truncated_history))
     emit_success(
         t(
             "cmd.truncate.success",
