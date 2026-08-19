@@ -1,11 +1,17 @@
 """Live integration test for summarization-failure → truncation fallback.
 
-Pins both the main agent and the summarization sub-agent to ``LILAC_MODEL``
-(Kimi K2.6, 262k context window via LILAC_API_KEY), then stuffs ~500k tokens of
+Pins both the main agent and the summarizer to ``LILAC_MODEL`` (Kimi K2.6,
+262k context window via LILAC_API_KEY), then stuffs ~1.2M estimated tokens of
 synthetic message history into the agent and sends a trivial prompt.
 
+Note on sizing: our char/2.5 estimator overcounts natural-language text
+against Kimi's real tokenizer — a "500k" estimated history tokenizes to
+under 262k for real and the summary call *succeeds*. 1.2M estimated is
+beyond what any tokenizer can squeeze into the window, so the server-side
+rejection (and therefore the fallback) is deterministic.
+
 Expected flow:
-    1. ``compact()`` sees 500k > 262k * 0.5 threshold → strategy=summarization.
+    1. ``compact()`` sees ~1.2M > 262k * 0.5 threshold → strategy=summarization.
     2. The harness ``SummarizingCompaction`` asks the summarizer model to chew
        on the oversized prefix.
     3. Kimi K2.6's 262k context window rejects the request server-side with a
@@ -137,9 +143,9 @@ def lilac_agent(monkeypatch):
 async def test_summarization_oversize_falls_back_to_truncation(
     lilac_agent, monkeypatch
 ):
-    """500k-token history + Kimi K2.6 (262k ctx) + summarization strategy →
-    summarization sub-agent rejects the oversized payload → compact() catches
-    the failure and falls back to truncation → main run still completes.
+    """~1.2M-token history + Kimi K2.6 (262k ctx) + summarization strategy →
+    the summarizer's provider rejects the oversized payload →
+    FallbackCompaction advances to the sliding window → main run completes.
     """
     from code_puppy.agents import _compaction
     from code_puppy.agents._history import estimate_tokens_for_message
@@ -200,15 +206,16 @@ async def test_summarization_oversize_falls_back_to_truncation(
     monkeypatch.setattr(_runtime_mod, "emit_exception_diagnostics", spy_emit_diag)
 
     # -- History setup --------------------------------------------------------
-    # 500k tokens — well over the 262k ctx window. The summarization payload
-    # (history minus ~20k protected tail) will be ~480k → guaranteed reject.
-    history = _build_huge_history(target_tokens=500_000)
+    # ~1.2M estimated tokens — far over the 262k ctx window even after real
+    # tokenization compresses our synthetic text. The summarization payload
+    # (history minus ~20k protected tail) is guaranteed to be rejected.
+    history = _build_huge_history(target_tokens=1_200_000)
     before_tokens = sum(estimate_tokens_for_message(m) for m in history)
     before_len = len(history)
 
     print(f"\n[pre-run]  history: {before_len} msgs, ~{before_tokens:,} tokens")
-    assert before_tokens > 400_000, (
-        f"Test setup bug: only built {before_tokens:,} tokens, need >400k to "
+    assert before_tokens > 900_000, (
+        f"Test setup bug: only built {before_tokens:,} tokens, need >900k to "
         "guarantee summarizer overflow."
     )
 
@@ -256,7 +263,7 @@ async def test_summarization_oversize_falls_back_to_truncation(
 
     # CORE INVARIANT 2: summarization failed (raised)
     assert summarize_spy["raised"], (
-        f"Summarization unexpectedly succeeded — the 500k payload should have "
+        f"Summarization unexpectedly succeeded — the ~1.2M payload should have "
         f"overflowed Kimi K2.6's 262k ctx. Spy: {summarize_spy}"
     )
     print(
