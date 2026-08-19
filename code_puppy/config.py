@@ -1595,7 +1595,10 @@ def get_tool_output_limit_chars() -> int:
     compaction knobs where a bad value would wedge the run.
     """
     val = get_value("tool_output_limit_chars")
-    if not val:
+    # `val is None`-style unset check (not `if not val:`): get_value returns
+    # str | None today, but a falsy non-None value (int 0 through a future
+    # cache) must stay an explicit opt-out, never a fallback to the default.
+    if val is None or not str(val).strip():
         return TOOL_OUTPUT_LIMIT_CHARS_DEFAULT
     try:
         return int(val)
