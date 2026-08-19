@@ -10,11 +10,15 @@ readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
     "code-puppy-core-plugins>=0.0.8",
-    "pydantic-ai-slim[openai,anthropic,mcp]==2.31.0",
+    "pydantic-ai-slim[openai,anthropic,mcp] @ git+https://github.com/pydantic/pydantic-ai.git@507c8bf87679a1cee11c6d85fa583a781decc6a4#subdirectory=pydantic_ai_slim",
+    # pydantic-ai-slim built from git requires the exact sibling `pydantic-graph` dev
+    # version, which is not on PyPI, so it has to come from the same commit.
+    "pydantic-graph @ git+https://github.com/pydantic/pydantic-ai.git@507c8bf87679a1cee11c6d85fa583a781decc6a4#subdirectory=pydantic_graph",
     "anyio>=4.7.0",
     "typer>=0.12.0",
     "mcp>=1.9.4",
     "httpx[http2]>=0.24.1",
+    "httpx2[http2]>=2.10",
     "requests>=2.28.0",
     "packaging>=24.0",
     "rich>=13.4.2",
@@ -77,6 +81,11 @@ pup = "code_puppy.main:main_entry"
 [tool.logfire]
 ignore_no_config = true
 
+[tool.hatch.metadata]
+# The pydantic-ai-slim git pin is a PEP 508 direct reference; hatchling rejects
+# those unless they are opted into explicitly.
+allow-direct-references = true
+
 [tool.hatch.build]
 packages = ["code_puppy"]
 
@@ -99,6 +108,15 @@ path = "code_puppy/models_dev_api.json"
 addopts = "--cov=code_puppy --cov-report=term-missing"
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Escalate warnings so the httpx2 dependency swap cannot pass silently. The
+# ignores are this suite's pre-existing noise, measured before the swap.
+filterwarnings = [
+    "error",
+    "ignore::ResourceWarning",
+    "ignore:coroutine .* was never awaited:RuntimeWarning",
+    "ignore:.*found in sys.modules after import of package:RuntimeWarning",
+    "ignore:(set_current_autosave_from_session_name|get_current_autosave_id|rotate_autosave_id|get_current_autosave_session_name) is deprecated:DeprecationWarning",
+]
 
 [tool.coverage.run]
 omit = ["code_puppy/main.py"]
