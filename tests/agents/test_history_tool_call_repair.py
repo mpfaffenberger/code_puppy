@@ -16,8 +16,6 @@ from pydantic_ai.messages import (
 )
 
 from code_puppy.agents._history import (
-    _OVERSIZED_TOOL_RETURN_CONTENT,
-    filter_huge_messages,
     has_pending_tool_calls,
     prune_interrupted_tool_calls,
 )
@@ -196,50 +194,6 @@ def test_retry_prompt_counts_as_return():
     ]
 
     assert prune_interrupted_tool_calls(history) is history
-
-
-def test_oversized_tool_return_is_shrunk_not_interrupted():
-    """An oversized COMPLETED tool result is shrunk in place, not dropped.
-
-    Dropping the message would leave its call dangling, and prune would then
-    close it with an ``interrupted`` return — telling the model the tool never
-    ran, so it re-issues the identical oversized call. Instead the body is
-    swapped for the oversized placeholder and the pair stays intact.
-    """
-    huge = "x" * 200_000  # estimates well over the 50k-token per-message budget
-    history = [
-        ModelRequest(parts=[UserPromptPart(content="read the big file")]),
-        ModelResponse(parts=[_call("c1")]),
-        ModelRequest(
-            parts=[ToolReturnPart(tool_name="edit", content=huge, tool_call_id="c1")]
-        ),
-    ]
-
-    result = filter_huge_messages(history)
-
-    calls = [
-        p
-        for m in result
-        for p in getattr(m, "parts", [])
-        if getattr(p, "part_kind", None) == "tool-call"
-    ]
-    returns = [
-        p
-        for m in result
-        for p in getattr(m, "parts", [])
-        if getattr(p, "part_kind", None) == "tool-return"
-    ]
-
-    assert any(c.tool_call_id == "c1" for c in calls), "the call was erased"
-
-    c1_returns = [r for r in returns if r.tool_call_id == "c1"]
-    assert len(c1_returns) == 1
-    (ret,) = c1_returns
-    assert ret.content == _OVERSIZED_TOOL_RETURN_CONTENT
-    assert ret.content != INTERRUPTED_TOOL_RETURN_CONTENT
-    assert getattr(ret, "outcome", None) != "interrupted"
-
-    assert not has_pending_tool_calls(result)
 
 
 def test_builtin_tool_call_left_alone():

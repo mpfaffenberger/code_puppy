@@ -37,7 +37,6 @@ from pydantic_ai_harness.compaction import (
 
 from code_puppy.agents._history import (
     estimate_tokens_for_message,
-    filter_huge_messages,
     hash_message,
     sanitize_tool_call_ids,
 )
@@ -212,19 +211,19 @@ async def compact(
         # Hooks must never break compaction.
         pass
 
-    # Shrink/drop individual >50k-token monsters first — a runaway tool
-    # return in the protected tail would otherwise survive every strategy.
-    filtered = filter_huge_messages(messages, model_name)
-
+    # Oversized-payload guarding is no longer done here: ToolOutputLimits
+    # bounds tool returns at production time and ClampOversizedMessages
+    # clamps runaway response parts at request time (see _output_limits.py),
+    # both wired as pure capabilities in _builder.py.
     try:
         strategy = build_compaction_strategy()
-        result = await strategy.compact(list(filtered), ctx)
+        result = await strategy.compact(list(messages), ctx)
     except Exception as e:
         emit_error(f"Compaction failed: [{type(e).__name__}] {e}")
         return messages, []
 
     result_hashes = {hash_message(m) for m in result}
-    dropped = [m for m in filtered if hash_message(m) not in result_hashes]
+    dropped = [m for m in messages if hash_message(m) not in result_hashes]
 
     final_token_count = sum(estimate_tokens_for_message(m, model_name) for m in result)
     update_spinner_context(
