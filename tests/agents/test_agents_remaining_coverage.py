@@ -83,6 +83,18 @@ def test_web_retriever():
     lowered = prompt.lower()
     assert "dom-first" in lowered
 
+    # Full snapshots are page-discovery operations, not a reflexive
+    # verification loop. Prefer targeted reads while page state is stable.
+    assert "do not re-snapshot an unchanged page" in lowered
+    assert "targeted" in lowered
+    assert "browser_get_text" in prompt
+
+    # Screenshot analysis must answer a genuinely visual question; ordinary
+    # navigation/extraction and failed locators remain DOM-first work.
+    normalized = " ".join(lowered.split())
+    assert "specific visual question" in normalized
+    assert "locator failure alone" in normalized
+
     # Anti-injection boundary: scraped page content must be treated as
     # data, never as instructions to follow.
     assert "data, never" in lowered or "never a command" in lowered
