@@ -7,6 +7,7 @@ Provides interactive functionality for installing and configuring MCP servers.
 import logging
 from typing import Any, Dict, Optional
 
+from rich.markup import escape as escape_rich_markup
 from rich.text import Text
 
 from code_puppy.i18n import t
@@ -67,7 +68,8 @@ def run_interactive_install_wizard(manager, group_id: str) -> bool:
                 if current_value:
                     emit_info(
                         Text.from_markup(
-                            f"  {var}: [green]{t('mcp.install_wizard.already_set')}[/green]"
+                            f"  {escape_rich_markup(var)}: "
+                            f"[green]{t('mcp.install_wizard.already_set')}[/green]"
                         ),
                         message_group=group_id,
                     )
@@ -120,7 +122,9 @@ def run_interactive_install_wizard(manager, group_id: str) -> bool:
         return False
     except Exception as e:
         logger.error(f"Error in interactive wizard: {e}")
-        emit_error(t("mcp.install_wizard.wizard_error", error=e), message_group=group_id)
+        emit_error(
+            t("mcp.install_wizard.wizard_error", error=e), message_group=group_id
+        )
         return False
 
 
@@ -169,9 +173,7 @@ def interactive_server_selection(group_id: str):
                 message_group=group_id,
             )
 
-        choice = emit_prompt(
-            t("mcp.install_wizard.select_prompt", count=len(servers))
-        )
+        choice = emit_prompt(t("mcp.install_wizard.select_prompt", count=len(servers)))
 
         if choice.lower() == "q":
             return None
@@ -181,7 +183,9 @@ def interactive_server_selection(group_id: str):
             if 0 <= index < len(servers):
                 return servers[index]
             else:
-                emit_error(t("mcp.install_wizard.invalid_selection"), message_group=group_id)
+                emit_error(
+                    t("mcp.install_wizard.invalid_selection"), message_group=group_id
+                )
                 return None
         except ValueError:
             emit_error(t("mcp.install_wizard.invalid_input"), message_group=group_id)
@@ -240,17 +244,28 @@ def interactive_configure_server(
             t("mcp.install_wizard.installing", name=selected_server.display_name),
             message_group=group_id,
         )
-        emit_info(t("mcp.install_wizard.name_label", server_name=server_name), message_group=group_id)
+        emit_info(
+            t("mcp.install_wizard.name_label", server_name=server_name),
+            message_group=group_id,
+        )
 
         if env_vars:
-            emit_info(t("mcp.install_wizard.env_vars_summary_header"), message_group=group_id)
+            emit_info(
+                t("mcp.install_wizard.env_vars_summary_header"), message_group=group_id
+            )
             for var, _value in env_vars.items():
-                emit_info(t("mcp.install_wizard.env_var_masked", var=var), message_group=group_id)
+                emit_info(
+                    t("mcp.install_wizard.env_var_masked", var=var),
+                    message_group=group_id,
+                )
 
         if cmd_args:
             emit_info(t("mcp.install_wizard.cmd_args_header"), message_group=group_id)
             for arg, value in cmd_args.items():
-                emit_info(t("mcp.install_wizard.cmd_arg_line", arg=arg, value=value), message_group=group_id)
+                emit_info(
+                    t("mcp.install_wizard.cmd_arg_line", arg=arg, value=value),
+                    message_group=group_id,
+                )
 
         confirm = emit_prompt(t("mcp.install_wizard.confirm_prompt"))
         if confirm.lower().startswith("n"):
@@ -264,7 +279,9 @@ def interactive_configure_server(
 
     except Exception as e:
         logger.error(f"Error configuring server: {e}")
-        emit_error(t("mcp.install_wizard.config_error", error=e), message_group=group_id)
+        emit_error(
+            t("mcp.install_wizard.config_error", error=e), message_group=group_id
+        )
         return False
 
 
@@ -329,7 +346,12 @@ def install_server_from_catalog(
 
         emit_info(
             Text.from_markup(
-                f"[green]\u2713 {t('mcp.install_wizard.install_success', server_name=server_name)}[/green]"
+                "[green]\u2713 "
+                + t(
+                    "mcp.install_wizard.install_success",
+                    server_name=escape_rich_markup(server_name),
+                )
+                + "[/green]"
             ),
             message_group=group_id,
         )
@@ -352,5 +374,7 @@ def install_server_from_catalog(
 
     except Exception as e:
         logger.error(f"Error installing server: {e}")
-        emit_error(t("mcp.install_wizard.install_failed", error=e), message_group=group_id)
+        emit_error(
+            t("mcp.install_wizard.install_failed", error=e), message_group=group_id
+        )
         return False

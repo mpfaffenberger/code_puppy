@@ -5,9 +5,14 @@ wizard_utils.py (the popular-server install wizard, distinct from the
 custom-server config_wizard.py's ``mcp.wizard.*`` namespace) depends on.
 """
 
+import re
+
 import pytest
 
 from code_puppy.i18n import catalog, pseudo, translate
+
+_PLACEHOLDER = re.compile(r"\{(\w+)\}")
+_LOCALES = ["en-US", "es", "fr-CA"]
 
 
 @pytest.fixture(autouse=True)
@@ -94,3 +99,38 @@ def test_install_success_and_start_hint_interpolate():
     assert "my-srv" in translate.t(
         "mcp.install_wizard.start_hint", server_name="my-srv"
     )
+
+
+@pytest.mark.parametrize("locale", _LOCALES, ids=_LOCALES)
+def test_every_key_has_its_own_translation_per_locale(locale):
+    """Every locale defines its own entry -- none silently fall through to
+    the default-locale value (which ``t()`` would mask, since a missing
+    key falls back to en-US and still "resolves").
+    """
+    src = catalog.load_catalog(locale)
+    keys = [k for k in src if k.startswith("mcp.install_wizard.")]
+    en_keys = {k for k in _install_wizard_keys()}
+    missing = en_keys - set(keys)
+    assert not missing, f"{locale} is missing keys: {missing}"
+
+
+@pytest.mark.parametrize("locale", _LOCALES, ids=_LOCALES)
+def test_no_leftover_placeholder_for_supplied_params_per_locale(locale):
+    """Supplying every placeholder must leave no ``{field}`` behind, in
+    every locale -- not just en-US. Catches a locale whose translation
+    typo'd a param name (e.g. ``{server_names}`` instead of
+    ``{server_name}``), which ``translate.t``'s forgiving interpolation
+    would otherwise silently leave un-substituted.
+    """
+    translate.set_locale(locale)
+    src = catalog.load_catalog(locale)
+    for key in _install_wizard_keys():
+        entry = src[key]
+        text = entry if isinstance(entry, str) else entry.get("other", "")
+        if "{{" in text:
+            continue
+        params = {name: "X" for name in _PLACEHOLDER.findall(text)}
+        rendered = translate.t(key, **params)
+        assert "{" not in rendered.replace("{{", "").replace("}}", ""), (
+            f"{locale}:{key} left an un-substituted placeholder: {rendered!r}"
+        )
