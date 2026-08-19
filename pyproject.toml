@@ -77,6 +77,11 @@ pup = "code_puppy.main:main_entry"
 [tool.logfire]
 ignore_no_config = true
 
+[tool.hatch.metadata]
+# The pydantic-ai-slim git pin is a PEP 508 direct reference; hatchling rejects
+# those unless they are opted into explicitly.
+allow-direct-references = true
+
 [tool.hatch.build]
 packages = ["code_puppy"]
 
