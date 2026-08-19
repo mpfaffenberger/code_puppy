@@ -417,9 +417,7 @@ def test_merge_hoists_tool_bound_retry():
         [
             ModelRequest(parts=[UserPromptPart(content="USER ASKED")]),
             ModelRequest(
-                parts=[
-                    RetryPromptPart(content="bad", tool_name="x", tool_call_id="c1")
-                ]
+                parts=[RetryPromptPart(content="bad", tool_name="x", tool_call_id="c1")]
             ),
         ]
     )

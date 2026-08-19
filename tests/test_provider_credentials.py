@@ -74,7 +74,11 @@ class TestExtractSecretHeaderEnvVars:
 
     def test_extracts_only_secret_named_header_vars(self):
         names = extract_secret_header_env_vars_from_model_config(
-            {"custom_endpoint": {"headers": {"Authorization": "Bearer $A", "X-Title": "$B"}}}
+            {
+                "custom_endpoint": {
+                    "headers": {"Authorization": "Bearer $A", "X-Title": "$B"}
+                }
+            }
         )
         assert names == ["A"]
 
