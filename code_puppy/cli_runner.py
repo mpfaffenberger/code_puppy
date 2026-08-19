@@ -54,6 +54,13 @@ from code_puppy.version_checker import default_version_mismatch_behavior
 
 plugins.load_plugin_callbacks()
 
+_HEADLESS_AUTONOMY_PROMPT = """\
+This is an unattended, non-interactive run. Never ask for confirmation, approval,
+clarification, or manual verification, including through tools or MCP servers. Use
+reasonable defaults, proceed autonomously, and validate with the tools available to
+you. State any assumptions or optional manual checks only in the final response.\
+"""
+
 
 def _render_turn_exception(exc: Exception) -> None:
     """Render a turn-level exception without ever taking down the REPL.
@@ -1432,12 +1439,13 @@ async def execute_single_prompt(
         agent = get_current_agent()
         # Headless -p mode: no run UI (no bottom bar, no line editor) —
         # output must stay plain for pipes/CI even when stdout is a TTY.
-        result, _agent_task = await run_prompt_with_attachments(
-            agent,
-            prompt,
-            display_console=message_renderer.console,
-            use_run_ui=False,
-        )
+        with agent.temporary_system_prompt_addition(_HEADLESS_AUTONOMY_PROMPT):
+            result, _agent_task = await run_prompt_with_attachments(
+                agent,
+                prompt,
+                display_console=message_renderer.console,
+                use_run_ui=False,
+            )
         if result is None:
             return
 
