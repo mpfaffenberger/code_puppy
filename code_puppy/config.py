@@ -488,6 +488,10 @@ def get_config_keys():
     default_keys.append("resume_message_count")
     # Per-file AGENTS.md character cap (see get_agents_md_max_chars()).
     default_keys.append("agents_md_max_chars")
+    # Tool-return overflow threshold in characters (see
+    # get_tool_output_limit_chars()); 0 disables the harness ToolOutputLimits
+    # capability entirely.
+    default_keys.append("tool_output_limit_chars")
     # Add /goal iteration cap (owned by the wiggum plugin, surfaced here so
     # /set autocompletes it). See plugins/wiggum/register_callbacks.py.
     default_keys.append("goal_max_iterations")
@@ -1614,6 +1618,35 @@ def get_agents_md_max_chars() -> int:
         return AGENTS_MD_MAX_CHARS_DEFAULT
     if configured <= 0:
         return AGENTS_MD_MAX_CHARS_DEFAULT
+    return configured
+
+
+# Tool-return overflow threshold in characters, /settable via
+# tool_output_limit_chars. Returns at or above this size are reduced by the
+# harness ToolOutputLimits capability (spilled to a queryable file, with a
+# bounded truncation fallback). 0 disables the capability.
+TOOL_OUTPUT_LIMIT_CHARS_DEFAULT = 10_000
+
+
+def get_tool_output_limit_chars() -> int:
+    """Return the tool-return overflow threshold in characters.
+
+    Read from the ``tool_output_limit_chars`` config key (settable via
+    ``/set tool_output_limit_chars=<int>``). Defaults to
+    ``TOOL_OUTPUT_LIMIT_CHARS_DEFAULT`` (10,000) when unset or unparseable.
+    ``0`` is an explicit opt-out: the ToolOutputLimits capability is not
+    attached at all. Negative values fall back to the default. No upper
+    clamp — large-context models can raise it as far as they like.
+    """
+    val = get_value("tool_output_limit_chars")
+    if val is None or str(val).strip() == "":
+        return TOOL_OUTPUT_LIMIT_CHARS_DEFAULT
+    try:
+        configured = int(val)
+    except (ValueError, TypeError):
+        return TOOL_OUTPUT_LIMIT_CHARS_DEFAULT
+    if configured < 0:
+        return TOOL_OUTPUT_LIMIT_CHARS_DEFAULT
     return configured
 
 

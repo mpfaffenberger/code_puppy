@@ -298,11 +298,17 @@ def test_steer_processor_is_wired_into_builder_after_compaction():
     # Both processors must be referenced in the builder.
     assert "make_steer_history_processor" in src
     assert "make_history_processor" in src
-    # Order is checked textually against the capabilities list literal;
+    # Order is checked textually against the capabilities list (built as a
+    # local so ToolOutputLimits can be appended conditionally);
     # ProcessHistory capabilities apply in registration order.
-    cap_start = src.find("capabilities=[")
-    assert cap_start >= 0, "builder must register capabilities=[ProcessHistory(...)]"
-    cap_block = src[cap_start : src.find("]", cap_start)]
+    cap_start = src.find("capabilities: List[Any] = [")
+    assert cap_start >= 0, (
+        "builder must build the capabilities list with ProcessHistory entries"
+    )
+    # Slice from after the opening bracket of the list literal (the annotation
+    # itself contains "]", so searching from cap_start would end too early).
+    open_idx = src.find("= [", cap_start) + len("= [")
+    cap_block = src[open_idx : src.find("]", open_idx)]
     # Just sanity-check both names appear and history_processor comes first.
     h_idx = cap_block.find("ProcessHistory(history_processor)")
     s_idx = cap_block.find("ProcessHistory(steer_processor)")

@@ -20,6 +20,7 @@ from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agents._compaction import make_history_processor
 from code_puppy.agents._steer_processor import make_steer_history_processor
+from code_puppy.agents._tool_output_limits import build_tool_output_limits
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
     on_pre_mcp_autostart,
@@ -635,21 +636,28 @@ def build_pydantic_agent(
     steer_processor = make_steer_history_processor(agent)
 
     def _new_pydantic_agent(toolsets: List[Any]) -> PydanticAgent:
+        # Order matters: compaction first (may trim history to fit
+        # context), THEN steer injection (a fresh steer must not be
+        # compacted away). ProcessHistory capabilities apply in
+        # registration order (replaces the deprecated
+        # `history_processors=` kwarg, removed in pydantic-ai v2).
+        capabilities: List[Any] = [
+            ProcessHistory(history_processor),
+            ProcessHistory(steer_processor),
+        ]
+        # ToolOutputLimits acts at tool-execution time (after_tool_execute),
+        # not on history, so its position in this list is inert. Built fresh
+        # per agent; None when disabled via tool_output_limit_chars=0.
+        tool_output_limits = build_tool_output_limits()
+        if tool_output_limits is not None:
+            capabilities.append(tool_output_limits)
         return PydanticAgent(
             model=model,
             instructions=instructions,
             output_type=output_type,
             retries=3,
             toolsets=toolsets,
-            # Order matters: compaction first (may trim history to fit
-            # context), THEN steer injection (a fresh steer must not be
-            # compacted away). ProcessHistory capabilities apply in
-            # registration order (replaces the deprecated
-            # `history_processors=` kwarg, removed in pydantic-ai v2).
-            capabilities=[
-                ProcessHistory(history_processor),
-                ProcessHistory(steer_processor),
-            ],
+            capabilities=capabilities,
             model_settings=model_settings,
         )
 
