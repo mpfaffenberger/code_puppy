@@ -59,6 +59,7 @@ classifiers = [
 
 [project.optional-dependencies]
 bedrock = ["boto3>=1.35.0"]
+logfire = ["logfire>=4.0"]
 durable = ["dbos>=2.11.0"]
 computer-use = [
     "pyobjc-framework-ApplicationServices>=10.3; sys_platform == 'darwin'",
