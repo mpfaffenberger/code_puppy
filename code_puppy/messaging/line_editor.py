@@ -112,6 +112,7 @@ class RunningLineEditor:
         # Optional overrides installed by run_ui.
         self._router: Optional[SubmitRouter] = None
         self._eof_handler: Optional[Callable[[], None]] = None
+        self._ctrl_c_handler: Optional[Callable[[], None]] = None
         self._clipboard_handler: Optional[Callable[[], None]] = None
         self._ctrl_x_pending = False  # Ctrl+X chord prefix armed (see chords)
         # Phase B feature state.
@@ -157,6 +158,10 @@ class RunningLineEditor:
     def set_eof_handler(self, handler: Optional[Callable[[], None]]) -> None:
         with self._lock:  # Ctrl+D-on-empty-buffer handler (run_ui)
             self._eof_handler = handler
+
+    def set_ctrl_c_handler(self, handler: Optional[Callable[[], None]]) -> None:
+        with self._lock:  # raw-\x03 handler (run_ui double-tap policy)
+            self._ctrl_c_handler = handler
 
     def set_clipboard_handler(self, handler: Optional[Callable[[], None]]) -> None:
         with self._lock:  # async Ctrl+V clipboard handler (run_ui)
@@ -352,7 +357,12 @@ class RunningLineEditor:
             # Raw ^C reaches the editor only when the console can't turn it into
             # SIGINT (Windows clamp); mirror the SIGINT path — discard input,
             # never submit/kill (cancel stays with the hotkey/signal layers).
-            self.clear_buffer()
+            # run_ui installs a handler that adds the idle double-tap-to-quit
+            # policy; without one, fall back to the plain buffer wipe.
+            if self._ctrl_c_handler is not None:
+                self._call_handler(self._ctrl_c_handler, "ctrl-c")
+            else:
+                self.clear_buffer()
             return None
 
         if self._rsearch.active:

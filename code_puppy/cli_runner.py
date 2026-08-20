@@ -10,6 +10,7 @@ apply_all_patches()
 
 import argparse
 import asyncio
+import time
 import json
 import os
 import signal
@@ -703,20 +704,22 @@ def _interactive_sigint_guard(_sig, _frame):
         ensure_ctrl_c_disabled()
     except Exception:
         pass
-    # Persistent prompt: Ctrl+C clears the buffer (readline feel; Ctrl+D quits).
-    # Only out-of-band SIGINTs land here — raw \x03 goes to the key listener, which
-    # also owns mid-run cancel (remapped key -> buffer-first clearing).
+    # Persistent prompt: Ctrl+C clears the buffer (readline feel; Ctrl+D
+    # quits), and a second idle Ctrl+C within DOUBLE_CTRL_C_WINDOW_S quits
+    # like Ctrl+D. Only out-of-band SIGINTs land here — raw \x03 goes to the
+    # key listener, which also owns mid-run cancel (remapped key ->
+    # buffer-first clearing).
     try:
         from code_puppy.messaging.run_ui import (
             absorb_ctrl_c_if_composing,
-            clear_idle_buffer,
             is_run_active,
+            note_idle_ctrl_c,
         )
 
         if is_run_active():
             absorb_ctrl_c_if_composing()
         else:
-            clear_idle_buffer()
+            note_idle_ctrl_c()
     except Exception:
         pass
     return
@@ -843,6 +846,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     record_terminal_session(get_current_session_name(), overwrite=False)
     # Track the current agent task for cancellation on quit
     current_agent_task = None
+    # Classic prompt: timestamp of the last idle Ctrl+C, for the
+    # double-tap-to-quit gesture (persistent mode tracks its own in run_ui).
+    last_idle_ctrl_c = 0.0
 
     # Baseline SIGINT guard for the REPL's whole life: Ctrl+C = cancel (Ctrl+D
     # quits); without it, a fast double-tap in the handler gap raises
@@ -935,12 +941,36 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     # Fall back to basic input if prompt_toolkit is not available
                     task = input(">>> ")
 
-        except (KeyboardInterrupt, asyncio.CancelledError):
+        except (KeyboardInterrupt, asyncio.CancelledError) as cancel_exc:
             # Ctrl+C: cancel input and continue. Reset terminal state on Windows
             # so it doesn't become unresponsive.
             reset_windows_terminal_full()
             from code_puppy.callbacks import on_interactive_turn_cancel
-            from code_puppy.messaging import emit_warning
+            from code_puppy.command_line.prompt_toolkit_completion import (
+                pop_non_ctrl_c_cancel,
+            )
+            from code_puppy.messaging import emit_success, emit_warning
+            from code_puppy.messaging.run_ui import DOUBLE_CTRL_C_WINDOW_S
+
+            # Double Ctrl+C at the idle prompt quits like Ctrl+D. Escape and
+            # Ctrl+X raise the same KeyboardInterrupt but mark themselves, so
+            # mashing Escape can never exit; CancelledError never counts.
+            was_plain_ctrl_c = (
+                isinstance(cancel_exc, KeyboardInterrupt)
+                and not pop_non_ctrl_c_cancel()
+            )
+            now = time.monotonic()
+            if was_plain_ctrl_c and now - last_idle_ctrl_c <= DOUBLE_CTRL_C_WINDOW_S:
+                emit_success("\n" + t("cli.goodbye_ctrld"))
+                if current_agent_task and not current_agent_task.done():
+                    emit_info(t("cli.agent.cancelling"))
+                    current_agent_task.cancel()
+                    try:
+                        await current_agent_task
+                    except asyncio.CancelledError:
+                        pass  # Expected when cancelling
+                break
+            last_idle_ctrl_c = now if was_plain_ctrl_c else 0.0
 
             await on_interactive_turn_cancel("", reason="Ctrl+C")
             emit_warning("\n" + t("cli.input.cancelled"))
