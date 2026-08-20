@@ -35,6 +35,7 @@ PhaseType = Literal[
     "prompt_text_color",
     "register_tools",
     "register_agent_tools",
+    "filter_agent_tools",
     "register_agents",
     "register_model_type",
     "register_skills",
@@ -121,6 +122,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "prompt_text_color": [],
     "register_tools": [],
     "register_agent_tools": [],
+    "filter_agent_tools": [],
     "register_agents": [],
     "register_model_type": [],
     "register_skills": [],
@@ -926,6 +928,41 @@ def on_register_agent_tools(agent_name: Optional[str] = None) -> List[str]:
                 seen.add(item)
                 flat.append(item)
     return flat
+
+
+def on_filter_agent_tools(
+    agent_name: Optional[str], tool_names: List[str]
+) -> List[str]:
+    """Apply plugin-owned policy filters to an agent's merged tool list.
+
+    Filters run in registration order and receive the previous filter's output.
+    Returning ``None`` leaves the list unchanged. Invalid results and exceptions
+    fail open so an optional policy plugin cannot disable core tooling.
+    """
+    filtered = list(tool_names)
+    for callback in get_callbacks("filter_agent_tools"):
+        try:
+            result = callback(agent_name, list(filtered))
+        except Exception as exc:
+            logger.error(
+                "Callback %s failed in phase 'filter_agent_tools': %s\n%s",
+                callback.__name__,
+                exc,
+                traceback.format_exc(),
+            )
+            continue
+        if result is None:
+            continue
+        if not isinstance(result, list) or not all(
+            isinstance(name, str) and name for name in result
+        ):
+            logger.warning(
+                "Ignoring invalid filter_agent_tools result from %s",
+                callback.__name__,
+            )
+            continue
+        filtered = result
+    return filtered
 
 
 def on_register_agents() -> List[Dict[str, Any]]:
