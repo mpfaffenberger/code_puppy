@@ -15,6 +15,7 @@ no-op splash, never a crashed CLI.
 
 from __future__ import annotations
 
+import io
 import os
 import sys
 import threading
@@ -114,12 +115,61 @@ class _NullSplash:
         pass
 
 
+class _StreamCapture(io.TextIOBase):
+    """Buffers writes made while the splash owns the screen.
+
+    Import-time code (plugin loading, theme setup, warnings) can print mid-
+    animation; a single stray newline shifts the cursor and derails the
+    relative-cursor redraws. So while the splash runs, sys.stdout/stderr
+    point here, and everything is replayed verbatim after the splash erases
+    itself -- output is deferred, never dropped.
+    """
+
+    def __init__(self, real, buffer: io.StringIO, lock: threading.Lock) -> None:
+        self._real = real
+        self._buffer = buffer
+        self._lock = lock
+
+    def write(self, s: str) -> int:
+        with self._lock:
+            self._buffer.write(s)
+        return len(s)
+
+    def flush(self) -> None:
+        pass
+
+    def isatty(self) -> bool:
+        # Mirror the real stream so import-time color/TTY sniffing behaves
+        # exactly as it would without a splash.
+        try:
+            return self._real.isatty()
+        except Exception:
+            return False
+
+    def fileno(self) -> int:
+        return self._real.fileno()
+
+    @property
+    def encoding(self):
+        return getattr(self._real, "encoding", "utf-8")
+
+
 class _Splash:
     def __init__(self, stream, min_seconds: float = _MIN_SHOW_SECONDS) -> None:
         self._stream = stream
         self._min_seconds = min_seconds
         self._started = time.monotonic()
         self._stop_event = threading.Event()
+        # Divert stdout/stderr into buffers for the splash's lifetime so
+        # import-time output can't move the cursor mid-frame. Replayed in
+        # stop(). Per-stream buffers keep each message on its real stream.
+        lock = threading.Lock()
+        self._out_buffer = io.StringIO()
+        self._err_buffer = io.StringIO()
+        self._orig_out, self._orig_err = sys.stdout, sys.stderr
+        self._cap_out = _StreamCapture(self._orig_out, self._out_buffer, lock)
+        self._cap_err = _StreamCapture(self._orig_err, self._err_buffer, lock)
+        sys.stdout, sys.stderr = self._cap_out, self._cap_err
         self._truecolor = _truecolor()
         self._thread = threading.Thread(
             target=self._run, name="code-puppy-splash", daemon=True
@@ -161,6 +211,23 @@ class _Splash:
             self._stream.flush()
         except Exception:
             pass
+        # Hand the streams back (only if nobody else swapped them since),
+        # then replay everything that printed during the show.
+        if sys.stdout is self._cap_out:
+            sys.stdout = self._orig_out
+        if sys.stderr is self._cap_err:
+            sys.stderr = self._orig_err
+        for buffer, real in (
+            (self._out_buffer, self._orig_out),
+            (self._err_buffer, self._orig_err),
+        ):
+            pending = buffer.getvalue()
+            if pending:
+                try:
+                    real.write(pending)
+                    real.flush()
+                except Exception:
+                    pass
 
 
 def _wants_splash(argv: list[str]) -> bool:

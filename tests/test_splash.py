@@ -113,3 +113,53 @@ class TestLifecycle:
 
     def test_default_minimum_is_two_seconds(self):
         assert splash._MIN_SHOW_SECONDS == 2.0
+
+
+class TestStreamCapture:
+    def test_output_during_splash_is_deferred_then_replayed(self, capsys):
+        import sys
+
+        stream = FakeTty()
+        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        try:
+            assert sys.stdout is handle._cap_out
+            assert sys.stderr is handle._cap_err
+            print("import-time chatter")
+            sys.stderr.write("plugin warning\n")
+            # nothing leaks to the animation stream mid-show
+            assert "import-time chatter" not in stream.getvalue()
+        finally:
+            handle.stop()
+        assert sys.stdout is not handle._cap_out  # restored
+        captured = capsys.readouterr()
+        assert "import-time chatter" in captured.out
+        assert "plugin warning" in captured.err
+
+    def test_streams_restored_even_if_swapped_by_someone_else(self, capsys):
+        import sys
+
+        stream = FakeTty()
+        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        foreign = FakeTty()
+        sys.stdout = foreign  # someone else grabbed stdout mid-import
+        try:
+            handle.stop()
+            assert sys.stdout is foreign  # we must not clobber their swap
+        finally:
+            sys.stdout = handle._orig_out  # restore for pytest's sanity
+
+    def test_capture_mirrors_isatty(self):
+        stream = FakeTty()
+        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        try:
+            assert handle._cap_out.isatty() is handle._orig_out.isatty()
+        finally:
+            handle.stop()
+
+    def test_null_splash_leaves_streams_alone(self):
+        import sys
+
+        out, err = sys.stdout, sys.stderr
+        handle = splash.start_splash(stream=io.StringIO())  # not a tty -> null
+        handle.stop()
+        assert sys.stdout is out and sys.stderr is err
