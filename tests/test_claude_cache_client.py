@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 import httpx
 import pytest
+from anthropic import AsyncAnthropic
 
 from code_puppy.claude_cache_client import (
     CLAUDE_CLI_USER_AGENT,
@@ -34,6 +35,17 @@ def _create_jwt(iat: float | None = None, exp: float | None = None) -> str:
     signature = "fake_signature"
 
     return f"{header_b64}.{payload_b64}.{signature}"
+
+
+@pytest.mark.asyncio
+async def test_client_is_accepted_by_anthropic_sdk():
+    """Guard the SDK's nominal custom-client compatibility contract."""
+    client = ClaudeCacheAsyncClient()
+    try:
+        sdk = AsyncAnthropic(api_key="test", http_client=client)
+        assert sdk._client is client
+    finally:
+        await client.aclose()
 
 
 class TestJWTAgeDetection:
