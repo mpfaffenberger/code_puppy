@@ -7,8 +7,8 @@ project. Even then, nothing leaves the machine unless a Logfire write
 token is present (``LOGFIRE_TOKEN`` or a prior ``logfire auth``) --
 ``send_to_logfire="if-token-present"`` guarantees that.
 
-The real ``logfire`` package is an optional extra (``code-puppy[logfire]``)
-so the default install stays lean; everything here fails soft.
+``logfire`` is a hard dependency, but everything here still fails soft --
+a broken install must degrade to "no telemetry", never to a dead CLI.
 """
 
 from __future__ import annotations

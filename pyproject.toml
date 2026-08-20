@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
     "code-puppy-core-plugins>=0.0.8",
+    "logfire>=4.0",
     "pydantic-ai-slim[openai,anthropic,mcp]==2.31.0",
     "pydantic-ai-harness==0.23.0",
     "anyio>=4.7.0",
@@ -59,7 +60,6 @@ classifiers = [
 
 [project.optional-dependencies]
 bedrock = ["boto3>=1.35.0"]
-logfire = ["logfire>=4.0"]
 durable = ["dbos>=2.11.0"]
 computer-use = [
     "pyobjc-framework-ApplicationServices>=10.3; sys_platform == 'darwin'",
