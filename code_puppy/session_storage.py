@@ -56,9 +56,10 @@ class SessionMetadata:
     metadata_path: Path
     json_path: Path
     auto_saved: bool = False
+    scope_key: str | None = None
 
     def as_serialisable(self) -> dict[str, Any]:
-        return {
+        data = {
             "session_name": self.session_name,
             "timestamp": self.timestamp,
             "message_count": self.message_count,
@@ -66,6 +67,9 @@ class SessionMetadata:
             "file_path": str(self.json_path),
             "auto_saved": self.auto_saved,
         }
+        if self.scope_key is not None:
+            data["scope_key"] = self.scope_key
+        return data
 
 
 def _extract_pickle_payload(raw: bytes) -> bytes:
@@ -92,6 +96,16 @@ def build_session_paths(base_dir: Path, session_name: str) -> SessionPaths:
         metadata_path=base_dir / f"{session_name}_meta.json",
         json_path=base_dir / f"{session_name}.json",
     )
+
+
+def compute_scope_key(path: str | Path) -> str:
+    """Return a stable scope identifier for ``path``.
+
+    Deliberately simple: the plain absolute path, normalized for symlinks.
+    No git-root detection, no branch awareness, no hashing -- an explicit
+    product decision to keep this primitive dead simple.
+    """
+    return str(Path(path).resolve())
 
 
 def _pydantic_ai_version() -> str | None:
@@ -201,6 +215,7 @@ def save_session(
     timestamp: str,
     token_estimator: TokenEstimator,
     auto_saved: bool = False,
+    scope_key: str | None = None,
 ) -> SessionMetadata:
     ensure_directory(base_dir)
     paths = build_session_paths(base_dir, session_name)
@@ -219,6 +234,7 @@ def save_session(
         metadata_path=paths.metadata_path,
         json_path=paths.json_path,
         auto_saved=auto_saved,
+        scope_key=scope_key,
     )
 
     tmp_metadata = paths.metadata_path.with_suffix(".tmp")
@@ -263,10 +279,29 @@ def _iter_session_stems(base_dir: Path) -> set[str]:
     return stems
 
 
-def list_sessions(base_dir: Path) -> List[str]:
+def _sidecar_scope_key(base_dir: Path, stem: str) -> str | None:
+    """Best-effort read of a session's sidecar ``scope_key``.
+
+    Never raises: a missing file, unreadable JSON, or absent field all
+    resolve to ``None`` so callers can silently exclude the candidate.
+    """
+    meta_path = base_dir / f"{stem}_meta.json"
+    try:
+        with meta_path.open("r", encoding="utf-8") as meta_file:
+            data = json.load(meta_file)
+        value = data.get("scope_key")
+        return value if isinstance(value, str) else None
+    except Exception:
+        return None
+
+
+def list_sessions(base_dir: Path, scope_key: str | None = None) -> List[str]:
     if not base_dir.exists():
         return []
-    return sorted(_iter_session_stems(base_dir))
+    stems = sorted(_iter_session_stems(base_dir))
+    if scope_key is None:
+        return stems
+    return [stem for stem in stems if _sidecar_scope_key(base_dir, stem) == scope_key]
 
 
 def cleanup_sessions(base_dir: Path, max_sessions: int) -> List[str]:
@@ -312,6 +347,13 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
     restoration close to the persistence layer. It uses the same public APIs
     (list_sessions, load_session) and mirrors the interactive behaviours from
     the command handler.
+
+    Typing ``cwd`` (or ``--cwd``) at the selection prompt toggles an
+    opt-in filter down to sessions scoped to the current working directory
+    (via ``scope_key``). Off by default -- the unfiltered listing stays
+    byte-for-byte identical to before this toggle existed. Sessions with
+    no ``scope_key`` sidecar (pre-dating this feature) are excluded only
+    while the toggle is active, never shown as a false match.
     """
     sessions = list_sessions(base_dir)
     if not sessions:
@@ -328,29 +370,39 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
     )
     from code_puppy.messaging import emit_success, emit_system_message, emit_warning
 
-    entries = []
-    for name in sessions:
-        meta_path = base_dir / f"{name}_meta.json"
-        try:
-            with meta_path.open("r", encoding="utf-8") as meta_file:
-                data = json.load(meta_file)
-            timestamp = data.get("timestamp")
-            message_count = data.get("message_count")
-        except Exception:
-            timestamp = None
-            message_count = None
-        entries.append((name, timestamp, message_count))
-
-    def sort_key(entry):
-        _, timestamp, _ = entry
-        if timestamp:
+    def _load_entries(names):
+        """Read timestamp/message_count metadata for ``names``, newest first."""
+        loaded = []
+        for name in names:
+            meta_path = base_dir / f"{name}_meta.json"
             try:
-                return datetime.fromisoformat(timestamp)
-            except ValueError:
-                return datetime.min
-        return datetime.min
+                with meta_path.open("r", encoding="utf-8") as meta_file:
+                    data = json.load(meta_file)
+                timestamp = data.get("timestamp")
+                message_count = data.get("message_count")
+            except Exception:
+                timestamp = None
+                message_count = None
+            loaded.append((name, timestamp, message_count))
 
-    entries.sort(key=sort_key, reverse=True)
+        def sort_key(entry):
+            _, timestamp, _ = entry
+            if timestamp:
+                try:
+                    return datetime.fromisoformat(timestamp)
+                except ValueError:
+                    return datetime.min
+            return datetime.min
+
+        loaded.sort(key=sort_key, reverse=True)
+        return loaded
+
+    entries = _load_entries(sessions)
+
+    # Opt-in "cwd" toggle -- see docstring. Off by default so the
+    # unfiltered listing never changes.
+    cwd_scope_key = compute_scope_key(Path.cwd())
+    cwd_active = False
 
     PAGE_SIZE = 5
     total = len(entries)
@@ -361,6 +413,8 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
         end = min(start + PAGE_SIZE, total)
         page_entries = entries[start:end]
         emit_system_message("Autosave Sessions Available:")
+        if cwd_active:
+            emit_system_message("  (filtered to this folder)")
         for idx, (name, timestamp, message_count) in enumerate(page_entries, start=1):
             timestamp_display = timestamp or "unknown time"
             message_display = (
@@ -383,7 +437,10 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
                 "Return to first page" if is_last_page else f"Next page{summary}"
             )
             emit_system_message(f"  [6] {next_label}")
-        emit_system_message("  [Enter] Skip loading autosave")
+        emit_system_message(
+            "  [Enter] Skip loading autosave  --  type 'cwd' to toggle "
+            "this-folder filter"
+        )
 
     chosen_name: str | None = None
 
@@ -407,6 +464,17 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
         selection = (selection or "").strip()
         if not selection:
             return
+
+        # Opt-in toggle: re-list sessions scoped to the current directory.
+        # A missing scope_key sidecar is excluded, never a false match.
+        if selection.lower() in ("cwd", "--cwd"):
+            cwd_active = not cwd_active
+            scope_key = cwd_scope_key if cwd_active else None
+            sessions = list_sessions(base_dir, scope_key=scope_key)
+            entries = _load_entries(sessions)
+            total = len(entries)
+            page = 0
+            continue
 
         # Numeric choice: 1-5 select within current page; 6 advances page
         if selection.isdigit():

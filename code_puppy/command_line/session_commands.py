@@ -436,8 +436,15 @@ def handle_load_context_command(command: str) -> bool:
     from code_puppy.agents.agent_manager import get_current_agent
     from code_puppy.config import rotate_session_name
     from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+    from code_puppy.session_storage import compute_scope_key
 
     tokens = command.split()
+    # Opt-in scoping: a trailing "cwd"/"--cwd" token filters the
+    # not-found fallback listing to the current directory's sessions.
+    # Default (no trailing token) keeps behaviour byte-for-byte identical.
+    cwd_flag = len(tokens) == 3 and tokens[2] in ("cwd", "--cwd")
+    if cwd_flag:
+        tokens = tokens[:2]
     if len(tokens) != 2:
         emit_warning(t("cmd.load_context.usage"))
         return True
@@ -450,7 +457,8 @@ def handle_load_context_command(command: str) -> bool:
         history = load_session(session_name, sessions_dir)
     except FileNotFoundError:
         emit_error(t("cmd.load_context.not_found", path=session_path))
-        available = list_sessions(sessions_dir)
+        scope_key = compute_scope_key(Path.cwd()) if cwd_flag else None
+        available = list_sessions(sessions_dir, scope_key=scope_key)
         if available:
             emit_info(t("cmd.load_context.available", contexts=", ".join(available)))
         return True

@@ -208,6 +208,14 @@ async def main():
         ),
     )
     parser.add_argument(
+        "--cwd",
+        action="store_true",
+        help=(
+            "With --resume, only list/consider sessions scoped to the current "
+            "working directory (opt-in; default shows all sessions unfiltered)"
+        ),
+    )
+    parser.add_argument(
         "--quick-resume",
         "-qr",
         nargs="?",
@@ -464,10 +472,17 @@ async def main():
             ResumeTargetError,
             resolve_or_create_resume_target,
         )
-        from code_puppy.session_storage import list_sessions, load_session
+        from code_puppy.session_storage import (
+            compute_scope_key,
+            list_sessions,
+            load_session,
+        )
 
         resume_target = args.resume
         sessions_dir = Path(AUTOSAVE_DIR)
+        # Opt-in via --cwd: only offer sessions scoped to the current directory.
+        # Default (flag absent) keeps the unfiltered listing byte-for-byte.
+        resume_scope_key = compute_scope_key(Path.cwd()) if args.cwd else None
 
         # Both headless and interactive accept ``-r missing-name`` (empty session);
         # typos still surface via the visible ``Created new session: NAME`` line.
@@ -481,7 +496,7 @@ async def main():
             emit_error(resolve_exc.message)
             if resolve_exc.hint:
                 emit_info(resolve_exc.hint)
-            available = list_sessions(sessions_dir)
+            available = list_sessions(sessions_dir, scope_key=resume_scope_key)
             if available:
                 emit_info(
                     t(
