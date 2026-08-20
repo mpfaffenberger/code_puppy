@@ -1,0 +1,197 @@
+"""Import-time neon splash: a shimmering Pydantic pyramid while imports load.
+
+Code Puppy's cold start is dominated by heavy imports (pydantic-ai,
+prompt_toolkit, rich, ...). This module is deliberately **stdlib-only** so
+``code_puppy/main.py`` can start the animation *before* those imports begin
+and stop it the moment they finish. Do not import anything from
+``code_puppy`` here -- that would defeat the entire point.
+
+The animation is pure art (no text), so it stays outside the i18n seam.
+Every frame repaints its full region with line-clears, which also absorbs
+any stray import-time output (e.g. plugin warnings emitted while
+``cli_runner`` loads). Everything fails soft: a broken terminal gets a
+no-op splash, never a crashed CLI.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import threading
+
+# Pyramid raster, 20 rows x <=44 cols. Digits are glow tiers:
+# 0 = empty, 1 = outer halo, 2 = inner glow, 3 = neon core.
+_PYRAMID = (
+    "000000000000000000112333211",
+    "0000000000000000112233233221",
+    "000000000000000112332212232211",
+    "0000000000000012233211012233211",
+    "00000000000011223221100011233221",
+    "0000000000011233221000000112232211",
+    "00000000011223321100000000012233211",
+    "000000001123322110001111100011233221",
+    "00000001223321101112223222110112232211",
+    "000001122322111122333333332221112233211",
+    "0000112332211223332222322233322211233221",
+    "001122332222333222111232111223333222232211",
+    "0112332223332221100012321001112223332233211",
+    "12233233322111000000123210000001122233333221",
+    "22333322111000000000123210000000001122233322",
+    "23333222111100000000123210000000011122233332",
+    "11222333332221110000123210001111222333322211",
+    "00011122223333222211123211122233333222111",
+    "0000000011122233333222322233332222111",
+    "00000000000011112223333333222111",
+)
+_CHARS = (" ", "\u2591", "\u2592", "\u2588")
+_HEIGHT = len(_PYRAMID)
+
+_RESET = "\x1b[0m"
+_HIDE_CURSOR = "\x1b[?25l"
+_SHOW_CURSOR = "\x1b[?25h"
+
+# Neon palette: violet haze -> brand magenta -> hot pink core, with a
+# white-hot crest where the sheen band passes.
+_TRUECOLOR_BASE = (
+    "",
+    "\x1b[38;2;122;17;145m",
+    "\x1b[38;2;195;31;212m",
+    "\x1b[1;38;2;255;92;244m",
+)
+_TRUECOLOR_HOT = (
+    "",
+    "\x1b[38;2;195;31;212m",
+    "\x1b[38;2;255;92;244m",
+    "\x1b[1;38;2;255;209;251m",
+)
+_FALLBACK_BASE = ("", "\x1b[35m", "\x1b[95m", "\x1b[1;95m")
+_FALLBACK_HOT = ("", "\x1b[95m", "\x1b[1;95m", "\x1b[1;97m")
+
+_SHEEN_PERIOD = 70
+_SHEEN_WIDTH = 7
+_FRAME_SECONDS = 0.033
+
+# argv values that still mean "interactive boot" (splash-worthy).
+_INTERACTIVE_ARGS = frozenset({"-i", "--interactive"})
+
+
+def _truecolor() -> bool:
+    return os.environ.get("COLORTERM", "").lower() in ("truecolor", "24bit")
+
+
+def _build_frame(phase: int, truecolor: bool) -> str:
+    """Render one full frame; every line clears itself first (\\x1b[2K)."""
+    base = _TRUECOLOR_BASE if truecolor else _FALLBACK_BASE
+    hot = _TRUECOLOR_HOT if truecolor else _FALLBACK_HOT
+    lines = []
+    for y, row in enumerate(_PYRAMID):
+        parts = ["\x1b[2K"]
+        current = ""
+        for x, digit in enumerate(row):
+            tier = int(digit)
+            if tier == 0:
+                parts.append(" ")
+                continue
+            in_band = (x + 2 * y - phase) % _SHEEN_PERIOD < _SHEEN_WIDTH
+            style = (hot if in_band else base)[tier]
+            if style != current:
+                parts.append(style)
+                current = style
+            parts.append(_CHARS[tier])
+        parts.append(_RESET)
+        lines.append("".join(parts))
+    return "\n".join(lines) + "\n"
+
+
+class _NullSplash:
+    """Do-nothing stand-in so callers never need to branch."""
+
+    def stop(self) -> None:
+        pass
+
+
+class _Splash:
+    def __init__(self, stream) -> None:
+        self._stream = stream
+        self._stop_event = threading.Event()
+        self._truecolor = _truecolor()
+        self._thread = threading.Thread(
+            target=self._run, name="code-puppy-splash", daemon=True
+        )
+        self._stopped = False
+        self._thread.start()
+
+    def _run(self) -> None:
+        phase = 0
+        try:
+            self._stream.write(_HIDE_CURSOR)
+            self._stream.write(_build_frame(phase, self._truecolor))
+            self._stream.flush()
+            while not self._stop_event.wait(_FRAME_SECONDS):
+                phase = (phase + 2) % _SHEEN_PERIOD
+                self._stream.write(f"\x1b[{_HEIGHT}A")
+                self._stream.write(_build_frame(phase, self._truecolor))
+                self._stream.flush()
+        except Exception:
+            pass  # a dying terminal must never take the CLI down
+
+    def stop(self) -> None:
+        """Stop the animation and erase it so real output starts clean."""
+        if self._stopped:
+            return
+        self._stopped = True
+        self._stop_event.set()
+        self._thread.join(timeout=1.0)
+        try:
+            # Cursor up over the frame, erase to end of screen, restore cursor.
+            self._stream.write(f"\x1b[{_HEIGHT}A\x1b[0J{_SHOW_CURSOR}")
+            self._stream.flush()
+        except Exception:
+            pass
+
+
+def _wants_splash(argv: list[str]) -> bool:
+    """Only animate for an interactive-looking boot; fail closed otherwise."""
+    if os.environ.get("CODE_PUPPY_NO_SPLASH") or os.environ.get("NO_COLOR"):
+        return False
+    if os.environ.get("TERM", "") == "dumb":
+        return False
+    # Any flag beyond plain interactive mode (headless -p, --help, acp
+    # bridges, ...) means someone else owns stdout. Stay out of the way.
+    return all(arg in _INTERACTIVE_ARGS for arg in argv[1:])
+
+
+def _enable_windows_vt(stream) -> bool:
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        # 0x0004 = ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        return bool(kernel32.SetConsoleMode(handle, mode.value | 0x0004))
+    except Exception:
+        return False
+
+
+def start_splash(stream=None, force: bool = False):
+    """Start the shimmer if the terminal deserves it; else return a no-op.
+
+    ``force=True`` bypasses the argv/env gating (used by tests and demos)
+    but still requires a usable stream.
+    """
+    stream = stream if stream is not None else sys.stdout
+    try:
+        if not (hasattr(stream, "isatty") and stream.isatty()):
+            return _NullSplash()
+        if not force and not _wants_splash(sys.argv):
+            return _NullSplash()
+        if not _enable_windows_vt(stream):
+            return _NullSplash()
+        return _Splash(stream)
+    except Exception:
+        return _NullSplash()
