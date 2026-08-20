@@ -288,6 +288,18 @@ async def main():
         except ImportError:
             emit_system_message(t("cli.loading"))
 
+        # Powered-by tagline under the big banner (prints even without pyfiglet).
+        display_console.print(
+            f"[dim]{t('cli.banner.powered_by')}[/dim] "
+            "[link=https://github.com/pydantic/pydantic-ai-harness]"
+            "[cyan]https://github.com/pydantic/pydantic-ai-harness[/cyan][/link]"
+        )
+        display_console.print(
+            f"[dim]{t('cli.banner.observability_pitch')}[/dim] "
+            "[link=https://pydantic.dev/logfire]"
+            "[cyan]https://pydantic.dev/logfire[/cyan][/link]\n"
+        )
+
         # Truecolor warning moved to interactive_mode() so it prints last — max visibility.
 
     available_port = find_available_port()
@@ -304,6 +316,13 @@ async def main():
         set_model_name(early_model)
 
     ensure_config_exists()
+
+    # Opt-in Logfire observability — a no-op unless enable_logfire (or
+    # CODE_PUPPY_ENABLE_LOGFIRE) is set. Must run before agents spin up so
+    # pydantic-ai instrumentation catches every run.
+    from code_puppy.observability import configure_logfire
+
+    configure_logfire()
 
     # Validate cancel_agent_key configuration early
     try:
