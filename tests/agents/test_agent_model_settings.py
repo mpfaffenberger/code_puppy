@@ -47,6 +47,46 @@ def test_json_agent_rejects_non_object_model_settings(tmp_path):
         JSONAgent(str(agent_file))
 
 
+def test_json_agent_rejects_unknown_model_settings_key(tmp_path):
+    agent_file = tmp_path / "test-agent.json"
+    agent_file.write_text(
+        json.dumps(_json_agent_config(model_settings={"resoning_effort": "high"}))
+    )
+
+    with pytest.raises(ValueError, match="Unknown model_settings key"):
+        JSONAgent(str(agent_file))
+
+
+def test_json_agent_rejects_out_of_range_model_settings_value(tmp_path):
+    agent_file = tmp_path / "test-agent.json"
+    agent_file.write_text(
+        json.dumps(_json_agent_config(model_settings={"temperature": 5.0}))
+    )
+
+    with pytest.raises(ValueError, match="must be <= 1.0"):
+        JSONAgent(str(agent_file))
+
+
+def test_json_agent_rejects_wrong_type_model_settings_value(tmp_path):
+    agent_file = tmp_path / "test-agent.json"
+    agent_file.write_text(
+        json.dumps(_json_agent_config(model_settings={"temperature": "hot"}))
+    )
+
+    with pytest.raises(ValueError, match="must be a number"):
+        JSONAgent(str(agent_file))
+
+
+def test_json_agent_rejects_invalid_choice_model_settings_value(tmp_path):
+    agent_file = tmp_path / "test-agent.json"
+    agent_file.write_text(
+        json.dumps(_json_agent_config(model_settings={"reasoning_effort": "super"}))
+    )
+
+    with pytest.raises(ValueError, match="must be one of"):
+        JSONAgent(str(agent_file))
+
+
 def test_agent_creator_rejects_non_object_model_settings():
     from code_puppy.agents.agent_creator_agent import AgentCreatorAgent
 
@@ -55,6 +95,43 @@ def test_agent_creator_rejects_non_object_model_settings():
     )
 
     assert "'model_settings' must be an object" in errors
+
+
+def test_agent_creator_rejects_unknown_model_settings_key():
+    from code_puppy.agents.agent_creator_agent import AgentCreatorAgent
+
+    errors = AgentCreatorAgent().validate_agent_json(
+        _json_agent_config(model_settings={"resoning_effort": "high"})
+    )
+
+    assert any("Unknown model_settings key" in error for error in errors)
+
+
+def test_empty_catalog_does_not_reload_per_override_setting():
+    """An empty-but-successfully-loaded catalog is a valid snapshot.
+
+    ``models_config={}`` must not be coerced to ``None`` before reaching
+    ``model_supports_setting``, or that function reloads the catalog once
+    per override instead of reusing the (legitimately empty) snapshot --
+    so the load count must stay flat as the override count grows.
+    """
+
+    def _load_count_for(overrides):
+        with (
+            patch.object(ModelFactory, "load_config", return_value={}) as mock_load,
+            patch("code_puppy.config.get_effective_model_settings", return_value={}),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+            patch("code_puppy.model_factory.get_yolo_mode", return_value=True),
+        ):
+            make_model_settings("gpt-5-test", max_tokens=4096, overrides=overrides)
+        return mock_load.call_count
+
+    one_override_calls = _load_count_for({"reasoning_effort": "high"})
+    three_override_calls = _load_count_for(
+        {"reasoning_effort": "high", "verbosity": "low", "summary": "concise"}
+    )
+
+    assert three_override_calls == one_override_calls
 
 
 def test_agent_settings_override_per_model_values_before_provider_translation():

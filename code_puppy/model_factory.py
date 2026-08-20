@@ -233,7 +233,12 @@ def make_model_settings(
             and model_supports_setting(
                 model_name,
                 setting,
-                models_config=models_config or None,
+                # NOT `models_config or None`: an empty dict here can mean the
+                # catalog legitimately has no entries, not a failed load.
+                # model_supports_setting only reloads when this is None, so
+                # passing the empty dict through avoids a needless reload per
+                # setting while still reloading on an actual missing load.
+                models_config=models_config,
             )
         }
         effective_settings.update(supported_overrides)

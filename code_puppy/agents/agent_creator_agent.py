@@ -602,10 +602,14 @@ Your goal is to take users from idea to working agent in one smooth conversation
                 if not all(isinstance(item, str) for item in system_prompt):
                     errors.append("All items in 'system_prompt' list must be strings")
 
-            if "model_settings" in agent_config and not isinstance(
-                agent_config["model_settings"], dict
-            ):
-                errors.append("'model_settings' must be an object")
+            if "model_settings" in agent_config:
+                model_settings = agent_config["model_settings"]
+                if not isinstance(model_settings, dict):
+                    errors.append("'model_settings' must be an object")
+                else:
+                    from .json_agent import model_settings_validation_errors
+
+                    errors.extend(model_settings_validation_errors(model_settings))
 
         return errors
 

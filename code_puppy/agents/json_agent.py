@@ -11,6 +11,65 @@ from .base_agent import BaseAgent
 logger = logging.getLogger(__name__)
 
 
+def model_settings_validation_errors(model_settings: Dict[str, Any]) -> List[str]:
+    """Return validation error messages for a ``model_settings`` mapping.
+
+    Checks keys against the known setting registry and values against each
+    setting's declared type/range/choices, so a typo'd key or a malformed
+    value (e.g. ``"temperature": "hot"``) is caught before it can either
+    silently vanish (unknown keys are filtered out downstream by
+    ``model_supports_setting``) or ride unfiltered into a provider request.
+
+    Shared by :class:`JSONAgent` (raises on load) and
+    ``AgentCreatorAgent.validate_agent_json`` (collects errors for the
+    create/edit flow) so the two validation paths can't drift apart.
+    """
+    from code_puppy.command_line.model_settings_menu import SETTING_DEFINITIONS
+
+    errors: List[str] = []
+    for key, value in model_settings.items():
+        definition = SETTING_DEFINITIONS.get(key)
+        if definition is None:
+            valid_keys = ", ".join(sorted(SETTING_DEFINITIONS))
+            errors.append(
+                f"Unknown model_settings key {key!r}. Valid keys: {valid_keys}"
+            )
+            continue
+
+        setting_type = definition.get("type")
+        if setting_type == "numeric":
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                errors.append(
+                    f"model_settings[{key!r}] must be a number (got {value!r})"
+                )
+                continue
+            min_value = definition.get("min")
+            max_value = definition.get("max")
+            if min_value is not None and value < min_value:
+                errors.append(
+                    f"model_settings[{key!r}] must be >= {min_value} (got {value!r})"
+                )
+            if max_value is not None and value > max_value:
+                errors.append(
+                    f"model_settings[{key!r}] must be <= {max_value} (got {value!r})"
+                )
+        elif setting_type == "choice":
+            choices = definition.get("choices", [])
+            if value not in choices:
+                errors.append(
+                    f"model_settings[{key!r}] must be one of {choices} (got {value!r})"
+                )
+        elif setting_type == "boolean":
+            if not isinstance(value, bool):
+                errors.append(
+                    f"model_settings[{key!r}] must be true or false (got {value!r})"
+                )
+        # "custom" settings are a free-form dict of provider extra_body
+        # params; no further shape is enforced here.
+
+    return errors
+
+
 class JSONAgent(BaseAgent):
     """Agent configured from a JSON file."""
 
@@ -67,12 +126,13 @@ class JSONAgent(BaseAgent):
                 f"'system_prompt' must be a string or list in JSON agent config: {self.json_path}"
             )
 
-        if "model_settings" in self._config and not isinstance(
-            self._config["model_settings"], dict
-        ):
-            raise ValueError(
-                f"'model_settings' must be an object in JSON agent config: {self.json_path}"
-            )
+        if "model_settings" in self._config:
+            model_settings = self._config["model_settings"]
+            if not isinstance(model_settings, dict):
+                raise ValueError(
+                    f"'model_settings' must be an object in JSON agent config: {self.json_path}"
+                )
+            self._validate_model_settings(model_settings)
 
         # mcp_servers: list[str] (shorthand, auto_start=True) or dict[str, dict]
         # (per-server options). Anything else is a config error with a clear
@@ -104,6 +164,21 @@ class JSONAgent(BaseAgent):
                     f"'mcp_servers' must be a list of names or a dict of "
                     f"{{name: options}} in JSON agent config: {self.json_path}"
                 )
+
+    def _validate_model_settings(self, model_settings: Dict[str, Any]) -> None:
+        """Validate model_settings keys and values against known definitions.
+
+        Catches typos and obviously-wrong values at agent load time instead
+        of letting an unknown key silently vanish (filtered out downstream by
+        ``model_supports_setting``) or a malformed value ride unfiltered into
+        the provider request.
+        """
+        errors = model_settings_validation_errors(model_settings)
+        if errors:
+            raise ValueError(
+                f"Invalid 'model_settings' in JSON agent config: {self.json_path}: "
+                + "; ".join(errors)
+            )
 
     @property
     def name(self) -> str:
