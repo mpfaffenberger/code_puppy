@@ -637,10 +637,15 @@ def build_pydantic_agent(
     model_settings = make_model_settings(resolved_model_name)
     history_processor = make_history_processor(agent)
     steer_processor = make_steer_history_processor(agent)
+    logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
 
     def _new_pydantic_agent(toolsets: List[Any]) -> PydanticAgent:
         return PydanticAgent(
             model=model,
+            # Explicit name: without it pydantic-ai infers one from the
+            # caller's frame variables, so observability spans read
+            # "invoke_agent pydantic_agent" instead of the logical agent name.
+            name=logical_agent_name,
             instructions=instructions,
             output_type=output_type,
             retries=3,
@@ -667,7 +672,6 @@ def build_pydantic_agent(
     # tool registry actually produced, and filter MCP to avoid name clashes.
     probe_agent = _new_pydantic_agent(toolsets=[])
     agent_tools = agent.get_available_tools()
-    logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
     register_tools_for_agent(
         probe_agent,
         agent_tools,
