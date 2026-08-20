@@ -66,14 +66,10 @@ def test_on_model_select_no_callbacks_returns_none():
     )
 
 
-def test_on_model_select_returns_first_nonempty_without_running_lower_priority():
-    lower_priority_calls = []
+def test_on_model_select_returns_first_nonempty_result():
     register_callback("model_select", lambda **k: None)
     register_callback("model_select", lambda **k: "")
     register_callback("model_select", lambda **k: "small-model")
-    register_callback(
-        "model_select", lambda **k: lower_priority_calls.append(k) or "never-reached"
-    )
 
     assert (
         on_model_select(
@@ -85,7 +81,6 @@ def test_on_model_select_returns_first_nonempty_without_running_lower_priority()
         )
         == "small-model"
     )
-    assert lower_priority_calls == []
 
 
 def test_on_model_select_passes_context_to_callback():

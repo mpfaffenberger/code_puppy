@@ -389,11 +389,7 @@ def get_feature_capability(name: str) -> bool:
 
 
 def _trigger_callbacks_sync(
-    phase: PhaseType,
-    *args,
-    raise_on_error: bool = False,
-    stop_when: Optional[Callable[[Any], bool]] = None,
-    **kwargs,
+    phase: PhaseType, *args, raise_on_error: bool = False, **kwargs
 ) -> List[Any]:
     """Run all sync callbacks for ``phase`` and collect their results.
 
@@ -445,8 +441,6 @@ def _trigger_callbacks_sync(
                     result = asyncio.run(result)
             results.append(result)
             logger.debug(f"Successfully executed callback {callback.__name__}")
-            if stop_when is not None and stop_when(result):
-                break
         except Exception as e:
             logger.error(
                 f"Callback {callback.__name__} failed in phase '{phase}': {e}\n"
@@ -1199,7 +1193,6 @@ def on_model_select(
         prompt=prompt,
         messages=messages,
         session_id=session_id,
-        stop_when=lambda result: isinstance(result, str) and bool(result.strip()),
     )
     for result in results:
         if isinstance(result, str) and result.strip():
