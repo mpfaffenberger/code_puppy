@@ -406,6 +406,11 @@ async def _invoke_agent_impl(
             # (e.g. DBOS) may swap them via the agent_run_context hook.
             temp_agent = Agent(
                 model=model,
+                # Explicit name: without it pydantic-ai infers one from the
+                # caller's frame variables, so every sub-agent's observability
+                # span reads "invoke_agent temp_agent" instead of the logical
+                # agent name (e.g. "invoke_agent web-retriever").
+                name=agent_name,
                 instructions=instructions,
                 output_type=str,
                 retries=3,
