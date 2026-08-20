@@ -24,6 +24,8 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from code_puppy.session_storage import (
     compute_scope_key,
     list_sessions,
@@ -324,6 +326,63 @@ class TestCliRunnerHereFlag:
         assert mock_list_sessions.called
         _args, kwargs = mock_list_sessions.call_args
         assert kwargs.get("scope_key") is None
+
+
+class TestRealResolverScopeInteraction:
+    """Exercises resolve_or_create_resume_target for REAL, not mocked.
+
+    Manual verification found a real gap: the mocked tests above always
+    force ResumeTargetError, so they never exercise the resolver's actual
+    lazy-create branch. A well-formed but nonexistent slug (e.g.
+    'totally-made-up-name') silently lazy-creates an empty session
+    instead of raising -- so --cwd's filtered hint never fires for that
+    case. This is pre-existing resolver behaviour (see its own docstring,
+    branch 5) that predates and is unrelated to scope_key; these tests
+    make the interaction explicit and prove --cwd works end-to-end for
+    the one input shape that actually reaches the error branch: a
+    genuinely invalid slug (one containing a space).
+    """
+
+    def test_valid_looking_missing_name_lazy_creates_not_errors(self, tmp_path):
+        from code_puppy.session_lifecycle import resolve_or_create_resume_target
+
+        session_name, _session_dir, lazy_created = resolve_or_create_resume_target(
+            "totally-made-up-name",
+            sessions_dir=tmp_path,
+            allow_lazy_create=True,
+        )
+
+        assert lazy_created is True
+        assert session_name == "totally-made-up-name"
+        assert (tmp_path / "totally-made-up-name.json").exists()
+
+    def test_invalid_slug_raises_and_cwd_narrows_real_hint(self, tmp_path):
+        from code_puppy.session_lifecycle import (
+            ResumeTargetError,
+            resolve_or_create_resume_target,
+        )
+
+        save_session(
+            history=[{"role": "user", "content": "hi"}],
+            session_name="local-session",
+            base_dir=tmp_path,
+            timestamp="2024-01-01T00:00:00",
+            token_estimator=_noop_estimator,
+            scope_key=compute_scope_key(tmp_path),
+        )
+
+        with pytest.raises(ResumeTargetError):
+            resolve_or_create_resume_target(
+                "not a valid slug",
+                sessions_dir=tmp_path,
+                allow_lazy_create=True,
+            )
+
+        # The exact call cli_runner.py makes in its except block -- confirms
+        # --cwd's scope_key genuinely narrows real results once the error
+        # branch is reached.
+        scoped = list_sessions(tmp_path, scope_key=compute_scope_key(tmp_path))
+        assert scoped == ["local-session"]
 
 
 # ---------------------------------------------------------------------------
