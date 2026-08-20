@@ -702,7 +702,7 @@ async def _run_with_mcp_impl(
     try:
         from code_puppy.model_switching import resolve_run_model_selection
 
-        resolve_run_model_selection(agent, agent._message_history, group_id)
+        resolve_run_model_selection(agent, prompt, agent._message_history, group_id)
     except Exception:
         # Selection must never block a run.
         pass

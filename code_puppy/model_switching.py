@@ -9,6 +9,7 @@ from code_puppy.config import set_model_name
 
 def resolve_run_model_selection(
     agent: Any,
+    prompt: str,
     messages: List[Any],
     session_id: Optional[str] = None,
 ) -> Optional[str]:
@@ -45,6 +46,7 @@ def resolve_run_model_selection(
         selected = on_model_select(
             agent_name=getattr(agent, "name", None),
             current_model=current,
+            prompt=prompt,
             messages=messages or [],
             session_id=session_id,
         )

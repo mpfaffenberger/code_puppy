@@ -389,7 +389,11 @@ def get_feature_capability(name: str) -> bool:
 
 
 def _trigger_callbacks_sync(
-    phase: PhaseType, *args, raise_on_error: bool = False, **kwargs
+    phase: PhaseType,
+    *args,
+    raise_on_error: bool = False,
+    stop_when: Optional[Callable[[Any], bool]] = None,
+    **kwargs,
 ) -> List[Any]:
     """Run all sync callbacks for ``phase`` and collect their results.
 
@@ -441,6 +445,8 @@ def _trigger_callbacks_sync(
                     result = asyncio.run(result)
             results.append(result)
             logger.debug(f"Successfully executed callback {callback.__name__}")
+            if stop_when is not None and stop_when(result):
+                break
         except Exception as e:
             logger.error(
                 f"Callback {callback.__name__} failed in phase '{phase}': {e}\n"
@@ -1160,6 +1166,7 @@ def on_model_select(
     *,
     agent_name: str,
     current_model: str | None,
+    prompt: str,
     messages: List[Any],
     session_id: str | None = None,
 ) -> str | None:
@@ -1178,7 +1185,8 @@ def on_model_select(
     Args:
         agent_name: Name of the agent about to run.
         current_model: The model that would be used absent any hook.
-        messages: The agent's message history for this run.
+        prompt: The current user prompt after submission hooks have rewritten it.
+        messages: The agent's prior message history for this run.
         session_id: Optional per-run identifier.
 
     Returns:
@@ -1188,8 +1196,10 @@ def on_model_select(
         "model_select",
         agent_name=agent_name,
         current_model=current_model,
+        prompt=prompt,
         messages=messages,
         session_id=session_id,
+        stop_when=lambda result: isinstance(result, str) and bool(result.strip()),
     )
     for result in results:
         if isinstance(result, str) and result.strip():
