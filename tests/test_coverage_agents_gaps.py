@@ -62,6 +62,8 @@ class TestCodePuppyAgentTools:
         assert "replace_in_file" in tools
         assert "delete_snippet" in tools
         assert "invoke_agent" in tools
+        assert "agent_run_shell_command" in tools
+        assert "agent_run_shell_command" in agent.get_system_prompt()
 
     def test_default_code_puppy_does_not_get_model_override_tools(self):
         from code_puppy.agents.agent_code_puppy import CodePuppyAgent

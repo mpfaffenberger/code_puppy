@@ -48,7 +48,7 @@ class CodePuppyAgent(BaseAgent):
             ),
             "loop_rule": (
                 "- You're encouraged to loop between reasoning, file "
-                "tools, and run_shell_command to test output in order "
+                "tools, and agent_run_shell_command to test output in order "
                 "to write programs"
             ),
         }
