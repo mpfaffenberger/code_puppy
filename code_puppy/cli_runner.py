@@ -189,7 +189,7 @@ async def main():
         ),
     )
     parser.add_argument(
-        "--here",
+        "--cwd",
         action="store_true",
         help=(
             "With --resume, only list/consider sessions scoped to the current "
@@ -440,9 +440,9 @@ async def main():
 
         resume_target = args.resume
         sessions_dir = Path(AUTOSAVE_DIR)
-        # Opt-in via --here: only offer sessions scoped to the current directory.
+        # Opt-in via --cwd: only offer sessions scoped to the current directory.
         # Default (flag absent) keeps the unfiltered listing byte-for-byte.
-        resume_scope_key = compute_scope_key(Path.cwd()) if args.here else None
+        resume_scope_key = compute_scope_key(Path.cwd()) if args.cwd else None
 
         # Both headless and interactive accept ``-r missing-name`` (empty session);
         # typos still surface via the visible ``Created new session: NAME`` line.

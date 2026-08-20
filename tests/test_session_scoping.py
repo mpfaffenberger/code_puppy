@@ -4,12 +4,12 @@ Covers the primitives in ``session_storage.py`` (``compute_scope_key``,
 ``scope_key`` persistence through ``save_session``, and the ``list_sessions``
 filter) plus a smoke test per opt-in UI surface that layers on top of them:
 
-* ``cli_runner.py`` -- ``--here`` flag on ``-r/--resume``
-* ``command_line/session_commands.py`` -- trailing ``here``/``--here`` token
+* ``cli_runner.py`` -- ``--cwd`` flag on ``-r/--resume``
+* ``command_line/session_commands.py`` -- trailing ``cwd``/``--cwd`` token
   on ``/load_context``
 * ``command_line/autosave_menu.py`` -- Ctrl+T toggle in the interactive
   autosave picker
-* ``session_storage.py``'s ``restore_autosave_interactively`` -- ``here``
+* ``session_storage.py``'s ``restore_autosave_interactively`` -- ``cwd``
   keyword typed at the selection prompt
 
 Mocking/fixture patterns deliberately mirror the existing suites for each
@@ -243,12 +243,12 @@ class TestFilteredListSessionsMissingOrCorruptSidecar:
 
 
 # ---------------------------------------------------------------------------
-# 5(a). cli_runner.py --here flag smoke test
+# 5(a). cli_runner.py --cwd flag smoke test
 # ---------------------------------------------------------------------------
 
 
 class TestCliRunnerHereFlag:
-    """Smoke-tests the ``--here`` opt-in on the ``-r/--resume`` failure path.
+    """Smoke-tests the ``--cwd`` opt-in on the ``-r/--resume`` failure path.
 
     ``resolve_or_create_resume_target`` is forced to raise
     ``ResumeTargetError`` so we land in the "available sessions" fallback,
@@ -303,20 +303,20 @@ class TestCliRunnerHereFlag:
             except SystemExit:
                 pass
 
-    async def test_here_flag_passes_scope_key_to_list_sessions(self):
-        """--here must pass a non-None scope_key through to list_sessions."""
+    async def test_cwd_flag_passes_scope_key_to_list_sessions(self):
+        """--cwd must pass a non-None scope_key through to list_sessions."""
         mock_list_sessions = MagicMock(return_value=["local-session"])
 
         await self._run_main(
-            ["code-puppy", "-r", "missing", "--here"], mock_list_sessions
+            ["code-puppy", "-r", "missing", "--cwd"], mock_list_sessions
         )
 
         assert mock_list_sessions.called
         _args, kwargs = mock_list_sessions.call_args
         assert kwargs.get("scope_key") is not None
 
-    async def test_without_here_flag_scope_key_is_none(self):
-        """Absent --here, the unfiltered (scope_key=None) call is preserved."""
+    async def test_without_cwd_flag_scope_key_is_none(self):
+        """Absent --cwd, the unfiltered (scope_key=None) call is preserved."""
         mock_list_sessions = MagicMock(return_value=["some-session"])
 
         await self._run_main(["code-puppy", "-r", "missing"], mock_list_sessions)
@@ -327,12 +327,12 @@ class TestCliRunnerHereFlag:
 
 
 # ---------------------------------------------------------------------------
-# 5(b). session_commands.py "here" token smoke test
+# 5(b). session_commands.py "cwd" token smoke test
 # ---------------------------------------------------------------------------
 
 
 class TestLoadContextHereToken:
-    """Smoke-tests the trailing "here"/"--here" token on /load_context.
+    """Smoke-tests the trailing "cwd"/"--cwd" token on /load_context.
 
     Mirrors ``tests/command_line/test_session_commands.py``'s
     ``TestHandleLoadContextCommand.test_file_not_found`` pattern.
@@ -345,7 +345,7 @@ class TestLoadContextHereToken:
 
         return handle_load_context_command(cmd)
 
-    def test_here_token_passes_scope_key(self):
+    def test_cwd_token_passes_scope_key(self):
         with (
             patch(
                 "code_puppy.command_line.session_commands.load_session",
@@ -358,13 +358,13 @@ class TestLoadContextHereToken:
             patch("code_puppy.messaging.emit_info"),
         ):
             mock_list_sessions.return_value = []
-            assert self._run("/load_context missing here") is True
+            assert self._run("/load_context missing cwd") is True
 
             assert mock_list_sessions.called
             _args, kwargs = mock_list_sessions.call_args
             assert kwargs.get("scope_key") is not None
 
-    def test_without_here_token_scope_key_is_none(self):
+    def test_without_cwd_token_scope_key_is_none(self):
         with (
             patch(
                 "code_puppy.command_line.session_commands.load_session",
@@ -487,7 +487,7 @@ class TestAutosaveMenuCtrlTToggle:
 
 
 # ---------------------------------------------------------------------------
-# 5(d). restore_autosave_interactively "here" prompt-time toggle
+# 5(d). restore_autosave_interactively "cwd" prompt-time toggle
 # ---------------------------------------------------------------------------
 
 
@@ -557,13 +557,13 @@ def _mock_interactive_imports(
 
 
 class TestRestoreAutosaveInteractivelyHereToggle:
-    """Smoke-tests the "here" keyword typed at the autosave-restore prompt.
+    """Smoke-tests the "cwd" keyword typed at the autosave-restore prompt.
 
     Mirrors the mocking style of
     ``tests/test_session_storage_coverage.py``.
     """
 
-    async def test_here_keyword_triggers_scoped_relist(self, tmp_path):
+    async def test_cwd_keyword_triggers_scoped_relist(self, tmp_path):
         from code_puppy.session_storage import restore_autosave_interactively
 
         (tmp_path / "session.pkl").write_bytes(b"dummy")
@@ -578,7 +578,7 @@ class TestRestoreAutosaveInteractivelyHereToggle:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return "here"  # toggle the this-folder filter on
+                return "cwd"  # toggle the this-folder filter on
             return ""  # then skip loading
 
         mock_list_sessions = MagicMock(side_effect=[["session"], ["session"], []])
@@ -592,14 +592,14 @@ class TestRestoreAutosaveInteractivelyHereToggle:
         assert result is None
         # First call is the initial unfiltered listing (no scope_key kwarg
         # value asserted here since it's positional/default None); the
-        # second call -- triggered by typing "here" -- must carry a
+        # second call -- triggered by typing "cwd" -- must carry a
         # concrete scope_key.
         assert mock_list_sessions.call_count >= 2
         second_call_kwargs = mock_list_sessions.call_args_list[1].kwargs
         assert second_call_kwargs.get("scope_key") is not None
 
-    async def test_double_here_toggles_back_to_unfiltered(self, tmp_path):
-        """Typing "here" twice toggles the filter back off (scope_key=None)."""
+    async def test_double_cwd_toggles_back_to_unfiltered(self, tmp_path):
+        """Typing "cwd" twice toggles the filter back off (scope_key=None)."""
         from code_puppy.session_storage import restore_autosave_interactively
 
         (tmp_path / "session.pkl").write_bytes(b"dummy")
@@ -614,7 +614,7 @@ class TestRestoreAutosaveInteractivelyHereToggle:
             nonlocal call_count
             call_count += 1
             if call_count in (1, 2):
-                return "here"
+                return "cwd"
             return ""
 
         mock_list_sessions = MagicMock(
@@ -629,7 +629,7 @@ class TestRestoreAutosaveInteractivelyHereToggle:
 
         assert result is None
         assert mock_list_sessions.call_count == 3
-        # Call 0: initial unfiltered. Call 1: "here" -> scoped. Call 2:
-        # "here" again -> back to unfiltered (scope_key=None).
+        # Call 0: initial unfiltered. Call 1: "cwd" -> scoped. Call 2:
+        # "cwd" again -> back to unfiltered (scope_key=None).
         third_call_kwargs = mock_list_sessions.call_args_list[2].kwargs
         assert third_call_kwargs.get("scope_key") is None

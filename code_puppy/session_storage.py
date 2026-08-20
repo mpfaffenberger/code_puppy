@@ -348,7 +348,7 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
     (list_sessions, load_session) and mirrors the interactive behaviours from
     the command handler.
 
-    Typing ``here`` (or ``--here``) at the selection prompt toggles an
+    Typing ``cwd`` (or ``--cwd``) at the selection prompt toggles an
     opt-in filter down to sessions scoped to the current working directory
     (via ``scope_key``). Off by default -- the unfiltered listing stays
     byte-for-byte identical to before this toggle existed. Sessions with
@@ -399,10 +399,10 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
 
     entries = _load_entries(sessions)
 
-    # Opt-in "here" toggle -- see docstring. Off by default so the
+    # Opt-in "cwd" toggle -- see docstring. Off by default so the
     # unfiltered listing never changes.
-    here_scope_key = compute_scope_key(Path.cwd())
-    here_active = False
+    cwd_scope_key = compute_scope_key(Path.cwd())
+    cwd_active = False
 
     PAGE_SIZE = 5
     total = len(entries)
@@ -413,7 +413,7 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
         end = min(start + PAGE_SIZE, total)
         page_entries = entries[start:end]
         emit_system_message("Autosave Sessions Available:")
-        if here_active:
+        if cwd_active:
             emit_system_message("  (filtered to this folder)")
         for idx, (name, timestamp, message_count) in enumerate(page_entries, start=1):
             timestamp_display = timestamp or "unknown time"
@@ -438,7 +438,7 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
             )
             emit_system_message(f"  [6] {next_label}")
         emit_system_message(
-            "  [Enter] Skip loading autosave  --  type 'here' to toggle "
+            "  [Enter] Skip loading autosave  --  type 'cwd' to toggle "
             "this-folder filter"
         )
 
@@ -467,9 +467,9 @@ async def restore_autosave_interactively(base_dir: Path) -> None:
 
         # Opt-in toggle: re-list sessions scoped to the current directory.
         # A missing scope_key sidecar is excluded, never a false match.
-        if selection.lower() in ("here", "--here"):
-            here_active = not here_active
-            scope_key = here_scope_key if here_active else None
+        if selection.lower() in ("cwd", "--cwd"):
+            cwd_active = not cwd_active
+            scope_key = cwd_scope_key if cwd_active else None
             sessions = list_sessions(base_dir, scope_key=scope_key)
             entries = _load_entries(sessions)
             total = len(entries)
