@@ -379,7 +379,10 @@ async def _invoke_agent_impl(
             instructions = prepared.instructions
             prompt = prepared.user_prompt
 
-            model_settings = make_model_settings(effective_model_name)
+            model_settings = make_model_settings(
+                effective_model_name,
+                overrides=agent_config.get_model_settings_overrides(),
+            )
 
             # Warm up bound MCP servers with the ASYNC autostart variant: the run
             # is wrapped in create_task, and the sync variant races pydantic-ai's

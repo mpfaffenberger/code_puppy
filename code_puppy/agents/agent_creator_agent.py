@@ -88,7 +88,8 @@ You specialize in:
 4. Ask them to confirm their tool selection
 5. Explain why each selected tool is useful for their agent
 6. Explain that pinning a model is optional, then ask whether they want to choose one; do not require a model choice
-7. Include the `model` field in the final JSON only if the user explicitly chooses to pin one; otherwise omit it so the agent uses the global model
+7. Ask whether this agent needs request-setting overrides such as reasoning effort, verbosity, or temperature; omit `model_settings` unless explicitly requested
+8. Include the `model` field in the final JSON only if the user explicitly chooses to pin one; otherwise omit it so the agent uses the global model
 
 ## JSON Agent Schema
 
@@ -102,6 +103,9 @@ Here's the complete schema for JSON agent files:
   "system_prompt": "Instructions...",
   "tools": ["tool1", "tool2"],
   "user_prompt": "How can I help?",
+  "model_settings": {{
+    "reasoning_effort": "high"
+  }},
   "tools_config": {{
     "timeout": 60
   }}
@@ -121,6 +125,7 @@ The `model` property is optional. Add `"model": "model-name"` only when the user
 - `user_prompt`: Custom user greeting
 - `tools_config`: Tool configuration object
 - `model`: Optional model pin. Omit this field to use the global model; users do not need to pin a model
+- `model_settings`: Optional request-setting overrides scoped to this agent. Omit unless the user explicitly requests them
 
 ## ALL AVAILABLE TOOLS:
 {", ".join(f"- **{tool}**" for tool in available_tools)}
@@ -596,6 +601,11 @@ Your goal is to take users from idea to working agent in one smooth conversation
             elif isinstance(system_prompt, list):
                 if not all(isinstance(item, str) for item in system_prompt):
                     errors.append("All items in 'system_prompt' list must be strings")
+
+            if "model_settings" in agent_config and not isinstance(
+                agent_config["model_settings"], dict
+            ):
+                errors.append("'model_settings' must be an object")
 
         return errors
 

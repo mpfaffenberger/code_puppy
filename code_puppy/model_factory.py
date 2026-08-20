@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import pathlib
+from collections.abc import Mapping
 from typing import Any, Dict
 
 import httpx
@@ -173,7 +174,9 @@ def _merge_dotted_key(target: dict, dotted_key: str, value: Any) -> None:
 
 
 def make_model_settings(
-    model_name: str, max_tokens: int | None = None
+    model_name: str,
+    max_tokens: int | None = None,
+    overrides: Mapping[str, Any] | None = None,
 ) -> ModelSettings:
     """Create appropriate ModelSettings for a given model.
 
@@ -186,6 +189,8 @@ def make_model_settings(
         model_name: The name of the model to create settings for.
         max_tokens: Optional max tokens limit. If None, automatically calculated
             as: max(2048, min(15% of context_length, 65536))
+        overrides: Optional agent-scoped settings. Supported values override
+            global and per-model settings before provider-specific translation.
 
     Returns:
         Appropriate ModelSettings subclass instance for the model.
@@ -198,6 +203,7 @@ def make_model_settings(
     model_settings_dict: dict = {}
 
     # Calculate max_tokens if not explicitly provided
+    models_config: dict[str, Any] = {}
     model_config: dict[str, Any] = {}
     if max_tokens is None:
         # Load model config to get context length
@@ -212,12 +218,25 @@ def make_model_settings(
         max_tokens = max(2048, min(int(0.15 * context_length), 65536))
     elif not model_config:
         try:
-            model_config = ModelFactory.load_config().get(model_name, {})
+            models_config = ModelFactory.load_config()
+            model_config = models_config.get(model_name, {})
         except Exception:
             model_config = {}
 
     model_settings_dict["max_tokens"] = max_tokens
     effective_settings = get_effective_model_settings(model_name)
+    if overrides:
+        supported_overrides = {
+            setting: value
+            for setting, value in overrides.items()
+            if value is not None
+            and model_supports_setting(
+                model_name,
+                setting,
+                models_config=models_config or None,
+            )
+        }
+        effective_settings.update(supported_overrides)
     model_settings_dict.update(effective_settings)
 
     # Disable parallel tool calls when yolo_mode is off (sequential so user can review each call)

@@ -67,6 +67,13 @@ class JSONAgent(BaseAgent):
                 f"'system_prompt' must be a string or list in JSON agent config: {self.json_path}"
             )
 
+        if "model_settings" in self._config and not isinstance(
+            self._config["model_settings"], dict
+        ):
+            raise ValueError(
+                f"'model_settings' must be an object in JSON agent config: {self.json_path}"
+            )
+
         # mcp_servers: list[str] (shorthand, auto_start=True) or dict[str, dict]
         # (per-server options). Anything else is a config error with a clear
         # message.
@@ -170,6 +177,10 @@ class JSONAgent(BaseAgent):
     def get_tools_config(self) -> Optional[Dict]:
         """Get tool configuration from JSON config."""
         return self._config.get("tools_config")
+
+    def get_model_settings_overrides(self) -> Dict[str, Any]:
+        """Get model request-setting overrides from JSON config."""
+        return dict(self._config.get("model_settings", {}))
 
     def get_declared_mcp_bindings(self) -> Dict[str, Dict[str, Any]]:
         """Return MCP bindings declared in the JSON config, normalized.

@@ -112,6 +112,15 @@ class BaseAgent(ABC):
     def get_user_prompt(self) -> Optional[str]:
         return None
 
+    def get_model_settings_overrides(self) -> Dict[str, Any]:
+        """Return request-setting overrides scoped to this agent.
+
+        Values use the same setting names as ``/model_settings`` and take
+        precedence over global and per-model standard settings. Unsupported
+        settings are filtered for the effective model before requests run.
+        """
+        return {}
+
     def get_runtime_model_name_override(self) -> Optional[str]:
         """Return a temporary per-run model override, if one is active."""
         return self._runtime_model_name_override
