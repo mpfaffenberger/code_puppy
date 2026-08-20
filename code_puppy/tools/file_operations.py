@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from typing import List
 
@@ -21,8 +22,8 @@ from code_puppy.messaging import (  # New structured messaging types
     GrepResultMessage,
     get_message_bus,
 )
-from code_puppy.tools.common import resolve_path
 from code_puppy.tools import fs_access
+from code_puppy.tools.common import resolve_path
 
 
 # Pydantic models for tool return types
@@ -64,6 +65,21 @@ class GrepOutput(BaseModel):
 # Context never evicts a real match: once this budget is full we keep scanning
 # for matches and simply stop collecting further context.
 _MAX_GREP_CONTEXT_ROWS = 200
+
+
+def _find_ripgrep() -> str | None:
+    """Prefer ripgrep installed beside the active Python, then search PATH.
+
+    Environment managers such as pyenv can expose a broken ``rg`` shim on
+    ``PATH`` even when the active Code Puppy environment contains a working
+    executable. Checking the interpreter directory first avoids that trap.
+    """
+    python_dir = os.path.dirname(sys.executable)
+    for name in ("rg", "rg.exe"):
+        candidate = os.path.join(python_dir, name)
+        if os.path.isfile(candidate):
+            return candidate
+    return shutil.which("rg")
 
 
 def is_likely_home_directory(directory):
@@ -216,8 +232,6 @@ def _list_entries_via_backend(directory: str, recursive: bool) -> List["ListedFi
 def _list_files(
     context: RunContext, directory: str = ".", recursive: bool = True
 ) -> ListFileOutput:
-    import sys
-
     results = []
     # Synthesized parent directories already added to ``results``. Membership is
     # checked once per path component of every file, so this has to be O(1);
@@ -262,18 +276,7 @@ def _list_files(
     # Create a temporary ignore file with our ignore patterns (local rg path)
     ignore_file = None
     try:
-        # Find ripgrep executable - first check system PATH, then virtual environment
-        rg_path = shutil.which("rg")
-        if not rg_path:
-            # Try to find it in the virtual environment
-            # Use sys.executable to determine the Python environment path
-            python_dir = os.path.dirname(sys.executable)
-            # python_dir is already bin/ (Unix) or Scripts/ (Windows)
-            for name in ["rg", "rg.exe"]:
-                candidate = os.path.join(python_dir, name)
-                if os.path.exists(candidate):
-                    rg_path = candidate
-                    break
+        rg_path = _find_ripgrep()
 
         if not rg_path and recursive and not _use_backend:
             # Only need ripgrep for recursive listings
@@ -1179,9 +1182,7 @@ def _carries_type_filter(rg_args: list[str]) -> bool:
 def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
     import json
     import os
-    import shutil
     import subprocess
-    import sys
 
     # Sanitize search string to handle any surrogates from copy-paste
     search_string = _sanitize_string(search_string)
@@ -1204,18 +1205,7 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         # ripgrep: absolute path, --json output, --max-count 50, --max-filesize 5M,
         # --type=all, --ignore-file for our ignore list.
 
-        # Find ripgrep executable - first check system PATH, then virtual environment
-        rg_path = shutil.which("rg")
-        if not rg_path:
-            # Try to find it in the virtual environment
-            # Use sys.executable to determine the Python environment path
-            python_dir = os.path.dirname(sys.executable)
-            # python_dir is already bin/ (Unix) or Scripts/ (Windows)
-            for name in ["rg", "rg.exe"]:
-                candidate = os.path.join(python_dir, name)
-                if os.path.exists(candidate):
-                    rg_path = candidate
-                    break
+        rg_path = _find_ripgrep()
 
         if not rg_path:
             error_message = (
