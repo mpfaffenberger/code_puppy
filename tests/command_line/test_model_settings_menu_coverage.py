@@ -186,6 +186,19 @@ class TestGetSettingChoices:
         assert "xhigh" not in choices
         assert "high" in choices
 
+    def test_catalog_can_advertise_exact_reasoning_effort_choices(self):
+        models_config = {
+            "remote-gpt": {
+                "setting_choices": {
+                    "reasoning_effort": ["low", "medium", "high", "xhigh"]
+                }
+            }
+        }
+
+        assert _get_setting_choices(
+            "reasoning_effort", "remote-gpt", models_config
+        ) == ["low", "medium", "high", "xhigh"]
+
 
 class TestLoadAllModelNames:
     @patch("code_puppy.command_line.model_settings_menu.ModelFactory")
