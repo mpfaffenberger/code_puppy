@@ -70,7 +70,7 @@ class TestFrame:
 class TestLifecycle:
     def test_start_animate_stop(self):
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True)
+        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
         assert isinstance(handle, splash._Splash)
         time.sleep(0.15)  # let a few frames render
         handle.stop()
@@ -82,7 +82,7 @@ class TestLifecycle:
 
     def test_stop_is_idempotent(self):
         stream = FakeTty()
-        handle = splash.start_splash(stream=stream, force=True)
+        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
         handle.stop()
         before = stream.getvalue()
         handle.stop()
@@ -96,6 +96,20 @@ class TestLifecycle:
             def write(self, *_a, **_k):
                 raise OSError("terminal went for a walk")
 
-        handle = splash.start_splash(stream=BrokenTty(), force=True)
+        handle = splash.start_splash(stream=BrokenTty(), force=True, min_seconds=0)
         time.sleep(0.05)
         handle.stop()  # must not raise
+
+    def test_stop_honors_minimum_showtime(self):
+        stream = FakeTty()
+        handle = splash.start_splash(stream=stream, force=True, min_seconds=0.3)
+        t0 = time.monotonic()
+        handle.stop()  # called "instantly" -- must block out the remainder
+        elapsed = time.monotonic() - t0
+        assert elapsed >= 0.25  # slack for scheduler jitter
+        assert not handle._thread.is_alive()
+        # the extra showtime produced extra frames, not a frozen screen
+        assert stream.getvalue().count("\x1b[2K") > splash._HEIGHT
+
+    def test_default_minimum_is_two_seconds(self):
+        assert splash._MIN_SHOW_SECONDS == 2.0

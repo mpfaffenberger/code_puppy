@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+import time
 
 # Pyramid raster, 20 rows x <=44 cols. Digits are glow tiers:
 # 0 = empty, 1 = outer halo, 2 = inner glow, 3 = neon core.
@@ -70,6 +71,9 @@ _FALLBACK_HOT = ("", "\x1b[95m", "\x1b[1;95m", "\x1b[1;97m")
 _SHEEN_PERIOD = 70
 _SHEEN_WIDTH = 7
 _FRAME_SECONDS = 0.033
+# Keep the shimmer on screen at least this long, even if imports finish
+# early -- a sub-second flash reads as a glitch, not a splash.
+_MIN_SHOW_SECONDS = 2.0
 
 # argv values that still mean "interactive boot" (splash-worthy).
 _INTERACTIVE_ARGS = frozenset({"-i", "--interactive"})
@@ -111,8 +115,10 @@ class _NullSplash:
 
 
 class _Splash:
-    def __init__(self, stream) -> None:
+    def __init__(self, stream, min_seconds: float = _MIN_SHOW_SECONDS) -> None:
         self._stream = stream
+        self._min_seconds = min_seconds
+        self._started = time.monotonic()
         self._stop_event = threading.Event()
         self._truecolor = _truecolor()
         self._thread = threading.Thread(
@@ -136,10 +142,17 @@ class _Splash:
             pass  # a dying terminal must never take the CLI down
 
     def stop(self) -> None:
-        """Stop the animation and erase it so real output starts clean."""
+        """Stop the animation and erase it so real output starts clean.
+
+        Honors the minimum showtime: if imports finished early, the caller
+        blocks here while the shimmer finishes its contractual screen time.
+        """
         if self._stopped:
             return
         self._stopped = True
+        remaining = self._min_seconds - (time.monotonic() - self._started)
+        if remaining > 0:
+            time.sleep(remaining)  # animation thread keeps shimmering meanwhile
         self._stop_event.set()
         self._thread.join(timeout=1.0)
         try:
@@ -178,20 +191,25 @@ def _enable_windows_vt(stream) -> bool:
         return False
 
 
-def start_splash(stream=None, force: bool = False):
+def start_splash(
+    stream=None, force: bool = False, min_seconds: float = _MIN_SHOW_SECONDS
+):
     """Start the shimmer if the terminal deserves it; else return a no-op.
 
-    ``force=True`` bypasses the argv/env gating (used by tests and demos)
-    but still requires a usable stream.
+    ``force=True`` bypasses ALL gating -- TTY detection included -- and is
+    strictly for tests and demos; you get ANSI in whatever stream you gave
+    us. ``min_seconds`` is the guaranteed on-screen time: ``stop()`` blocks
+    until it has elapsed.
     """
     stream = stream if stream is not None else sys.stdout
     try:
-        if not (hasattr(stream, "isatty") and stream.isatty()):
-            return _NullSplash()
-        if not force and not _wants_splash(sys.argv):
-            return _NullSplash()
+        if not force:
+            if not (hasattr(stream, "isatty") and stream.isatty()):
+                return _NullSplash()
+            if not _wants_splash(sys.argv):
+                return _NullSplash()
         if not _enable_windows_vt(stream):
             return _NullSplash()
-        return _Splash(stream)
+        return _Splash(stream, min_seconds=min_seconds)
     except Exception:
         return _NullSplash()
