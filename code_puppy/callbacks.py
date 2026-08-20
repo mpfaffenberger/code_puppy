@@ -46,6 +46,7 @@ PhaseType = Literal[
     "agent_run_start",
     "agent_run_end",
     "agent_run_result",
+    "model_select",
     "register_mcp_catalog_servers",
     "register_browser_types",
     "register_model_providers",
@@ -132,6 +133,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "agent_run_start": [],
     "agent_run_end": [],
     "agent_run_result": [],
+    "model_select": [],
     "register_mcp_catalog_servers": [],
     "register_browser_types": [],
     "register_model_providers": [],
@@ -1152,6 +1154,50 @@ async def on_agent_run_start(
     return await _trigger_callbacks(
         "agent_run_start", agent_name, model_name, session_id
     )
+
+
+def on_model_select(
+    *,
+    agent_name: str,
+    current_model: str | None,
+    prompt: str,
+    messages: List[Any],
+    session_id: str | None = None,
+) -> str | None:
+    """Ask plugins to choose the model for the current run.
+
+    Fires once per run, before the pydantic agent is (re)built. Lets a plugin
+    route each turn to a different model based on the agent, the effective
+    ("would-be") model, and the message history -- e.g. a small model for
+    trivial turns and a frontier model when it matters, or a cost/latency/
+    failover policy.
+
+    Precedence: an explicit runtime override still wins over this hook; this
+    hook wins over the pinned / JSON / global model. The first callback to
+    return a non-empty string wins; return ``None`` to defer.
+
+    Args:
+        agent_name: Name of the agent about to run.
+        current_model: The model that would be used absent any hook.
+        prompt: The current user prompt after submission hooks have rewritten it.
+        messages: The agent's prior message history for this run.
+        session_id: Optional per-run identifier.
+
+    Returns:
+        A model name to use for this run, or ``None`` to keep ``current_model``.
+    """
+    results = _trigger_callbacks_sync(
+        "model_select",
+        agent_name=agent_name,
+        current_model=current_model,
+        prompt=prompt,
+        messages=messages,
+        session_id=session_id,
+    )
+    for result in results:
+        if isinstance(result, str) and result.strip():
+            return result
+    return None
 
 
 async def on_agent_run_end(
