@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
 import sys
 import threading
 import time
@@ -46,7 +47,31 @@ _PYRAMID = (
     "00000000000011112223333333222111",
 )
 _CHARS = (" ", "\u2591", "\u2592", "\u2588")
-_HEIGHT = len(_PYRAMID)
+_PYRAMID_WIDTH = 44
+
+# "Powered by" / "Pydantic" pre-rendered in pyfiglet's ansi_shadow (the same
+# font as the main CODE PUPPY banner). Baked as constants: pyfiglet is not
+# stdlib and this module must stay import-light. Solid blocks render as the
+# neon core tier; the box-drawing shadow trim renders as the mid glow tier.
+_TAGLINE_TOP = (
+    "\u2588\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557    \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557     \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557",
+    "\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2551    \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557    \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d",
+    "\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2551 \u2588\u2557 \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551  \u2588\u2588\u2551    \u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d \u255a\u2588\u2588\u2588\u2588\u2554\u255d",
+    "\u2588\u2588\u2554\u2550\u2550\u2550\u255d \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2588\u2557\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u255d  \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u255d  \u2588\u2588\u2551  \u2588\u2588\u2551    \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557  \u255a\u2588\u2588\u2554\u255d",
+    "\u2588\u2588\u2551     \u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u255a\u2588\u2588\u2588\u2554\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d    \u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d   \u2588\u2588\u2551",
+    "\u255a\u2550\u255d      \u255a\u2550\u2550\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u255d\u255a\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u255d  \u255a\u2550\u255d\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u2550\u2550\u2550\u2550\u255d     \u255a\u2550\u2550\u2550\u2550\u2550\u255d    \u255a\u2550\u255d",
+)
+_TAGLINE_TOP_WIDTH = 80
+_TAGLINE_BOTTOM = (
+    "\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557",
+    "\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551\u255a\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d",
+    "\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d \u255a\u2588\u2588\u2588\u2588\u2554\u255d \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2551",
+    "\u2588\u2588\u2554\u2550\u2550\u2550\u255d   \u255a\u2588\u2588\u2554\u255d  \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2551\u2588\u2588\u2551\u255a\u2588\u2588\u2557\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2551",
+    "\u2588\u2588\u2551        \u2588\u2588\u2551   \u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2557",
+    "\u255a\u2550\u255d        \u255a\u2550\u255d   \u255a\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u255d  \u255a\u2550\u255d\u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d   \u255a\u2550\u255d   \u255a\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u255d",
+)
+_TAGLINE_BOTTOM_WIDTH = 63
+_SHADOW_TRIM = frozenset("\u2550\u2551\u2554\u2557\u255a\u255d")
 
 _RESET = "\x1b[0m"
 _HIDE_CURSOR = "\x1b[?25l"
@@ -84,16 +109,57 @@ def _truecolor() -> bool:
     return os.environ.get("COLORTERM", "").lower() in ("truecolor", "24bit")
 
 
-def _build_frame(phase: int, truecolor: bool) -> str:
-    """Render one full frame; every line clears itself first (\\x1b[2K)."""
+def _compose_rows(columns: int, lines: int):
+    """Pick the biggest lockup the terminal can hold and lay it out.
+
+    Returns a list of (kind, content) rows: ``art`` rows are pyramid tier
+    digits, ``text`` rows are literal figlet glyphs. Degrades gracefully:
+    full "Powered by / Pydantic" -> "Pydantic" only -> pyramid only.
+    """
+    top = [(line, _TAGLINE_TOP_WIDTH) for line in _TAGLINE_TOP]
+    bottom = [(line, _TAGLINE_BOTTOM_WIDTH) for line in _TAGLINE_BOTTOM]
+    variants = (
+        (top + [("", 0)] + bottom, _TAGLINE_TOP_WIDTH),
+        (bottom, _TAGLINE_BOTTOM_WIDTH),
+        ([], _PYRAMID_WIDTH),
+    )
+    for text_rows, text_width in variants:
+        width = max(_PYRAMID_WIDTH, text_width)
+        height = len(_PYRAMID) + (1 + len(text_rows) if text_rows else 0)
+        if columns >= width + 2 and lines >= height + 2:
+            break
+    rows = []
+    art_pad = "0" * ((width - _PYRAMID_WIDTH) // 2)
+    for row in _PYRAMID:
+        rows.append(("art", art_pad + row))
+    if text_rows:
+        rows.append(("text", ""))
+        for line, block_width in text_rows:
+            # Center each figlet block independently (blocks differ in width).
+            pad = " " * ((width - block_width) // 2) if line else ""
+            rows.append(("text", pad + line))
+    return rows
+
+
+def _build_frame(phase: int, truecolor: bool, rows) -> str:
+    """Render one full frame; every line clears itself first (\\x1b[2K).
+
+    The sheen band is computed from absolute (column, row) so it sweeps one
+    continuous diagonal across the pyramid AND the figlet text below it.
+    """
     base = _TRUECOLOR_BASE if truecolor else _FALLBACK_BASE
     hot = _TRUECOLOR_HOT if truecolor else _FALLBACK_HOT
     lines = []
-    for y, row in enumerate(_PYRAMID):
+    for y, (kind, content) in enumerate(rows):
         parts = ["\x1b[2K"]
         current = ""
-        for x, digit in enumerate(row):
-            tier = int(digit)
+        for x, ch in enumerate(content):
+            if kind == "art":
+                tier = int(ch)
+                glyph = _CHARS[tier]
+            else:
+                tier = 3 if ch == "\u2588" else 2 if ch in _SHADOW_TRIM else 0
+                glyph = ch
             if tier == 0:
                 parts.append(" ")
                 continue
@@ -102,7 +168,7 @@ def _build_frame(phase: int, truecolor: bool) -> str:
             if style != current:
                 parts.append(style)
                 current = style
-            parts.append(_CHARS[tier])
+            parts.append(glyph)
         parts.append(_RESET)
         lines.append("".join(parts))
     return "\n".join(lines) + "\n"
@@ -174,6 +240,9 @@ class _Splash:
         self._thread = threading.Thread(
             target=self._run, name="code-puppy-splash", daemon=True
         )
+        size = shutil.get_terminal_size(fallback=(80, 24))
+        self._rows = _compose_rows(size.columns, size.lines)
+        self._height = len(self._rows)
         self._stopped = False
         self._thread.start()
 
@@ -181,12 +250,12 @@ class _Splash:
         phase = 0
         try:
             self._stream.write(_HIDE_CURSOR)
-            self._stream.write(_build_frame(phase, self._truecolor))
+            self._stream.write(_build_frame(phase, self._truecolor, self._rows))
             self._stream.flush()
             while not self._stop_event.wait(_FRAME_SECONDS):
                 phase = (phase + 2) % _SHEEN_PERIOD
-                self._stream.write(f"\x1b[{_HEIGHT}A")
-                self._stream.write(_build_frame(phase, self._truecolor))
+                self._stream.write(f"\x1b[{self._height}A")
+                self._stream.write(_build_frame(phase, self._truecolor, self._rows))
                 self._stream.flush()
         except Exception:
             pass  # a dying terminal must never take the CLI down
@@ -207,7 +276,7 @@ class _Splash:
         self._thread.join(timeout=1.0)
         try:
             # Cursor up over the frame, erase to end of screen, restore cursor.
-            self._stream.write(f"\x1b[{_HEIGHT}A\x1b[0J{_SHOW_CURSOR}")
+            self._stream.write(f"\x1b[{self._height}A\x1b[0J{_SHOW_CURSOR}")
             self._stream.flush()
         except Exception:
             pass
