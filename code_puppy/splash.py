@@ -76,6 +76,11 @@ _SHADOW_TRIM = frozenset("\u2550\u2551\u2554\u2557\u255a\u255d")
 _RESET = "\x1b[0m"
 _HIDE_CURSOR = "\x1b[?25l"
 _SHOW_CURSOR = "\x1b[?25h"
+# Synchronized output (DEC 2026): terminals that support it (iTerm2, kitty,
+# WezTerm, Ghostty, Alacritty, ...) render the whole frame atomically --
+# zero flicker. Terminals that don't simply ignore the markers.
+_SYNC_START = "\x1b[?2026h"
+_SYNC_END = "\x1b[?2026l"
 
 # Neon palette: violet haze -> brand magenta -> hot pink core, with a
 # white-hot crest where the sheen band passes.
@@ -142,16 +147,19 @@ def _compose_rows(columns: int, lines: int):
 
 
 def _build_frame(phase: int, truecolor: bool, rows) -> str:
-    """Render one full frame; every line clears itself first (\\x1b[2K).
+    """Render one frame as newline-joined lines with NO trailing newline.
 
-    The sheen band is computed from absolute (column, row) so it sweeps one
+    Cells are overwritten in place (row shapes are constant across frames,
+    only colors change), so no erase codes are needed -- erase-then-redraw
+    is exactly what flickers on terminals without synchronized output. The
+    sheen band is computed from absolute (column, row) so it sweeps one
     continuous diagonal across the pyramid AND the figlet text below it.
     """
     base = _TRUECOLOR_BASE if truecolor else _FALLBACK_BASE
     hot = _TRUECOLOR_HOT if truecolor else _FALLBACK_HOT
     lines = []
     for y, (kind, content) in enumerate(rows):
-        parts = ["\x1b[2K"]
+        parts = []
         current = ""
         for x, ch in enumerate(content):
             if kind == "art":
@@ -171,7 +179,7 @@ def _build_frame(phase: int, truecolor: bool, rows) -> str:
             parts.append(glyph)
         parts.append(_RESET)
         lines.append("".join(parts))
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines)
 
 
 class _NullSplash:
@@ -248,14 +256,20 @@ class _Splash:
 
     def _run(self) -> None:
         phase = 0
+        # Reposition to frame top: carriage return + cursor-up (height-1).
+        # The frame has no trailing newline, so nothing ever scrolls and the
+        # cursor parks at the end of the last row between frames.
+        reposition = f"\r\x1b[{self._height - 1}A"
         try:
-            self._stream.write(_HIDE_CURSOR)
-            self._stream.write(_build_frame(phase, self._truecolor, self._rows))
+            first = _build_frame(phase, self._truecolor, self._rows)
+            self._stream.write(f"{_HIDE_CURSOR}{_SYNC_START}{first}{_SYNC_END}")
             self._stream.flush()
             while not self._stop_event.wait(_FRAME_SECONDS):
                 phase = (phase + 2) % _SHEEN_PERIOD
-                self._stream.write(f"\x1b[{self._height}A")
-                self._stream.write(_build_frame(phase, self._truecolor, self._rows))
+                frame = _build_frame(phase, self._truecolor, self._rows)
+                # One atomic write per frame: no tearing between reposition
+                # and repaint even without DEC 2026 support.
+                self._stream.write(f"{_SYNC_START}{reposition}{frame}{_SYNC_END}")
                 self._stream.flush()
         except Exception:
             pass  # a dying terminal must never take the CLI down
@@ -275,8 +289,8 @@ class _Splash:
         self._stop_event.set()
         self._thread.join(timeout=1.0)
         try:
-            # Cursor up over the frame, erase to end of screen, restore cursor.
-            self._stream.write(f"\x1b[{self._height}A\x1b[0J{_SHOW_CURSOR}")
+            # Back to frame top, erase to end of screen, restore cursor.
+            self._stream.write(f"\r\x1b[{self._height - 1}A\x1b[0J{_SHOW_CURSOR}")
             self._stream.flush()
         except Exception:
             pass

@@ -68,6 +68,21 @@ class TestFrame:
         frame = splash._build_frame(0, False, FULL)
         assert "38;2;" not in frame
 
+    def test_frame_has_no_erase_codes_or_trailing_newline(self):
+        # Erase-then-redraw flickers; frames overwrite in place instead,
+        # and a trailing newline would scroll at the bottom of the screen.
+        frame = splash._build_frame(0, True, FULL)
+        assert "\x1b[2K" not in frame
+        assert not frame.endswith("\n")
+
+    def test_frames_are_wrapped_in_synchronized_output(self):
+        stream = FakeTty()
+        handle = splash.start_splash(stream=stream, force=True, min_seconds=0.1)
+        handle.stop()
+        output = stream.getvalue()
+        assert output.count(splash._SYNC_START) == output.count(splash._SYNC_END)
+        assert output.count(splash._SYNC_START) >= 1
+
     def test_baked_figlet_matches_pyfiglet(self):
         import pyfiglet
 
@@ -163,7 +178,7 @@ class TestLifecycle:
         assert elapsed >= 0.25  # slack for scheduler jitter
         assert not handle._thread.is_alive()
         # the extra showtime produced extra frames, not a frozen screen
-        assert stream.getvalue().count("\x1b[2K") > handle._height
+        assert stream.getvalue().count(splash._SYNC_START) > 1
 
     def test_default_minimum_is_three_seconds(self):
         assert splash._MIN_SHOW_SECONDS == 3.0
