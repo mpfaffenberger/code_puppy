@@ -28,8 +28,8 @@ _ORIGINAL_XDG_ENV = {name: os.environ.get(name) for name in _XDG_ENV_VARS}
 for _xdg_name in _XDG_ENV_VARS:
     os.environ[_xdg_name] = os.path.join(_XDG_TEMP_DIR.name, _xdg_name.lower())
 
-from code_puppy import config as cp_config  # noqa: E402
 from code_puppy import callbacks as cp_callbacks  # noqa: E402
+from code_puppy import config as cp_config  # noqa: E402
 from code_puppy.messaging import bottom_bar as cp_bottom_bar  # noqa: E402
 
 

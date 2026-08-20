@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 from code_puppy import config as cp_config
 
 
@@ -40,7 +39,7 @@ class TestParsedConfigCache:
         assert cp_config.get_value("cache_probe") == "before"
 
         with open(cp_config.CONFIG_FILE, "w", encoding="utf-8") as f:
-            f.write("[puppy]\\ncache_probe = externally-changed\\n")
+            f.write("[puppy]\ncache_probe = externally-changed\n")
 
         assert cp_config.get_value("cache_probe") == "externally-changed"
 
