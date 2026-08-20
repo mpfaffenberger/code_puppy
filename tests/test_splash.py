@@ -46,6 +46,22 @@ class TestGating:
         monkeypatch.setenv("TERM", "dumb")
         assert splash._wants_splash(["code-puppy"]) is False
 
+    def test_terminal_too_small_for_pyramid_gets_null_splash(self, monkeypatch):
+        import os
+
+        monkeypatch.setattr("sys.argv", ["code-puppy"])
+        monkeypatch.delenv("CODE_PUPPY_NO_SPLASH", raising=False)
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        monkeypatch.setenv("TERM", "xterm-256color")
+        monkeypatch.setattr(
+            splash.shutil,
+            "get_terminal_size",
+            lambda fallback=(80, 24): os.terminal_size((40, 12)),
+        )
+        result = splash.start_splash(stream=FakeTty())
+        assert isinstance(result, splash._NullSplash)
+        result.stop()  # harmless no-op
+
 
 FULL = splash._compose_rows(120, 50)
 
@@ -125,6 +141,16 @@ class TestComposeRows:
         pad = len(rows[idx][1]) - len(splash._PYRAMID[idx])
         assert pad == (splash._TAGLINE_TOP_WIDTH - splash._PYRAMID_WIDTH) // 2
 
+    def test_center_rows_pads_both_kinds_with_their_blank(self):
+        rows = [("art", "123"), ("text", "\u2588\u2588\u2588")]
+        centered = splash._center_rows(rows, 11)
+        assert centered[0][1] == "0000123"
+        assert centered[1][1] == "    \u2588\u2588\u2588"
+
+    def test_center_rows_never_pads_negative(self):
+        rows = [("art", "123")]
+        assert splash._center_rows(rows, 2) == rows
+
     def test_pydantic_block_centered_under_powered_by(self):
         rows = splash._compose_rows(120, 50)
         text_lines = [c for k, c in rows if k == "text" and c]
@@ -148,6 +174,32 @@ class TestLifecycle:
         assert "\u2588" in output  # some pyramid actually got drawn
         assert not handle._thread.is_alive()
         assert handle._height == len(handle._rows)
+
+    def test_fullscreen_alt_screen_entered_then_left(self):
+        stream = FakeTty()
+        handle = splash.start_splash(stream=stream, force=True, min_seconds=0.05)
+        time.sleep(0.05)
+        handle.stop()
+        output = stream.getvalue()
+        assert output.count(splash._ALT_SCREEN_ON) == 1
+        assert output.count(splash._ALT_SCREEN_OFF) == 1
+        assert output.index(splash._ALT_SCREEN_ON) < output.index(
+            splash._ALT_SCREEN_OFF
+        )
+
+    def test_frame_origin_is_vertically_centered(self, monkeypatch):
+        import os
+
+        monkeypatch.setattr(
+            splash.shutil,
+            "get_terminal_size",
+            lambda fallback=(80, 24): os.terminal_size((120, 50)),
+        )
+        stream = FakeTty()
+        handle = splash.start_splash(stream=stream, force=True, min_seconds=0)
+        handle.stop()
+        assert handle._top_row == (50 - handle._height) // 2 + 1
+        assert f"\x1b[{handle._top_row};1H" in stream.getvalue()
 
     def test_stop_is_idempotent(self):
         stream = FakeTty()

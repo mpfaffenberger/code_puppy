@@ -7,10 +7,11 @@ and stop it the moment they finish. Do not import anything from
 ``code_puppy`` here -- that would defeat the entire point.
 
 The animation is pure art (no text), so it stays outside the i18n seam.
-Every frame repaints its full region with line-clears, which also absorbs
-any stray import-time output (e.g. plugin warnings emitted while
-``cli_runner`` loads). Everything fails soft: a broken terminal gets a
-no-op splash, never a crashed CLI.
+It runs full-screen on the alternate screen buffer, centered both axes;
+leaving the alt screen on stop() restores the user's terminal exactly as
+it was. Stray import-time output (e.g. plugin warnings emitted while
+``cli_runner`` loads) is buffered and replayed afterwards. Everything
+fails soft: a broken terminal gets a no-op splash, never a crashed CLI.
 """
 
 from __future__ import annotations
@@ -76,6 +77,12 @@ _SHADOW_TRIM = frozenset("\u2550\u2551\u2554\u2557\u255a\u255d")
 _RESET = "\x1b[0m"
 _HIDE_CURSOR = "\x1b[?25l"
 _SHOW_CURSOR = "\x1b[?25h"
+# Alternate screen buffer (like vim/less): the splash owns a blank
+# full-screen canvas, and leaving it restores the user's scrollback
+# untouched -- no erase bookkeeping needed on the way out.
+_ALT_SCREEN_ON = "\x1b[?1049h"
+_ALT_SCREEN_OFF = "\x1b[?1049l"
+_CLEAR_SCREEN = "\x1b[2J"
 # Synchronized output (DEC 2026): terminals that support it (iTerm2, kitty,
 # WezTerm, Ghostty, Alacritty, ...) render the whole frame atomically --
 # zero flicker. Terminals that don't simply ignore the markers.
@@ -144,6 +151,22 @@ def _compose_rows(columns: int, lines: int):
             pad = " " * ((width - block_width) // 2) if line else ""
             rows.append(("text", pad + line))
     return rows
+
+
+def _center_rows(rows, columns: int):
+    """Pad every row so the artwork block sits horizontally centered.
+
+    Art rows pad with '0' (the empty glow tier) and text rows with spaces,
+    so ``_build_frame`` needs no knowledge of centering at all.
+    """
+    block_width = max((len(content) for _, content in rows), default=0)
+    pad = max(0, (columns - block_width) // 2)
+    if not pad:
+        return list(rows)
+    return [
+        (kind, ("0" * pad if kind == "art" else " " * pad) + content)
+        for kind, content in rows
+    ]
 
 
 def _build_frame(phase: int, truecolor: bool, rows) -> str:
@@ -249,20 +272,25 @@ class _Splash:
             target=self._run, name="code-puppy-splash", daemon=True
         )
         size = shutil.get_terminal_size(fallback=(80, 24))
-        self._rows = _compose_rows(size.columns, size.lines)
+        self._rows = _center_rows(_compose_rows(size.columns, size.lines), size.columns)
         self._height = len(self._rows)
+        # 1-based row where the frame starts, vertically centering the art.
+        self._top_row = max(1, (size.lines - self._height) // 2 + 1)
         self._stopped = False
         self._thread.start()
 
     def _run(self) -> None:
         phase = 0
-        # Reposition to frame top: carriage return + cursor-up (height-1).
-        # The frame has no trailing newline, so nothing ever scrolls and the
-        # cursor parks at the end of the last row between frames.
-        reposition = f"\r\x1b[{self._height - 1}A"
+        # The alt screen is ours alone, so every frame repaints from the
+        # same absolute, vertically-centered origin. The frame has no
+        # trailing newline, so nothing ever scrolls.
+        reposition = f"\x1b[{self._top_row};1H"
         try:
             first = _build_frame(phase, self._truecolor, self._rows)
-            self._stream.write(f"{_HIDE_CURSOR}{_SYNC_START}{first}{_SYNC_END}")
+            self._stream.write(
+                f"{_ALT_SCREEN_ON}{_HIDE_CURSOR}{_CLEAR_SCREEN}"
+                f"{_SYNC_START}{reposition}{first}{_SYNC_END}"
+            )
             self._stream.flush()
             while not self._stop_event.wait(_FRAME_SECONDS):
                 phase = (phase + 2) % _SHEEN_PERIOD
@@ -289,8 +317,9 @@ class _Splash:
         self._stop_event.set()
         self._thread.join(timeout=1.0)
         try:
-            # Back to frame top, erase to end of screen, restore cursor.
-            self._stream.write(f"\r\x1b[{self._height - 1}A\x1b[0J{_SHOW_CURSOR}")
+            # Leaving the alt screen restores the pre-splash terminal
+            # content and cursor position in one move; nothing to erase.
+            self._stream.write(f"{_ALT_SCREEN_OFF}{_SHOW_CURSOR}")
             self._stream.flush()
         except Exception:
             pass
@@ -357,6 +386,12 @@ def start_splash(
             if not (hasattr(stream, "isatty") and stream.isatty()):
                 return _NullSplash()
             if not _wants_splash(sys.argv):
+                return _NullSplash()
+            # _compose_rows degrades full lockup -> "Pydantic" -> bare
+            # pyramid, but below even the pyramid's footprint there is
+            # nothing honest left to draw: stay silent, never clip art.
+            size = shutil.get_terminal_size(fallback=(80, 24))
+            if size.columns < _PYRAMID_WIDTH + 2 or size.lines < len(_PYRAMID) + 2:
                 return _NullSplash()
         if not _enable_windows_vt(stream):
             return _NullSplash()

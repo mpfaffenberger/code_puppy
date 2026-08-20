@@ -225,17 +225,19 @@ class TestMain:
         mock_inter.assert_called_once()
 
     @pytest.mark.anyio
-    async def test_android_interactive_mode_uses_compact_banner(self):
+    async def test_narrow_terminal_interactive_mode_uses_compact_banner(self):
         mock_inter = AsyncMock()
         mock_figlet = MagicMock(return_value="LOGO\n\n")
-        await self._run_main(
-            ["code-puppy"],
-            extra_patches={
-                "code_puppy.cli_runner.interactive_mode": mock_inter,
-                "code_puppy.cli_runner.sys.platform": "android",
-                "pyfiglet.figlet_format": mock_figlet,
-            },
-        )
+        # Rich's Console honors COLUMNS, so this squeezes the banner width
+        # below the full CODE PUPPY figlet (79 cols).
+        with patch.dict(os.environ, {"COLUMNS": "50"}):
+            await self._run_main(
+                ["code-puppy"],
+                extra_patches={
+                    "code_puppy.cli_runner.interactive_mode": mock_inter,
+                    "pyfiglet.figlet_format": mock_figlet,
+                },
+            )
 
         mock_figlet.assert_called_once_with("PUP", font="ansi_shadow")
 

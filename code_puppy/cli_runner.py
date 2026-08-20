@@ -274,14 +274,19 @@ async def main():
         try:
             import pyfiglet
 
+            # Width-aware banner: full CODE PUPPY when it fits, PUP when
+            # the terminal is too narrow (phones, tight splits).
+            banner_columns = display_console.width
             intro_lines = pyfiglet.figlet_format(
-                startup_banner_text(), font="ansi_shadow"
+                startup_banner_text(banner_columns), font="ansi_shadow"
             ).split("\n")
 
             # Simple blue to green gradient (top to bottom)
             gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
             display_console.print("\n")
 
+            # Left-justified on purpose -- the full-screen splash handles
+            # the centered spectacle; this banner tops the scrollback.
             lines = []
             for line_num, line in enumerate(intro_lines):
                 if line.strip():
