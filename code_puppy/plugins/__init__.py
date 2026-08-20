@@ -1,6 +1,9 @@
 import importlib
+import importlib.abc
+import importlib.machinery
 import importlib.util
 import logging
+import os
 import sys
 from importlib.metadata import entry_points
 import types
@@ -13,6 +16,104 @@ logger = logging.getLogger(__name__)
 
 # User plugins directory
 USER_PLUGINS_DIR = Path.home() / ".code_puppy" / "plugins"
+
+# Bytecode the *default* loader would emit for a project plugin's eager
+# top-level sibling imports is redirected here, out of the project tree, so a
+# clean load never leaves a __pycache__ entry the tripwire would refuse next
+# session. The redirect is process-wide, so it is applied only around each
+# plugin's exec and restored afterward (see _load_one_project_plugin); leaving
+# it set would divert bytecode for every unrelated import in the process. The
+# source-only loader compiles in memory and writes nothing, so the plugin's own
+# modules never depend on it.
+_PROJECT_PLUGIN_PYCACHE = str(Path.home() / ".code_puppy" / "plugin_bytecode_cache")
+
+
+class _ProjectPluginLoader(importlib.machinery.SourceFileLoader):
+    """Load project plugin source directly; never read or write ``.pyc`` caches.
+
+    Compiling from source keeps a plugin executing exactly the file that was
+    trusted, and writes no cache back. Within the ``project_plugins`` namespace
+    this loader is the only one the finder hands out; a plugin directory that
+    ships any bytecode is refused before it reaches here (see
+    ``_load_one_project_plugin``).
+    """
+
+    def get_code(self, fullname):  # noqa: D102
+        return compile(self.get_source(fullname), self.path, "exec", dont_inherit=True)
+
+
+class _ProjectPluginFinder(importlib.abc.MetaPathFinder):
+    """Serve ``project_plugins.*`` imports with :class:`_ProjectPluginLoader`.
+
+    Installed at the front of ``sys.meta_path`` before any trusted project
+    plugin is imported (see ``_install_project_plugin_finder``), so a plugin's
+    own module and every sibling it imports resolve through the source-only
+    loader. A ``project_plugins.*`` name backed only by planted bytecode
+    (``<name>.pyc`` with no source) raises ``ImportError`` instead of falling
+    through to the default path finder's ``SourcelessFileLoader``.
+    """
+
+    def find_spec(self, fullname, path=None, target=None):  # noqa: D102
+        if not fullname.startswith(_PROJECT_PLUGINS_NS + "."):
+            return None
+        last = fullname.rsplit(".", 1)[-1]
+        for entry in list(path or []):
+            base = Path(entry)
+            pkg_dir = base / last
+            init_file = pkg_dir / "__init__.py"
+            module_file = base / f"{last}.py"
+            # A package: a directory carrying a real __init__.py source file.
+            if init_file.is_file():
+                if pkg_dir.is_symlink():
+                    raise ImportError(
+                        f"Refusing to import {fullname!r} through symlinked "
+                        f"directory {pkg_dir} — the trust hash never saw its target"
+                    )
+                return importlib.util.spec_from_file_location(
+                    fullname,
+                    init_file,
+                    loader=_ProjectPluginLoader(fullname, str(init_file)),
+                    submodule_search_locations=[str(pkg_dir)],
+                )
+            # A module: <last>.py wins over a same-named directory, matching
+            # CPython precedence (a source file beats a bare namespace portion).
+            # The default finder does this too; inverting it here would let an
+            # empty <last>/ dir silently shadow a trusted <last>.py.
+            if module_file.is_file():
+                return importlib.util.spec_from_file_location(
+                    fullname,
+                    module_file,
+                    loader=_ProjectPluginLoader(fullname, str(module_file)),
+                )
+            # No source under this name, but a non-source artifact the default
+            # finder would execute (planted bytecode or a compiled extension):
+            # own the name and fail closed instead of falling through.
+            for suffix in (".pyc", *importlib.machinery.EXTENSION_SUFFIXES):
+                artifact = base / f"{last}{suffix}"
+                if artifact.is_file():
+                    raise ImportError(
+                        f"Refusing to import {fullname!r} from non-source file "
+                        f"{artifact} — project plugins load from source only"
+                    )
+            # Only now, with no source file and no planted artifact, honor a bare
+            # namespace portion (a directory with no __init__.py).
+            if pkg_dir.is_dir():
+                if pkg_dir.is_symlink():
+                    raise ImportError(
+                        f"Refusing to import {fullname!r} through symlinked "
+                        f"directory {pkg_dir} — the trust hash never saw its target"
+                    )
+                spec = importlib.machinery.ModuleSpec(fullname, None, is_package=True)
+                spec.submodule_search_locations = [str(pkg_dir)]
+                return spec
+        return None
+
+
+def _install_project_plugin_finder() -> None:
+    """Register the project-plugin finder once, ahead of the path finder."""
+    if not any(isinstance(finder, _ProjectPluginFinder) for finder in sys.meta_path):
+        sys.meta_path.insert(0, _ProjectPluginFinder())
+
 
 PLUGIN_ENTRY_POINT_GROUP = "code_puppy.plugins"
 
@@ -293,10 +394,10 @@ def _ensure_plugin_package(plugin_dir: Path, plugin_name: str) -> bool:
         spec_init = importlib.util.spec_from_file_location(
             pkg_name,
             init_file,
+            loader=_ProjectPluginLoader(pkg_name, str(init_file)),
             submodule_search_locations=[str(plugin_dir)],
         )
         if spec_init is None or spec_init.loader is None:
-            # Fallback: bare namespace (init exists but can't be loaded)
             pkg_mod = types.ModuleType(pkg_name)
             pkg_mod.__path__ = [str(plugin_dir)]
             pkg_mod.__package__ = pkg_name
@@ -313,6 +414,65 @@ def _ensure_plugin_package(plugin_dir: Path, plugin_name: str) -> bool:
         pkg_mod.__package__ = pkg_name
         sys.modules[pkg_name] = pkg_mod
         return False
+
+
+def _find_plugin_bytecode(plugin_dir: Path) -> Path | None:
+    """Return the first import artifact under *plugin_dir* that trust can't cover.
+
+    ``compute_plugin_hash`` digests only source files, so bytecode (``.pyc`` /
+    ``__pycache__``), compiled extensions (``.so`` / ``.pyd``), and symlinked
+    subdirectories can slip past the trust digest yet still be imported by the
+    machinery. Any of them beside a source plugin is treated as tampering.
+
+    Walks with ``followlinks=False`` so a symlinked subdirectory is reported at
+    its own level — its target lives outside the hashed tree — without being
+    descended into (``rglob`` would silently skip it while ``find_spec`` follows
+    it).
+    """
+    binary_suffixes = {".pyc", *importlib.machinery.EXTENSION_SUFFIXES}
+    try:
+        for root, dirnames, filenames in os.walk(plugin_dir, followlinks=False):
+            root_path = Path(root)
+            for dirname in dirnames:
+                dir_path = root_path / dirname
+                if dirname == "__pycache__" or dir_path.is_symlink():
+                    return dir_path
+            for filename in filenames:
+                if Path(filename).suffix in binary_suffixes:
+                    return root_path / filename
+    except OSError:
+        return None
+    return None
+
+
+def _find_path_entry_binary(path_entry: Path) -> Path | None:
+    """Return the first sourceless import artifact directly under *path_entry*.
+
+    *path_entry* is the directory a project plugin adds to ``sys.path`` (the
+    plugins root, ``plugin_dir.parent``). A plugin's *top-level* ``import name``
+    resolves against it through the **default** import machinery, which the
+    source-only finder never sees — so loose ``.pyc``/``.so``/``.pyd`` there, or
+    a same-named directory whose only ``__init__`` is bytecode/extension, would
+    execute without ever touching the trust hash. ``_find_plugin_bytecode`` scans
+    only inside each plugin, so this covers the shared import root it cannot.
+
+    Only the direct children of *path_entry* are checked: those are exactly the
+    top-level names an ``import name`` resolves there, and sibling plugin
+    directories carry their own in-tree tripwire.
+    """
+    binary_suffixes = {".pyc", *importlib.machinery.EXTENSION_SUFFIXES}
+    try:
+        for child in path_entry.iterdir():
+            if child.is_file() and child.suffix in binary_suffixes:
+                return child
+            if child.is_dir() and not (child / "__init__.py").is_file():
+                for suffix in binary_suffixes:
+                    init_artifact = child / f"__init__{suffix}"
+                    if init_artifact.is_file():
+                        return init_artifact
+    except OSError:
+        return None
+    return None
 
 
 def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
@@ -333,19 +493,57 @@ def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
     if not callbacks_file.exists() and not init_file.exists():
         return False
 
+    # Fail closed at the trust boundary: a source plugin has no legitimate reason
+    # to ship bytecode or compiled extensions, and the trust hash never covers
+    # them, so any .pyc/__pycache__/.so/.pyd — or a symlinked subdir the digest
+    # never followed — is treated as tampering and the whole plugin is refused.
+    # The scan covers both the plugin's own tree and the plugins root placed on
+    # sys.path below: a trusted plugin's top-level ``import helper`` resolves a
+    # loose helper.pyc there through the default (non-source) loader, an import
+    # path the meta-path finder never sees.
+    binary = _find_plugin_bytecode(plugin_dir)
+    if binary is None:
+        binary = _find_path_entry_binary(plugin_dir.parent)
+    if binary is not None:
+        logger.warning(
+            "Refusing to load project plugin '%s': found non-source import "
+            "artifact at %s. Remove all .pyc/.so/.pyd files, __pycache__ "
+            "directories, and symlinked subdirectories from the plugin directory "
+            "and the plugins root, then reload.",
+            plugin_name,
+            binary,
+        )
+        return False
+
     # sys.path entry is earned by trust — inserted just-in-time so sibling
     # top-level imports inside the plugin resolve during exec below.
     parent_str = str(plugin_dir.parent)
     if parent_str not in sys.path:
         sys.path.insert(0, parent_str)
 
+    # Route the plugin and every sibling it imports through the source-only
+    # loader. The finder stays installed permanently — it is scoped to the
+    # project_plugins.* namespace, so it is inert for all other imports. The
+    # pycache_prefix redirect is process-wide, so it wraps only this plugin's own
+    # exec and is restored in the finally below: it keeps bytecode the *default*
+    # loader would emit for an eager top-level sibling import out of the project
+    # tree. The source-only loader compiles in memory and writes no cache, so the
+    # plugin's own modules never need the redirect to persist.
+    _install_project_plugin_finder()
+    prev_pycache_prefix = sys.pycache_prefix
+    sys.pycache_prefix = _PROJECT_PLUGIN_PYCACHE
+
     try:
         if callbacks_file.exists():
-            # Register parent package so relative imports resolve
+            # Register parent package so relative imports resolve.
             _ensure_plugin_package(plugin_dir, plugin_name)
 
             module_name = f"{_PROJECT_PLUGINS_NS}.{plugin_name}.register_callbacks"
-            spec = importlib.util.spec_from_file_location(module_name, callbacks_file)
+            spec = importlib.util.spec_from_file_location(
+                module_name,
+                callbacks_file,
+                loader=_ProjectPluginLoader(module_name, str(callbacks_file)),
+            )
             if spec is None or spec.loader is None:
                 logger.warning(
                     f"Could not create module spec for project plugin: {plugin_name}"
@@ -384,6 +582,12 @@ def _load_one_project_plugin(plugin_dir: Path, plugin_name: str) -> bool:
             exc_info=True,
         )
         return False
+    finally:
+        # Undo the process-wide redirect. Leaving it set diverts bytecode for
+        # every unrelated import in the process (and never restores the original
+        # cache), which is both a perf regression and a source of cross-test
+        # global-state leaks.
+        sys.pycache_prefix = prev_pycache_prefix
 
 
 def _load_project_plugins(

@@ -10,6 +10,7 @@ apply_all_patches()
 
 import argparse
 import asyncio
+import json
 import os
 import signal
 import sys
@@ -52,6 +53,13 @@ from code_puppy.terminal_utils import (
 from code_puppy.version_checker import default_version_mismatch_behavior
 
 plugins.load_plugin_callbacks()
+
+_HEADLESS_AUTONOMY_PROMPT = """\
+This is an unattended, non-interactive run. Never ask for confirmation, approval,
+clarification, or manual verification, including through tools or MCP servers. Use
+reasonable defaults, proceed autonomously, and validate with the tools available to
+you. State any assumptions or optional manual checks only in the final response.\
+"""
 
 
 def _render_turn_exception(exc: Exception) -> None:
@@ -167,6 +175,17 @@ async def main():
         help="Execute a single prompt and exit (no interactive mode)",
     )
     parser.add_argument(
+        "--disable-ask-user-question",
+        action="store_true",
+        help="Disable only the interactive ask_user_question tool",
+    )
+    parser.add_argument(
+        "--usage-file",
+        type=Path,
+        metavar="PATH",
+        help="Write aggregate headless model usage as JSON",
+    )
+    parser.add_argument(
         "--agent",
         "-a",
         type=str,
@@ -186,6 +205,14 @@ async def main():
         help=(
             "Resume a saved session by name or file path "
             "(.json envelope; legacy .pkl files migrate automatically)"
+        ),
+    )
+    parser.add_argument(
+        "--cwd",
+        action="store_true",
+        help=(
+            "With --resume, only list/consider sessions scoped to the current "
+            "working directory (opt-in; default shows all sessions unfiltered)"
         ),
     )
     parser.add_argument(
@@ -209,6 +236,8 @@ async def main():
     callbacks.on_register_cli_args(parser)
 
     args = parser.parse_args()
+    if args.disable_ask_user_question:
+        os.environ["CODE_PUPPY_DISABLE_ASK_USER_QUESTION"] = "1"
 
     # Plugins may act on parsed args and short-circuit startup; first dict
     # with handled=True wins (exits with its exit_code).
@@ -267,6 +296,18 @@ async def main():
         except ImportError:
             emit_system_message(t("cli.loading"))
 
+        # Powered-by tagline under the big banner (prints even without pyfiglet).
+        display_console.print(
+            f"[dim]{t('cli.banner.powered_by')}[/dim] "
+            "[link=https://github.com/pydantic/pydantic-ai-harness]"
+            "[cyan]https://github.com/pydantic/pydantic-ai-harness[/cyan][/link]"
+        )
+        display_console.print(
+            f"[dim]{t('cli.banner.observability_pitch')}[/dim] "
+            "[link=https://pydantic.dev/logfire]"
+            "[cyan]https://pydantic.dev/logfire[/cyan][/link]\n"
+        )
+
         # Truecolor warning moved to interactive_mode() so it prints last — max visibility.
 
     available_port = find_available_port()
@@ -283,6 +324,13 @@ async def main():
         set_model_name(early_model)
 
     ensure_config_exists()
+
+    # Opt-in Logfire observability — a no-op unless enable_logfire (or
+    # CODE_PUPPY_ENABLE_LOGFIRE) is set. Must run before agents spin up so
+    # pydantic-ai instrumentation catches every run.
+    from code_puppy.observability import configure_logfire
+
+    configure_logfire()
 
     # Validate cancel_agent_key configuration early
     try:
@@ -424,10 +472,17 @@ async def main():
             ResumeTargetError,
             resolve_or_create_resume_target,
         )
-        from code_puppy.session_storage import list_sessions, load_session
+        from code_puppy.session_storage import (
+            compute_scope_key,
+            list_sessions,
+            load_session,
+        )
 
         resume_target = args.resume
         sessions_dir = Path(AUTOSAVE_DIR)
+        # Opt-in via --cwd: only offer sessions scoped to the current directory.
+        # Default (flag absent) keeps the unfiltered listing byte-for-byte.
+        resume_scope_key = compute_scope_key(Path.cwd()) if args.cwd else None
 
         # Both headless and interactive accept ``-r missing-name`` (empty session);
         # typos still surface via the visible ``Created new session: NAME`` line.
@@ -441,7 +496,7 @@ async def main():
             emit_error(resolve_exc.message)
             if resolve_exc.hint:
                 emit_info(resolve_exc.hint)
-            available = list_sessions(sessions_dir)
+            available = list_sessions(sessions_dir, scope_key=resume_scope_key)
             if available:
                 emit_info(
                     t(
@@ -512,6 +567,7 @@ async def main():
                 initial_command,
                 message_renderer,
                 session_name=resolved_resume_session,
+                usage_file=args.usage_file,
             )
         else:
             # Default to interactive mode (no args = same as -i)
@@ -1332,11 +1388,33 @@ async def run_prompt_with_attachments(
     return await _await_agent()
 
 
+def _write_usage_file(path: Path, usage) -> None:
+    """Atomically serialize authoritative model usage for automation clients."""
+    cost = getattr(usage, "cost", None)
+    payload = {
+        "input_tokens": getattr(usage, "input_tokens", 0),
+        "output_tokens": getattr(usage, "output_tokens", 0),
+        "cache_read_tokens": getattr(usage, "cache_read_tokens", 0),
+        "cache_write_tokens": getattr(usage, "cache_write_tokens", 0),
+        "requests": getattr(usage, "requests", 0),
+        "tool_calls": getattr(usage, "tool_calls", 0),
+        "cost_usd": float(cost) if cost is not None else None,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(json.dumps(payload, indent=2) + "\n")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 async def execute_single_prompt(
     prompt: str,
     message_renderer,
     *,
     session_name: str | None = None,
+    usage_file: Path | None = None,
 ) -> None:
     """Execute one headless ``-p`` prompt, dispatching commands and autosaving.
 
@@ -1395,18 +1473,22 @@ async def execute_single_prompt(
         agent = get_current_agent()
         # Headless -p mode: no run UI (no bottom bar, no line editor) —
         # output must stay plain for pipes/CI even when stdout is a TTY.
-        result, _agent_task = await run_prompt_with_attachments(
-            agent,
-            prompt,
-            display_console=message_renderer.console,
-            use_run_ui=False,
-        )
+        with agent.temporary_system_prompt_addition(_HEADLESS_AUTONOMY_PROMPT):
+            result, _agent_task = await run_prompt_with_attachments(
+                agent,
+                prompt,
+                display_console=message_renderer.console,
+                use_run_ui=False,
+            )
         if result is None:
             return
 
         get_message_bus().emit(
             AgentResponseMessage(content=result.output, is_markdown=True)
         )
+        if usage_file is not None:
+            usage = result.usage
+            _write_usage_file(usage_file, usage() if callable(usage) else usage)
 
         # The runtime result includes the final assistant response that the
         # incremental history can otherwise miss.

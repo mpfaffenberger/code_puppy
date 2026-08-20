@@ -7,9 +7,12 @@ from unittest.mock import patch
 import pytest
 
 from code_puppy.provider_credentials import (
+    _SECRET_HEADER_NAMES,
     credential_display,
     credential_hint,
     extract_env_var_from_model_config,
+    extract_env_vars_from_model_config,
+    extract_secret_header_env_vars_from_model_config,
     get_credential_value,
     is_credential_set,
     mask_secret,
@@ -48,6 +51,45 @@ class TestExtractEnvVarFromModelConfig:
     )
     def test_extract_env_var_from_model_config(self, config, expected):
         assert extract_env_var_from_model_config(config) == expected
+
+    def test_extract_env_vars_includes_header_credentials(self):
+        names = extract_env_vars_from_model_config(
+            {
+                "provider": "custom",
+                "custom_endpoint": {
+                    "api_key": "$ENDPOINT_KEY",
+                    "headers": {
+                        "Authorization": "Bearer $MY_SERVICE_TOKEN",
+                        "X-Unused": "literal",
+                    },
+                },
+                "api_key": "$TOP_KEY",
+            }
+        )
+        assert names == ["ENDPOINT_KEY", "TOP_KEY", "MY_SERVICE_TOKEN"]
+
+
+class TestExtractSecretHeaderEnvVars:
+    """Only header vars whose NAME marks them a credential are secret."""
+
+    def test_extracts_only_secret_named_header_vars(self):
+        names = extract_secret_header_env_vars_from_model_config(
+            {
+                "custom_endpoint": {
+                    "headers": {"Authorization": "Bearer $A", "X-Title": "$B"}
+                }
+            }
+        )
+        assert names == ["A"]
+
+    def test_secret_header_name_match_is_case_insensitive(self):
+        # The frozenset stores lowercase names, and the header name is lowered
+        # before the membership test, so an upper-cased header still matches.
+        assert "authorization" in _SECRET_HEADER_NAMES
+        names = extract_secret_header_env_vars_from_model_config(
+            {"custom_endpoint": {"headers": {"AUTHORIZATION": "Bearer $UPPER"}}}
+        )
+        assert names == ["UPPER"]
 
 
 class TestMaskSecret:
@@ -192,6 +234,85 @@ class TestIsCredentialSet:
             return_value=cred_value,
         ):
             assert is_credential_set("ANY_KEY") is expected
+
+
+class TestEnvironmentWithoutCredentials:
+    """The child-shell scrub set derives from api_key fields only."""
+
+    def test_keeps_custom_endpoint_header_non_secret(self, monkeypatch):
+        from code_puppy.provider_credentials import environment_without_credentials
+
+        monkeypatch.setattr(
+            "code_puppy.provider_credentials._load_merged_model_config",
+            lambda: {
+                "openrouter-model": {
+                    "provider": "openrouter",
+                    "api_key": "$OPENROUTER_API_KEY",
+                    "custom_endpoint": {"headers": {"HTTP-Referer": "$SITE_URL"}},
+                }
+            },
+        )
+        monkeypatch.setenv("OPENROUTER_API_KEY", "or-secret")
+        monkeypatch.setenv("SITE_URL", "https://example.com")
+
+        env = environment_without_credentials()
+
+        assert "OPENROUTER_API_KEY" not in env
+        assert env["SITE_URL"] == "https://example.com"
+
+    def test_scrubs_custom_endpoint_secret_header(self, monkeypatch):
+        """A secret-named header var is scrubbed; a sibling non-secret one stays.
+
+        An ``Authorization: Bearer $TOKEN`` authenticates provider calls just as
+        an api_key does, so its var must not ride into a model-triggered child
+        shell — while a non-secret ``X-Title: $SITE_URL`` still passes through.
+        """
+        from code_puppy.provider_credentials import environment_without_credentials
+
+        monkeypatch.setattr(
+            "code_puppy.provider_credentials._load_merged_model_config",
+            lambda: {
+                "custom-model": {
+                    "provider": "custom",
+                    "custom_endpoint": {
+                        "headers": {
+                            "Authorization": "Bearer $MY_LLM_TOKEN",
+                            "X-Title": "$SITE_URL",
+                        }
+                    },
+                }
+            },
+        )
+        monkeypatch.setenv("MY_LLM_TOKEN", "llm-secret")
+        monkeypatch.setenv("SITE_URL", "https://example.com")
+
+        env = environment_without_credentials()
+
+        assert "MY_LLM_TOKEN" not in env
+        assert env["SITE_URL"] == "https://example.com"
+
+    def test_catalog_change_applies_to_next_call(self, monkeypatch):
+        """A mid-session catalog edit reaches the scrub set with no invalidation step."""
+        from code_puppy.provider_credentials import (
+            credential_env_var_names,
+            environment_without_credentials,
+            save_credential,
+        )
+
+        catalog_keys: list = []
+        monkeypatch.setattr(
+            "code_puppy.provider_credentials.all_api_key_env_vars",
+            lambda: list(catalog_keys),
+        )
+        monkeypatch.setattr("code_puppy.config.set_config_value", lambda *a, **k: None)
+        monkeypatch.setenv("NEW_CUSTOM_API_KEY", "placeholder")
+        assert "NEW_CUSTOM_API_KEY" not in credential_env_var_names()
+
+        catalog_keys.append("NEW_CUSTOM_API_KEY")
+        assert "NEW_CUSTOM_API_KEY" in credential_env_var_names()
+
+        save_credential("NEW_CUSTOM_API_KEY", "brand-new-secret")
+        assert "NEW_CUSTOM_API_KEY" not in environment_without_credentials()
 
 
 if __name__ == "__main__":

@@ -25,7 +25,6 @@ from code_puppy.agents._builder import (
     build_tool_probe_for_agent,
     reload_mcp_servers,
 )
-from code_puppy.agents._compaction import summarize
 from code_puppy.agents._history import (
     estimate_context_overhead,
     estimate_tokens_for_message,
@@ -35,7 +34,6 @@ from code_puppy.agents._runtime import run_with_mcp, should_retry_streaming
 from code_puppy.config import (
     get_agent_pinned_model,
     get_global_model_name,
-    get_protected_token_count,
 )
 from code_puppy.model_factory import ModelFactory
 
@@ -73,6 +71,7 @@ class BaseAgent(ABC):
         self._code_generation_agent: Any = None
         self._last_model_name: Optional[str] = None
         self._runtime_model_name_override: Optional[str] = None
+        self._runtime_system_prompt_additions: List[str] = []
         self._puppy_rules: Optional[str] = None
         self._mcp_servers: List[Any] = []
         self.cur_model: Optional[pydantic_ai.models.Model] = None
@@ -138,6 +137,19 @@ class BaseAgent(ABC):
         finally:
             self.set_runtime_model_name_override(previous_model_name)
 
+    @contextmanager
+    def temporary_system_prompt_addition(self, prompt: str) -> Iterator[None]:
+        """Append a system instruction for the duration of one scoped run."""
+        self._runtime_system_prompt_additions.append(prompt)
+        try:
+            yield
+        finally:
+            popped = self._runtime_system_prompt_additions.pop()
+            if popped != prompt:
+                raise RuntimeError(
+                    "Runtime system prompt additions exited out of order"
+                )
+
     def get_model_name(self) -> Optional[str]:
         override = self.get_runtime_model_name_override()
         if override:
@@ -174,6 +186,8 @@ class BaseAgent(ABC):
         prompt_additions = callbacks.on_load_prompt()
         if prompt_additions:
             prompt += "\n" + "\n".join(prompt_additions)
+        if self._runtime_system_prompt_additions:
+            prompt += "\n" + "\n".join(self._runtime_system_prompt_additions)
         return prompt + self.get_identity_prompt()
 
     # ---- Message history (plain dict-level access) ------------------------
@@ -253,19 +267,6 @@ class BaseAgent(ABC):
         return probe
 
     # ---- Orchestration (thin delegations) ---------------------------------
-    def summarize_messages(
-        self,
-        messages: List[Any],
-        with_protection: bool = True,
-    ) -> tuple[list, list]:
-        """Delegate to ``_compaction.summarize`` with config-derived protection."""
-        return summarize(
-            messages,
-            get_protected_token_count(),
-            with_protection=with_protection,
-            model_name=self.get_model_name(),
-        )
-
     def reload_code_generation_agent(self, message_group: Optional[str] = None) -> Any:
         return build_pydantic_agent(self, output_type=str, message_group=message_group)
 

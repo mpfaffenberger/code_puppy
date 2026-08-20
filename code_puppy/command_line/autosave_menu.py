@@ -33,7 +33,11 @@ from code_puppy.command_line.pagination import (
 )
 from code_puppy.callbacks import on_prompt_toolkit_style
 from code_puppy.config import AUTOSAVE_DIR
-from code_puppy.session_storage import list_sessions, load_session
+from code_puppy.session_storage import (
+    compute_scope_key,
+    list_sessions,
+    load_session,
+)
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
 PAGE_SIZE = 15  # Sessions per page
@@ -172,6 +176,7 @@ def _render_menu_panel(
     in_search_mode: bool = False,
     search_buffer: str = "",
     status_line: Optional[Tuple[str, str]] = None,
+    scope_filter_active: bool = False,
 ) -> List:
     """Render the left menu panel with pagination.
 
@@ -180,6 +185,11 @@ def _render_menu_panel(
     uses it to surface transient states like ``Filtering...`` (right
     after the user commits a search) and ``Indexing N/M...`` (while the
     background pre-warm task is still chewing through sessions).
+
+    ``scope_filter_active`` is an opt-in indicator (toggled via Ctrl+T)
+    that shows only sessions scoped to the current working directory.
+    It is purely additive to the header -- it never replaces the
+    search/status line above it.
     """
     lines = []
     total_pages = get_total_pages(len(entries), PAGE_SIZE)
@@ -195,6 +205,9 @@ def _render_menu_panel(
     elif search_text:
         lines.append(("", "\n"))
         lines.append(("class:tui.warning", f"  Filter: '{search_text}'"))
+    if scope_filter_active:
+        lines.append(("", "\n"))
+        lines.append(("class:tui.warning", "  📂 Filtered to this folder"))
     lines.append(("", "\n\n"))
 
     if not entries:
@@ -259,6 +272,8 @@ def _render_menu_panel(
         lines.append(("", "Browse msgs\n"))
         lines.append(("class:tui.help-key", "  /   "))
         lines.append(("", "Search content\n"))
+        lines.append(("class:tui.help-key", "  Ctrl+T "))
+        lines.append(("", "Toggle this-folder filter\n"))
     lines.append(("class:tui.help-key", "  Enter  "))
     lines.append(("", "Load\n"))
     lines.append(("class:tui.help-key", "  Ctrl+C "))
@@ -564,6 +579,13 @@ async def interactive_autosave_picker() -> Optional[str]:
     is_filtering = [False]  # True while the Enter-handler is doing the work
     total_to_index = len(entries)  # Denominator for the prewarm progress hint
 
+    # Opt-in "this folder only" toggle (Ctrl+T). OFF by default -- the
+    # unfiltered listing stays byte-for-byte identical to before this
+    # feature existed. Sessions with no ``scope_key`` sidecar (pre-dating
+    # this feature) are correctly excluded only while the toggle is on.
+    scope_active = [False]
+    current_scope_key = compute_scope_key(Path.cwd())
+
     def get_current_entry() -> Optional[Tuple[str, dict]]:
         visible = visible_entries[0]
         if 0 <= selected_idx[0] < len(visible):
@@ -582,14 +604,32 @@ async def interactive_autosave_picker() -> Optional[str]:
             return list(entries)
         return [e for e in entries if entry_matches(e, needle, content_index, base_dir)]
 
+    def _apply_scope(entries_list: List[Tuple[str, dict]]) -> List[Tuple[str, dict]]:
+        """Further narrow ``entries_list`` to the current folder's scope.
+
+        No-op when the toggle is off. A missing/None ``scope_key`` in the
+        sidecar metadata never matches -- it is excluded, not treated as a
+        wildcard.
+        """
+        if not scope_active[0]:
+            return entries_list
+        return [e for e in entries_list if e[1].get("scope_key") == current_scope_key]
+
+    # Holds the result of the (possibly expensive, content-searching) text
+    # filter BEFORE the cheap scope filter is layered on top. Ctrl+T only
+    # ever re-slices this in-memory list -- it never re-runs content search.
+    search_filtered: List[List[Tuple[str, dict]]] = [list(entries)]
+
     def _apply_filter_result(filtered: List[Tuple[str, dict]]) -> None:
         """Apply a filter result to picker state. Must run on the main thread."""
-        visible_entries[0] = filtered
-        if not filtered:
+        search_filtered[0] = filtered
+        scoped = _apply_scope(filtered)
+        visible_entries[0] = scoped
+        if not scoped:
             selected_idx[0] = 0
             current_page[0] = 0
             return
-        selected_idx[0] = min(selected_idx[0], len(filtered) - 1)
+        selected_idx[0] = min(selected_idx[0], len(scoped) - 1)
         current_page[0] = get_page_for_index(selected_idx[0], PAGE_SIZE)
 
     # Build UI
@@ -629,6 +669,7 @@ async def interactive_autosave_picker() -> Optional[str]:
             in_search_mode=in_search_mode[0],
             search_buffer=search_buffer[0],
             status_line=_compute_status_line(),
+            scope_filter_active=scope_active[0],
         )
         # Show message browser if in browse mode, otherwise show preview
         if browse_mode[0] and cached_history[0] is not None:
@@ -813,6 +854,21 @@ async def interactive_autosave_picker() -> Optional[str]:
             return
         in_search_mode[0] = True
         search_buffer[0] = ""
+        update_display()
+
+    @kb.add("c-t")
+    def _(event):
+        """Toggle the opt-in "this folder only" scope filter.
+
+        Disabled while typing a search buffer (mirrors the nav-key guards
+        above) and inside browse mode. Re-slices ``search_filtered`` --
+        the already-computed text-search result -- so toggling never
+        re-triggers a content search.
+        """
+        if in_search_mode[0] or browse_mode[0]:
+            return
+        scope_active[0] = not scope_active[0]
+        _apply_filter_result(search_filtered[0])
         update_display()
 
     @kb.add("backspace")

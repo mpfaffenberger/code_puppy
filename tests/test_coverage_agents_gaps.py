@@ -5,7 +5,6 @@ Targeted tests to reach 100% on specific missed lines.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from importlib.metadata import PackageNotFoundError
 from unittest.mock import MagicMock, patch
 
@@ -76,73 +75,6 @@ class TestCodePuppyAgentTools:
         assert "list_available_models" not in tools
         assert "model_name" not in prompt
         assert "invoke_agent_with_model" not in prompt
-
-
-# =============================================================================
-# summarization_agent.py gaps
-# =============================================================================
-
-
-class TestSummarizationGaps:
-    def test_ensure_thread_pool_recreates_after_shutdown(self):
-        """Cover lines 38-40: pool._shutdown check."""
-        import code_puppy.summarization_agent as mod
-
-        pool = ThreadPoolExecutor(max_workers=1)
-        pool.shutdown(wait=False)
-        mod._thread_pool = pool
-
-        new_pool = mod._ensure_thread_pool()
-        assert new_pool is not pool
-        assert not new_pool._shutdown
-
-    def test_summarization_error_with_original(self):
-        """Cover lines 66-67: SummarizationError.__init__."""
-        from code_puppy.summarization_agent import SummarizationError
-
-        orig = ValueError("boom")
-        err = SummarizationError("wrapper", original_error=orig)
-        assert err.original_error is orig
-        assert "wrapper" in str(err)
-
-    def test_run_summarization_sync_agent_init_failure(self):
-        """Cover the except branch when get_summarization_agent raises."""
-        from code_puppy.summarization_agent import (
-            SummarizationError,
-            run_summarization_sync,
-        )
-
-        with patch(
-            "code_puppy.summarization_agent.get_summarization_agent",
-            side_effect=RuntimeError("no model"),
-        ):
-            with pytest.raises(SummarizationError, match="Failed to initialize"):
-                run_summarization_sync("prompt", [])
-
-    def test_run_summarization_sync_llm_failure(self):
-        """Cover lines 88-105: the _run_in_thread path and LLM error wrapping."""
-        from code_puppy.summarization_agent import (
-            SummarizationError,
-            run_summarization_sync,
-        )
-
-        mock_agent = MagicMock()
-        mock_agent.run = MagicMock(side_effect=RuntimeError("LLM down"))
-
-        with (
-            patch(
-                "code_puppy.summarization_agent.get_summarization_agent",
-                return_value=mock_agent,
-            ),
-            patch(
-                "code_puppy.summarization_agent.get_summarization_model_name",
-                return_value="test",
-            ),
-            patch("code_puppy.model_utils.prepare_prompt_for_model") as mock_prep,
-        ):
-            mock_prep.return_value = MagicMock(user_prompt="p", instructions="i")
-            with pytest.raises(SummarizationError, match="LLM call failed"):
-                run_summarization_sync("summarize", [])
 
 
 # =============================================================================

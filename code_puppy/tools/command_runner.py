@@ -1067,6 +1067,19 @@ def _normalize_cwd(cwd: str | None) -> str | None:
     return stripped
 
 
+def _child_process_env() -> dict[str, str]:
+    """Environment for spawned shell commands.
+
+    The agent's own provider credentials are removed (see
+    ``provider_credentials.environment_without_credentials``); everything
+    else in the user's environment passes through so gh, git, npm and
+    friends keep working inside child commands.
+    """
+    from code_puppy.provider_credentials import environment_without_credentials
+
+    return environment_without_credentials()
+
+
 async def run_shell_command(
     context: RunContext,
     command: str,
@@ -1139,6 +1152,7 @@ async def run_shell_command(
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL,
                     cwd=cwd,
+                    env=_child_process_env(),
                     creationflags=creationflags,
                 )
             else:
@@ -1149,6 +1163,7 @@ async def run_shell_command(
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL,
                     cwd=cwd,
+                    env=_child_process_env(),
                     start_new_session=True,  # Fully detach on POSIX
                 )
 
@@ -1440,6 +1455,7 @@ def _run_command_sync(
         stderr=subprocess.PIPE,
         stdin=subprocess.DEVNULL,
         cwd=cwd,
+        env=_child_process_env(),
         bufsize=0,  # Unbuffered for real-time output
         preexec_fn=preexec_fn,
         creationflags=creationflags,

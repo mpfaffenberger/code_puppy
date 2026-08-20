@@ -637,10 +637,6 @@ class TestCompactCommand:
             {"role": "user", "content": "Hello"},
         ]
         mock_agent.estimate_tokens_for_message.return_value = 10
-        mock_agent.summarize_messages.return_value = (
-            [{"role": "system", "content": "summarized"}],
-            [],
-        )
 
         with (
             patch(
@@ -651,7 +647,12 @@ class TestCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="summarization",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=1000),
+            patch("code_puppy.agents._compaction.build_compaction_strategy"),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=[{"role": "system", "content": "summarized"}],
+            ),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success") as mock_success,
         ):
@@ -694,17 +695,18 @@ class TestCompactCommand:
             patch(
                 "code_puppy.config.get_compaction_strategy", return_value="truncation"
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=1000),
+            patch("code_puppy.agents._compaction.build_compaction_strategy"),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
             patch(
-                "code_puppy.agents._compaction.truncate",
+                "code_puppy.agents._compaction.run_compaction_sync",
                 return_value=[{"role": "system", "content": "System"}],
-            ) as mock_truncate,
+            ) as mock_compact,
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success"),
         ):
             result = handle_command("/compact")
             assert result is True
-            mock_truncate.assert_called_once()
+            mock_compact.assert_called_once()
 
 
 class TestTruncateCommand:
@@ -724,6 +726,14 @@ class TestTruncateCommand:
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
                 return_value=mock_agent,
+            ),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=[
+                    {"role": "system", "content": "System"},
+                    {"role": "user", "content": "3"},
+                ],
             ),
             patch("code_puppy.messaging.emit_success") as mock_success,
         ):
@@ -948,6 +958,7 @@ class TestCommandRegistry:
             ("exit", "quit"),
             ("model", "m"),
             ("agent", "a"),
+            ("clear", "new"),
         ],
     )
     def test_aliased_command_registered(self, name, alias):

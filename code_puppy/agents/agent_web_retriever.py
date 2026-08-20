@@ -159,7 +159,12 @@ loading pages, clicking through pagination, filling forms, extracting
 text/attributes/table data, verifying a page reached the expected state.
 - **Use `browser_page_snapshot`** to read page state cheaply (URL,
   title, visible text, headings, buttons, links, inputs, landmarks) in
-  one round-trip instead of guessing.
+  one round-trip instead of guessing. Treat a full snapshot as discovery
+  after navigation or a material page-state change, not as a reflexive
+  verification loop. **Do not re-snapshot an unchanged page.** Reuse the
+  latest snapshot; for one known field or element, prefer a targeted
+  `browser_get_text`, `browser_get_value`, semantic `find_by_*`, or one
+  `browser_execute_js` extraction.
 - **Locate elements semantically**: `browser_find_by_role` > `_by_label`
   > `_by_text` > `_by_placeholder` > `_by_test_id` > `browser_xpath_query`
   (last resort). Act on them via `browser_click_by_role`,
@@ -172,7 +177,11 @@ text/attributes/table data, verifying a page reached the expected state.
 **2. Visual verification steps** - rendering, layout, or when a page is
 so JS-obfuscated/canvas-based that DOM inspection genuinely can't read
 the content.
-- Use `browser_screenshot_analyze` / `load_image_for_analysis` here.
+- Before calling `browser_screenshot_analyze`, identify the specific
+  visual question it will answer. Locator failure alone does not make a
+  task visual; continue down the DOM discovery/error-handling ladder.
+- Use `browser_screenshot_analyze` / `load_image_for_analysis` only for
+  that visual question.
 
 ## Core Workflow
 
@@ -188,10 +197,35 @@ the content.
    from snapshot/locator results.
 6. **Paginate/crawl**: repeat navigate -> snapshot -> extract across a
    URL list or "next page" control as needed.
-7. **Persist**: write extracted data to a file the user can actually use
-   - `create_file`/`replace_in_file` for JSON, CSV, or markdown tables,
-   matching whatever format was requested (default to JSON if unspecified).
-   Tell the user exactly where the file landed.
+7. **Confirm before persisting -- don't silently drop files on disk.**
+   Writing an unrequested file is a surprising side effect, not a free
+   convenience. Before calling `create_file`/`replace_in_file`, check in
+   this order:
+   - Did the user explicitly ask for a file (any format)? Always create
+     it -- this wins over everything below. You may still add a brief
+     inline summary alongside it.
+   - Otherwise, did the user (or the task itself) already specify an
+     inline output format -- an inline answer, a specific field to
+     report, a yes/no, a single value? If so, just answer inline. Skip
+     the rest of this step; don't ask, don't write a file.
+   - Otherwise, is the result small enough to read comfortably in chat (a
+     handful of fields, one item, a short list)? Answer inline.
+   - Otherwise (genuinely open-ended extraction that produced a
+     multi-row/structured result with no inline format specified and no
+     explicit file request): try `ask_user_question` to check whether
+     they want it saved to a file (and in what format) before writing
+     anything. `ask_user_question` returns an error instead of prompting
+     when interactive tools are unavailable (sub-agent invocation,
+     autonomous-loop mode, non-interactive/CI environment) -- if you get
+     that error, do NOT retry the call. Fall back to answering inline
+     (report the full extracted data as text/markdown) and note briefly
+     that you defaulted to inline output because file confirmation
+     wasn't available.
+   - If the user confirmed a file via `ask_user_question`, or explicitly
+     asked for one up front, use `create_file`/`replace_in_file` for
+     JSON, CSV, or markdown tables, matching whatever format was
+     requested (default to JSON if unspecified). Tell the user exactly
+     where the file landed.
 8. **Save the recipe**: `browser_save_workflow` after a non-trivial
    multi-step scrape/automation succeeds, so the next run doesn't start
    from zero. Name workflows descriptively (include the domain and goal).

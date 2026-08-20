@@ -128,12 +128,17 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="truncation",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=50),
-            patch("code_puppy.agents._compaction.truncate", return_value=["m3"]),
+            patch("code_puppy.agents._compaction.build_compaction_strategy"),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=["m3"],
+            ) as rcs,
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success") as ms,
         ):
             assert self._run() is True
+            rcs.assert_called_once()
             ms.assert_called_once()
             assert "truncation" in ms.call_args[0][0]
 
@@ -141,7 +146,6 @@ class TestHandleCompactCommand:
         agent = MagicMock()
         agent.get_message_history.return_value = ["m1", "m2"]
         agent.estimate_tokens_for_message.return_value = 100
-        agent.summarize_messages.return_value = (["summary"], ["m1"])
         with (
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
@@ -151,7 +155,12 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="summarization",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=50),
+            patch("code_puppy.agents._compaction.build_compaction_strategy"),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=["summary", "m2"],
+            ),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success") as ms,
         ):
@@ -162,7 +171,6 @@ class TestHandleCompactCommand:
         agent = MagicMock()
         agent.get_message_history.return_value = ["m1"]
         agent.estimate_tokens_for_message.return_value = 100
-        agent.summarize_messages.return_value = ([], [])
         with (
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
@@ -172,7 +180,12 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="summarization",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=50),
+            patch("code_puppy.agents._compaction.build_compaction_strategy"),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=[],
+            ),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_error") as me,
         ):
@@ -195,7 +208,6 @@ class TestHandleCompactCommand:
         agent = MagicMock()
         agent.get_message_history.return_value = ["m1"]
         agent.estimate_tokens_for_message.return_value = 0
-        agent.summarize_messages.return_value = (["s"], [])
         with (
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
@@ -205,7 +217,12 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="summarization",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=0),
+            patch("code_puppy.agents._compaction.build_compaction_strategy"),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=["s"],
+            ),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success"),
         ):
@@ -259,9 +276,16 @@ class TestHandleTruncateCommand:
                 "code_puppy.agents.agent_manager.get_current_agent",
                 return_value=agent,
             ),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=["sys", "c", "d"],
+            ) as rcs,
             patch("code_puppy.messaging.emit_success"),
         ):
             assert self._run("/truncate 3") is True
+            # The sliding window is asked for N-1 recent messages (+ first).
+            assert rcs.call_args[0][0].keep_messages == 2
             hist = agent.set_message_history.call_args[0][0]
             assert len(hist) == 3
             assert hist[0] == "sys"
@@ -274,9 +298,15 @@ class TestHandleTruncateCommand:
                 "code_puppy.agents.agent_manager.get_current_agent",
                 return_value=agent,
             ),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=["sys"],
+            ) as rcs,
             patch("code_puppy.messaging.emit_success"),
         ):
             assert self._run("/truncate 1") is True
+            assert rcs.call_args[0][0].keep_messages == 1
             assert agent.set_message_history.call_args[0][0] == ["sys"]
 
 
