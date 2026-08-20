@@ -74,7 +74,7 @@ class TestFrame:
         allowed = set(" \u2591\u2592\u2588") | splash._SHADOW_TRIM
         for line in lines:
             visible = ANSI_RE.sub("", line)
-            assert len(visible) <= splash._TAGLINE_TOP_WIDTH + 8
+            assert len(visible) <= splash._BANNER_FULL_WIDTH + 8
             assert set(visible) <= allowed
 
     def test_sheen_moves_between_phases(self):
@@ -103,8 +103,8 @@ class TestFrame:
         import pyfiglet
 
         for text, baked in (
-            ("Powered by", splash._TAGLINE_TOP),
-            ("Pydantic", splash._TAGLINE_BOTTOM),
+            ("CODE PUPPY", splash._BANNER_FULL),
+            ("PUP", splash._BANNER_COMPACT),
         ):
             rendered = pyfiglet.figlet_format(text, font="ansi_shadow", width=300)
             lines = [ln.rstrip() for ln in rendered.splitlines()]
@@ -117,17 +117,16 @@ class TestComposeRows:
     def test_wide_terminal_gets_full_lockup(self):
         kinds = [k for k, _ in splash._compose_rows(120, 50)]
         assert kinds.count("art") == len(splash._PYRAMID)
-        assert kinds.count("text") == 1 + len(splash._TAGLINE_TOP) + 1 + len(
-            splash._TAGLINE_BOTTOM
-        )
+        assert kinds.count("text") == 1 + len(splash._BANNER_FULL)
 
-    def test_medium_terminal_gets_pydantic_only(self):
+    def test_medium_terminal_gets_compact_pup(self):
         rows = splash._compose_rows(70, 50)
         text_rows = [c for k, c in rows if k == "text" and c]
-        assert len(text_rows) == len(splash._TAGLINE_BOTTOM)
+        assert len(text_rows) == len(splash._BANNER_COMPACT)
+        assert "\u2588" in text_rows[0]
 
     def test_narrow_terminal_gets_pyramid_only(self):
-        rows = splash._compose_rows(50, 50)
+        rows = splash._compose_rows(45, 50)
         assert all(k == "art" for k, _ in rows)
 
     def test_short_terminal_drops_text(self):
@@ -139,7 +138,7 @@ class TestComposeRows:
         # Compare a row against its unpadded source: the pad is the diff.
         idx = max(range(len(splash._PYRAMID)), key=lambda i: len(splash._PYRAMID[i]))
         pad = len(rows[idx][1]) - len(splash._PYRAMID[idx])
-        assert pad == (splash._TAGLINE_TOP_WIDTH - splash._PYRAMID_WIDTH) // 2
+        assert pad == (splash._BANNER_FULL_WIDTH - splash._PYRAMID_WIDTH) // 2
 
     def test_center_rows_pads_both_kinds_with_their_blank(self):
         rows = [("art", "123"), ("text", "\u2588\u2588\u2588")]
@@ -151,12 +150,11 @@ class TestComposeRows:
         rows = [("art", "123")]
         assert splash._center_rows(rows, 2) == rows
 
-    def test_pydantic_block_centered_under_powered_by(self):
-        rows = splash._compose_rows(120, 50)
+    def test_compact_pup_centered_under_pyramid(self):
+        rows = splash._compose_rows(70, 50)
         text_lines = [c for k, c in rows if k == "text" and c]
-        bottom = text_lines[-len(splash._TAGLINE_BOTTOM) :]
-        expected_pad = (splash._TAGLINE_TOP_WIDTH - splash._TAGLINE_BOTTOM_WIDTH) // 2
-        for line in bottom:
+        expected_pad = (splash._PYRAMID_WIDTH - splash._BANNER_COMPACT_WIDTH) // 2
+        for line in text_lines:
             assert line.startswith(" " * expected_pad)
             assert not line.startswith(" " * (expected_pad + 1))
 
