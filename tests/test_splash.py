@@ -165,8 +165,8 @@ class TestLifecycle:
         # the extra showtime produced extra frames, not a frozen screen
         assert stream.getvalue().count("\x1b[2K") > handle._height
 
-    def test_default_minimum_is_two_seconds(self):
-        assert splash._MIN_SHOW_SECONDS == 2.0
+    def test_default_minimum_is_three_seconds(self):
+        assert splash._MIN_SHOW_SECONDS == 3.0
 
 
 class TestStreamCapture:

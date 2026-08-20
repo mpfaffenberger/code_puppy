@@ -99,7 +99,7 @@ _SHEEN_WIDTH = 7
 _FRAME_SECONDS = 0.033
 # Keep the shimmer on screen at least this long, even if imports finish
 # early -- a sub-second flash reads as a glitch, not a splash.
-_MIN_SHOW_SECONDS = 2.0
+_MIN_SHOW_SECONDS = 3.0
 
 # argv values that still mean "interactive boot" (splash-worthy).
 _INTERACTIVE_ARGS = frozenset({"-i", "--interactive"})
