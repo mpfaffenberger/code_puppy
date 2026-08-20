@@ -465,7 +465,7 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
-    { name = "code-puppy-core-plugins", specifier = ">=0.0.8" },
+    { name = "code-puppy-core-plugins", specifier = ">=0.0.12" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "json-repair", specifier = ">=0.46.2" },
@@ -505,15 +505,15 @@ dev = [
 
 [[package]]
 name = "code-puppy-core-plugins"
-version = "0.0.8"
+version = "0.0.12"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7b/32/53fb01ca365f6d30b9149926025c9dafd256ec731d12cce8831657a3dd90/code_puppy_core_plugins-0.0.8.tar.gz", hash = "sha256:893bec36802321d3df44ff2b66a0eec17f91cbc19f04b81028a86e4bad959d40", size = 503269, upload-time = "2026-08-16T11:56:51.89Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bf/63/4efd635ca3d3d5651b16056b8ac82fb487b03fa6a8fb5cfe97e5bc953ca3/code_puppy_core_plugins-0.0.12.tar.gz", hash = "sha256:cd4fac6299ab234bec4345aca1af041f708ca41c8ff45927f090dddbcf202c0f", size = 525579, upload-time = "2026-08-20T23:45:19.393Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/30/9539737a039b2c13e036ddaee09d1dc10b0fb064c1b34f55c68b239adaa3/code_puppy_core_plugins-0.0.8-py3-none-any.whl", hash = "sha256:44beb52458dd4b5cdacf869efd778d21f2c3b446f4864f106db0cb62d6f90dd1", size = 680688, upload-time = "2026-08-16T11:56:50.573Z" },
+    { url = "https://files.pythonhosted.org/packages/9a/d3/e3254df5d3ad54fa8ab3dd08407306f1bbff07213e9328c9287b0d22553d/code_puppy_core_plugins-0.0.12-py3-none-any.whl", hash = "sha256:9e5b0a2261e2476dc0f9a9e7f406882f41028be9ca52d84c2eac6e9337cde54f", size = 707405, upload-time = "2026-08-20T23:45:18.117Z" },
 ]
 
 [[package]]
