@@ -147,6 +147,30 @@ def test_default_drain_uses_now_queue_only():
 
 
 @pytest.mark.asyncio
+async def test_capability_dispatched_by_real_agent_run():
+    """Defense in depth: pydantic-ai's real capability chain must dispatch
+    the hook and persist the injected steer into the run's history — not
+    just our duck-typed unit harness."""
+    from pydantic_ai import Agent
+    from pydantic_ai.models.test import TestModel
+
+    steers = ["actually, use tabs"]  # one-shot: fires on first request only
+    capability = SteerInjection(drain=lambda: [steers.pop()] if steers else [])
+    agent = Agent(TestModel(), capabilities=[capability])
+
+    result = await agent.run("hello")
+
+    user_contents = [
+        part.content
+        for message in result.all_messages()
+        if isinstance(message, ModelRequest)
+        for part in message.parts
+        if isinstance(part, UserPromptPart)
+    ]
+    assert "actually, use tabs" in user_contents
+
+
+@pytest.mark.asyncio
 async def test_before_model_request_is_native_async():
     """The hook must be awaitable directly on the pydantic-ai seam."""
     capability = SteerInjection(drain=lambda: [])
