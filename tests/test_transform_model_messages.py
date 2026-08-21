@@ -115,11 +115,15 @@ async def test_wrap_model_request_copies_context_and_isolates_mutations():
 
 async def test_wrap_model_request_without_callbacks_is_a_passthrough():
     capability = PluginMessageTransform(None)
-    request_context = SimpleNamespace(messages=[_message("only")])
+    original_messages = [_message("only")]
+    request_context = SimpleNamespace(messages=original_messages)
     sentinel = ModelResponse(parts=[TextPart(content="done")])
 
     async def handler(ctx):
         assert _contents(ctx.messages) == ["only"]
+        # Copy semantics hold even with zero callbacks registered.
+        assert ctx is not request_context
+        assert ctx.messages is not original_messages
         return sentinel
 
     response = await capability.wrap_model_request(

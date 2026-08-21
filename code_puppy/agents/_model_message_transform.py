@@ -31,9 +31,12 @@ class PluginMessageTransform(AbstractCapability[Any]):
     the final wire request.
 
     **Request-only by construction.** The request context is shallow-copied
-    and its message list materialized fresh, so plugin mutations reach the
-    model for exactly one request without leaking into the durable history
-    (``result.all_messages()`` never shows them). Callback failures are
+    and its message list materialized fresh, so plugin *list* mutations
+    (append/insert/remove/replace) reach the model for exactly one request
+    without leaking into the durable history (``result.all_messages()``
+    never shows them). The contained message objects are still shared --
+    mutating an existing message in place would leak, exactly as it did
+    under the previous ``Hooks`` adapter. Callback failures are
     already isolated inside the ``on_transform_model_messages`` fan-out --
     a crashing plugin never takes down the request.
     """
