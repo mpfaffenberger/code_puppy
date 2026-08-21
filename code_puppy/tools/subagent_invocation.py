@@ -402,7 +402,7 @@ async def _invoke_agent_impl(
 
             from code_puppy.agents._compaction import make_history_processor
             from code_puppy.agents._model_message_transform import (
-                build_model_message_transform,
+                PluginMessageTransform,
             )
 
             # Build the pydantic-ai agent. MCP servers always included; plugins
@@ -422,7 +422,7 @@ async def _invoke_agent_impl(
                 # `history_processors=` kwarg (removed in pydantic-ai v2).
                 capabilities=[
                     ProcessHistory(make_history_processor(agent_config)),
-                    build_model_message_transform(agent_name),
+                    PluginMessageTransform(agent_name),
                 ],
                 model_settings=model_settings,
             )
