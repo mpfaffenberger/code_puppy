@@ -27,6 +27,7 @@ from pydantic_ai import Agent
 from pydantic_ai.messages import (
     ModelMessage,
     ModelResponse,
+    RetryPromptPart,
     TextPart,
     ToolCallPart,
 )
@@ -225,12 +226,7 @@ async def test_wire_parity_with_eager_patch(restore_validate_tool_call):
     )
 
 
-@pytest.mark.asyncio
-async def test_unknown_tool_args_stay_raw_in_history():
-    """Documented bounded divergence: resolution fails before the seam
-    fires, so an unknown tool's recorded args keep the model's raw bytes.
-    The call fails with the identical ModelRetry either way."""
-
+def _unknown_tool_model() -> FunctionModel:
     def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         if len(messages) == 1:
             return ModelResponse(
@@ -238,8 +234,26 @@ async def test_unknown_tool_args_stay_raw_in_history():
             )
         return ModelResponse(parts=[TextPart("recovered")])
 
+    return FunctionModel(fn)
+
+
+def _retry_prompt_contents(messages: list[ModelMessage]) -> list[Any]:
+    return [
+        part.content
+        for message in messages
+        for part in message.parts
+        if isinstance(part, RetryPromptPart)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_unknown_tool_args_stay_raw_in_history():
+    """Documented bounded divergence: resolution fails before the seam
+    fires, so an unknown tool's recorded args keep the model's raw bytes.
+    (Unavailable tools share the same code path — ``_resolve_tool`` raises
+    before ``_run_validate_hooks`` runs any hook.)"""
     seen: list[int] = []
-    agent = Agent(model=FunctionModel(fn), capabilities=[ToolCallJsonRepair()])
+    agent = Agent(model=_unknown_tool_model(), capabilities=[ToolCallJsonRepair()])
     _register_grab(agent, seen)
 
     result = await agent.run("go")
@@ -247,6 +261,34 @@ async def test_unknown_tool_args_stay_raw_in_history():
     assert result.output == "recovered"
     assert seen == []
     assert _tool_call_args_in(result.all_messages()) == [BROKEN_ARGS]
+
+
+@pytest.mark.asyncio
+async def test_unknown_tool_retry_parity_with_eager_patch(restore_validate_tool_call):
+    """The divergence is history bytes ONLY: the unknown-tool call earns
+    the identical ModelRetry prompt and recovery under the eager patch and
+    under the capability."""
+    from code_puppy.pydantic_patches import patch_tool_call_json_repair
+
+    cap_agent = Agent(model=_unknown_tool_model(), capabilities=[ToolCallJsonRepair()])
+    _register_grab(cap_agent, [])
+    cap_result = await cap_agent.run("go")
+
+    assert patch_tool_call_json_repair()
+    guest_agent = Agent(model=_unknown_tool_model())
+    _register_grab(guest_agent, [])
+    patch_result = await guest_agent.run("go")
+
+    assert cap_result.output == patch_result.output == "recovered"
+    # Identical retry feedback to the model on both paths.
+    cap_retries = _retry_prompt_contents(cap_result.all_messages())
+    patch_retries = _retry_prompt_contents(patch_result.all_messages())
+    assert cap_retries == patch_retries
+    assert len(cap_retries) == 1
+    # The old patch repaired even a doomed call's recorded args; the
+    # capability leaves them raw. This is the entire divergence.
+    assert _tool_call_args_in(cap_result.all_messages()) == [BROKEN_ARGS]
+    assert _tool_call_args_in(patch_result.all_messages()) == [REPAIRED_ARGS]
 
 
 # ---------------------------------------------------------------------------
@@ -348,9 +390,15 @@ def test_subagent_invocation_splices_capability():
 
 def test_before_tool_validate_signature_matches_seam():
     """Pin the seam signature so a pydantic-ai upgrade that changes the
-    hook contract fails loudly here instead of silently never firing."""
+    hook contract fails loudly here instead of silently never firing.
+
+    Compares names, kinds, and defaults — not annotations, which
+    legitimately differ (the seam spells ``RawToolArgs``, we spell the
+    underlying union)."""
     from pydantic_ai.capabilities import AbstractCapability
 
     base = inspect.signature(AbstractCapability.before_tool_validate)
     ours = inspect.signature(ToolCallJsonRepair.before_tool_validate)
-    assert list(base.parameters) == list(ours.parameters)
+    base_shape = [(p.name, p.kind, p.default) for p in base.parameters.values()]
+    ours_shape = [(p.name, p.kind, p.default) for p in ours.parameters.values()]
+    assert base_shape == ours_shape
