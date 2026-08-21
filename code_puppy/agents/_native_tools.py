@@ -11,11 +11,13 @@ system has a dedicated seam for exactly this contribution --
 Registration mechanics are deliberately unchanged: every ``register_*``
 function in ``code_puppy.tools`` only ever uses the ``.tool`` decorator on
 the object it is handed, and ``pydantic_ai.toolsets.FunctionToolset.tool``
-is signature-identical to ``Agent.tool``. :func:`build_native_toolset`
-therefore just points the existing registry at a ``FunctionToolset`` -- all
-registry semantics (plugin tool merging, ``edit_file`` expansion,
-kill-switches, per-model filtering, UC wrappers) live in
-``register_tools_for_agent``, untouched.
+accepts the same arguments as ``Agent.tool`` (their default *spellings*
+differ -- ``None`` vs concrete values like ``"auto"`` -- but resolve to
+equivalent model-visible tool definitions; pinned by the wire-parity
+contract test). :func:`build_native_toolset` therefore just points the
+existing registry at a ``FunctionToolset`` -- all registry semantics
+(plugin tool merging, ``edit_file`` expansion, kill-switches, per-model
+filtering, UC wrappers) live in ``register_tools_for_agent``, untouched.
 
 Per-tool retry budgets are also unchanged: both registration paths leave
 ``max_retries=None`` on each tool, which pydantic-ai resolves to the

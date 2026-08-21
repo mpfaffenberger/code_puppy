@@ -72,6 +72,12 @@ def _extract_pydantic_agent_tools(pyd_agent: Any) -> Optional[Dict[str, Any]]:
     back to the direct ``agent._function_toolset`` read, then the legacy
     ``agent._tools`` attribute, so older pydantic-ai versions (and mocked
     agents in tests) still work. Returns ``None`` when nothing is populated.
+
+    Deliberately broad: any ``FunctionToolset``-shaped constructor toolset
+    is included too, which could in principle double-count with the
+    separate ``mcp_servers=`` estimator input -- acceptable slack for a
+    best-effort context-overhead estimate (real MCP servers are not
+    ``FunctionToolset``s).
     """
     if pyd_agent is None:
         return None

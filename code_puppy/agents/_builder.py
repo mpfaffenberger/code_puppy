@@ -650,7 +650,11 @@ def build_pydantic_agent(
     # filtering no longer needs a throwaway probe build. (The old two-pass
     # probe introspected ``probe_agent._tools`` -- an attribute pydantic-ai
     # v2 removed -- so the filter had silently become a no-op; sourcing
-    # names from the toolset repairs it.)
+    # names from the toolset repairs it.) Scope: NATIVE tool names only.
+    # Tools contributed by other capabilities (e.g. ToolOutputLimits'
+    # ``read_tool_result``) are not in the set -- an MCP tool shadowing one
+    # of those still collides at run time, exactly as it would have under
+    # the original probe's intent.
     existing_tool_names: Set[str] = set(native_toolset.tools)
     filtered_mcp_servers = filter_conflicting_mcp_tools(
         mcp_servers, existing_tool_names

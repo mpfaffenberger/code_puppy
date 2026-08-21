@@ -141,8 +141,12 @@ def test_serialization_name_opt_out():
 
 
 def test_tool_metadata_parity_with_agent_tool_registration():
-    """``Agent.tool`` and ``FunctionToolset.tool`` must produce identical
-    per-tool metadata for the same register function."""
+    """``Agent.tool`` and ``FunctionToolset.tool`` produce equivalent
+    per-tool metadata for the same register function.
+
+    (The two decorators' default *spellings* differ -- ``None`` vs concrete
+    values -- but resolve identically; the wire-parity test below pins the
+    model-visible result.)"""
     from code_puppy.tools.file_operations import register_read_file
 
     legacy_agent = Agent(model=None, retries=3)
@@ -159,6 +163,43 @@ def test_tool_metadata_parity_with_agent_tool_registration():
     # ``retries`` at get_tools time -- the retry-parity linchpin.
     assert legacy_tool.max_retries is None
     assert cap_tool.max_retries is None
+
+
+@pytest.mark.asyncio
+async def test_wire_parity_with_agent_tool_registration():
+    """The model-visible ToolDefinition is identical whichever path
+    registered the tool -- the strongest possible parity claim.
+
+    Provenance bookkeeping (``toolset_id``/``capability_id``) legitimately
+    differs -- the tool now honestly reports it arrived via the capability
+    -- and is never serialized into the model request, so it is normalized
+    out before comparing."""
+    import dataclasses
+
+    from code_puppy.tools.file_operations import register_read_file
+
+    def _visible_tool_def(model):
+        tool_def = next(
+            t
+            for t in model.last_model_request_parameters.function_tools
+            if t.name == "read_file"
+        )
+        return dataclasses.replace(tool_def, toolset_id=None, capability_id=None)
+
+    legacy_model = TestModel(custom_output_text="woof", call_tools=[])
+    legacy_agent = Agent(model=legacy_model, retries=3)
+    register_read_file(legacy_agent)
+    await legacy_agent.run("hi")
+
+    cap_model = TestModel(custom_output_text="woof", call_tools=[])
+    cap_agent = Agent(
+        model=cap_model,
+        retries=3,
+        capabilities=[NativeTools(build_native_toolset(["read_file"]))],
+    )
+    await cap_agent.run("hi")
+
+    assert _visible_tool_def(legacy_model) == _visible_tool_def(cap_model)
 
 
 @pytest.mark.asyncio
