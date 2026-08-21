@@ -18,6 +18,7 @@ import os
 from code_puppy.config import get_enable_logfire
 
 _TRUTHY = ("1", "true", "yes", "on")
+_logfire_active = False
 
 
 def logfire_opted_in() -> bool:
@@ -40,6 +41,9 @@ def configure_logfire() -> bool:
     misconfiguration must never break the CLI, so every failure path
     emits a warning and returns False instead of raising.
     """
+    global _logfire_active
+    _logfire_active = False
+
     if not logfire_opted_in():
         return False
 
@@ -63,5 +67,20 @@ def configure_logfire() -> bool:
         emit_warning(t("logfire.configure_failed", error=str(exc)))
         return False
 
+    _logfire_active = True
     emit_system_message(t("logfire.enabled"))
     return True
+
+
+def emit_cancellation(group_id: str) -> None:
+    """Emit an agent cancellation event when Logfire is active."""
+    if not _logfire_active:
+        return
+
+    try:
+        import logfire
+
+        logfire.info("Agent run cancelled", group_id=group_id)
+    except Exception:
+        # Observability must never interfere with cancelling an agent run.
+        return
