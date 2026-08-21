@@ -182,3 +182,65 @@ class TestMakeModelSettingsCustomParams:
             settings = make_model_settings("some-model", max_tokens=4096)
 
         assert settings.get("extra_body") is None
+
+
+class TestMakeModelSettingsOpenAIReasoningEffort:
+    """o1/o3/o4-mini/codex-mini must actually forward reasoning_effort to the
+    real OpenAI field, not just accept it in the /model_settings menu -- see
+    model_utils.get_openai_reasoning_effort_choices for the recognized set.
+    """
+
+    def test_o_series_forwards_reasoning_effort_to_openai_field(self):
+        from code_puppy.model_factory import make_model_settings
+
+        with (
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "high"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("o3-mini", max_tokens=4096)
+
+        assert settings["openai_reasoning_effort"] == "high"
+
+    def test_o_series_defaults_to_medium(self):
+        from code_puppy.model_factory import make_model_settings
+
+        with (
+            patch("code_puppy.config.get_effective_model_settings", return_value={}),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("o4-mini", max_tokens=4096)
+
+        assert settings["openai_reasoning_effort"] == "medium"
+
+    def test_o_series_normalizes_legacy_effort_aliases(self):
+        from code_puppy.model_factory import make_model_settings
+
+        with (
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "minimal"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("codex-mini-latest", max_tokens=4096)
+
+        assert settings["openai_reasoning_effort"] == "none"
+
+    def test_fixed_effort_model_is_left_untouched(self):
+        """o1-mini/o1-preview/gpt-5-pro have no configurable effort at all;
+        branch must not fire for them."""
+        from code_puppy.model_factory import make_model_settings
+
+        with (
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "high"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("o1-mini", max_tokens=4096)
+
+        assert "openai_reasoning_effort" not in settings

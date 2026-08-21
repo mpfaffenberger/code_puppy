@@ -227,6 +227,7 @@ def make_model_settings(
     # GLM-4.5+ thinking/reasoning_effort are GLM-specific fields pydantic-ai
     # doesn't know; ride along in extra_body to reach the API.
     from code_puppy.model_utils import (
+        get_openai_reasoning_effort_choices,
         supports_glm_reasoning_effort,
         supports_glm_thinking,
     )
@@ -360,6 +361,16 @@ def make_model_settings(
                     "verbosity": effective_settings.get("verbosity", "medium")
                 }
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
+    elif get_openai_reasoning_effort_choices(model_name):
+        # Non-GPT-5 OpenAI reasoning models (o1/o3/o4-mini/codex-mini, etc):
+        # forward the configured effort the same way the GPT-5 branch does.
+        # These are plain Chat Completions models -- no Responses-API extras
+        # like verbosity or reasoning summaries.
+        _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
+        effort = effective_settings.get("reasoning_effort", "medium")
+        effort = _EFFORT_ALIAS.get(effort, effort)
+        model_settings_dict["openai_reasoning_effort"] = effort
+        model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif _is_anthropic_model(model_name, model_config):
         from code_puppy.model_utils import (
             anthropic_disallows_sampling_settings,
