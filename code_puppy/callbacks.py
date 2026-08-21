@@ -1564,6 +1564,9 @@ async def on_agent_run_cancel(group_id: str) -> List[Any]:
 
     Plugins use this to cancel any external workflow tracking the run.
     """
+    from code_puppy.observability import emit_cancellation
+
+    emit_cancellation(group_id)
     return await _trigger_callbacks("agent_run_cancel", group_id)
 
 
