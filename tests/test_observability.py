@@ -2,6 +2,7 @@
 
 import sys
 import types
+from contextlib import nullcontext
 from unittest.mock import patch
 
 from code_puppy import observability
@@ -106,6 +107,37 @@ class TestEmitCancellation:
             observability.emit_cancellation("group-1")
 
         warning.assert_called_once_with("Agent run cancelled", group_id="group-1")
+
+    def test_emits_as_child_of_captured_agent_context(self, monkeypatch):
+        context = {"traceparent": "00-trace-span-01"}
+        fake = types.SimpleNamespace(
+            get_context=lambda: context,
+            attach_context=lambda carrier: nullcontext(carrier),
+            warning=lambda *_args, **_kwargs: None,
+        )
+        monkeypatch.setitem(sys.modules, "logfire", fake)
+        monkeypatch.setattr(observability, "_logfire_active", True)
+        monkeypatch.setattr(observability, "_agent_contexts", {})
+
+        observability.capture_agent_context("group-1")
+        with (
+            patch.object(fake, "attach_context", wraps=fake.attach_context) as attach,
+            patch.object(fake, "warning") as warning,
+        ):
+            observability.emit_cancellation("group-1")
+
+        attach.assert_called_once_with(context)
+        warning.assert_called_once_with("Agent run cancelled", group_id="group-1")
+        assert "group-1" not in observability._agent_contexts
+
+    def test_clear_agent_context(self, monkeypatch):
+        monkeypatch.setattr(
+            observability, "_agent_contexts", {"group-1": {"traceparent": "value"}}
+        )
+
+        observability.clear_agent_context("group-1")
+
+        assert observability._agent_contexts == {}
 
     def test_logfire_error_fails_soft(self, monkeypatch):
         def boom(*_args, **_kwargs):

@@ -725,8 +725,17 @@ async def _run_with_mcp_impl(
         # on → wrap handler in a detector, fall back to one-shot render only
         # if no text actually streamed.
         use_streaming = get_enable_streaming()
+
+        async def _observed_event_stream_handler(ctx: Any, events: Any) -> Any:
+            from code_puppy.observability import capture_agent_context
+
+            capture_agent_context(group_id)
+            return await event_stream_handler(ctx, events)
+
         detector: Optional[StreamingTextDetector] = (
-            StreamingTextDetector(event_stream_handler) if use_streaming else None
+            StreamingTextDetector(_observed_event_stream_handler)
+            if use_streaming
+            else None
         )
         stream_handler = detector if detector is not None else None
         # Plugins (e.g. DBOS) can render their own output and skip the fallback.
@@ -920,6 +929,9 @@ async def _run_with_mcp_impl(
             if unexpected:
                 raise unexpected[0] from other
         finally:
+            from code_puppy.observability import clear_agent_context
+
+            clear_agent_context(group_id)
             agent._message_history = _history.prune_interrupted_tool_calls(
                 agent._message_history
             )
