@@ -359,6 +359,66 @@ def supports_glm_reasoning_effort(model_name: str) -> bool:
     return version is not None and version >= 5.2
 
 
+# OpenAI ``reasoning_effort`` (Chat Completions) / ``reasoning.effort``
+# (Responses API) support, per OpenAI's published per-model docs. Matched
+# against the underlying OpenAI model id, most-specific prefix first, since
+# e.g. "gpt-5.1-codex" must not fall through to the plain "gpt-5" bucket.
+# ``None`` means "unrecognized as an OpenAI reasoning model" -- callers fall
+# back to catalog-declared/legacy behavior instead of hiding the setting.
+_OPENAI_REASONING_EFFORT_CHOICES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # GPT-5.6 family: adds "max" on top of the full scale.
+    ("gpt-5.6", ("none", "low", "medium", "high", "xhigh", "max")),
+    # Non-reasoning chat variants: no reasoning_effort at all.
+    ("gpt-5.1-chat-latest", ()),
+    ("gpt-5-chat-latest", ()),
+    # Codex variants (documented for gpt-5.3-codex; other codex builds in the
+    # same family are treated the same until OpenAI documents otherwise).
+    ("gpt-5.3-codex", ("low", "medium", "high", "xhigh")),
+    ("gpt-5.1-codex", ("low", "medium", "high", "xhigh")),
+    ("gpt-5-codex", ("low", "medium", "high")),
+    # Fixed-effort model: no configurable choice.
+    ("gpt-5-pro", ()),
+    # GPT-5.2/5.4/5.5: none/low/medium/high/xhigh (documented explicitly).
+    ("gpt-5.2", ("none", "low", "medium", "high", "xhigh")),
+    ("gpt-5.4", ("none", "low", "medium", "high", "xhigh")),
+    ("gpt-5.5", ("none", "low", "medium", "high", "xhigh")),
+    # GPT-5.1: none/low/medium/high (no minimal, no xhigh).
+    ("gpt-5.1", ("none", "low", "medium", "high")),
+    # Plain GPT-5 (incl. mini/nano): minimal/low/medium/high. Code Puppy's
+    # canonical vocabulary collapses "minimal" into "none" (see the
+    # ``_EFFORT_ALIAS`` mapping in model_factory.py), so "none" stands in
+    # for it here rather than exposing a 7th UI-only value.
+    ("gpt-5", ("none", "low", "medium", "high")),
+    # o-series: low/medium/high only. o1-mini/o1-preview predate the
+    # reasoning_effort parameter entirely.
+    ("o1-mini", ()),
+    ("o1-preview", ()),
+    ("o1", ("low", "medium", "high")),
+    ("o3", ("low", "medium", "high")),
+    ("o4-mini", ("low", "medium", "high")),
+    ("codex-mini-latest", ("low", "medium", "high")),
+)
+
+
+def get_openai_reasoning_effort_choices(model_name: str) -> list[str] | None:
+    """Return the ``reasoning_effort`` choices OpenAI documents for a model.
+
+    Matches the underlying OpenAI model id against known prefixes (most
+    specific first). Returns ``None`` when the name isn't a recognized
+    OpenAI reasoning model -- callers should fall back to catalog overrides
+    or existing defaults rather than treating that as "no choices".
+
+    An empty list is a real, meaningful answer: some models (o1-mini,
+    o1-preview, gpt-5-pro, the *-chat-latest variants) are recognized but
+    don't expose a configurable reasoning_effort at all.
+    """
+    name = model_name.lower()
+    for prefix, choices in _OPENAI_REASONING_EFFORT_CHOICES:
+        if prefix in name:
+            return list(choices)
+    return None
+
+
 def get_thinking_tags(
     model_name: str, model_config: dict | None = None
 ) -> tuple[str, str] | None:

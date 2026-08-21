@@ -397,6 +397,36 @@ class TestModelSupportsSetting:
             "zai-glm-5.2-api", "glm_reasoning_effort"
         )
 
+    def test_openai_reasoning_effort_recognized_without_catalog_entry(self):
+        # gpt-5.x/o-series/codex-mini models get reasoning_effort dynamically,
+        # even with an empty (or missing) supported_settings catalog entry --
+        # covers hand-added extra_models.json rows and OAuth-sourced models.
+        assert cp_config.model_supports_setting(
+            "gpt-5", "reasoning_effort", models_config={"gpt-5": {}}
+        )
+        assert cp_config.model_supports_setting(
+            "o1", "reasoning_effort", models_config={"o1": {}}
+        )
+        assert cp_config.model_supports_setting(
+            "o3-mini", "reasoning_effort", models_config={"o3-mini": {}}
+        )
+
+    def test_openai_reasoning_effort_false_for_fixed_effort_models(self):
+        # Recognized OpenAI reasoning models with no configurable effort must
+        # NOT report support, or the /model_settings menu would offer a
+        # setting with zero valid choices.
+        assert not cp_config.model_supports_setting(
+            "o1-mini", "reasoning_effort", models_config={"o1-mini": {}}
+        )
+        assert not cp_config.model_supports_setting(
+            "gpt-5-pro", "reasoning_effort", models_config={"gpt-5-pro": {}}
+        )
+
+    def test_openai_reasoning_effort_ignored_for_non_openai_models(self):
+        assert not cp_config.model_supports_setting(
+            "claude-opus-4-6", "reasoning_effort", models_config={}
+        )
+
     def test_with_supported_settings_list(self):
         mock_config = {"test-model": {"supported_settings": ["temperature", "seed"]}}
         with patch(

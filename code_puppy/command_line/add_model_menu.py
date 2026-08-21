@@ -880,21 +880,30 @@ class AddModelMenu:
                 "extended_thinking",
                 "budget_tokens",
             ]
-        elif model_type == "openai" and "gpt-5" in model.model_id:
-            # GPT-5 models have special settings
-            if "codex" in model.model_id:
+        elif model_type == "openai":
+            # Shared source of truth (also used by config.py's
+            # model_supports_setting and the /model_settings choices menu)
+            # for which real OpenAI models expose reasoning_effort, and
+            # exactly which none/low/medium/high/xhigh/max values each one
+            # documents. An empty list means "recognized reasoning model,
+            # but reasoning_effort isn't configurable" (o1-mini, o1-preview,
+            # gpt-5-pro, *-chat-latest); None means "not an OpenAI reasoning
+            # model at all" (falls through to the plain default below).
+            from code_puppy.model_utils import get_openai_reasoning_effort_choices
+
+            effort_choices = get_openai_reasoning_effort_choices(model.model_id)
+            if effort_choices:
                 config["supported_settings"] = [
                     "temperature",
                     "top_p",
                     "reasoning_effort",
                 ]
+                # Verbosity is a GPT-5-family Responses/Chat option; codex
+                # variants and o-series models don't support it.
+                if "gpt-5" in model.model_id and "codex" not in model.model_id:
+                    config["supported_settings"].append("verbosity")
             else:
-                config["supported_settings"] = [
-                    "temperature",
-                    "top_p",
-                    "reasoning_effort",
-                    "verbosity",
-                ]
+                config["supported_settings"] = ["temperature", "seed", "top_p"]
         else:
             # Default settings for most models
             config["supported_settings"] = ["temperature", "seed", "top_p"]

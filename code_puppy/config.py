@@ -777,6 +777,17 @@ def model_supports_setting(
 
         if supports_glm_reasoning_effort(model_name):
             return True
+    if setting == "reasoning_effort":
+        # Recognize real OpenAI reasoning models (gpt-5.x, o-series,
+        # codex-mini) even if their catalog entry never declared
+        # supported_settings -- e.g. hand-added extra_models.json rows or
+        # OAuth-sourced entries that predate this detection. An empty list
+        # (o1-mini, o1-preview, gpt-5-pro, *-chat-latest) means "recognized
+        # but genuinely not configurable", so it must NOT report support.
+        from code_puppy.model_utils import get_openai_reasoning_effort_choices
+
+        if get_openai_reasoning_effort_choices(model_name):
+            return True
     if setting in ("reasoning_context", "reasoning_mode"):
         # GPT-5.6 Responses API controls; detect here so injected/custom 5.6
         # definitions needn't duplicate supported_settings metadata.

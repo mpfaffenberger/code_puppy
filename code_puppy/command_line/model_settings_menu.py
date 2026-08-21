@@ -369,6 +369,29 @@ def _get_setting_choices(
                 return recognized
 
         if setting_key == "reasoning_effort":
+            # Dynamic OpenAI-family detection (gpt-5.x, o-series, codex-mini)
+            # is the source of truth when the model is recognized -- it knows
+            # exactly which of none/low/medium/high/xhigh/max each real
+            # OpenAI model documents, including "max" for GPT-5.6+.
+            from code_puppy.model_utils import get_openai_reasoning_effort_choices
+
+            underlying_name = str(model_config.get("name", ""))
+            dynamic_choices = get_openai_reasoning_effort_choices(model_name)
+            if dynamic_choices is None:
+                dynamic_choices = get_openai_reasoning_effort_choices(underlying_name)
+            if dynamic_choices is not None:
+                allowed = set(dynamic_choices)
+                # Explicit catalog flags can still widen a recognized model's
+                # choices (e.g. a custom proxy that backports "max" early).
+                if model_config.get("supports_xhigh_reasoning"):
+                    allowed.add("xhigh")
+                if model_config.get("supports_max_reasoning"):
+                    allowed.add("max")
+                return [c for c in base_choices if c in allowed]
+
+            # Unrecognized model: fall back to the legacy opt-in flags so
+            # third-party/custom-endpoint models don't silently gain
+            # xhigh/max they never asked for.
             unsupported_choices = set()
             if not model_config.get("supports_xhigh_reasoning", False):
                 unsupported_choices.add("xhigh")

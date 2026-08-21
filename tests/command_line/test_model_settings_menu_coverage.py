@@ -199,6 +199,42 @@ class TestGetSettingChoices:
             "reasoning_effort", "remote-gpt", models_config
         ) == ["low", "medium", "high", "xhigh"]
 
+    def test_gpt_5_6_offers_max(self):
+        # The reported bug: GPT-5.6 (the family that actually documents
+        # "max") must offer it, with no catalog flags required.
+        choices = _get_setting_choices(
+            "reasoning_effort", "gpt-5.6-sol", {"gpt-5.6-sol": {}}
+        )
+        assert choices == ["none", "low", "medium", "high", "xhigh", "max"]
+
+    def test_plain_gpt_5_excludes_xhigh_and_max(self):
+        # Plain GPT-5 only documents minimal/low/medium/high; "none" stands
+        # in for "minimal" in Code Puppy's canonical vocabulary.
+        choices = _get_setting_choices("reasoning_effort", "gpt-5", {"gpt-5": {}})
+        assert choices == ["none", "low", "medium", "high"]
+
+    def test_o_series_gets_reasoning_effort_choices(self):
+        # o1/o3/o4-mini previously had no dynamic detection at all.
+        choices = _get_setting_choices("reasoning_effort", "o3-mini", {"o3-mini": {}})
+        assert choices == ["low", "medium", "high"]
+
+    def test_fixed_effort_model_has_no_choices(self):
+        # gpt-5-pro documents a single fixed effort; nothing to pick.
+        choices = _get_setting_choices(
+            "reasoning_effort", "gpt-5-pro", {"gpt-5-pro": {}}
+        )
+        assert choices == []
+
+    def test_explicit_flags_can_still_widen_a_recognized_model(self):
+        # A custom endpoint fronting a recognized model can still opt in
+        # early via the legacy boolean flags.
+        choices = _get_setting_choices(
+            "reasoning_effort",
+            "gpt-5",
+            {"gpt-5": {"supports_max_reasoning": True}},
+        )
+        assert "max" in choices
+
 
 class TestLoadAllModelNames:
     @patch("code_puppy.command_line.model_settings_menu.ModelFactory")
