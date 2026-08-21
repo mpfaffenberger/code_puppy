@@ -27,7 +27,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 from pydantic_ai import Agent as PydanticAgent
-from pydantic_ai.capabilities import Instrumentation
+from pydantic_ai.capabilities import AbstractCapability, Instrumentation
 
 # Private helper, but it is exactly what pydantic-ai's run layer uses for its
 # explicit-capability-wins check -- introspecting with the same traversal
@@ -92,12 +92,32 @@ def test_instrument_all_true_normalizes_to_default_settings():
 
 
 def test_each_call_builds_a_fresh_capability():
-    """Probe and final construction passes must not share per-run state."""
+    """Each construction pass (probe/final) gets its own capability object.
+
+    Per-run isolation itself is upstream's job (``Instrumentation.for_run``
+    returns a ``dataclasses.replace`` copy — pinned below); this only pins
+    that build passes don't share one instance.
+    """
     settings, _ = _memory_settings()
     PydanticAgent.instrument_all(settings)
     (first,) = build_instrumentation()
     (second,) = build_instrumentation()
     assert first is not second
+
+
+@pytest.mark.asyncio
+async def test_for_run_returns_isolated_copies():
+    """Upstream per-run isolation contract: ``for_run`` copies never share."""
+    settings, _ = _memory_settings()
+    PydanticAgent.instrument_all(settings)
+    (cap,) = build_instrumentation()
+    ctx = SimpleNamespace(agent=None, messages=[])
+    run_a = await cap.for_run(ctx)
+    run_b = await cap.for_run(ctx)
+    assert run_a is not cap
+    assert run_b is not cap
+    assert run_a is not run_b
+    assert run_a.settings is settings
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +156,50 @@ def _text_model():
     return FunctionModel(reply)
 
 
+# Attribute values that are stable across two identical runs. Everything else
+# (run ids, conversation ids, serialized messages with timestamps, durations)
+# is inherently per-run; for those we still compare the *key sets* so a
+# structural change in either delivery path can't hide.
+_STABLE_ATTR_KEYS = frozenset(
+    {
+        "gen_ai.operation.name",
+        "gen_ai.agent.name",
+        "agent_name",
+        "model_name",
+        "gen_ai.request.model",
+        "logfire.msg",
+        "gen_ai.system",
+    }
+)
+
+
+def _normalized_spans(exporter):
+    """Project finished spans onto their run-stable identity.
+
+    Captures name, status code, parent topology (by span name), the full
+    attribute key set, and the values of stable attributes — excluding only
+    fields that legitimately differ between two runs (ids, timestamps,
+    serialized message payloads).
+    """
+    spans = exporter.get_finished_spans()
+    by_id = {s.context.span_id: s.name for s in spans}
+    normalized = []
+    for s in spans:
+        attrs = dict(s.attributes or {})
+        normalized.append(
+            (
+                s.name,
+                s.status.status_code,
+                by_id.get(s.parent.span_id) if s.parent else None,
+                tuple(sorted(attrs)),
+                tuple(
+                    sorted((k, v) for k, v in attrs.items() if k in _STABLE_ATTR_KEYS)
+                ),
+            )
+        )
+    return normalized
+
+
 @pytest.mark.asyncio
 async def test_explicit_capability_matches_global_default_spans():
     """Same settings, same spans -- whether delivered globally or explicitly."""
@@ -143,10 +207,7 @@ async def test_explicit_capability_matches_global_default_spans():
     PydanticAgent.instrument_all(settings_a)
     old_path = PydanticAgent(model=_text_model(), name="parity-agent")
     await old_path.run("hello")
-    old_spans = [
-        (s.name, dict(s.attributes or {}).get("gen_ai.operation.name"))
-        for s in exporter_a.get_finished_spans()
-    ]
+    old_spans = _normalized_spans(exporter_a)
 
     settings_b, exporter_b = _memory_settings()
     PydanticAgent.instrument_all(settings_b)
@@ -156,12 +217,13 @@ async def test_explicit_capability_matches_global_default_spans():
         capabilities=[Instrumentation(settings=settings_b)],
     )
     await new_path.run("hello")
-    new_spans = [
-        (s.name, dict(s.attributes or {}).get("gen_ai.operation.name"))
-        for s in exporter_b.get_finished_spans()
-    ]
+    new_spans = _normalized_spans(exporter_b)
 
+    # Full normalized comparison: same span sequence, same statuses, same
+    # parent topology, same attribute key sets, same stable attribute values.
+    # Equality here also rules out duplicated request/tool spans wholesale.
     assert old_spans == new_spans
+    assert len(old_spans) > 0
 
 
 @pytest.mark.asyncio
@@ -181,6 +243,34 @@ async def test_no_double_instrumentation_with_global_default_set():
         if dict(s.attributes or {}).get("gen_ai.operation.name") == "invoke_agent"
     ]
     assert len(run_spans) == 1
+
+
+@pytest.mark.asyncio
+async def test_ctx_tracer_is_real_with_global_default_retained():
+    """The module's rationale for keeping the global default, pinned.
+
+    Classic ``run``/``iter`` resolves ``ctx.tracer`` from the global/instance
+    settings *before* explicit capabilities are considered. Because the
+    explicit capability and the global default carry the same settings
+    object, capabilities observing ``ctx.tracer`` must see the real tracer
+    (identity with ``settings.tracer``), never a ``NoOpTracer``.
+    """
+    settings, _ = _memory_settings()
+    PydanticAgent.instrument_all(settings)
+    seen = {}
+
+    class _TracerProbe(AbstractCapability):
+        async def for_run(self, ctx):
+            seen["tracer"] = ctx.tracer
+            return self
+
+    agent = PydanticAgent(
+        model=_text_model(),
+        name="tracer-probe-agent",
+        capabilities=[Instrumentation(settings=settings), _TracerProbe()],
+    )
+    await agent.run("hello")
+    assert seen["tracer"] is settings.tracer
 
 
 # ---------------------------------------------------------------------------

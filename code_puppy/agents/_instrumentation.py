@@ -21,10 +21,12 @@ get_ordering()`` sorts it outermost regardless of list position).
    (e.g. wiggum's judge, btw's side-query) and get spans purely from
    ``Agent.instrument_all``. Dropping the global would silently kill their
    telemetry.
-2. ``ctx.tracer`` consistency. pydantic-ai resolves the run context's tracer
-   from the *global/instance* settings, independent of explicit capabilities.
-   Keeping both in sync means capabilities and toolsets observing
-   ``ctx.tracer`` see the real tracer, never a ``NoOpTracer``.
+2. ``ctx.tracer`` consistency. In the classic ``run``/``iter`` path,
+   pydantic-ai resolves the run context's tracer from the *global/instance*
+   settings before explicit capabilities are considered (realtime sessions
+   additionally consult an explicit capability's settings — same object
+   here either way). Keeping both in sync means capabilities and toolsets
+   observing ``ctx.tracer`` see the real tracer, never a ``NoOpTracer``.
 
 Observable divergence (documented + pinned by tests): the capability is a
 build-time snapshot, while the global default is read per run. If something
