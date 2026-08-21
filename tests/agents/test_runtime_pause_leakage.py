@@ -256,10 +256,10 @@ def test_steer_queued_mid_run_is_injected_via_history_processor():
     This is a unit test on the processor itself (we can't drive a real
     pydantic-ai agent in CI), but it locks the contract: queue a steer,
     invoke the processor, the steer shows up in the returned messages.
-    The actual pydantic-ai → ProcessHistory → model wiring is verified
+    The actual pydantic-ai → capability-chain → model wiring is verified
     by the unit tests in ``test_steer_history_processor.py`` and by the
-    ``_builder.py`` wiring (``capabilities=[ProcessHistory(compaction),
-    ProcessHistory(steer)]``).
+    ``_builder.py`` wiring (``capabilities=[HistoryCompaction(agent),
+    ProcessHistory(steer_processor), ...]``).
     """
     from unittest.mock import Mock
 

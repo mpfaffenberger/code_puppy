@@ -468,7 +468,9 @@ class TestHistoryCompaction:
                 _ctx(), request_context
             )
         assert out is request_context
-        assert out.messages == agent._message_history
+        # Identity, not just equality: the processed durable history object
+        # itself becomes the outbound list — replace, never append.
+        assert out.messages is agent._message_history
 
     async def test_merges_new_messages_into_agent_history(self):
         agent = _FakeAgent(model_max=1_000_000)
@@ -542,12 +544,18 @@ class TestHistoryCompaction:
         """End-to-end: a real pydantic-ai Agent wired with the capability must
         dispatch it on every model request — the user prompt lands in the
         owning agent's durable message history via the real chain, and the
-        model receives the processed history."""
+        model receives exactly the processed history the capability built."""
         from pydantic_ai import Agent as PydanticAgent
 
         fake = _FakeAgent(model_max=1_000_000)
+        seen: List[List[ModelMessage]] = []
+
+        def _capture(messages: List[ModelMessage], info: AgentInfo) -> ModelResponse:
+            seen.append(list(messages))
+            return ModelResponse(parts=[TextPart(content="ok")])
+
         pyd_agent = PydanticAgent(
-            model=TestModel(),
+            model=FunctionModel(_capture),
             output_type=str,
             capabilities=[HistoryCompaction(fake)],
         )
@@ -560,7 +568,10 @@ class TestHistoryCompaction:
             )
             for m in fake._message_history
         ), "user prompt must be merged into the durable history via the chain"
-        assert result.output
+        # The wire request carried the capability's processed durable history
+        # — not the raw incoming list.
+        assert seen and seen[0] == fake._message_history
+        assert result.output == "ok"
 
 
 # ---------- FallbackCompaction wiring sanity ---------------------------------
