@@ -1240,10 +1240,7 @@ class RichConsoleRenderer:
             cur = msg.current_version
             latest = msg.latest_version
             self._console.print(f"[dim]⬆ Update available: {cur} → {latest}[/dim]")
-        else:
-            self._console.print(
-                f"[dim]✓ You're on the latest version ({msg.current_version})[/dim]"
-            )
+        # Up to date? Say nothing. No news is good news.
 
     # =========================================================================
     # Helpers
