@@ -293,6 +293,7 @@ async def _invoke_agent_impl(
     # if load_agent() itself fails before assignment.
     agent_config = None
     effective_model_name = model_name
+    session_persistence = None
 
     try:
         # Lazy import to break circular dependency with messaging module
@@ -405,6 +406,24 @@ async def _invoke_agent_impl(
                 build_model_message_transform,
             )
 
+            # Persist the session at the run boundary (wrap_run): success
+            # saves the full transcript, failure/cancellation saves partial
+            # progress. The invocation layer reads the custody records after
+            # the run unwinds; the eager save calls below survive only as
+            # fallback for exits the boundary never sees. Lazy import: a
+            # top-level import would cycle through code_puppy.agents.__init__.
+            from code_puppy.agents._subagent_sessions import (
+                SubagentSessionPersistence,
+            )
+
+            session_persistence = SubagentSessionPersistence(
+                agent_config=agent_config,
+                session_id=session_id,
+                agent_name=agent_name,
+                baseline_count=len(message_history),
+                initial_prompt=prompt if is_new_session else None,
+            )
+
             # Build the pydantic-ai agent. MCP servers always included; plugins
             # (e.g. DBOS) may swap them via the agent_run_context hook.
             temp_agent = Agent(
@@ -423,6 +442,9 @@ async def _invoke_agent_impl(
                 capabilities=[
                     ProcessHistory(make_history_processor(agent_config)),
                     build_model_message_transform(agent_name),
+                    # wrap_run seam -- position relative to the request-path
+                    # capabilities above is inert.
+                    session_persistence,
                 ],
                 model_settings=model_settings,
             )
@@ -551,13 +573,18 @@ async def _invoke_agent_impl(
             # The result contains all_messages which includes the full conversation
             updated_history = result.all_messages()
 
-            # Save to filesystem (include initial prompt only for new sessions)
-            _save_session_history(
-                session_id=session_id,
-                message_history=updated_history,
-                agent_name=agent_name,
-                initial_prompt=prompt if is_new_session else None,
-            )
+            # ``SubagentSessionPersistence`` already saved this transcript at
+            # the run boundary. Guest fallback: if a plugin wrapper produced an
+            # agent that never ran our capability, keep the eager save so no
+            # session is ever lost (include initial prompt only for new
+            # sessions).
+            if not session_persistence.final_saved:
+                _save_session_history(
+                    session_id=session_id,
+                    message_history=updated_history,
+                    agent_name=agent_name,
+                    initial_prompt=prompt if is_new_session else None,
+                )
 
             # Emit via MessageBus; skip in high mode when streaming already
             # rendered the response (avoids future double-render).
@@ -604,17 +631,32 @@ async def _invoke_agent_impl(
             e, (asyncio.CancelledError, KeyboardInterrupt)
         ) or _contains_cancellation(e)
 
-        if interrupted:
-            # CancelledError derives from BaseException, so it slipped past the
-            # old ``except Exception`` save path. Persist progress, tell the user
-            # how to resume, then re-raise (persistence must not mask cancel).
-            saved = _save_partial_session(
+        # Run-boundary custody: ``SubagentSessionPersistence`` (wrap_run)
+        # already persisted the session for any failure inside the run
+        # itself. Fall back to the eager save only when the boundary never
+        # ran (failures before/after the run: agent build, MCP autostart,
+        # rendering) -- and never clobber a completed run's full transcript
+        # with the older live checkpoint.
+        handled, boundary_saved = (
+            session_persistence.recorded_save()
+            if session_persistence is not None
+            else (False, None)
+        )
+
+        def _fallback_partial_save() -> int | None:
+            return _save_partial_session(
                 agent_config=agent_config,
                 session_id=session_id,
                 agent_name=agent_name,
                 baseline_count=len(message_history),
                 initial_prompt=prompt if is_new_session else None,
             )
+
+        if interrupted:
+            # CancelledError derives from BaseException, so it slipped past the
+            # old ``except Exception`` save path. Persist progress, tell the user
+            # how to resume, then re-raise (persistence must not mask cancel).
+            saved = boundary_saved if handled else _fallback_partial_save()
             detail = (
                 f"{saved} message(s) saved"
                 if saved is not None
@@ -646,13 +688,7 @@ async def _invoke_agent_impl(
         emit_error(error_msg, message_group=group_id)
 
         # Save whatever progress the agent made before crashing.
-        saved = _save_partial_session(
-            agent_config=agent_config,
-            session_id=session_id,
-            agent_name=agent_name,
-            baseline_count=len(message_history),
-            initial_prompt=prompt if is_new_session else None,
-        )
+        saved = boundary_saved if handled else _fallback_partial_save()
         if saved is not None:
             emit_info(
                 f"Saved partial session '{session_id}' "
