@@ -93,7 +93,13 @@ async def test_full_layering_base_then_capability_then_run():
         cap = PerModelSettings(_MODEL_NAME)
 
     agent = Agent(
-        FunctionModel(model_fn, settings=ModelSettings(max_tokens=1, seed=42)),
+        FunctionModel(
+            model_fn,
+            # temperature overlaps with the capability layer so the
+            # capability-over-base assertion below is unmasked: a base<->cap
+            # ordering regression would surface as 0.9 winning.
+            settings=ModelSettings(max_tokens=1, temperature=0.9, seed=42),
+        ),
         capabilities=[cap],
     )
     await agent.run("hello", model_settings=ModelSettings(max_tokens=7))
