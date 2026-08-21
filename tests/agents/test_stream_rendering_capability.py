@@ -55,6 +55,16 @@ def _stream_only_model(text: str = "woof woof") -> FunctionModel:
     return FunctionModel(stream_function=stream_fn)
 
 
+def _chunked_stream_model(*chunks: str) -> FunctionModel:
+    """A stream-only model that emits each chunk as its own delta."""
+
+    async def stream_fn(_messages, _info: AgentInfo):
+        for chunk in chunks:
+            yield chunk
+
+    return FunctionModel(stream_function=stream_fn)
+
+
 def _request_only_model(text: str = "plain") -> FunctionModel:
     """A model that can ONLY answer non-streamed requests."""
 
@@ -242,6 +252,120 @@ async def test_observation_propagates_into_created_task():
     result = await task
     assert result.output == "woof woof"
     assert observation.streamed_text is True
+
+
+async def test_handler_sees_deltas_in_stream_order():
+    # ProcessEventStream must not reorder the observed view — the renderer
+    # depends on deltas arriving exactly as the model produced them.
+    seen: list = []
+
+    async def handler(_ctx, events):
+        async for event in events:
+            if isinstance(event, PartDeltaEvent):
+                seen.append(event.delta.content_delta)
+            elif isinstance(event, PartStartEvent):
+                seen.append(event.part.content)
+
+    agent = Agent(
+        model=_chunked_stream_model("al", "pha ", "bra", "vo"),
+        output_type=str,
+        capabilities=[StreamRendering()],
+    )
+    with stream_observation(handler):
+        result = await agent.run("hi")
+
+    assert result.output == "alpha bravo"
+    assert "".join(seen) == "alpha bravo"
+
+
+async def test_early_returning_handler_does_not_stall_the_run():
+    # An observer that bails after one event must not block the node stream
+    # (pydantic-ai keeps forwarding; the old direct-consumption path drained
+    # leftovers the same way).
+    received: list = []
+
+    async def one_and_done(_ctx, events):
+        async for event in events:
+            received.append(event)
+            return
+
+    agent = Agent(
+        model=_chunked_stream_model("never", " gonna", " give"),
+        output_type=str,
+        capabilities=[StreamRendering()],
+    )
+    with stream_observation(one_and_done):
+        result = await agent.run("hi")
+
+    assert result.output == "never gonna give"
+    assert len(received) == 1
+
+
+async def test_raising_handler_propagates_to_the_run():
+    # Parity with the per-run kwarg: a handler crash must surface, not be
+    # swallowed into a silent render-less run.
+    class HandlerBoom(Exception):
+        pass
+
+    async def explode(_ctx, events):
+        async for _event in events:
+            raise HandlerBoom("boom")
+
+    agent = Agent(
+        model=_stream_only_model(),
+        output_type=str,
+        capabilities=[StreamRendering()],
+    )
+    with stream_observation(explode):
+        try:
+            await agent.run("hi")
+        except* HandlerBoom:
+            propagated = True
+        else:
+            propagated = False
+    assert propagated
+
+
+async def test_nested_subagent_observation_shadows_and_restores():
+    # The sub-agent topology: an outer (main-run) observation, an inner one
+    # installed for the delegate, the delegate run launched via create_task,
+    # and the outer observation restored — with each handler seeing only its
+    # own run's events.
+    outer_seen: list = []
+    inner_seen: list = []
+
+    async def outer_handler(_ctx, events):
+        async for event in events:
+            outer_seen.append(event)
+
+    async def inner_handler(_ctx, events):
+        async for event in events:
+            inner_seen.append(event)
+
+    outer_agent = Agent(
+        model=_stream_only_model("outer text"),
+        output_type=str,
+        capabilities=[StreamRendering()],
+    )
+    inner_agent = Agent(
+        model=_stream_only_model("inner text"),
+        output_type=str,
+        capabilities=[StreamRendering()],
+    )
+
+    with stream_observation(outer_handler) as outer_observation:
+        with stream_observation(inner_handler) as inner_observation:
+            task = asyncio.create_task(inner_agent.run("delegate"))
+        assert current_stream_observation() is outer_observation
+        inner_result = await task
+        outer_result = await outer_agent.run("main")
+
+    assert inner_result.output == "inner text"
+    assert outer_result.output == "outer text"
+    assert inner_observation.streamed_text is True
+    assert outer_observation.streamed_text is True
+    assert inner_seen and outer_seen
+    assert not (set(map(id, inner_seen)) & set(map(id, outer_seen)))
 
 
 async def test_detector_ignores_non_text_events():
