@@ -80,7 +80,7 @@ def emit_cancellation(group_id: str) -> None:
     try:
         import logfire
 
-        logfire.info("Agent run cancelled", group_id=group_id)
+        logfire.warning("Agent run cancelled", group_id=group_id)
     except Exception:
         # Observability must never interfere with cancelling an agent run.
         return

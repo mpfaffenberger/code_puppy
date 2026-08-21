@@ -88,30 +88,30 @@ class TestConfigureLogfire:
 
 class TestEmitCancellation:
     def test_noop_when_logfire_is_inactive(self, monkeypatch):
-        fake = types.SimpleNamespace(info=lambda *_args, **_kwargs: None)
+        fake = types.SimpleNamespace(warning=lambda *_args, **_kwargs: None)
         monkeypatch.setitem(sys.modules, "logfire", fake)
         monkeypatch.setattr(observability, "_logfire_active", False)
 
-        with patch.object(fake, "info") as info:
+        with patch.object(fake, "warning") as warning:
             observability.emit_cancellation("group-1")
 
-        info.assert_not_called()
+        warning.assert_not_called()
 
     def test_emits_event_when_logfire_is_active(self, monkeypatch):
-        fake = types.SimpleNamespace(info=lambda *_args, **_kwargs: None)
+        fake = types.SimpleNamespace(warning=lambda *_args, **_kwargs: None)
         monkeypatch.setitem(sys.modules, "logfire", fake)
         monkeypatch.setattr(observability, "_logfire_active", True)
 
-        with patch.object(fake, "info") as info:
+        with patch.object(fake, "warning") as warning:
             observability.emit_cancellation("group-1")
 
-        info.assert_called_once_with("Agent run cancelled", group_id="group-1")
+        warning.assert_called_once_with("Agent run cancelled", group_id="group-1")
 
     def test_logfire_error_fails_soft(self, monkeypatch):
         def boom(*_args, **_kwargs):
             raise RuntimeError("collector exploded")
 
-        monkeypatch.setitem(sys.modules, "logfire", types.SimpleNamespace(info=boom))
+        monkeypatch.setitem(sys.modules, "logfire", types.SimpleNamespace(warning=boom))
         monkeypatch.setattr(observability, "_logfire_active", True)
 
         observability.emit_cancellation("group-1")
