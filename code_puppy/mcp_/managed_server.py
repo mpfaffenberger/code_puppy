@@ -242,8 +242,8 @@ class ManagedMCPServer:
         Get the pydantic-ai toolset for this server.
 
         Returns the ``MCPToolset`` wrapped in a ``PrefixedToolset`` (the
-        public replacement for the old ``tool_prefix=`` kwarg), ready to be
-        passed to ``Agent(toolsets=...)``.
+        public replacement for the old ``tool_prefix=`` kwarg), ready for
+        delivery via the ``McpToolsets`` capability.
 
         Raises:
             RuntimeError: If server creation failed or server is not available

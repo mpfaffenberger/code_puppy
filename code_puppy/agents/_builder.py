@@ -19,6 +19,7 @@ from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agents._compaction import make_history_processor
+from code_puppy.agents._mcp_toolsets import McpToolsets
 from code_puppy.agents._model_message_transform import build_model_message_transform
 from code_puppy.agents._output_limits import (
     build_response_clamp,
@@ -615,8 +616,8 @@ def build_pydantic_agent(
     - ``agent._code_generation_agent`` ← same as ``pydantic_agent``
     - ``agent._mcp_servers``          ← MCP toolsets (post-filter)
 
-    The build happens in two passes: we construct once with ``toolsets=[]`` so
-    we can introspect registered tool names, then rebuild with MCP servers
+    The build happens in two passes: we construct once with no MCP toolsets
+    so we can introspect registered tool names, then rebuild with MCP servers
     filtered against those names to prevent collisions. Plugins may wrap the
     final pydantic agent via the ``wrap_pydantic_agent`` hook (e.g. to swap
     in a durable-exec wrapper).
@@ -640,7 +641,7 @@ def build_pydantic_agent(
     steer_processor = make_steer_history_processor(agent)
     logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
 
-    def _new_pydantic_agent(toolsets: List[Any]) -> PydanticAgent:
+    def _new_pydantic_agent(mcp_toolsets: List[Any]) -> PydanticAgent:
         return PydanticAgent(
             model=model,
             # Explicit name: without it pydantic-ai infers one from the
@@ -650,10 +651,12 @@ def build_pydantic_agent(
             instructions=instructions,
             output_type=output_type,
             retries=3,
-            toolsets=toolsets,
-            # Order matters: compaction first (may trim history to fit
-            # context), THEN steer injection (a fresh steer must not be
-            # compacted away). ProcessHistory capabilities apply in
+            # McpToolsets delivers the MCP servers via the get_toolset()
+            # capability seam (replaces the `toolsets=` kwarg); it is a
+            # configuration seam, so its position in this list is inert.
+            # Order matters for the rest: compaction first (may trim history
+            # to fit context), THEN steer injection (a fresh steer must not
+            # be compacted away). ProcessHistory capabilities apply in
             # registration order (replaces the deprecated
             # `history_processors=` kwarg, removed in pydantic-ai v2).
             # ToolOutputLimits reduces oversized tool returns on a different
@@ -661,6 +664,7 @@ def build_pydantic_agent(
             # response clamp runs before_model_request after both history
             # processors. The plugin transform wraps the final model request.
             capabilities=[
+                McpToolsets(mcp_toolsets),
                 *build_tool_output_limits(),
                 ProcessHistory(history_processor),
                 ProcessHistory(steer_processor),
@@ -670,9 +674,9 @@ def build_pydantic_agent(
             model_settings=model_settings,
         )
 
-    # Pass 1: build with empty toolsets so we can see what pydantic-ai + our
+    # Pass 1: build with no MCP toolsets so we can see what pydantic-ai + our
     # tool registry actually produced, and filter MCP to avoid name clashes.
-    probe_agent = _new_pydantic_agent(toolsets=[])
+    probe_agent = _new_pydantic_agent(mcp_toolsets=[])
     agent_tools = agent.get_available_tools()
     register_tools_for_agent(
         probe_agent,
@@ -686,9 +690,9 @@ def build_pydantic_agent(
         mcp_servers, existing_tool_names
     )
 
-    # Pass 2: real build. MCP servers always go in the constructor; plugins
-    # (e.g. DBOS) may swap them at run time via ``agent_run_context``.
-    final_pydantic = _new_pydantic_agent(toolsets=filtered_mcp_servers)
+    # Pass 2: real build. MCP servers always ride the McpToolsets capability;
+    # plugins (e.g. DBOS) may swap them at run time via ``agent_run_context``.
+    final_pydantic = _new_pydantic_agent(mcp_toolsets=filtered_mcp_servers)
     register_tools_for_agent(
         final_pydantic,
         agent_tools,
