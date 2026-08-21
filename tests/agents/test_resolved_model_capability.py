@@ -8,10 +8,17 @@ run/override models staying authoritative, and the one observable divergence
 (the built agent's ``.model`` slot reads ``None``).
 """
 
+from contextlib import contextmanager
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelResponse,
+    TextPart,
+    ToolCallPart,
+)
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from code_puppy.agents._resolved_model import ResolvedModel
@@ -115,6 +122,61 @@ async def test_override_model_stays_authoritative_in_scope_only():
     assert cap_seen
 
 
+async def test_agent_enter_manages_capability_model_lifecycle():
+    """``Agent.__aenter__`` enters (and ``__aexit__`` exits) a static
+    capability model's context exactly as it did the agent-slot model, so
+    provider HTTP clients keep their open/close lifecycle."""
+
+    class _TrackedModel(FunctionModel):
+        entered = 0
+        exited = 0
+
+        async def __aenter__(self):
+            type(self).entered += 1
+            return await super().__aenter__()
+
+        async def __aexit__(self, *exc_info):
+            type(self).exited += 1
+            return await super().__aexit__(*exc_info)
+
+    def respond(_messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart("entered")])
+
+    agent = Agent(capabilities=[ResolvedModel(_TrackedModel(respond))])
+    async with agent:
+        assert _TrackedModel.entered == 1
+        assert _TrackedModel.exited == 0
+        result = await agent.run("fetch")
+    assert result.output == "entered"
+    assert _TrackedModel.exited == 1
+
+
+async def test_static_model_serves_every_step_of_a_multi_step_run():
+    """A static contribution is resolved once per run: the same instance
+    serves every request step (tool-call round trip included), with no
+    dynamic re-selection between steps."""
+    seen: list[list[ModelMessage]] = []
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append(messages)
+        if len(seen) == 1:
+            return ModelResponse(
+                parts=[ToolCallPart(tool_name="bark", args={})],
+            )
+        return ModelResponse(parts=[TextPart("done")])
+
+    agent = Agent(capabilities=[ResolvedModel(FunctionModel(respond))])
+
+    @agent.tool_plain
+    def bark() -> str:
+        return "woof"
+
+    result = await agent.run("fetch")
+
+    assert result.output == "done"
+    assert len(seen) == 2, "both request steps must hit the one static model"
+
+
 def test_agent_model_slot_reads_none():
     """Pinned divergence: the model no longer occupies the agent slot, so the
     built agent's ``.model`` property reads ``None``. No code_puppy call site
@@ -148,6 +210,10 @@ class _AgentConfig:
 
     def set_message_history(self, history):
         self._message_history = history
+
+    @contextmanager
+    def temporary_model_name_override(self, _model_name):
+        yield
 
     def __getattr__(self, item):
         if item.startswith("__"):
@@ -185,3 +251,41 @@ async def test_build_pydantic_agent_delivers_capability_model():
     assert seen, "the resolved model never received the request"
     assert config.cur_model is model
     assert built.model is None
+
+
+async def test_subagent_construction_delivers_capability_model():
+    """End-to-end on the second construction site: the sub-agent's temporary
+    pydantic agent runs on the model delivered via ``ResolvedModel``."""
+    from code_puppy.tools import subagent_invocation
+
+    seen: list[list[ModelMessage]] = []
+
+    # The sub-agent path drives the model through an event_stream_handler,
+    # so the capture model must support streamed requests.
+    async def stream_respond(messages: list[ModelMessage], _info: AgentInfo):
+        seen.append(messages)
+        yield "subagent-built"
+
+    model = FunctionModel(stream_function=stream_respond)
+    config = _AgentConfig()
+
+    with (
+        patch("code_puppy.agents.agent_manager.load_agent", return_value=config),
+        patch(
+            "code_puppy.agents._builder.load_model_with_fallback",
+            lambda *_args, **_kwargs: (model, "test-model"),
+        ),
+        patch(
+            "code_puppy.model_factory.make_model_settings",
+            lambda *_args, **_kwargs: None,
+        ),
+        # "true" disables MCP servers for the invocation.
+        patch("code_puppy.config.get_value", return_value="true"),
+    ):
+        result = await subagent_invocation._invoke_agent_impl(
+            context=SimpleNamespace(), agent_name="test-agent", prompt="fetch"
+        )
+
+    assert result.error is None
+    assert result.response == "subagent-built"
+    assert seen, "the resolved model never received the sub-agent request"
