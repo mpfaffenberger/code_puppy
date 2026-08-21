@@ -61,12 +61,8 @@ _load_plugin_model_providers()
 CONTEXT_1M_BETA = "context-1m-2025-08-07"
 _CUSTOM_OPENAI_MODEL_TYPES = {"custom_openai", "custom_openai_responses"}
 _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL = "codex-gpt-5-codex"
-# Positive identification for the reasoning_effort-forwarding branch below:
-# types whose wire format actually reads OpenAI's ``openai_reasoning_effort``
-# field. Deliberately a whitelist (mirroring _is_anthropic_model's positive
-# type check) rather than "not Anthropic" -- a short family token like "o1"
-# could otherwise collide with an aliased gemini/zai/cerebras/openrouter
-# catalog entry too, not just an Anthropic one.
+# Only these wire formats accept ``openai_reasoning_effort``.
+# A positive allowlist prevents short model tags from hijacking aliases.
 _OPENAI_COMPATIBLE_MODEL_TYPES = (
     frozenset({"openai", "chatgpt_oauth", "azure_foundry_openai", "azure_openai"})
     | _CUSTOM_OPENAI_MODEL_TYPES
@@ -377,15 +373,8 @@ def make_model_settings(
         get_openai_reasoning_effort_choices(model_name)
         or get_openai_reasoning_effort_choices(model_config.get("name", ""))
     ):
-        # Non-GPT-5 OpenAI reasoning models (o1/o3/o4-mini/codex-mini, etc):
-        # forward the configured effort the same way the GPT-5 branch does.
-        # These are plain Chat Completions models -- no Responses-API extras
-        # like verbosity or reasoning summaries. The alias fallback (checking
-        # model_config["name"] too) covers extra_models.json entries whose
-        # catalog key is a friendly alias for the real OpenAI model id. The
-        # positive model_type check (rather than a "not Anthropic" negative)
-        # is what keeps a short family token ("o1", "o3") from hijacking an
-        # aliased gemini/zai/cerebras/openrouter/etc. catalog entry too.
+        # Forward effort for OpenAI Chat Completions reasoning models.
+        # The type allowlist and underlying name safely support catalog aliases.
         _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
         effort = _EFFORT_ALIAS.get(effort, effort)

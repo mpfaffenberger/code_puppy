@@ -359,12 +359,8 @@ def supports_glm_reasoning_effort(model_name: str) -> bool:
     return version is not None and version >= 5.2
 
 
-# OpenAI ``reasoning_effort`` (Chat Completions) / ``reasoning.effort``
-# (Responses API) support, per OpenAI's published per-model docs. Matched
-# against the underlying OpenAI model id, most-specific prefix first, since
-# e.g. "gpt-5.1-codex" must not fall through to the plain "gpt-5" bucket.
-# ``None`` means "unrecognized as an OpenAI reasoning model" -- callers fall
-# back to catalog-declared/legacy behavior instead of hiding the setting.
+# OpenAI effort choices, ordered most-specific first.
+# None means unrecognized; an empty tuple means fixed effort.
 _OPENAI_REASONING_EFFORT_CHOICES: tuple[tuple[str, tuple[str, ...]], ...] = (
     # GPT-5.6 family: adds "max" on top of the full scale.
     ("gpt-5.6", ("none", "low", "medium", "high", "xhigh", "max")),
@@ -384,10 +380,7 @@ _OPENAI_REASONING_EFFORT_CHOICES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("gpt-5.5", ("none", "low", "medium", "high", "xhigh")),
     # GPT-5.1: none/low/medium/high (no minimal, no xhigh).
     ("gpt-5.1", ("none", "low", "medium", "high")),
-    # Plain GPT-5 (incl. mini/nano): minimal/low/medium/high. Code Puppy's
-    # canonical vocabulary collapses "minimal" into "none" (see the
-    # ``_EFFORT_ALIAS`` mapping in model_factory.py), so "none" stands in
-    # for it here rather than exposing a 7th UI-only value.
+    # Code Puppy's canonical "none" represents GPT-5's "minimal" effort.
     ("gpt-5", ("none", "low", "medium", "high")),
     # o-series: low/medium/high only. o1-mini/o1-preview predate the
     # reasoning_effort parameter entirely.
@@ -401,22 +394,8 @@ _OPENAI_REASONING_EFFORT_CHOICES: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 
 def get_openai_reasoning_effort_choices(model_name: str) -> list[str] | None:
-    """Return the ``reasoning_effort`` choices OpenAI documents for a model.
-
-    Matches the underlying OpenAI model id against known prefixes (most
-    specific first). Returns ``None`` when the name isn't a recognized
-    OpenAI reasoning model -- callers should fall back to catalog overrides
-    or existing defaults rather than treating that as "no choices".
-
-    An empty list is a real, meaningful answer: some models (o1-mini,
-    o1-preview, gpt-5-pro, the *-chat-latest variants) are recognized but
-    don't expose a configurable reasoning_effort at all.
-    """
-    # Boundary-aware match (via the shared ``_matches_model_tag`` helper),
-    # not plain substring containment: a short token like "o1"/"o3" would
-    # otherwise false-positive on an unrelated alias (e.g. "zoo1-claude"
-    # contains "o1" but isn't OpenAI's o1). Delimiters ("-", ".", "/") count
-    # as boundaries, so "codex-gpt-5" still matches the "gpt-5" bucket.
+    """Return documented effort choices, None if unknown, or [] if fixed."""
+    # Boundary matching prevents short tags such as "o1" matching aliases.
     name = model_name.lower()
     for prefix, choices in _OPENAI_REASONING_EFFORT_CHOICES:
         if _matches_model_tag(name, prefix):

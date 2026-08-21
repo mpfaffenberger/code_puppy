@@ -778,12 +778,8 @@ def model_supports_setting(
         if supports_glm_reasoning_effort(model_name):
             return True
     if setting == "reasoning_effort":
-        # Recognize real OpenAI reasoning models (gpt-5.x, o-series,
-        # codex-mini) even if their catalog entry never declared
-        # supported_settings -- e.g. hand-added extra_models.json rows or
-        # OAuth-sourced entries that predate this detection. An empty list
-        # (o1-mini, o1-preview, gpt-5-pro, *-chat-latest) means "recognized
-        # but genuinely not configurable", so it must NOT report support.
+        # Detect OpenAI effort support when catalog metadata is absent.
+        # Empty choices denote recognized models with fixed effort.
         from code_puppy.model_utils import get_openai_reasoning_effort_choices
 
         if get_openai_reasoning_effort_choices(model_name):
@@ -805,10 +801,7 @@ def model_supports_setting(
             if "gpt-5.6" in underlying_name:
                 return True
         if setting == "reasoning_effort":
-            # Alias fallback: a catalog entry's key can be a friendly alias
-            # distinct from the real OpenAI model id in "name" (see
-            # extra_models.json custom-endpoint entries). Mirrors the same
-            # fallback in model_settings_menu._get_setting_choices().
+            # Resolve friendly catalog aliases through the underlying model name.
             from code_puppy.model_utils import get_openai_reasoning_effort_choices
 
             underlying_name = str(model_config.get("name", ""))

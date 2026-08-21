@@ -881,14 +881,8 @@ class AddModelMenu:
                 "budget_tokens",
             ]
         elif model_type == "openai":
-            # Shared source of truth (also used by config.py's
-            # model_supports_setting and the /model_settings choices menu)
-            # for which real OpenAI models expose reasoning_effort, and
-            # exactly which none/low/medium/high/xhigh/max values each one
-            # documents. An empty list means "recognized reasoning model,
-            # but reasoning_effort isn't configurable" (o1-mini, o1-preview,
-            # gpt-5-pro, *-chat-latest); None means "not an OpenAI reasoning
-            # model at all" (falls through to the plain default below).
+            # Share OpenAI effort capabilities with config and settings menus.
+            # Empty means fixed effort; None means an unrecognized model.
             from code_puppy.model_utils import get_openai_reasoning_effort_choices
 
             effort_choices = get_openai_reasoning_effort_choices(model.model_id)

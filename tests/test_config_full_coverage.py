@@ -398,9 +398,7 @@ class TestModelSupportsSetting:
         )
 
     def test_openai_reasoning_effort_recognized_without_catalog_entry(self):
-        # gpt-5.x/o-series/codex-mini models get reasoning_effort dynamically,
-        # even with an empty (or missing) supported_settings catalog entry --
-        # covers hand-added extra_models.json rows and OAuth-sourced models.
+        # Detect OpenAI effort support without catalog metadata.
         assert cp_config.model_supports_setting(
             "gpt-5", "reasoning_effort", models_config={"gpt-5": {}}
         )
@@ -412,9 +410,7 @@ class TestModelSupportsSetting:
         )
 
     def test_openai_reasoning_effort_false_for_fixed_effort_models(self):
-        # Recognized OpenAI reasoning models with no configurable effort must
-        # NOT report support, or the /model_settings menu would offer a
-        # setting with zero valid choices.
+        # Fixed-effort models must not expose an empty settings menu.
         assert not cp_config.model_supports_setting(
             "o1-mini", "reasoning_effort", models_config={"o1-mini": {}}
         )

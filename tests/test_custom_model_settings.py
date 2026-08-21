@@ -185,14 +185,7 @@ class TestMakeModelSettingsCustomParams:
 
 
 class TestMakeModelSettingsOpenAIReasoningEffort:
-    """o1/o3/o4-mini/codex-mini must actually forward reasoning_effort to the
-    real OpenAI field, not just accept it in the /model_settings menu -- see
-    model_utils.get_openai_reasoning_effort_choices for the recognized set.
-
-    Every real catalog entry has an explicit "type" (ModelFactory.get_model()
-    raises "Unsupported model type" otherwise), so these use a realistic
-    {"type": "openai"} entry rather than an empty/untyped one.
-    """
+    """OpenAI reasoning models forward effort to the provider field."""
 
     def test_o_series_forwards_reasoning_effort_to_openai_field(self):
         from code_puppy.model_factory import make_model_settings
@@ -293,9 +286,7 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
         assert settings["openai_reasoning_effort"] == "high"
 
     def test_short_token_alias_does_not_hijack_a_non_openai_model(self):
-        """A custom-endpoint alias merely containing an OpenAI family token
-        (e.g. "o1") must not steal an Anthropic model into the OpenAI
-        reasoning_effort branch and skip its Anthropic-specific handling."""
+        """OpenAI-like aliases must not hijack Anthropic models."""
         from code_puppy.model_factory import make_model_settings
 
         models_config = {
@@ -323,9 +314,7 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
         assert settings["temperature"] == 1.0
 
     def test_short_token_alias_does_not_hijack_a_non_anthropic_model_either(self):
-        """The guard is a positive OpenAI-compatible-type check, not just
-        "not Anthropic" -- a gemini/zai/cerebras/etc. alias containing an
-        OpenAI family token must not be hijacked either."""
+        """OpenAI-like aliases must not hijack other provider types."""
         from code_puppy.model_factory import make_model_settings
 
         models_config = {"team-o1-eval": {"type": "gemini", "name": "gemini-2.5-pro"}}
@@ -345,10 +334,7 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
         assert "openai_reasoning_effort" not in settings
 
     def test_gpt5_branch_also_falls_back_to_catalog_name_alias(self):
-        """The pre-existing GPT-5 branch's own entry condition must get the
-        same alias fallback as everything else this fix touched, or an
-        aliased gpt-5 custom entry silently loses verbosity/summary/
-        Responses-API handling by falling into the plainer generic branch."""
+        """GPT-5 aliases retain GPT-5-specific settings handling."""
         from code_puppy.model_factory import make_model_settings
 
         models_config = {
