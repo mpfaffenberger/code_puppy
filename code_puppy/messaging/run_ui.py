@@ -42,6 +42,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from contextlib import contextmanager
 from typing import Dict, Iterator, Optional
 
@@ -74,6 +75,12 @@ def _get_loop() -> Optional[asyncio.AbstractEventLoop]:
 
 _listener_handle = None  # KeyListenerHandle owned by the persistent UI
 _EOF = object()  # idle-queue sentinel: Ctrl+D on an empty buffer
+
+#: Double-tap window for idle Ctrl+C -> quit (mirrors Ctrl+D). Two idle
+#: Ctrl+C presses within this many seconds exit the REPL; a lone press
+#: keeps the readline feel (clear the buffer, stay alive).
+DOUBLE_CTRL_C_WINDOW_S = 0.5
+_last_idle_ctrl_c: float = 0.0
 
 #: How long the consumer waits for the agent to actually park at its
 #: pause boundary before running commands anyway (best-effort).
@@ -264,6 +271,7 @@ def start_persistent_ui(
         editor.set_prompt_prefix(prompt_prefix, prefix_sgrs)
     editor.set_submit_router(_persistent_router)
     editor.set_eof_handler(_handle_eof)
+    editor.set_ctrl_c_handler(_handle_raw_ctrl_c)
     _spawn_persistent_listener()
     return True
 
@@ -283,6 +291,7 @@ def stop_persistent_ui() -> None:
         if editor is not None:
             editor.set_submit_router(None)
             editor.set_eof_handler(None)
+            editor.set_ctrl_c_handler(None)
         stop_run_ui()  # persistent flag is off -> full teardown
     if handle is not None:
         try:
@@ -349,6 +358,35 @@ def clear_idle_buffer() -> None:
         editor.clear_buffer()
 
 
+def note_idle_ctrl_c(now: Optional[float] = None) -> bool:
+    """One idle Ctrl+C press: clear the buffer, arm the quit double-tap.
+
+    A second press within ``DOUBLE_CTRL_C_WINDOW_S`` exits the REPL by
+    pushing the same ``_EOF`` sentinel Ctrl+D uses, so the interactive
+    loop's existing quit branch handles teardown. Returns True when the
+    press triggered the quit. No-op (False) while a run is active — mid-run
+    Ctrl+C belongs to the cancel/absorb layers, never to quit.
+
+    ``now`` is injectable for tests; production callers pass nothing.
+    """
+    global _last_idle_ctrl_c
+    if not is_persistent() or is_run_active():
+        return False
+    if now is None:
+        now = time.monotonic()
+    if now - _last_idle_ctrl_c <= DOUBLE_CTRL_C_WINDOW_S:
+        _last_idle_ctrl_c = 0.0
+        _push_idle(_EOF)
+        return True
+    _last_idle_ctrl_c = now
+    clear_idle_buffer()
+    try:
+        get_bottom_bar().set_status("press ctrl+c again quickly to exit")
+    except Exception:
+        logger.debug("double-ctrl+c hint paint failed", exc_info=True)
+    return False
+
+
 def absorb_ctrl_c_if_composing() -> bool:
     """Buffer-first Ctrl+C mid-run (Claude Code / Gemini CLI convention).
 
@@ -410,6 +448,21 @@ def _handle_eof() -> None:
     if is_run_active():
         return
     _push_idle(_EOF)
+
+
+def _handle_raw_ctrl_c() -> None:
+    """Raw \\x03 from the key listener (Windows clamp path).
+
+    Mid-run: keep the historical buffer wipe (cancel stays with the
+    hotkey/signal layers). Idle: same double-tap-to-quit policy as the
+    SIGINT path.
+    """
+    if is_run_active():
+        editor = get_run_editor()
+        if editor is not None:
+            editor.clear_buffer()
+        return
+    note_idle_ctrl_c()
 
 
 def _push_idle(item) -> None:
@@ -680,6 +733,7 @@ def _suspended_key_listener():
 __all__ = [
     "MID_RUN_DENYLIST",
     "clear_idle_buffer",
+    "note_idle_ctrl_c",
     "get_run_editor",
     "is_draining",
     "is_persistent",

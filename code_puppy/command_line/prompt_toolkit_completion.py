@@ -694,6 +694,27 @@ def _complete_or_cycle(buffer) -> None:
         buffer.complete_next()
 
 
+# Classic-prompt cancel-source discrimination: Escape and Ctrl+X exit the
+# prompt with the same KeyboardInterrupt as a real Ctrl+C. They mark this
+# flag so the REPL's double-Ctrl+C-to-quit detection never counts them
+# (double-Escape must NOT exit the app).
+_non_ctrl_c_cancel = False
+
+
+def mark_non_ctrl_c_cancel() -> None:
+    """Record that the imminent prompt KeyboardInterrupt is not a Ctrl+C."""
+    global _non_ctrl_c_cancel
+    _non_ctrl_c_cancel = True
+
+
+def pop_non_ctrl_c_cancel() -> bool:
+    """Consume the marker; True when the last cancel came from Escape/Ctrl+X."""
+    global _non_ctrl_c_cancel
+    was = _non_ctrl_c_cancel
+    _non_ctrl_c_cancel = False
+    return was
+
+
 async def get_input_with_combined_completion(
     prompt_str=">>> ", history_file: Optional[str] = None
 ) -> str:
@@ -733,6 +754,7 @@ async def get_input_with_combined_completion(
     # Ctrl+X keybinding - exit with KeyboardInterrupt for shell command cancellation
     @bindings.add(Keys.ControlX)
     def _(event):
+        mark_non_ctrl_c_cancel()
         try:
             event.app.exit(exception=KeyboardInterrupt)
         except Exception:
@@ -743,6 +765,7 @@ async def get_input_with_combined_completion(
     # Escape keybinding - exit with KeyboardInterrupt
     @bindings.add(Keys.Escape)
     def _(event):
+        mark_non_ctrl_c_cancel()
         try:
             event.app.exit(exception=KeyboardInterrupt)
         except Exception:
