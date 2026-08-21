@@ -188,12 +188,21 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
     """o1/o3/o4-mini/codex-mini must actually forward reasoning_effort to the
     real OpenAI field, not just accept it in the /model_settings menu -- see
     model_utils.get_openai_reasoning_effort_choices for the recognized set.
+
+    Every real catalog entry has an explicit "type" (ModelFactory.get_model()
+    raises "Unsupported model type" otherwise), so these use a realistic
+    {"type": "openai"} entry rather than an empty/untyped one.
     """
 
     def test_o_series_forwards_reasoning_effort_to_openai_field(self):
         from code_puppy.model_factory import make_model_settings
 
+        models_config = {"o3-mini": {"type": "openai", "name": "o3-mini"}}
         with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
             patch(
                 "code_puppy.config.get_effective_model_settings",
                 return_value={"reasoning_effort": "high"},
@@ -207,7 +216,12 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
     def test_o_series_defaults_to_medium(self):
         from code_puppy.model_factory import make_model_settings
 
+        models_config = {"o4-mini": {"type": "openai", "name": "o4-mini"}}
         with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
             patch("code_puppy.config.get_effective_model_settings", return_value={}),
             patch("code_puppy.config.get_custom_model_settings", return_value={}),
         ):
@@ -218,7 +232,14 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
     def test_o_series_normalizes_legacy_effort_aliases(self):
         from code_puppy.model_factory import make_model_settings
 
+        models_config = {
+            "codex-mini-latest": {"type": "openai", "name": "codex-mini-latest"}
+        }
         with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
             patch(
                 "code_puppy.config.get_effective_model_settings",
                 return_value={"reasoning_effort": "minimal"},
@@ -234,7 +255,12 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
         branch must not fire for them."""
         from code_puppy.model_factory import make_model_settings
 
+        models_config = {"o1-mini": {"type": "openai", "name": "o1-mini"}}
         with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
             patch(
                 "code_puppy.config.get_effective_model_settings",
                 return_value={"reasoning_effort": "high"},
@@ -295,3 +321,53 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
         # Took the Anthropic branch instead (temperature defaulted to 1.0
         # for extended thinking, per that branch's logic).
         assert settings["temperature"] == 1.0
+
+    def test_short_token_alias_does_not_hijack_a_non_anthropic_model_either(self):
+        """The guard is a positive OpenAI-compatible-type check, not just
+        "not Anthropic" -- a gemini/zai/cerebras/etc. alias containing an
+        OpenAI family token must not be hijacked either."""
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {"team-o1-eval": {"type": "gemini", "name": "gemini-2.5-pro"}}
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "high"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("team-o1-eval", max_tokens=4096)
+
+        assert "openai_reasoning_effort" not in settings
+
+    def test_gpt5_branch_also_falls_back_to_catalog_name_alias(self):
+        """The pre-existing GPT-5 branch's own entry condition must get the
+        same alias fallback as everything else this fix touched, or an
+        aliased gpt-5 custom entry silently loses verbosity/summary/
+        Responses-API handling by falling into the plainer generic branch."""
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {
+            "acme-reasoner-5": {"type": "custom_openai", "name": "gpt-5.2"}
+        }
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "high", "verbosity": "low"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("acme-reasoner-5", max_tokens=4096)
+
+        assert settings["openai_reasoning_effort"] == "high"
+        # Only the GPT-5 branch injects verbosity via extra_body -- proves
+        # this went through that branch, not the generic o-series one.
+        assert settings["extra_body"]["verbosity"] == "low"
