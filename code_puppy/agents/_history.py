@@ -462,7 +462,7 @@ def prune_interrupted_tool_calls(
                 # zero-part request, so a kept trailing empty request would end
                 # the wire history on the assistant turn (prefill), which
                 # Anthropic/Bedrock reject, and would slip past
-                # make_history_processor's trailing-ModelResponse trim.
+                # HistoryCompaction's trailing-ModelResponse trim.
                 continue
             msg = dataclasses.replace(msg, parts=kept_parts)
 
