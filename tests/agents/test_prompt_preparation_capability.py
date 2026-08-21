@@ -337,13 +337,58 @@ def test_checkpoint_resume_rerun_still_folds():
             task = asyncio.get_running_loop().create_task(
                 agent.run("continue", message_history=checkpointed)
             )
-        await task
+        result = await task
+        # Send side: the model saw the folded prompt.
         assert seen[0][0].parts[0].content == PREPARED
-        # ...and the custody-boundary mirror repairs the checkpoint itself.
-        current_prompt = checkpointed[0].parts[0].content
-        assert current_prompt in (RAW, PREPARED)
+        # Persist side: the run's RECORDED history was mirrored by after_run.
+        assert result.all_messages()[0].parts[0].content == PREPARED
+        # pydantic-ai copies supplied history, so the caller's checkpoint list
+        # itself stays raw after the run — repairing it is exactly the job of
+        # the core custody-boundary mirror, pinned separately below.
+        assert checkpointed[0].parts[0].content == RAW
 
     asyncio.run(scenario())
+
+
+def test_main_custody_boundary_mirror_then_prune():
+    """Production-shaped replica of ``_run_agent_task_body``'s finally block:
+    mirror the (possibly raw) turn state in place, THEN prune interrupted
+    tool calls — covering crash/cancel exits where after_run never fired."""
+    from code_puppy.agents import _history
+
+    part = UserPromptPart(content=RAW)
+    message_history: List[Any] = [
+        ModelRequest(parts=[part]),
+        ModelResponse(parts=[TextPart("partial step")]),
+    ]
+    observation = _observation()
+
+    observation.mirror(message_history)
+    message_history = _history.prune_interrupted_tool_calls(message_history)
+
+    assert message_history[0].parts[0].content == PREPARED
+    assert part.content == PREPARED  # in place: every alias sees it
+
+
+def test_subagent_partial_save_custody_boundary():
+    """Production-shaped replica of the sub-agent except-block mirror: the
+    checkpointed ``agent_config`` history is repaired before partial save."""
+
+    class FakeConfig:
+        def __init__(self, history: List[Any]) -> None:
+            self._history = history
+
+        def get_message_history(self) -> List[Any]:
+            return self._history
+
+    part = UserPromptPart(content=RAW)
+    config = FakeConfig([ModelRequest(parts=[part])])
+    observation = _observation()
+
+    # Exactly what the except block does before _save_partial_session.
+    observation.mirror(config.get_message_history() or [])
+
+    assert config.get_message_history()[0].parts[0].content == PREPARED
 
 
 def test_process_history_after_prompt_preparation_sees_folded_message():
