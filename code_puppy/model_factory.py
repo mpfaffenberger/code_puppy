@@ -361,11 +361,18 @@ def make_model_settings(
                     "verbosity": effective_settings.get("verbosity", "medium")
                 }
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
-    elif get_openai_reasoning_effort_choices(model_name):
+    elif not _is_anthropic_model(model_name, model_config) and (
+        get_openai_reasoning_effort_choices(model_name)
+        or get_openai_reasoning_effort_choices(model_config.get("name", ""))
+    ):
         # Non-GPT-5 OpenAI reasoning models (o1/o3/o4-mini/codex-mini, etc):
         # forward the configured effort the same way the GPT-5 branch does.
         # These are plain Chat Completions models -- no Responses-API extras
-        # like verbosity or reasoning summaries.
+        # like verbosity or reasoning summaries. The alias fallback (checking
+        # model_config["name"] too) covers extra_models.json entries whose
+        # catalog key is a friendly alias for the real OpenAI model id. The
+        # anthropic guard exists because a custom-endpoint alias could
+        # otherwise collide with one of these short model-family tokens.
         _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
         effort = _EFFORT_ALIAS.get(effort, effort)

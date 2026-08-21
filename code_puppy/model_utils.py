@@ -412,9 +412,14 @@ def get_openai_reasoning_effort_choices(model_name: str) -> list[str] | None:
     o1-preview, gpt-5-pro, the *-chat-latest variants) are recognized but
     don't expose a configurable reasoning_effort at all.
     """
+    # Boundary-aware match (via the shared ``_matches_model_tag`` helper),
+    # not plain substring containment: a short token like "o1"/"o3" would
+    # otherwise false-positive on an unrelated alias (e.g. "zoo1-claude"
+    # contains "o1" but isn't OpenAI's o1). Delimiters ("-", ".", "/") count
+    # as boundaries, so "codex-gpt-5" still matches the "gpt-5" bucket.
     name = model_name.lower()
     for prefix, choices in _OPENAI_REASONING_EFFORT_CHOICES:
-        if prefix in name:
+        if _matches_model_tag(name, prefix):
             return list(choices)
     return None
 

@@ -427,6 +427,21 @@ class TestModelSupportsSetting:
             "claude-opus-4-6", "reasoning_effort", models_config={}
         )
 
+    def test_openai_reasoning_effort_falls_back_to_catalog_name_alias(self):
+        # extra_models.json-style entries commonly use a friendly alias for
+        # the catalog key with the real OpenAI model id in "name".
+        models_config = {"acme-reasoner": {"type": "custom_openai", "name": "o3"}}
+        assert cp_config.model_supports_setting(
+            "acme-reasoner", "reasoning_effort", models_config=models_config
+        )
+
+    def test_openai_reasoning_effort_short_token_does_not_false_positive(self):
+        # "o1"/"o3" must be anchored matches, not substring containment --
+        # a custom alias merely containing "o1" is not OpenAI's o1.
+        assert not cp_config.model_supports_setting(
+            "zoo1-claude", "reasoning_effort", models_config={}
+        )
+
     def test_with_supported_settings_list(self):
         mock_config = {"test-model": {"supported_settings": ["temperature", "seed"]}}
         with patch(

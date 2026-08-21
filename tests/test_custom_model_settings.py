@@ -244,3 +244,54 @@ class TestMakeModelSettingsOpenAIReasoningEffort:
             settings = make_model_settings("o1-mini", max_tokens=4096)
 
         assert "openai_reasoning_effort" not in settings
+
+    def test_forwards_via_catalog_name_alias(self):
+        """extra_models.json-style entries commonly use a friendly alias
+        for the catalog key with the real OpenAI model id in "name"."""
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {"acme-reasoner": {"type": "custom_openai", "name": "o3"}}
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "high"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("acme-reasoner", max_tokens=4096)
+
+        assert settings["openai_reasoning_effort"] == "high"
+
+    def test_short_token_alias_does_not_hijack_a_non_openai_model(self):
+        """A custom-endpoint alias merely containing an OpenAI family token
+        (e.g. "o1") must not steal an Anthropic model into the OpenAI
+        reasoning_effort branch and skip its Anthropic-specific handling."""
+        from code_puppy.model_factory import make_model_settings
+
+        models_config = {
+            "zoo1-claude": {
+                "type": "custom_anthropic",
+                "name": "claude-3-5-sonnet-20241022",
+            }
+        }
+        with (
+            patch(
+                "code_puppy.model_factory.ModelFactory.load_config",
+                return_value=models_config,
+            ),
+            patch(
+                "code_puppy.config.get_effective_model_settings",
+                return_value={"reasoning_effort": "high"},
+            ),
+            patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        ):
+            settings = make_model_settings("zoo1-claude", max_tokens=4096)
+
+        assert "openai_reasoning_effort" not in settings
+        # Took the Anthropic branch instead (temperature defaulted to 1.0
+        # for extended thinking, per that branch's logic).
+        assert settings["temperature"] == 1.0

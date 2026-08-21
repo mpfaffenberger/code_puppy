@@ -804,6 +804,16 @@ def model_supports_setting(
             underlying_name = str(model_config.get("name", "")).lower()
             if "gpt-5.6" in underlying_name:
                 return True
+        if setting == "reasoning_effort":
+            # Alias fallback: a catalog entry's key can be a friendly alias
+            # distinct from the real OpenAI model id in "name" (see
+            # extra_models.json custom-endpoint entries). Mirrors the same
+            # fallback in model_settings_menu._get_setting_choices().
+            from code_puppy.model_utils import get_openai_reasoning_effort_choices
+
+            underlying_name = str(model_config.get("name", ""))
+            if get_openai_reasoning_effort_choices(underlying_name):
+                return True
 
         # Get supported_settings list, default to supporting common settings
         supported_settings = model_config.get("supported_settings")
