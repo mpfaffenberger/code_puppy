@@ -404,11 +404,11 @@ async def _invoke_agent_impl(
             from code_puppy.agents._model_message_transform import (
                 build_model_message_transform,
             )
+            from code_puppy.agents._resolved_model import ResolvedModel
 
             # Build the pydantic-ai agent. MCP servers always included; plugins
             # (e.g. DBOS) may swap them via the agent_run_context hook.
             temp_agent = Agent(
-                model=model,
                 # Explicit name: without it pydantic-ai infers one from the
                 # caller's frame variables, so every sub-agent's observability
                 # span reads "invoke_agent temp_agent" instead of the logical
@@ -420,7 +420,10 @@ async def _invoke_agent_impl(
                 toolsets=mcp_servers,
                 # ProcessHistory capability replaces the deprecated
                 # `history_processors=` kwarg (removed in pydantic-ai v2).
+                # ResolvedModel replaces the former ``model=`` constructor
+                # kwarg; it is a configuration seam so its position is inert.
                 capabilities=[
+                    ResolvedModel(model),
                     ProcessHistory(make_history_processor(agent_config)),
                     build_model_message_transform(agent_name),
                 ],
