@@ -278,23 +278,41 @@ def test_builder_delivers_mcp_servers_via_capability():
     assert cfg._mcp_servers == [server]
 
 
-def test_builder_collision_filter_still_applies():
-    """A server tool colliding with a registered tool is hidden, exactly as
-    the pre-capability two-pass filter guaranteed."""
+async def test_builder_collision_filter_still_applies():
+    """A server tool colliding with a registered tool is hidden from the
+    model, exactly as the pre-capability two-pass filter guaranteed — while
+    non-colliding tools from the same server stay visible."""
     from code_puppy.agents import _builder
 
-    server = _echo_toolset("read_file")
+    server = FunctionToolset()
+
+    def read_file(path: str) -> str:
+        """Colliding MCP tool."""
+        return path
+
+    def mcp_echo(text: str) -> str:
+        """Non-colliding MCP tool."""
+        return text
+
+    server.add_function(read_file, takes_ctx=False)
+    server.add_function(mcp_echo, takes_ctx=False)
 
     def fake_register(agent, *_a, **_k):
         # Simulate the registry contributing a colliding native tool name.
         agent._tools = {"read_file": SimpleNamespace()}
+
+    seen_tool_names: list[set] = []
+
+    def model_function(_messages, info: AgentInfo) -> ModelResponse:
+        seen_tool_names.append({t.name for t in info.function_tools})
+        return ModelResponse(parts=[TextPart("woof")])
 
     cfg = _FakeAgentConfig()
     with (
         patch.object(
             _builder,
             "load_model_with_fallback",
-            lambda *a, **k: (TestModel(custom_output_text="woof"), "test-model"),
+            lambda *a, **k: (FunctionModel(model_function), "test-model"),
         ),
         patch.object(_builder.ModelFactory, "load_config", staticmethod(dict)),
         patch.object(_builder, "load_mcp_servers", lambda **k: [server]),
@@ -306,3 +324,11 @@ def test_builder_collision_filter_still_applies():
     delivered = built.root_capability.get_toolset()
     assert delivered is not None
     assert delivered is not server  # the FilteredToolset wrapper rode along
+
+    # The model must see the surviving MCP tool but not the colliding one.
+    # (Other capabilities may contribute their own tools — e.g. the
+    # ToolOutputLimits spill reader — so assert membership, not the full set.)
+    await built.run("hi")
+    assert len(seen_tool_names) == 1
+    assert "mcp_echo" in seen_tool_names[0]
+    assert "read_file" not in seen_tool_names[0]
