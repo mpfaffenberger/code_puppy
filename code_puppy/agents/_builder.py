@@ -19,6 +19,7 @@ from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agents._compaction import make_history_processor
+from code_puppy.agents._instructions import AssembledInstructions
 from code_puppy.agents._model_message_transform import build_model_message_transform
 from code_puppy.agents._output_limits import (
     build_response_clamp,
@@ -633,7 +634,13 @@ def build_pydantic_agent(
         message_group,
         agent_name=getattr(agent, "name", None),
     )
-    instructions = _assemble_instructions(agent, resolved_model_name)
+    # One shared capability across both construction passes, mirroring the
+    # single _assemble_instructions call: assembly happens once per build,
+    # and the capability's default for_agent/for_run return self, so sharing
+    # the instance between probe and final agents is side-effect-free.
+    assembled_instructions = AssembledInstructions(
+        _assemble_instructions(agent, resolved_model_name)
+    )
     mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
     model_settings = make_model_settings(resolved_model_name)
     history_processor = make_history_processor(agent)
@@ -647,7 +654,6 @@ def build_pydantic_agent(
             # caller's frame variables, so observability spans read
             # "invoke_agent pydantic_agent" instead of the logical agent name.
             name=logical_agent_name,
-            instructions=instructions,
             output_type=output_type,
             retries=3,
             toolsets=toolsets,
@@ -660,7 +666,11 @@ def build_pydantic_agent(
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after both history
             # processors. The plugin transform wraps the final model request.
+            # AssembledInstructions replaces the `instructions=` constructor
+            # kwarg (same wire bytes -- see _instructions.py); its position
+            # is inert because no other capability contributes instructions.
             capabilities=[
+                assembled_instructions,
                 *build_tool_output_limits(),
                 ProcessHistory(history_processor),
                 ProcessHistory(steer_processor),

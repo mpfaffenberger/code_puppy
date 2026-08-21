@@ -401,6 +401,7 @@ async def _invoke_agent_impl(
                 mcp_servers = manager.get_servers_for_agent(agent_name=bound_agent_name)
 
             from code_puppy.agents._compaction import make_history_processor
+            from code_puppy.agents._instructions import AssembledInstructions
             from code_puppy.agents._model_message_transform import (
                 build_model_message_transform,
             )
@@ -414,13 +415,15 @@ async def _invoke_agent_impl(
                 # span reads "invoke_agent temp_agent" instead of the logical
                 # agent name (e.g. "invoke_agent web-retriever").
                 name=agent_name,
-                instructions=instructions,
                 output_type=str,
                 retries=3,
                 toolsets=mcp_servers,
                 # ProcessHistory capability replaces the deprecated
                 # `history_processors=` kwarg (removed in pydantic-ai v2).
+                # AssembledInstructions replaces the `instructions=` kwarg
+                # (same wire bytes -- see agents/_instructions.py).
                 capabilities=[
+                    AssembledInstructions(instructions),
                     ProcessHistory(make_history_processor(agent_config)),
                     build_model_message_transform(agent_name),
                 ],
