@@ -144,9 +144,12 @@ def test_build_pydantic_agent_delivers_assembled_prompt():
         patch.object(_builder, "make_model_settings", lambda *a, **k: None),
         patch("code_puppy.tools.register_tools_for_agent", lambda *a, **k: None),
     ):
+        # Computed under the same patches, so ambient plugin prompt
+        # fragments can't skew the exact-equality assertion below.
+        expected = _builder._assemble_instructions(cfg, "test-model")
         built = _builder.build_pydantic_agent(cfg)
         built.run_sync("hi")
 
     assert len(captured) == 1
-    assert captured[0] is not None
-    assert captured[0].startswith("You are a test agent.")
+    assert "You are a test agent." in expected
+    assert captured[0] == expected
