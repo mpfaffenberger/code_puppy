@@ -249,7 +249,7 @@ def test_render_version_check_messages() -> None:
         update_available=False,
     )
     renderer._render_version_check(ok_message)
-    assert "latest version" in console.print.call_args.args[0]
+    console.print.assert_not_called()
 
 
 def test_render_sync_handles_exceptions() -> None:
