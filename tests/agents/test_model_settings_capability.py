@@ -72,6 +72,82 @@ async def test_wire_parity_with_model_settings_kwarg():
     assert capability_settings == kwarg_settings
 
 
+async def test_full_layering_base_then_capability_then_run():
+    """Model base settings < capability snapshot < per-run settings.
+
+    The per-run override path (``agent.run(model_settings=...)``) keeps its
+    historical precedence over code_puppy's settings -- proven with all three
+    layers populated and overlapping.
+    """
+    captured: list[ModelSettings | None] = []
+
+    def model_fn(messages, info):
+        captured.append(info.model_settings)
+        return ModelResponse(parts=[TextPart(content="ok")])
+
+    with patch.object(
+        _model_settings,
+        "make_model_settings",
+        return_value=ModelSettings(max_tokens=100, temperature=0.1),
+    ):
+        cap = PerModelSettings(_MODEL_NAME)
+
+    agent = Agent(
+        FunctionModel(model_fn, settings=ModelSettings(max_tokens=1, seed=42)),
+        capabilities=[cap],
+    )
+    await agent.run("hello", model_settings=ModelSettings(max_tokens=7))
+
+    (settings,) = captured
+    assert settings is not None
+    assert settings["max_tokens"] == 7  # run layer wins
+    assert settings["temperature"] == 0.1  # capability beats model base
+    assert settings["seed"] == 42  # untouched model base survives
+
+
+async def test_agent_override_merges_below_capability():
+    """Pin the one deliberate divergence from the kwarg wiring.
+
+    ``Agent.override(model_settings=...)`` replaces the agent-slot settings
+    -- previously ours, now empty -- so the capability snapshot merges after
+    it and wins conflicting keys. No code_puppy call site uses the seam;
+    this test keeps the trade-off visible rather than accidental.
+    """
+    captured: list[ModelSettings | None] = []
+
+    def model_fn(messages, info):
+        captured.append(info.model_settings)
+        return ModelResponse(parts=[TextPart(content="ok")])
+
+    with patch.object(
+        _model_settings,
+        "make_model_settings",
+        return_value=ModelSettings(max_tokens=100, temperature=0.1),
+    ):
+        cap = PerModelSettings(_MODEL_NAME)
+
+    agent = Agent(FunctionModel(model_fn), capabilities=[cap])
+    with agent.override(model_settings=ModelSettings(max_tokens=7)):
+        await agent.run("hello")
+
+    (settings,) = captured
+    assert settings is not None
+    assert settings["max_tokens"] == 100  # capability wins over override
+    assert settings["temperature"] == 0.1
+
+
 def test_stays_spec_constructible():
-    """Only plain-data fields -- keep the default spec serialization name."""
+    """``from_spec`` builds a working instance from plain-data fields."""
     assert PerModelSettings.get_serialization_name() == "PerModelSettings"
+
+    payload = ModelSettings(max_tokens=123)
+    with patch.object(
+        _model_settings, "make_model_settings", return_value=payload
+    ) as factory:
+        cap = PerModelSettings.from_spec(_MODEL_NAME, max_tokens=123)
+
+    factory.assert_called_once_with(_MODEL_NAME, 123)
+    assert isinstance(cap, PerModelSettings)
+    assert cap.model_name == _MODEL_NAME
+    assert cap.max_tokens == 123
+    assert cap.get_model_settings() is payload

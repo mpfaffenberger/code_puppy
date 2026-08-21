@@ -17,6 +17,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.settings import ModelSettings
 
 from code_puppy import callbacks
 from code_puppy.agents._model_message_transform import build_model_message_transform
@@ -203,7 +204,7 @@ async def test_main_agent_construction_installs_transform():
         patch.object(_builder, "load_mcp_servers", lambda **_kwargs: []),
         patch(
             "code_puppy.agents._model_settings.make_model_settings",
-            lambda *_args, **_kwargs: None,
+            lambda *_args, **_kwargs: ModelSettings(),
         ),
         patch(
             "code_puppy.tools.register_tools_for_agent", lambda *_args, **_kwargs: None
@@ -230,7 +231,7 @@ async def test_subagent_construction_installs_transform():
         patch("code_puppy.agents._builder.load_model_with_fallback", _load_test_model),
         patch(
             "code_puppy.agents._model_settings.make_model_settings",
-            lambda *_args, **_kwargs: None,
+            lambda *_args, **_kwargs: ModelSettings(),
         ),
         patch("code_puppy.config.get_value", return_value="true"),
     ):

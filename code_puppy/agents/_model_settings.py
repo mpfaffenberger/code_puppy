@@ -11,11 +11,20 @@ constructor kwarg; :class:`PerModelSettings` promotes it to the
 
 Feature-parity notes:
 
-* **Identical merged payload.** pydantic-ai layers settings agent ->
-  capability -> run on top of the model's own base settings
-  (``_layer_model_settings``). Nothing else contributes capability-level
-  settings, so moving ours from the agent slot to the capability slot
-  produces a byte-identical merge result on the wire.
+* **Identical merged payload on the standard path.** pydantic-ai layers
+  settings agent -> capability -> run on top of the model's own base
+  settings (``_layer_model_settings``). Nothing else contributes
+  capability-level settings and per-run settings
+  (``agent.run(model_settings=...)``) still merge last, so the payload the
+  model receives is unchanged everywhere code_puppy builds agents.
+* **One deliberate divergence:** ``Agent.override(model_settings=...)``
+  replaces the *agent-slot* settings, which is where ours used to live.
+  The override now merges *before* this capability, so the snapshot wins
+  conflicting keys, and the built agent's ``model_settings`` attribute
+  reads ``None``. No code_puppy call site uses either seam (verified: no
+  ``.override(`` callers, no readers of the built agent's
+  ``model_settings``), and per-run overrides keep their old precedence.
+  Pinned by regression tests so the trade-off stays visible.
 * **Identical snapshot timing.** The constructor kwarg froze settings at
   agent-build time. A capability's ``get_model_settings`` is re-extracted on
   every run (``for_run`` re-resolution), which would silently pick up config
