@@ -401,6 +401,7 @@ async def _invoke_agent_impl(
                 mcp_servers = manager.get_servers_for_agent(agent_name=bound_agent_name)
 
             from code_puppy.agents._compaction import make_history_processor
+            from code_puppy.agents._json_repair import build_tool_call_json_repair
             from code_puppy.agents._model_message_transform import (
                 build_model_message_transform,
             )
@@ -420,7 +421,10 @@ async def _invoke_agent_impl(
                 toolsets=mcp_servers,
                 # ProcessHistory capability replaces the deprecated
                 # `history_processors=` kwarg (removed in pydantic-ai v2).
+                # ToolCallJsonRepair rides the before_tool_validate seam
+                # (position inert relative to the history hooks).
                 capabilities=[
+                    *build_tool_call_json_repair(),
                     ProcessHistory(make_history_processor(agent_config)),
                     build_model_message_transform(agent_name),
                 ],

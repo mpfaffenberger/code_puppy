@@ -19,6 +19,7 @@ from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agents._compaction import make_history_processor
+from code_puppy.agents._json_repair import build_tool_call_json_repair
 from code_puppy.agents._model_message_transform import build_model_message_transform
 from code_puppy.agents._output_limits import (
     build_response_clamp,
@@ -660,8 +661,12 @@ def build_pydantic_agent(
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after both history
             # processors. The plugin transform wraps the final model request.
+            # ToolCallJsonRepair rides the before_tool_validate seam, which
+            # never interacts with the history hooks, so its position is
+            # inert too.
             capabilities=[
                 *build_tool_output_limits(),
+                *build_tool_call_json_repair(),
                 ProcessHistory(history_processor),
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
