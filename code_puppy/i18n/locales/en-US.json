@@ -31,7 +31,7 @@
   "logfire.enabled": "🔭 Logfire instrumentation enabled — spans ship only if a Logfire token is configured.",
   "logfire.missing_package": "enable_logfire is set but the 'logfire' package is not importable. Your install may be broken; try reinstalling code-puppy.",
   "logfire.configure_failed": "Failed to configure Logfire: {error}",
-  "cli.error.no_ports": "No available ports in range 8090-9010!",
+  "cli.error.no_ports": "No available ports in range {port_base}-{port_end}!",
   "cli.error.model_transient": "🔌 The model connection hit a transient error ({error_type}) and didn't recover after auto-retries. This is almost always a VPN/WiFi/provider blip — just re-run your last prompt. Your session history is intact.",
   "cli.version.update_disabled": "Update phase disabled because NO_VERSION_UPDATE is set to 1 or true",
   "cli.model.not_found": "Model '{model}' not found",

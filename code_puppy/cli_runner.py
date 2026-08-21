@@ -228,6 +228,19 @@ async def main():
         ),
     )
     parser.add_argument(
+        "--port-base",
+        type=str,
+        default=None,
+        metavar="PORT",
+        help=(
+            "Starting port for the local HTTP server (searches PORT..PORT+920). "
+            "Bump this if 8090 collides with another local dev server. "
+            "Falls back to $CODE_PUPPY_PORT_BASE or 'port_base' in puppy.cfg (default 8090). "
+            "Invalid values are warned about and ignored -- next source in the "
+            "precedence chain is used instead of crashing."
+        ),
+    )
+    parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
 
@@ -310,9 +323,13 @@ async def main():
 
         # Truecolor warning moved to interactive_mode() so it prints last — max visibility.
 
-    available_port = find_available_port()
+    from code_puppy.config import PORT_PROBE_WIDTH, resolve_port_base
+
+    port_base = resolve_port_base(cli_value=args.port_base)
+    port_end = port_base + PORT_PROBE_WIDTH
+    available_port = find_available_port(start_port=port_base, end_port=port_end)
     if available_port is None:
-        emit_error(t("cli.error.no_ports"))
+        emit_error(t("cli.error.no_ports", port_base=port_base, port_end=port_end))
         return
 
     # Set model early (before ensure_config_exists) so config is set up correctly.
