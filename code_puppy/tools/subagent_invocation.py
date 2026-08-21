@@ -401,6 +401,9 @@ async def _invoke_agent_impl(
                 mcp_servers = manager.get_servers_for_agent(agent_name=bound_agent_name)
 
             from code_puppy.agents._compaction import make_history_processor
+            from code_puppy.agents._model_message_transform import (
+                build_model_message_transform,
+            )
 
             # Build the pydantic-ai agent. MCP servers always included; plugins
             # (e.g. DBOS) may swap them via the agent_run_context hook.
@@ -417,7 +420,10 @@ async def _invoke_agent_impl(
                 toolsets=mcp_servers,
                 # ProcessHistory capability replaces the deprecated
                 # `history_processors=` kwarg (removed in pydantic-ai v2).
-                capabilities=[ProcessHistory(make_history_processor(agent_config))],
+                capabilities=[
+                    ProcessHistory(make_history_processor(agent_config)),
+                    build_model_message_transform(agent_name),
+                ],
                 model_settings=model_settings,
             )
 
