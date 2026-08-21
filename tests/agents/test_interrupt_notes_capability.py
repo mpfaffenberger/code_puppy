@@ -243,7 +243,7 @@ async def test_nonmatching_turn_request_defers_injection():
     assert agent._message_history == []
 
 
-def test_install_is_none_safe_and_nested_installs_shadow():
+def test_install_shadows_including_none_installs():
     agent = _HistoryAgent()
     _record("outer")
     outer = _observation_for(agent)
@@ -257,6 +257,11 @@ def test_install_is_none_safe_and_nested_installs_shadow():
         assert current_observation() is outer
         with install_interrupt_note_observation(inner):
             assert current_observation() is inner
+        assert current_observation() is outer
+        # A nested run installs None -- it must SHADOW the outer observation,
+        # not fall through to it (nested-run isolation).
+        with install_interrupt_note_observation(None):
+            assert current_observation() is None
         assert current_observation() is outer
     assert current_observation() is None
 
@@ -432,6 +437,71 @@ async def test_run_with_mcp_custody_fallback_on_cancel_before_request(
         "produced yet. Its partial session is saved as 'sess-7'."
     ]
     assert drain_interrupted_subagents() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("outer_prompt", "nested_prompt"),
+    [
+        ("", "nested prompt"),  # empty outer anchor: append branch bait
+        ("continue", "continue"),  # identical prompts: anchor-match bait
+    ],
+)
+async def test_nested_run_cannot_steal_outer_notes(
+    _isolated_runtime, outer_prompt, nested_prompt
+):
+    """A nested run started while the outer observation is ambient must not
+    consume the outer turn's one-shot injection state -- even when the outer
+    anchor is empty or the prompts are identical (reviewer finding, PR #840).
+    """
+    agent = _HistoryAgent()
+    _record("sess-outer", saved=1)
+    outer_observation = _observation_for(agent, turn_prompt=outer_prompt)
+
+    seen_calls: List[List[str]] = []
+    nested_pydantic_agent = Agent(
+        _make_scripted_model(seen_calls),
+        capabilities=[InterruptedSubagentNotes()],
+    )
+    nested_agent = _HistoryAgent()
+    nested_agent._code_generation_agent = nested_pydantic_agent
+
+    # Simulate the outer run's task context: observation ambient, run depth 1.
+    with install_interrupt_note_observation(outer_observation):
+        _runtime._active_run_depth += 1
+        try:
+            await _runtime.run_with_mcp(nested_agent, nested_prompt)
+        finally:
+            _runtime._active_run_depth -= 1
+
+    note_text = outer_observation.notes[0].parts[0].content
+    # The nested model never saw the outer turn's notes...
+    assert all(note_text not in call for call in seen_calls)
+    # ...and the outer turn's delivery state is untouched.
+    assert outer_observation.injected is False
+    assert _note_texts(agent._message_history) == []
+    assert _note_texts(nested_agent._message_history) == []
+
+
+@pytest.mark.asyncio
+async def test_multimodal_turn_prompt_anchors_the_splice():
+    """A [prompt, *attachments] payload rides one UserPromptPart whose content
+    is the original list (pydantic-ai 2.31.0); the anchor must match it."""
+    from pydantic_ai.messages import BinaryContent
+
+    agent = _HistoryAgent()
+    _record()
+    payload = ["look at this", BinaryContent(data=b"\x89PNG", media_type="image/png")]
+    observation = _observation_for(agent, turn_prompt=payload)
+    turn_request = ModelRequest(parts=[UserPromptPart(content=payload)])
+    tail = ModelResponse(parts=[TextPart(content="old-answer")])
+    context = _request_context([tail, turn_request])
+
+    with install_interrupt_note_observation(observation):
+        result = await InterruptedSubagentNotes().before_model_request(None, context)
+
+    assert result.messages == [tail, *observation.notes, turn_request]
+    assert observation.injected is True
 
 
 @pytest.mark.asyncio

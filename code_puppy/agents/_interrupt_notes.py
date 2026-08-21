@@ -37,10 +37,12 @@ Bounded divergences (all documented, none model-visible in practice):
   the pre-note history. The notes are a few short user messages; nothing in
   tree routes models off them.
 * A *nested* ``run_with_mcp`` run (a plugin starting a run inside the outer
-  run's task) inherits the ambient observation but never matches the outer
-  turn's prompt anchor, so it cannot steal the injection; the notes wait for
-  the outer run's own first request. Should that request never come, the
-  custody fallback applies.
+  run's task) shadows the ambient observation with ``None`` around its own
+  ``create_task``, so it cannot steal the injection; the notes wait for the
+  outer run's own first request. Should that request never come, the custody
+  fallback applies. For runs that bypass ``run_with_mcp`` entirely, the
+  prompt anchor in ``before_model_request`` still defers injection when the
+  trailing request is not the outer turn's own.
 * Sub-agents built by ``subagent_invocation`` deliberately do NOT get this
   capability: the notes belong to the main conversation, and injecting them
   into a sub-agent's transcript (while mirroring into the main agent's
@@ -95,14 +97,19 @@ def current_observation() -> Optional[InterruptNoteObservation]:
 def install_interrupt_note_observation(
     observation: Optional[InterruptNoteObservation],
 ) -> Iterator[None]:
-    """Install ``observation`` for the enclosed block (``None`` is a no-op).
+    """Install ``observation`` for the enclosed block.
 
     Wrap the ``create_task`` call so the run task's context snapshot carries
     the observation (the #835/#839 pattern); nested installs shadow.
+
+    ``None`` is installed too, ON PURPOSE: a nested ``run_with_mcp`` builds
+    no observation, and shadowing with ``None`` is what isolates its task
+    from the outer turn's ambient observation -- otherwise the nested run's
+    first model request could consume the outer turn's one-shot injection
+    state. The prompt anchor in ``before_model_request`` remains as defense
+    in depth for runs that enter the pydantic agent without this install
+    (e.g. a plugin calling ``pydantic_agent.run`` directly).
     """
-    if observation is None:
-        yield
-        return
     token = _note_observation.set(observation)
     try:
         yield
