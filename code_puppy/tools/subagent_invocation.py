@@ -11,7 +11,6 @@ from functools import partial
 from typing import Set
 
 from pydantic_ai import Agent, RunContext, UsageLimits
-from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agent_execution_context import executing_agent_context
 from code_puppy.callbacks import (
@@ -302,7 +301,7 @@ async def _invoke_agent_impl(
         agent_config = load_agent(agent_name)
 
         with agent_config.temporary_model_name_override(model_name):
-            # Seed history so make_history_processor (wired into history_processors)
+            # Seed history so HistoryCompaction (wired into capabilities)
             # mutates ``agent_config._message_history`` in place — letting us read
             # partial progress off the wrapper after a mid-run crash.
             agent_config.set_message_history(list(message_history))
@@ -400,7 +399,7 @@ async def _invoke_agent_impl(
                     await autostart_bound_servers_async(manager, bound_agent_name)
                 mcp_servers = manager.get_servers_for_agent(agent_name=bound_agent_name)
 
-            from code_puppy.agents._compaction import make_history_processor
+            from code_puppy.agents._compaction import HistoryCompaction
             from code_puppy.agents._model_message_transform import (
                 build_model_message_transform,
             )
@@ -418,10 +417,11 @@ async def _invoke_agent_impl(
                 output_type=str,
                 retries=3,
                 toolsets=mcp_servers,
-                # ProcessHistory capability replaces the deprecated
-                # `history_processors=` kwarg (removed in pydantic-ai v2).
+                # HistoryCompaction hits before_model_request (the seam the
+                # deprecated `history_processors=` kwarg fed, removed in
+                # pydantic-ai v2).
                 capabilities=[
-                    ProcessHistory(make_history_processor(agent_config)),
+                    HistoryCompaction(agent_config),
                     build_model_message_transform(agent_name),
                 ],
                 model_settings=model_settings,
