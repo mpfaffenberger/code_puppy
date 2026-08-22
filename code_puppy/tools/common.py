@@ -1408,9 +1408,10 @@ async def _get_user_approval_async_impl(
 
     backend = get_approval_backend()
     if backend is not None:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None, backend, title, _approval_message_text(content), preview
+        # Use asyncio.to_thread to run the synchronous part of the
+        # backend in a thread, allowing ContextVars to be preserved.
+        return await asyncio.to_thread(
+            backend, title, _approval_message_text(content), preview
         )
 
     if not _stdin_supports_interactive_approval():

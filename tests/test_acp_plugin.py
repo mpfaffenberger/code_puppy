@@ -35,7 +35,6 @@ from acp.schema import (
     TerminalOutputResponse,
     WaitForTerminalExitResponse,
 )
-
 from code_puppy_core_plugins.acp import (
     bridge as bridge_mod,
     capabilities,
@@ -594,6 +593,29 @@ async def test_approval_backend_async_runs_in_executor():
     finally:
         common.set_approval_backend(None)
     assert approved is False
+
+
+@pytest.mark.asyncio
+async def test_approval_backend_async_preserves_acp_run_context():
+    """Async approval dispatch must retain the ACP session for client routing."""
+    from code_puppy.tools import common
+
+    seen = []
+
+    def backend(title, message, preview):
+        seen.append(state.get_active_session_id())
+        return True, None
+
+    state.begin_run("approval-session")
+    common.set_approval_backend(backend)
+    try:
+        approved, _ = await common.get_user_approval_async("Op", "do it?")
+    finally:
+        common.set_approval_backend(None)
+        state.end_run()
+
+    assert approved is True
+    assert seen == ["approval-session"]
 
 
 # --------------------------------------------------------------------------- #
