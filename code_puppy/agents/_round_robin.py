@@ -55,9 +55,10 @@ tests where observable):
   ``observability.py`` calls ``logfire.instrument_pydantic_ai()``, and 2.31.0
   instrumentation is capability-based (explicit ``InstrumentedModel``s are
   unwrapped before the run), so instrumented requests take the owned path.
-  Scope of the loss: only the leaf-attribute refinement on the chat span —
-  the span itself, its round-robin ``gen_ai.request.model``, and the eager
-  fallback for completed streams are unaffected. Non-streamed timing is
+  Scope of the loss: only the leaf-attribute refinement on the torn-down
+  stream's chat span — the span itself and its round-robin
+  ``gen_ai.request.model`` survive, completed owned streams still get the
+  refinement at handler-return, and eager guest custody is unchanged. Non-streamed timing is
   unchanged (after the response). Pinned by the teardown tests.
 * ``ModelRequestContext.model_id`` is only meaningful while the context still
   carries the run's resolved model; swapping the model invalidates it for
