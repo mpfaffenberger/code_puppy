@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
+from code_puppy.agents._cancellation_trace import CancellationTraceCapture
 from code_puppy.agents._compaction import make_history_processor
 from code_puppy.agents._model_message_transform import build_model_message_transform
 from code_puppy.agents._output_limits import (
@@ -666,6 +667,11 @@ def build_pydantic_agent(
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
                 build_model_message_transform(logical_agent_name),
+                # Sole wrap_run_event_stream implementer, so position is
+                # inert. Resolves per run from the observation _runtime's
+                # _do_run installs; without one it stays seam-less and the
+                # run is not forced into streaming mode.
+                CancellationTraceCapture(),
             ],
             model_settings=model_settings,
         )
