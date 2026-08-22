@@ -26,7 +26,17 @@ Parity is guaranteed structurally rather than promised:
   never saw those.
 * Every rejection converges on the caller's eager fallback, which feeds
   the exact same extraction helpers (``extract_per_request_usage`` /
-  ``extract_final_context_tokens``) -- so both paths are byte-identical.
+  ``extract_final_context_tokens``) -- so for a real ``AgentRunResult``
+  (whose ``new_messages()`` is a stable view over run state) both paths
+  report identical entries. The consistency gate itself calls
+  ``new_messages()`` once, which only a pathological result object with
+  stateful ``new_messages()`` semantics could observe.
+
+Ordering note: ``CombinedCapability`` applies after-hooks in REVERSE list
+order (onion semantics), so the call site splices this capability FIRST
+-- it then executes last in ``after_model_request`` and records the
+response object that actually reaches run state, even if another
+capability replaced it.
 
 Scope: the run-total ``usage_metrics`` (``result.usage``) and the
 wall-clock ``duration_ms`` deliberately stay at the call site. The timing
@@ -37,7 +47,7 @@ cannot live inside a per-run capability with parity.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any
 
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ModelResponse
@@ -55,15 +65,15 @@ class PerRequestUsageCapture(AbstractCapability[Any]):
     """
 
     # One-slot last-capture buffer: [(result, responses)]. A list (not an
-    # Optional field) so per-run collectors can share it by reference.
-    _capture: List[Tuple[Any, Tuple[ModelResponse, ...]]] = field(
+    # optional field) so per-run collectors can share it by reference.
+    _capture: list[tuple[Any, tuple[ModelResponse, ...]]] = field(
         default_factory=list, init=False, repr=False
     )
 
     async def for_run(self, ctx: Any) -> AbstractCapability[Any]:
         return _PerRequestUsageRun(capture_slot=self._capture)
 
-    def consume(self, result: Any) -> Optional[Sequence[ModelResponse]]:
+    def consume(self, result: Any) -> list[ModelResponse] | None:
         """Return the owned capture for ``result``, or ``None`` to fall back.
 
         Read-and-clear: stale captures are discarded on the way out so a
@@ -101,8 +111,8 @@ class PerRequestUsageCapture(AbstractCapability[Any]):
 class _PerRequestUsageRun(AbstractCapability[Any]):
     """Run-scoped collector resolved by ``PerRequestUsageCapture.for_run``."""
 
-    capture_slot: List[Tuple[Any, Tuple[ModelResponse, ...]]]
-    _responses: List[ModelResponse] = field(
+    capture_slot: list[tuple[Any, tuple[ModelResponse, ...]]]
+    _responses: list[ModelResponse] = field(
         default_factory=list, init=False, repr=False
     )
 
@@ -119,7 +129,7 @@ class _PerRequestUsageRun(AbstractCapability[Any]):
 
 def build_per_request_usage_capture(
     include_usage_metrics: bool,
-) -> Tuple[Optional[PerRequestUsageCapture], List[PerRequestUsageCapture]]:
+) -> tuple[PerRequestUsageCapture | None, list[PerRequestUsageCapture]]:
     """Build the capture for one invocation, or nothing when metrics are off.
 
     Returns ``(capture, splice)`` so the call site can keep a handle for

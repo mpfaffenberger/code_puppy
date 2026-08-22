@@ -430,13 +430,15 @@ async def _invoke_agent_impl(
                 toolsets=mcp_servers,
                 # ProcessHistory capability replaces the deprecated
                 # `history_processors=` kwarg (removed in pydantic-ai v2).
-                # Usage capture goes LAST: if an earlier capability ever
-                # replaced a response in after_model_request, the recorded
-                # object must be the one that reaches run state.
+                # Usage capture goes FIRST: after-hooks apply in REVERSE
+                # list order (onion semantics), so first position executes
+                # last in after_model_request and records the response
+                # object that actually reaches run state even if a later
+                # capability replaced it.
                 capabilities=[
+                    *usage_capture_splice,
                     ProcessHistory(make_history_processor(agent_config)),
                     build_model_message_transform(agent_name),
-                    *usage_capture_splice,
                 ],
                 model_settings=model_settings,
             )

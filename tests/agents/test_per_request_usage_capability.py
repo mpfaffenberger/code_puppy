@@ -20,9 +20,11 @@ from __future__ import annotations
 
 import asyncio
 
+import dataclasses
+
 import pytest
 from pydantic_ai import Agent
-from pydantic_ai.capabilities import ProcessHistory
+from pydantic_ai.capabilities import AbstractCapability, ProcessHistory
 from pydantic_ai.messages import (
     ModelResponse,
     TextPart,
@@ -103,6 +105,13 @@ def _recorded_responses(result) -> list[ModelResponse]:
     return [m for m in result.new_messages() if isinstance(m, ModelResponse)]
 
 
+class _ResponseReplacer(AbstractCapability):
+    """Swaps every response for an equal-but-distinct object at the seam."""
+
+    async def after_model_request(self, ctx, *, request_context, response):
+        return dataclasses.replace(response)
+
+
 class TestSeamCapture:
     def test_captures_every_response_object_in_order(self):
         capture = PerRequestUsageCapture()
@@ -133,16 +142,42 @@ class TestSeamCapture:
         assert all(a is b for a, b in zip(owned, recorded))
 
     def test_capture_survives_neighbouring_capabilities(self):
-        # The production list runs ProcessHistory ahead of the capture; a
+        # Production wiring: capture FIRST, ProcessHistory after. A
         # pass-through processor must not disturb ownership.
         capture = PerRequestUsageCapture()
         agent = _agent_with(
-            _tool_then_text_model(), ProcessHistory(lambda messages: messages), capture
+            _tool_then_text_model(), capture, ProcessHistory(lambda messages: messages)
         )
 
         result = asyncio.run(agent.run("go"))
 
         assert capture.consume(result) is not None
+
+    def test_first_position_records_replacements_from_later_capabilities(self):
+        # CombinedCapability applies after-hooks in REVERSE list order
+        # (onion semantics): the capture sits FIRST so it executes LAST
+        # and records the replacement object that reaches run state.
+        capture = PerRequestUsageCapture()
+        agent = _agent_with(_tool_then_text_model(), capture, _ResponseReplacer())
+
+        result = asyncio.run(agent.run("go"))
+
+        owned = capture.consume(result)
+        assert owned is not None
+        recorded = _recorded_responses(result)
+        assert all(a is b for a, b in zip(owned, recorded))
+
+    def test_misordered_capture_is_disowned_not_divergent(self):
+        # The adversarial ordering: capture LAST executes FIRST, so a
+        # later-executing replacer swaps the object after capture. The
+        # consistency gate must disown the capture (falling back to the
+        # eager walk) rather than report the pre-replacement objects.
+        capture = PerRequestUsageCapture()
+        agent = _agent_with(_tool_then_text_model(), _ResponseReplacer(), capture)
+
+        result = asyncio.run(agent.run("go"))
+
+        assert capture.consume(result) is None
 
 
 class TestConsumeGates:
@@ -185,9 +220,7 @@ class TestConsumeGates:
             ]
 
         capture = PerRequestUsageCapture()
-        agent = _agent_with(
-            _counted_model({}), ProcessHistory(dropper), capture
-        )
+        agent = _agent_with(_counted_model({}), ProcessHistory(dropper), capture)
 
         result = asyncio.run(agent.run("go"))
 
@@ -218,9 +251,7 @@ class TestPerRunIsolation:
         agent = _agent_with(_tool_then_text_model(), capture)
 
         first = asyncio.run(agent.run("go"))
-        second = asyncio.run(
-            agent.run("again", message_history=first.all_messages())
-        )
+        second = asyncio.run(agent.run("again", message_history=first.all_messages()))
 
         owned = capture.consume(second)
         assert owned is not None
