@@ -61,6 +61,12 @@ _load_plugin_model_providers()
 CONTEXT_1M_BETA = "context-1m-2025-08-07"
 _CUSTOM_OPENAI_MODEL_TYPES = {"custom_openai", "custom_openai_responses"}
 _LEGACY_CUSTOM_OPENAI_RESPONSES_MODEL = "codex-gpt-5-codex"
+# Only these wire formats accept ``openai_reasoning_effort``.
+# A positive allowlist prevents short model tags from hijacking aliases.
+_OPENAI_COMPATIBLE_MODEL_TYPES = (
+    frozenset({"openai", "chatgpt_oauth", "azure_foundry_openai", "azure_openai"})
+    | _CUSTOM_OPENAI_MODEL_TYPES
+)
 
 
 def _custom_openai_uses_responses_api(
@@ -227,6 +233,7 @@ def make_model_settings(
     # GLM-4.5+ thinking/reasoning_effort are GLM-specific fields pydantic-ai
     # doesn't know; ride along in extra_body to reach the API.
     from code_puppy.model_utils import (
+        get_openai_reasoning_effort_choices,
         supports_glm_reasoning_effort,
         supports_glm_thinking,
     )
@@ -303,7 +310,9 @@ def make_model_settings(
         # Plain OpenAIChatModelSettings without reasoning params.
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
-    elif "gpt-5" in model_name:
+    elif "gpt-5" in model_name or "gpt-5" in str(model_config.get("name", "")).lower():
+        # Alias fallback: a custom-endpoint catalog entry can key on a
+        # friendly alias with the real "gpt-5..." id in model_config["name"].
         # Normalize legacy effort values (minimal->none, ultra->max)
         _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
@@ -360,6 +369,17 @@ def make_model_settings(
                     "verbosity": effective_settings.get("verbosity", "medium")
                 }
             model_settings = OpenAIChatModelSettings(**model_settings_dict)
+    elif model_type in _OPENAI_COMPATIBLE_MODEL_TYPES and (
+        get_openai_reasoning_effort_choices(model_name)
+        or get_openai_reasoning_effort_choices(model_config.get("name", ""))
+    ):
+        # Forward effort for OpenAI Chat Completions reasoning models.
+        # The type allowlist and underlying name safely support catalog aliases.
+        _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
+        effort = effective_settings.get("reasoning_effort", "medium")
+        effort = _EFFORT_ALIAS.get(effort, effort)
+        model_settings_dict["openai_reasoning_effort"] = effort
+        model_settings = OpenAIChatModelSettings(**model_settings_dict)
     elif _is_anthropic_model(model_name, model_config):
         from code_puppy.model_utils import (
             anthropic_disallows_sampling_settings,

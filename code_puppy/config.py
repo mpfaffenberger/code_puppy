@@ -783,6 +783,13 @@ def model_supports_setting(
 
         if supports_glm_reasoning_effort(model_name):
             return True
+    if setting == "reasoning_effort":
+        # Detect OpenAI effort support when catalog metadata is absent.
+        # Empty choices denote recognized models with fixed effort.
+        from code_puppy.model_utils import get_openai_reasoning_effort_choices
+
+        if get_openai_reasoning_effort_choices(model_name):
+            return True
     if setting in ("reasoning_context", "reasoning_mode"):
         # GPT-5.6 Responses API controls; detect here so injected/custom 5.6
         # definitions needn't duplicate supported_settings metadata.
@@ -798,6 +805,13 @@ def model_supports_setting(
         if setting in ("reasoning_context", "reasoning_mode"):
             underlying_name = str(model_config.get("name", "")).lower()
             if "gpt-5.6" in underlying_name:
+                return True
+        if setting == "reasoning_effort":
+            # Resolve friendly catalog aliases through the underlying model name.
+            from code_puppy.model_utils import get_openai_reasoning_effort_choices
+
+            underlying_name = str(model_config.get("name", ""))
+            if get_openai_reasoning_effort_choices(underlying_name):
                 return True
 
         # Get supported_settings list, default to supporting common settings

@@ -397,6 +397,47 @@ class TestModelSupportsSetting:
             "zai-glm-5.2-api", "glm_reasoning_effort"
         )
 
+    def test_openai_reasoning_effort_recognized_without_catalog_entry(self):
+        # Detect OpenAI effort support without catalog metadata.
+        assert cp_config.model_supports_setting(
+            "gpt-5", "reasoning_effort", models_config={"gpt-5": {}}
+        )
+        assert cp_config.model_supports_setting(
+            "o1", "reasoning_effort", models_config={"o1": {}}
+        )
+        assert cp_config.model_supports_setting(
+            "o3-mini", "reasoning_effort", models_config={"o3-mini": {}}
+        )
+
+    def test_openai_reasoning_effort_false_for_fixed_effort_models(self):
+        # Fixed-effort models must not expose an empty settings menu.
+        assert not cp_config.model_supports_setting(
+            "o1-mini", "reasoning_effort", models_config={"o1-mini": {}}
+        )
+        assert not cp_config.model_supports_setting(
+            "gpt-5-pro", "reasoning_effort", models_config={"gpt-5-pro": {}}
+        )
+
+    def test_openai_reasoning_effort_ignored_for_non_openai_models(self):
+        assert not cp_config.model_supports_setting(
+            "claude-opus-4-6", "reasoning_effort", models_config={}
+        )
+
+    def test_openai_reasoning_effort_falls_back_to_catalog_name_alias(self):
+        # extra_models.json-style entries commonly use a friendly alias for
+        # the catalog key with the real OpenAI model id in "name".
+        models_config = {"acme-reasoner": {"type": "custom_openai", "name": "o3"}}
+        assert cp_config.model_supports_setting(
+            "acme-reasoner", "reasoning_effort", models_config=models_config
+        )
+
+    def test_openai_reasoning_effort_short_token_does_not_false_positive(self):
+        # "o1"/"o3" must be anchored matches, not substring containment --
+        # a custom alias merely containing "o1" is not OpenAI's o1.
+        assert not cp_config.model_supports_setting(
+            "zoo1-claude", "reasoning_effort", models_config={}
+        )
+
     def test_with_supported_settings_list(self):
         mock_config = {"test-model": {"supported_settings": ["temperature", "seed"]}}
         with patch(

@@ -369,6 +369,24 @@ def _get_setting_choices(
                 return recognized
 
         if setting_key == "reasoning_effort":
+            # Prefer model-specific OpenAI effort choices, including GPT-5.6 max.
+            from code_puppy.model_utils import get_openai_reasoning_effort_choices
+
+            underlying_name = str(model_config.get("name", ""))
+            dynamic_choices = get_openai_reasoning_effort_choices(model_name)
+            if dynamic_choices is None:
+                dynamic_choices = get_openai_reasoning_effort_choices(underlying_name)
+            if dynamic_choices is not None:
+                allowed = set(dynamic_choices)
+                # Explicit catalog flags can still widen a recognized model's
+                # choices (e.g. a custom proxy that backports "max" early).
+                if model_config.get("supports_xhigh_reasoning"):
+                    allowed.add("xhigh")
+                if model_config.get("supports_max_reasoning"):
+                    allowed.add("max")
+                return [c for c in base_choices if c in allowed]
+
+            # Preserve legacy opt-in flags for unrecognized custom models.
             unsupported_choices = set()
             if not model_config.get("supports_xhigh_reasoning", False):
                 unsupported_choices.add("xhigh")

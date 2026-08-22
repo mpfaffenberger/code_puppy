@@ -359,6 +359,50 @@ def supports_glm_reasoning_effort(model_name: str) -> bool:
     return version is not None and version >= 5.2
 
 
+# OpenAI effort choices, ordered most-specific first.
+# None means unrecognized; an empty tuple means fixed effort.
+_OPENAI_REASONING_EFFORT_CHOICES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # GPT-5.6 family: adds "max" on top of the full scale.
+    ("gpt-5.6", ("none", "low", "medium", "high", "xhigh", "max")),
+    # Non-reasoning chat variants: no reasoning_effort at all.
+    ("gpt-5.1-chat-latest", ()),
+    ("gpt-5-chat-latest", ()),
+    # Codex variants (documented for gpt-5.3-codex; other codex builds in the
+    # same family are treated the same until OpenAI documents otherwise).
+    ("gpt-5.3-codex", ("low", "medium", "high", "xhigh")),
+    ("gpt-5.1-codex", ("low", "medium", "high", "xhigh")),
+    ("gpt-5-codex", ("low", "medium", "high")),
+    # Fixed-effort model: no configurable choice.
+    ("gpt-5-pro", ()),
+    # GPT-5.2/5.4/5.5: none/low/medium/high/xhigh (documented explicitly).
+    ("gpt-5.2", ("none", "low", "medium", "high", "xhigh")),
+    ("gpt-5.4", ("none", "low", "medium", "high", "xhigh")),
+    ("gpt-5.5", ("none", "low", "medium", "high", "xhigh")),
+    # GPT-5.1: none/low/medium/high (no minimal, no xhigh).
+    ("gpt-5.1", ("none", "low", "medium", "high")),
+    # Code Puppy's canonical "none" represents GPT-5's "minimal" effort.
+    ("gpt-5", ("none", "low", "medium", "high")),
+    # o-series: low/medium/high only. o1-mini/o1-preview predate the
+    # reasoning_effort parameter entirely.
+    ("o1-mini", ()),
+    ("o1-preview", ()),
+    ("o1", ("low", "medium", "high")),
+    ("o3", ("low", "medium", "high")),
+    ("o4-mini", ("low", "medium", "high")),
+    ("codex-mini-latest", ("low", "medium", "high")),
+)
+
+
+def get_openai_reasoning_effort_choices(model_name: str) -> list[str] | None:
+    """Return documented effort choices, None if unknown, or [] if fixed."""
+    # Boundary matching prevents short tags such as "o1" matching aliases.
+    name = model_name.lower()
+    for prefix, choices in _OPENAI_REASONING_EFFORT_CHOICES:
+        if _matches_model_tag(name, prefix):
+            return list(choices)
+    return None
+
+
 def get_thinking_tags(
     model_name: str, model_config: dict | None = None
 ) -> tuple[str, str] | None:
