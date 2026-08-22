@@ -19,6 +19,7 @@ from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agents._compaction import make_history_processor
+from code_puppy.agents._history_persistence import HistoryPersistence
 from code_puppy.agents._model_message_transform import build_model_message_transform
 from code_puppy.agents._output_limits import (
     build_response_clamp,
@@ -639,6 +640,9 @@ def build_pydantic_agent(
     history_processor = make_history_processor(agent)
     steer_processor = make_steer_history_processor(agent)
     logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
+    # One instance shared by both construction passes: the pass-1 probe agent
+    # never runs, so only the final agent's runs ever reach ``after_run``.
+    history_persistence = HistoryPersistence(agent)
 
     def _new_pydantic_agent(toolsets: List[Any]) -> PydanticAgent:
         return PydanticAgent(
@@ -660,12 +664,17 @@ def build_pydantic_agent(
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after both history
             # processors. The plugin transform wraps the final model request.
+            # HistoryPersistence is the only after_run capability here, so its
+            # position is inert too (NB: CombinedCapability applies after_run
+            # hooks in REVERSED list order — onion semantics — should another
+            # after_run capability ever join this list).
             capabilities=[
                 *build_tool_output_limits(),
                 ProcessHistory(history_processor),
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
                 build_model_message_transform(logical_agent_name),
+                history_persistence,
             ],
             model_settings=model_settings,
         )

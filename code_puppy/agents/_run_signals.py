@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Callable, Optional
 
+from code_puppy.agents._history_persistence import persist_result_history
 from code_puppy.command_line.attachments import resolve_steer_content
 from code_puppy.messaging import emit_info, emit_warning
 from code_puppy.tools.agent_tools import _active_subagent_tasks
@@ -144,7 +145,10 @@ def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[Any]:
 
     Side-effects:
       - Persists ``result.all_messages()`` into ``agent._message_history``
-        so the steer turn sees the just-completed turn's context.
+        so the steer turn sees the just-completed turn's context (idempotent
+        next to the ``HistoryPersistence`` capability's ``after_run``
+        persist; kept unconditional for exact clobber parity and to cover
+        wrappers that bypass capabilities).
       - Re-queues any leftover steers (we deliberately process ONE per
         loop iteration to keep turn boundaries clean for the model).
       - Emits a diagnostic with a preview of the steer text.
@@ -155,8 +159,7 @@ def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[Any]:
     pending = pc.drain_pending_steer_queued()
     if not pending:
         return None
-    if hasattr(result, "all_messages"):
-        agent._message_history = list(result.all_messages())
+    persist_result_history(agent, result)
     steer_text = pending[0]
     for leftover in pending[1:]:
         pc.request_steer(leftover, mode="queue")

@@ -22,6 +22,7 @@ from rich.console import Console
 
 from code_puppy import __version__, callbacks, get_core_plugins_version, plugins
 from code_puppy.agents import get_current_agent
+from code_puppy.agents._history_persistence import persist_result_history
 from code_puppy.i18n import t
 from code_puppy.command_line.attachments import (
     parse_prompt_attachments,
@@ -807,9 +808,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             if response is not None:
                 agent_response = response.output
 
-                # Update agent history with the complete conversation (incl. final response).
-                if hasattr(response, "all_messages"):
-                    agent.set_message_history(list(response.all_messages()))
+                # Update agent history with the complete conversation (incl.
+                # final response). Idempotent next to the HistoryPersistence
+                # capability's after_run persist; unconditional for exact
+                # clobber parity + guest wrappers.
+                persist_result_history(agent, response)
 
                 # Emit structured message for proper markdown rendering
                 from code_puppy.messaging import get_message_bus
@@ -1210,10 +1213,11 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
                 get_message_bus().emit(response_msg)
 
-                # Update history with the complete conversation — history_processors
-                # may miss the final message, so use result.all_messages().
-                if hasattr(result, "all_messages"):
-                    current_agent.set_message_history(list(result.all_messages()))
+                # Update history with the complete conversation — history
+                # processors may miss the final message. Idempotent next to
+                # the HistoryPersistence capability's after_run persist;
+                # unconditional for exact clobber parity + guest wrappers.
+                persist_result_history(current_agent, result)
 
                 turn_result = result
                 turn_success = True
@@ -1315,8 +1319,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     )
                     get_message_bus().emit(response_msg)
 
-                    if hasattr(result, "all_messages"):
-                        current_agent.set_message_history(list(result.all_messages()))
+                    persist_result_history(current_agent, result)
 
                     if hasattr(display_console.file, "flush"):
                         display_console.file.flush()
@@ -1543,9 +1546,10 @@ async def execute_single_prompt(
             _write_usage_file(usage_file, usage() if callable(usage) else usage)
 
         # The runtime result includes the final assistant response that the
-        # incremental history can otherwise miss.
-        if hasattr(result, "all_messages"):
-            agent.set_message_history(list(result.all_messages()))
+        # incremental history can otherwise miss. Idempotent next to the
+        # HistoryPersistence capability's after_run persist; unconditional
+        # for exact clobber parity + guest wrappers.
+        persist_result_history(agent, result)
 
     except asyncio.CancelledError:
         emit_warning(t("cli.headless.cancelled"))
