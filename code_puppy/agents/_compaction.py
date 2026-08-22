@@ -25,9 +25,15 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, Callable, List, Optional, Set, Tuple
 
+from pydantic_ai.exceptions import (
+    FallbackExceptionGroup,
+    ModelAPIError,
+    UsageLimitExceeded,
+)
 from pydantic_ai.messages import ModelMessage, ModelResponse, ThinkingPart
 from pydantic_ai.models import Model
 from pydantic_ai.tools import RunContext
+from pydantic_ai.usage import RunUsage
 from pydantic_ai_harness.compaction import (
     FallbackCompaction,
     SlidingWindowCompaction,
@@ -87,6 +93,9 @@ def build_compaction_strategy(
     validation, since the chain is always driven directly (by
     :func:`compact` in-run, or ``compact_now`` for ``/compact``) where the
     harness does not consult it.
+
+    The summarizer chain adds ``UsageLimitExceeded`` to ``fallback_on`` so
+    truncation still saves the run (see pydantic-ai-harness#528).
     """
     protected = (
         get_protected_token_count() if protected_tokens is None else protected_tokens
@@ -110,7 +119,10 @@ def build_compaction_strategy(
             "compacting with the sliding-window fallback only."
         )
         return FallbackCompaction(fallback_chain=[sliding])
-    return FallbackCompaction(fallback_chain=[summarizer, sliding])
+    return FallbackCompaction(
+        fallback_chain=[summarizer, sliding],
+        fallback_on=(ModelAPIError, FallbackExceptionGroup, UsageLimitExceeded),
+    )
 
 
 def resolve_agent_model(agent: Any) -> Model:
@@ -217,7 +229,14 @@ async def compact(
     # both wired as pure capabilities in _builder.py.
     try:
         strategy = build_compaction_strategy()
-        result = await strategy.compact(list(messages), ctx)
+        # pydantic-ai-harness#528: shared usage + default request_limit=50 kills
+        # the summary past 50 parent requests. Detach the ledger, fold it back.
+        summary_usage = RunUsage()
+        strategy_ctx = dataclasses.replace(ctx, usage=summary_usage)
+        try:
+            result = await strategy.compact(list(messages), strategy_ctx)
+        finally:
+            ctx.usage.incr(summary_usage)
     except Exception as e:
         emit_error(f"Compaction failed: [{type(e).__name__}] {e}")
         return messages, []
