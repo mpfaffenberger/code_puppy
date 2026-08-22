@@ -44,12 +44,16 @@ def menu_session() -> Iterator[None]:
 
             stack = contextlib.ExitStack()
             try:
-                stack.enter_context(suspended_run_ui())
                 pc = get_pause_controller()
                 pc.pause()
-                # LIFO: resume fires after the terminal session closes, so
-                # the buffered messages flush onto the primary screen.
+                # LIFO: resume fires LAST, after the alt screen closes AND
+                # the bottom bar / scroll region are re-established, so the
+                # buffered messages flush through the normal renderer path
+                # at the right screen position. Flushing before the bar is
+                # back prints at the parked cursor in the cleared reserved
+                # rows and scrolls blank gaps into the transcript.
                 stack.callback(pc.resume)
+                stack.enter_context(suspended_run_ui())
                 stack.enter_context(terminal_session())
             except Exception:
                 _depth -= 1
