@@ -10,10 +10,16 @@ first-class capability on pydantic-ai's ``wrap_run_event_stream`` seam.
 
 Parity notes:
 
-- The capture fires once per streamed node event stream, synchronously in
-  the same task -- and therefore the same OTel context -- in which the
-  run's ``event_stream_handler`` is invoked, so ``logfire.get_context()``
-  observes the identical value the eager wrapper captured.
+- The capture fires once per streamed node event stream, when the
+  consumer first pulls the wrapped stream -- in the same task, and
+  therefore the same OTel context, in which the run's
+  ``event_stream_handler`` is invoked -- so ``logfire.get_context()``
+  observes the identical value the eager wrapper captured. The eager
+  wrapper captured at handler *invocation*; a handler that defers (or
+  skips) iterating its events defers (or skips) the capture here. The
+  production handler (``StreamingTextDetector`` wrapping the render
+  handler) consumes immediately, so the two moments coincide in
+  practice.
 - The streaming gate is preserved. ``CancellationTraceCapture`` itself
   does NOT override ``wrap_run_event_stream``; only the per-run resolved
   ``_ActiveCancellationTraceCapture`` does. When no observation is
