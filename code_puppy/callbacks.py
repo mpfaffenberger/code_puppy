@@ -1527,6 +1527,12 @@ def on_wrap_pydantic_agent(
     interface) or ``None`` to leave the agent unchanged. The last non-``None``
     result wins.
 
+    ``event_stream_handler`` is kept for signature compatibility but core now
+    passes ``None`` for both kinds: streaming render is delivered by the
+    ``StreamRendering`` capability on the pydantic agent itself (see
+    ``code_puppy/agents/_stream_rendering.py``), so it fires for wrapped
+    agents' runs too — wrappers no longer need a constructor-level handler.
+
     Returns the (possibly wrapped) agent. Always returns something — falls
     back to the input ``pydantic_agent`` if no plugin handled it.
     """

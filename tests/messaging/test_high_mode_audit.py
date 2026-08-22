@@ -458,13 +458,19 @@ class TestChecklist4_SubagentInline:
     """In high mode, subagent_invocation uses the main event_stream_handler."""
 
     def test_high_mode_selects_main_handler(self):
-        """Code path verified: high mode wraps main handler in StreamingTextDetector."""
+        """Code path verified: high mode hands the main handler to the run.
+
+        Text detection moved into the ``StreamObservation`` installed around
+        the run; the handler reaches pydantic-ai via the ``StreamRendering``
+        capability instead of a per-run kwarg.
+        """
         import inspect
 
         from code_puppy.tools import subagent_invocation
 
         source = inspect.getsource(subagent_invocation)
-        assert "StreamingTextDetector" in source
+        assert "stream_observation" in source
+        assert "StreamRendering" in source
         assert 'is_high_mode = get_output_level() == "high"' in source
         assert "event_stream_handler as _main_stream_handler" in source
 

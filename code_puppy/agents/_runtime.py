@@ -72,7 +72,6 @@ from code_puppy.agents import _history, _key_listeners
 from code_puppy.agents._builder import build_pydantic_agent
 from code_puppy.agents._diagnostics import emit_exception_diagnostics
 from code_puppy.agents._non_streaming_render import (
-    StreamingTextDetector,
     render_result_without_streaming,
     should_render_fallback,
 )
@@ -84,6 +83,7 @@ from code_puppy.agents._run_signals import (
     reset_pause_state_at_run_start,
     sigint_should_cancel,
 )
+from code_puppy.agents._stream_rendering import stream_observation
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
     on_agent_exception,
@@ -721,23 +721,11 @@ async def _run_with_mcp_impl(
         """Run the agent once, then honour any plugin ``retry`` requests."""
         usage_limits = UsageLimits(request_limit=get_message_limit())
 
-        # Streaming gate (issue #295): off → no handler, render final result;
-        # on → wrap handler in a detector, fall back to one-shot render only
-        # if no text actually streamed.
+        # Streaming gate (issue #295): off → no streaming, render the final
+        # result one-shot; on → the agent's StreamRendering capability streams
+        # the run (observability capture + text detection included), and we
+        # fall back to the one-shot render only if no text actually streamed.
         use_streaming = get_enable_streaming()
-
-        async def _observed_event_stream_handler(ctx: Any, events: Any) -> Any:
-            from code_puppy.observability import capture_agent_context
-
-            capture_agent_context(group_id)
-            return await event_stream_handler(ctx, events)
-
-        detector: Optional[StreamingTextDetector] = (
-            StreamingTextDetector(_observed_event_stream_handler)
-            if use_streaming
-            else None
-        )
-        stream_handler = detector if detector is not None else None
         # Plugins (e.g. DBOS) can render their own output and skip the fallback.
         skip_fallback_render = on_should_skip_fallback_render(agent)
 
@@ -759,7 +747,6 @@ async def _run_with_mcp_impl(
                 prompt_to_use,
                 message_history=agent._message_history,
                 usage_limits=usage_limits,
-                event_stream_handler=stream_handler,
                 **kwargs,
             )
 
@@ -786,8 +773,6 @@ async def _run_with_mcp_impl(
                     await asyncio.sleep(retry_delay)
                 return await _call()
 
-        result = await _call_with_exception_recovery()
-
         # ``now``-mode steers are injected by make_steer_history_processor
         # (before every model call); ``queue``-mode ones drain between runs
         # below — additive, won't interrupt in-progress work.
@@ -798,52 +783,67 @@ async def _run_with_mcp_impl(
                     follow_up_prompt,
                     message_history=agent._message_history,
                     usage_limits=usage_limits,
-                    event_stream_handler=stream_handler,
                     **kwargs,
                 )
 
             return await _call_follow_up()
 
-        hook_retries_used = 0
-        queued_steers_used = 0
-        max_hook_retries = get_max_hook_retries()
-        max_queued_steers = 50  # safety cap to prevent runaway loops
+        # One observation spans the initial run and every follow-up, so
+        # ``streamed_text`` accumulates across the sequence exactly as the
+        # old shared StreamingTextDetector did. ``enabled`` keeps the
+        # streaming gate, with one deliberate carve-out: a plugin that
+        # renders its own output (skip_fallback_render, e.g. DBOS) used to
+        # stream regardless of the gate via its wrapper's constructor-level
+        # handler — the capability preserves that by enabling the stream for
+        # it here.
+        with stream_observation(
+            event_stream_handler,
+            group_id=group_id,
+            enabled=use_streaming or skip_fallback_render,
+        ) as observation:
+            result = await _call_with_exception_recovery()
 
-        while True:
-            # 1) Drain queue-mode steers FIRST (user-priority over hook retries).
-            if queued_steers_used < max_queued_steers:
-                steer_text = prepare_queued_steer_injection(agent, result)
-                if steer_text is not None:
-                    queued_steers_used += 1
-                    result = await _follow_up_run(steer_text)
-                    continue
+            hook_retries_used = 0
+            queued_steers_used = 0
+            max_hook_retries = get_max_hook_retries()
+            max_queued_steers = 50  # safety cap to prevent runaway loops
 
-            # 2) Plugin-requested hook retry (cap matches original loop).
-            if hook_retries_used >= max_hook_retries:
-                break
-            hook_results = await on_agent_run_result(
-                result,
-                agent_name=agent.name,
-                model_name=agent.get_model_name(),
-            )
-            retry_req = next(
-                (r for r in hook_results if isinstance(r, dict) and r.get("retry")),
-                None,
-            )
-            if not retry_req:
-                break
+            while True:
+                # 1) Drain queue-mode steers FIRST (user-priority over hook retries).
+                if queued_steers_used < max_queued_steers:
+                    steer_text = prepare_queued_steer_injection(agent, result)
+                    if steer_text is not None:
+                        queued_steers_used += 1
+                        result = await _follow_up_run(steer_text)
+                        continue
 
-            retry_prompt = retry_req.get("prompt", "Please continue.")
-            retry_delay = retry_req.get("delay", 1.0)
-            if hasattr(result, "all_messages"):
-                agent._message_history = list(result.all_messages())
-            await asyncio.sleep(retry_delay)
-            result = await _follow_up_run(retry_prompt)
-            hook_retries_used += 1
+                # 2) Plugin-requested hook retry (cap matches original loop).
+                if hook_retries_used >= max_hook_retries:
+                    break
+                hook_results = await on_agent_run_result(
+                    result,
+                    agent_name=agent.name,
+                    model_name=agent.get_model_name(),
+                )
+                retry_req = next(
+                    (r for r in hook_results if isinstance(r, dict) and r.get("retry")),
+                    None,
+                )
+                if not retry_req:
+                    break
+
+                retry_prompt = retry_req.get("prompt", "Please continue.")
+                retry_delay = retry_req.get("delay", 1.0)
+                if hasattr(result, "all_messages"):
+                    agent._message_history = list(result.all_messages())
+                await asyncio.sleep(retry_delay)
+                result = await _follow_up_run(retry_prompt)
+                hook_retries_used += 1
 
         # Fallback render when streaming didn't surface any text to the user.
         if result is not None and should_render_fallback(
-            detector, skip=skip_fallback_render
+            observation.detector if use_streaming else None,
+            skip=skip_fallback_render,
         ):
             render_result_without_streaming(result)
 

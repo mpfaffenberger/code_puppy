@@ -404,6 +404,10 @@ async def _invoke_agent_impl(
             from code_puppy.agents._model_message_transform import (
                 build_model_message_transform,
             )
+            from code_puppy.agents._stream_rendering import (
+                StreamRendering,
+                stream_observation,
+            )
 
             # Build the pydantic-ai agent. MCP servers always included; plugins
             # (e.g. DBOS) may swap them via the agent_run_context hook.
@@ -420,9 +424,13 @@ async def _invoke_agent_impl(
                 toolsets=mcp_servers,
                 # ProcessHistory capability replaces the deprecated
                 # `history_processors=` kwarg (removed in pydantic-ai v2).
+                # StreamRendering delivers the sub-agent's stream handler
+                # (silencer or inline renderer) via the observation installed
+                # around the run below.
                 capabilities=[
                     ProcessHistory(make_history_processor(agent_config)),
                     build_model_message_transform(agent_name),
+                    StreamRendering(),
                 ],
                 model_settings=model_settings,
             )
@@ -445,29 +453,29 @@ async def _invoke_agent_impl(
             )
 
             # subagent_stream_handler silences sub-agent output (aggregated
-            # dashboard); high mode streams it inline via a StreamingTextDetector,
+            # dashboard); high mode streams it inline via the main renderer,
             # falling back to one-shot render if no text tokens were emitted.
+            # Either way the handler reaches the run through the temp agent's
+            # StreamRendering capability, which resolves the observation
+            # installed below (asyncio.create_task snapshots the context, so
+            # the run task sees it).
             from code_puppy.config import get_output_level
 
             is_high_mode = get_output_level() == "high"
-            streaming_detector = None
 
             if is_high_mode:
-                from code_puppy.agents._non_streaming_render import (
-                    StreamingTextDetector,
-                )
                 from code_puppy.agents.event_stream_handler import (
                     event_stream_handler as _main_stream_handler,
                 )
 
-                streaming_detector = StreamingTextDetector(_main_stream_handler)
-                stream_handler = streaming_detector
+                stream_handler = _main_stream_handler
             else:
                 stream_handler = partial(subagent_stream_handler, session_id=session_id)
 
             with (
                 subagent_context(agent_name, effective_model_name),
                 executing_agent_context(agent_config),
+                stream_observation(stream_handler) as observation,
             ):
                 run_ctxs = on_agent_run_context(
                     agent_config, temp_agent, group_id, mcp_servers
@@ -498,7 +506,6 @@ async def _invoke_agent_impl(
                             prompt,
                             message_history=agent_config.get_message_history(),
                             usage_limits=UsageLimits(request_limit=get_message_limit()),
-                            event_stream_handler=stream_handler,
                         )
 
                     # Time the full run (incl. retries) so duration_ms reflects real
@@ -534,10 +541,7 @@ async def _invoke_agent_impl(
                 # Still inside subagent_context: if high mode and streaming
                 # didn't produce any text, fall back to the one-shot renderer
                 # so the user always sees the response.
-                streamed_text = (
-                    streaming_detector is not None and streaming_detector.streamed_text
-                )
-                if is_high_mode and not streamed_text:
+                if is_high_mode and not observation.streamed_text:
                     from code_puppy.agents._non_streaming_render import (
                         render_result_without_streaming,
                     )
@@ -560,8 +564,12 @@ async def _invoke_agent_impl(
             )
 
             # Emit via MessageBus; skip in high mode when streaming already
-            # rendered the response (avoids future double-render).
-            if emit_response_message and not (is_high_mode and streamed_text):
+            # rendered the response (avoids future double-render). The
+            # observation object outlives its with-block; only the
+            # context-local registration was reverted.
+            if emit_response_message and not (
+                is_high_mode and observation.streamed_text
+            ):
                 bus.emit(
                     SubAgentResponseMessage(
                         agent_name=agent_name,
