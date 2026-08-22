@@ -70,6 +70,10 @@ except ImportError:  # pragma: no cover - 3.10 only
 from code_puppy.agent_execution_context import executing_agent_context
 from code_puppy.agents import _history, _key_listeners
 from code_puppy.agents._builder import build_pydantic_agent
+from code_puppy.agents._cancellation_trace import (
+    CancellationTraceObservation,
+    install_cancellation_trace_observation,
+)
 from code_puppy.agents._diagnostics import emit_exception_diagnostics
 from code_puppy.agents._non_streaming_render import (
     StreamingTextDetector,
@@ -726,16 +730,19 @@ async def _run_with_mcp_impl(
         # if no text actually streamed.
         use_streaming = get_enable_streaming()
 
-        async def _observed_event_stream_handler(ctx: Any, events: Any) -> Any:
-            from code_puppy.observability import capture_agent_context
-
-            capture_agent_context(group_id)
-            return await event_stream_handler(ctx, events)
+        # Advertise this turn's runs to CancellationTraceCapture (wired in
+        # _builder's capabilities list): the capability captures the live
+        # trace context at each streamed request for emit_cancellation,
+        # replacing the eager _observed_event_stream_handler wrapper. Plain
+        # set, no reset: this executes inside the turn's agent task, whose
+        # context dies with the task; nested run_with_mcp turns run in their
+        # own task and install their own observation there.
+        install_cancellation_trace_observation(
+            CancellationTraceObservation(group_id=group_id, enabled=use_streaming)
+        )
 
         detector: Optional[StreamingTextDetector] = (
-            StreamingTextDetector(_observed_event_stream_handler)
-            if use_streaming
-            else None
+            StreamingTextDetector(event_stream_handler) if use_streaming else None
         )
         stream_handler = detector if detector is not None else None
         # Plugins (e.g. DBOS) can render their own output and skip the fallback.
