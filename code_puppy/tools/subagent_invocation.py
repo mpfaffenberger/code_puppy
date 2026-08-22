@@ -401,6 +401,7 @@ async def _invoke_agent_impl(
                 mcp_servers = manager.get_servers_for_agent(agent_name=bound_agent_name)
 
             from code_puppy.agents._compaction import make_history_processor
+            from code_puppy.agents._instrumentation import build_instrumentation
             from code_puppy.agents._model_message_transform import (
                 build_model_message_transform,
             )
@@ -420,7 +421,10 @@ async def _invoke_agent_impl(
                 toolsets=mcp_servers,
                 # ProcessHistory capability replaces the deprecated
                 # `history_processors=` kwarg (removed in pydantic-ai v2).
+                # Instrumentation is empty unless logfire is live and sorts
+                # itself outermost regardless of position (_instrumentation.py).
                 capabilities=[
+                    *build_instrumentation(),
                     ProcessHistory(make_history_processor(agent_config)),
                     build_model_message_transform(agent_name),
                 ],

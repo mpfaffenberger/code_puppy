@@ -41,6 +41,13 @@ def configure_logfire() -> bool:
     Returns True when instrumentation is live. A missing package or a
     misconfiguration must never break the CLI, so every failure path
     emits a warning and returns False instead of raising.
+
+    ``logfire.instrument_pydantic_ai()`` installs the process-global
+    ``Agent.instrument_all`` default. Agents code_puppy builds afterwards
+    additionally declare tracing as an explicit ``Instrumentation``
+    capability carrying the same settings (see
+    ``code_puppy.agents._instrumentation``); the global default remains the
+    fallback for out-of-tree agents (e.g. plugin-built ones).
     """
     global _logfire_active
     _logfire_active = False
