@@ -112,6 +112,55 @@ def _gpt_5_6_recursion_blocked() -> bool:
     return attempted_depth > get_subagent_recursion_limit_gpt_5_6()
 
 
+def recursion_guard_error(agent_name: str) -> str | None:
+    """Verdict of the recursion guards: the denial message, or None if allowed.
+
+    Single source of truth for both custodies -- the
+    ``SubagentRecursionGuard`` capability (``wrap_tool_execute`` seam, wired
+    at both pydantic-agent construction sites) and the in-tool guest
+    fallback in ``_invoke_agent_impl`` -- so the two verdicts can never
+    drift.
+    """
+    if _subagent_recursion_blocked():
+        return t(
+            "subagent.recursion_limit_reached",
+            limit=get_subagent_recursion_limit(),
+            agent=agent_name,
+        )
+    if _gpt_5_6_recursion_blocked():
+        return t(
+            "subagent.gpt_5_6_recursion_blocked",
+            agent=agent_name,
+            depth=get_subagent_depth() + 1,
+            limit=get_subagent_recursion_limit_gpt_5_6(),
+        )
+    return None
+
+
+def denied_invocation_output(
+    *,
+    agent_name: str,
+    model_name: str | None,
+    include_usage_metrics: bool,
+    error: str,
+) -> AgentInvokeOutput:
+    """Emit the denial and build the model-facing error output.
+
+    Shared by both recursion-guard custodies so the user-visible emit and
+    the model-visible output stay byte-identical regardless of which layer
+    denies. Mirrors the historical blocked path exactly: ``session_id`` is
+    deliberately left ``None`` even when the caller supplied one.
+    """
+    emit_error(error, message_group=generate_group_id("invoke_agent", agent_name))
+    return build_invoke_output(
+        include_usage_metrics=include_usage_metrics,
+        response=None,
+        agent_name=agent_name,
+        model_name=model_name,
+        error=error,
+    )
+
+
 def _subagent_identity_prompt(agent_name: str) -> str:
     """Build explicit nesting context for the child agent's system prompt."""
     depth = get_subagent_depth() + 1
@@ -198,29 +247,17 @@ async def _invoke_agent_impl(
     from code_puppy.agents.agent_manager import load_agent
 
     group_id = generate_group_id("invoke_agent", agent_name)
-    if _subagent_recursion_blocked():
-        error = t(
-            "subagent.recursion_limit_reached",
-            limit=get_subagent_recursion_limit(),
-            agent=agent_name,
-        )
-    elif _gpt_5_6_recursion_blocked():
-        error = t(
-            "subagent.gpt_5_6_recursion_blocked",
-            agent=agent_name,
-            depth=get_subagent_depth() + 1,
-            limit=get_subagent_recursion_limit_gpt_5_6(),
-        )
-    else:
-        error = None
-
+    # Guest custody of the recursion guards: agents built by code_puppy carry
+    # ``SubagentRecursionGuard`` (wrap_tool_execute), which denies before this
+    # body runs, making this re-check an unreachable no-op there. It stays for
+    # direct callers and foreign registrations of the invoke tools. The shared
+    # verdict/denial helpers keep both custodies byte-identical.
+    error = recursion_guard_error(agent_name)
     if error:
-        emit_error(error, message_group=group_id)
-        return build_invoke_output(
-            include_usage_metrics=include_usage_metrics,
-            response=None,
+        return denied_invocation_output(
             agent_name=agent_name,
             model_name=model_name,
+            include_usage_metrics=include_usage_metrics,
             error=error,
         )
 
@@ -401,12 +438,16 @@ async def _invoke_agent_impl(
                 mcp_servers = manager.get_servers_for_agent(agent_name=bound_agent_name)
 
             from code_puppy.agents._compaction import make_history_processor
+            from code_puppy.agents._subagent_recursion import (
+                build_subagent_recursion_guard,
+            )
             from code_puppy.agents._model_message_transform import (
                 build_model_message_transform,
             )
 
             # Build the pydantic-ai agent. MCP servers always included; plugins
             # (e.g. DBOS) may swap them via the agent_run_context hook.
+            agent_tools = agent_config.get_available_tools()
             temp_agent = Agent(
                 model=model,
                 # Explicit name: without it pydantic-ai infers one from the
@@ -423,6 +464,11 @@ async def _invoke_agent_impl(
                 capabilities=[
                     ProcessHistory(make_history_processor(agent_config)),
                     build_model_message_transform(agent_name),
+                    # Recursion guards ride the wrap_tool_execute seam so a
+                    # sub-agent's own invoke_agent calls are denied before
+                    # the tool body runs. Sole wrap_tool_execute implementer,
+                    # so position is inert.
+                    *build_subagent_recursion_guard(agent_tools),
                 ],
                 model_settings=model_settings,
             )
@@ -430,7 +476,6 @@ async def _invoke_agent_impl(
             # Register the tools that the agent needs
             from code_puppy.tools import register_tools_for_agent
 
-            agent_tools = agent_config.get_available_tools()
             register_tools_for_agent(
                 temp_agent, agent_tools, model_name=effective_model_name
             )
