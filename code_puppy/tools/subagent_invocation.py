@@ -404,6 +404,16 @@ async def _invoke_agent_impl(
             from code_puppy.agents._model_message_transform import (
                 build_model_message_transform,
             )
+            from code_puppy.agents._subagent_usage import (
+                build_per_request_usage_capture,
+            )
+
+            # Per-request usage rides the after_model_request seam; the
+            # handle feeds consume() at the success boundary below. Empty
+            # splice (and a None handle) when usage metrics are off.
+            usage_capture, usage_capture_splice = build_per_request_usage_capture(
+                include_usage_metrics
+            )
 
             # Build the pydantic-ai agent. MCP servers always included; plugins
             # (e.g. DBOS) may swap them via the agent_run_context hook.
@@ -420,9 +430,13 @@ async def _invoke_agent_impl(
                 toolsets=mcp_servers,
                 # ProcessHistory capability replaces the deprecated
                 # `history_processors=` kwarg (removed in pydantic-ai v2).
+                # Usage capture goes LAST: if an earlier capability ever
+                # replaced a response in after_model_request, the recorded
+                # object must be the one that reaches run state.
                 capabilities=[
                     ProcessHistory(make_history_processor(agent_config)),
                     build_model_message_transform(agent_name),
+                    *usage_capture_splice,
                 ],
                 model_settings=model_settings,
             )
@@ -576,6 +590,23 @@ async def _invoke_agent_impl(
                 f"✓ {agent_name} completed successfully", message_group=group_id
             )
 
+            if include_usage_metrics:
+                # Prefer the seam capture; anything it disowns (guest
+                # wrappers, stale attempts, mid-run compaction rewrites)
+                # falls back to the eager walk. Same helpers either way,
+                # so both paths report identical entries.
+                usage_source = (
+                    usage_capture.consume(result) if usage_capture is not None else None
+                )
+                if usage_source is None:
+                    # all_messages() would re-report calls from earlier runs.
+                    usage_source = result.new_messages()
+                per_request_usage = extract_per_request_usage(usage_source)
+                final_context_tokens = extract_final_context_tokens(usage_source)
+            else:
+                per_request_usage = None
+                final_context_tokens = None
+
             return build_invoke_output(
                 include_usage_metrics=include_usage_metrics,
                 response=response,
@@ -583,17 +614,8 @@ async def _invoke_agent_impl(
                 session_id=session_id,
                 model_name=effective_model_name,
                 usage_metrics=usage_metrics,
-                per_request_usage=(
-                    # all_messages() would re-report calls from earlier runs.
-                    extract_per_request_usage(result.new_messages())
-                    if include_usage_metrics
-                    else None
-                ),
-                final_context_tokens=(
-                    extract_final_context_tokens(result.new_messages())
-                    if include_usage_metrics
-                    else None
-                ),
+                per_request_usage=per_request_usage,
+                final_context_tokens=final_context_tokens,
                 start_time=start_time,
                 end_time=end_time,
                 duration_ms=duration_ms,
