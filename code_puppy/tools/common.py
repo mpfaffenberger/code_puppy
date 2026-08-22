@@ -1408,7 +1408,7 @@ async def _get_user_approval_async_impl(
 
     backend = get_approval_backend()
     if backend is not None:
-        # Use asyncio.to_thread to run the synchronous part of the 
+        # Use asyncio.to_thread to run the synchronous part of the
         # backend in a thread, allowing ContextVars to be preserved.
         return await asyncio.to_thread(
             backend, title, _approval_message_text(content), preview
