@@ -25,6 +25,7 @@ from code_puppy.agents import (
 )
 from code_puppy.command_line.mcp_binding_menu import interactive_mcp_binding_menu
 from code_puppy.command_line.menu_session import menu_session
+from code_puppy.command_line.tui_style import themed
 from code_puppy.mcp_.agent_bindings import get_bound_servers
 from code_puppy.command_line.model_picker_completion import (
     ModelSelectionMenu,
@@ -362,7 +363,7 @@ def build_agent_menu(
         menu.page_down()
         return None
 
-    builder = (
+    builder = themed(
         MenuBuilder("Agents")
         .items(_agent_items(entries, current_agent_name))
         .page_size(PAGE_SIZE)

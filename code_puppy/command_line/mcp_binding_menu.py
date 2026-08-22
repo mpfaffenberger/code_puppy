@@ -24,6 +24,7 @@ from termflow.tui import MenuBuilder, MenuItem
 from termflow.tui.menu import MenuResult
 
 from code_puppy.command_line.menu_session import menu_session
+from code_puppy.command_line.tui_style import themed
 from code_puppy.mcp_ import get_mcp_manager
 from code_puppy.mcp_.agent_bindings import (
     get_bound_servers,
@@ -116,7 +117,7 @@ def build_binding_menu(
     def _done(_menu, item: MenuItem) -> MenuResult:
         return MenuResult(item=item)
 
-    builder = (
+    builder = themed(
         MenuBuilder(f"MCP bindings for agent: {agent_name}")
         .items(_server_items(agent_name, servers))
         .preview(lambda item: _render_details(agent_name, servers, item.value))
@@ -142,7 +143,7 @@ async def interactive_mcp_binding_menu(agent_name: str) -> None:
     if not servers:
         # Show the hint inside the TUI: an emit here would paint behind
         # the alternate screen and leave the user mashing B in confusion.
-        empty_menu = (
+        empty_menu = themed(
             MenuBuilder(f"MCP bindings for agent: {agent_name}")
             .items(
                 [
@@ -155,8 +156,7 @@ async def interactive_mcp_binding_menu(agent_name: str) -> None:
             )
             .footer_hint("Esc to go back")
             .alt_screen(False)
-            .build()
-        )
+        ).build()
         set_awaiting_user_input(True)
         try:
             with menu_session():
@@ -212,7 +212,7 @@ def build_post_install_menu(server_name: str, agents: List[str], **overrides):
     def _done(_menu, item: MenuItem) -> MenuResult:
         return MenuResult(item=item)
 
-    builder = (
+    builder = themed(
         MenuBuilder(f"Bind '{server_name}' to which agents?")
         .items(_items())
         .on_key(" ", _toggle)
