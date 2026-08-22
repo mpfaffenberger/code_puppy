@@ -746,9 +746,16 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     from code_puppy.command_line.command_handler import handle_command
 
     display_console = message_renderer.console
+    from rich.text import Text
+
     from code_puppy.messaging import emit_info, emit_system_message
 
-    emit_system_message(t("cli.help.press_tab"))
+    # Pass a Text object (not a plain str): the SYSTEM renderer escapes Rich
+    # markup in plain strings before printing (see renderers.py), so inline
+    # "[bold]...[/bold]" in the i18n string would show up as literal
+    # brackets. A Text object bypasses that string branch entirely and
+    # renders as one line, actually bold.
+    emit_system_message(Text(t("cli.help.press_tab"), style="bold"))
     # Print truecolor warning LAST so it's the most visible thing on startup
     # Big ugly red box should be impossible to miss!
     print_truecolor_warning(display_console)
