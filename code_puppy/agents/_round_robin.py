@@ -18,12 +18,18 @@ Custody split (explicit-when-ours, fallback-for-guests):
   leaf model. ``RoundRobinModel.request``/``request_stream`` never run.
 * **Guest requests** — anything else passes through untouched: an explicit
   ``run(model=...)``/``override(model=...)`` model, or the round-robin model
-  re-wrapped by instrumentation (``InstrumentedModel``). In the wrapped case
-  the outer model's own ``request`` still reaches
-  ``RoundRobinModel.request``, which rotates eagerly exactly as before — the
-  ``Model`` subclass stays intact as the guest fallback, and both paths share
-  one rotation state (``RoundRobinModel.next_model``), so every request
-  advances the rotation exactly once no matter which path serves it.
+  re-wrapped by an arbitrary ``WrapperModel``. In the wrapped case the outer
+  model's own ``request`` still reaches ``RoundRobinModel.request``, which
+  rotates eagerly exactly as before — the ``Model`` subclass stays intact as
+  the guest fallback, and both paths share one rotation state
+  (``RoundRobinModel.next_model``), so every pydantic-ai model request
+  advances the rotation exactly once no matter which path serves it. (Guest
+  custody additionally rotates per *continuation segment* within one wrapped
+  request — the pre-conversion behaviour; see the continuation divergence
+  below.) Note instrumentation is NOT a guest: pydantic-ai 2.31.0 installs
+  it as a capability and unwraps explicit ``InstrumentedModel``s before the
+  run, so instrumented requests still carry the bare round-robin model and
+  take the owned path.
 
 Bounded divergences on the capability-owned path (documented, pinned by
 tests where observable):
@@ -45,12 +51,14 @@ tests where observable):
 * Span-attribute fix-up on streamed requests moves from stream-open to
   handler-return, which parks until the stream is fully drained — a
   mid-stream cancel/teardown therefore records nothing where the eager path
-  had already recorded at open. Materiality bound: the fix-up only matches
-  spans carrying ``gen_ai.request.model`` (i.e. under instrumentation), and
-  instrumentation re-wraps the model, which fails the identity gate and
-  routes to the eager path anyway — so the owned-path fix-up is
-  belt-and-suspenders in every configuration we ship. Non-streamed timing
-  is unchanged (after the response). Pinned by the teardown tests.
+  had already recorded at open. This is reachable in shipped configurations:
+  ``observability.py`` calls ``logfire.instrument_pydantic_ai()``, and 2.31.0
+  instrumentation is capability-based (explicit ``InstrumentedModel``s are
+  unwrapped before the run), so instrumented requests take the owned path.
+  Scope of the loss: only the leaf-attribute refinement on the chat span —
+  the span itself, its round-robin ``gen_ai.request.model``, and the eager
+  fallback for completed streams are unaffected. Non-streamed timing is
+  unchanged (after the response). Pinned by the teardown tests.
 * ``ModelRequestContext.model_id`` is only meaningful while the context still
   carries the run's resolved model; swapping the model invalidates it for
   durable-execution capabilities (upstream-documented semantics of any
