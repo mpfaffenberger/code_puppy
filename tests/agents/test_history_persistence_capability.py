@@ -105,10 +105,10 @@ def test_get_serialization_name_is_none():
     assert HistoryPersistence(_FakeAgent()).get_serialization_name() is None
 
 
-# ---------- guest fallback helper --------------------------------------------
+# ---------- unconditional writeback helper ------------------------------------
 
 
-def test_fallback_writes_when_no_capability():
+def test_helper_writes_when_no_capability():
     agent = _FakeAgent()
     result = _FakeResult(["m1"])
 
@@ -117,7 +117,7 @@ def test_fallback_writes_when_no_capability():
     assert agent.setter_calls == 1
 
 
-def test_fallback_writes_via_direct_assignment_without_setter():
+def test_helper_writes_via_direct_assignment_without_setter():
     agent = _BareAgent()
     result = _FakeResult(["m1"])
 
@@ -125,7 +125,7 @@ def test_fallback_writes_via_direct_assignment_without_setter():
     assert agent._message_history == ["m1"]
 
 
-async def test_fallback_clobbers_post_run_history_mutations():
+async def test_helper_clobbers_post_run_history_mutations():
     """Exact-parity pin: the demoted sites always rewrote with the completed
     transcript, clobbering anything that mutated durable history after the
     run (e.g. an ``agent_run_end`` plugin). The helper must NOT skip just
@@ -142,7 +142,7 @@ async def test_fallback_clobbers_post_run_history_mutations():
     assert agent._message_history == ["m1", "m2"]  # transcript restored
 
 
-def test_fallback_rejects_none_and_messageless_results():
+def test_helper_rejects_none_and_messageless_results():
     agent = _FakeAgent()
     agent._message_history = ["keep me"]
 
@@ -310,7 +310,7 @@ def test_subagent_site_gets_no_history_persistence():
 
 def test_no_inline_writebacks_remain():
     """Every previously-eager writeback site must route through the shared
-    fallback helper — no hand-rolled all_messages() persists left behind."""
+    writeback helper — no hand-rolled all_messages() persists left behind."""
     import code_puppy.cli_runner as cli_runner
     from code_puppy.agents import _run_signals, _runtime
 
