@@ -24,6 +24,7 @@ from code_puppy.agents._output_limits import (
     build_response_clamp,
     build_tool_output_limits,
 )
+from code_puppy.agents._run_telemetry import RunTelemetry
 from code_puppy.agents._steer_processor import make_steer_history_processor
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
@@ -614,6 +615,8 @@ def build_pydantic_agent(
     - ``agent.pydantic_agent``        ← the final (possibly plugin-wrapped) agent
     - ``agent._code_generation_agent`` ← same as ``pydantic_agent``
     - ``agent._mcp_servers``          ← MCP toolsets (post-filter)
+    - ``agent._run_telemetry``        ← the ``RunTelemetry`` capability instance
+      (``run_with_mcp`` consumes its run-end capture; see ``_run_telemetry.py``)
 
     The build happens in two passes: we construct once with ``toolsets=[]`` so
     we can introspect registered tool names, then rebuild with MCP servers
@@ -639,6 +642,11 @@ def build_pydantic_agent(
     history_processor = make_history_processor(agent)
     steer_processor = make_steer_history_processor(agent)
     logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
+    # One instance shared by both construction passes (the probe never runs,
+    # so its capture slot stays empty) — mirrors the single-instance hoists
+    # elsewhere in this builder; safe because the defaults of for_agent /
+    # for_run return self and binding never mutates the instance.
+    run_telemetry = RunTelemetry()
 
     def _new_pydantic_agent(toolsets: List[Any]) -> PydanticAgent:
         return PydanticAgent(
@@ -660,12 +668,15 @@ def build_pydantic_agent(
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after both history
             # processors. The plugin transform wraps the final model request.
+            # RunTelemetry observes the finished result on after_run — a
+            # seam disjoint from every hook above, so its position is inert.
             capabilities=[
                 *build_tool_output_limits(),
                 ProcessHistory(history_processor),
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
                 build_model_message_transform(logical_agent_name),
+                run_telemetry,
             ],
             model_settings=model_settings,
         )
@@ -699,6 +710,7 @@ def build_pydantic_agent(
     agent.cur_model = model
     agent._last_model_name = resolved_model_name
     agent._mcp_servers = filtered_mcp_servers
+    agent._run_telemetry = run_telemetry
 
     wrapped = on_wrap_pydantic_agent(
         agent,
