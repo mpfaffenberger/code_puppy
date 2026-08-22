@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Test script to verify file permission prompts work correctly."""
 
+import asyncio
 import os
 import sys
 import tempfile
@@ -336,6 +337,34 @@ async def test_write_to_file_async_none_only_does_not_deny(tmp_path):
 
     assert result["success"] is True
     assert target.read_text() == "created"
+
+
+@pytest.mark.asyncio
+async def test_write_to_file_async_uses_backend_off_event_loop(tmp_path):
+    """Synchronous filesystem backends must run from a worker thread."""
+    from code_puppy.tools.file_modifications import write_to_file_async
+    from code_puppy.tools.io_backends import set_filesystem_backend
+
+    class LoopGuardBackend:
+        def exists(self, path):
+            return False
+
+        def make_dirs(self, path):
+            return None
+
+        def write_text_file(self, path, content):
+            with pytest.raises(RuntimeError, match="no running event loop"):
+                asyncio.get_running_loop()
+
+    set_filesystem_backend(LoopGuardBackend())
+    try:
+        result = await write_to_file_async(
+            MagicMock(), str(tmp_path / "worker.txt"), "created", False
+        )
+    finally:
+        set_filesystem_backend(None)
+
+    assert result["success"] is True
 
 
 @pytest.mark.asyncio
