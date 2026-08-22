@@ -13,9 +13,13 @@ Semantics, verified against pydantic-ai 2.31.0:
   contain several runs (the initial call plus queued-steer / hook-retry
   follow-ups); each capture overwrites the last, so the surviving snapshot
   always describes the run whose result ``run_with_mcp`` ultimately returns.
-* ``after_run`` is NOT called when a run ends without a result, so failed or
-  cancelled turns never capture — matching the eager code, which only
-  extracted after a successful ``await``.
+* ``after_run`` is NOT called when a run ends without a result, so failed
+  turns never capture — matching the eager code, which only extracted after
+  a successful ``await``. One upstream nuance: it IS called when a result
+  was produced while a cancellation was pending, and the run still ends
+  cancelled afterwards. Harmless here — the cancelled task yields no result
+  to ``run_with_mcp``, so ``consume(None)`` clears that capture unmatched
+  and the turn reports empty telemetry, exactly as the eager code did.
 
 Custody handshake (the explicit-when-ours, fallback-for-guests split):
 ``run_with_mcp`` calls :meth:`RunTelemetry.consume` with the result it is
