@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import pytest
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.settings import ModelSettings
 
 
 class _FakeAgentConfig:
@@ -75,7 +76,10 @@ def test_build_pydantic_agent_sets_logical_agent_name():
         ),
         patch.object(_builder.ModelFactory, "load_config", staticmethod(dict)),
         patch.object(_builder, "load_mcp_servers", lambda **k: []),
-        patch.object(_builder, "make_model_settings", lambda *a, **k: None),
+        patch(
+            "code_puppy.agents._model_settings.make_model_settings",
+            lambda *a, **k: ModelSettings(),
+        ),
         patch("code_puppy.tools.register_tools_for_agent", lambda *a, **k: None),
     ):
         built = _builder.build_pydantic_agent(cfg)
@@ -102,7 +106,10 @@ async def test_invoke_agent_impl_sets_subagent_name():
             "code_puppy.agents._builder.load_model_with_fallback",
             _fake_load_model_with_fallback,
         ),
-        patch("code_puppy.model_factory.make_model_settings", lambda *a, **k: None),
+        patch(
+            "code_puppy.agents._model_settings.make_model_settings",
+            lambda *a, **k: ModelSettings(),
+        ),
         patch("code_puppy.config.get_value", return_value="true"),  # no MCP
         patch.object(si, "on_wrap_pydantic_agent", capture_wrap),
     ):

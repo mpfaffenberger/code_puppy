@@ -20,6 +20,7 @@ from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agents._compaction import make_history_processor
 from code_puppy.agents._model_message_transform import build_model_message_transform
+from code_puppy.agents._model_settings import PerModelSettings
 from code_puppy.agents._output_limits import (
     build_response_clamp,
     build_tool_output_limits,
@@ -40,7 +41,7 @@ from code_puppy.config import (
 )
 from code_puppy.mcp_ import get_mcp_manager
 from code_puppy.messaging import emit_error, emit_info, emit_warning
-from code_puppy.model_factory import ModelFactory, make_model_settings
+from code_puppy.model_factory import ModelFactory
 
 _AGENT_RULE_FILES = ("AGENTS.md", "AGENT.md", "agents.md", "agent.md")
 _CODE_PUPPY_DIR = ".code_puppy"
@@ -635,7 +636,9 @@ def build_pydantic_agent(
     )
     instructions = _assemble_instructions(agent, resolved_model_name)
     mcp_servers = load_mcp_servers(agent_name=getattr(agent, "name", None))
-    model_settings = make_model_settings(resolved_model_name)
+    # Built once and shared by both construction passes, mirroring the old
+    # single make_model_settings() call (the snapshot lives in the instance).
+    model_settings_cap = PerModelSettings(resolved_model_name)
     history_processor = make_history_processor(agent)
     steer_processor = make_steer_history_processor(agent)
     logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
@@ -660,14 +663,17 @@ def build_pydantic_agent(
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after both history
             # processors. The plugin transform wraps the final model request.
+            # PerModelSettings feeds the get_model_settings configuration
+            # seam (formerly the model_settings= kwarg), so its position is
+            # inert too.
             capabilities=[
                 *build_tool_output_limits(),
                 ProcessHistory(history_processor),
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
                 build_model_message_transform(logical_agent_name),
+                model_settings_cap,
             ],
-            model_settings=model_settings,
         )
 
     # Pass 1: build with empty toolsets so we can see what pydantic-ai + our
