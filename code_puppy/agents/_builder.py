@@ -24,6 +24,7 @@ from code_puppy.agents._output_limits import (
     build_response_clamp,
     build_tool_output_limits,
 )
+from code_puppy.agents._prompt_preparation import PromptPreparation
 from code_puppy.agents._steer_processor import make_steer_history_processor
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
@@ -651,16 +652,21 @@ def build_pydantic_agent(
             output_type=output_type,
             retries=3,
             toolsets=toolsets,
-            # Order matters: compaction first (may trim history to fit
-            # context), THEN steer injection (a fresh steer must not be
-            # compacted away). ProcessHistory capabilities apply in
-            # registration order (replaces the deprecated
-            # `history_processors=` kwarg, removed in pydantic-ai v2).
-            # ToolOutputLimits reduces oversized tool returns on a different
-            # hook (after_tool_execute), so its position is inert; the
-            # response clamp runs before_model_request after both history
-            # processors. The plugin transform wraps the final model request.
+            # Order matters: prompt preparation FIRST (folds the system
+            # prompt into the first user message for claude-code-style
+            # models, so compaction sees the folded form exactly as it did
+            # when the fold was baked into the prompt argument), then
+            # compaction (may trim history to fit context), THEN steer
+            # injection (a fresh steer must not be compacted away).
+            # ProcessHistory capabilities apply in registration order
+            # (replaces the deprecated `history_processors=` kwarg, removed
+            # in pydantic-ai v2). ToolOutputLimits reduces oversized tool
+            # returns on a different hook (after_tool_execute), so its
+            # position is inert; the response clamp runs before_model_request
+            # after both history processors. The plugin transform wraps the
+            # final model request.
             capabilities=[
+                PromptPreparation(),
                 *build_tool_output_limits(),
                 ProcessHistory(history_processor),
                 ProcessHistory(steer_processor),
