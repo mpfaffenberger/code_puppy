@@ -37,10 +37,7 @@ from code_puppy_core_plugins.theme.bundled_palettes import (
     TOKYO_NIGHT,
     VAPORWAVE,
 )
-from code_puppy_core_plugins.theme.picker import (
-    THEMES_PER_PAGE,
-    build_theme_menu,
-)
+from code_puppy_core_plugins.theme.picker import build_theme_menu
 from code_puppy_core_plugins.theme.rich_themes import (
     make_remap,
     _swap_color,
@@ -272,7 +269,7 @@ class TestResolveThemeArg:
 class TestThemePickerMenu:
     """Drive the termflow-based picker headlessly with scripted keys."""
 
-    def _drive(self, keys):
+    def _drive(self, keys, rows=40):
         from io import StringIO
 
         script = iter(keys)
@@ -280,28 +277,33 @@ class TestThemePickerMenu:
         menu = build_theme_menu(
             key_source=lambda: next(script),
             output=out,
-            size=lambda: (120, 40),
+            size=lambda: (120, rows),
             alt_screen=False,
         )
         result = menu.run()
         return result, out.getvalue()
 
-    def test_page_size_is_five(self):
-        assert THEMES_PER_PAGE == 5
-
-    def test_menu_only_renders_the_current_page(self):
+    def test_tall_terminal_shows_whole_catalog(self):
         from termflow.ansi.utils import visible
 
-        _, screen = self._drive(["escape"])
+        _, screen = self._drive(["escape"], rows=40)
         text = visible(screen)
-        # First page shows the first five entries, not later ones.
+        assert "Ocean" in text
+        assert "Green Screen" in text
+
+    def test_short_terminal_paginates(self):
+        from termflow.ansi.utils import visible
+
+        # 10 rows -> 6 themes per page; later entries are off-page.
+        _, screen = self._drive(["escape"], rows=10)
+        text = visible(screen.split("\x1b[H")[-1])
         assert "Ocean" in text
         assert "Green Screen" not in text
 
-    def test_page_down_reaches_later_entries(self):
+    def test_page_down_reaches_later_entries_when_paginated(self):
         from termflow.ansi.utils import visible
 
-        _, screen = self._drive(["page-down", "escape"])
+        _, screen = self._drive(["page-down", "escape"], rows=10)
         assert "Green Screen" in visible(screen)
 
     def test_enter_selects_theme(self):
