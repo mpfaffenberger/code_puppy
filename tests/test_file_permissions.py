@@ -368,6 +368,37 @@ async def test_write_to_file_async_uses_backend_off_event_loop(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_delete_file_async_uses_backend_off_event_loop(tmp_path):
+    """Async deletes must not bridge a backend read from the event loop."""
+    from code_puppy.tools.file_modifications import _delete_file_async
+    from code_puppy.tools.io_backends import set_filesystem_backend
+
+    class LoopGuardBackend:
+        def exists(self, path):
+            return True
+
+        def is_file(self, path):
+            return True
+
+        def read_text_file(self, path, line=None, limit=None):
+            with pytest.raises(RuntimeError, match="no running event loop"):
+                asyncio.get_running_loop()
+            return "content\n"
+
+        def delete_file(self, path):
+            with pytest.raises(RuntimeError, match="no running event loop"):
+                asyncio.get_running_loop()
+
+    set_filesystem_backend(LoopGuardBackend())
+    try:
+        result = await _delete_file_async(MagicMock(), str(tmp_path / "worker.txt"))
+    finally:
+        set_filesystem_backend(None)
+
+    assert result["success"] is True
+
+
+@pytest.mark.asyncio
 async def test_replace_and_delete_async_permission_paths(tmp_path):
     from code_puppy.callbacks import register_callback
     from code_puppy.tools.file_modifications import (
