@@ -750,7 +750,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
     emit_system_message(t("cli.help.press_tab"))
     # Print truecolor warning LAST so it's the most visible thing on startup
-    # Big ugly red box should be impossible to miss! 
+    # Big ugly red box should be impossible to miss!
     print_truecolor_warning(display_console)
 
     # Shell pass-through for initial_command: !<cmd> bypasses the agent

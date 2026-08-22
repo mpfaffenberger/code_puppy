@@ -92,8 +92,7 @@ def handle_session_command(command: str) -> bool:
 @register_command(
     name="clear",
     description=(
-        "Clear conversation history (rotates autosave). Bare word "
-        "`clear` also works."
+        "Clear conversation history (rotates autosave). Bare word `clear` also works."
     ),
     usage="/clear",
     aliases=["cls", "new"],

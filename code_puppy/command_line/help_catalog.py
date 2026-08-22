@@ -149,7 +149,9 @@ def _builtin_command_sections() -> Tuple[List[HelpSection], List[HelpEntry]]:
     return sections, plugin_category_entries
 
 
-def _plugin_command_section(builtin_plugin_entries: List[HelpEntry]) -> List[HelpSection]:
+def _plugin_command_section(
+    builtin_plugin_entries: List[HelpEntry],
+) -> List[HelpSection]:
     """One merged section for BOTH plugin-command sources.
 
     Combines callback-advertised commands (``on_custom_command_help()``)
@@ -219,7 +221,9 @@ def _keybinding_section() -> HelpSection:
     # meanings would recreate the exact Ctrl+C double-meaning bug this
     # section was just fixed for (see PUP-352 puppy-review validation).
     if cancel_key != "Ctrl+K":
-        entries.append(HelpEntry("Ctrl+K", "Kill (delete) from the cursor to the end of the line"))
+        entries.append(
+            HelpEntry("Ctrl+K", "Kill (delete) from the cursor to the end of the line")
+        )
     return HelpSection("Keybindings", entries)
 
 

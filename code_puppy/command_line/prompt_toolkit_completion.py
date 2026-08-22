@@ -736,7 +736,6 @@ def _handle_tab_key(buffer) -> None:
     _complete_or_cycle(buffer)
 
 
-
 async def get_input_with_combined_completion(
     prompt_str=">>> ", history_file: Optional[str] = None
 ) -> str:

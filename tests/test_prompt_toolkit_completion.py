@@ -792,9 +792,7 @@ def test_tab_cycles_when_completion_is_ambiguous():
 def test_handle_tab_key_on_empty_buffer_opens_help_overlay_not_completion():
     buffer = Buffer(document=Document("", cursor_position=0))
 
-    with patch(
-        "prompt_toolkit.application.run_in_terminal"
-    ) as mock_run_in_terminal:
+    with patch("prompt_toolkit.application.run_in_terminal") as mock_run_in_terminal:
         _handle_tab_key(buffer)
 
     mock_run_in_terminal.assert_called_once()
@@ -817,9 +815,7 @@ def test_handle_tab_key_on_whitespace_only_buffer_completes_normally():
         buffer.document, [Completion("help", start_position=0)]
     )
 
-    with patch(
-        "prompt_toolkit.application.run_in_terminal"
-    ) as mock_run_in_terminal:
+    with patch("prompt_toolkit.application.run_in_terminal") as mock_run_in_terminal:
         _handle_tab_key(buffer)
 
     mock_run_in_terminal.assert_not_called()
@@ -828,9 +824,7 @@ def test_handle_tab_key_on_whitespace_only_buffer_completes_normally():
 def test_handle_tab_key_on_nonempty_buffer_completes_normally():
     buffer = _buffer_with_completions(Completion("help", start_position=-2))
 
-    with patch(
-        "prompt_toolkit.application.run_in_terminal"
-    ) as mock_run_in_terminal:
+    with patch("prompt_toolkit.application.run_in_terminal") as mock_run_in_terminal:
         _handle_tab_key(buffer)
 
     mock_run_in_terminal.assert_not_called()

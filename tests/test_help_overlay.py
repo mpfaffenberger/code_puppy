@@ -73,13 +73,16 @@ def test_show_help_overlay_builds_sections_and_runs_the_application():
     # coroutine. A plain Mock's return value (None) would make asyncio.run
     # raise -- silently swallowed by show_help_overlay's own broad except,
     # letting the test pass without ever proving the launch path works.
-    with patch(
-        "code_puppy.command_line.help_overlay.build_help_sections",
-        return_value=_sections(),
-    ) as mock_build, patch(
-        "code_puppy.command_line.help_overlay._run_help_overlay_async",
-        new_callable=AsyncMock,
-    ) as mock_run:
+    with (
+        patch(
+            "code_puppy.command_line.help_overlay.build_help_sections",
+            return_value=_sections(),
+        ) as mock_build,
+        patch(
+            "code_puppy.command_line.help_overlay._run_help_overlay_async",
+            new_callable=AsyncMock,
+        ) as mock_run,
+    ):
         show_help_overlay()
 
     mock_build.assert_called_once()
@@ -111,22 +114,28 @@ def test_show_help_overlay_is_a_noop_while_already_running():
 
 
 def test_show_help_overlay_releases_the_lock_after_a_normal_run():
-    with patch(
-        "code_puppy.command_line.help_overlay.build_help_sections",
-        return_value=_sections(),
-    ), patch(
-        "code_puppy.command_line.help_overlay._run_help_overlay_async",
-        new_callable=AsyncMock,
+    with (
+        patch(
+            "code_puppy.command_line.help_overlay.build_help_sections",
+            return_value=_sections(),
+        ),
+        patch(
+            "code_puppy.command_line.help_overlay._run_help_overlay_async",
+            new_callable=AsyncMock,
+        ),
     ):
         show_help_overlay()
 
     # A second call right after must be able to acquire the lock and run.
-    with patch(
-        "code_puppy.command_line.help_overlay.build_help_sections",
-        return_value=_sections(),
-    ) as mock_build, patch(
-        "code_puppy.command_line.help_overlay._run_help_overlay_async",
-        new_callable=AsyncMock,
+    with (
+        patch(
+            "code_puppy.command_line.help_overlay.build_help_sections",
+            return_value=_sections(),
+        ) as mock_build,
+        patch(
+            "code_puppy.command_line.help_overlay._run_help_overlay_async",
+            new_callable=AsyncMock,
+        ),
     ):
         show_help_overlay()
     mock_build.assert_called_once()

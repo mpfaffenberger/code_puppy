@@ -39,18 +39,23 @@ def test_help_entry_and_section_are_simple_value_objects():
 
 
 def test_build_help_sections_always_includes_keybindings_and_modes():
-    with patch(
-        "code_puppy.command_line.command_registry.get_unique_commands",
-        return_value=[],
-    ), patch(
-        "code_puppy.callbacks.on_custom_command_help",
-        return_value=[],
-    ), patch(
-        "code_puppy.plugins.load_plugin_callbacks",
-        return_value=None,
-    ), patch(
-        "code_puppy.agents.agent_manager.get_available_agents",
-        return_value={},
+    with (
+        patch(
+            "code_puppy.command_line.command_registry.get_unique_commands",
+            return_value=[],
+        ),
+        patch(
+            "code_puppy.callbacks.on_custom_command_help",
+            return_value=[],
+        ),
+        patch(
+            "code_puppy.plugins.load_plugin_callbacks",
+            return_value=None,
+        ),
+        patch(
+            "code_puppy.agents.agent_manager.get_available_agents",
+            return_value={},
+        ),
     ):
         sections = build_help_sections()
 
@@ -72,18 +77,23 @@ def test_help_sections_follow_the_curated_display_order():
         _cmd("grep", "Search files", category="tools", usage="/grep"),
         _cmd("wiggum", "A plugin command", category="plugin", usage="/wiggum"),
     ]
-    with patch(
-        "code_puppy.command_line.command_registry.get_unique_commands",
-        return_value=commands,
-    ), patch(
-        "code_puppy.callbacks.on_custom_command_help",
-        return_value=[],
-    ), patch(
-        "code_puppy.plugins.load_plugin_callbacks",
-        return_value=None,
-    ), patch(
-        "code_puppy.agents.agent_manager.get_available_agents",
-        return_value={},
+    with (
+        patch(
+            "code_puppy.command_line.command_registry.get_unique_commands",
+            return_value=commands,
+        ),
+        patch(
+            "code_puppy.callbacks.on_custom_command_help",
+            return_value=[],
+        ),
+        patch(
+            "code_puppy.plugins.load_plugin_callbacks",
+            return_value=None,
+        ),
+        patch(
+            "code_puppy.agents.agent_manager.get_available_agents",
+            return_value={},
+        ),
     ):
         sections = build_help_sections()
 
@@ -93,18 +103,23 @@ def test_help_sections_follow_the_curated_display_order():
 def test_no_environment_variables_section():
     """Env vars are second-layer detail (shell config, not a command) --
     deliberately not documented in the cheat sheet. See module docstring."""
-    with patch(
-        "code_puppy.command_line.command_registry.get_unique_commands",
-        return_value=[],
-    ), patch(
-        "code_puppy.callbacks.on_custom_command_help",
-        return_value=[],
-    ), patch(
-        "code_puppy.plugins.load_plugin_callbacks",
-        return_value=None,
-    ), patch(
-        "code_puppy.agents.agent_manager.get_available_agents",
-        return_value={},
+    with (
+        patch(
+            "code_puppy.command_line.command_registry.get_unique_commands",
+            return_value=[],
+        ),
+        patch(
+            "code_puppy.callbacks.on_custom_command_help",
+            return_value=[],
+        ),
+        patch(
+            "code_puppy.plugins.load_plugin_callbacks",
+            return_value=None,
+        ),
+        patch(
+            "code_puppy.agents.agent_manager.get_available_agents",
+            return_value={},
+        ),
     ):
         sections = build_help_sections()
 
@@ -127,18 +142,23 @@ def test_set_command_is_discoverable_as_a_first_layer_command():
             usage="/set [key [value]]",
         ),
     ]
-    with patch(
-        "code_puppy.command_line.command_registry.get_unique_commands",
-        return_value=commands,
-    ), patch(
-        "code_puppy.callbacks.on_custom_command_help",
-        return_value=[],
-    ), patch(
-        "code_puppy.plugins.load_plugin_callbacks",
-        return_value=None,
-    ), patch(
-        "code_puppy.agents.agent_manager.get_available_agents",
-        return_value={},
+    with (
+        patch(
+            "code_puppy.command_line.command_registry.get_unique_commands",
+            return_value=commands,
+        ),
+        patch(
+            "code_puppy.callbacks.on_custom_command_help",
+            return_value=[],
+        ),
+        patch(
+            "code_puppy.plugins.load_plugin_callbacks",
+            return_value=None,
+        ),
+        patch(
+            "code_puppy.agents.agent_manager.get_available_agents",
+            return_value={},
+        ),
     ):
         sections = build_help_sections()
 
@@ -162,18 +182,23 @@ def test_builtin_commands_are_grouped_by_category_with_aliases_shown():
         _cmd("help", "Show help", category="core", usage="/help"),
         _cmd("session", "Show session", category="session", aliases=["s"]),
     ]
-    with patch(
-        "code_puppy.command_line.command_registry.get_unique_commands",
-        return_value=commands,
-    ), patch(
-        "code_puppy.callbacks.on_custom_command_help",
-        return_value=[],
-    ), patch(
-        "code_puppy.plugins.load_plugin_callbacks",
-        return_value=None,
-    ), patch(
-        "code_puppy.agents.agent_manager.get_available_agents",
-        return_value={},
+    with (
+        patch(
+            "code_puppy.command_line.command_registry.get_unique_commands",
+            return_value=commands,
+        ),
+        patch(
+            "code_puppy.callbacks.on_custom_command_help",
+            return_value=[],
+        ),
+        patch(
+            "code_puppy.plugins.load_plugin_callbacks",
+            return_value=None,
+        ),
+        patch(
+            "code_puppy.agents.agent_manager.get_available_agents",
+            return_value={},
+        ),
     ):
         sections = build_help_sections()
 
@@ -196,18 +221,23 @@ def test_registry_plugin_category_merges_into_plugin_section_not_its_own():
     commands = [
         _cmd("wiggum", "Registry-plugin command", category="plugin", usage="/wiggum"),
     ]
-    with patch(
-        "code_puppy.command_line.command_registry.get_unique_commands",
-        return_value=commands,
-    ), patch(
-        "code_puppy.callbacks.on_custom_command_help",
-        return_value=[("marketplace", "Browse the plugin marketplace")],
-    ), patch(
-        "code_puppy.plugins.load_plugin_callbacks",
-        return_value=None,
-    ), patch(
-        "code_puppy.agents.agent_manager.get_available_agents",
-        return_value={},
+    with (
+        patch(
+            "code_puppy.command_line.command_registry.get_unique_commands",
+            return_value=commands,
+        ),
+        patch(
+            "code_puppy.callbacks.on_custom_command_help",
+            return_value=[("marketplace", "Browse the plugin marketplace")],
+        ),
+        patch(
+            "code_puppy.plugins.load_plugin_callbacks",
+            return_value=None,
+        ),
+        patch(
+            "code_puppy.agents.agent_manager.get_available_agents",
+            return_value={},
+        ),
     ):
         sections = build_help_sections()
 
@@ -221,18 +251,23 @@ def test_registry_plugin_category_merges_into_plugin_section_not_its_own():
 
 
 def test_plugin_commands_use_flat_section_yagni_no_new_registry():
-    with patch(
-        "code_puppy.command_line.command_registry.get_unique_commands",
-        return_value=[],
-    ), patch(
-        "code_puppy.callbacks.on_custom_command_help",
-        return_value=[("marketplace", "Browse the plugin marketplace")],
-    ), patch(
-        "code_puppy.plugins.load_plugin_callbacks",
-        return_value=None,
-    ), patch(
-        "code_puppy.agents.agent_manager.get_available_agents",
-        return_value={},
+    with (
+        patch(
+            "code_puppy.command_line.command_registry.get_unique_commands",
+            return_value=[],
+        ),
+        patch(
+            "code_puppy.callbacks.on_custom_command_help",
+            return_value=[("marketplace", "Browse the plugin marketplace")],
+        ),
+        patch(
+            "code_puppy.plugins.load_plugin_callbacks",
+            return_value=None,
+        ),
+        patch(
+            "code_puppy.agents.agent_manager.get_available_agents",
+            return_value={},
+        ),
     ):
         sections = build_help_sections()
 
@@ -242,18 +277,23 @@ def test_plugin_commands_use_flat_section_yagni_no_new_registry():
 
 
 def test_disabled_or_absent_plugin_commands_produce_no_empty_section():
-    with patch(
-        "code_puppy.command_line.command_registry.get_unique_commands",
-        return_value=[],
-    ), patch(
-        "code_puppy.callbacks.on_custom_command_help",
-        return_value=[],
-    ), patch(
-        "code_puppy.plugins.load_plugin_callbacks",
-        return_value=None,
-    ), patch(
-        "code_puppy.agents.agent_manager.get_available_agents",
-        return_value={},
+    with (
+        patch(
+            "code_puppy.command_line.command_registry.get_unique_commands",
+            return_value=[],
+        ),
+        patch(
+            "code_puppy.callbacks.on_custom_command_help",
+            return_value=[],
+        ),
+        patch(
+            "code_puppy.plugins.load_plugin_callbacks",
+            return_value=None,
+        ),
+        patch(
+            "code_puppy.agents.agent_manager.get_available_agents",
+            return_value={},
+        ),
     ):
         sections = build_help_sections()
 
@@ -267,27 +307,32 @@ def test_agent_switching_is_documented_via_the_slash_command_not_a_roster():
     the core command registry -- no separate per-agent roster section.
     Mocking get_available_agents with a non-empty roster here proves the
     catalog doesn't even call it (no accidental roster leaking back in)."""
-    with patch(
-        "code_puppy.command_line.command_registry.get_unique_commands",
-        return_value=[
-            _cmd(
-                "agent",
-                "Switch to a different agent or show available agents",
-                category="core",
-                usage="/agent <name>, /a <name>",
-                aliases=["a", "agents"],
-            )
-        ],
-    ), patch(
-        "code_puppy.callbacks.on_custom_command_help",
-        return_value=[],
-    ), patch(
-        "code_puppy.plugins.load_plugin_callbacks",
-        return_value=None,
-    ), patch(
-        "code_puppy.agents.agent_manager.get_available_agents",
-        return_value={"code-puppy": "Code Puppy", "other-agent": "Other"},
-    ) as mock_get_agents:
+    with (
+        patch(
+            "code_puppy.command_line.command_registry.get_unique_commands",
+            return_value=[
+                _cmd(
+                    "agent",
+                    "Switch to a different agent or show available agents",
+                    category="core",
+                    usage="/agent <name>, /a <name>",
+                    aliases=["a", "agents"],
+                )
+            ],
+        ),
+        patch(
+            "code_puppy.callbacks.on_custom_command_help",
+            return_value=[],
+        ),
+        patch(
+            "code_puppy.plugins.load_plugin_callbacks",
+            return_value=None,
+        ),
+        patch(
+            "code_puppy.agents.agent_manager.get_available_agents",
+            return_value={"code-puppy": "Code Puppy", "other-agent": "Other"},
+        ) as mock_get_agents,
+    ):
         sections = build_help_sections()
 
     titles = [s.title for s in sections]
@@ -302,18 +347,23 @@ def test_agent_switching_is_documented_via_the_slash_command_not_a_roster():
 
 def test_broken_custom_command_help_never_crashes_the_catalog():
     """A busted plugin's help callback must never take Tab down with it."""
-    with patch(
-        "code_puppy.command_line.command_registry.get_unique_commands",
-        return_value=[],
-    ), patch(
-        "code_puppy.callbacks.on_custom_command_help",
-        side_effect=RuntimeError("boom"),
-    ), patch(
-        "code_puppy.plugins.load_plugin_callbacks",
-        return_value=None,
-    ), patch(
-        "code_puppy.agents.agent_manager.get_available_agents",
-        side_effect=RuntimeError("boom"),
+    with (
+        patch(
+            "code_puppy.command_line.command_registry.get_unique_commands",
+            return_value=[],
+        ),
+        patch(
+            "code_puppy.callbacks.on_custom_command_help",
+            side_effect=RuntimeError("boom"),
+        ),
+        patch(
+            "code_puppy.plugins.load_plugin_callbacks",
+            return_value=None,
+        ),
+        patch(
+            "code_puppy.agents.agent_manager.get_available_agents",
+            side_effect=RuntimeError("boom"),
+        ),
     ):
         sections = build_help_sections()  # must not raise
 
@@ -334,9 +384,7 @@ def test_parse_custom_command_result_handles_list_of_tuples():
 def test_parse_custom_command_result_strips_leading_slash_from_tuple_name():
     """A plugin returning ("/slashed", ...) must never render as //slashed
     in the cheat sheet -- see _plugin_command_section's f"/{name}"."""
-    assert _parse_custom_command_result([("/slashed", "desc")]) == [
-        ("slashed", "desc")
-    ]
+    assert _parse_custom_command_result([("/slashed", "desc")]) == [("slashed", "desc")]
 
 
 def test_parse_custom_command_result_handles_legacy_string_format():
@@ -367,18 +415,23 @@ def test_parse_custom_command_result_legacy_format_requires_leading_slash():
 
 
 def test_plugin_section_never_renders_double_slash_for_slash_prefixed_names():
-    with patch(
-        "code_puppy.command_line.command_registry.get_unique_commands",
-        return_value=[],
-    ), patch(
-        "code_puppy.callbacks.on_custom_command_help",
-        return_value=[[("/slashed", "desc")]],
-    ), patch(
-        "code_puppy.plugins.load_plugin_callbacks",
-        return_value=None,
-    ), patch(
-        "code_puppy.agents.agent_manager.get_available_agents",
-        return_value={},
+    with (
+        patch(
+            "code_puppy.command_line.command_registry.get_unique_commands",
+            return_value=[],
+        ),
+        patch(
+            "code_puppy.callbacks.on_custom_command_help",
+            return_value=[[("/slashed", "desc")]],
+        ),
+        patch(
+            "code_puppy.plugins.load_plugin_callbacks",
+            return_value=None,
+        ),
+        patch(
+            "code_puppy.agents.agent_manager.get_available_agents",
+            return_value={},
+        ),
     ):
         sections = build_help_sections()
 
