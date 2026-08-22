@@ -404,6 +404,7 @@ async def _invoke_agent_impl(
             from code_puppy.agents._model_message_transform import (
                 build_model_message_transform,
             )
+            from code_puppy.agents._round_robin import build_round_robin_requests
 
             # Build the pydantic-ai agent. MCP servers always included; plugins
             # (e.g. DBOS) may swap them via the agent_run_context hook.
@@ -420,9 +421,13 @@ async def _invoke_agent_impl(
                 toolsets=mcp_servers,
                 # ProcessHistory capability replaces the deprecated
                 # `history_processors=` kwarg (removed in pydantic-ai v2).
+                # Round-robin routing shares wrap_model_request with the
+                # plugin transform but only swaps the context's model (the
+                # transform only mutates messages) — nesting order is inert.
                 capabilities=[
                     ProcessHistory(make_history_processor(agent_config)),
                     build_model_message_transform(agent_name),
+                    *build_round_robin_requests(model),
                 ],
                 model_settings=model_settings,
             )

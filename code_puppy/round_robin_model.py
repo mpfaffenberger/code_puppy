@@ -85,8 +85,14 @@ class RoundRobinModel(Model):
         """Base URL from the current model."""
         return self.models[self._current_index].base_url
 
-    def _get_next_model(self) -> Model:
-        """Get the next model in the round-robin sequence and update the index."""
+    def next_model(self) -> Model:
+        """Return the model for the next request, advancing the rotation.
+
+        Public because rotation state is shared between the eager
+        ``request``/``request_stream`` path and the ``RoundRobinRequests``
+        capability (``code_puppy.agents._round_robin``) — both must draw from
+        one sequence so every request advances the rotation exactly once.
+        """
         with self._lock:
             model = self.models[self._current_index]
             self._request_count += 1
@@ -102,7 +108,7 @@ class RoundRobinModel(Model):
         model_request_parameters: ModelRequestParameters,
     ) -> ModelResponse:
         """Make a request using the next model in the round-robin sequence."""
-        current_model = self._get_next_model()
+        current_model = self.next_model()
         # Use prepare_request to merge settings and customize parameters
         merged_settings, prepared_params = current_model.prepare_request(
             model_settings, model_request_parameters
@@ -112,7 +118,7 @@ class RoundRobinModel(Model):
             response = await current_model.request(
                 messages, merged_settings, prepared_params
             )
-            self._set_span_attributes(current_model)
+            self.record_span_attributes(current_model)
             return response
         except Exception:
             # Unlike FallbackModel, we don't try other models here
@@ -128,7 +134,7 @@ class RoundRobinModel(Model):
         run_context: RunContext[Any] | None = None,
     ) -> AsyncIterator[StreamedResponse]:
         """Make a streaming request using the next model in the round-robin sequence."""
-        current_model = self._get_next_model()
+        current_model = self.next_model()
         # Use prepare_request to merge settings and customize parameters
         merged_settings, prepared_params = current_model.prepare_request(
             model_settings, model_request_parameters
@@ -137,11 +143,16 @@ class RoundRobinModel(Model):
         async with current_model.request_stream(
             messages, merged_settings, prepared_params, run_context
         ) as response:
-            self._set_span_attributes(current_model)
+            self.record_span_attributes(current_model)
             yield response
 
-    def _set_span_attributes(self, model: Model):
-        """Set span attributes for observability."""
+    def record_span_attributes(self, model: Model):
+        """Set span attributes for observability.
+
+        Public for the same reason as ``next_model``: the
+        ``RoundRobinRequests`` capability performs the identical fix-up after
+        routing a request to ``model``.
+        """
         with suppress(Exception):
             span = get_current_span()
             if span.is_recording():

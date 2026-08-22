@@ -24,6 +24,7 @@ from code_puppy.agents._output_limits import (
     build_response_clamp,
     build_tool_output_limits,
 )
+from code_puppy.agents._round_robin import build_round_robin_requests
 from code_puppy.agents._steer_processor import make_steer_history_processor
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
@@ -639,6 +640,10 @@ def build_pydantic_agent(
     history_processor = make_history_processor(agent)
     steer_processor = make_steer_history_processor(agent)
     logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
+    # One instance shared by both construction passes (the probe never runs);
+    # empty list unless the resolved model is a RoundRobinModel. Rotation
+    # state lives on the model itself, so sharing is safe either way.
+    round_robin_requests = build_round_robin_requests(model)
 
     def _new_pydantic_agent(toolsets: List[Any]) -> PydanticAgent:
         return PydanticAgent(
@@ -660,11 +665,16 @@ def build_pydantic_agent(
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after both history
             # processors. The plugin transform wraps the final model request.
+            # Round-robin routing shares the wrap_model_request seam with the
+            # plugin transform but touches only the context's model (the
+            # transform touches only messages), so their nesting order is
+            # inert; the router sits outermost (earlier in the list).
             capabilities=[
                 *build_tool_output_limits(),
                 ProcessHistory(history_processor),
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
+                *round_robin_requests,
                 build_model_message_transform(logical_agent_name),
             ],
             model_settings=model_settings,
