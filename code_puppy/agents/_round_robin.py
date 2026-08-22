@@ -31,9 +31,26 @@ tests where observable):
 * ``_ensure_model_supports_streaming`` now checks the routed **leaf** for
   streamed requests rather than the wrapper — strictly more precise, and
   vacuous for real provider leaves (they all stream).
-* Span-attribute fix-up moves from stream-open to handler-return on streamed
-  requests (same task and OTel context — the wrap chain runs where the chat
-  span was opened). Non-streamed timing is unchanged (after the response).
+* **Continuation segments stay pinned to the leaf that opened the chain.**
+  ``model_request``/``model_request_stream`` resolve suspended → complete
+  continuations (Anthropic ``pause_turn``, OpenAI background polls) by
+  re-invoking ``req_ctx.model`` inside ONE wrapped request. Eagerly the
+  terminal model was the round-robin wrapper, so every segment rotated —
+  which could stitch one merged response from two different models, and
+  would re-poll a *different* provider for a suspended job id. Owned
+  requests advance the rotation once and serve the whole chain from the
+  selected leaf: a deliberate divergence, strictly saner than the eager
+  behaviour (which survives unchanged on the guest path). Pinned both ways
+  by the continuation tests.
+* Span-attribute fix-up on streamed requests moves from stream-open to
+  handler-return, which parks until the stream is fully drained — a
+  mid-stream cancel/teardown therefore records nothing where the eager path
+  had already recorded at open. Materiality bound: the fix-up only matches
+  spans carrying ``gen_ai.request.model`` (i.e. under instrumentation), and
+  instrumentation re-wraps the model, which fails the identity gate and
+  routes to the eager path anyway — so the owned-path fix-up is
+  belt-and-suspenders in every configuration we ship. Non-streamed timing
+  is unchanged (after the response). Pinned by the teardown tests.
 * ``ModelRequestContext.model_id`` is only meaningful while the context still
   carries the run's resolved model; swapping the model invalidates it for
   durable-execution capabilities (upstream-documented semantics of any
@@ -44,7 +61,7 @@ from __future__ import annotations
 
 from copy import copy
 from dataclasses import dataclass
-from typing import Any, List
+from typing import Any
 
 from pydantic_ai import RunContext
 from pydantic_ai.capabilities import AbstractCapability, WrapModelRequestHandler
@@ -107,7 +124,7 @@ class RoundRobinRequests(AbstractCapability[Any]):
         return response
 
 
-def build_round_robin_requests(model: Model) -> List[RoundRobinRequests]:
+def build_round_robin_requests(model: Model) -> list[RoundRobinRequests]:
     """Conditionally splice a ``RoundRobinRequests`` into a capabilities list.
 
     Returns ``[RoundRobinRequests(model)]`` when ``model`` is a

@@ -13,9 +13,11 @@ pydantic-ai's ``wrap_model_request`` seam:
   construction site source pin.
 """
 
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from pydantic_ai import Agent
 from pydantic_ai.messages import (
     ModelRequest,
@@ -23,7 +25,7 @@ from pydantic_ai.messages import (
     TextPart,
     UserPromptPart,
 )
-from pydantic_ai.models import ModelRequestContext, ModelRequestParameters
+from pydantic_ai.models import Model, ModelRequestContext, ModelRequestParameters
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.wrapper import WrapperModel
 
@@ -50,6 +52,58 @@ def _make_leaf(name: str, hits: dict[str, int]) -> FunctionModel:
         yield f"reply from {name}"
 
     return FunctionModel(respond, stream_function=stream_respond, model_name=name)
+
+
+class _ScriptedLeaf(Model):
+    """A minimal leaf Model with a scripted response sequence.
+
+    Mirrors real provider leaves: ``request`` calls ``self.prepare_request``
+    internally before serving, and records what it received so parity
+    assertions can compare the eager and capability-owned delivery paths.
+    """
+
+    def __init__(self, name: str, script):
+        super().__init__()
+        self._name = name
+        self.script = list(script)
+        self.calls = 0
+        self.customize_calls = 0
+        self.received: list[tuple] = []
+
+    @property
+    def model_name(self) -> str:
+        return self._name
+
+    @property
+    def system(self) -> str:
+        return "test"
+
+    def customize_request_parameters(self, model_request_parameters):
+        # Deliberately observable (non-idempotent counter): parity between
+        # eager and owned paths must show the SAME application count at the
+        # moment the request is served.
+        self.customize_calls += 1
+        return model_request_parameters
+
+    async def request(self, messages, model_settings, model_request_parameters):
+        model_settings, model_request_parameters = self.prepare_request(
+            model_settings, model_request_parameters
+        )
+        self.calls += 1
+        self.received.append((model_settings, self.customize_calls))
+        return self.script.pop(0)()
+
+
+def _suspended(name: str) -> ModelResponse:
+    return ModelResponse(
+        parts=[TextPart(f"partial from {name}")],
+        state="suspended",
+        provider_response_id="job-1",
+    )
+
+
+def _complete(name: str) -> ModelResponse:
+    return ModelResponse(parts=[TextPart(f"final from {name}")])
 
 
 def _request_context(model, prompt: str = "hi") -> ModelRequestContext:
@@ -369,6 +423,116 @@ async def test_rotation_state_shared_between_eager_and_capability_paths():
     assert result.output == "reply from b"
 
 
+async def test_continuation_segments_stay_pinned_to_opening_leaf():
+    """Documented divergence: a suspended → complete continuation chain is
+    served entirely by the leaf that opened it; rotation advances once per
+    wrapped request, not once per segment."""
+    leaf_a = _ScriptedLeaf("a", [lambda: _suspended("a"), lambda: _complete("a")])
+    leaf_b = _ScriptedLeaf("b", [lambda: _complete("b")])
+    rr = RoundRobinModel(leaf_a, leaf_b)
+    agent = Agent(model=rr, output_type=str, capabilities=[RoundRobinRequests(rr)])
+
+    result = await agent.run("one")
+
+    assert result.output == "partial from afinal from a"  # one leaf, whole chain
+    assert (leaf_a.calls, leaf_b.calls) == (2, 0)
+    # Rotation advanced exactly once for the whole chain.
+    assert rr.next_model() is leaf_b
+
+
+async def test_eager_guest_path_still_rotates_across_continuation_segments():
+    """Guest custody pin: the intact Model class keeps the old per-segment
+    rotation (each segment enters RoundRobinModel.request), stitching the
+    merged response from two different leaves — the behaviour the owned path
+    deliberately diverges from."""
+    leaf_a = _ScriptedLeaf("a", [lambda: _suspended("a"), lambda: _complete("a")])
+    leaf_b = _ScriptedLeaf("b", [lambda: _complete("b")])
+    rr = RoundRobinModel(leaf_a, leaf_b)
+    agent = Agent(model=rr, output_type=str)  # no capability: eager custody
+
+    result = await agent.run("one")
+
+    assert result.output == "partial from afinal from b"
+    assert (leaf_a.calls, leaf_b.calls) == (1, 1)
+
+
+async def test_streamed_teardown_skips_span_record_on_owned_path():
+    """Documented divergence: the owned streamed fix-up records only after
+    the stream fully drains, so a consumer failure mid-stream records
+    nothing."""
+    hits: dict[str, int] = {}
+    rr = RoundRobinModel(_make_leaf("a", hits), _make_leaf("b", hits))
+    agent = Agent(model=rr, output_type=str, capabilities=[RoundRobinRequests(rr)])
+    recorded: list = []
+
+    async def failing_handler(ctx, events):
+        async for _ in events:
+            raise RuntimeError("consumer exploded")
+
+    with patch.object(
+        RoundRobinModel,
+        "record_span_attributes",
+        lambda self, model: recorded.append(model),
+    ):
+        with pytest.raises(Exception):
+            await agent.run("one", event_stream_handler=failing_handler)
+
+    assert recorded == []
+
+
+async def test_streamed_teardown_still_records_span_on_eager_guest_path():
+    """Contrast pin for the divergence above: eager custody records the leaf
+    at stream-open, so the same mid-consume failure still records it."""
+    hits: dict[str, int] = {}
+    rr = RoundRobinModel(_make_leaf("a", hits), _make_leaf("b", hits))
+    agent = Agent(model=rr, output_type=str)  # no capability: eager custody
+    recorded: list = []
+
+    async def failing_handler(ctx, events):
+        async for _ in events:
+            raise RuntimeError("consumer exploded")
+
+    with patch.object(
+        RoundRobinModel,
+        "record_span_attributes",
+        lambda self, model: recorded.append(model),
+    ):
+        with pytest.raises(Exception):
+            await agent.run("one", event_stream_handler=failing_handler)
+
+    assert len(recorded) == 1
+    assert recorded[0].model_name == "a"
+
+
+async def test_prepare_request_application_count_matches_eager_path():
+    """Non-idempotence probe: at the moment the leaf serves the request, the
+    parameters must have passed ``customize_request_parameters`` the same
+    number of times on both delivery paths (explicit prepare + the leaf's
+    internal re-prepare)."""
+    eager_leaf = _ScriptedLeaf("eager", [lambda: _complete("eager")])
+    eager_rr = RoundRobinModel(eager_leaf)
+    await eager_rr.request(
+        [ModelRequest(parts=[UserPromptPart(content="direct")])],
+        None,
+        ModelRequestParameters(),
+    )
+
+    owned_leaf = _ScriptedLeaf("owned", [lambda: _complete("owned")])
+    owned_rr = RoundRobinModel(owned_leaf)
+    agent = Agent(
+        model=owned_rr,
+        output_type=str,
+        capabilities=[RoundRobinRequests(owned_rr)],
+    )
+    await agent.run("one")
+
+    assert len(eager_leaf.received) == len(owned_leaf.received) == 1
+    eager_settings, eager_customizations = eager_leaf.received[0]
+    owned_settings, owned_customizations = owned_leaf.received[0]
+    assert eager_customizations == owned_customizations == 2
+    assert eager_settings == owned_settings
+
+
 async def test_coexists_with_plugin_message_transform():
     """Shares wrap_model_request with PluginMessageTransform: the transform's
     plugin callbacks still see (and mutate) messages while routing holds."""
@@ -495,3 +659,72 @@ def test_subagent_construction_site_wires_round_robin():
     source = inspect.getsource(subagent_invocation)
     assert "build_round_robin_requests" in source
     assert "*build_round_robin_requests(model)" in source
+
+
+class _SubagentConfig:
+    """Minimal agent-config shape for driving the real sub-agent invocation."""
+
+    name = "test-agent"
+
+    def __init__(self):
+        self._message_history = []
+        self._compacted_message_hashes = set()
+        self._puppy_rules = None
+
+    @contextmanager
+    def temporary_model_name_override(self, _model_name):
+        yield
+
+    def get_model_name(self):
+        return "test-model"
+
+    def get_full_system_prompt(self):
+        return "Test instructions"
+
+    def get_available_tools(self):
+        return []
+
+    def get_message_history(self):
+        return self._message_history
+
+    def set_message_history(self, history):
+        self._message_history = history
+
+    def __getattr__(self, item):
+        if item.startswith("__"):
+            raise AttributeError(item)
+        return lambda *_args, **_kwargs: 0
+
+
+async def test_subagent_invocation_routes_through_capability():
+    """End-to-end sub-agent custody: a round-robin-resolved sub-agent's
+    (streamed) request is served by the capability — the eager Model methods
+    never run."""
+    from code_puppy.tools import subagent_invocation
+
+    hits: dict[str, int] = {}
+    rr = RoundRobinModel(_make_leaf("a", hits), _make_leaf("b", hits))
+    eager_calls = _spy_eager_requests(rr)
+
+    with (
+        patch(
+            "code_puppy.agents.agent_manager.load_agent",
+            return_value=_SubagentConfig(),
+        ),
+        patch(
+            "code_puppy.agents._builder.load_model_with_fallback",
+            lambda *a, **k: (rr, "test-model"),
+        ),
+        patch(
+            "code_puppy.model_factory.make_model_settings",
+            lambda *_args, **_kwargs: None,
+        ),
+        patch("code_puppy.config.get_value", return_value="true"),
+    ):
+        result = await subagent_invocation._invoke_agent_impl(
+            context=SimpleNamespace(), agent_name="test-agent", prompt="start"
+        )
+
+    assert result.error is None
+    assert hits == {"a": 1}
+    assert eager_calls == []
