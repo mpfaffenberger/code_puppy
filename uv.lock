@@ -2757,15 +2757,15 @@ wheels = [
 
 [[package]]
 name = "termflow-md"
-version = "0.2.1"
+version = "0.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pygments" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/26/8b/6e7217d293cd9eb637faa0f90471faa31f8e4da976dcece3710a6c7671a2/termflow_md-0.2.1.tar.gz", hash = "sha256:5fafe8cf501b2abd1d825aeef2777e459c1f0586c9840282d23f586e5aeb54b1", size = 136511, upload-time = "2026-08-22T20:08:12.705Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/35/bd/69a5310c5b495bde28b0e647e46ae9eda756ae9d030f5be3f409e82ca319/termflow_md-0.2.2.tar.gz", hash = "sha256:ac37a48093a40577683107b880ccb3b3818ccc4fe5d8ae8bcc99529704a049f0", size = 137724, upload-time = "2026-08-22T21:18:12.214Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/65/6591b5fadf0bd9394176642324ccb7eb4919e20a2c70a86863b89c13feb0/termflow_md-0.2.1-py3-none-any.whl", hash = "sha256:86df260f3d436b8fad63480ace8dd524ab5b152668527a7039923fdebf37bba0", size = 77097, upload-time = "2026-08-22T20:08:11.605Z" },
+    { url = "https://files.pythonhosted.org/packages/77/29/bb8cd3ab672a6d7b9381302ff399991ce5921fb817de0bdea15ee7e60a2c/termflow_md-0.2.2-py3-none-any.whl", hash = "sha256:a4260982dc1a0844bcc8d7cad7c85eb6fa2e839e82dc1446e75169ad31e8c4e0", size = 77594, upload-time = "2026-08-22T21:18:11.186Z" },
 ]
 
 [[package]]
