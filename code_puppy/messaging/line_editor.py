@@ -122,6 +122,7 @@ class RunningLineEditor:
         )
         self._paste = PasteBuffer()
         self._completion = None  # CompletionEngine, attached by run_ui
+        self._help_overlay_handler: Optional[Callable[[], None]] = None
         self._multiline = False
 
     # =========================================================================
@@ -166,6 +167,15 @@ class RunningLineEditor:
     def set_clipboard_handler(self, handler: Optional[Callable[[], None]]) -> None:
         with self._lock:  # async Ctrl+V clipboard handler (run_ui)
             self._clipboard_handler = handler
+
+    def set_help_overlay_handler(self, handler: Optional[Callable[[], None]]) -> None:
+        """Install (or clear) the Tab-on-empty-buffer help overlay handler.
+
+        Kept as an injected callback (mirrors ``set_clipboard_handler``) so
+        ``messaging/`` never has to import CLI/overlay code directly.
+        """
+        with self._lock:  # invoked from the key-listener thread (run_ui)
+            self._help_overlay_handler = handler
 
     @property
     def paste_active(self) -> bool:
@@ -390,6 +400,9 @@ class RunningLineEditor:
             self._insert_text("\n")  # Ctrl+J: always a newline
             return None
         if ch == _TAB:
+            if not self._buffer and self._help_overlay_handler is not None:
+                self._call_handler(self._help_overlay_handler, "help_overlay")
+                return None
             if self._completion is not None:
                 self._completion.on_tab(self._buffer, self._cursor)
             return None

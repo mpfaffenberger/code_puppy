@@ -40,7 +40,6 @@ from code_puppy.config import (
 from code_puppy.http_utils import find_available_port
 from code_puppy.keymap import (
     KeymapError,
-    get_cancel_agent_display_name,
     validate_cancel_agent_key,
 )
 from code_puppy.messaging import emit_info
@@ -749,24 +748,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     display_console = message_renderer.console
     from code_puppy.messaging import emit_info, emit_system_message
 
-    emit_system_message(t("cli.help.exit"))
-    emit_system_message(t("cli.help.clear"))
-    emit_system_message(t("cli.help.commands"))
-    emit_system_message(t("cli.help.completion"))
-    emit_system_message(t("cli.help.paste_images"))
-    import platform
-
-    if platform.system() == "Darwin":
-        emit_system_message(t("cli.help.macos_paste"))
-    cancel_key = get_cancel_agent_display_name()
-    emit_system_message(t("cli.help.cancel_key", cancel_key=cancel_key))
-    emit_system_message(t("cli.help.editor_shortcuts"))
-    emit_system_message(t("cli.help.autosave_load"))
-    emit_system_message(t("cli.help.diff"))
-    emit_system_message(t("cli.help.tutorial"))
-    emit_system_message(t("cli.help.shell_passthrough"))
+    emit_system_message(t("cli.help.press_tab"))
     # Print truecolor warning LAST so it's the most visible thing on startup
-    # Big ugly red box should be impossible to miss! 🔴
+    # Big ugly red box should be impossible to miss! 
     print_truecolor_warning(display_console)
 
     # Shell pass-through for initial_command: !<cmd> bypasses the agent
