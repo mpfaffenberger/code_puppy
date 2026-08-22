@@ -187,7 +187,11 @@ def register_tools_for_agent(
     """Register specific tools for an agent based on tool names.
 
     Args:
-        agent: The agent to register tools to.
+        agent: The registration target. Anything exposing a pydantic-ai
+            ``.tool`` decorator works: historically a ``pydantic_ai.Agent``,
+            now typically a ``pydantic_ai.toolsets.FunctionToolset`` (see
+            ``code_puppy.agents._native_tools.build_native_toolset``, which
+            delivers the result via the ``NativeTools`` capability).
         tool_names: List of tool names to register. UC tools are prefixed with "uc:".
         model_name: Optional model name. Used to determine if certain tools
             (like agent_share_your_reasoning) should be skipped. If None,

@@ -404,6 +404,10 @@ async def _invoke_agent_impl(
             from code_puppy.agents._model_message_transform import (
                 build_model_message_transform,
             )
+            from code_puppy.agents._native_tools import (
+                NativeTools,
+                build_native_toolset,
+            )
 
             # Build the pydantic-ai agent. MCP servers always included; plugins
             # (e.g. DBOS) may swap them via the agent_run_context hook.
@@ -420,19 +424,20 @@ async def _invoke_agent_impl(
                 toolsets=mcp_servers,
                 # ProcessHistory capability replaces the deprecated
                 # `history_processors=` kwarg (removed in pydantic-ai v2).
+                # NativeTools delivers the sub-agent's tool suite via the
+                # get_toolset() capability seam (replaces post-construction
+                # @agent.tool registration; position in this list is inert).
                 capabilities=[
+                    NativeTools(
+                        build_native_toolset(
+                            agent_config.get_available_tools(),
+                            model_name=effective_model_name,
+                        )
+                    ),
                     ProcessHistory(make_history_processor(agent_config)),
                     build_model_message_transform(agent_name),
                 ],
                 model_settings=model_settings,
-            )
-
-            # Register the tools that the agent needs
-            from code_puppy.tools import register_tools_for_agent
-
-            agent_tools = agent_config.get_available_tools()
-            register_tools_for_agent(
-                temp_agent, agent_tools, model_name=effective_model_name
             )
 
             # Allow plugins to wrap the agent (e.g. DBOS durable-exec wrapper).

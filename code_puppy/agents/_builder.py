@@ -20,6 +20,7 @@ from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agents._compaction import make_history_processor
 from code_puppy.agents._model_message_transform import build_model_message_transform
+from code_puppy.agents._native_tools import NativeTools, build_native_toolset
 from code_puppy.agents._output_limits import (
     build_response_clamp,
     build_tool_output_limits,
@@ -615,14 +616,13 @@ def build_pydantic_agent(
     - ``agent._code_generation_agent`` ← same as ``pydantic_agent``
     - ``agent._mcp_servers``          ← MCP toolsets (post-filter)
 
-    The build happens in two passes: we construct once with ``toolsets=[]`` so
-    we can introspect registered tool names, then rebuild with MCP servers
-    filtered against those names to prevent collisions. Plugins may wrap the
-    final pydantic agent via the ``wrap_pydantic_agent`` hook (e.g. to swap
-    in a durable-exec wrapper).
+    Native tools are delivered via the ``NativeTools`` capability
+    (``get_toolset()`` seam) rather than post-construction ``@agent.tool``
+    registration, so the toolset's tool names are known up front and MCP
+    servers can be collision-filtered without a throwaway probe build.
+    Plugins may wrap the final pydantic agent via the ``wrap_pydantic_agent``
+    hook (e.g. to swap in a durable-exec wrapper).
     """
-    from code_puppy.tools import register_tools_for_agent
-
     agent._puppy_rules = None
     message_group = message_group or str(uuid.uuid4())
 
@@ -640,60 +640,58 @@ def build_pydantic_agent(
     steer_processor = make_steer_history_processor(agent)
     logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
 
-    def _new_pydantic_agent(toolsets: List[Any]) -> PydanticAgent:
-        return PydanticAgent(
-            model=model,
-            # Explicit name: without it pydantic-ai infers one from the
-            # caller's frame variables, so observability spans read
-            # "invoke_agent pydantic_agent" instead of the logical agent name.
-            name=logical_agent_name,
-            instructions=instructions,
-            output_type=output_type,
-            retries=3,
-            toolsets=toolsets,
-            # Order matters: compaction first (may trim history to fit
-            # context), THEN steer injection (a fresh steer must not be
-            # compacted away). ProcessHistory capabilities apply in
-            # registration order (replaces the deprecated
-            # `history_processors=` kwarg, removed in pydantic-ai v2).
-            # ToolOutputLimits reduces oversized tool returns on a different
-            # hook (after_tool_execute), so its position is inert; the
-            # response clamp runs before_model_request after both history
-            # processors. The plugin transform wraps the final model request.
-            capabilities=[
-                *build_tool_output_limits(),
-                ProcessHistory(history_processor),
-                ProcessHistory(steer_processor),
-                build_response_clamp(),
-                build_model_message_transform(logical_agent_name),
-            ],
-            model_settings=model_settings,
-        )
-
-    # Pass 1: build with empty toolsets so we can see what pydantic-ai + our
-    # tool registry actually produced, and filter MCP to avoid name clashes.
-    probe_agent = _new_pydantic_agent(toolsets=[])
-    agent_tools = agent.get_available_tools()
-    register_tools_for_agent(
-        probe_agent,
-        agent_tools,
+    native_toolset = build_native_toolset(
+        agent.get_available_tools(),
         model_name=resolved_model_name,
         agent_name=logical_agent_name,
     )
 
-    existing_tool_names: Set[str] = set(getattr(probe_agent, "_tools", {}) or {})
+    # The native toolset knows its own tool names up front, so MCP collision
+    # filtering no longer needs a throwaway probe build. (The old two-pass
+    # probe introspected ``probe_agent._tools`` -- an attribute pydantic-ai
+    # v2 removed -- so the filter had silently become a no-op; sourcing
+    # names from the toolset repairs it.) Scope: NATIVE tool names only.
+    # Tools contributed by other capabilities (e.g. ToolOutputLimits'
+    # ``read_tool_result``) are not in the set -- an MCP tool shadowing one
+    # of those still collides at run time, exactly as it would have under
+    # the original probe's intent.
+    existing_tool_names: Set[str] = set(native_toolset.tools)
     filtered_mcp_servers = filter_conflicting_mcp_tools(
         mcp_servers, existing_tool_names
     )
 
-    # Pass 2: real build. MCP servers always go in the constructor; plugins
-    # (e.g. DBOS) may swap them at run time via ``agent_run_context``.
-    final_pydantic = _new_pydantic_agent(toolsets=filtered_mcp_servers)
-    register_tools_for_agent(
-        final_pydantic,
-        agent_tools,
-        model_name=resolved_model_name,
-        agent_name=logical_agent_name,
+    # MCP servers always go in the constructor; plugins (e.g. DBOS) may swap
+    # them at run time via ``agent_run_context``.
+    final_pydantic = PydanticAgent(
+        model=model,
+        # Explicit name: without it pydantic-ai infers one from the
+        # caller's frame variables, so observability spans read
+        # "invoke_agent pydantic_agent" instead of the logical agent name.
+        name=logical_agent_name,
+        instructions=instructions,
+        output_type=output_type,
+        retries=3,
+        toolsets=filtered_mcp_servers,
+        # Order matters: compaction first (may trim history to fit
+        # context), THEN steer injection (a fresh steer must not be
+        # compacted away). ProcessHistory capabilities apply in
+        # registration order (replaces the deprecated
+        # `history_processors=` kwarg, removed in pydantic-ai v2).
+        # ToolOutputLimits reduces oversized tool returns on a different
+        # hook (after_tool_execute), so its position is inert; the
+        # response clamp runs before_model_request after both history
+        # processors. The plugin transform wraps the final model request.
+        # NativeTools is a pure configuration seam (get_toolset), so its
+        # position is inert too.
+        capabilities=[
+            NativeTools(native_toolset),
+            *build_tool_output_limits(),
+            ProcessHistory(history_processor),
+            ProcessHistory(steer_processor),
+            build_response_clamp(),
+            build_model_message_transform(logical_agent_name),
+        ],
+        model_settings=model_settings,
     )
 
     agent.cur_model = model
@@ -724,8 +722,6 @@ def build_tool_probe_for_agent(agent: Any) -> Optional[Any]:
     caching the result; this is a non-trivial construction even with the
     shortcuts.
     """
-    from code_puppy.tools import register_tools_for_agent
-
     try:
         models_config = ModelFactory.load_config()
         model, resolved_model_name = load_model_with_fallback(
@@ -738,15 +734,20 @@ def build_tool_probe_for_agent(agent: Any) -> Optional[Any]:
         return None
 
     try:
+        # Same delivery mechanics as the real build: tools ride a
+        # FunctionToolset. Passed straight through ``toolsets=`` here (the
+        # probe is deliberately capability-free) -- schema counting only
+        # needs the toolset's tool dict, which is identical either way.
         probe = PydanticAgent(
             model=model,
             instructions="",
             output_type=str,
             retries=1,
-            toolsets=[],
-        )
-        register_tools_for_agent(
-            probe, agent.get_available_tools(), model_name=resolved_model_name
+            toolsets=[
+                build_native_toolset(
+                    agent.get_available_tools(), model_name=resolved_model_name
+                )
+            ],
         )
     except Exception:
         return None
