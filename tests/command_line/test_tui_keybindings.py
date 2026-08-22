@@ -326,16 +326,42 @@ def test_model_settings_keybindings():
 
 
 def test_agent_menu_keybindings():
-    from code_puppy.command_line.agent_menu import interactive_agent_picker
+    import code_puppy.command_line.agent_menu as am
+    from io import StringIO
 
     # Create enough entries for multiple pages (PAGE_SIZE=10)
     entries = [(f"agent{i}", f"Agent {i}", "builtin") for i in range(25)]
+
+    # One shared script spanning the picker's sequential menu runs:
+    #   run 1: navigate + page both directions, then "p" (pin action)
+    #   run 2: "c" (clone action)
+    #   run 3: "d" (delete action)
+    #   run 4: enter (select highlighted)
+    script = iter(["down", "up", "right", "left", "p", "c", "d", "enter"])
+
+    real_build = am.build_agent_menu
+
+    def headless_build(entries_arg, current, pending, idx, **_overrides):
+        return real_build(
+            entries_arg,
+            current,
+            pending,
+            idx,
+            key_source=lambda: next(script),
+            output=StringIO(),
+            size=lambda: (120, 40),
+            alt_screen=False,
+        )
+
     with (
         patch(
             "code_puppy.command_line.agent_menu._get_agent_entries",
             return_value=entries,
         ),
-        patch("code_puppy.command_line.agent_menu.Application") as mock_app_cls,
+        patch(
+            "code_puppy.command_line.agent_menu.build_agent_menu",
+            side_effect=headless_build,
+        ),
         patch("code_puppy.command_line.agent_menu.set_awaiting_user_input"),
         patch(
             "code_puppy.command_line.agent_menu._select_pinned_model",
@@ -349,38 +375,21 @@ def test_agent_menu_keybindings():
         patch(
             "code_puppy.command_line.agent_menu.delete_clone_agent", return_value=True
         ),
+        patch(
+            "code_puppy.command_line.agent_menu.get_current_agent", return_value=None
+        ),
+        patch(
+            "code_puppy.command_line.agent_menu._get_pinned_model", return_value=None
+        ),
+        patch("code_puppy.command_line.agent_menu.get_bound_servers", return_value={}),
         patch("code_puppy.command_line.agent_menu.emit_warning"),
-        patch("sys.stdout"),
-        patch("asyncio.sleep", new_callable=AsyncMock),
+        patch("code_puppy.command_line.agent_menu.emit_info"),
     ):
-        mock_app = AsyncMock()
-        mock_app_cls.return_value = mock_app
+        result = asyncio.run(am.interactive_agent_picker())
 
-        call_count = [0]
-
-        async def run_and_capture():
-            call_count[0] += 1
-            kb = _extract_kb(mock_app_cls)
-            if kb:
-                if call_count[0] == 1:
-                    # First call: navigate down then up to cover both bodies
-                    _fire(kb, {"down"})  # selected_idx: 0->1
-                    _fire(kb, {"up"})  # selected_idx: 1->0 (covers up body)
-                    # Navigate to next page and back
-                    _fire(kb, {"right"})  # page 0->1
-                    _fire(kb, {"left"})  # page 1->0
-                    _fire(kb, {"p"})  # pin action
-                elif call_count[0] == 2:
-                    _fire(kb, {"c"})  # clone action
-                elif call_count[0] == 3:
-                    _fire(kb, {"d"})  # delete action
-                elif call_count[0] == 4:
-                    _fire(kb, {"c-m"})  # enter/select
-                else:
-                    _fire(kb, {"c-c"})
-
-        mock_app.run_async = run_and_capture
-        _run_coro(interactive_agent_picker())
+    # After pin/clone/delete detours, the final Enter selects the
+    # highlighted agent (delete resets the cursor to the top).
+    assert result == "agent0"
 
 
 # ============================================================

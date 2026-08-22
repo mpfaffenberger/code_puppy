@@ -1,23 +1,16 @@
+import asyncio
 import logging
 import os
-import sys
 from typing import Iterable, Optional
 
-from prompt_toolkit import Application, PromptSession
+from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.history import FileHistory
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Layout, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
+from termflow.tui import MenuBuilder, MenuItem
+from termflow.tui.menu import MenuResult
 
 from code_puppy.callbacks import on_prompt_toolkit_style
-from code_puppy.command_line.pagination import (
-    ensure_visible_page,
-    get_page_bounds,
-    get_page_for_index,
-    get_total_pages,
-)
 from code_puppy.command_line.utils import safe_input
 from code_puppy.config import get_global_model_name
 from code_puppy.list_filtering import query_matches_text
@@ -246,182 +239,75 @@ def update_model_in_input(text: str) -> Optional[str]:
 
 
 class ModelSelectionMenu:
-    """Paginated interactive model picker for the /model command."""
+    """Paginated interactive model picker for the /model command.
+
+    Built on termflow's MenuBuilder: type-to-filter (fuzzy, via
+    ``query_matches_text``), pagination, Ctrl+E credential editing.
+    """
 
     def __init__(self, model_names: Optional[list[str]] = None):
         self.model_names = (
             list(model_names) if model_names is not None else load_model_names()
         )
         self.current_model = get_active_model()
-        self.filter_text = ""
-        self.selected_index = 0
-        self.page = 0
-        self.page_size = MODEL_PICKER_PAGE_SIZE
         self.result: Optional[str] = None
         self.pending_credentials_edit: Optional[str] = None
 
-        if self.current_model in self.visible_model_names:
-            self.selected_index = self.visible_model_names.index(self.current_model)
-            self.page = get_page_for_index(self.selected_index, self.page_size)
-
-    @property
-    def total_pages(self) -> int:
-        return get_total_pages(len(self.visible_model_names), self.page_size)
-
-    @property
-    def page_start(self) -> int:
-        start, _ = get_page_bounds(
-            self.page, len(self.visible_model_names), self.page_size
-        )
-        return start
-
-    @property
-    def page_end(self) -> int:
-        _, end = get_page_bounds(
-            self.page, len(self.visible_model_names), self.page_size
-        )
-        return end
-
-    @property
-    def models_on_page(self) -> list[str]:
-        return self.visible_model_names[self.page_start : self.page_end]
-
-    @property
-    def visible_model_names(self) -> list[str]:
-        if not self.filter_text:
-            return self.model_names
+    def _items(self) -> list[MenuItem]:
         return [
-            model_name
-            for model_name in self.model_names
-            if query_matches_text(self.filter_text, model_name)
+            MenuItem(
+                name,
+                description="(active)" if name == self.current_model else "",
+            )
+            for name in self.model_names
         ]
 
-    def _get_selected_model_name(self) -> Optional[str]:
-        if 0 <= self.selected_index < len(self.visible_model_names):
-            return self.visible_model_names[self.selected_index]
-        return None
+    def build_menu(self, **overrides):
+        """Build the termflow menu (overrides allow headless test driving)."""
 
-    def _ensure_selection_visible(self) -> None:
-        self.page = ensure_visible_page(
-            self.selected_index,
-            self.page,
-            len(self.visible_model_names),
-            self.page_size,
+        def _edit_credentials(_menu, item: MenuItem) -> Optional[MenuResult]:
+            if not required_env_var_for_model(item.value):
+                logger.debug("No env var required for model: %s", item.value)
+                return None
+            logger.info("User requested credential edit for model: %s", item.value)
+            self.pending_credentials_edit = item.value
+            return MenuResult(item=item)
+
+        def _clear_filter(menu, _item: MenuItem) -> None:
+            menu.clear_search()
+            return None
+
+        def _page_left(menu, _item: MenuItem) -> None:
+            menu.page_up()
+            return None
+
+        def _page_right(menu, _item: MenuItem) -> None:
+            menu.page_down()
+            return None
+
+        initial = 0
+        if self.current_model in self.model_names:
+            initial = self.model_names.index(self.current_model)
+
+        builder = (
+            MenuBuilder(f"Select Active Model  (current: {self.current_model})")
+            .items(self._items())
+            .searchable()
+            .page_size(MODEL_PICKER_PAGE_SIZE)
+            .initial_index(initial)
+            .filter_fn(lambda query, item: query_matches_text(query, item.label))
+            .on_key("ctrl-e", _edit_credentials)
+            .on_key("ctrl-u", _clear_filter)
+            .on_key("left", _page_left)
+            .on_key("right", _page_right)
+            .footer_hint(
+                "Up/Down navigate - PgUp/PgDn page - type to filter - "
+                "Ctrl+U clear - Ctrl+E credentials - Enter select - Esc cancel"
+            )
         )
-
-    def _set_filter_text(self, value: str) -> None:
-        selected_model = self._get_selected_model_name()
-        self.filter_text = value
-        visible_models = self.visible_model_names
-        if not visible_models:
-            self.selected_index = 0
-            self.page = 0
-            return
-
-        if selected_model and selected_model in visible_models:
-            self.selected_index = visible_models.index(selected_model)
-        elif self.current_model in visible_models:
-            self.selected_index = visible_models.index(self.current_model)
-        else:
-            self.selected_index = 0
-        self._ensure_selection_visible()
-
-    def _append_filter_char(self, value: str) -> None:
-        self._set_filter_text(self.filter_text + value)
-
-    def _delete_filter_char(self) -> None:
-        if self.filter_text:
-            self._set_filter_text(self.filter_text[:-1])
-
-    def _accept_selection(self) -> bool:
-        """Store the currently selected visible model if one is available."""
-        selected_model = self._get_selected_model_name()
-        if selected_model is None:
-            return False
-        self.result = selected_model
-        return True
-
-    def _move_up(self) -> None:
-        if self.selected_index > 0:
-            self.selected_index -= 1
-            self._ensure_selection_visible()
-
-    def _move_down(self) -> None:
-        if self.selected_index < len(self.visible_model_names) - 1:
-            self.selected_index += 1
-            self._ensure_selection_visible()
-
-    def _page_up(self) -> None:
-        if self.page > 0:
-            self.page -= 1
-            self.selected_index = self.page_start
-
-    def _page_down(self) -> None:
-        if self.page < self.total_pages - 1:
-            self.page += 1
-            self.selected_index = self.page_start
-
-    def _render(self):
-        lines = [("class:tui.header", " 🤖 Select Active Model")]
-        filter_label = self.filter_text or "type to filter"
-        lines.append(("class:tui.muted", f"\n  Filter: {filter_label}"))
-        if self.total_pages > 1:
-            lines.append(
-                ("class:tui.muted", f"  (Page {self.page + 1}/{self.total_pages})")
-            )
-        lines.append(("", "\n"))
-
-        if not self.visible_model_names:
-            empty_message = (
-                "No models match the current filter."
-                if self.filter_text
-                else "No models available."
-            )
-            lines.append(("class:tui.warning", f"\n  {empty_message}\n"))
-            lines.append(("class:tui.help-key", "  Type  "))
-            lines.append(("class:tui.help", "Adjust filter\n"))
-            lines.append(("class:tui.help-key", "  Backspace  "))
-            lines.append(("class:tui.help", "Delete filter char\n"))
-            if self.filter_text:
-                lines.append(("class:tui.help-key", "  Ctrl+U  "))
-                lines.append(("class:tui.help", "Clear filter\n"))
-            lines.append(("class:tui.help-key", "  Esc  "))
-            lines.append(("class:tui.help", "Exit\n"))
-            return lines
-
-        lines.append(("class:tui.muted", f"\n  Current: {self.current_model}\n\n"))
-
-        for offset, model_name in enumerate(self.models_on_page):
-            absolute_index = self.page_start + offset
-            is_selected = absolute_index == self.selected_index
-            is_current = model_name == self.current_model
-
-            prefix = " › " if is_selected else "   "
-            style = "class:tui.selected" if is_selected else "class:tui.body"
-            lines.append((style, f"{prefix}{model_name}"))
-            if is_current:
-                lines.append(("class:tui.success", " (active)"))
-            lines.append(("", "\n"))
-
-        lines.append(("", "\n"))
-        lines.append(("class:tui.help-key", "  ↑/↓  "))
-        lines.append(("class:tui.help", "Navigate\n"))
-        if self.total_pages > 1:
-            lines.append(("class:tui.help-key", "  PgUp/PgDn  "))
-            lines.append(("class:tui.help", "Change page\n"))
-        lines.append(("class:tui.help-key", "  Type  "))
-        lines.append(("class:tui.help", "Filter models\n"))
-        lines.append(("class:tui.help-key", "  Backspace  "))
-        lines.append(("class:tui.help", "Delete filter char\n"))
-        lines.append(("class:tui.help-key", "  Ctrl+U  "))
-        lines.append(("class:tui.help", "Clear filter\n"))
-        lines.append(("class:tui.help-key", "  Enter  "))
-        lines.append(("class:tui.help", "Select model\n"))
-        lines.append(("class:tui.help-key", "  Ctrl+E  "))
-        lines.append(("class:tui.help", "Edit credentials\n"))
-        lines.append(("class:tui.help-key", "  Esc  "))
-        lines.append(("class:tui.help", "Cancel\n"))
-        return lines
+        for name, value in overrides.items():
+            getattr(builder, name)(value)
+        return builder.build()
 
     def _edit_credentials_for_model(self, model_name: str) -> None:
         """Prompt user to edit the credential for a specific model.
@@ -441,134 +327,36 @@ class ModelSelectionMenu:
             model_name,
             status,
         )
-        print(f"\n🔑 {model_name} credential: {env_var} ({status})")
+        print(f"\n{model_name} credential: {env_var} ({status})")
         if hint:
             print(f"   {hint}")
         try:
             value = safe_input("   New value (or Enter to skip): ")
             if value:
                 save_credential(env_var, value)
-                print(f"✅ Saved {env_var}")
+                print(f"Saved {env_var}")
                 logger.info("Saved credential %s for model %s", env_var, model_name)
         except (KeyboardInterrupt, EOFError):
             logger.info("Credential editing cancelled by user")
-            print("\n⚠️ Credential editing cancelled")
+            print("\nCredential editing cancelled")
 
     async def run_async(self) -> Optional[str]:
-        control = FormattedTextControl(lambda: self._render())
-        kb = KeyBindings()
-
-        def refresh() -> None:
-            control.text = self._render()
-
-        @kb.add("up")
-        @kb.add("c-p")
-        def _(event):
-            self._move_up()
-            refresh()
-            event.app.invalidate()
-
-        @kb.add("down")
-        @kb.add("c-n")
-        def _(event):
-            self._move_down()
-            refresh()
-            event.app.invalidate()
-
-        @kb.add("pageup")
-        @kb.add("left")
-        def _(event):
-            self._page_up()
-            refresh()
-            event.app.invalidate()
-
-        @kb.add("pagedown")
-        @kb.add("right")
-        def _(event):
-            self._page_down()
-            refresh()
-            event.app.invalidate()
-
-        @kb.add("backspace")
-        def _(event):
-            if not self.filter_text:
-                return
-            self._delete_filter_char()
-            refresh()
-            event.app.invalidate()
-
-        @kb.add("c-u")
-        def _(event):
-            if not self.filter_text:
-                return
-            self._set_filter_text("")
-            refresh()
-            event.app.invalidate()
-
-        @kb.add("c-e")
-        def _(event):
-            """Edit credentials for the selected model."""
-            selected = self._get_selected_model_name()
-            if not selected:
-                logger.debug("No model selected for credential editing")
-                return
-            env_var = required_env_var_for_model(selected)
-            if not env_var:
-                logger.debug("No env var required for model: %s", selected)
-                return
-            logger.info("User requested credential edit for model: %s", selected)
-            self.pending_credentials_edit = selected
-            event.app.exit()
-
-        @kb.add("<any>")
-        def _(event):
-            if not event.data or not event.data.isprintable():
-                return
-            self._append_filter_char(event.data)
-            refresh()
-            event.app.invalidate()
-
-        @kb.add("enter")
-        def _(event):
-            if not self._accept_selection():
-                return
-            event.app.exit()
-
-        @kb.add("escape")
-        @kb.add("c-c")
-        def _(event):
-            self.result = None
-            event.app.exit()
-
         while True:
-            # Enter alternate screen buffer for this session
-            sys.stdout.write("\033[?1049h")  # Enter alternate buffer
-            sys.stdout.write("\033[2J\033[H")  # Clear and home
-            sys.stdout.flush()
+            menu_result = await asyncio.to_thread(self.build_menu().run)
 
-            # Create a fresh Application each iteration — reusing a
-            # prompt_toolkit Application after exit() is unreliable
-            app = Application(
-                layout=Layout(Window(content=control, wrap_lines=True)),
-                key_bindings=kb,
-                full_screen=False,
-                style=on_prompt_toolkit_style(),
-            )
-            await app.run_async()
-
-            # Exit alternate screen buffer
-            sys.stdout.write("\033[?1049l")  # Exit alternate buffer
-            sys.stdout.flush()
-
-            # Handle credential editing outside the event loop
+            # Handle credential editing outside the menu loop, then reopen.
             if self.pending_credentials_edit:
                 model_name = self.pending_credentials_edit
                 self.pending_credentials_edit = None
                 logger.info("Editing credentials for model: %s", model_name)
                 self._edit_credentials_for_model(model_name)
-                logger.info("Credential edit completed, restarting application")
-                continue  # Restart the application
+                logger.info("Credential edit completed, restarting menu")
+                continue
 
+            if menu_result.cancelled or menu_result.item is None:
+                self.result = None
+            else:
+                self.result = menu_result.item.value
             return self.result
 
 
