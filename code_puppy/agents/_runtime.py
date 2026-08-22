@@ -71,6 +71,7 @@ from code_puppy.agent_execution_context import executing_agent_context
 from code_puppy.agents import _history, _key_listeners
 from code_puppy.agents._builder import build_pydantic_agent
 from code_puppy.agents._diagnostics import emit_exception_diagnostics
+from code_puppy.agents._history_persistence import persist_result_history
 from code_puppy.agents._non_streaming_render import (
     StreamingTextDetector,
     render_result_without_streaming,
@@ -835,8 +836,9 @@ async def _run_with_mcp_impl(
 
             retry_prompt = retry_req.get("prompt", "Please continue.")
             retry_delay = retry_req.get("delay", 1.0)
-            if hasattr(result, "all_messages"):
-                agent._message_history = list(result.all_messages())
+            # Normally a no-op: HistoryPersistence already persisted this
+            # result at the after_run seam. Fallback for guest wrappers.
+            persist_result_history(agent, result)
             await asyncio.sleep(retry_delay)
             result = await _follow_up_run(retry_prompt)
             hook_retries_used += 1
