@@ -23,6 +23,7 @@ from termflow.ansi.codes import BOLD_ON, DIM_ON, RESET
 from termflow.tui import MenuBuilder, MenuItem
 from termflow.tui.menu import MenuResult
 
+from code_puppy.command_line.menu_session import menu_session
 from code_puppy.mcp_ import get_mcp_manager
 from code_puppy.mcp_.agent_bindings import (
     get_bound_servers,
@@ -139,15 +140,37 @@ async def interactive_mcp_binding_menu(agent_name: str) -> None:
     """
     servers = _list_servers()
     if not servers:
-        emit_info(
-            "No MCP servers installed. Use /mcp install to add some, "
-            "then bind them to this agent."
+        # Show the hint inside the TUI: an emit here would paint behind
+        # the alternate screen and leave the user mashing B in confusion.
+        empty_menu = (
+            MenuBuilder(f"MCP bindings for agent: {agent_name}")
+            .items(
+                [
+                    MenuItem(
+                        "No MCP servers installed. Use /mcp install to add "
+                        "some, then bind them to this agent.",
+                        disabled=True,
+                    )
+                ]
+            )
+            .footer_hint("Esc to go back")
+            .alt_screen(False)
+            .build()
         )
+        set_awaiting_user_input(True)
+        try:
+            with menu_session():
+                await asyncio.to_thread(empty_menu.run)
+        finally:
+            set_awaiting_user_input(False)
         return
 
     set_awaiting_user_input(True)
     try:
-        await asyncio.to_thread(build_binding_menu(agent_name, servers).run)
+        with menu_session():
+            await asyncio.to_thread(
+                build_binding_menu(agent_name, servers, alt_screen=False).run
+            )
     finally:
         set_awaiting_user_input(False)
 
@@ -218,6 +241,9 @@ async def prompt_bind_after_install(server_name: str) -> None:
 
     set_awaiting_user_input(True)
     try:
-        await asyncio.to_thread(build_post_install_menu(server_name, agents).run)
+        with menu_session():
+            await asyncio.to_thread(
+                build_post_install_menu(server_name, agents, alt_screen=False).run
+            )
     finally:
         set_awaiting_user_input(False)

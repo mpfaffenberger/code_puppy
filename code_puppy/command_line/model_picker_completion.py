@@ -11,6 +11,7 @@ from termflow.tui import MenuBuilder, MenuItem
 from termflow.tui.menu import MenuResult
 
 from code_puppy.callbacks import on_prompt_toolkit_style
+from code_puppy.command_line.menu_session import menu_session
 from code_puppy.command_line.utils import safe_input
 from code_puppy.config import get_global_model_name
 from code_puppy.list_filtering import query_matches_text
@@ -342,9 +343,14 @@ class ModelSelectionMenu:
 
     async def run_async(self) -> Optional[str]:
         while True:
-            menu_result = await asyncio.to_thread(self.build_menu().run)
+            with menu_session():
+                menu_result = await asyncio.to_thread(
+                    self.build_menu(alt_screen=False).run
+                )
 
-            # Handle credential editing outside the menu loop, then reopen.
+            # Handle credential editing outside the menu loop (and outside
+            # the session: safe_input needs the primary screen + cooked
+            # mode), then reopen.
             if self.pending_credentials_edit:
                 model_name = self.pending_credentials_edit
                 self.pending_credentials_edit = None

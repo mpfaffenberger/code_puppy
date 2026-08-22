@@ -24,6 +24,7 @@ from code_puppy.agents import (
     is_clone_agent_name,
 )
 from code_puppy.command_line.mcp_binding_menu import interactive_mcp_binding_menu
+from code_puppy.command_line.menu_session import menu_session
 from code_puppy.mcp_.agent_bindings import get_bound_servers
 from code_puppy.command_line.model_picker_completion import (
     ModelSelectionMenu,
@@ -413,51 +414,57 @@ async def interactive_agent_picker() -> Optional[str]:
 
     set_awaiting_user_input(True)
     try:
-        while True:
-            pending_action: dict = {"action": None}
-            menu = build_agent_menu(
-                entries, current_agent_name, pending_action, selected_index
-            )
-            menu_result = await asyncio.to_thread(menu.run)
+        # One menu_session for the whole picker: single alternate screen
+        # across sub-menus, renderer paused (emit_* buffers until exit).
+        with menu_session():
+            while True:
+                pending_action: dict = {"action": None}
+                menu = build_agent_menu(
+                    entries,
+                    current_agent_name,
+                    pending_action,
+                    selected_index,
+                    alt_screen=False,
+                )
+                menu_result = await asyncio.to_thread(menu.run)
 
-            highlighted = menu_result.item.value if menu_result.item else None
-            selected_index = _index_of(highlighted)
-            action = pending_action["action"]
+                highlighted = menu_result.item.value if menu_result.item else None
+                selected_index = _index_of(highlighted)
+                action = pending_action["action"]
 
-            if action == "pin" and highlighted:
-                selected_model = await _select_pinned_model(highlighted)
-                if selected_model:
-                    _apply_pinned_model(highlighted, selected_model)
-                continue
+                if action == "pin" and highlighted:
+                    selected_model = await _select_pinned_model(highlighted)
+                    if selected_model:
+                        _apply_pinned_model(highlighted, selected_model)
+                    continue
 
-            if action == "bind" and highlighted:
-                await interactive_mcp_binding_menu(highlighted)
-                continue
+                if action == "bind" and highlighted:
+                    await interactive_mcp_binding_menu(highlighted)
+                    continue
 
-            if action == "clone" and highlighted:
-                cloned_name = clone_agent(highlighted)
-                entries = _get_agent_entries()
-                selected_index = _index_of(cloned_name or highlighted)
-                continue
+                if action == "clone" and highlighted:
+                    cloned_name = clone_agent(highlighted)
+                    entries = _get_agent_entries()
+                    selected_index = _index_of(cloned_name or highlighted)
+                    continue
 
-            if action == "delete" and highlighted:
-                if not is_clone_agent_name(highlighted):
-                    emit_warning("Only cloned agents can be deleted.")
-                elif highlighted == current_agent_name:
-                    emit_warning("Cannot delete the active agent. Switch first.")
-                elif delete_clone_agent(highlighted):
-                    selected_index = 0
-                entries = _get_agent_entries()
-                if not entries:
-                    break
-                selected_index = min(selected_index, len(entries) - 1)
-                continue
+                if action == "delete" and highlighted:
+                    if not is_clone_agent_name(highlighted):
+                        emit_warning("Only cloned agents can be deleted.")
+                    elif highlighted == current_agent_name:
+                        emit_warning("Cannot delete the active agent. Switch first.")
+                    elif delete_clone_agent(highlighted):
+                        selected_index = 0
+                    entries = _get_agent_entries()
+                    if not entries:
+                        break
+                    selected_index = min(selected_index, len(entries) - 1)
+                    continue
 
-            if not menu_result.cancelled and highlighted:
-                result = highlighted
-            break
+                if not menu_result.cancelled and highlighted:
+                    result = highlighted
+                break
     finally:
         set_awaiting_user_input(False)
 
-    emit_info("Exited agent picker")
     return result
