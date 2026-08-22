@@ -28,8 +28,8 @@ _ORIGINAL_XDG_ENV = {name: os.environ.get(name) for name in _XDG_ENV_VARS}
 for _xdg_name in _XDG_ENV_VARS:
     os.environ[_xdg_name] = os.path.join(_XDG_TEMP_DIR.name, _xdg_name.lower())
 
-from code_puppy import config as cp_config  # noqa: E402
 from code_puppy import callbacks as cp_callbacks  # noqa: E402
+from code_puppy import config as cp_config  # noqa: E402
 from code_puppy.messaging import bottom_bar as cp_bottom_bar  # noqa: E402
 
 
@@ -142,6 +142,8 @@ def isolate_global_state_between_tests(tmp_path_factory):
     # defaults, not the local developer's personal settings.
     cp_config.CONFIG_FILE = temp_config_file
     cp_config.CONFIG_DIR = temp_config_dir
+    cp_config._invalidate_config_cache()
+    cp_config._invalidate_config_cache()
     # The persistent editor's HistoryStore resolves this at construction:
     # never let tests read/append the developer's REAL command history.
     cp_config.COMMAND_HISTORY_FILE = os.path.join(
@@ -161,6 +163,8 @@ def isolate_global_state_between_tests(tmp_path_factory):
     # Restore original config paths and callback registrations.
     cp_config.CONFIG_FILE = original_config_file
     cp_config.CONFIG_DIR = original_config_dir
+    cp_config._invalidate_config_cache()
+    cp_config._invalidate_config_cache()
     cp_config.COMMAND_HISTORY_FILE = original_history_file
     cp_callbacks._callbacks.clear()
     cp_callbacks._callbacks.update(original_callbacks)
