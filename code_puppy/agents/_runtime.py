@@ -76,6 +76,11 @@ from code_puppy.agents._non_streaming_render import (
     render_result_without_streaming,
     should_render_fallback,
 )
+from code_puppy.agents._run_telemetry import (
+    empty_usage_metadata,
+    extract_response_text,
+    extract_usage_metadata,
+)
 from code_puppy.agents._run_signals import (
     drain_pause_state_on_cancel,
     inject_interrupted_subagent_notes,
@@ -542,17 +547,6 @@ def _build_prompt_payload(
     return payload
 
 
-def _extract_response_text(result: Any) -> str:
-    """Best-effort extraction of human-readable text from a pydantic-ai result."""
-    if result is None:
-        return ""
-    if hasattr(result, "data"):
-        return str(result.data) if result.data else ""
-    if hasattr(result, "output"):
-        return str(result.output) if result.output else ""
-    return str(result)
-
-
 def _should_prepend_system_prompt(agent: Any, prompt: str) -> str:
     """Prepend system prompt to user prompt on the first turn (claude-code etc)."""
     from code_puppy.agents._builder import load_puppy_rules
@@ -1012,14 +1006,7 @@ async def _run_with_mcp_impl(
     run_success = False
     run_error: Optional[BaseException] = None
     run_response_text = ""
-    run_usage_metadata: dict[str, int | None] = {
-        "usage_input_tokens": None,
-        "usage_output_tokens": None,
-        "usage_total_tokens": None,
-        "usage_cached_read_tokens": None,
-        "usage_cached_write_tokens": None,
-        "usage_thought_tokens": None,
-    }
+    run_usage_metadata: dict[str, int | None] = empty_usage_metadata()
 
     try:
         # Nested runs leave the SIGINT handler/cancel hotkey alone — the outer
@@ -1061,41 +1048,19 @@ async def _run_with_mcp_impl(
 
         result = await agent_task
         run_success = True
-        run_response_text = _extract_response_text(result)
-        try:
-            # Property access (not a call): `result.usage()` is a deprecated
-            # callable-property since pydantic-ai 1.107 and warns when called.
-            usage = result.usage
-
-            def _pick_usage_int(*names: str) -> int | None:
-                for name in names:
-                    value = getattr(usage, name, None)
-                    if value is not None:
-                        return int(value) or None
-                return None
-
-            run_usage_metadata = {
-                "usage_input_tokens": _pick_usage_int(
-                    "input_tokens", "request_tokens", "prompt_tokens"
-                ),
-                # Real billed output tokens -- calibrates the run-stats TG
-                # estimate (see run_stats.snapshot_cycle_into_aggregates).
-                "usage_output_tokens": _pick_usage_int(
-                    "output_tokens", "response_tokens", "completion_tokens"
-                ),
-                "usage_total_tokens": _pick_usage_int("total_tokens"),
-                "usage_cached_read_tokens": _pick_usage_int(
-                    "cache_read_tokens", "cached_read_tokens"
-                ),
-                "usage_cached_write_tokens": _pick_usage_int(
-                    "cache_write_tokens", "cached_write_tokens"
-                ),
-                "usage_thought_tokens": _pick_usage_int(
-                    "thinking_tokens", "thought_tokens", "reasoning_tokens"
-                ),
-            }
-        except Exception:
-            pass
+        # Explicit-when-ours, fallback-for-guests: the RunTelemetry capability
+        # captured (text, usage) on after_run for the exact result object we
+        # just received — consume() hands it over only on identity match.
+        # Guest wrappers that bypass capabilities, None results (a swallowed
+        # UsageLimitExceeded), and stale captures from an earlier turn all
+        # fall back to the same extraction helpers the capability uses.
+        telemetry_cap = getattr(agent, "_run_telemetry", None)
+        telemetry = telemetry_cap.consume(result) if telemetry_cap is not None else None
+        if telemetry is not None:
+            run_response_text, run_usage_metadata = telemetry
+        else:
+            run_response_text = extract_response_text(result)
+            run_usage_metadata = extract_usage_metadata(result)
         return result
     except asyncio.CancelledError:
         run_response_text = ""
