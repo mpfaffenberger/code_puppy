@@ -19,7 +19,7 @@ from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agents._compaction import make_history_processor
-from code_puppy.agents._model_message_transform import build_model_message_transform
+from code_puppy.agents._model_message_transform import PluginMessageTransform
 from code_puppy.agents._output_limits import (
     build_response_clamp,
     build_tool_output_limits,
@@ -665,7 +665,7 @@ def build_pydantic_agent(
                 ProcessHistory(history_processor),
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
-                build_model_message_transform(logical_agent_name),
+                PluginMessageTransform(logical_agent_name),
             ],
             model_settings=model_settings,
         )
