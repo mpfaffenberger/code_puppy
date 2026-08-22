@@ -73,7 +73,7 @@ async def test_after_run_persists_all_messages_via_setter():
     # into the result's internal message list.
     assert agent._message_history is not messages
     assert agent.setter_calls == 1
-    assert cap.persisted(result) is True
+    assert cap.last_result is result
 
 
 async def test_after_run_uses_direct_assignment_without_setter():
@@ -84,7 +84,7 @@ async def test_after_run_uses_direct_assignment_without_setter():
     await cap.after_run(None, result=result)
 
     assert agent._message_history == ["a", "b"]
-    assert cap.persisted(result) is True
+    assert cap.last_result is result
 
 
 async def test_after_run_ignores_result_without_all_messages():
@@ -97,19 +97,7 @@ async def test_after_run_ignores_result_without_all_messages():
 
     assert returned is bare
     assert agent._message_history == ["keep me"]
-    assert cap.persisted(bare) is False
-
-
-def test_persisted_is_identity_gated():
-    agent = _FakeAgent()
-    cap = HistoryPersistence(agent)
-    captured = _FakeResult(["x"])
-    cap._last_persisted = captured
-
-    assert cap.persisted(captured) is True
-    # An equal-but-distinct result never matches — ownership is per-object.
-    assert cap.persisted(_FakeResult(["x"])) is False
-    assert cap.persisted(None) is False
+    assert cap.last_result is None
 
 
 def test_get_serialization_name_is_none():
@@ -137,31 +125,21 @@ def test_fallback_writes_via_direct_assignment_without_setter():
     assert agent._message_history == ["m1"]
 
 
-async def test_fallback_skips_when_capability_owns_result():
+async def test_fallback_clobbers_post_run_history_mutations():
+    """Exact-parity pin: the demoted sites always rewrote with the completed
+    transcript, clobbering anything that mutated durable history after the
+    run (e.g. an ``agent_run_end`` plugin). The helper must NOT skip just
+    because the capability already persisted this result once."""
     agent = _FakeAgent()
     cap = HistoryPersistence(agent)
-    agent._history_persistence = cap
-    result = _FakeResult(["m1"])
+    result = _FakeResult(["m1", "m2"])
     await cap.after_run(None, result=result)
 
-    # Plant a sentinel: an owned result must NOT trigger a second write.
-    sentinel = ["sentinel"]
-    agent._message_history = sentinel
+    # A plugin replaces the history between run-end and the turn-end site.
+    agent._message_history = ["mutated by plugin"]
 
     assert persist_result_history(agent, result) is True
-    assert agent._message_history is sentinel
-    assert agent.setter_calls == 1  # only the capability's write
-
-
-async def test_fallback_writes_when_capability_captured_a_different_result():
-    agent = _FakeAgent()
-    cap = HistoryPersistence(agent)
-    agent._history_persistence = cap
-    await cap.after_run(None, result=_FakeResult(["old"]))
-
-    fresh = _FakeResult(["new"])
-    assert persist_result_history(agent, fresh) is True
-    assert agent._message_history == ["new"]
+    assert agent._message_history == ["m1", "m2"]  # transcript restored
 
 
 def test_fallback_rejects_none_and_messageless_results():
@@ -188,7 +166,7 @@ async def test_real_run_persists_identical_result_state():
     result = await pyd_agent.run("hello")
 
     # after_run saw the exact result object the caller received...
-    assert cap.persisted(result) is True
+    assert cap.last_result is result
     # ...and persisted exactly its full transcript.
     assert agent._message_history == list(result.all_messages())
 
@@ -234,7 +212,7 @@ async def test_real_run_composes_with_other_capabilities():
 
     result = await pyd_agent.run("hello")
 
-    assert cap.persisted(result) is True
+    assert cap.last_result is result
     assert agent._message_history == list(result.all_messages())
 
 
@@ -290,20 +268,23 @@ def _make_builder_config():
     return _FakeAgentConfig()
 
 
-def test_builder_stashes_capability_and_wires_seam():
+def _find_history_persistence(built):
+    """Walk the built agent's capability tree with the public ``apply``
+    visitor and return the (single) HistoryPersistence leaf."""
+    leaves = []
+    built.root_capability.apply(leaves.append)
+    caps = [leaf for leaf in leaves if isinstance(leaf, HistoryPersistence)]
+    assert len(caps) == 1
+    return caps[0]
+
+
+def test_builder_wires_capability_bound_to_the_config():
     cfg = _make_builder_config()
     with _builder_harness() as _builder:
         built = _builder.build_pydantic_agent(cfg)
 
-    cap = getattr(cfg, "_history_persistence", None)
-    assert isinstance(cap, HistoryPersistence)
+    cap = _find_history_persistence(built)
     assert cap.agent is cfg
-
-    # The exact stashed instance is spliced into the built agent's
-    # capability tree (walk leaves with the public ``apply`` visitor).
-    leaves = []
-    built.root_capability.apply(leaves.append)
-    assert any(leaf is cap for leaf in leaves)
 
 
 async def test_built_agent_run_persists_history_end_to_end():
@@ -313,7 +294,7 @@ async def test_built_agent_run_persists_history_end_to_end():
 
     result = await built.run("hello")
 
-    assert cfg._history_persistence.persisted(result) is True
+    assert _find_history_persistence(built).last_result is result
     assert cfg.get_message_history() == list(result.all_messages())
 
 
@@ -348,18 +329,18 @@ def test_no_inline_writebacks_remain():
 # ---------- turn-loop interplay ----------------------------------------------
 
 
-async def test_steer_drain_skips_rewrite_for_owned_result():
-    """prepare_queued_steer_injection must not clobber capability-persisted
-    history with a redundant write (identity of the list is preserved)."""
+async def test_steer_drain_persists_alongside_the_capability():
+    """prepare_queued_steer_injection keeps its unconditional idempotent
+    persist — the steer turn is seeded from the completed transcript even if
+    something mutated durable history after ``after_run``."""
     from code_puppy.agents._run_signals import prepare_queued_steer_injection
     from code_puppy.messaging.pause_controller import get_pause_controller
 
     agent = _FakeAgent()
     cap = HistoryPersistence(agent)
-    agent._history_persistence = cap
     result = _FakeResult(["m1", "m2"])
     await cap.after_run(None, result=result)
-    persisted_list = agent._message_history
+    agent._message_history = ["mutated after the run"]
 
     pc = get_pause_controller()
     pc.request_steer("focus", mode="queue")
@@ -369,10 +350,10 @@ async def test_steer_drain_skips_rewrite_for_owned_result():
         pc.drain_pending_steer_queued()
 
     assert steer == "focus"
-    assert agent._message_history is persisted_list  # no redundant rewrite
+    assert agent._message_history == ["m1", "m2"]
 
 
-def test_steer_drain_falls_back_for_guest_results():
+def test_steer_drain_persists_for_guest_results():
     """Without the capability (guest wrapper), the steer drain still persists
     the result's messages exactly as the old eager side effect did."""
     from code_puppy.agents._run_signals import prepare_queued_steer_injection

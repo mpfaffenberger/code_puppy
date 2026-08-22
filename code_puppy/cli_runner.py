@@ -809,9 +809,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 agent_response = response.output
 
                 # Update agent history with the complete conversation (incl.
-                # final response). Normally already persisted by the
-                # HistoryPersistence capability at the after_run seam; this
-                # is the guest fallback.
+                # final response). Idempotent next to the HistoryPersistence
+                # capability's after_run persist; unconditional for exact
+                # clobber parity + guest wrappers.
                 persist_result_history(agent, response)
 
                 # Emit structured message for proper markdown rendering
@@ -1214,9 +1214,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 get_message_bus().emit(response_msg)
 
                 # Update history with the complete conversation — history
-                # processors may miss the final message, so the
-                # HistoryPersistence capability persists result.all_messages()
-                # at the after_run seam; this is the guest fallback.
+                # processors may miss the final message. Idempotent next to
+                # the HistoryPersistence capability's after_run persist;
+                # unconditional for exact clobber parity + guest wrappers.
                 persist_result_history(current_agent, result)
 
                 turn_result = result
@@ -1546,8 +1546,9 @@ async def execute_single_prompt(
             _write_usage_file(usage_file, usage() if callable(usage) else usage)
 
         # The runtime result includes the final assistant response that the
-        # incremental history can otherwise miss (persisted by the
-        # HistoryPersistence capability at the after_run seam; guest fallback).
+        # incremental history can otherwise miss. Idempotent next to the
+        # HistoryPersistence capability's after_run persist; unconditional
+        # for exact clobber parity + guest wrappers.
         persist_result_history(agent, result)
 
     except asyncio.CancelledError:

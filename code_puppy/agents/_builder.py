@@ -615,9 +615,6 @@ def build_pydantic_agent(
     - ``agent.pydantic_agent``        ← the final (possibly plugin-wrapped) agent
     - ``agent._code_generation_agent`` ← same as ``pydantic_agent``
     - ``agent._mcp_servers``          ← MCP toolsets (post-filter)
-    - ``agent._history_persistence``  ← the ``HistoryPersistence`` capability,
-      so ``persist_result_history`` call sites can tell capability-owned runs
-      from guest wrappers that bypass capabilities
 
     The build happens in two passes: we construct once with ``toolsets=[]`` so
     we can introspect registered tool names, then rebuild with MCP servers
@@ -711,7 +708,6 @@ def build_pydantic_agent(
     agent.cur_model = model
     agent._last_model_name = resolved_model_name
     agent._mcp_servers = filtered_mcp_servers
-    agent._history_persistence = history_persistence
 
     wrapped = on_wrap_pydantic_agent(
         agent,

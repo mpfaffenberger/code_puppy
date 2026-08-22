@@ -15,14 +15,22 @@ Historically that writeback was duplicated across seven eager call sites:
   continuation loop, headless run).
 
 :class:`HistoryPersistence` promotes the feature onto pydantic-ai's
-``after_run`` capability seam: the write happens exactly once per successful
-run, at the moment the run commits its result — with the *identical*
+``after_run`` capability seam: the write happens once per successful run, at
+the moment the run commits its result — with the *identical*
 ``AgentRunResult`` object the caller receives (``after_run`` contract,
-verified empirically on pydantic-ai 2.31.0). The eager sites are demoted to
-the :func:`persist_result_history` guest fallback, which steps aside when the
-capability already persisted that exact result (identity gate) and otherwise
-performs the old write verbatim — so wrappers that bypass capabilities keep
-byte-identical behavior.
+verified empirically on pydantic-ai 2.31.0). That closes the durability gap
+where a cancellation landing between run-end and the old turn-end writeback
+lost the completed run's trailing response.
+
+The call sites now route through :func:`persist_result_history`, which
+performs the old write **verbatim and unconditionally**. The write is
+idempotent next to the capability's, and keeping it unconditional preserves
+the sites' exact clobber semantics: anything that mutated the durable history
+after the run (however exotic) gets overwritten with the completed transcript,
+exactly as before. It also covers guest wrappers that bypass capabilities
+entirely. Deliberately NO ownership gate here — a "skip if the capability
+already persisted this result" check cannot prove the history *still* holds
+that transcript, and a wrong skip would silently change site behavior.
 
 Scope: MAIN construction site only (``_builder.build_pydantic_agent``).
 Sub-agent invocations own their history through session persistence and the
@@ -31,8 +39,8 @@ result-scoped bookkeeping in ``tools/subagent_invocation.py``; they get no
 
 Concurrency note: the capability's default ``for_run`` returns ``self``, so
 one instance observes every run of its agent. The main conversation loop is
-strictly sequential (one turn at a time), so the single ``_last_persisted``
-slot cannot race.
+strictly sequential (one turn at a time), so the single ``last_result`` slot
+cannot race.
 """
 
 from __future__ import annotations
@@ -52,7 +60,7 @@ def _write_history(agent: Any, result: Any) -> None:
     (the cli_runner sites' spelling); falls back to the direct attribute
     assignment the runtime sites used. Both are plain assignments on
     ``BaseAgent`` — this just preserves each call site's exact semantics for
-    test doubles.
+    test doubles and subclasses that override the setter.
     """
     messages = list(result.all_messages())
     setter = getattr(agent, "set_message_history", None)
@@ -68,10 +76,15 @@ class HistoryPersistence(AbstractCapability[Any]):
 
     Holds a live reference to the owning ``BaseAgent``-shaped config, so it is
     deliberately not spec-constructible (``get_serialization_name() -> None``).
+
+    ``last_result`` records the exact result object most recently persisted.
+    It is an observability/testing seam pinning the ``after_run`` contract
+    (the seam receives the identical object the caller gets) — it is NOT
+    consulted by :func:`persist_result_history`, which always rewrites.
     """
 
     agent: Any
-    _last_persisted: Optional[Any] = field(default=None, init=False, repr=False)
+    last_result: Optional[Any] = field(default=None, init=False, repr=False)
 
     def get_serialization_name(self) -> Optional[str]:
         # Live agent reference — never constructible from a serialized spec.
@@ -84,32 +97,21 @@ class HistoryPersistence(AbstractCapability[Any]):
         # existing checkpoint/prune custody untouched.
         if hasattr(result, "all_messages"):
             _write_history(self.agent, result)
-            self._last_persisted = result
+            self.last_result = result
         return result
-
-    def persisted(self, result: Any) -> bool:
-        """True when this capability already persisted exactly ``result``.
-
-        Identity-gated (``is``): a different result object — including a new
-        run's result — never matches. A stale match is impossible to abuse:
-        the same object implies the same messages, and the write is
-        idempotent.
-        """
-        return result is not None and self._last_persisted is result
 
 
 def persist_result_history(agent: Any, result: Any) -> bool:
-    """Persist ``result``'s messages unless the capability already did.
+    """Persist ``result``'s messages into ``agent``'s durable history.
 
-    Shared fallback for the previously-eager call sites. Returns ``True``
-    when the history is known to hold ``result.all_messages()`` afterwards
-    (either persisted here or already persisted by the capability), ``False``
+    Shared spelling of the previously-eager call sites' writeback. Always
+    writes when ``result`` carries messages — idempotent next to the
+    capability's ``after_run`` persist, and unconditional so the sites keep
+    their exact historical clobber semantics (see module docstring). Returns
+    ``True`` when the history now holds ``result.all_messages()``, ``False``
     when ``result`` carries no messages to persist.
     """
     if result is None or not hasattr(result, "all_messages"):
         return False
-    persistence = getattr(agent, "_history_persistence", None)
-    if persistence is not None and persistence.persisted(result):
-        return True
     _write_history(agent, result)
     return True

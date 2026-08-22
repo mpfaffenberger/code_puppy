@@ -144,11 +144,11 @@ def prepare_queued_steer_injection(agent: Any, result: Any) -> Optional[Any]:
     queue-mode steer is pending.
 
     Side-effects:
-      - Ensures ``result.all_messages()`` is persisted into
-        ``agent._message_history`` so the steer turn sees the just-completed
-        turn's context (normally already done by the ``HistoryPersistence``
-        capability at the ``after_run`` seam; the fallback covers wrappers
-        that bypass capabilities).
+      - Persists ``result.all_messages()`` into ``agent._message_history``
+        so the steer turn sees the just-completed turn's context (idempotent
+        next to the ``HistoryPersistence`` capability's ``after_run``
+        persist; kept unconditional for exact clobber parity and to cover
+        wrappers that bypass capabilities).
       - Re-queues any leftover steers (we deliberately process ONE per
         loop iteration to keep turn boundaries clean for the model).
       - Emits a diagnostic with a preview of the steer text.

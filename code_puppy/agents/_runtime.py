@@ -836,8 +836,8 @@ async def _run_with_mcp_impl(
 
             retry_prompt = retry_req.get("prompt", "Please continue.")
             retry_delay = retry_req.get("delay", 1.0)
-            # Normally a no-op: HistoryPersistence already persisted this
-            # result at the after_run seam. Fallback for guest wrappers.
+            # Idempotent next to HistoryPersistence's after_run persist;
+            # unconditional for exact clobber parity + guest wrappers.
             persist_result_history(agent, result)
             await asyncio.sleep(retry_delay)
             result = await _follow_up_run(retry_prompt)
