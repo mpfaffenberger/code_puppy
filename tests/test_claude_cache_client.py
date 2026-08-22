@@ -11,6 +11,7 @@ from anthropic import AsyncAnthropic
 
 from code_puppy.claude_cache_client import (
     CLAUDE_CLI_USER_AGENT,
+    CLAUDE_CODE_SYSTEM_PROMPT,
     TOKEN_MAX_AGE_SECONDS,
     TOOL_PREFIX,
     ClaudeCacheAsyncClient,
@@ -257,6 +258,86 @@ class TestToolPrefixing:
         assert client._apply_claude_code_prefix is True
 
 
+class TestClaudeCodeSystemPrompt:
+    """The first system block must be the Claude Code fingerprint string.
+
+    Regression guard for harness-driven summarization compaction: the
+    summarizer builds its own internal Agent whose instructions bypass the
+    ``prepare_model_prompt`` hook entirely, so the transport must enforce
+    the invariant instead.
+    """
+
+    def test_string_system_prompt_demoted_to_second_block(self):
+        """A foreign string system prompt is kept, but demoted to block two."""
+        body = json.dumps(
+            {
+                "model": "claude-sonnet-4-5",
+                "system": "You are a context summarization assistant.",
+                "messages": [{"role": "user", "content": "Summarize this"}],
+            }
+        ).encode()
+
+        result = ClaudeCacheAsyncClient._ensure_claude_code_system_prompt(body)
+
+        assert result is not None
+        data = json.loads(result)
+        assert data["system"][0] == {"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT}
+        assert data["system"][1] == {
+            "type": "text",
+            "text": "You are a context summarization assistant.",
+        }
+
+    def test_string_system_prompt_already_compliant(self):
+        """A compliant string system prompt is left untouched (None = no-op)."""
+        body = json.dumps(
+            {"system": CLAUDE_CODE_SYSTEM_PROMPT, "messages": []}
+        ).encode()
+
+        assert ClaudeCacheAsyncClient._ensure_claude_code_system_prompt(body) is None
+
+    def test_block_list_system_prompt_gets_prefix_block(self):
+        """A block-list system prompt gains the fingerprint as block zero."""
+        original_block = {"type": "text", "text": "Summarize stuff."}
+        body = json.dumps({"system": [original_block], "messages": []}).encode()
+
+        result = ClaudeCacheAsyncClient._ensure_claude_code_system_prompt(body)
+
+        assert result is not None
+        data = json.loads(result)
+        assert data["system"][0] == {"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT}
+        assert data["system"][1] == original_block
+
+    def test_block_list_already_compliant(self):
+        """A block list already led by the fingerprint is left untouched."""
+        body = json.dumps(
+            {
+                "system": [
+                    {"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT},
+                    {"type": "text", "text": "real system prompt"},
+                ],
+                "messages": [],
+            }
+        ).encode()
+
+        assert ClaudeCacheAsyncClient._ensure_claude_code_system_prompt(body) is None
+
+    def test_missing_system_prompt_is_injected(self):
+        """No system prompt at all still gets the fingerprint string."""
+        body = json.dumps({"model": "claude-3", "messages": []}).encode()
+
+        result = ClaudeCacheAsyncClient._ensure_claude_code_system_prompt(body)
+
+        assert result is not None
+        assert json.loads(result)["system"] == CLAUDE_CODE_SYSTEM_PROMPT
+
+    def test_invalid_json_returns_none(self):
+        """Garbage bodies are passed through untouched."""
+        assert (
+            ClaudeCacheAsyncClient._ensure_claude_code_system_prompt(b"not json")
+            is None
+        )
+
+
 class TestHeaderTransformation:
     """Test header transformation for Claude Code OAuth compatibility."""
 
@@ -465,3 +546,93 @@ class TestSendAppliesPrefixConditionally:
         sent = json.loads(captured["body"])
         tool_names = [t["name"] for t in sent["tools"]]
         assert tool_names == [f"{TOOL_PREFIX}read_file"]
+
+    @pytest.mark.asyncio
+    async def test_send_enforces_system_prompt_when_flag_on(self):
+        """claude_code OAuth path: a foreign system prompt is demoted, not led with.
+
+        This is the harness-summarizer regression: SummarizingCompaction's
+        internal Agent sends its own instructions as the system prompt.
+        """
+        captured: dict = {}
+
+        async def fake_send(self, request, *args, **kwargs):
+            captured["body"] = bytes(request.content)
+            response = Mock(spec=httpx.Response)
+            response.status_code = 200
+            response.headers = {"content-type": "application/json"}
+            response._content = b"{}"
+            return response
+
+        with (
+            patch.object(httpx.AsyncClient, "send", new=fake_send),
+            patch.object(
+                ClaudeCacheAsyncClient,
+                "_check_stored_token_expiry",
+                return_value=False,
+            ),
+        ):
+            client = ClaudeCacheAsyncClient(
+                headers={"Authorization": "Bearer some_token"},
+                apply_claude_code_prefix=True,
+            )
+            request = httpx.Request(
+                "POST",
+                "https://api.anthropic.com/v1/messages",
+                headers={"Authorization": "Bearer some_token"},
+                content=json.dumps(
+                    {
+                        "model": "claude-3-opus",
+                        "system": "You are a context summarization assistant.",
+                        "messages": [{"role": "user", "content": "summarize"}],
+                    }
+                ).encode(),
+            )
+
+            await client.send(request)
+
+        sent = json.loads(captured["body"])
+        assert sent["system"][0] == {"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT}
+        assert sent["system"][1]["text"] == "You are a context summarization assistant."
+
+    @pytest.mark.asyncio
+    async def test_send_leaves_system_prompt_alone_when_flag_off(self):
+        """custom_anthropic path: system prompts go out verbatim."""
+        captured: dict = {}
+
+        async def fake_send(self, request, *args, **kwargs):
+            captured["body"] = bytes(request.content)
+            response = Mock(spec=httpx.Response)
+            response.status_code = 200
+            response.headers = {"content-type": "application/json"}
+            response._content = b"{}"
+            return response
+
+        with (
+            patch.object(httpx.AsyncClient, "send", new=fake_send),
+            patch.object(
+                ClaudeCacheAsyncClient,
+                "_check_stored_token_expiry",
+                return_value=False,
+            ),
+        ):
+            client = ClaudeCacheAsyncClient(
+                headers={"Authorization": "Bearer some_token"}
+            )
+            request = httpx.Request(
+                "POST",
+                "https://api.anthropic.com/v1/messages",
+                headers={"Authorization": "Bearer some_token"},
+                content=json.dumps(
+                    {
+                        "model": "claude-3-opus",
+                        "system": "You are a summarizer.",
+                        "messages": [{"role": "user", "content": "summarize"}],
+                    }
+                ).encode(),
+            )
+
+            await client.send(request)
+
+        sent = json.loads(captured["body"])
+        assert sent["system"] == "You are a summarizer."
