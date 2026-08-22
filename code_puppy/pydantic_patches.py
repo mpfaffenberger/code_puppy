@@ -463,6 +463,56 @@ def patch_tool_call_callbacks() -> bool:
         )
 
 
+def patch_openai_response_defaults() -> bool:
+    """Patch OpenAIChatModel._validate_completion to handle missing fields.
+
+    Some OpenAI-compatible providers (GitHub Copilot, LM Studio, Ollama,
+    vLLM, etc.) return chat completion responses with ``None`` for fields
+    the OpenAI SDK marks as required — most commonly:
+
+    - ``choices[i].index`` (must be ``int``, gets ``None``)
+    - ``object`` (must be ``"chat.completion"``, gets ``None``)
+
+    The OpenAI SDK builds the response object via ``model_construct()``
+    (skipping validation), so these ``None`` values pass silently. But
+    pydantic-ai's ``_validate_completion`` re-validates with
+    ``model_validate()``, which explodes on the missing fields.
+
+    pydantic-ai already patches ``finish_reason`` for Ollama in
+    ``_process_response``. This patch extends that philosophy to the
+    other commonly-missing fields, applied generically so *every*
+    OpenAI-compatible backend benefits.
+    """
+    try:
+        from pydantic_ai.models.openai import OpenAIChatModel
+
+        _original_validate = OpenAIChatModel._validate_completion
+
+        def _patched_validate(self, response):
+            # Fix missing `object` — must be the literal "chat.completion"
+            if getattr(response, "object", None) is None:
+                response.object = "chat.completion"
+
+            # Fix missing `index` on each choice
+            for i, choice in enumerate(getattr(response, "choices", None) or []):
+                if getattr(choice, "index", None) is None:
+                    choice.index = i
+
+            return _original_validate(self, response)
+
+        OpenAIChatModel._validate_completion = _patched_validate
+        return True
+
+    except ImportError as exc:
+        return _optional_lib_missing("patch_openai_response_defaults", exc)
+    except Exception as exc:
+        return _patch_failed(
+            "patch_openai_response_defaults",
+            exc,
+            "OpenAI response validation patches are DISABLED.",
+        )
+
+
 def patch_prompt_toolkit_emoji_width() -> bool:
     """Patch prompt_toolkit's character width calculation for emojis.
 
@@ -628,6 +678,7 @@ _ALL_PATCHES = (
     patch_message_history_cleaning,
     patch_tool_call_json_repair,
     patch_tool_call_callbacks,
+    patch_openai_response_defaults,
     patch_prompt_toolkit_emoji_width,
     patch_termflow_clipboard,
     patch_termflow_code_padding,
