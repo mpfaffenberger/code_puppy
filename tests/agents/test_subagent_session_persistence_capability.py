@@ -225,6 +225,45 @@ async def test_wrap_run_skips_save_for_system_exit():
 
 
 # ---------------------------------------------------------------------------
+# Real CombinedCapability composition
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_combined_capability_composition_saves_once_on_original_instance():
+    """Production shape: the sub-agent site wires THREE capabilities. The
+    run must route through pydantic-ai's real CombinedCapability, produce
+    exactly one boundary save, and record custody on the ORIGINAL instance
+    the invocation layer holds (default ``for_run`` returns ``self``)."""
+    from pydantic_ai.capabilities import ProcessHistory
+
+    from code_puppy.agents._model_message_transform import (
+        build_model_message_transform,
+    )
+
+    cap = _capability()
+    agent = Agent(
+        model=TestModel(),
+        instructions="be terse",
+        output_type=str,
+        capabilities=[
+            ProcessHistory(lambda messages: messages),
+            build_model_message_transform("tester"),
+            cap,
+        ],
+    )
+    saves = []
+    with patch(SAVE_HISTORY, side_effect=lambda **kw: saves.append(kw)):
+        result = await agent.run("hello")
+
+    assert len(saves) == 1
+    assert saves[0]["message_history"] == list(result.all_messages())
+    # Custody landed on the exact instance the invocation layer constructed.
+    assert cap.final_saved is True
+    assert cap.recorded_save() == (True, len(saves[0]["message_history"]))
+
+
+# ---------------------------------------------------------------------------
 # recorded_save triage + retry semantics
 # ---------------------------------------------------------------------------
 
@@ -333,7 +372,7 @@ def _invocation_harness(capture):
         )
         capture["save"] = p(patch(SAVE_HISTORY))
         capture["partial"] = p(patch(SAVE_PARTIAL, return_value=None))
-        p(
+        capture["load"] = p(
             patch(
                 "code_puppy.tools.subagent_invocation._load_session_history",
                 return_value=[],
@@ -409,17 +448,20 @@ def _capability_from(capture):
     return ours[0]
 
 
-async def _drive_invocation(capture, run_side_effect):
+async def _drive_invocation(capture, run_side_effect, *, session_id=None):
     from code_puppy.tools.subagent_invocation import _invoke_agent_impl
 
     temp_agent = MagicMock()
     temp_agent.run = AsyncMock(side_effect=run_side_effect)
     capture["temp_agent"] = temp_agent
     with _invocation_harness(capture):
+        if loaded := capture.get("loaded_history"):
+            capture["load"].return_value = list(loaded)
         return await _invoke_agent_impl(
             MagicMock(),
             agent_name="test-agent",
             prompt="Hello",
+            session_id=session_id,
         )
 
 
@@ -445,6 +487,35 @@ async def test_invocation_constructs_capability_with_prepared_prompt():
     # New session: the initial prompt is the PREPARED prompt, matching what
     # the eager save wrote after prepare_prompt_for_model rewrote it.
     assert cap.initial_prompt == "prepared prompt"
+
+
+@pytest.mark.asyncio
+async def test_invocation_resumed_session_baseline_and_no_initial_prompt():
+    """Resumed sessions: baseline reflects the loaded history and the
+    initial prompt stays ``None`` -- both for the capability's saves and
+    for the eager fallback (the .txt metadata is written once, on first
+    save, and must not be re-seeded on resume)."""
+    capture = {"loaded_history": ["old1", "old2", "old3"]}
+
+    output = await _drive_invocation(
+        capture,
+        RuntimeError("guest run exploded"),
+        session_id="existing-session",
+    )
+
+    assert output.error is not None
+    cap = _capability_from(capture)
+    assert cap.session_id == "existing-session"
+    assert cap.baseline_count == 3
+    assert cap.initial_prompt is None
+    # Guest failure -> eager fallback keeps the same resumed-session custody.
+    capture["partial"].assert_called_once_with(
+        agent_config=capture["agent_config"],
+        session_id="existing-session",
+        agent_name="test-agent",
+        baseline_count=3,
+        initial_prompt=None,
+    )
 
 
 @pytest.mark.asyncio
