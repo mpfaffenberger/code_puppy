@@ -24,6 +24,7 @@ from code_puppy.agents._output_limits import (
     build_response_clamp,
     build_tool_output_limits,
 )
+from code_puppy.agents._resolved_model import ResolvedModel
 from code_puppy.agents._steer_processor import make_steer_history_processor
 from code_puppy.agents.event_stream_handler import event_stream_handler
 from code_puppy.callbacks import (
@@ -639,10 +640,14 @@ def build_pydantic_agent(
     history_processor = make_history_processor(agent)
     steer_processor = make_steer_history_processor(agent)
     logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
+    # One shared instance across the probe and final construction passes:
+    # the capability is a static snapshot (default ``for_run`` returns
+    # ``self``) and carries no id, so sharing is safe and mirrors the single
+    # model resolution above.
+    resolved_model = ResolvedModel(model)
 
     def _new_pydantic_agent(toolsets: List[Any]) -> PydanticAgent:
         return PydanticAgent(
-            model=model,
             # Explicit name: without it pydantic-ai infers one from the
             # caller's frame variables, so observability spans read
             # "invoke_agent pydantic_agent" instead of the logical agent name.
@@ -660,7 +665,11 @@ def build_pydantic_agent(
             # hook (after_tool_execute), so its position is inert; the
             # response clamp runs before_model_request after both history
             # processors. The plugin transform wraps the final model request.
+            # ResolvedModel is a configuration seam (get_model), not a
+            # request hook, so its position is inert too; it replaces the
+            # former ``model=`` constructor kwarg.
             capabilities=[
+                resolved_model,
                 *build_tool_output_limits(),
                 ProcessHistory(history_processor),
                 ProcessHistory(steer_processor),
