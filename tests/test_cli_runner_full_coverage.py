@@ -82,9 +82,6 @@ def _base_main_patches():
 def _interactive_patches():
     return {
         "code_puppy.cli_runner.print_truecolor_warning": MagicMock(),
-        "code_puppy.cli_runner.get_cancel_agent_display_name": MagicMock(
-            return_value="Ctrl+C"
-        ),
         "code_puppy.cli_runner.reset_windows_terminal_ansi": MagicMock(),
         "code_puppy.cli_runner.reset_windows_terminal_full": MagicMock(),
         "code_puppy.cli_runner.save_command_to_history": MagicMock(),
@@ -640,7 +637,9 @@ class TestInteractiveMode:
         )
 
     @pytest.mark.anyio
-    async def test_startup_instructions_describe_editor_shortcuts(self):
+    async def test_startup_shows_single_press_tab_line(self):
+        """Startup used to dump ~12 tip lines; now it's one pointer to the
+        Tab overlay. That content moved, it isn't gone."""
         emit_system_message = MagicMock()
 
         await _run_interactive(
@@ -653,18 +652,14 @@ class TestInteractiveMode:
         )
 
         messages = [call.args[0] for call in emit_system_message.call_args_list]
-        assert any("newline: Shift+Enter" in message for message in messages)
-        assert any(
-            "Ctrl+X Ctrl+E to open $EDITOR (Notepad on Windows)" in message
-            for message in messages
+        assert any("Tab" in message for message in messages), messages
+        # The old per-topic tip lines must be gone from startup output.
+        assert not any("newline: Shift+Enter" in message for message in messages)
+        assert not any(
+            "Ctrl+X Ctrl+E to open $EDITOR" in message for message in messages
         )
-        assert any(
-            "Ctrl+X Ctrl+B to background running shell commands" in message
-            for message in messages
-        )
-        assert any(
-            "Ctrl+X Ctrl+X to kill running shell commands" in message
-            for message in messages
+        assert not any(
+            "Type /help to view all commands" in message for message in messages
         )
 
     @pytest.mark.anyio

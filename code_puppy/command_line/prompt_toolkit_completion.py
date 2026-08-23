@@ -715,6 +715,27 @@ def pop_non_ctrl_c_cancel() -> bool:
     return was
 
 
+def _handle_tab_key(buffer) -> None:
+    """Tab: help overlay on an empty buffer, else complete/cycle.
+
+    Split out from the ``handle_tab_completion`` key-binding closure so it's
+    directly unit-testable (a bound ``@bindings.add`` closure inside
+    ``get_input_with_combined_completion`` can't be called in isolation).
+    """
+    if not buffer.text:
+        from prompt_toolkit.application import run_in_terminal
+
+        from code_puppy.command_line.help_overlay import show_help_overlay
+
+        # run_in_terminal properly suspends this Application's rendering
+        # before handing the terminal to the nested help overlay, then
+        # restores it afterward (same pattern as the ask_user_question
+        # TUI's Tab-triggered "peek behind" -- see tui_loop.py).
+        run_in_terminal(show_help_overlay, in_executor=True)
+        return
+    _complete_or_cycle(buffer)
+
+
 async def get_input_with_combined_completion(
     prompt_str=">>> ", history_file: Optional[str] = None
 ) -> str:
@@ -837,11 +858,13 @@ async def get_input_with_combined_completion(
         else:
             buffer.validate_and_handle()
 
-    # Tab: finish an unambiguous completion in one press. For multiple
-    # candidates, retain prompt_toolkit's familiar select/cycle behavior.
+    # Tab: on an empty buffer, toggle the help overlay instead of completing
+    # (nothing to complete against anyway). Otherwise, finish an unambiguous
+    # completion in one press; for multiple candidates, retain
+    # prompt_toolkit's familiar select/cycle behavior. See _handle_tab_key.
     @bindings.add(Keys.Tab, eager=True)
     def handle_tab_completion(event):
-        _complete_or_cycle(event.app.current_buffer)
+        _handle_tab_key(event.app.current_buffer)
 
     # Backspace/Delete: complete_while_typing only fires on insertion, so the
     # menu vanishes on backspace. Restart completion after a delete and let
