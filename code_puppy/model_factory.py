@@ -155,6 +155,7 @@ def _thinking_tags_profile(
         profile_kwargs.update(
             openai_responses_supports_reasoning_mode=True,
             openai_responses_supports_reasoning_context=True,
+            openai_supports_encrypted_reasoning_content=True,
         )
 
     return OpenAIModelProfile(**profile_kwargs) if profile_kwargs else None

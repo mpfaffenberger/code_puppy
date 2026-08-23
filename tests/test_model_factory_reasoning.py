@@ -46,3 +46,4 @@ def test_gpt56_alias_profile_enables_reasoning_fields():
     assert profile is not None
     assert profile["openai_responses_supports_reasoning_mode"] is True
     assert profile["openai_responses_supports_reasoning_context"] is True
+    assert profile["openai_supports_encrypted_reasoning_content"] is True
