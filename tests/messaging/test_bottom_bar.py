@@ -575,6 +575,65 @@ def test_popup_slack_reclaimed_one_row_per_output(bar, tty):
     assert written(tty) == ""
 
 
+def test_suspend_resume_preserves_popup_slack(bar, tty):
+    """A same-geometry suspend/resume (TUI menu in the alt screen) must
+    NOT shed pending popup slack: dropping it shrinks the reserved band
+    and re-parks the transcript cursor below where output actually
+    ended, scrolling a slack-sized blank gap into the transcript on
+    every /model-style picker run."""
+    bar.start()
+    bar.set_prompt_text("> ", "hi", 2)
+    bar.set_popup_lines(["/one", "/two"], selected=0)
+    bar.set_popup_lines([])  # close -> slack 2, prompt parked at 22
+    drain(tty)
+    with bar.suspended():
+        pass  # picker ran in the alt screen; primary untouched
+    out = written(tty)
+    # Region comes back at the SLACK-INCLUSIVE size (1..20, not 1..22):
+    # transcript cursor parks adjacent to where output left off.
+    assert "\x1b[1;20r" in out
+    assert "\x1b[22;1H\x1b[2K> hi" in out  # prompt still at 22
+    assert "\x1b[1;22r" not in out
+    drain(tty)
+    bar.notify_transcript_output()  # lazy reclaim still walks it down
+    out = written(tty)
+    assert "\x1b[1;21r" in out
+
+
+def test_resize_during_suspend_sheds_popup_slack(tty):
+    """Geometry changed while suspended: row positions are invalid, so
+    the resume rebuild sheds the slack like any other re-establish."""
+    size = [(80, 24)]
+    bar = BottomBar(stream=tty, get_size=lambda: size[0])
+    bar.start()
+    bar.set_prompt_text("> ", "hi", 2)
+    bar.set_popup_lines(["/one", "/two"], selected=0)
+    bar.set_popup_lines([])  # close -> slack 2
+    drain(tty)
+    with bar.suspended():
+        size[0] = (80, 30)  # terminal resized under the menu
+    out = written(tty)
+    assert "\x1b[1;28r" in out  # slack-free region at the new height
+    drain(tty)
+    bar.notify_transcript_output()  # no slack left: no writes at all
+    assert written(tty) == ""
+
+
+def test_stop_start_cycle_sheds_popup_slack(bar, tty):
+    """A full stop/start (not a suspend) is a fresh screen: stale slack
+    from the previous life must not inflate the new reserved band."""
+    bar.start()
+    bar.set_prompt_text("> ", "hi", 2)
+    bar.set_popup_lines(["/one", "/two"], selected=0)
+    bar.set_popup_lines([])  # close -> slack 2
+    bar.stop()
+    drain(tty)
+    bar.start()
+    out = written(tty)
+    assert "\x1b[1;22r" in out  # base region, no slack rows reserved
+    assert "\x1b[1;20r" not in out
+
+
 def test_popup_reopen_reuses_slack_without_scrolling(bar, tty):
     """Reopening the menu while slack is pending reuses the reserved
     rows: no region change, no fresh scroll-up."""

@@ -374,7 +374,7 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
             with self._lock:
                 self._suspend_depth -= 1
                 if self._suspend_depth == 0 and self._active:
-                    self._establish()
+                    self._establish(preserve_slack=True)
 
     # =========================================================================
     # Geometry / resize
@@ -444,15 +444,29 @@ class BottomBar(TranscriptGuardMixin, BarPainterMixin):
     # Region establish / teardown
     # =========================================================================
 
-    def _establish(self) -> None:
-        """Set the scroll region, park the cursor inside it, paint rows."""
+    def _establish(self, preserve_slack: bool = False) -> None:
+        """Set the scroll region, park the cursor inside it, paint rows.
+
+        ``preserve_slack``: keep pending popup slack (the lazy-reclaim
+        gap below the prompt) across the rebuild. Only the suspend-exit
+        path passes True — the primary screen came back byte-identical
+        from the alt screen, so the slack rows are still physically
+        blank under the transcript. Dropping them there shrinks the
+        reserved band and re-parks the transcript cursor BELOW where
+        output actually ended, scrolling a slack-sized blank gap into
+        the transcript on every menu run. Honored only while the
+        geometry is unchanged; a resize invalidates row positions and
+        sheds the slack like any other rebuild.
+        """
         cols, rows = self._safe_size()
         old_rows = self._rows
         old_reserved = self._reserved if self._region_up else 0
+        size_changed = (cols, rows) != (self._cols, self._rows)
         self._cols, self._rows = cols, rows
-        # Full rebuild = fresh geometry: leftover popup slack (the
-        # lazy-reclaim gap below the prompt) is meaningless here.
-        self._popup_slack = 0
+        if not preserve_slack or size_changed:
+            # Full rebuild = fresh geometry: leftover popup slack is
+            # meaningless here.
+            self._popup_slack = 0
         reserved = self._total_reserved()
         if rows < reserved + 1:
             # Terminal too small for a region + reserved rows; if one was
