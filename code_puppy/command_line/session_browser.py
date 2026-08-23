@@ -386,6 +386,11 @@ class SessionBrowser:
 
     def _frame(self) -> List[str]:
         width, height = self._size()
+        # One column of right padding: writing the terminal's last column
+        # arms xterm's deferred wrap, and the trailing clear-to-EOL then
+        # erases the final character ('tok' -> 'to'). Same contract as
+        # termflow >= 0.5.1 Menu/TextInput frames.
+        width = max(20, width - 1)
         frame = [self._header_line(width), ""]
         list_width = self._list_width()
         body_width = max(20, width - list_width - 3)

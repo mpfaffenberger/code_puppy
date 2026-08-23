@@ -802,6 +802,26 @@ class TestSessionBrowser:
             for line in frame.replace("\x1b[J", "").split("\r\n"):
                 yield line.replace("\x1b[K", "")
 
+    def test_lines_stay_one_column_short_of_the_edge(self):
+        # Full-width paints arm xterm's deferred wrap and the trailing
+        # clear-to-EOL eats the last char ('tok' -> 'to'). Contract:
+        # one column of right padding, always.
+        from termflow.ansi.utils import visible_length
+
+        output = StringIO()
+        script = iter(["enter", "escape", "escape"])
+        browser = build_session_browser(
+            entries=self._hostile_entries(),
+            base_dir=Path("/fake"),
+            key_source=lambda: next(script),
+            output=output,
+            size=lambda: (80, 20),
+            use_alt_screen=False,
+        )
+        browser.run()
+        for line in self._frame_lines(output.getvalue()):
+            assert visible_length(line) <= 79
+
     def test_no_line_ever_exceeds_terminal_width(self):
         from termflow.ansi.utils import visible_length
 
