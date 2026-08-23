@@ -7,8 +7,6 @@ and invokes handlers directly to cover the closure bodies.
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 
 def _make_event():
     event = MagicMock()
@@ -48,125 +46,6 @@ def _run_coro(coro):
         pass
     finally:
         loop.close()
-
-
-# ============================================================
-# colors_menu.py - lines 262-338
-# ============================================================
-
-
-def test_colors_menu_keybindings():
-    from prompt_toolkit.formatted_text import ANSI
-    from prompt_toolkit.layout.controls import FormattedTextControl as RealFTC
-
-    from code_puppy.command_line.colors_menu import _split_panel_selector
-
-    choices = ["Red", "Blue", "───", "Green"]
-    on_change = MagicMock()
-    get_preview = MagicMock(return_value=ANSI("preview"))
-
-    captured_lambdas = []
-    real_ftc = RealFTC
-
-    def capture_ftc(*args, **kwargs):
-        # Capture lambda text generators
-        if args and callable(args[0]):
-            captured_lambdas.append(args[0])
-        return real_ftc(*args, **kwargs)
-
-    with (
-        patch("code_puppy.command_line.colors_menu.Application") as mock_app_cls,
-        patch(
-            "code_puppy.command_line.colors_menu.FormattedTextControl",
-            side_effect=capture_ftc,
-        ),
-    ):
-        mock_app = AsyncMock()
-        mock_app_cls.return_value = mock_app
-
-        async def run_and_capture():
-            kb = _extract_kb(mock_app_cls)
-            if kb:
-                _fire(kb, {"up", "down", "c-m", "c-c"})
-            # Call the captured lambdas to cover inner rendering functions
-            for fn in captured_lambdas:
-                try:
-                    fn()
-                except Exception:
-                    pass
-
-        mock_app.run_async = run_and_capture
-        _run_coro(
-            _split_panel_selector("Test", choices, on_change, get_preview=get_preview)
-        )
-
-
-# ============================================================
-# diff_menu.py - lines 565-569, 620
-# ============================================================
-
-
-def test_diff_menu_keybindings():
-    from prompt_toolkit.formatted_text import ANSI
-
-    from code_puppy.command_line.diff_menu import (
-        DiffConfiguration,
-        _split_panel_selector,
-    )
-
-    choices = ["Python", "JavaScript"]
-    on_change = MagicMock()
-    get_preview = MagicMock(return_value=ANSI("preview"))
-    config = DiffConfiguration()
-
-    with patch("code_puppy.command_line.diff_menu.Application") as mock_app_cls:
-        mock_app = AsyncMock()
-        mock_app_cls.return_value = mock_app
-
-        async def run_and_capture():
-            kb = _extract_kb(mock_app_cls)
-            if kb:
-                _fire(kb, {"up", "down", "left", "right", "c-m"})
-
-        mock_app.run_async = run_and_capture
-        _run_coro(
-            _split_panel_selector(
-                "Test", choices, on_change, get_preview=get_preview, config=config
-            )
-        )
-
-
-def test_diff_menu_cancel():
-    from prompt_toolkit.formatted_text import ANSI
-
-    from code_puppy.command_line.diff_menu import (
-        DiffConfiguration,
-        _split_panel_selector,
-    )
-
-    choices = ["Python"]
-    on_change = MagicMock()
-    get_preview = MagicMock(return_value=ANSI("preview"))
-    config = DiffConfiguration()
-
-    with patch("code_puppy.command_line.diff_menu.Application") as mock_app_cls:
-        mock_app = AsyncMock()
-        mock_app_cls.return_value = mock_app
-
-        async def run_and_cancel():
-            kb = _extract_kb(mock_app_cls)
-            if kb:
-                _fire(kb, {"c-c"})
-
-        mock_app.run_async = run_and_cancel
-
-        async def run_test():
-            with pytest.raises(KeyboardInterrupt):
-                await _split_panel_selector(
-                    "Test", choices, on_change, get_preview=get_preview, config=config
-                )
-
-        _run_coro(run_test())
 
 
 # ============================================================

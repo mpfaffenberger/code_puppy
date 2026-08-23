@@ -941,7 +941,6 @@ class TestCommandRegistry:
             ("plan", "core"),
             ("dump_context", "session"),
             ("load_context", "session"),
-            ("diff", "config"),
         ],
     )
     def test_categorized_command_registered(self, name, category):

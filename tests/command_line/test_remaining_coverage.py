@@ -7,9 +7,7 @@ Covers remaining uncovered lines across:
 - prompt_toolkit_completion.py (unicode fallback, __main__, keybindings)
 - command_handler.py (MarkdownCommandResult import fallback)
 - pin_command_completion.py (empty partial_model branch)
-- diff_menu.py (keybinding handlers)
 - config_commands.py (various branches)
-- colors_menu.py (keybinding handlers, preview functions)
 - add_model_menu.py (keybinding handlers)
 - model_settings_menu.py (keybinding handlers)
 - autosave_menu.py (keybinding handlers)
@@ -20,7 +18,7 @@ Covers remaining uncovered lines across:
 import importlib
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, mock_open, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 
 def test_clipboard_binary_content_import_failure():
@@ -167,48 +165,6 @@ def test_core_commands_shlex_fallback():
     with patch("code_puppy.command_line.core_commands.emit_error"):
         result = handle_cd_command("/cd 'unclosed")
         assert result is True
-
-
-def test_diff_menu_enter_empty_choices():
-    """Cover diff_menu line 568: enter handler when choices is empty."""
-    import asyncio
-
-    from prompt_toolkit.formatted_text import ANSI
-
-    from code_puppy.command_line.diff_menu import _split_panel_selector
-
-    on_change = MagicMock()
-    get_preview = MagicMock(return_value=ANSI("preview"))
-
-    with patch("code_puppy.command_line.diff_menu.Application") as mock_app_cls:
-        mock_app = AsyncMock()
-        mock_app_cls.return_value = mock_app
-
-        async def run_and_fire():
-            call = mock_app_cls.call_args
-            kb = call.kwargs.get("key_bindings") if call else None
-            if kb:
-                event = MagicMock()
-                for b in kb.bindings:
-                    for k in b.keys:
-                        kv = k.value if hasattr(k, "value") else str(k)
-                        if kv == "c-m":  # enter
-                            try:
-                                b.handler(event)
-                            except Exception:
-                                pass
-
-        mock_app.run_async = run_and_fire
-
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(
-                _split_panel_selector("Test", [], on_change, get_preview=get_preview)
-            )
-        except (Exception, KeyboardInterrupt):
-            pass
-        finally:
-            loop.close()
 
 
 def test_file_path_completion_permission_error():

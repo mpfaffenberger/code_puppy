@@ -212,7 +212,6 @@ def _modes_section() -> HelpSection:
             HelpEntry("YOLO mode", "/set yolo_mode on -- skip confirmation prompts"),
             HelpEntry("!<command>", "Run a shell command directly (e.g. !git status)"),
             HelpEntry("/autosave_load", "Resume a previous autosave session"),
-            HelpEntry("/diff", "Configure diff highlighting colors"),
             HelpEntry("/tutorial", "Re-run the onboarding tutorial"),
         ],
     )
