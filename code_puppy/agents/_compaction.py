@@ -331,13 +331,22 @@ def make_history_processor(agent: Any) -> Callable[..., Any]:
         existing_hashes = {hash_message(m) for m in history}
         messages_added = 0
         last_idx = len(messages) - 1
+        # pydantic-ai hands us the history it knows about plus this turn's new
+        # prompt, so being handed more messages than we hold means the last one
+        # is genuinely new. Its hash can still collide: hashes are
+        # timestamp-independent, so a repeated short prompt like "yes" or "1"
+        # hashes identically to the earlier one. Treating that as a duplicate
+        # drops the turn, and the trailing-ModelResponse pop below then removes
+        # the preceding assistant answer too.
+        has_new_turn = len(messages) > len(history)
         for i, msg in enumerate(messages):
             h = hash_message(msg)
-            if h in existing_hashes:
+            is_new_turn = i == last_idx and has_new_turn
+            if h in existing_hashes and not is_new_turn:
                 continue
             # Always keep the newest message even on hash collision — short
             # prompts like "yes"/"1" can collide and get silently dropped.
-            if i == last_idx or h not in compacted_hashes:
+            if is_new_turn or h not in compacted_hashes:
                 history.append(msg)
                 messages_added += 1
 
