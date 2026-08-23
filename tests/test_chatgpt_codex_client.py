@@ -180,6 +180,21 @@ class TestInjectCodexFields:
         assert result is not None
         data = json.loads(result)
         assert "reasoning" in data
+        assert data["reasoning"] == {
+            "effort": "medium",
+            "summary": "auto",
+        }
+
+    def test_preserve_explicit_reasoning_summary(self):
+        body = json.dumps(
+            {
+                "model": "gpt-5",
+                "reasoning": {"effort": "low", "summary": "auto"},
+            }
+        ).encode()
+        result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
+        data = json.loads(result)
+        assert data["reasoning"] == {"effort": "low", "summary": "auto"}
 
     def test_no_reasoning_for_gpt4(self):
         """Test that reasoning is NOT added for GPT-4 models."""

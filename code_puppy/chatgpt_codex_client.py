@@ -153,7 +153,7 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
             forced_stream = True  # Only convert if WE forced streaming
             modified = True
 
-        # Add reasoning settings for reasoning models (gpt-5.2, o-series, etc.)
+        # Add the default reasoning settings for supported reasoning models.
         model = data.get("model", "")
         if "reasoning" not in data and _is_reasoning_model(model):
             data["reasoning"] = {
