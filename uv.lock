@@ -451,6 +451,7 @@ durable = [
 [package.dev-dependencies]
 dev = [
     { name = "pexpect" },
+    { name = "pyte" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -497,6 +498,7 @@ provides-extras = ["bedrock", "durable", "computer-use"]
 [package.metadata.requires-dev]
 dev = [
     { name = "pexpect", specifier = ">=4.9.0" },
+    { name = "pyte", specifier = ">=0.8.2" },
     { name = "pytest", specifier = ">=8.3.4" },
     { name = "pytest-asyncio", specifier = ">=0.23.1" },
     { name = "pytest-cov", specifier = ">=6.1.1" },
@@ -2081,6 +2083,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ba/b5/b27010d2f288737f627f74be6d5549f49c841542365c84b9a3011fe39ce7/pyobjc_framework_quartz-12.2.1-cp313-cp313t-macosx_10_13_universal2.whl", hash = "sha256:bfc0d2badd819823d21df8069dcf9544ce360ed747a8895c51bdb25d8d125f45", size = 224458, upload-time = "2026-06-19T16:16:07.252Z" },
     { url = "https://files.pythonhosted.org/packages/8b/5d/85ffd9d433989205d572a50d625c63b29c05e0c5235a725f15ae1023672c/pyobjc_framework_quartz-12.2.1-cp314-cp314-macosx_10_15_universal2.whl", hash = "sha256:ceb56939c337b36d9d81185ade31f77dc52c85cf79bb16e53e9b32f54b6bb3f5", size = 219769, upload-time = "2026-06-19T16:16:08.814Z" },
     { url = "https://files.pythonhosted.org/packages/e2/d6/b917e4b63d72ea84a27121076f3033f23f6497c0e6ce8d304766c899897f/pyobjc_framework_quartz-12.2.1-cp314-cp314t-macosx_10_15_universal2.whl", hash = "sha256:8105c98b798f2bf81c05c54bddeeadbf62f0b5dfec13bd6e719dd2cdf7e1cddf", size = 224717, upload-time = "2026-06-19T16:16:10.215Z" },
+]
+
+[[package]]
+name = "pyte"
+version = "0.8.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "wcwidth" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ab/ab/b599762933eba04de7dc5b31ae083112a6c9a9db15b01d3109ad797559d9/pyte-0.8.2.tar.gz", hash = "sha256:5af970e843fa96a97149d64e170c984721f20e52227a2f57f0a54207f08f083f", size = 92301, upload-time = "2023-11-12T09:33:43.217Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/59/d0/bb522283b90853afbf506cd5b71c650cf708829914efd0003d615cf426cd/pyte-0.8.2-py3-none-any.whl", hash = "sha256:85db42a35798a5aafa96ac4d8da78b090b2c933248819157fc0e6f78876a0135", size = 31627, upload-time = "2023-11-12T09:33:41.096Z" },
 ]
 
 [[package]]
