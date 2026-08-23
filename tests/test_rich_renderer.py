@@ -27,7 +27,7 @@ tools_pkg.__path__ = [str(TOOLS_PATH)]
 sys.modules.setdefault("code_puppy.tools", tools_pkg)
 
 common_stub = types.ModuleType("code_puppy.tools.common")
-common_stub.format_diff_with_colors = lambda diff_text: diff_text
+common_stub.stream_diff_ansi_lines = lambda diff_text: iter(diff_text.split("\n"))
 sys.modules.setdefault("code_puppy.tools.common", common_stub)
 
 from code_puppy.messaging import rich_renderer as rich_renderer_module  # noqa: E402
@@ -119,14 +119,14 @@ def test_render_status_panel_and_divider() -> None:
     assert rule_arg.characters == "═"
 
 
-def test_render_diff_uses_formatter(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_render_diff_streams_through_termflow(monkeypatch: pytest.MonkeyPatch) -> None:
     renderer, console = _make_renderer()
     renderer._get_banner_color = Mock(return_value="blue")
 
     monkeypatch.setattr(
         rich_renderer_module,
-        "format_diff_with_colors",
-        lambda diff_text: f"FORMATTED:{diff_text}",
+        "stream_diff_ansi_lines",
+        lambda diff_text: iter([f"FORMATTED:{line}" for line in diff_text.split("\n")]),
     )
 
     message = DiffMessage(
@@ -142,9 +142,9 @@ def test_render_diff_uses_formatter(monkeypatch: pytest.MonkeyPatch) -> None:
     renderer._render_diff(message)
 
     printed = "".join(
-        call.args[0]
+        call.args[0].plain if isinstance(call.args[0], Text) else call.args[0]
         for call in console.print.call_args_list
-        if isinstance(call.args[0], str)
+        if isinstance(call.args[0], (str, Text))
     )
     assert "FORMATTED:" in printed
 

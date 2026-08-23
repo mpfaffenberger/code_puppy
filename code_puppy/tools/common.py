@@ -8,7 +8,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Callable, Optional, Tuple
+from typing import Callable, Iterator, Optional, Tuple
 
 from prompt_toolkit import Application
 from prompt_toolkit.formatted_text import FormattedText
@@ -20,6 +20,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.text import Text
+
+# Diff rendering is owned by termflow; this module only adapts it to
+# Code Puppy's config colors, theme hooks, and Rich consoles.
+from termflow.diff import DiffRenderer, DiffStream, DiffTheme
+from termflow.diff import brighten_hex as brighten_hex  # re-export (public API)
+from termflow.syntax import Highlighter as TermflowHighlighter
+
 from code_puppy.callbacks import on_prompt_toolkit_style
 from code_puppy.tools.file_permission_state import set_diff_already_shown
 
@@ -148,15 +155,6 @@ def resolve_path(file_path: str) -> str:
         return os.path.abspath(expanded)
     return os.path.abspath(os.path.join(get_working_directory(), expanded))
 
-
-# Syntax highlighting imports for "syntax" diff mode
-try:
-    from pygments.lexers import TextLexer, get_lexer_by_name
-    from pygments.token import Token
-
-    PYGMENTS_AVAILABLE = True
-except ImportError:
-    PYGMENTS_AVAILABLE = False
 
 # Import our queue-based console system
 try:
@@ -622,281 +620,53 @@ def should_ignore_dir_path(path: str) -> bool:
 
 
 # ============================================================================
-# SYNTAX HIGHLIGHTING FOR DIFFS ("syntax" mode)
+# DIFF RENDERING (owned and operated by termflow; adapters only)
 # ============================================================================
 
-# Monokai color scheme - because we have taste 🎨
-TOKEN_COLORS = (
-    {
-        Token.Keyword: "#f92672" if PYGMENTS_AVAILABLE else "magenta",
-        Token.Name.Builtin: "#66d9ef" if PYGMENTS_AVAILABLE else "cyan",
-        Token.Name.Function: "#a6e22e" if PYGMENTS_AVAILABLE else "green",
-        Token.String: "#e6db74" if PYGMENTS_AVAILABLE else "yellow",
-        Token.Number: "#ae81ff" if PYGMENTS_AVAILABLE else "magenta",
-        Token.Comment: "#75715e" if PYGMENTS_AVAILABLE else "bright_black",
-        Token.Operator: "#f92672" if PYGMENTS_AVAILABLE else "magenta",
-    }
-    if PYGMENTS_AVAILABLE
-    else {}
-)
 
-EXTENSION_TO_LEXER_NAME = {
-    ".py": "python",
-    ".js": "javascript",
-    ".jsx": "jsx",
-    ".ts": "typescript",
-    ".tsx": "tsx",
-    ".java": "java",
-    ".c": "c",
-    ".h": "c",
-    ".cpp": "cpp",
-    ".hpp": "cpp",
-    ".cc": "cpp",
-    ".cxx": "cpp",
-    ".cs": "csharp",
-    ".rs": "rust",
-    ".go": "go",
-    ".rb": "ruby",
-    ".php": "php",
-    ".html": "html",
-    ".htm": "html",
-    ".css": "css",
-    ".scss": "scss",
-    ".json": "json",
-    ".yaml": "yaml",
-    ".yml": "yaml",
-    ".md": "markdown",
-    ".sh": "bash",
-    ".bash": "bash",
-    ".sql": "sql",
-    ".txt": "text",
-}
+def _termflow_diff_renderer(
+    addition_color: str | None = None,
+    deletion_color: str | None = None,
+) -> DiffRenderer:
+    """Build termflow's diff renderer wired to Code Puppy's theming.
 
-
-def _get_lexer_for_extension(extension: str):
-    """Get the appropriate Pygments lexer for a file extension.
-
-    Args:
-        extension: File extension (with or without leading dot)
-
-    Returns:
-        A Pygments lexer instance or None if Pygments not available
+    The highlighter flows through the ``termflow_highlighter`` callback so
+    themed highlighters (including their ``diff_line_tints``) keep working;
+    colors default to the user's configured diff preferences.
     """
-    if not PYGMENTS_AVAILABLE:
-        return None
-
-    # Normalize extension to have leading dot and be lowercase
-    if not extension.startswith("."):
-        extension = f".{extension}"
-    extension = extension.lower()
-
-    lexer_name = EXTENSION_TO_LEXER_NAME.get(extension, "text")
-
-    try:
-        return get_lexer_by_name(lexer_name)
-    except Exception:
-        # Fallback to plain text if lexer not found
-        return TextLexer()
-
-
-def _get_token_color(token_type) -> str:
-    """Get color for a token type from our Monokai scheme.
-
-    Args:
-        token_type: Pygments token type
-
-    Returns:
-        Hex color string or color name
-    """
-    if not PYGMENTS_AVAILABLE:
-        return "#cccccc"
-
-    for ttype, color in TOKEN_COLORS.items():
-        if token_type in ttype:
-            return color
-    return "#cccccc"  # Default light-grey for unmatched tokens
-
-
-def _highlight_code_line(
-    code: str, bg_color: str | None, lexer, line_type: str = "context"
-) -> Text:
-    """Highlight code using TermFlow's theme-aware highlighter."""
-    if not PYGMENTS_AVAILABLE or lexer is None:
-        return Text(code, style=f"on {bg_color}" if bg_color else None)
-
     from code_puppy.callbacks import on_termflow_highlighter
-    from termflow.syntax import Highlighter
+    from code_puppy.config import (
+        get_diff_addition_color,
+        get_diff_deletion_color,
+    )
 
-    highlighter = on_termflow_highlighter(Highlighter())
-    language = (getattr(lexer, "aliases", None) or ["text"])[0]
-    text = Text.from_ansi(highlighter.highlight_line(code, language))
-
-    # Themes may provide subtle per-diff-line RGB shifts. Keeping this metadata
-    # on the themed highlighter avoids hard-coding theme knowledge in tools.
-    tint = getattr(highlighter, "diff_line_tints", {}).get(line_type)
-    if tint:
-        from rich.style import Style
-        from rich.text import Span
-
-        for index, span in enumerate(text.spans):
-            style = span.style
-            color = getattr(style, "color", None)
-            triplet = color.get_truecolor() if color else None
-            if triplet:
-                shifted = tuple(
-                    max(0, min(255, channel + delta))
-                    for channel, delta in zip(triplet, tint, strict=True)
-                )
-                text.spans[index] = Span(
-                    span.start, span.end, style + Style(color=f"rgb{shifted}")
-                )
-
-    if bg_color:
-        # Applying only a background preserves each token's themed foreground.
-        text.stylize(f"on {bg_color}")
-    return text
+    theme = DiffTheme(
+        addition=addition_color or get_diff_addition_color(),
+        deletion=deletion_color or get_diff_deletion_color(),
+    )
+    highlighter = on_termflow_highlighter(TermflowHighlighter())
+    return DiffRenderer(highlighter=highlighter, theme=theme)
 
 
-def _extract_file_extension_from_diff(diff_text: str) -> str:
-    """Extract file extension from diff headers.
-
-    Args:
-        diff_text: Unified diff text
-
-    Returns:
-        File extension (e.g., '.py') or '.txt' as fallback
-    """
-    import re
-
-    # Look for +++ b/filename.ext or --- a/filename.ext headers
-    pattern = r"^(?:\+\+\+|---) [ab]/.*?(\.[a-zA-Z0-9]+)$"
-
-    for line in diff_text.split("\n")[:10]:  # Check first 10 lines
-        match = re.search(pattern, line)
-        if match:
-            return match.group(1)
-
-    return ".txt"  # Fallback to plain text
-
-
-# ============================================================================
-# COLOR PAIR OPTIMIZATION (for "highlighted" mode)
-# ============================================================================
-
-
-def brighten_hex(hex_color: str, factor: float) -> str:
-    """
-    Darken a hex color by multiplying each RGB channel by `factor`.
-    factor=1.0 -> no change
-    factor=0.0 -> black
-    factor=0.18 -> good for diff backgrounds (recommended)
-    """
-    hex_color = hex_color.lstrip("#")
-    if len(hex_color) != 6:
-        raise ValueError(f"Expected #RRGGBB, got {hex_color!r}")
-
-    r = int(hex_color[0:2], 16)
-    g = int(hex_color[2:4], 16)
-    b = int(hex_color[4:6], 16)
-
-    r = max(0, min(255, int(r * (1 + factor))))
-    g = max(0, min(255, int(g * (1 + factor))))
-    b = max(0, min(255, int(b * (1 + factor))))
-
-    return f"#{r:02x}{g:02x}{b:02x}"
-
-
-def _format_diff_with_syntax_highlighting(
+def stream_diff_ansi_lines(
     diff_text: str,
     addition_color: str | None = None,
     deletion_color: str | None = None,
-) -> Text:
-    """Format a diff with theme-aware syntax highlighting via TermFlow.
+) -> Iterator[str]:
+    """Yield rendered ANSI diff lines incrementally via termflow's DiffStream.
 
-    This renders diffs with:
-    - Theme-aware syntax highlighting for code tokens
-    - Colored backgrounds for context/added/removed lines
-    - Optional custom colors for additions/deletions
-
-    Args:
-        diff_text: Raw unified diff text
-        addition_color: Optional custom color for added lines (default: green)
-        deletion_color: Optional custom color for deleted lines (default: red)
-
-    Returns:
-        Rich Text object with syntax highlighting (can be passed to emit_info)
+    Consumers can paint large diffs progressively instead of blocking on a
+    fully rendered block. Yielded lines carry no trailing newline; headers
+    are skipped (the banner already names the file).
     """
-    if not PYGMENTS_AVAILABLE:
-        return Text(diff_text)
-
-    # Extract file extension from diff headers
-    extension = _extract_file_extension_from_diff(diff_text)
-    lexer = _get_lexer_for_extension(extension)
-
-    # Generate background colors from foreground colors
-    add_fg = brighten_hex(addition_color, 0.6)
-    del_fg = brighten_hex(deletion_color, 0.6)
-
-    # Background colors for different line types
-    # Context lines have no background (None) for clean, minimal diffs
-    bg_colors = {
-        "removed": deletion_color,
-        "added": addition_color,
-        "context": None,  # No background for unchanged lines
-    }
-
-    lines = diff_text.split("\n")
-    # Remove trailing empty line if it exists (from trailing \n in diff)
-    if lines and lines[-1] == "":
-        lines = lines[:-1]
-    result = Text()
-
-    for i, line in enumerate(lines):
-        if not line:
-            # Empty line - just add a newline if not the last line
-            if i < len(lines) - 1:
-                result.append("\n")
-            continue
-
-        # Skip diff headers - they're redundant noise since we show the filename in the banner
-        if line.startswith(("---", "+++", "@@", "diff ", "index ")):
-            continue
-        else:
-            # Determine line type and extract code content
-            if line.startswith("-"):
-                line_type = "removed"
-                code = line[1:]  # Remove the '-' prefix
-                marker_style = f"bold {del_fg} on {bg_colors[line_type]}"
-                prefix = "- "
-            elif line.startswith("+"):
-                line_type = "added"
-                code = line[1:]  # Remove the '+' prefix
-                marker_style = f"bold {add_fg} on {bg_colors[line_type]}"
-                prefix = "+ "
-            else:
-                line_type = "context"
-                code = line[1:] if line.startswith(" ") else line
-                # Context lines have no background - clean and minimal
-                marker_style = ""  # No special styling for context markers
-                prefix = "  "
-
-            # Add the marker prefix
-            if marker_style:  # Only apply style if we have one
-                result.append(prefix, style=marker_style)
-            else:
-                result.append(prefix)
-
-            # Add syntax-highlighted code
-            highlighted = _highlight_code_line(
-                code, bg_colors[line_type], lexer, line_type
-            )
-            result.append_text(highlighted)
-
-        # Add newline after each line except the last
-        if i < len(lines) - 1:
-            result.append("\n")
-
-    return result
+    stream = DiffStream(_termflow_diff_renderer(addition_color, deletion_color))
+    for raw_line in diff_text.splitlines(keepends=True):
+        rendered = stream.feed(raw_line)
+        if rendered:
+            yield rendered.rstrip("\n")
+    tail = stream.close()
+    if tail:
+        yield tail
 
 
 def format_diff_with_colors(
@@ -904,10 +674,12 @@ def format_diff_with_colors(
     addition_color: str | None = None,
     deletion_color: str | None = None,
 ) -> Text:
-    """Format diff text with beautiful syntax highlighting.
+    """Format diff text with termflow's theme-aware diff renderer.
 
-    This is the canonical diff formatting function used across the codebase.
-    It applies user-configurable colors and TermFlow's theme-aware syntax highlighting.
+    This is the canonical block-mode diff formatting function used across
+    the codebase. Parsing, syntax highlighting, backgrounds, and theme
+    tints are all termflow's job; this adapter only supplies Code Puppy's
+    configured colors and converts the ANSI result to Rich Text.
 
     Colors default to the effective theme-aware/user-configured preferences.
     Callers rendering a preview may pass colors directly, avoiding config
@@ -921,29 +693,11 @@ def format_diff_with_colors(
     Returns:
         Rich Text object with syntax highlighting
     """
-    from code_puppy.config import (
-        get_diff_addition_color,
-        get_diff_deletion_color,
-    )
-
     if not diff_text or not diff_text.strip():
         return Text("-- no diff available --", style="dim")
 
-    addition_base_color = addition_color or get_diff_addition_color()
-    deletion_base_color = deletion_color or get_diff_deletion_color()
-
-    # Always use beautiful syntax highlighting!
-    if not PYGMENTS_AVAILABLE:
-        emit_warning("Pygments not available, diffs will look plain")
-        # Return plain text as fallback
-        return Text(diff_text)
-
-    # Return Text object with custom colors - emit_info handles this correctly
-    return _format_diff_with_syntax_highlighting(
-        diff_text,
-        addition_color=addition_base_color,
-        deletion_color=deletion_base_color,
-    )
+    renderer = _termflow_diff_renderer(addition_color, deletion_color)
+    return Text.from_ansi(renderer.render(diff_text))
 
 
 def _format_selector(
