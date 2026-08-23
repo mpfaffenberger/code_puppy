@@ -1,17 +1,12 @@
 """Content assembly for the Tab-toggled help overlay (see help_overlay.py).
 
-This module is an ASSEMBLER, not a new source of truth: it pulls content
-from the registries/callbacks that already exist (command registry, plugin
-callbacks, agent manager) plus a handful of static, curated sections for
-things that have no dynamic registry of their own (keybindings, input
-modes). Deliberately NOT a new command-registration framework -- see
-PUP-352's PLAN.md for why.
+An assembler, not a source of truth: content comes from the existing
+command registry and plugin callbacks, plus static sections for things
+with no registry of their own (keybindings, input modes).
 
-Deliberately NOT documented here: environment variables, and any setting
-reachable only as an argument to a command (e.g. a specific ``/set <key>``).
-Those are second-layer detail -- the goal of this cheat sheet is a
-discoverable first layer of *commands* (``/set`` itself, not every key it
-accepts); most commands are self-explanatory once you're inside them.
+Scope is deliberately the first layer -- commands themselves, not their
+arguments. ``/set`` gets a row; its individual config keys and the
+environment variables behind them do not.
 """
 
 from __future__ import annotations
@@ -45,25 +40,18 @@ _CATEGORY_TITLES: Dict[str, str] = {
     "tools": "Tool Commands",
 }
 
-#: Registry category folded into the callback-sourced plugin section (see
-#: _builtin_command_sections / _plugin_command_section) rather than getting
-#: its own titled section -- installed plugins that register commands via
-#: category="plugin" would otherwise render a bare "PLUGIN" heading sitting
-#: directly above "Plugin / Private Commands", two near-identical adjacent
-#: headings being exactly the confusion PUP-352 exists to remove (confirmed
-#: live against the private fork's installed plugin set).
+#: Folded into the callback-sourced "Plugin / Private Commands" section
+#: rather than getting its own, which would render a bare "PLUGIN" heading
+#: directly above it.
 _PLUGIN_REGISTRY_CATEGORY = "plugin"
 
 
 def _normalize_custom_command_entries() -> List[Tuple[str, str]]:
     """Flatten the several return shapes ``on_custom_command_help()`` allows.
 
-    Mirrors (and slightly hardens -- always strips a leading "/" so a
-    slash-prefixed name can never produce a "//name" label) the tolerant
-    parsing already done ad hoc in ``command_handler.get_commands_help()``
-    and ``SlashCompleter.get_completions()`` -- kept local and small rather
-    than unifying all three call sites, which would widen this ticket's
-    diff well beyond startup/help UX (see PLAN.md non-goals).
+    Mirrors the tolerant parsing in ``command_handler.get_commands_help()``
+    and ``SlashCompleter.get_completions()``, and additionally strips a
+    leading "/" so a slash-prefixed name can't render as "//name".
     """
     entries: List[Tuple[str, str]] = []
     try:
@@ -108,13 +96,9 @@ def _strip_leading_slash(name) -> str:
 def _builtin_command_sections() -> Tuple[List[HelpSection], List[HelpEntry]]:
     """Group registered commands into titled sections.
 
-    Returns ``(sections, plugin_category_entries)`` -- commands registered
-    with ``category="plugin"`` are pulled out separately rather than given
-    their own titled section, so the caller can fold them into the same
-    "Plugin / Private Commands" section that ``_plugin_command_section()``
-    builds from ``on_custom_command_help()`` (see ``_PLUGIN_REGISTRY_CATEGORY``
-    docstring for why: two near-identical adjacent headings is exactly the
-    confusion PUP-352 exists to remove).
+    Returns ``(sections, plugin_category_entries)``. Commands registered
+    with ``category="plugin"`` come back separately so the caller can merge
+    them into the single section built by ``_plugin_command_section()``.
     """
     from code_puppy.command_line.command_registry import get_unique_commands
 
@@ -152,12 +136,10 @@ def _builtin_command_sections() -> Tuple[List[HelpSection], List[HelpEntry]]:
 def _plugin_command_section(
     builtin_plugin_entries: List[HelpEntry],
 ) -> List[HelpSection]:
-    """One merged section for BOTH plugin-command sources.
+    """One merged section for both plugin-command sources.
 
     Combines callback-advertised commands (``on_custom_command_help()``)
-    with any registry commands filed under ``category="plugin"`` --
-    deliberately one section, not two, even though they come from two
-    different registries (see ``_builtin_command_sections()``).
+    with registry commands filed under ``category="plugin"``.
     """
     callback_entries = _normalize_custom_command_entries()
     callback_rows = [HelpEntry(f"/{name}", desc) for name, desc in callback_entries]
@@ -180,11 +162,8 @@ def _keybinding_section() -> HelpSection:
             "Clear input if composing; cancel task if empty",
         ),
     ]
-    # cancel_key defaults to "Ctrl+C" everywhere; only show a second row when
-    # it's been remapped (e.g. to Ctrl+K) -- plain Ctrl+C independently keeps
-    # its own "clear the line" meaning even then, which is worth surfacing,
-    # but showing it unconditionally would just re-create the exact
-    # same-label-twice confusion this replaces (see PUP-352 review notes).
+    # Only meaningful once the cancel key has been remapped: plain Ctrl+C
+    # keeps its own separate clear-the-line behavior in that case.
     if cancel_key != "Ctrl+C":
         entries.append(HelpEntry("Ctrl+C", "Clear the current input buffer"))
     entries.append(
@@ -215,11 +194,9 @@ def _keybinding_section() -> HelpSection:
             ),
         ]
     )
-    # Ctrl+K is normally "kill to end of line" (line_editor.py), but when
-    # it's the configured cancel key it's fully intercepted before reaching
-    # the editor and kill-to-EOL becomes unreachable -- showing both
-    # meanings would recreate the exact Ctrl+C double-meaning bug this
-    # section was just fixed for (see PUP-352 puppy-review validation).
+    # Ctrl+K is kill-to-end-of-line (line_editor.py), but when it's the
+    # configured cancel key it never reaches the editor, so documenting
+    # that binding would be a lie.
     if cancel_key != "Ctrl+K":
         entries.append(
             HelpEntry("Ctrl+K", "Kill (delete) from the cursor to the end of the line")
@@ -269,20 +246,13 @@ _SECTION_ORDER: Tuple[str, ...] = (
 def build_help_sections() -> List[HelpSection]:
     """Assemble every section shown in the Tab-toggled help overlay.
 
-    Sections are built independently, then sorted into the fixed
-    ``_SECTION_ORDER`` above -- a curated display order, not a reflection
-    of build order or importance. Any section whose title isn't in that
-    tuple (e.g. an unexpected new command category) sorts after the named
-    ones rather than vanishing or raising -- ``list.sort`` is stable, so
-    unranked sections keep their relative build order among themselves.
+    Sections are sorted into ``_SECTION_ORDER``, a curated display order.
+    Titles missing from that tuple (e.g. a new command category) sort to
+    the end rather than vanishing or raising.
 
-    Note: agent-switching is documented via the ``/agent`` entry that
-    ``_builtin_command_sections()`` already surfaces from the core command
-    registry (usage \"/agent <name>, /a <name>\", aliases included) --
-    deliberately NOT a separate per-agent listing here. A full roster of
-    every installed agent belongs to ``/agent`` itself (it already prints
-    one when run with no argument), not to a cheat sheet whose job is
-    pointing at the *command*, not duplicating its live output.
+    Agent switching is covered by the ``/agent`` row the command registry
+    already provides; listing every installed agent here would duplicate
+    what ``/agent`` prints on its own.
     """
     sections: List[HelpSection] = []
     builtin_sections, builtin_plugin_entries = _builtin_command_sections()

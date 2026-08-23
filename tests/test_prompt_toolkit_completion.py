@@ -798,18 +798,18 @@ def test_handle_tab_key_on_empty_buffer_opens_help_overlay_not_completion():
     mock_run_in_terminal.assert_called_once()
     args, kwargs = mock_run_in_terminal.call_args
     assert kwargs.get("in_executor") is True
-    # The callable handed to run_in_terminal is show_help_overlay itself,
-    # not an already-invoked call -- run_in_terminal owns the invocation.
+    # The callable is passed, not invoked -- run_in_terminal owns the call.
     from code_puppy.command_line.help_overlay import show_help_overlay
 
     assert args[0] is show_help_overlay
 
 
 def test_handle_tab_key_on_whitespace_only_buffer_completes_normally():
-    """A lone space is a non-empty buffer -- must not open the overlay
-    (only a truly empty buffer does). Pre-populates complete_state (like
-    _buffer_with_completions) so _complete_or_cycle doesn't need a live
-    event loop to start a fresh completion."""
+    """A lone space is non-empty; only a truly empty buffer opens help.
+
+    complete_state is pre-populated so _complete_or_cycle doesn't need a
+    live event loop to start a fresh completion.
+    """
     buffer = Buffer(document=Document(" ", cursor_position=1))
     buffer.complete_state = CompletionState(
         buffer.document, [Completion("help", start_position=0)]

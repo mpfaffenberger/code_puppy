@@ -1,7 +1,7 @@
-"""Tab-on-empty-buffer wiring for the help overlay (PUP-352).
+"""Tab-on-empty-buffer wiring for the help overlay.
 
-Covers the raw-terminal editor path (``RunningLineEditor``). The
-prompt_toolkit fallback path's equivalent branch is covered in
+Covers the raw-terminal editor path (``RunningLineEditor``); the
+prompt_toolkit path's equivalent branch lives in
 ``tests/test_prompt_toolkit_completion.py``.
 """
 
@@ -52,9 +52,7 @@ def test_tab_on_nonempty_buffer_invokes_completion_not_help_handler():
 
 
 def test_tab_on_empty_buffer_without_handler_falls_back_to_completion():
-    """No handler installed (e.g. headless/test contexts) -- Tab on an
-    empty buffer must never crash, and should behave exactly as before
-    this feature: hand off to completion."""
+    """No handler installed (headless/test contexts) must not crash."""
     editor, completion = make_editor()
 
     editor.feed("\t")
@@ -63,8 +61,7 @@ def test_tab_on_empty_buffer_without_handler_falls_back_to_completion():
 
 
 def test_tab_on_whitespace_only_buffer_invokes_completion_not_help_handler():
-    """A lone space is a non-empty buffer -- must not trigger the overlay
-    (only a truly empty buffer does)."""
+    """A lone space is non-empty; only a truly empty buffer opens help."""
     editor, completion = make_editor()
     handler_calls = []
     editor.set_help_overlay_handler(lambda: handler_calls.append(1))

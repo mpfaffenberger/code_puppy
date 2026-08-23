@@ -1,6 +1,8 @@
-"""Tests for the fullscreen help overlay renderer/launcher (PUP-352)."""
+"""Tests for the fullscreen help overlay renderer/launcher."""
 
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from code_puppy.command_line import help_overlay
 from code_puppy.command_line.help_catalog import HelpEntry, HelpSection
@@ -22,16 +24,13 @@ def _sections():
     ]
 
 
-def test_column_width_scales_with_longest_label_but_is_capped():
-    sections = [
-        HelpSection("S", [HelpEntry("x" * 200, "desc")]),
-    ]
-    assert _column_width(sections) == 60
-
-
-def test_column_width_has_a_sane_floor():
-    sections = [HelpSection("S", [HelpEntry("x", "desc")])]
-    assert _column_width(sections) == 12
+@pytest.mark.parametrize(
+    "label_len, expected",
+    [(200, 60), (1, 12)],  # capped for absurd labels, floored for tiny ones
+)
+def test_column_width_is_clamped_between_a_floor_and_a_cap(label_len, expected):
+    sections = [HelpSection("S", [HelpEntry("x" * label_len, "desc")])]
+    assert _column_width(sections) == expected
 
 
 def test_render_sheet_text_includes_every_section_title_and_entry():
@@ -60,7 +59,7 @@ def test_build_application_does_not_crash_and_wires_close_keys():
     assert app.full_screen is True
     bindings = app.key_bindings.bindings
     bound_keys = {tuple(b.keys) for b in bindings}
-    # "tab" normalizes to Ctrl-I and "escape" to Keys.Escape under the hood.
+    # "tab" normalizes to Ctrl-I and "escape" to Keys.Escape.
     assert (Keys.ControlI,) in bound_keys
     assert (Keys.Escape,) in bound_keys
     assert ("q",) in bound_keys
@@ -68,11 +67,10 @@ def test_build_application_does_not_crash_and_wires_close_keys():
 
 
 def test_show_help_overlay_builds_sections_and_runs_the_application():
-    # AsyncMock, not a plain Mock: show_help_overlay does
-    # asyncio.run(_run_help_overlay_async(sections)), which requires a real
-    # coroutine. A plain Mock's return value (None) would make asyncio.run
-    # raise -- silently swallowed by show_help_overlay's own broad except,
-    # letting the test pass without ever proving the launch path works.
+    # AsyncMock, not Mock: the launch path calls asyncio.run() on the
+    # result, and a plain Mock's None return would raise inside
+    # show_help_overlay's own except -- passing the test without ever
+    # exercising the launch.
     with (
         patch(
             "code_puppy.command_line.help_overlay.build_help_sections",
@@ -89,18 +87,9 @@ def test_show_help_overlay_builds_sections_and_runs_the_application():
     mock_run.assert_awaited_once_with(_sections())
 
 
-def test_show_help_overlay_swallows_exceptions_never_crashes_the_repl():
-    with patch(
-        "code_puppy.command_line.help_overlay.build_help_sections",
-        side_effect=RuntimeError("boom"),
-    ):
-        show_help_overlay()  # must not raise
-
-
 def test_show_help_overlay_is_a_noop_while_already_running():
-    """Guards the launch race: two Tab presses in quick succession (key
-    repeat, a fast double-tap, a pasted double-tab) must not spin up a
-    second competing fullscreen Application on top of the first."""
+    """Two Tab presses in quick succession must not spin up a second
+    fullscreen Application on top of the first."""
     acquired = help_overlay._launch_lock.acquire(blocking=False)
     assert acquired, "test setup: lock should have been free"
     try:
@@ -142,6 +131,7 @@ def test_show_help_overlay_releases_the_lock_after_a_normal_run():
 
 
 def test_show_help_overlay_releases_the_lock_even_if_catalog_build_fails():
+    """Also proves a raising catalog build never propagates out to the REPL."""
     with patch(
         "code_puppy.command_line.help_overlay.build_help_sections",
         side_effect=RuntimeError("boom"),

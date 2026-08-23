@@ -103,13 +103,9 @@ async def test_persistent_ctrl_d_quits(monkeypatch, renderer):
 
 @pytest.mark.asyncio
 async def test_startup_tab_hint_is_a_bold_text_object(monkeypatch, renderer):
-    """The 'Press Tab for help' startup line must render bold.
-
-    The SYSTEM message renderer escapes Rich markup in plain strings before
-    printing, so embedding bold markup directly in the i18n string would
-    show up as literal brackets on screen. The line must be a
-    rich.text.Text instance with style='bold' instead, which bypasses that
-    string-escaping branch.
+    """The SYSTEM renderer escapes Rich markup in plain strings, so bold
+    markup inside the i18n string would print as literal brackets. Only a
+    Text object with style='bold' bypasses that branch.
     """
     from rich.text import Text
 

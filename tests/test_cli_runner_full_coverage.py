@@ -638,9 +638,8 @@ class TestInteractiveMode:
 
     @pytest.mark.anyio
     async def test_startup_shows_single_press_tab_line(self):
-        """Startup used to dump ~12 how-to tip lines; now it's one pointer
-        to the Tab-toggled help overlay (see help_catalog.py for the full
-        content inventory -- that content moved, it isn't gone)."""
+        """Startup used to dump ~12 tip lines; now it's one pointer to the
+        Tab overlay. That content moved, it isn't gone."""
         emit_system_message = MagicMock()
 
         await _run_interactive(

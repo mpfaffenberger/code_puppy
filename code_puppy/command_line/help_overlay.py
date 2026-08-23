@@ -1,21 +1,9 @@
-"""Fullscreen, vi/vim-cheat-sheet-style help overlay.
+"""Fullscreen, vi-cheat-sheet-style help overlay.
 
-Opened on Tab when the input buffer is empty (see ``line_editor.py`` and
-``prompt_toolkit_completion.py`` -- both REPL input paths wire into
-``show_help_overlay()`` below). Closes itself on a second Tab, Esc, or q --
-there is no persistent "is help open?" state living outside this module,
-so the two input paths never need to agree on shared toggle state.
-
-A module-level lock guards against a *launch* race: the raw-terminal path
-(``line_editor.py``) hops from the key-listener thread through
-``asyncio.run_coroutine_threadsafe`` and an executor before this function
-ever runs, so two Tab presses in quick succession (key repeat, a fast
-double-tap, or a pasted ``\\t\\t``) can both get scheduled before the first
-overlay has actually started reading the terminal. Without the lock that
-races two fullscreen ``Application``s for the same stdin/stdout. Once the
-first overlay is actually running it owns the terminal and its own Tab/Esc/
-q bindings close it normally -- the lock only needs to cover that narrow
-launch window.
+Opened on Tab when the input buffer is empty; both REPL input paths
+(``line_editor.py`` and ``prompt_toolkit_completion.py``) call
+``show_help_overlay()``. It closes on Tab, Esc, or q, so no "is help open?"
+state lives outside this module for the two paths to keep in sync.
 """
 
 from __future__ import annotations
@@ -43,7 +31,6 @@ def _column_width(sections: list) -> int:
     for section in sections:
         for entry in section.entries:
             widest = max(widest, len(entry.left))
-    # Keep it sane even if some plugin registers a novel-length label.
     return min(max(widest, 12), 60)
 
 
@@ -76,8 +63,7 @@ def _build_application(sections: list) -> Application:
     def _close(event) -> None:
         event.app.exit()
 
-    # Vi-style nav on top of TextArea's default cursor-movement bindings
-    # (arrows / PageUp / PageDown / Home / End already work out of the box).
+    # TextArea already handles arrows / PageUp / PageDown / Home / End.
     @kb.add("j")
     def _down(event) -> None:
         event.current_buffer.cursor_down()
@@ -128,19 +114,18 @@ _launch_lock = threading.Lock()
 
 
 def show_help_overlay() -> None:
-    """Show the fullscreen help overlay and block until the user closes it.
+    """Show the fullscreen help overlay, blocking until the user closes it.
 
-    Safe to call from any synchronous context (the raw line editor's
-    key-listener thread, or a prompt_toolkit key binding handler) -- runs
-    its own event loop on a worker thread, same house pattern as the other
-    menus (see e.g. ``config_commands.py``'s ``interactive_*_picker`` calls).
+    Safe to call from any synchronous context -- the raw editor's
+    key-listener thread or a prompt_toolkit key binding -- since it runs
+    its own event loop on a worker thread.
 
-    A non-blocking lock acquire makes a concurrent launch attempt (see the
-    module docstring's "launch race" note) a silent no-op instead of a
-    second competing fullscreen ``Application``. There is no timeout on
-    ``future.result()`` -- this is a modal dialog the user closes on their
-    own schedule, and killing it after an arbitrary duration would be a
-    worse experience than just waiting for a real close key.
+    The lock guards a launch race: the raw-terminal path hops through
+    ``run_coroutine_threadsafe`` and an executor before arriving here, so
+    two fast Tab presses can both be scheduled before the first overlay
+    owns the terminal. A losing caller becomes a no-op rather than a second
+    ``Application`` fighting for the same stdin. ``future.result()`` is
+    deliberately untimed -- the user closes this on their own schedule.
     """
     if not _launch_lock.acquire(blocking=False):
         return
@@ -148,8 +133,7 @@ def show_help_overlay() -> None:
         try:
             sections: list[HelpSection] = build_help_sections()
         except Exception:
-            # A busted plugin's help text should never crash the REPL --
-            # worst case, Tab silently does nothing instead of opening.
+            # A broken plugin's help text must not take the Tab key down.
             return
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(
