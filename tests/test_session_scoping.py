@@ -483,66 +483,33 @@ class TestAutosaveMenuCtrlTToggle:
     ``tests/command_line/test_tui_keybindings.py``.
     """
 
-    async def test_ctrl_t_filters_out_non_matching_scope_key(self):
+    def test_ctrl_t_filters_out_non_matching_scope_key(self):
+        from io import StringIO
+
+        from code_puppy.command_line.autosave_menu import build_resume_menu
+
         entries = [
             ("local", {"scope_key": "the-current-folder"}),
             ("other", {"scope_key": "some-other-folder"}),
-            ("legacy", {}),  # no scope_key at all -- must never false-match
+            ("legacy", {}),
         ]
-
-        with (
-            patch(
-                "code_puppy.command_line.autosave_menu._get_session_entries",
-                return_value=entries,
-            ),
-            patch(
-                "code_puppy.command_line.autosave_menu.compute_scope_key",
-                return_value="the-current-folder",
-            ),
-            patch("code_puppy.command_line.autosave_menu.Application") as mock_app_cls,
-            patch("code_puppy.command_line.autosave_menu.set_awaiting_user_input"),
-            patch("sys.stdout"),
+        script = iter(["ctrl-t", "escape"])
+        with patch(
+            "code_puppy.command_line.autosave_menu.compute_scope_key",
+            return_value="the-current-folder",
         ):
-            mock_app = AsyncMock()
-            mock_app_cls.return_value = mock_app
-
-            captured_visible = {}
-
-            async def run_and_capture():
-                kb = _extract_kb(mock_app_cls)
-                assert kb is not None
-                # Toggle scope filter on.
-                _fire(kb, {"c-t"})
-                # Read back the closure's visible_entries via the menu
-                # control's rendered text (indirect, but avoids reaching
-                # into the function's internals).
-                layout = mock_app_cls.call_args.kwargs.get("layout")
-                captured_visible["layout"] = layout
-                # Cancel out of the picker loop.
-                event = _make_event()
-                for b in kb.bindings:
-                    for k in b.keys:
-                        kv = k.value if hasattr(k, "value") else str(k)
-                        if kv == "c-c":
-                            b.handler(event)
-
-            mock_app.run_async = run_and_capture
-
-            from code_puppy.command_line.autosave_menu import (
-                interactive_autosave_picker,
+            menu = build_resume_menu(
+                entries=entries,
+                base_dir=Path("/fake"),
+                key_source=lambda: next(script),
+                output=StringIO(),
+                size=lambda: (120, 30),
+                alt_screen=False,
             )
+            result = menu.run()
 
-            await interactive_autosave_picker()
-
-            # The mere fact that Ctrl+T fired without raising, and that the
-            # Application was constructed with a real KeyBindings object
-            # containing a c-t handler, confirms the toggle wiring exists
-            # and is reachable. (Exercising the private _apply_scope
-            # closure end-to-end -- filtering "local" in and "other"/
-            # "legacy" out -- is covered indirectly since a raise here
-            # would fail this test via the try/except-free assertion
-            # above.)
-            assert mock_app_cls.called
+        assert result.cancelled
+        assert [item.value for item in menu._items] == ["local"]
 
 
 # ---------------------------------------------------------------------------

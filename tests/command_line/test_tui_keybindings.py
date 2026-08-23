@@ -397,64 +397,6 @@ def test_agent_menu_keybindings():
 # ============================================================
 
 
-def test_autosave_menu_keybindings():
-    from code_puppy.command_line.autosave_menu import interactive_autosave_picker
-
-    # Create enough entries for multiple pages
-    entries = [
-        (
-            f"session{i}",
-            {"timestamp": f"2024-01-{i + 1:02d}T12:00:00", "messages": i * 10},
-        )
-        for i in range(25)
-    ]
-    fake_history = [
-        {"role": "user", "content": "msg1"},
-        {"role": "assistant", "content": "msg2"},
-    ]
-    with (
-        patch(
-            "code_puppy.command_line.autosave_menu._get_session_entries",
-            return_value=entries,
-        ),
-        patch("code_puppy.command_line.autosave_menu.Application") as mock_app_cls,
-        patch("code_puppy.command_line.autosave_menu.set_awaiting_user_input"),
-        patch(
-            "code_puppy.command_line.autosave_menu.load_session",
-            return_value=fake_history,
-        ),
-        patch("sys.stdout"),
-        patch("asyncio.sleep", new_callable=AsyncMock),
-    ):
-        mock_app = AsyncMock()
-        mock_app_cls.return_value = mock_app
-
-        async def run_and_capture():
-            kb = _extract_kb(mock_app_cls)
-            if kb:
-                # Navigate pages first
-                _fire(kb, {"down"})  # 0->1
-                _fire(kb, {"up"})  # 1->0
-                _fire(kb, {"right"})  # page 0->1
-                _fire(kb, {"left"})  # page 1->0
-                # Enter browse mode
-                _fire(kb, {"e"})
-                # Now browse_mode[0] is True - navigate messages
-                _fire(kb, {"c-p"})  # older message (browse mode up)
-                _fire(kb, {"c-n"})  # newer message (browse mode down)
-                # Exit browse mode with q
-                _fire(kb, {"q"})
-                # Re-enter browse mode
-                _fire(kb, {"e"})
-                # Exit with escape (while in browse mode)
-                _fire(kb, {"escape"})
-                # Escape in normal mode -> cancel
-                _fire(kb, {"escape"})
-
-        mock_app.run_async = run_and_capture
-        _run_coro(interactive_autosave_picker())
-
-
 # ============================================================
 # uc_menu.py - lines 674-754
 # ============================================================

@@ -12,7 +12,6 @@ from code_puppy.command_line.autosave_menu import (
     _extract_message_content,
     _get_session_entries,
     _get_session_metadata,
-    _render_menu_panel,
     _render_message_browser_panel,
     _render_preview_panel,
     interactive_autosave_picker,
@@ -372,31 +371,6 @@ class TestInteractiveAutosavePicker:
         assert result is None
 
 
-class TestRenderMenuPanel:
-    """Test the _render_menu_panel function."""
-
-    def test_handles_invalid_timestamps(self):
-        """Test handling of invalid timestamps in display."""
-        entries = [
-            ("session_1", {"message_count": 5, "timestamp": "invalid-date"}),
-            ("session_2", {"message_count": 3}),  # No timestamp
-        ]
-
-        result = _render_menu_panel(entries, 0, 0)
-        lines_str = str(result)
-
-        assert "unknown time" in lines_str
-
-    def test_renders_no_sessions_message(self):
-        """Test rendering when no sessions are available."""
-        result = _render_menu_panel([], 0, 0)
-
-        # Check for no sessions message
-        lines_str = str(result)
-        assert "No autosave sessions found" in lines_str
-        assert "(1/1)" in lines_str
-
-
 class TestRenderMessageBrowserPanel:
     """Test the _render_message_browser_panel function."""
 
@@ -483,3 +457,66 @@ class TestRenderPreviewPanel:
 
         assert "No session selected" in lines_str
         assert "PREVIEW" in lines_str
+
+
+class TestTermflowResumeMenu:
+    def drive(self, entries, script, **patches):
+        from io import StringIO
+        from termflow.ansi.utils import visible
+        from code_puppy.command_line.autosave_menu import build_resume_menu
+
+        output = StringIO()
+        menu = build_resume_menu(
+            entries=entries,
+            base_dir=Path("/fake"),
+            key_source=lambda: next(script),
+            output=output,
+            size=lambda: (120, 30),
+            alt_screen=False,
+            **patches,
+        )
+        return menu, menu.run(), visible(output.getvalue())
+
+    def test_select_and_cancel(self):
+        entries = [("one", {}), ("two", {})]
+        _, result, output = self.drive(entries, iter(["down", "enter"]))
+        assert result.item.value == "two"
+        assert "one" in output and "two" in output
+        _, result, _ = self.drive(entries, iter(["escape"]))
+        assert result.cancelled
+
+    @patch("code_puppy.command_line.autosave_menu.load_session")
+    def test_browse_navigation_and_escape_priority(self, loader):
+        loader.return_value = [
+            MockModelMessage("request", [MockMessagePart(content="old")]),
+            MockModelMessage("response", [MockMessagePart(content="new")]),
+        ]
+        menu, result, output = self.drive(
+            [("one", {})], iter(["e", "up", "down", "escape", "escape"])
+        )
+        assert result.cancelled
+        assert menu.resume_state["mode"] == "list"
+        assert "MESSAGE BROWSER" in output
+
+    def test_search_commit_and_search_escape_priority(self):
+        entries = [("alpha", {}), ("beta", {})]
+        menu, result, output = self.drive(entries, iter(["/", "b", "enter", "escape"]))
+        assert result.cancelled
+        assert [item.value for item in menu._items] == ["beta"]
+        assert "Filter: 'b'" in output
+        menu, result, _ = self.drive(entries, iter(["/", "a", "escape", "escape"]))
+        assert result.cancelled
+        assert menu.resume_state["search"] == ""
+
+    def test_scope_toggle_reslices_search_result(self):
+        with patch(
+            "code_puppy.command_line.autosave_menu.compute_scope_key",
+            return_value="here",
+        ):
+            menu, result, output = self.drive(
+                [("local", {"scope_key": "here"}), ("remote", {"scope_key": "there"})],
+                iter(["ctrl-t", "escape"]),
+            )
+        assert result.cancelled
+        assert [item.value for item in menu._items] == ["local"]
+        assert "this folder only" in output
