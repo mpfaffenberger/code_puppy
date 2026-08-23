@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from prompt_toolkit.buffer import Buffer, CompletionState
-from prompt_toolkit.completion import Completion
+from prompt_toolkit.completion import Completion, ThreadedCompleter
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.keys import Keys
@@ -604,10 +604,9 @@ async def test_get_input_with_combined_completion_defaults(
     result = await get_input_with_combined_completion()
 
     mock_prompt_session_cls.assert_called_once()
-    assert (
-        mock_prompt_session_cls.call_args[1]["completer"]
-        == mock_merge_completers.return_value
-    )
+    threaded = mock_prompt_session_cls.call_args[1]["completer"]
+    assert isinstance(threaded, ThreadedCompleter)
+    assert threaded.completer == mock_merge_completers.return_value
     assert mock_prompt_session_cls.call_args[1]["history"] is None
     assert mock_prompt_session_cls.call_args[1]["complete_while_typing"] is True
     assert "key_bindings" in mock_prompt_session_cls.call_args[1]

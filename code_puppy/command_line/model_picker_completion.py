@@ -11,6 +11,7 @@ from termflow.tui import MenuBuilder, MenuItem
 from termflow.tui.menu import MenuResult
 
 from code_puppy.callbacks import on_prompt_toolkit_style
+from code_puppy.command_line.completion_cache import TTLCache
 from code_puppy.command_line.menu_session import menu_session
 from code_puppy.command_line.tui_style import themed
 from code_puppy.command_line.utils import safe_input
@@ -27,12 +28,18 @@ from code_puppy.provider_credentials import (
 logger = logging.getLogger(__name__)
 
 MODEL_PICKER_PAGE_SIZE = 15
+_models_config_cache: TTLCache[dict] = TTLCache()
 
 
-def _load_models_config() -> dict:
+def _read_models_config() -> dict:
     from code_puppy.model_factory import ModelFactory
 
     return ModelFactory.load_config()
+
+
+def _load_models_config() -> dict:
+    """Return the merged model config, refreshing it after a short TTL."""
+    return _models_config_cache.get(_read_models_config)
 
 
 def load_model_names():

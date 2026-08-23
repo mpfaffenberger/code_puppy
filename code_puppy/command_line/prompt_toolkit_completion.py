@@ -8,10 +8,16 @@
 import asyncio
 import os
 import sys
+import threading
 from typing import Optional
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import Completer, Completion, merge_completers
+from prompt_toolkit.completion import (
+    Completer,
+    Completion,
+    ThreadedCompleter,
+    merge_completers,
+)
 from prompt_toolkit.filters import is_searching
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
@@ -31,6 +37,7 @@ from code_puppy.command_line.clipboard import (
     capture_clipboard_image_to_pending,
 )
 from code_puppy.command_line.command_registry import get_unique_commands
+from code_puppy.command_line.completion_cache import TTLCache
 from code_puppy.command_line.file_path_completion import FilePathCompleter
 from code_puppy.command_line.load_context_completion import LoadContextCompleter
 from code_puppy.command_line.mcp_completion import MCPCompleter
@@ -106,6 +113,10 @@ class SafeFileHistory(FileHistory):
             sys.stderr.write(f"Warning: Could not save to command history: {e}\n")
 
 
+_config_keys_cache: TTLCache[tuple[object, list[str]]] = TTLCache()
+_slash_catalog_cache: TTLCache[list[dict[str, str]]] = TTLCache()
+
+
 class SetCompleter(Completer):
     def __init__(self, trigger: str = "/set"):
         self.trigger = trigger
@@ -151,7 +162,14 @@ class SetCompleter(Completer):
         # Per-model controls belong exclusively to /model_settings.
         from code_puppy.command_line.config_apply import MODEL_SETTINGS_ONLY_KEYS
 
-        config_keys = sorted(get_config_keys())
+        cached_getter, config_keys = _config_keys_cache.get(
+            lambda: (get_config_keys, sorted(get_config_keys()))
+        )
+        if cached_getter is not get_config_keys:
+            _config_keys_cache.clear()
+            _, config_keys = _config_keys_cache.get(
+                lambda: (get_config_keys, sorted(get_config_keys()))
+            )
 
         for key in config_keys:
             if key in {"model", "puppy_token"} | MODEL_SETTINGS_ONLY_KEYS:
@@ -407,6 +425,38 @@ class AgentCompleter(Completer):
                 )
 
 
+def _read_slash_catalog() -> list[dict[str, str]]:
+    """Load registered and plugin command help without filtering or reordering."""
+    catalog = []
+    for cmd in get_unique_commands():
+        catalog.append(
+            {"text": cmd.name, "display": f"/{cmd.name}", "meta": cmd.description}
+        )
+        catalog.extend(
+            {
+                "text": alias,
+                "display": f"/{alias} (alias for /{cmd.name})",
+                "meta": cmd.description,
+            }
+            for alias in cmd.aliases
+        )
+    try:
+        from code_puppy import callbacks, plugins
+
+        plugins.load_plugin_callbacks()
+        for result in callbacks.on_custom_command_help():
+            items = result if isinstance(result, list) else [result]
+            for item in items:
+                if isinstance(item, tuple) and len(item) == 2:
+                    name, description = map(str, item)
+                    catalog.append(
+                        {"text": name, "display": f"/{name}", "meta": description}
+                    )
+    except Exception:
+        pass
+    return catalog
+
+
 class SlashCompleter(Completer):
     """
     A completer that triggers on '/' at the beginning of the line
@@ -426,87 +476,15 @@ class SlashCompleter(Completer):
         partial = stripped_text[1:]
         start_position = -len(partial)
 
-        # Load all available commands
         try:
-            commands = get_unique_commands()
+            catalog = _slash_catalog_cache.get(_read_slash_catalog)
         except Exception:
-            # If command loading fails, return no completions
             return
-
-        # Collect all primary commands and their aliases for proper alphabetical sorting
-        all_completions = []
-
-        # Convert partial to lowercase for case-insensitive matching
         partial_lower = partial.lower()
-
-        for cmd in commands:
-            # Add primary command (case-insensitive matching)
-            if cmd.name.lower().startswith(partial_lower):
-                all_completions.append(
-                    {
-                        "text": cmd.name,
-                        "display": f"/{cmd.name}",
-                        "meta": cmd.description,
-                        "sort_key": cmd.name.lower(),  # Case-insensitive sort
-                    }
-                )
-
-            # Add all aliases (case-insensitive matching)
-            for alias in cmd.aliases:
-                if alias.lower().startswith(partial_lower):
-                    all_completions.append(
-                        {
-                            "text": alias,
-                            "display": f"/{alias} (alias for /{cmd.name})",
-                            "meta": cmd.description,
-                            "sort_key": alias.lower(),  # Sort by alias name, not primary command
-                        }
-                    )
-
-        # Also include custom commands from plugins (like claude-code-auth)
-        try:
-            from code_puppy import callbacks, plugins
-
-            # Ensure plugins are loaded so custom commands are registered
-            plugins.load_plugin_callbacks()
-            custom_help_results = callbacks.on_custom_command_help()
-            for res in custom_help_results:
-                if not res:
-                    continue
-                # Format 1: List of tuples (command_name, description)
-                if isinstance(res, list):
-                    for item in res:
-                        if isinstance(item, tuple) and len(item) == 2:
-                            cmd_name = str(item[0])
-                            description = str(item[1])
-                            if cmd_name.lower().startswith(partial_lower):
-                                all_completions.append(
-                                    {
-                                        "text": cmd_name,
-                                        "display": f"/{cmd_name}",
-                                        "meta": description,
-                                        "sort_key": cmd_name.lower(),
-                                    }
-                                )
-                # Format 2: Single tuple (command_name, description)
-                elif isinstance(res, tuple) and len(res) == 2:
-                    cmd_name = str(res[0])
-                    description = str(res[1])
-                    if cmd_name.lower().startswith(partial_lower):
-                        all_completions.append(
-                            {
-                                "text": cmd_name,
-                                "display": f"/{cmd_name}",
-                                "meta": description,
-                                "sort_key": cmd_name.lower(),
-                            }
-                        )
-        except Exception:
-            # If custom command loading fails, continue with registered commands only
-            pass
-
-        # Sort all completions alphabetically
-        all_completions.sort(key=lambda x: x["sort_key"])
+        all_completions = [
+            item for item in catalog if item["text"].lower().startswith(partial_lower)
+        ]
+        all_completions.sort(key=lambda item: item["text"].lower())
 
         # Strip variation selectors (U+FE00-FE0F) from display strings: they
         # cause width mismatches → phantom spaces (e.g. in the /judges menu).
@@ -736,6 +714,31 @@ def _handle_tab_key(buffer) -> None:
     _complete_or_cycle(buffer)
 
 
+def _prewarm_completion_caches() -> None:
+    """Best-effort cache warmup; completion data must never block REPL startup."""
+
+    def warm() -> None:
+        try:
+            from code_puppy.command_line.model_picker_completion import (
+                _load_models_config,
+            )
+            from code_puppy.command_line.pin_command_completion import (
+                _get_agent_display_meta,
+                load_agent_names,
+            )
+
+            agents = load_agent_names()
+            for agent in agents:
+                _get_agent_display_meta(agent)
+            _load_models_config()
+            _config_keys_cache.get(lambda: (get_config_keys, sorted(get_config_keys())))
+            _slash_catalog_cache.get(_read_slash_catalog)
+        except Exception:
+            pass
+
+    threading.Thread(target=warm, name="completion-prewarm", daemon=True).start()
+
+
 async def get_input_with_combined_completion(
     prompt_str=">>> ", history_file: Optional[str] = None
 ) -> str:
@@ -744,28 +747,31 @@ async def get_input_with_combined_completion(
     # Build the base completer list, then bolt on any plugin completers.
     from code_puppy.callbacks import get_completion_providers
 
-    completer = merge_completers(
-        [
-            FilePathCompleter(symbol="@"),
-            ModelNameCompleter(trigger="/model"),
-            ModelNameCompleter(trigger="/m"),
-            CDCompleter(trigger="/cd"),
-            SetCompleter(trigger="/set"),
-            LoadContextCompleter(trigger="/load_context"),
-            PinCompleter(trigger="/pin_model"),
-            UnpinCompleter(trigger="/unpin"),
-            AgentCompleter(trigger="/agent"),
-            AgentCompleter(trigger="/a"),
-            AgentCompleter(trigger="/switch-agent"),
-            AgentCompleter(trigger="/sa"),
-            AgentCompleter(trigger="/fork", prefix="@"),
-            ModelNameCompleter(trigger="/fork", prefix="@"),
-            MCPCompleter(trigger="/mcp"),
-            SkillsCompleter(trigger="/skills"),
-            *get_completion_providers(),
-            SlashCompleter(),
-        ]
+    completer = ThreadedCompleter(
+        merge_completers(
+            [
+                FilePathCompleter(symbol="@"),
+                ModelNameCompleter(trigger="/model"),
+                ModelNameCompleter(trigger="/m"),
+                CDCompleter(trigger="/cd"),
+                SetCompleter(trigger="/set"),
+                LoadContextCompleter(trigger="/load_context"),
+                PinCompleter(trigger="/pin_model"),
+                UnpinCompleter(trigger="/unpin"),
+                AgentCompleter(trigger="/agent"),
+                AgentCompleter(trigger="/a"),
+                AgentCompleter(trigger="/switch-agent"),
+                AgentCompleter(trigger="/sa"),
+                AgentCompleter(trigger="/fork", prefix="@"),
+                ModelNameCompleter(trigger="/fork", prefix="@"),
+                MCPCompleter(trigger="/mcp"),
+                SkillsCompleter(trigger="/skills"),
+                *get_completion_providers(),
+                SlashCompleter(),
+            ]
+        )
     )
+    _prewarm_completion_caches()
     # Add custom key bindings and multiline toggle
     bindings = KeyBindings()
 
