@@ -298,10 +298,12 @@ class ChatGPTCodexAsyncClient(httpx.AsyncClient):
         # (empty when store=false) output with the collected output_item.done items.
         if final_response_data:
             response_body = dict(final_response_data)
-            existing_output = response_body.get("output") or []
-            if not existing_output and completed_output_items:
+            # The completed envelope may contain a partial output (for example,
+            # only the message). Prefer the complete output_item.done payloads,
+            # which preserve reasoning ids and encrypted_content for replay.
+            if completed_output_items:
                 response_body["output"] = completed_output_items
-            elif not existing_output:
+            else:
                 # No items captured either — fall back to text/tool deltas.
                 rebuilt: list[dict] = []
                 if collected_text:

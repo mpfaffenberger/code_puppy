@@ -341,6 +341,44 @@ class TestConvertStreamToResponse:
         assert body["output"][0]["call_id"] == "call_123"
 
     @pytest.mark.asyncio
+    async def test_preserve_complete_reasoning_output_over_partial_envelope(self):
+        """Retain encrypted reasoning when response.completed is incomplete."""
+        reasoning = {
+            "type": "reasoning",
+            "id": "rs_123",
+            "encrypted_content": "opaque-reasoning-token",
+            "summary": [],
+        }
+        message = {
+            "type": "message",
+            "id": "msg_123",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "Hello"}],
+        }
+        sse_lines = [
+            f'data: {json.dumps({"type": "response.output_item.done", "item": reasoning})}',
+            f'data: {json.dumps({"type": "response.output_item.done", "item": message})}',
+            f'data: {json.dumps({"type": "response.completed", "response": {"id": "resp_123", "output": [message]}})}',
+            "data: [DONE]",
+        ]
+
+        async def mock_aiter_lines():
+            for line in sse_lines:
+                yield line
+
+        mock_response = Mock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_response.aiter_lines = mock_aiter_lines
+        mock_response.request = Mock()
+
+        result = await ChatGPTCodexAsyncClient()._convert_stream_to_response(mock_response)
+        output = json.loads(result.content)["output"]
+
+        assert output == [reasoning, message]
+        assert output[0]["encrypted_content"] == "opaque-reasoning-token"
+
+    @pytest.mark.asyncio
     async def test_use_response_completed_data(self):
         """Test that response.completed event data is used when available."""
         final_response = {
