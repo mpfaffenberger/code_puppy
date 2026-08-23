@@ -466,12 +466,13 @@ class TestTermflowResumeMenu:
         from code_puppy.command_line.autosave_menu import build_resume_menu
 
         output = StringIO()
+        size = patches.pop("size", lambda: (120, 30))
         menu = build_resume_menu(
             entries=entries,
             base_dir=Path("/fake"),
             key_source=lambda: next(script),
             output=output,
-            size=lambda: (120, 30),
+            size=size,
             alt_screen=False,
             **patches,
         )
@@ -508,11 +509,23 @@ class TestTermflowResumeMenu:
 
         assert fg_color(ansi[12]) in output.getvalue()
 
+    def test_page_chrome_updates_after_paging(self):
+        entries = [(f"session-{index}", {}) for index in range(8)]
+        _, result, output = self.drive(
+            entries,
+            iter(["right", "escape"]),
+            size=lambda: (120, 10),
+        )
+        assert result.cancelled
+        assert "Page 1/2 (8 sessions)" in output
+        assert "Page 2/2 (8 sessions)" in output
+
     def test_select_and_cancel(self):
         entries = [("one", {}), ("two", {})]
         _, result, output = self.drive(entries, iter(["down", "enter"]))
         assert result.item.value == "two"
         assert "one" in output and "two" in output
+        assert "Page 1/1 (2 sessions)" in output
         _, result, _ = self.drive(entries, iter(["escape"]))
         assert result.cancelled
 
@@ -534,7 +547,8 @@ class TestTermflowResumeMenu:
         menu, result, output = self.drive(entries, iter(["/", "b", "enter", "escape"]))
         assert result.cancelled
         assert [item.value for item in menu._items] == ["beta"]
-        assert "Filter: 'b'" in output
+        assert "Search: b\u2588" in output
+        assert "Filter: 'b' (1 matches)" in output
         menu, result, _ = self.drive(entries, iter(["/", "a", "escape", "escape"]))
         assert result.cancelled
         assert menu.resume_state["search"] == ""
@@ -550,4 +564,4 @@ class TestTermflowResumeMenu:
             )
         assert result.cancelled
         assert [item.value for item in menu._items] == ["local"]
-        assert "this folder only" in output
+        assert "[this folder]" in output

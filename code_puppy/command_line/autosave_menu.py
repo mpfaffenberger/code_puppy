@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import threading
 from datetime import datetime
 from io import StringIO
@@ -247,20 +248,25 @@ def build_resume_menu(entries=None, base_dir=None, content_index=None, **overrid
         refresh(menu)
 
     def refresh(menu):
+        """Refresh page/count and prioritized status chrome before repaint."""
+        count = len(state["visible"])
+        page_size = menu._effective_page_size()
+        pages = max(1, math.ceil(count / page_size))
+        page = min(pages, menu._cursor // page_size + 1)
+        scope = " [this folder]" if state["scope"] else ""
+        menu._title = f"Resume Session - Page {page}/{pages} ({count} sessions){scope}"
+
         progress = content_index.count()
         if state["mode"] == "search":
-            menu._title = f"Sessions - Searching: '{state['buffer']}'"
+            status = f"Search: {state['buffer']}\u2588"
         elif state["search"]:
-            menu._title = f"Sessions - Filter: '{state['search']}'"
+            status = f"Filter: '{state['search']}' ({count} matches)"
+        elif progress < len(entries):
+            status = f"Indexing {progress}/{len(entries)}..."
         else:
-            menu._title = "Sessions"
-        scope = " - this folder only" if state["scope"] else ""
-        indexing = (
-            f" - Indexing {progress}/{len(entries)}..."
-            if progress < len(entries)
-            else ""
-        )
-        menu._footer_hint = f"Up/Down navigate - Left/Right page - E browse - / search - Ctrl+T scope - Enter load - Esc cancel{scope}{indexing}"
+            status = ""
+        keys = "Up/Down navigate - Left/Right page - E browse - / search - Ctrl+T scope - Enter load - Esc cancel"
+        menu._footer_hint = f"{status} | {keys}" if status else keys
 
     def preview(item):
         entry = current(item)
@@ -291,6 +297,7 @@ def build_resume_menu(entries=None, base_dir=None, content_index=None, **overrid
         def handler(menu, _item):
             if state["mode"] == "list":
                 menu.page_up() if direction < 0 else menu.page_down()
+                refresh(menu)
             return None
 
         return handler
@@ -389,6 +396,7 @@ def build_resume_menu(entries=None, base_dir=None, content_index=None, **overrid
         getattr(builder, name)(value)
     menu = builder.build()
     menu.resume_state = state
+    refresh(menu)
     return menu
 
 
