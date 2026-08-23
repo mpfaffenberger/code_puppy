@@ -507,15 +507,15 @@ dev = [
 
 [[package]]
 name = "code-puppy-core-plugins"
-version = "0.0.16"
+version = "0.0.18"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b1/5b/e8988dc3294c5fde19e5d6e055d2821a45d1f118f5fd166e5261cac7b68f/code_puppy_core_plugins-0.0.16.tar.gz", hash = "sha256:1fb08d35367f3338ab935b5228c31db77185036966b030c431051b4a0f10d536", size = 528823, upload-time = "2026-08-22T23:38:37.455Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/11/c3/9855454955fc42dc3c291d26cc0e80677b8f466cc6baef663d8bec7668b6/code_puppy_core_plugins-0.0.18.tar.gz", hash = "sha256:3ca58587551375ec171cbedb330d92641dd762eb0b6b610a66fe8383fd7d43fb", size = 538824, upload-time = "2026-08-23T17:34:32.547Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f8/60/ab301b0b7c84f22b3355acd1689a38f0511c0e8e76f7398100aed12006e3/code_puppy_core_plugins-0.0.16-py3-none-any.whl", hash = "sha256:1e664f04ce24d1878d3b21881e8c302590e910c3af535cd47f4c80214065d8bf", size = 713668, upload-time = "2026-08-22T23:38:36.121Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/08/8fe22419e6d72ffc9eb05013dd704312b50da85d2152171c6f9dcb400097/code_puppy_core_plugins-0.0.18-py3-none-any.whl", hash = "sha256:3f64f11b04e64c7caf9150264f3c964793422cff15aad56f4ec23efab0637d40", size = 726744, upload-time = "2026-08-23T17:34:30.88Z" },
 ]
 
 [[package]]
