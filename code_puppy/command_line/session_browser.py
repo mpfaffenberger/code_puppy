@@ -24,7 +24,7 @@ from termflow.ansi.color import fg_color
 from termflow.ansi.utils import visible_length
 from termflow.render.style import RenderStyle
 from termflow.tui.keys import Key, read_key
-from termflow.tui.menu import _truncate, _two_columns
+from termflow.tui.menu import RESIZE_POLL_S, _truncate, _two_columns
 from termflow.tui.terminal import alt_screen, raw_mode, terminal_size
 
 from code_puppy.command_line.autosave_search import SessionContentIndex, entry_matches
@@ -98,7 +98,7 @@ class SessionBrowser:
         self._index = content_index or SessionContentIndex()
         self._style = style or RenderStyle.default()
         self._output = output if output is not None else sys.stdout
-        self._read_key = key_source or (lambda: read_key())
+        self._read_key = key_source or (lambda: read_key(timeout=RESIZE_POLL_S))
         self._size = size or terminal_size
         self._use_alt_screen = use_alt_screen
 
@@ -424,9 +424,27 @@ class SessionBrowser:
     def _loop(self) -> BrowseResult:
         while True:
             self._paint()
-            result = self._handle_key(self._read_key())
+            result = self._handle_key(self._wait_key())
             if result is not None:
                 return result
+
+    def _wait_key(self) -> str:
+        """Block for a key, repainting whenever the terminal resizes.
+
+        Mirrors termflow's Menu/TextInput: the default key source times
+        out every RESIZE_POLL_S seconds (returning ""), letting the
+        two-pane layout reflow immediately on resize -- no keypress
+        needed. Scripted test sources that never yield "" are unaffected.
+        """
+        last_size = self._size()
+        while True:
+            key = self._read_key()
+            if key:
+                return key
+            size = self._size()
+            if size != last_size:
+                last_size = size
+                self._paint()
 
     def _move(self, delta: int) -> None:
         if self._mode == "projects":

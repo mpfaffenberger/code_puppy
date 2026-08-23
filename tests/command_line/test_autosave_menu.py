@@ -822,6 +822,36 @@ class TestSessionBrowser:
                     f"line overflows {width} cols: {line!r}"
                 )
 
+    def test_resize_repaints_at_new_width_without_keypress(self):
+        sizes = {"wh": (110, 30)}
+        calls = {"n": 0}
+
+        def key_source() -> str:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                sizes["wh"] = (60, 16)  # simulate a resize mid-wait
+                return ""  # idle tick from read_key timeout
+            return "escape"
+
+        from termflow.ansi.utils import visible_length
+
+        output = StringIO()
+        browser = build_session_browser(
+            entries=self.sample_entries(),
+            base_dir=Path("/fake"),
+            key_source=key_source,
+            output=output,
+            size=lambda: sizes["wh"],
+            use_alt_screen=False,
+        )
+        result = browser.run()
+        assert result.cancelled
+        frames = output.getvalue().split("\x1b[H")[1:]
+        # Initial paint + resize repaint, zero keypresses in between.
+        assert len(frames) == 2
+        for line in self._frame_lines("\x1b[H" + frames[1]):
+            assert visible_length(line) <= 60
+
     def test_tags_drop_whole_not_partial_when_narrow(self):
         _, result, output, _ = self.drive(
             self._hostile_entries(),

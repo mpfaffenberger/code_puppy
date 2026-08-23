@@ -490,7 +490,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.28.0" },
     { name = "rich", specifier = ">=13.4.2" },
     { name = "ripgrep", marker = "sys_platform != 'android'", specifier = "==14.1.0" },
-    { name = "termflow-md", specifier = ">=0.3.0" },
+    { name = "termflow-md", specifier = ">=0.5.0" },
     { name = "typer", specifier = ">=0.12.0" },
 ]
 provides-extras = ["bedrock", "durable", "computer-use"]
@@ -2771,15 +2771,15 @@ wheels = [
 
 [[package]]
 name = "termflow-md"
-version = "0.3.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pygments" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7d/89/f8e8bd25846a6d34a3d230302dac7a91df32c9f59a308698a4a9461d6481/termflow_md-0.3.0.tar.gz", hash = "sha256:a17d290a3f77449035847e265c0ac054af04bb2a85cd93bc725085ee79332eb1", size = 146686, upload-time = "2026-08-23T14:38:12.051Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1b/30/33905fe36662aac18e8a039a08728122309acc6318bd1a38c29ed0e9671e/termflow_md-0.5.0.tar.gz", hash = "sha256:11dd1c7e873e5c19f2badc6265a1fc71afcfbfe3b8bb54664ac9f4cb9932ffdc", size = 152594, upload-time = "2026-08-23T20:17:14.122Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/ec/723e47f8a5c6f14a3cb8714b78d93dc80e1eb0be3304f0201d616eb3826c/termflow_md-0.3.0-py3-none-any.whl", hash = "sha256:2c6721248e7c4a19b0bbf474e7bbb32c7c69e93e2e1084e30f6bf7f992a9c8a2", size = 84417, upload-time = "2026-08-23T14:38:11.054Z" },
+    { url = "https://files.pythonhosted.org/packages/43/34/30a9622904c086e6e8d6eb0baf75fa010392bdb984f1c03d1b0caf61a974/termflow_md-0.5.0-py3-none-any.whl", hash = "sha256:1ce13dc1714375f11960cd0161f52519e6e04a6d62d990ed78f57901fe51b1ad", size = 88808, upload-time = "2026-08-23T20:17:13.183Z" },
 ]
 
 [[package]]
