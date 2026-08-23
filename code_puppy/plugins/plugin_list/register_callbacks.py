@@ -23,26 +23,57 @@ from code_puppy.callbacks import register_callback
 
 logger = logging.getLogger(__name__)
 
+_CONTRIB_LABELS = [
+    ("tools", "Tools"),
+    ("commands", "Commands"),
+    ("agents", "Agents"),
+    ("skills", "Skills"),
+    ("model_types", "Model Types"),
+    ("model_providers", "Providers"),
+    ("mcp_servers", "MCP Servers"),
+    ("browser_types", "Browsers"),
+    ("agent_tools", "Agent Tools"),
+]
 
-def _format_plugin_list(names: list[str], disabled: set[str]) -> str:
-    """Return a bullet list of plugin names with status indicators."""
+
+def _format_plugin_list(names: list[str], tier: str, disabled: set[str]) -> str:
+    """Return a detailed listing for plugins in *tier*."""
     if not names:
         return "  (none)"
-    lines = []
+    from code_puppy.plugins.plugin_list import plugin_contributions, plugin_meta
+
+    lines: list[str] = []
     for name in sorted(names):
-        if name in disabled:
-            lines.append(f"   {name}  (disabled)")
-        else:
-            lines.append(f"   {name}")
+        is_disabled = name in disabled
+        status_suffix = "  (disabled)" if is_disabled else ""
+        lines.append(f"  {name}{status_suffix}")
+
+        description = plugin_meta.get_description(name, tier)
+        if description:
+            lines.append(f"    {description}")
+
+        try:
+            contributions = plugin_contributions.get_contributions(name)
+        except Exception:
+            contributions = {}
+        contrib_parts: list[str] = []
+        for key, label in _CONTRIB_LABELS:
+            items = contributions.get(key)
+            if items:
+                contrib_parts.append(f"{label}: {', '.join(str(i) for i in items)}")
+        if contrib_parts:
+            lines.append(f"    Contributes: {' | '.join(contrib_parts)}")
+
+        hooks = plugin_meta.get_hooks(name)
+        if hooks:
+            lines.append(f"    Hooks: {', '.join(hooks)}")
+
+        path = plugin_meta.get_file_path(name, tier)
+        if path:
+            lines.append(f"    Path: {path}")
+
+        lines.append("")
     return "\n".join(lines)
-
-
-_PROJECT_STATUS_LABELS = {
-    "untrusted": "(not enabled -- review & enable in the /plugins TUI)",
-    "changed": "(changed since accepted -- re-review in the /plugins TUI)",
-    "disabled": "(disabled)",
-    "error": "(failed to load -- see logs)",
-}
 
 
 def _format_project_plugin_list(
@@ -55,17 +86,48 @@ def _format_project_plugin_list(
     Project plugins are disabled by default; unlike other tiers we also
     show plugins that were discovered but NOT imported, with the reason.
     """
+    from code_puppy.plugins.plugin_list import plugin_contributions, plugin_meta
+
+    _PROJECT_STATUS_LABELS = {
+        "untrusted": "(not enabled -- review & enable in /plugins TUI)",
+        "changed": "(changed since accepted -- re-review in /plugins TUI)",
+        "disabled": "(disabled)",
+        "error": "(failed to load -- see logs)",
+    }
     names = sorted(set(loaded_names) | set(statuses))
     if not names:
         return "  (none)"
-    lines = []
+    lines: list[str] = []
     for name in names:
         status = statuses.get(name, "loaded" if name in loaded_names else "untrusted")
         if status == "loaded":
             suffix = "  (disabled)" if name in disabled else ""
         else:
             suffix = "  " + _PROJECT_STATUS_LABELS.get(status, f"({status})")
-        lines.append(f"   {name}{suffix}")
+        lines.append(f"  {name}{suffix}")
+
+        if status == "loaded":
+            description = plugin_meta.get_description(name, "project")
+            if description:
+                lines.append(f"    {description}")
+
+            try:
+                contributions = plugin_contributions.get_contributions(name)
+            except Exception:
+                contributions = {}
+            contrib_parts: list[str] = []
+            for key, label in _CONTRIB_LABELS:
+                items = contributions.get(key)
+                if items:
+                    contrib_parts.append(f"{label}: {', '.join(str(i) for i in items)}")
+            if contrib_parts:
+                lines.append(f"    Contributes: {' | '.join(contrib_parts)}")
+
+            hooks = plugin_meta.get_hooks(name)
+            if hooks:
+                lines.append(f"    Hooks: {', '.join(hooks)}")
+
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -95,10 +157,10 @@ def _build_output() -> str:
         "Loaded Plugins",
         "",
         f"Builtin ({builtin_path}):",
-        _format_plugin_list(loaded["builtin"], disabled),
+        _format_plugin_list(loaded["builtin"], "builtin", disabled),
         "",
         f"User ({user_path}):",
-        _format_plugin_list(loaded["user"], disabled),
+        _format_plugin_list(loaded["user"], "user", disabled),
         "",
         f"Project ({project_path}):",
         _format_project_plugin_list(loaded["project"], project_status, disabled),
