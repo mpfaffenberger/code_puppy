@@ -477,6 +477,37 @@ class TestTermflowResumeMenu:
         )
         return menu, menu.run(), visible(output.getvalue())
 
+    def test_preview_uses_active_theme_accents(self):
+        from io import StringIO
+
+        from termflow.ansi.color import fg_color
+
+        from code_puppy.command_line.autosave_menu import build_resume_menu
+
+        ansi = ["#000000"] * 16
+        ansi[5] = "#345678"
+        ansi[8] = "#456789"
+        ansi[9] = "#ff0000"
+        ansi[10] = "#234567"
+        ansi[12] = "#123456"
+        palette = {"ansi": ansi, "bg": "#010101"}
+        output = StringIO()
+        with patch(
+            "code_puppy.command_line.tui_style.get_value",
+            return_value=json.dumps(palette),
+        ):
+            menu = build_resume_menu(
+                entries=[("one", {})],
+                base_dir=Path("/fake"),
+                key_source=lambda: "escape",
+                output=output,
+                size=lambda: (120, 30),
+                alt_screen=False,
+            )
+            menu.run()
+
+        assert fg_color(ansi[12]) in output.getvalue()
+
     def test_select_and_cancel(self):
         entries = [("one", {}), ("two", {})]
         _, result, output = self.drive(entries, iter(["down", "enter"]))

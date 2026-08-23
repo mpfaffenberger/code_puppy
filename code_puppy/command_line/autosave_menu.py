@@ -13,6 +13,8 @@ from typing import List, Optional, Tuple
 from rich.console import Console
 from rich.markdown import Markdown
 from termflow.ansi.codes import BOLD_ON, DIM_ON, RESET
+from termflow.ansi.color import fg_color
+from termflow.render.style import RenderStyle
 from termflow.tui import MenuBuilder, MenuItem
 from termflow.tui.menu import MenuResult
 
@@ -22,7 +24,7 @@ from code_puppy.command_line.autosave_search import (
     iter_alphabet_bindings,
 )
 from code_puppy.command_line.menu_session import menu_session
-from code_puppy.command_line.tui_style import themed
+from code_puppy.command_line.tui_style import menu_style, themed
 from code_puppy.config import AUTOSAVE_DIR
 from code_puppy.session_storage import compute_scope_key, list_sessions, load_session
 from code_puppy.tools.command_runner import set_awaiting_user_input
@@ -116,50 +118,81 @@ def _markdown(text: str, width: int = 72) -> str:
 def _render_message_browser_panel(
     history: list, message_idx: int, session_name: str
 ) -> list:
+    lines = [("class:tui.header", "MESSAGE BROWSER"), ("", "\n\n")]
     if not history:
-        return [
-            ("class:tui.warning", "MESSAGE BROWSER\n\nNo messages in this session.")
-        ]
+        return lines + [("class:tui.error", "No messages in this session.")]
     message_idx = max(0, min(message_idx, len(history) - 1))
     role, content = _extract_message_content(history[-1 - message_idx])
     rendered = content if role == "tool" else _markdown(content)
-    return [
-        (
-            "class:tui.header",
-            f"MESSAGE BROWSER\n\nSession: {session_name}\nMessage {message_idx + 1} of {len(history)}\n\n{role.upper()}\n{'─' * 40}\n{rendered}\n\nUp older  Down newer  Esc exit",
-        )
+    role_style = "class:tui.user" if role == "user" else "class:tui.title"
+    return lines + [
+        ("class:tui.label", "Session: "),
+        ("class:tui.header", session_name),
+        ("", "\n"),
+        ("class:tui.label", "Message: "),
+        ("", f"{message_idx + 1} of {len(history)}\n\n"),
+        (role_style, role.upper()),
+        ("", "\n"),
+        ("class:tui.divider", "─" * 40),
+        ("", f"\n{rendered}\n\n"),
+        ("class:tui.hint", "Up older  Down newer  Esc exit"),
     ]
 
 
 def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> list:
     if not entry:
-        return [("class:tui.warning", "PREVIEW\n\nNo session selected.")]
+        return [
+            ("class:tui.header", "PREVIEW"),
+            ("class:tui.error", "\n\nNo session selected."),
+        ]
     name, metadata = entry
     timestamp = metadata.get("timestamp", "unknown")
     try:
         timestamp = datetime.fromisoformat(timestamp).strftime("%Y-%m-%d %H:%M:%S")
     except (TypeError, ValueError):
         pass
+    error = None
     try:
         message = _markdown(
             _extract_last_user_message(load_session(name, base_dir)), 76
         )
     except Exception as exc:
-        message = f"Error loading preview: {exc}"
-    text = f"PREVIEW\n\nSession: {name}\nSaved: {timestamp}\nMessages: {metadata.get('message_count', 0)} • Tokens: {metadata.get('total_tokens', 0):,}\n\nLast Message:\n(press 'e' to browse full history)\n{message}"
-    return [("class:tui.muted", text)]
+        message = ""
+        error = f"Error loading preview: {exc}"
+    lines = [
+        ("class:tui.header", "PREVIEW"),
+        ("", "\n\n"),
+        ("class:tui.label", "Session: "),
+        ("", f"{name}\n"),
+        ("class:tui.label", "Saved: "),
+        ("", f"{timestamp}\n"),
+        ("class:tui.label", "Messages: "),
+        ("", str(metadata.get("message_count", 0))),
+        ("class:tui.label", "  Tokens: "),
+        ("", f"{metadata.get('total_tokens', 0):,}\n\n"),
+        ("class:tui.title", "Last Message:"),
+        ("class:tui.hint", "\n(press 'e' to browse full history)\n"),
+    ]
+    lines.append(("class:tui.error" if error else "", error or message))
+    return lines
 
 
 def _fragments_to_ansi(fragments: list) -> str:
-    styles = {
-        "class:tui.header": BOLD_ON,
-        "class:tui.title": BOLD_ON,
-        "class:tui.label": BOLD_ON,
-        "class:tui.muted": DIM_ON,
+    """Color semantic preview fragments using the current terminal theme."""
+    style = menu_style() or RenderStyle.default()
+    sgr = {
+        "class:tui.header": fg_color(style.bright) + BOLD_ON,
+        "class:tui.label": fg_color(style.symbol),
+        "class:tui.title": fg_color(style.head) + BOLD_ON,
+        "class:tui.user": fg_color(style.symbol) + BOLD_ON,
+        "class:tui.hint": fg_color(style.grey) + DIM_ON,
+        "class:tui.divider": fg_color(style.grey),
+        "class:tui.muted": fg_color(style.grey) + DIM_ON,
+        "class:tui.error": fg_color(style.error),
     }
     return "".join(
-        f"{styles.get(style, '')}{text}{RESET if style else ''}"
-        for style, text in fragments
+        f"{sgr.get(fragment_style, '')}{text}{RESET if fragment_style else ''}"
+        for fragment_style, text in fragments
     )
 
 
