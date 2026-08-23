@@ -71,6 +71,7 @@ PhaseType = Literal[
     "pre_compact",
     "session_end",
     "post_autosave",
+    "session_browser_open",
     "notification",
     "awaiting_user_input",
     "git_branch_provider",
@@ -159,6 +160,7 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "pre_compact": [],
     "session_end": [],
     "post_autosave": [],
+    "session_browser_open": [],
     "notification": [],
     "awaiting_user_input": [],
     "git_branch_provider": [],
@@ -588,6 +590,18 @@ async def on_post_autosave(*args, **kwargs) -> List[Any]:
     to reach back into the autosave plumbing themselves.
     """
     return await _trigger_callbacks("post_autosave", *args, **kwargs)
+
+
+async def on_session_browser_open(*args, **kwargs) -> List[Any]:
+    """Fire when the ``/resume`` session browser is about to open.
+
+    Receives ``(base_dir: str, entries: list[tuple[str, dict]])`` where
+    each entry is ``(session_name, metadata_dict)``. The metadata dicts
+    are the browser's LIVE objects: plugins that enrich them in place
+    (titles, tags) surface on the browser's next repaint. Handlers must
+    return fast -- do slow work (model calls) on a background thread.
+    """
+    return await _trigger_callbacks("session_browser_open", *args, **kwargs)
 
 
 def on_load_prompt():

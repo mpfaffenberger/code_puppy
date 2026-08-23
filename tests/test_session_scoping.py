@@ -477,39 +477,52 @@ def _fire(kb, keys):
                     pass
 
 
-class TestAutosaveMenuCtrlTToggle:
-    """Smoke-tests the Ctrl+T "this folder only" toggle in the interactive
-    autosave picker, matching the KeyBindings-capture pattern used by
-    ``tests/command_line/test_tui_keybindings.py``.
+class TestSessionBrowserProjectScoping:
+    """The two-pane browser's project pane supersedes the old Ctrl+T
+    "this folder only" toggle: sessions are grouped by ``scope_key``
+    and legacy scope-less sessions land in one "(unscoped)" bucket
+    pinned last -- never misattributed to a project.
     """
 
-    def test_ctrl_t_filters_out_non_matching_scope_key(self):
+    def test_projects_group_by_scope_key_with_unscoped_last(self):
         from io import StringIO
 
-        from code_puppy.command_line.autosave_menu import build_resume_menu
+        from code_puppy.command_line.session_browser import build_session_browser
+        from code_puppy.command_line.session_browser_data import SessionEntry
 
         entries = [
-            ("local", {"scope_key": "the-current-folder"}),
-            ("other", {"scope_key": "some-other-folder"}),
-            ("legacy", {}),
+            SessionEntry.from_pair(
+                "local",
+                {
+                    "scope_key": "/tmp/current-folder",
+                    "timestamp": "2026-01-02T10:00:00",
+                },
+            ),
+            SessionEntry.from_pair(
+                "other",
+                {
+                    "scope_key": "/tmp/other-folder",
+                    "timestamp": "2026-01-01T10:00:00",
+                },
+            ),
+            SessionEntry.from_pair("legacy", {}),
         ]
-        script = iter(["ctrl-t", "escape"])
-        with patch(
-            "code_puppy.command_line.autosave_menu.compute_scope_key",
-            return_value="the-current-folder",
-        ):
-            menu = build_resume_menu(
-                entries=entries,
-                base_dir=Path("/fake"),
-                key_source=lambda: next(script),
-                output=StringIO(),
-                size=lambda: (120, 30),
-                alt_screen=False,
-            )
-            result = menu.run()
+        script = iter(["enter", "escape", "escape"])
+        browser = build_session_browser(
+            entries=entries,
+            base_dir=Path("/fake"),
+            key_source=lambda: next(script),
+            output=StringIO(),
+            size=lambda: (120, 30),
+            use_alt_screen=False,
+        )
+        result = browser.run()
 
         assert result.cancelled
-        assert [item.value for item in menu._items] == ["local"]
+        labels = [project.label for project in browser._projects]
+        assert labels == ["current-folder", "other-folder", "(unscoped)"]
+        # Opening the first project scopes the session list to it.
+        assert [e.name for e in browser.visible_sessions()] == ["local"]
 
 
 # ---------------------------------------------------------------------------

@@ -1,438 +1,83 @@
-"""Termflow session browser used by ``/resume``."""
+"""Entry points for ``/resume``: the session browser + resumed-history echo.
+
+The interactive picker is the two-pane project/session browser in
+:mod:`code_puppy.command_line.session_browser`; this module keeps the
+stable public seams (``interactive_autosave_picker``,
+``display_resumed_history``) that ``cli_runner`` and the command layer
+import.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import json
-import math
 import threading
-from datetime import datetime
-from io import StringIO
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional
 
-from rich.console import Console
-from rich.markdown import Markdown
-from termflow.ansi.codes import BOLD_ON, DIM_ON, RESET
-from termflow.ansi.color import fg_color
-from termflow.render.style import RenderStyle
-from termflow.tui import MenuBuilder, MenuItem
-from termflow.tui.menu import MenuResult
-
-from code_puppy.command_line.autosave_search import (
-    SessionContentIndex,
-    entry_matches,
-    iter_alphabet_bindings,
-)
+from code_puppy.command_line.autosave_search import SessionContentIndex
 from code_puppy.command_line.menu_session import menu_session
-from code_puppy.command_line.tui_style import menu_style, themed
+from code_puppy.command_line.session_browser import (
+    _extract_message_content,
+    _prewarm,
+    build_session_browser,
+)
+from code_puppy.command_line.session_browser_data import (
+    SessionEntry,
+    _get_session_entries,
+    _get_session_metadata,
+)
 from code_puppy.config import AUTOSAVE_DIR
-from code_puppy.session_storage import compute_scope_key, list_sessions, load_session
 from code_puppy.tools.command_runner import set_awaiting_user_input
 
-
-def _get_session_metadata(base_dir: Path, session_name: str) -> dict:
-    try:
-        with (base_dir / f"{session_name}_meta.json").open(encoding="utf-8") as file:
-            return json.load(file)
-    except Exception:
-        return {}
-
-
-def _get_session_entries(base_dir: Path) -> List[Tuple[str, dict]]:
-    try:
-        sessions = list_sessions(base_dir)
-    except (FileNotFoundError, PermissionError):
-        return []
-    entries = []
-    for name in sessions:
-        try:
-            metadata = _get_session_metadata(base_dir, name)
-        except (FileNotFoundError, PermissionError):
-            metadata = {}
-        entries.append((name, metadata))
-
-    def key(entry):
-        try:
-            return datetime.fromisoformat(entry[1].get("timestamp", ""))
-        except (TypeError, ValueError):
-            return datetime.min
-
-    return sorted(entries, key=key, reverse=True)
-
-
-def _extract_last_user_message(history: list) -> str:
-    for msg in reversed(history):
-        parts = [
-            part.content
-            for part in msg.parts
-            if isinstance(getattr(part, "content", None), str) and part.content.strip()
-        ]
-        if parts:
-            return "\n\n".join(parts)
-    return "[No messages found]"
-
-
-def _extract_message_content(msg) -> Tuple[str, str]:
-    kinds = [getattr(part, "part_kind", "unknown") for part in msg.parts]
-    if msg.kind == "request":
-        role = "tool" if all(kind == "tool-return" for kind in kinds) else "user"
-    else:
-        role = "tool" if all(kind == "tool-call" for kind in kinds) else "assistant"
-    content = []
-    for part in msg.parts:
-        kind = getattr(part, "part_kind", "unknown")
-        if kind == "tool-call":
-            name, args = (
-                getattr(part, "tool_name", "unknown"),
-                getattr(part, "args", {}),
-            )
-            suffix = (
-                f"\n   Args: {str(args)[:100]}{'...' if len(str(args)) > 100 else ''}"
-                if args
-                else ""
-            )
-            content.append(f"Tool Call: {name}{suffix}")
-        elif kind == "tool-return":
-            name, result = (
-                getattr(part, "tool_name", "unknown"),
-                getattr(part, "content", ""),
-            )
-            preview = result[:200].replace("\n", " ") if isinstance(result, str) else ""
-            if isinstance(result, str) and len(result) > 200:
-                preview += "..."
-            content.append(
-                f"\U0001f4e5 Tool Result: {name}"
-                + (f"\n   {preview}" if preview else "")
-            )
-        elif isinstance(getattr(part, "content", None), str) and part.content.strip():
-            content.append(part.content)
-    return role, "\n\n".join(content) if content else "[No content]"
-
-
-def _markdown(text: str, width: int = 72) -> str:
-    stream = StringIO()
-    Console(file=stream, force_terminal=False, width=width).print(Markdown(text))
-    return stream.getvalue().rstrip()
-
-
-def _render_message_browser_panel(
-    history: list, message_idx: int, session_name: str
-) -> list:
-    lines = [("class:tui.header", "MESSAGE BROWSER"), ("", "\n\n")]
-    if not history:
-        return lines + [("class:tui.error", "No messages in this session.")]
-    message_idx = max(0, min(message_idx, len(history) - 1))
-    role, content = _extract_message_content(history[-1 - message_idx])
-    rendered = content if role == "tool" else _markdown(content)
-    role_style = "class:tui.user" if role == "user" else "class:tui.title"
-    return lines + [
-        ("class:tui.label", "Session: "),
-        ("class:tui.header", session_name),
-        ("", "\n"),
-        ("class:tui.label", "Message: "),
-        ("", f"{message_idx + 1} of {len(history)}\n\n"),
-        (role_style, role.upper()),
-        ("", "\n"),
-        ("class:tui.divider", "─" * 40),
-        ("", f"\n{rendered}\n\n"),
-        ("class:tui.hint", "Up older  Down newer  Esc exit"),
-    ]
-
-
-def _render_preview_panel(base_dir: Path, entry: Optional[Tuple[str, dict]]) -> list:
-    if not entry:
-        return [
-            ("class:tui.header", "PREVIEW"),
-            ("class:tui.error", "\n\nNo session selected."),
-        ]
-    name, metadata = entry
-    timestamp = metadata.get("timestamp", "unknown")
-    try:
-        timestamp = datetime.fromisoformat(timestamp).strftime("%Y-%m-%d %H:%M:%S")
-    except (TypeError, ValueError):
-        pass
-    error = None
-    try:
-        message = _markdown(
-            _extract_last_user_message(load_session(name, base_dir)), 76
-        )
-    except Exception as exc:
-        message = ""
-        error = f"Error loading preview: {exc}"
-    lines = [
-        ("class:tui.header", "PREVIEW"),
-        ("", "\n\n"),
-        ("class:tui.label", "Session: "),
-        ("", f"{name}\n"),
-        ("class:tui.label", "Saved: "),
-        ("", f"{timestamp}\n"),
-        ("class:tui.label", "Messages: "),
-        ("", str(metadata.get("message_count", 0))),
-        ("class:tui.label", "  Tokens: "),
-        ("", f"{metadata.get('total_tokens', 0):,}\n\n"),
-        ("class:tui.title", "Last Message:"),
-        ("class:tui.hint", "\n(press 'e' to browse full history)\n"),
-    ]
-    lines.append(("class:tui.error" if error else "", error or message))
-    return lines
-
-
-def _fragments_to_ansi(fragments: list) -> str:
-    """Color semantic preview fragments using the current terminal theme."""
-    style = menu_style() or RenderStyle.default()
-    sgr = {
-        "class:tui.header": fg_color(style.bright) + BOLD_ON,
-        "class:tui.label": fg_color(style.symbol),
-        "class:tui.title": fg_color(style.head) + BOLD_ON,
-        "class:tui.user": fg_color(style.symbol) + BOLD_ON,
-        "class:tui.hint": fg_color(style.grey) + DIM_ON,
-        "class:tui.divider": fg_color(style.grey),
-        "class:tui.muted": fg_color(style.grey) + DIM_ON,
-        "class:tui.error": fg_color(style.error),
-    }
-    return "".join(
-        f"{sgr.get(fragment_style, '')}{text}{RESET if fragment_style else ''}"
-        for fragment_style, text in fragments
-    )
-
-
-def _description(metadata: dict) -> str:
-    try:
-        when = datetime.fromisoformat(metadata.get("timestamp", "")).strftime(
-            "%Y-%m-%d %H:%M"
-        )
-    except (TypeError, ValueError):
-        when = "unknown time"
-    return f"{metadata.get('message_count', '?')} msgs - {when}"
-
-
-def _items(entries: List[Tuple[str, dict]]) -> list[MenuItem]:
-    return [
-        MenuItem(name, value=name, description=_description(meta))
-        for name, meta in entries
-    ]
-
-
-def build_resume_menu(entries=None, base_dir=None, content_index=None, **overrides):
-    """Build a headlessly driveable termflow resume menu."""
-    base_dir = Path(AUTOSAVE_DIR) if base_dir is None else Path(base_dir)
-    entries = _get_session_entries(base_dir) if entries is None else list(entries)
-    content_index = content_index or SessionContentIndex()
-    state = {
-        "all": entries,
-        "search_filtered": list(entries),
-        "visible": list(entries),
-        "search": "",
-        "buffer": "",
-        "mode": "list",
-        "scope": False,
-        "history": None,
-        "message": 0,
-        "indexed": len(entries),
-    }
-    by_name = {name: (name, meta) for name, meta in entries}
-    scope_key = compute_scope_key(Path.cwd())
-
-    def current(item):
-        return by_name.get(item.value)
-
-    def apply(menu, filtered):
-        state["search_filtered"] = filtered
-        state["visible"] = [
-            e
-            for e in filtered
-            if not state["scope"] or e[1].get("scope_key") == scope_key
-        ]
-        menu.replace_items(_items(state["visible"]))
-        refresh(menu)
-
-    def refresh(menu):
-        """Refresh page/count and prioritized status chrome before repaint."""
-        count = len(state["visible"])
-        page_size = menu._effective_page_size()
-        pages = max(1, math.ceil(count / page_size))
-        page = min(pages, menu._cursor // page_size + 1)
-        scope = " [this folder]" if state["scope"] else ""
-        menu._title = f"Resume Session - Page {page}/{pages} ({count} sessions){scope}"
-
-        progress = content_index.count()
-        if state["mode"] == "search":
-            status = f"Search: {state['buffer']}\u2588"
-        elif state["search"]:
-            status = f"Filter: '{state['search']}' ({count} matches)"
-        elif progress < len(entries):
-            status = f"Indexing {progress}/{len(entries)}..."
-        else:
-            status = ""
-        keys = "Up/Down navigate - Left/Right page - E browse - / search - Ctrl+T scope - Enter load - Esc cancel"
-        menu._footer_hint = f"{status} | {keys}" if status else keys
-
-    def preview(item):
-        entry = current(item)
-        fragments = (
-            _render_message_browser_panel(
-                state["history"] or [], state["message"], item.value
-            )
-            if state["mode"] == "browse"
-            else _render_preview_panel(base_dir, entry)
-        )
-        return _fragments_to_ansi(fragments)
-
-    def move(delta):
-        def handler(menu, _item):
-            if state["mode"] == "search":
-                return None
-            if state["mode"] == "browse":
-                limit = len(state["history"] or []) - 1
-                state["message"] = max(0, min(state["message"] + (-delta), limit))
-            else:
-                menu._move_cursor(menu._filtered(), delta)
-            refresh(menu)
-            return None
-
-        return handler
-
-    def page(direction):
-        def handler(menu, _item):
-            if state["mode"] == "list":
-                menu.page_up() if direction < 0 else menu.page_down()
-                refresh(menu)
-            return None
-
-        return handler
-
-    def browse(menu, item):
-        if state["mode"] == "search":
-            state["buffer"] += "e"
-        elif state["mode"] == "list":
-            try:
-                state["history"] = load_session(item.value, base_dir)
-                state["message"], state["mode"] = 0, "browse"
-            except Exception:
-                pass
-        refresh(menu)
-        return None
-
-    def escape(menu, _item):
-        if state["mode"] == "search":
-            state["mode"], state["buffer"] = "list", ""
-            refresh(menu)
-            return None
-        if state["mode"] == "browse":
-            state["mode"], state["history"], state["message"] = "list", None, 0
-            refresh(menu)
-            return None
-        return MenuResult(cancelled=True)
-
-    def enter(menu, item):
-        if state["mode"] != "search":
-            return MenuResult(item=item)
-        state["search"], state["buffer"], state["mode"] = state["buffer"], "", "list"
-        filtered = [
-            e
-            for e in entries
-            if entry_matches(e, state["search"], content_index, base_dir)
-        ]
-        apply(menu, filtered)
-        return None
-
-    def search(menu, _item):
-        if state["mode"] == "list":
-            state["mode"], state["buffer"] = "search", ""
-            refresh(menu)
-        return None
-
-    def scope(menu, _item):
-        if state["mode"] == "list":
-            state["scope"] = not state["scope"]
-            apply(menu, state["search_filtered"])
-        return None
-
-    def backspace(menu, _item):
-        if state["mode"] == "search":
-            state["buffer"] = state["buffer"][:-1]
-            refresh(menu)
-        return None
-
-    def char_handler(char):
-        def handler(menu, _item):
-            if state["mode"] == "search":
-                state["buffer"] += char
-                refresh(menu)
-            elif state["mode"] == "browse" and char == "q":
-                escape(menu, _item)
-            return None
-
-        return handler
-
-    builder = themed(
-        MenuBuilder("Sessions")
-        .items(_items(entries))
-        .list_width(36)
-        .preview(preview)
-        .on_key("up", move(-1))
-        .on_key("ctrl-p", move(-1))
-        .on_key("down", move(1))
-        .on_key("ctrl-n", move(1))
-        .on_key("left", page(-1))
-        .on_key("right", page(1))
-        .on_key("e", browse)
-        .on_key("E", browse)
-        .on_key("/", search)
-        .on_key("ctrl-t", scope)
-        .on_key("backspace", backspace)
-        .on_key("escape", escape)
-        .on_key("enter", enter)
-        .on_key("q", char_handler("q"))
-        .on_key("Q", char_handler("q"))
-        .footer_hint(
-            "Up/Down navigate - Left/Right page - E browse - / search - Ctrl+T scope - Enter load - Esc cancel"
-        )
-    )
-    for key, char in iter_alphabet_bindings():
-        builder.on_key(key, char_handler(char))
-    for name, value in overrides.items():
-        getattr(builder, name)(value)
-    menu = builder.build()
-    menu.resume_state = state
-    refresh(menu)
-    return menu
-
-
-def _prewarm(index: SessionContentIndex, entries, base_dir: Path) -> None:
-    for name, _ in entries:
-        if name not in index:
-            index.lookup(name, base_dir)
+__all__ = [
+    "interactive_autosave_picker",
+    "display_resumed_history",
+    "_get_session_entries",
+    "_get_session_metadata",
+]
 
 
 async def interactive_autosave_picker() -> Optional[str]:
+    """Run the two-pane session browser; return the chosen session name."""
     base_dir = Path(AUTOSAVE_DIR)
-    entries = _get_session_entries(base_dir)
-    if not entries:
+    pairs = _get_session_entries(base_dir)
+    if not pairs:
         from code_puppy.messaging import emit_info
 
         emit_info("No autosave sessions found.")
         return None
+    entries = [SessionEntry.from_pair(name, meta) for name, meta in pairs]
+    try:
+        # Plugins enrich the LIVE metadata dicts (AI titles, tags) in the
+        # background; the browser picks changes up on its next repaint.
+        from code_puppy.callbacks import on_session_browser_open
+
+        await on_session_browser_open(
+            str(base_dir), [(entry.name, entry.meta) for entry in entries]
+        )
+    except Exception:
+        pass  # decorative: the browser must open regardless
     index = SessionContentIndex()
     threading.Thread(
-        target=_prewarm, args=(index, entries, base_dir), daemon=True
+        target=_prewarm, args=(base_dir, entries, index), daemon=True
     ).start()
-    menu = build_resume_menu(entries, base_dir, index, alt_screen=False)
+    browser = build_session_browser(entries, base_dir, index, use_alt_screen=False)
     set_awaiting_user_input(True)
     try:
         with menu_session():
-            result = await asyncio.to_thread(menu.run)
+            result = await asyncio.to_thread(browser.run)
     finally:
         set_awaiting_user_input(False)
-    return result.item.value if result.item and not result.cancelled else None
+    return result.session if not result.cancelled else None
 
 
 DEFAULT_RESUME_DISPLAY_COUNT = 50
 
 
 def display_resumed_history(history: list, num_messages: int | None = None) -> None:
+    from rich.console import Console
     from rich.rule import Rule
+
     from code_puppy.config import get_banner_color, get_resume_message_count
     from code_puppy.tools.display import render_markdown
 
