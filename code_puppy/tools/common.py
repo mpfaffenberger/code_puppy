@@ -920,9 +920,8 @@ def _get_user_approval_impl(
         # Show arrow-key selector
         approve_choice = "\u2713 " + t("tools.common.approval.approve")
         reject_choice = "\u2717 " + t("tools.common.approval.reject")
-        feedback_choice = (
-            "\U0001f4ac "
-            + t("tools.common.approval.reject_feedback", puppy_name=puppy_name)
+        feedback_choice = "\U0001f4ac " + t(
+            "tools.common.approval.reject_feedback", puppy_name=puppy_name
         )
         choice = arrow_select(
             "\U0001f4ad " + t("tools.common.approval.prompt"),
@@ -1119,9 +1118,8 @@ async def _get_user_approval_async_impl(
         # Show arrow-key selector (ASYNC VERSION)
         approve_choice = "\u2713 " + t("tools.common.approval.approve")
         reject_choice = "\u2717 " + t("tools.common.approval.reject")
-        feedback_choice = (
-            "\U0001f4ac "
-            + t("tools.common.approval.reject_feedback", puppy_name=puppy_name)
+        feedback_choice = "\U0001f4ac " + t(
+            "tools.common.approval.reject_feedback", puppy_name=puppy_name
         )
         choice = await arrow_select_async(
             "\U0001f4ad " + t("tools.common.approval.prompt"),

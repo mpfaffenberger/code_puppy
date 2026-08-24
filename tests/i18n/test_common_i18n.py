@@ -39,15 +39,23 @@ def test_common_messages_resolve_and_pseudolocalize():
 
 def test_common_placeholders_are_preserved():
     source = catalog.load_catalog("en-US")
-    expected = {key: set(_PLACEHOLDER.findall(value)) for key, value in source.items() if key.startswith(_NAMESPACE)}
+    expected = {
+        key: set(_PLACEHOLDER.findall(value))
+        for key, value in source.items()
+        if key.startswith(_NAMESPACE)
+    }
     for locale in ("es", "fr-CA"):
         translated = catalog.load_catalog(locale)
-        assert {key: set(_PLACEHOLDER.findall(translated[key])) for key in expected} == expected
+        assert {
+            key: set(_PLACEHOLDER.findall(translated[key])) for key in expected
+        } == expected
 
 
 def test_common_interpolates_user_values():
     translate.set_locale("es")
     assert "Puppy" in translate.t("tools.common.approval.tell", puppy_name="Puppy")
     assert "feedback" in translate.t(
-        "tools.common.approval.telling_feedback", puppy_name="Puppy", feedback="feedback"
+        "tools.common.approval.telling_feedback",
+        puppy_name="Puppy",
+        feedback="feedback",
     )
