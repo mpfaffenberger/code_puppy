@@ -842,6 +842,60 @@ class TestSessionBrowser:
                     f"line overflows {width} cols: {line!r}"
                 )
 
+    def test_phone_width_uses_two_phase_master_detail_flow(self):
+        # Below the collapse threshold the projects pane owns the full
+        # width; opening a project hands the whole screen to sessions.
+        output = StringIO()
+        script = iter(["enter", "left", "q"])
+        browser = build_session_browser(
+            entries=self.sample_entries(),
+            base_dir=Path("/fake"),
+            key_source=lambda: next(script),
+            output=output,
+            size=lambda: (50, 30),
+            use_alt_screen=False,
+        )
+        result = browser.run()
+        assert result.cancelled
+        frames = output.getvalue().split("\x1b[H")[1:]
+        divider = "\u2502"
+        # Phase 1: projects only -- full-width labels, no split divider.
+        assert divider not in frames[0]
+        assert "PROJECTS (3)" in frames[0]
+        assert "Fix pyte" not in frames[0]
+        # Phase 2 (enter): sessions take the whole screen, projects gone.
+        # (Titles may ellipsize at this width -- match the stable prefix.)
+        assert divider not in frames[1]
+        assert "Fix pyte" in frames[1]
+        assert "PROJECTS (3)" not in frames[1]
+        # Phase 1 again (left): back to the project list.
+        assert "PROJECTS (3)" in frames[2]
+
+    def test_resize_across_collapse_threshold_switches_layout(self):
+        sizes = {"wh": (110, 30)}
+        calls = {"n": 0}
+
+        def key_source() -> str:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                sizes["wh"] = (50, 30)  # squish below the threshold
+                return ""
+            return "escape"
+
+        output = StringIO()
+        browser = build_session_browser(
+            entries=self.sample_entries(),
+            base_dir=Path("/fake"),
+            key_source=key_source,
+            output=output,
+            size=lambda: sizes["wh"],
+            use_alt_screen=False,
+        )
+        browser.run()
+        frames = output.getvalue().split("\x1b[H")[1:]
+        assert "\u2502" in frames[0]  # wide: split layout
+        assert "\u2502" not in frames[1]  # narrow: single pane
+
     def test_resize_repaints_at_new_width_without_keypress(self):
         sizes = {"wh": (110, 30)}
         calls = {"n": 0}
