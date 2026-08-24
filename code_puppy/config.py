@@ -7,6 +7,7 @@ import os
 import pathlib
 from typing import Any, Optional
 
+from code_puppy import atomic_io
 from code_puppy.config_file import load_config, mutate_config
 from code_puppy.session_storage import compute_scope_key, save_session
 
@@ -618,8 +619,8 @@ def load_mcp_server_configs():
     # 1. User-level config (global, implicitly trusted).
     try:
         if pathlib.Path(MCP_SERVERS_FILE).exists():
-            with open(MCP_SERVERS_FILE, "r", encoding="utf-8") as f:
-                configs.update(_parse_mcp_servers_mapping(f.read()))
+            raw = atomic_io.read_bounded_bytes(MCP_SERVERS_FILE)
+            configs.update(_parse_mcp_servers_mapping(raw.decode("utf-8")))
     except Exception as e:
         emit_error(f"Failed to load MCP servers - {str(e)}")
 

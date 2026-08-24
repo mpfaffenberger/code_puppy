@@ -173,9 +173,11 @@ class TrustCommand(MCPCommandBase):
     def _safe_load_servers(config_file) -> dict:
         """Parse the project config for display only; never raise."""
         try:
+            from code_puppy import atomic_io
             from code_puppy.config import _parse_mcp_servers_mapping
 
-            return _parse_mcp_servers_mapping(config_file.read_text(encoding="utf-8"))
+            raw = atomic_io.read_bounded_bytes(str(config_file))
+            return _parse_mcp_servers_mapping(raw.decode("utf-8"))
         except Exception:
             return {}
 

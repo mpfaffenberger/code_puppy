@@ -662,6 +662,26 @@ class TestMCPServerConfigs:
                 result = cp_config.load_mcp_server_configs()
                 assert result == {}
 
+    def test_oversized_file_is_rejected_without_full_read(self, tmp_path):
+        """Pins the Andrew Tilson PUP-605-follow-up finding on the merged
+        PR #761: this startup read was the one spot missed when every other
+        MCP/config JSON read got bounded via atomic_io. A file over the
+        bound must be rejected -- caught and reported like any other bad
+        config -- rather than read in full first (the original MemoryError
+        crash shape).
+        """
+        f = tmp_path / "mcp_servers.json"
+        f.write_text('{"mcp_servers": {}}')
+        with patch.object(cp_config, "MCP_SERVERS_FILE", str(f)):
+            with patch(
+                "code_puppy.config.atomic_io.read_bounded_bytes",
+                side_effect=cp_config.atomic_io.ContentTooLarge("too big"),
+            ):
+                with patch("code_puppy.messaging.message_queue.emit_error") as err:
+                    result = cp_config.load_mcp_server_configs()
+                    assert result == {}
+                    err.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # Config keys
