@@ -38,7 +38,9 @@ def test_agent_manager_messages_resolve_and_pseudolocalize():
 
 
 def test_catalog_translations_preserve_placeholders():
-    catalogs = {locale: catalog.load_catalog(locale) for locale in ("en-US", "es", "fr-CA")}
+    catalogs = {
+        locale: catalog.load_catalog(locale) for locale in ("en-US", "es", "fr-CA")
+    }
     for key in _keys():
         source = set(_PLACEHOLDER.findall(catalogs["en-US"][key]))
         assert source == set(_PLACEHOLDER.findall(catalogs["es"][key]))
@@ -47,6 +49,12 @@ def test_catalog_translations_preserve_placeholders():
 
 def test_dynamic_values_are_interpolated():
     translate.set_locale("es")
-    assert "agent-x" in translate.t("agent_manager.clone.success", agent_name="agent-x", clone_name="agent-y")
-    assert "agent-y" in translate.t("agent_manager.clone.success", agent_name="agent-x", clone_name="agent-y")
-    assert "boom" in translate.t("agent_manager.discovery.plugin_load_failed", error="boom")
+    assert "agent-x" in translate.t(
+        "agent_manager.clone.success", agent_name="agent-x", clone_name="agent-y"
+    )
+    assert "agent-y" in translate.t(
+        "agent_manager.clone.success", agent_name="agent-x", clone_name="agent-y"
+    )
+    assert "boom" in translate.t(
+        "agent_manager.discovery.plugin_load_failed", error="boom"
+    )

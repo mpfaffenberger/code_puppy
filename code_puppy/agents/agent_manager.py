@@ -289,7 +289,11 @@ def _discover_agents_locked(message_group_id: Optional[str] = None):
         except Exception as e:
             # Skip problematic modules
             emit_warning(
-                t("agent_manager.discovery.module_load_failed", modname=modname, error=e),
+                t(
+                    "agent_manager.discovery.module_load_failed",
+                    modname=modname,
+                    error=e,
+                ),
                 message_group=message_group_id,
             )
             continue
@@ -331,14 +335,22 @@ def _discover_agents_locked(message_group_id: Optional[str] = None):
 
                 except Exception as e:
                     emit_warning(
-                        t("agent_manager.discovery.agent_load_failed", agent=f"{subpkg_name}.{modname}", error=e),
+                        t(
+                            "agent_manager.discovery.agent_load_failed",
+                            agent=f"{subpkg_name}.{modname}",
+                            error=e,
+                        ),
                         message_group=message_group_id,
                     )
                     continue
 
         except Exception as e:
             emit_warning(
-                t("agent_manager.discovery.subpackage_load_failed", subpackage=subpkg_name, error=e),
+                t(
+                    "agent_manager.discovery.subpackage_load_failed",
+                    subpackage=subpkg_name,
+                    error=e,
+                ),
                 message_group=message_group_id,
             )
             continue
@@ -357,7 +369,10 @@ def _discover_agents_locked(message_group_id: Optional[str] = None):
                 if agent_name not in _WARNED_JSON_SHADOWED:
                     _WARNED_JSON_SHADOWED.add(agent_name)
                     emit_warning(
-                        t("agent_manager.discovery.json_shadowed", agent_name=agent_name),
+                        t(
+                            "agent_manager.discovery.json_shadowed",
+                            agent_name=agent_name,
+                        ),
                         message_group=message_group_id,
                     )
                 continue
@@ -747,7 +762,9 @@ def clone_agent(agent_name: str) -> Optional[str]:
             if pinned_model:
                 clone_config["model"] = pinned_model
     except Exception as exc:
-        emit_warning(t("agent_manager.clone.build_failed", agent_name=agent_name, error=exc))
+        emit_warning(
+            t("agent_manager.clone.build_failed", agent_name=agent_name, error=exc)
+        )
         return None
 
     if clone_path.exists():
@@ -759,10 +776,18 @@ def clone_agent(agent_name: str) -> Optional[str]:
             str(clone_path),
             json.dumps(clone_config, indent=2, ensure_ascii=False),
         )
-        emit_success(t("agent_manager.clone.success", agent_name=agent_name, clone_name=clone_name))
+        emit_success(
+            t(
+                "agent_manager.clone.success",
+                agent_name=agent_name,
+                clone_name=clone_name,
+            )
+        )
         return clone_name
     except Exception as exc:
-        emit_warning(t("agent_manager.clone.write_failed", clone_path=clone_path, error=exc))
+        emit_warning(
+            t("agent_manager.clone.write_failed", clone_path=clone_path, error=exc)
+        )
         return None
 
 
