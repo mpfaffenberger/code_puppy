@@ -65,7 +65,9 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
     existing = find_server_id_by_name(manager, server_name)
     if existing:
         try:
-            override = safe_input(t("mcp.catalog.override_prompt", server_name=server_name))
+            override = safe_input(
+                t("mcp.catalog.override_prompt", server_name=server_name)
+            )
             if not override.lower().startswith("y"):
                 emit_warning(t("mcp.catalog.cancelled"))
                 return None
@@ -161,7 +163,13 @@ def install_catalog_server(manager, server, config: Dict) -> bool:
     # Generate a group ID for messages
     group_id = f"mcp-install-{uuid.uuid4().hex[:8]}"
 
-    emit_info(t("mcp.catalog.installing_as", display_name=server.display_name, server_name=server_name))
+    emit_info(
+        t(
+            "mcp.catalog.installing_as",
+            display_name=server.display_name,
+            server_name=server_name,
+        )
+    )
 
     success = install_server_from_catalog(
         manager, server, server_name, env_vars, cmd_args, group_id
