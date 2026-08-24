@@ -10,11 +10,6 @@ import time
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Tuple
 
-from prompt_toolkit import Application
-from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Layout, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
 from rapidfuzz.distance import JaroWinkler
 from rich.console import Console
 from rich.panel import Panel
@@ -27,14 +22,13 @@ from termflow.diff import DiffRenderer, DiffStream, DiffTheme
 from termflow.diff import brighten_hex as brighten_hex  # re-export (public API)
 from termflow.syntax import Highlighter as TermflowHighlighter
 
-from code_puppy.callbacks import on_prompt_toolkit_style
 from code_puppy.tools.file_permission_state import set_diff_already_shown
 
 # =============================================================================
 # Approval queueing locks
 # =============================================================================
 # Parallel tool calls must serialize approval prompts (one answer at a time;
-# prompt_toolkit owns stdin once). These locks queue callers; the async lock
+# the inline selector owns stdin once). These locks queue callers; the async lock
 # is created lazily to bind to the running event loop.
 
 _APPROVAL_SYNC_LOCK = threading.Lock()
@@ -700,58 +694,52 @@ def format_diff_with_colors(
     return Text.from_ansi(renderer.render(diff_text))
 
 
-def _format_selector(
+def _build_arrow_select_menu(
     message: str,
     choices: list[str],
-    selected_index: int,
     preview_callback: Optional[Callable[[int], str]] = None,
-) -> FormattedText:
-    """Build shared selector content from semantic, literal-text fragments."""
-    import textwrap
+    **overrides,
+):
+    """Build the inline termflow selector behind ``arrow_select*``.
 
-    fragments: list[tuple[str, str]] = [
-        ("class:tui.header", message),
-        ("", "\n\n"),
-    ]
-    for index, choice in enumerate(choices):
-        style = "class:tui.selected" if index == selected_index else "class:tui.body"
-        marker = "\u276f " if index == selected_index else "  "
-        fragments.extend([(style, marker + choice), ("", "\n")])
-    fragments.append(("", "\n"))
+    ``overrides`` map onto :class:`termflow.tui.MenuBuilder` setters so
+    tests inject ``key_source``/``output``/``size`` -- the standard
+    headless-menu recipe.
+    """
+    from termflow.tui import MenuBuilder, MenuItem
 
-    preview_text = preview_callback(selected_index) if preview_callback else ""
-    if preview_text:
-        box_width = 60
-        fragments.extend(
-            [
-                (
-                    "class:tui.border",
-                    "┌─ Preview " + "─" * (box_width - 10) + "┐\n",
-                )
-            ]
-        )
-        wrapped_lines = textwrap.wrap(preview_text, width=box_width - 2) or [""]
-        for wrapped_line in wrapped_lines:
-            fragments.append(
-                ("class:tui.muted", f"│ {wrapped_line.ljust(box_width - 2)} │\n")
-            )
-        fragments.extend(
-            [
-                ("class:tui.border", "└" + "─" * box_width + "┘\n"),
-                ("", "\n"),
-            ]
-        )
+    from code_puppy.command_line.tui_style import themed
 
-    fragments.extend(
-        [
-            ("class:tui.help", "("),
-            ("class:tui.help-key", "↑↓ or Ctrl+P/N"),
-            ("class:tui.help", " to select, "),
-            ("class:tui.help-key", "Enter"),
-            ("class:tui.help", " to confirm)"),
-        ]
-    )
-    return FormattedText(fragments)
+    items = [MenuItem(choice, value=choice) for choice in choices]
+    builder = themed(MenuBuilder(message).items(items).inline())
+    if preview_callback is not None:
+
+        def render_preview(item) -> str:
+            try:
+                return preview_callback(items.index(item)) or ""
+            except Exception:
+                return ""
+
+        builder.preview(render_preview)
+
+    def move(delta: int):
+        def handler(menu, _item):
+            menu._move_cursor(menu._filtered(), delta)
+            return None
+
+        return handler
+
+    builder.on_key("ctrl-p", move(-1)).on_key("ctrl-n", move(1))
+    for name, value in overrides.items():
+        getattr(builder, name)(value)
+    return builder.build()
+
+
+def _selected_value(result) -> str:
+    """Map a MenuResult to the arrow_select contract."""
+    if result.cancelled or result.item is None:
+        raise KeyboardInterrupt()
+    return result.item.value
 
 
 async def arrow_select_async(
@@ -759,170 +747,55 @@ async def arrow_select_async(
     choices: list[str],
     preview_callback: Optional[Callable[[int], str]] = None,
 ) -> str:
-    """Async version: Show an arrow-key navigable selector with optional preview.
+    """Arrow-key selector rendered inline below the transcript.
 
     Args:
         message: The prompt message to display
         choices: List of choice strings
-        preview_callback: Optional callback that takes the selected index and returns
-                         preview text to display below the choices
+        preview_callback: Optional callback taking the selected index and
+            returning preview text to display below the choices
 
     Returns:
         The selected choice string
 
     Raises:
-        KeyboardInterrupt: If user cancels with Ctrl-C
+        KeyboardInterrupt: If the user cancels (Ctrl-C or Esc)
     """
-    selected_index = [0]  # Mutable container for selected index
-    result = [None]  # Mutable container for result
-
-    def get_formatted_text() -> FormattedText:
-        """Generate semantic formatted text for display."""
-        return _format_selector(
-            message, choices, selected_index[0], preview_callback=preview_callback
-        )
-
-    # Key bindings
-    kb = KeyBindings()
-
-    @kb.add("up")
-    @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
-    def move_up(event):
-        selected_index[0] = (selected_index[0] - 1) % len(choices)
-        event.app.invalidate()  # Force redraw to update preview
-
-    @kb.add("down")
-    @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
-    def move_down(event):
-        selected_index[0] = (selected_index[0] + 1) % len(choices)
-        event.app.invalidate()  # Force redraw to update preview
-
-    @kb.add("enter")
-    def accept(event):
-        result[0] = choices[selected_index[0]]
-        event.app.exit()
-
-    @kb.add("c-c")  # Ctrl-C
-    def cancel(event):
-        result[0] = None
-        event.app.exit()
-
-    # Layout
-    control = FormattedTextControl(get_formatted_text)
-    layout = Layout(Window(content=control))
-
-    # Application
-    app = Application(
-        layout=layout,
-        key_bindings=kb,
-        full_screen=False,
-        style=on_prompt_toolkit_style(),
-    )
-
-    # Flush output before prompt_toolkit takes control
+    menu = _build_arrow_select_menu(message, choices, preview_callback)
     sys.stdout.flush()
     sys.stderr.flush()
-
-    # Suspend the key listener so prompt_toolkit owns stdin exclusively —
-    # otherwise CPR replies get eaten and arrow keys behave erratically.
+    # Suspend the background key listener so the menu owns stdin.
     from code_puppy.agents._key_listeners import suspended_key_listener
 
     with suspended_key_listener():
-        # Run the app asynchronously
-        await app.run_async()
-
-    if result[0] is None:
-        raise KeyboardInterrupt()
-
-    return result[0]
+        result = await asyncio.to_thread(menu.run)
+    return _selected_value(result)
 
 
 def arrow_select(message: str, choices: list[str]) -> str:
-    """Show an arrow-key navigable selector (synchronous version).
-
-    Args:
-        message: The prompt message to display
-        choices: List of choice strings
-
-    Returns:
-        The selected choice string
+    """Synchronous arrow-key selector (inline).
 
     Raises:
-        KeyboardInterrupt: If user cancels with Ctrl-C
+        KeyboardInterrupt: If the user cancels (Ctrl-C or Esc)
+        RuntimeError: If called from a running event loop -- use
+            :func:`arrow_select_async` there.
     """
-
-    selected_index = [0]  # Mutable container for selected index
-    result = [None]  # Mutable container for result
-
-    def get_formatted_text() -> FormattedText:
-        """Generate semantic formatted text for display."""
-        return _format_selector(message, choices, selected_index[0])
-
-    # Key bindings
-    kb = KeyBindings()
-
-    @kb.add("up")
-    @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
-    def move_up(event):
-        selected_index[0] = (selected_index[0] - 1) % len(choices)
-        event.app.invalidate()  # Force redraw to update preview
-
-    @kb.add("down")
-    @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
-    def move_down(event):
-        selected_index[0] = (selected_index[0] + 1) % len(choices)
-        event.app.invalidate()  # Force redraw to update preview
-
-    @kb.add("enter")
-    def accept(event):
-        result[0] = choices[selected_index[0]]
-        event.app.exit()
-
-    @kb.add("c-c")  # Ctrl-C
-    def cancel(event):
-        result[0] = None
-        event.app.exit()
-
-    # Layout
-    control = FormattedTextControl(get_formatted_text)
-    layout = Layout(Window(content=control))
-
-    # Application
-    app = Application(
-        layout=layout,
-        key_bindings=kb,
-        full_screen=False,
-        style=on_prompt_toolkit_style(),
-    )
-
-    # Flush output before prompt_toolkit takes control
-    sys.stdout.flush()
-    sys.stderr.flush()
-
-    # Check if we're already in an async context
     try:
         asyncio.get_running_loop()
-        # We're in an async context - can't use app.run()
-        # Caller should use arrow_select_async instead
+    except RuntimeError:
+        pass  # no loop: safe to run synchronously
+    else:
         raise RuntimeError(
             "arrow_select() called from async context. Use arrow_select_async() instead."
         )
-    except RuntimeError as e:
-        if "no running event loop" in str(e).lower():
-            # No event loop, safe to use app.run() -- but first suspend
-            # the background key listener so prompt_toolkit owns stdin.
-            from code_puppy.agents._key_listeners import suspended_key_listener
+    menu = _build_arrow_select_menu(message, choices)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    from code_puppy.agents._key_listeners import suspended_key_listener
 
-            with suspended_key_listener():
-                app.run()
-        else:
-            # Re-raise if it's our error message
-            raise
-
-    if result[0] is None:
-        raise KeyboardInterrupt()
-
-    return result[0]
+    with suspended_key_listener():
+        result = menu.run()
+    return _selected_value(result)
 
 
 def get_user_approval(

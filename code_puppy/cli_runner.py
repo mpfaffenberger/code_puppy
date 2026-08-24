@@ -1092,10 +1092,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 emit_success,
                                 emit_warning,
                             )
-                            from code_puppy.session_storage import (
-                                load_session,
-                                restore_autosave_interactively,
-                            )
+                            from code_puppy.session_storage import load_session
 
                             from code_puppy.messaging.run_ui import (
                                 suspended_run_ui,
@@ -1140,8 +1137,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                             display_resumed_history(history)
                         else:
-                            # Fall back to old text-based picker for tests/non-TTY environments
-                            await restore_autosave_interactively(Path(AUTOSAVE_DIR))
+                            # No TTY, no picker: the old text-prompt fallback
+                            # was an interactive prompt in a non-interactive
+                            # environment. Point at the explicit flag instead.
+                            from code_puppy.messaging import emit_warning
+
+                            emit_warning(t("cli.autosave.tui_required"))
 
                     except Exception as e:
                         from code_puppy.messaging import emit_error

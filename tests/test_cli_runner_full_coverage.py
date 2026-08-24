@@ -978,7 +978,6 @@ class TestInteractiveMode:
                 ),
                 "sys.stdin": mock_stdin,
                 "sys.stdout": mock_stdout,
-                "code_puppy.session_storage.restore_autosave_interactively": AsyncMock(),
             },
         )
 
@@ -1054,7 +1053,8 @@ class TestInteractiveMode:
             )
 
     @pytest.mark.anyio
-    async def test_autosave_load_exception(self):
+    async def test_autosave_load_non_tty_warns_instead_of_prompting(self):
+        """Non-TTY /autosave_load points at -r NAME instead of prompting."""
         fake_input = _scripted_input("/autosave_load")
 
         mock_stdin = MagicMock()
@@ -1075,9 +1075,6 @@ class TestInteractiveMode:
                 ),
                 "sys.stdin": mock_stdin,
                 "sys.stdout": mock_stdout,
-                "code_puppy.session_storage.restore_autosave_interactively": AsyncMock(
-                    side_effect=RuntimeError("fail")
-                ),
             },
         )
 
@@ -1472,7 +1469,6 @@ class TestInteractiveModeEdgeCases:
                     ),
                     "sys.stdin": mock_stdin,
                     "sys.stdout": mock_stdout,
-                    "code_puppy.session_storage.restore_autosave_interactively": AsyncMock(),
                 },
             )
 

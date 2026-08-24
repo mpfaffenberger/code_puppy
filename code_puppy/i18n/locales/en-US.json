@@ -348,5 +348,6 @@
   "model_menu.browser.exited": "✓ Exited model browser",
   "model_menu.browser.unsupported_provider": "Cannot add model from {provider}: {reason}",
   "model_menu.browser.no_tool_call_warning": "⚠️  {model} does NOT support tool calling!\n   This model won't be able to edit files, run commands, or use any tools.\n   It will be very limited for coding tasks.",
-  "model_menu.browser.add_cancelled": "Model addition cancelled."
+  "model_menu.browser.add_cancelled": "Model addition cancelled.",
+  "cli.autosave.tui_required": "Interactive session browsing needs a terminal. Use -r NAME to resume a session by name."
 }
