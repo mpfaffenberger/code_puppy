@@ -37,13 +37,7 @@ from code_puppy_core_plugins.theme.bundled_palettes import (
     TOKYO_NIGHT,
     VAPORWAVE,
 )
-from code_puppy_core_plugins.theme.picker import (
-    THEMES_PER_PAGE,
-    _format_menu,
-    _move_page,
-    _page_for_index,
-    _total_pages,
-)
+from code_puppy_core_plugins.theme.picker import build_theme_menu
 from code_puppy_core_plugins.theme.rich_themes import (
     make_remap,
     _swap_color,
@@ -272,44 +266,54 @@ class TestResolveThemeArg:
 # ---------------------------------------------------------------------------
 # picker.py
 # ---------------------------------------------------------------------------
-class TestThemePickerPagination:
-    def test_catalog_is_split_into_pages(self):
-        assert THEMES_PER_PAGE == 5
-        assert _total_pages() == 4
-        assert _page_for_index(0) == 0
-        assert _page_for_index(5) == 1
-        assert _page_for_index(len(MENU) - 1) == 3
+class TestThemePickerMenu:
+    """Drive the termflow-based picker headlessly with scripted keys."""
 
-    def test_menu_only_renders_the_selected_page(self):
-        rendered = "".join(text for _, text in _format_menu(5))
+    def _drive(self, keys, rows=40):
+        from io import StringIO
 
-        assert "Page 2/4" in rendered
-        assert "6. " in rendered
-        assert "10. " in rendered
-        assert "Purple Puppy" in rendered
-        assert "Green Screen" in rendered
-        assert "Ocean" not in rendered
-        assert "Deep Black" not in rendered
+        script = iter(keys)
+        out = StringIO()
+        menu = build_theme_menu(
+            key_source=lambda: next(script),
+            output=out,
+            size=lambda: (120, rows),
+            alt_screen=False,
+        )
+        result = menu.run()
+        return result, out.getvalue()
 
-    def test_menu_uses_semantic_roles_for_chrome(self):
-        fragments = list(_format_menu(0))
-        styles = {style for style, _ in fragments}
+    def test_tall_terminal_shows_whole_catalog(self):
+        from termflow.ansi.utils import visible
 
-        assert {
-            "class:tui.header",
-            "class:tui.muted",
-            "class:tui.selected",
-            "class:tui.body",
-            "class:tui.help",
-            "class:tui.help-key",
-        } <= styles
-        assert not any("ansi" in style for style in styles)
+        _, screen = self._drive(["escape"], rows=40)
+        text = visible(screen)
+        assert "Ocean" in text
+        assert "Green Screen" in text
 
-    def test_page_navigation_clamps_at_catalog_edges(self):
-        assert _move_page(2, 1) == 7
-        assert _move_page(7, -1) == 2
-        assert _move_page(0, -1) == 0
-        assert _move_page(len(MENU) - 2, 1) == len(MENU) - 1
+    def test_short_terminal_paginates(self):
+        from termflow.ansi.utils import visible
+
+        # 10 rows -> 6 themes per page; later entries are off-page.
+        _, screen = self._drive(["escape"], rows=10)
+        text = visible(screen.split("\x1b[H")[-1])
+        assert "Ocean" in text
+        assert "Green Screen" not in text
+
+    def test_page_down_reaches_later_entries_when_paginated(self):
+        from termflow.ansi.utils import visible
+
+        _, screen = self._drive(["page-down", "escape"], rows=10)
+        assert "Green Screen" in visible(screen)
+
+    def test_enter_selects_theme(self):
+        result, _ = self._drive(["down", "enter"])
+        assert not result.cancelled
+        assert result.item is not None
+
+    def test_escape_cancels(self):
+        result, _ = self._drive(["escape"])
+        assert result.cancelled
 
 
 # ---------------------------------------------------------------------------

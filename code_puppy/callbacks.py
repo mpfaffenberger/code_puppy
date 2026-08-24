@@ -3,6 +3,8 @@ import logging
 import traceback
 from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple
 
+from pydantic_ai.messages import ModelMessage
+
 PhaseType = Literal[
     "startup",
     "shutdown",
@@ -69,10 +71,12 @@ PhaseType = Literal[
     "pre_compact",
     "session_end",
     "post_autosave",
+    "session_browser_open",
     "notification",
     "awaiting_user_input",
     "git_branch_provider",
     "feature_capability",
+    "transform_model_messages",
 ]
 CallbackFunc = Callable[..., Any]
 
@@ -156,10 +160,12 @@ _callbacks: Dict[PhaseType, List[CallbackFunc]] = {
     "pre_compact": [],
     "session_end": [],
     "post_autosave": [],
+    "session_browser_open": [],
     "notification": [],
     "awaiting_user_input": [],
     "git_branch_provider": [],
     "feature_capability": [],
+    "transform_model_messages": [],
 }
 
 logger = logging.getLogger(__name__)
@@ -586,6 +592,18 @@ async def on_post_autosave(*args, **kwargs) -> List[Any]:
     return await _trigger_callbacks("post_autosave", *args, **kwargs)
 
 
+async def on_session_browser_open(*args, **kwargs) -> List[Any]:
+    """Fire when the ``/resume`` session browser is about to open.
+
+    Receives ``(base_dir: str, entries: list[tuple[str, dict]])`` where
+    each entry is ``(session_name, metadata_dict)``. The metadata dicts
+    are the browser's LIVE objects: plugins that enrich them in place
+    (titles, tags) surface on the browser's next repaint. Handlers must
+    return fast -- do slow work (model calls) on a background thread.
+    """
+    return await _trigger_callbacks("session_browser_open", *args, **kwargs)
+
+
 def on_load_prompt():
     """Collect load_prompt fragments from plugins, dropping ``None`` results.
 
@@ -884,6 +902,13 @@ async def on_stream_event(
     return await _trigger_callbacks(
         "stream_event", event_type, event_data, agent_session_id
     )
+
+
+async def on_transform_model_messages(
+    agent_name: str | None, messages: List[ModelMessage]
+) -> List[Any]:
+    """Let plugins mutate the final outbound model messages in place."""
+    return await _trigger_callbacks("transform_model_messages", agent_name, messages)
 
 
 def on_register_tools() -> List[Dict[str, Any]]:
@@ -1553,6 +1578,9 @@ async def on_agent_run_cancel(group_id: str) -> List[Any]:
 
     Plugins use this to cancel any external workflow tracking the run.
     """
+    from code_puppy.observability import emit_cancellation
+
+    emit_cancellation(group_id)
     return await _trigger_callbacks("agent_run_cancel", group_id)
 
 

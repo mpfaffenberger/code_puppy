@@ -10,6 +10,7 @@ apply_all_patches()
 
 import argparse
 import asyncio
+import time
 import json
 import os
 import signal
@@ -39,7 +40,6 @@ from code_puppy.config import (
 from code_puppy.http_utils import find_available_port
 from code_puppy.keymap import (
     KeymapError,
-    get_cancel_agent_display_name,
     validate_cancel_agent_key,
 )
 from code_puppy.messaging import emit_info
@@ -228,6 +228,19 @@ async def main():
         ),
     )
     parser.add_argument(
+        "--port-base",
+        type=str,
+        default=None,
+        metavar="PORT",
+        help=(
+            "Starting port for the local HTTP server (searches PORT..PORT+920). "
+            "Bump this if 8090 collides with another local dev server. "
+            "Falls back to $CODE_PUPPY_PORT_BASE or 'port_base' in puppy.cfg (default 8090). "
+            "Invalid values are warned about and ignored -- next source in the "
+            "precedence chain is used instead of crashing."
+        ),
+    )
+    parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
 
@@ -315,9 +328,13 @@ async def main():
 
         # Truecolor warning moved to interactive_mode() so it prints last — max visibility.
 
-    available_port = find_available_port()
+    from code_puppy.config import PORT_PROBE_WIDTH, resolve_port_base
+
+    port_base = resolve_port_base(cli_value=args.port_base)
+    port_end = port_base + PORT_PROBE_WIDTH
+    available_port = find_available_port(start_port=port_base, end_port=port_end)
     if available_port is None:
-        emit_error(t("cli.error.no_ports"))
+        emit_error(t("cli.error.no_ports", port_base=port_base, port_end=port_end))
         return
 
     # Set model early (before ensure_config_exists) so config is set up correctly.
@@ -703,20 +720,22 @@ def _interactive_sigint_guard(_sig, _frame):
         ensure_ctrl_c_disabled()
     except Exception:
         pass
-    # Persistent prompt: Ctrl+C clears the buffer (readline feel; Ctrl+D quits).
-    # Only out-of-band SIGINTs land here — raw \x03 goes to the key listener, which
-    # also owns mid-run cancel (remapped key -> buffer-first clearing).
+    # Persistent prompt: Ctrl+C clears the buffer (readline feel; Ctrl+D
+    # quits), and a second idle Ctrl+C within DOUBLE_CTRL_C_WINDOW_S quits
+    # like Ctrl+D. Only out-of-band SIGINTs land here — raw \x03 goes to the
+    # key listener, which also owns mid-run cancel (remapped key ->
+    # buffer-first clearing).
     try:
         from code_puppy.messaging.run_ui import (
             absorb_ctrl_c_if_composing,
-            clear_idle_buffer,
             is_run_active,
+            note_idle_ctrl_c,
         )
 
         if is_run_active():
             absorb_ctrl_c_if_composing()
         else:
-            clear_idle_buffer()
+            note_idle_ctrl_c()
     except Exception:
         pass
     return
@@ -727,26 +746,18 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     from code_puppy.command_line.command_handler import handle_command
 
     display_console = message_renderer.console
+    from rich.text import Text
+
     from code_puppy.messaging import emit_info, emit_system_message
 
-    emit_system_message(t("cli.help.exit"))
-    emit_system_message(t("cli.help.clear"))
-    emit_system_message(t("cli.help.commands"))
-    emit_system_message(t("cli.help.completion"))
-    emit_system_message(t("cli.help.paste_images"))
-    import platform
-
-    if platform.system() == "Darwin":
-        emit_system_message(t("cli.help.macos_paste"))
-    cancel_key = get_cancel_agent_display_name()
-    emit_system_message(t("cli.help.cancel_key", cancel_key=cancel_key))
-    emit_system_message(t("cli.help.editor_shortcuts"))
-    emit_system_message(t("cli.help.autosave_load"))
-    emit_system_message(t("cli.help.diff"))
-    emit_system_message(t("cli.help.tutorial"))
-    emit_system_message(t("cli.help.shell_passthrough"))
+    # Pass a Text object (not a plain str): the SYSTEM renderer escapes Rich
+    # markup in plain strings before printing (see renderers.py), so inline
+    # "[bold]...[/bold]" in the i18n string would show up as literal
+    # brackets. A Text object bypasses that string branch entirely and
+    # renders as one line, actually bold.
+    emit_system_message(Text(t("cli.help.press_tab"), style="bold"))
     # Print truecolor warning LAST so it's the most visible thing on startup
-    # Big ugly red box should be impossible to miss! 🔴
+    # Big ugly red box should be impossible to miss!
     print_truecolor_warning(display_console)
 
     # Shell pass-through for initial_command: !<cmd> bypasses the agent
@@ -843,6 +854,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     record_terminal_session(get_current_session_name(), overwrite=False)
     # Track the current agent task for cancellation on quit
     current_agent_task = None
+    # Classic prompt: timestamp of the last idle Ctrl+C, for the
+    # double-tap-to-quit gesture (persistent mode tracks its own in run_ui).
+    last_idle_ctrl_c = 0.0
 
     # Baseline SIGINT guard for the REPL's whole life: Ctrl+C = cancel (Ctrl+D
     # quits); without it, a fast double-tap in the handler gap raises
@@ -935,12 +949,36 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     # Fall back to basic input if prompt_toolkit is not available
                     task = input(">>> ")
 
-        except (KeyboardInterrupt, asyncio.CancelledError):
+        except (KeyboardInterrupt, asyncio.CancelledError) as cancel_exc:
             # Ctrl+C: cancel input and continue. Reset terminal state on Windows
             # so it doesn't become unresponsive.
             reset_windows_terminal_full()
             from code_puppy.callbacks import on_interactive_turn_cancel
-            from code_puppy.messaging import emit_warning
+            from code_puppy.command_line.prompt_toolkit_completion import (
+                pop_non_ctrl_c_cancel,
+            )
+            from code_puppy.messaging import emit_success, emit_warning
+            from code_puppy.messaging.run_ui import DOUBLE_CTRL_C_WINDOW_S
+
+            # Double Ctrl+C at the idle prompt quits like Ctrl+D. Escape and
+            # Ctrl+X raise the same KeyboardInterrupt but mark themselves, so
+            # mashing Escape can never exit; CancelledError never counts.
+            was_plain_ctrl_c = (
+                isinstance(cancel_exc, KeyboardInterrupt)
+                and not pop_non_ctrl_c_cancel()
+            )
+            now = time.monotonic()
+            if was_plain_ctrl_c and now - last_idle_ctrl_c <= DOUBLE_CTRL_C_WINDOW_S:
+                emit_success("\n" + t("cli.goodbye_ctrld"))
+                if current_agent_task and not current_agent_task.done():
+                    emit_info(t("cli.agent.cancelling"))
+                    current_agent_task.cancel()
+                    try:
+                        await current_agent_task
+                    except asyncio.CancelledError:
+                        pass  # Expected when cancelling
+                break
+            last_idle_ctrl_c = now if was_plain_ctrl_c else 0.0
 
             await on_interactive_turn_cancel("", reason="Ctrl+C")
             emit_warning("\n" + t("cli.input.cancelled"))
@@ -1054,10 +1092,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 emit_success,
                                 emit_warning,
                             )
-                            from code_puppy.session_storage import (
-                                load_session,
-                                restore_autosave_interactively,
-                            )
+                            from code_puppy.session_storage import load_session
 
                             from code_puppy.messaging.run_ui import (
                                 suspended_run_ui,
@@ -1102,8 +1137,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                             display_resumed_history(history)
                         else:
-                            # Fall back to old text-based picker for tests/non-TTY environments
-                            await restore_autosave_interactively(Path(AUTOSAVE_DIR))
+                            # No TTY, no picker: the old text-prompt fallback
+                            # was an interactive prompt in a non-interactive
+                            # environment. Point at the explicit flag instead.
+                            from code_puppy.messaging import emit_warning
+
+                            emit_warning(t("cli.autosave.tui_required"))
 
                     except Exception as e:
                         from code_puppy.messaging import emit_error

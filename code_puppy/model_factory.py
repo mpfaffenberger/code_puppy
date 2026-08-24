@@ -157,6 +157,46 @@ def _thinking_tags_profile(
     return OpenAIModelProfile(thinking_tags=tags)
 
 
+def _strict_openai_profile(
+    model_name: str,
+    model_config: dict[str, Any],
+    *,
+    extra: OpenAIModelProfile | None = None,
+) -> OpenAIModelProfile:
+    """Build a profile for custom OpenAI-compatible endpoints (SGLang, vLLM, etc.).
+
+    Strict backends reject more than one leading system message with
+    ``System message must be at the beginning.`` After compaction the wire
+    format has two: the compaction summary ``SystemPromptPart`` and the
+    agent's per-turn ``instruction_parts``.  Setting
+    ``openai_chat_supports_multiple_system_messages=False`` makes
+    pydantic-ai's ``_merge_leading_system_messages`` concatenate them into
+    one, which every backend accepts.
+
+    Merging is harmless for endpoints that *do* support multiple system
+    messages (the content is identical, just joined with ``\n\n``), so the
+    safe default is ``False``.  Users who know their endpoint handles
+    multiple system messages can opt out with
+    ``"supports_multiple_system_messages": true`` in the model config.
+    """
+    base = _thinking_tags_profile(model_name, model_config) or {}
+    merged = OpenAIModelProfile(base)
+    if extra:
+        merged.update(extra)
+    # Config override trumps the safe default.  Fail fast on non-bool
+    # values: a JSON string "false" would silently invert the user's intent
+    # (it is truthy in Python, and we cannot ``bool()``-coerce because
+    # ``bool("false")`` is ``True``).
+    supports = model_config.get("supports_multiple_system_messages", False)
+    if not isinstance(supports, bool):
+        raise TypeError(
+            "supports_multiple_system_messages must be a JSON boolean "
+            f"(true/false), got {type(supports).__name__}: {supports!r}"
+        )
+    merged["openai_chat_supports_multiple_system_messages"] = supports
+    return merged
+
+
 def _merge_dotted_key(target: dict, dotted_key: str, value: Any) -> None:
     """Merge ``value`` into ``target`` at the path described by ``dotted_key``.
 
@@ -904,7 +944,7 @@ class ModelFactory:
             return OpenAIChatModel(
                 model_name=model_config["name"],
                 provider=provider,
-                profile=_thinking_tags_profile(model_name, model_config),
+                profile=_strict_openai_profile(model_name, model_config),
             )
         elif model_type == "zai_coding":
             api_key = get_api_key("ZAI_API_KEY")
@@ -921,6 +961,7 @@ class ModelFactory:
             return ZaiChatModel(
                 model_name=model_config["name"],
                 provider=provider,
+                profile=_strict_openai_profile(model_name, model_config),
             )
         elif model_type == "zai_api":
             api_key = get_api_key("ZAI_API_KEY")
@@ -937,6 +978,7 @@ class ModelFactory:
             return ZaiChatModel(
                 model_name=model_config["name"],
                 provider=provider,
+                profile=_strict_openai_profile(model_name, model_config),
             )
 
         elif model_type == "custom_gemini":
@@ -994,8 +1036,14 @@ class ModelFactory:
 
             # Cerebras rejects mixed 'strict' tool values; disable strict defs so
             # pydantic-ai never sends that field (avoids wrong_api_format errors).
-            profile = OpenAIModelProfile(
-                openai_supports_strict_tool_definition=False,
+            # Route through _strict_openai_profile to apply the same safe
+            # system-message merge default and any configured thinking_tags
+            # (the latter was previously missed for Cerebras because the old
+            # bare profile skipped _thinking_tags_profile).
+            profile = _strict_openai_profile(
+                model_name,
+                model_config,
+                extra=OpenAIModelProfile(openai_supports_strict_tool_definition=False),
             )
 
             return OpenAIChatModel(
@@ -1036,7 +1084,7 @@ class ModelFactory:
             return OpenAIChatModel(
                 model_name=model_config["name"],
                 provider=provider,
-                profile=_thinking_tags_profile(model_name, model_config),
+                profile=_strict_openai_profile(model_name, model_config),
             )
 
         # NOTE: 'chatgpt_oauth' model type is now handled by the chatgpt_oauth plugin

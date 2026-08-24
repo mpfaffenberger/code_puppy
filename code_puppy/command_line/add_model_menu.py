@@ -1,48 +1,35 @@
-"""Interactive terminal UI for browsing and adding models from models_dev_api.json.
+"""Interactive browser for adding models from the models.dev catalog.
 
-Provides a beautiful split-panel interface for browsing providers and models
-with live preview of model details and one-click addition to extra_models.json.
+Two chained termflow menus (providers -> models, both searchable with a
+details preview) followed by TextInput flows for credentials and custom
+model entry. All persistence goes through ``extra_models.json`` via
+:mod:`code_puppy.atomic_json`.
+
+The heavy UI machinery of the previous prompt_toolkit implementation is
+gone; what remains is the business logic (config building, credential
+handling) plus thin widget wiring. Every builder takes ``**overrides``
+mapping onto termflow builder setters so tests drive the flow headlessly
+with scripted keys.
 """
 
 import os
-import sys
-import time
-from typing import List, Optional
-
-from prompt_toolkit.application import Application
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Dimension, Layout, VSplit, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.widgets import Frame
+from typing import Callable, List, Optional, Tuple
 
 from code_puppy import atomic_json
-from code_puppy.command_line.pagination import (
-    ensure_visible_page,
-    get_page_bounds,
-    get_page_for_index,
-    get_total_pages,
-)
-from code_puppy.command_line.utils import safe_input
 from code_puppy.config import EXTRA_MODELS_FILE, set_config_value
 from code_puppy.i18n import t
-from code_puppy.list_filtering import query_matches_text
 from code_puppy.messaging import emit_error, emit_info, emit_warning
 from code_puppy.models_dev_parser import ModelInfo, ModelsDevRegistry, ProviderInfo
 from code_puppy.provider_credentials import (
     credential_display,
-    credential_hint,
-    is_credential_set,
     save_credential,
 )
 from code_puppy.tools.command_runner import set_awaiting_user_input
-from code_puppy.callbacks import on_prompt_toolkit_style
 
 
 class _ExtraModelsNotADict(Exception):
     """Sentinel: extra_models.json parsed to something other than a dict."""
 
-
-PAGE_SIZE = 15  # Items per page
 
 # Hardcoded OpenAI-compatible endpoints for providers that have dedicated SDKs
 # but actually work fine with custom_openai. These are fallbacks when provider.api is not set.
@@ -58,7 +45,6 @@ PROVIDER_ENDPOINTS = {
 }
 
 # Providers that require custom SDK implementations we don't support yet.
-# These use non-OpenAI-compatible APIs or require special authentication (AWS SigV4, GCP, etc.)
 UNSUPPORTED_PROVIDERS = {
     "amazon-bedrock": "Use /bedrock-setup to configure (aws_bedrock plugin)",
     "google-vertex": "Requires GCP service account authentication",
@@ -68,7 +54,6 @@ UNSUPPORTED_PROVIDERS = {
     "v0": "Vercel v0 - not yet supported",
     "ollama-cloud": "Requires user-specific Ollama instance URL",
 }
-
 
 PROVIDER_IDENTITY_MAPPING = {
     "openai": "openai",
@@ -89,6 +74,29 @@ PROVIDER_IDENTITY_MAPPING = {
     "xai": "xai",
 }
 
+ENV_VAR_HINTS = {
+    "OPENAI_API_KEY": "Get your API key from https://platform.openai.com/api-keys",
+    "ANTHROPIC_API_KEY": "Get your API key from https://console.anthropic.com/",
+    "GEMINI_API_KEY": "Get your API key from https://aistudio.google.com/apikey",
+    "GOOGLE_API_KEY": "Get your API key from https://aistudio.google.com/apikey",
+    "AZURE_API_KEY": "Get your API key from Azure Portal > Your OpenAI Resource > Keys",
+    "AZURE_RESOURCE_NAME": "Your Azure OpenAI resource name (not the full URL)",
+    "GROQ_API_KEY": "Get your API key from https://console.groq.com/keys",
+    "MISTRAL_API_KEY": "Get your API key from https://console.mistral.ai/",
+    "COHERE_API_KEY": "Get your API key from https://dashboard.cohere.com/api-keys",
+    "DEEPSEEK_API_KEY": "Get your API key from https://platform.deepseek.com/",
+    "TOGETHER_API_KEY": "Get your API key from https://api.together.xyz/settings/api-keys",
+    "FIREWORKS_API_KEY": "Get your API key from https://fireworks.ai/api-keys",
+    "OPENROUTER_API_KEY": "Get your API key from https://openrouter.ai/keys",
+    "PERPLEXITY_API_KEY": "Get your API key from https://www.perplexity.ai/settings/api",
+    "CEREBRAS_API_KEY": "Get your API key from https://cloud.cerebras.ai/",
+    "HUGGINGFACE_API_KEY": "Get your API key from https://huggingface.co/settings/tokens",
+    "XAI_API_KEY": "Get your API key from https://console.x.ai/",
+}
+
+_CUSTOM_MODEL_VALUE = "__custom_model__"
+_EDIT_CREDENTIALS = "__edit_credentials__"
+
 
 def derive_provider_identity(provider: ProviderInfo) -> str:
     """Derive the persisted provider identity for imported models."""
@@ -98,1316 +106,485 @@ def derive_provider_identity(provider: ProviderInfo) -> str:
     return PROVIDER_IDENTITY_MAPPING.get(provider_id, provider_id.replace("-", "_"))
 
 
-class AddModelMenu:
-    """Interactive TUI for browsing and adding models."""
+def parse_context_size(text: str, default: int = 128000) -> Optional[int]:
+    """Parse a context size like ``128000``, ``128k`` or ``1M``.
 
-    # Class-level default so the attribute exists even when built via
-    # ``__new__`` (e.g. tests bypass ``__init__``); ``run()`` reads it.
-    pending_credentials_edit: Optional[ProviderInfo] = None
-
-    def __init__(self):
-        """Initialize the model browser menu."""
-        self.registry: Optional[ModelsDevRegistry] = None
-        self.providers: List[ProviderInfo] = []
-        self.current_provider: Optional[ProviderInfo] = None
-        self.current_models: List[ModelInfo] = []
-
-        # State management
-        self.view_mode = "providers"  # "providers" or "models"
-        self.selected_provider_idx = 0
-        self.selected_model_idx = 0
-        self.current_page = 0
-        self.result = None  # Track if user added a model
-        self.provider_filter = ""
-        self.model_filter = ""
-
-        # Pending model for credential prompting
-        self.pending_model: Optional[ModelInfo] = None
-        self.pending_provider: Optional[ProviderInfo] = None
-        self.pending_credentials_edit: Optional[ProviderInfo] = None
-
-        # Custom model support
-        self.is_custom_model_selected = False
-        self.custom_model_name: Optional[str] = None
-
-        # Initialize registry
-        self._initialize_registry()
-
-    def _initialize_registry(self):
-        """Initialize the ModelsDevRegistry with error handling.
-
-        Fetches from live models.dev API first, falls back to bundled JSON.
-        """
-        try:
-            self.registry = (
-                ModelsDevRegistry()
-            )  # Will try API first, then bundled fallback
-            self.providers = self.registry.get_providers()
-            if not self.providers:
-                emit_error(t("model_menu.registry.no_providers"))
-        except FileNotFoundError as e:
-            emit_error(t("model_menu.registry.unavailable", error=e))
-        except Exception as e:
-            emit_error(t("model_menu.registry.load_error", error=e))
-
-    def _get_current_provider(self) -> Optional[ProviderInfo]:
-        """Get the currently selected provider."""
-        filtered_providers = self._filtered_providers()
-        if 0 <= self.selected_provider_idx < len(filtered_providers):
-            return filtered_providers[self.selected_provider_idx]
+    Empty text returns ``default``; unparseable text returns ``None`` so
+    callers (TextInput validators) can reject it.
+    """
+    cleaned = text.strip().lower().replace(",", "")
+    if not cleaned:
+        return default
+    multiplier = 1
+    if cleaned.endswith("k"):
+        multiplier, cleaned = 1000, cleaned[:-1]
+    elif cleaned.endswith("m"):
+        multiplier, cleaned = 1000000, cleaned[:-1]
+    try:
+        return int(float(cleaned) * multiplier)
+    except ValueError:
         return None
 
-    def _get_current_model(self) -> Optional[ModelInfo]:
-        """Get the currently selected model.
 
-        Returns None if "Custom model" option is selected (which is at index len(current_models)).
-        """
-        if self.view_mode == "models" and self.current_provider:
-            # Check if custom model option is selected (it's the last item)
-            filtered_models = self._filtered_models()
-            if self._should_show_custom_model() and (
-                self.selected_model_idx == len(filtered_models)
-            ):
-                return None  # Custom model selected
-            if 0 <= self.selected_model_idx < len(filtered_models):
-                return filtered_models[self.selected_model_idx]
-        return None
-
-    def _get_current_provider_from_model(self) -> Optional[ProviderInfo]:
-        """Get the provider for the currently selected model (in models view)."""
-        return self.current_provider
-
-    def _is_custom_model_selected(self) -> bool:
-        """Check if the custom model option is currently selected."""
-        if self.view_mode == "models" and self.current_provider:
-            return self._should_show_custom_model() and (
-                self.selected_model_idx == len(self._filtered_models())
-            )
-        return False
-
-    def _filtered_providers(self) -> List[ProviderInfo]:
-        provider_filter = getattr(self, "provider_filter", "")
-        if not provider_filter:
-            return self.providers
-        return [
-            provider
-            for provider in self.providers
-            if query_matches_text(provider_filter, provider.name, provider.id)
-        ]
-
-    def _filtered_models(self) -> List[ModelInfo]:
-        model_filter = getattr(self, "model_filter", "")
-        if not model_filter:
-            return self.current_models
-        return [
-            model
-            for model in self.current_models
-            if query_matches_text(
-                model_filter,
-                model.name,
-                model.model_id,
-                getattr(model, "full_id", ""),
-            )
-        ]
-
-    def _should_show_custom_model(self) -> bool:
-        model_filter = getattr(self, "model_filter", "")
-        return (
-            not model_filter
-            or not self._filtered_models()
-            or query_matches_text(model_filter, "custom model")
-        )
-
-    def _get_active_filter_text(self) -> str:
-        if self.view_mode == "providers":
-            return getattr(self, "provider_filter", "")
-        return getattr(self, "model_filter", "")
-
-    def _sync_provider_selection(
-        self, preferred_provider: Optional[ProviderInfo]
-    ) -> None:
-        filtered_providers = self._filtered_providers()
-        if not filtered_providers:
-            self.selected_provider_idx = 0
-            self.current_page = 0
-            return
-
-        if preferred_provider and preferred_provider in filtered_providers:
-            self.selected_provider_idx = filtered_providers.index(preferred_provider)
-        else:
-            self.selected_provider_idx = min(
-                self.selected_provider_idx, len(filtered_providers) - 1
-            )
-        self._ensure_selection_visible()
-
-    def _sync_model_selection(
-        self, preferred_model: Optional[ModelInfo], preferred_custom: bool
-    ) -> None:
-        filtered_models = self._filtered_models()
-        total_items = len(filtered_models) + int(self._should_show_custom_model())
-        if total_items <= 0:
-            self.selected_model_idx = 0
-            self.current_page = 0
-            return
-
-        if preferred_custom and self._should_show_custom_model():
-            self.selected_model_idx = len(filtered_models)
-        elif preferred_model and preferred_model in filtered_models:
-            self.selected_model_idx = filtered_models.index(preferred_model)
-        else:
-            self.selected_model_idx = min(self.selected_model_idx, total_items - 1)
-        self._ensure_selection_visible()
-
-    def _set_provider_filter(self, value: str) -> None:
-        preferred_provider = self._get_current_provider()
-        self.provider_filter = value
-        self._sync_provider_selection(preferred_provider)
-
-    def _set_model_filter(self, value: str) -> None:
-        preferred_model = self._get_current_model()
-        preferred_custom = self._is_custom_model_selected()
-        self.model_filter = value
-        self._sync_model_selection(preferred_model, preferred_custom)
-
-    def _append_filter_char(self, value: str) -> None:
-        if self.view_mode == "providers":
-            self._set_provider_filter(getattr(self, "provider_filter", "") + value)
-        else:
-            self._set_model_filter(getattr(self, "model_filter", "") + value)
-
-    def _delete_filter_char(self) -> bool:
-        if self.view_mode == "providers":
-            provider_filter = getattr(self, "provider_filter", "")
-            if not provider_filter:
-                return False
-            self._set_provider_filter(provider_filter[:-1])
-            return True
-
-        model_filter = getattr(self, "model_filter", "")
-        if not model_filter:
-            return False
-        self._set_model_filter(model_filter[:-1])
-        return True
-
-    def _clear_active_filter(self) -> bool:
-        if self.view_mode == "providers":
-            if not getattr(self, "provider_filter", ""):
-                return False
-            self._set_provider_filter("")
-            return True
-
-        if not getattr(self, "model_filter", ""):
-            return False
-        self._set_model_filter("")
-        return True
-
-    def _get_total_items(self) -> int:
-        """Return the number of items in the active list view."""
-        if self.view_mode == "providers":
-            return len(self._filtered_providers())
-        return len(self._filtered_models()) + int(self._should_show_custom_model())
-
-    def _get_selected_index(self) -> int:
-        """Return the selected absolute index for the active list view."""
-        if self.view_mode == "providers":
-            return self.selected_provider_idx
-        return self.selected_model_idx
-
-    def _set_selected_index(self, index: int) -> None:
-        """Set the selected absolute index for the active list view."""
-        if self.view_mode == "providers":
-            self.selected_provider_idx = index
-        else:
-            self.selected_model_idx = index
-
-    def _ensure_selection_visible(self) -> None:
-        """Keep the selected item on the current page."""
-        self.current_page = ensure_visible_page(
-            self._get_selected_index(),
-            self.current_page,
-            self._get_total_items(),
-            PAGE_SIZE,
-        )
-
-    def _go_to_previous_page(self) -> None:
-        """Move to the previous page and select its first item."""
-        if self.current_page <= 0:
-            return
-        self.current_page -= 1
-        self._set_selected_index(self.current_page * PAGE_SIZE)
-
-    def _go_to_next_page(self) -> None:
-        """Move to the next page and select its first item."""
-        total_pages = get_total_pages(self._get_total_items(), PAGE_SIZE)
-        if self.current_page >= total_pages - 1:
-            return
-        self.current_page += 1
-        self._set_selected_index(self.current_page * PAGE_SIZE)
-
-    def _render_provider_list(self) -> List:
-        """Render the provider list panel."""
-        lines = []
-
-        lines.append(("class:tui.header", " Providers"))
-        lines.append(("", "\n\n"))
-
-        if not self.providers:
-            lines.append(("class:tui.warning", "  No providers available."))
-            lines.append(("", "\n\n"))
-            self._render_navigation_hints(lines)
-            return lines
-
-        filter_label = getattr(self, "provider_filter", "") or "type to filter"
-        lines.append(("class:tui.muted", f" Filter: {filter_label}"))
-        lines.append(("", "\n\n"))
-
-        filtered_providers = self._filtered_providers()
-        if not filtered_providers:
-            lines.append(
-                ("class:tui.warning", "  No providers match the current filter.")
-            )
-            lines.append(("", "\n\n"))
-            self._render_navigation_hints(lines)
-            return lines
-
-        # Show providers for current page
-        total_pages = get_total_pages(len(filtered_providers), PAGE_SIZE)
-        start_idx, end_idx = get_page_bounds(
-            self.current_page,
-            len(filtered_providers),
-            PAGE_SIZE,
-        )
-
-        for i in range(start_idx, end_idx):
-            provider = filtered_providers[i]
-            is_selected = i == self.selected_provider_idx
-            is_unsupported = provider.id in UNSUPPORTED_PROVIDERS
-
-            # Format: "> Provider Name (X models)" or "  Provider Name (X models)"
-            prefix = " > " if is_selected else "   "
-            suffix = " ⚠️" if is_unsupported else ""
-            label = f"{prefix}{provider.name} ({provider.model_count} models){suffix}"
-
-            if is_selected:
-                lines.append(("class:tui.selected", label))
-            elif is_unsupported:
-                lines.append(("class:tui.muted", label))
-            else:
-                lines.append(("class:tui.body", label))
-
-            lines.append(("", "\n"))
-
-        lines.append(("", "\n"))
-        lines.append(
-            ("class:tui.muted", f" Page {self.current_page + 1}/{total_pages}")
-        )
-        lines.append(("", "\n"))
-
-        self._render_navigation_hints(lines)
-        return lines
-
-    def _render_model_list(self) -> List:
-        """Render the model list panel."""
-        lines = []
-
-        if not self.current_provider:
-            lines.append(("class:tui.warning", "  No provider selected."))
-            lines.append(("", "\n\n"))
-            self._render_navigation_hints(lines)
-            return lines
-
-        lines.append(("class:tui.header", f" {self.current_provider.name} Models"))
-        lines.append(("", "\n"))
-        filter_label = getattr(self, "model_filter", "") or "type to filter"
-        lines.append(("class:tui.muted", f" Filter: {filter_label}"))
-        lines.append(("", "\n\n"))
-
-        filtered_models = self._filtered_models()
-        custom_visible = self._should_show_custom_model()
-        if not filtered_models and not custom_visible:
-            lines.append(("class:tui.warning", "  No models match the current filter."))
-            lines.append(("", "\n\n"))
-            self._render_navigation_hints(lines)
-            return lines
-
-        # Total items = models + 1 for custom model option
-        total_items = len(filtered_models) + int(custom_visible)
-        total_pages = get_total_pages(total_items, PAGE_SIZE)
-        start_idx, end_idx = get_page_bounds(self.current_page, total_items, PAGE_SIZE)
-
-        # Render models from the current page
-        for i in range(start_idx, end_idx):
-            # Check if this is the custom model option (last item)
-            if custom_visible and i == len(filtered_models):
-                is_selected = i == self.selected_model_idx
-                if is_selected:
-                    lines.append(("class:tui.selected", " > ✨ Custom model..."))
-                else:
-                    lines.append(("class:tui.body", "   ✨ Custom model..."))
-                lines.append(("", "\n"))
-                continue
-
-            model = filtered_models[i]
-            is_selected = i == self.selected_model_idx
-
-            # Create capability icons
-            icons = []
-            if model.has_vision:
-                icons.append("👁")
-            if model.tool_call:
-                icons.append("🔧")
-            if model.reasoning:
-                icons.append("🧠")
-
-            icon_str = " ".join(icons) + " " if icons else ""
-
-            if is_selected:
-                lines.append(("class:tui.selected", f" > {icon_str}{model.name}"))
-            else:
-                lines.append(("class:tui.body", f"   {icon_str}{model.name}"))
-
-            lines.append(("", "\n"))
-
-        lines.append(("", "\n"))
-        lines.append(
-            ("class:tui.muted", f" Page {self.current_page + 1}/{total_pages}")
-        )
-        lines.append(("", "\n"))
-
-        self._render_navigation_hints(lines)
-        return lines
-
-    def _render_navigation_hints(self, lines: List):
-        """Render navigation hints at the bottom of the list panel."""
-        lines.append(("", "\n"))
-        lines.append(("class:tui.help-key", "  ↑/↓ "))
-        lines.append(("class:tui.help", "Navigate  "))
-        lines.append(("class:tui.help-key", "←/→ "))
-        lines.append(("class:tui.help", "Page\n"))
-        lines.append(("class:tui.help-key", "  Type "))
-        lines.append(("class:tui.help", "Filter list\n"))
-        lines.append(("class:tui.help-key", "  Backspace "))
-        lines.append(("class:tui.help", "Delete filter char\n"))
-        lines.append(("class:tui.help-key", "  Ctrl+U "))
-        lines.append(("class:tui.help", "Clear filter\n"))
-        if self.view_mode == "providers":
-            lines.append(("class:tui.help-key", "  Enter  "))
-            lines.append(("class:tui.help", "Select\n"))
-            lines.append(("class:tui.help-key", "  Ctrl+E  "))
-            lines.append(("class:tui.help", "Edit credentials\n"))
-        else:
-            lines.append(("class:tui.help-key", "  Enter  "))
-            lines.append(("class:tui.help", "Add Model\n"))
-            lines.append(("class:tui.help-key", "  Esc/Back  "))
-            lines.append(("class:tui.help", "Back\n"))
-        lines.append(("class:tui.help-key", "  Ctrl+C "))
-        lines.append(("class:tui.help", "Cancel"))
-
-    def _render_model_details(self) -> List:
-        """Render the model details panel."""
-        lines = []
-
-        lines.append(("class:tui.title", " MODEL DETAILS"))
-        lines.append(("", "\n\n"))
-
-        if self.view_mode == "providers":
-            provider = self._get_current_provider()
-            if not provider:
-                lines.append(("class:tui.warning", "  No provider selected."))
-                return lines
-
-            lines.append(("class:tui.label", f"  {provider.name}"))
-            lines.append(("", "\n"))
-            lines.append(("class:tui.body", f"  ID: {provider.id}"))
-            lines.append(("", "\n"))
-            lines.append(("class:tui.body", f"  Models: {provider.model_count}"))
-            lines.append(("", "\n"))
-            lines.append(("class:tui.body", f"  API: {provider.api}"))
-            lines.append(("", "\n"))
-
-            # Show unsupported warning if applicable
-            if provider.id in UNSUPPORTED_PROVIDERS:
-                lines.append(("", "\n"))
-                lines.append(("class:tui.error", "  ⚠️  UNSUPPORTED PROVIDER"))
-                lines.append(("", "\n"))
-                lines.append(
-                    ("class:tui.error", f"  {UNSUPPORTED_PROVIDERS[provider.id]}")
-                )
-                lines.append(("", "\n"))
-                lines.append(
-                    (
-                        "class:tui.muted",
-                        "  Models from this provider cannot be added.",
-                    )
-                )
-                lines.append(("", "\n"))
-
-            if provider.env:
-                lines.append(("", "\n"))
-                lines.append(("class:tui.label", "  Credentials:"))
-                lines.append(("", "\n"))
-                for env_var in provider.env:
-                    status = credential_display(env_var)
-                    hint = credential_hint(env_var)
-                    color = (
-                        "class:tui.success"
-                        if is_credential_set(env_var)
-                        else "class:tui.warning"
-                    )
-                    lines.append((color, f"    • {env_var}: {status}"))
-                    lines.append(("", "\n"))
-                    if hint:
-                        lines.append(("class:tui.muted", f"      {hint}"))
-                        lines.append(("", "\n"))
-
-            if provider.doc:
-                lines.append(("", "\n"))
-                lines.append(("class:tui.label", "  Documentation:"))
-                lines.append(("", "\n"))
-                lines.append(("class:tui.body", f"    {provider.doc}"))
-                lines.append(("", "\n"))
-
-        else:  # models view
-            model = self._get_current_model()
-            provider = self.current_provider
-
-            if not provider:
-                lines.append(("class:tui.warning", "  No model selected."))
-                return lines
-
-            # Handle custom model option
-            if self._is_custom_model_selected():
-                lines.append(("class:tui.label", "  ✨ Custom Model"))
-                lines.append(("", "\n\n"))
-                lines.append(
-                    ("class:tui.body", "  Add a model not listed in models.dev")
-                )
-                lines.append(("", "\n\n"))
-                lines.append(("class:tui.label", "  How it works:"))
-                lines.append(("", "\n"))
-                lines.append(("class:tui.muted", "  1. Press Enter to select"))
-                lines.append(("", "\n"))
-                lines.append(("class:tui.muted", "  2. Enter the model ID/name"))
-                lines.append(("", "\n"))
-                lines.append(
-                    ("class:tui.muted", f"  3. Uses {provider.name}'s API endpoint")
-                )
-                lines.append(("", "\n\n"))
-                lines.append(("class:tui.label", "  Use cases:"))
-                lines.append(("", "\n"))
-                lines.append(("class:tui.muted", "  • Newly released models"))
-                lines.append(("", "\n"))
-                lines.append(("class:tui.muted", "  • Fine-tuned models"))
-                lines.append(("", "\n"))
-                lines.append(("class:tui.muted", "  • Preview/beta models"))
-                lines.append(("", "\n"))
-                lines.append(("class:tui.muted", "  • Custom deployments"))
-                lines.append(("", "\n\n"))
-                if provider.env:
-                    lines.append(("class:tui.label", "  Required credentials:"))
-                    lines.append(("", "\n"))
-                    for env_var in provider.env:
-                        lines.append(("class:tui.muted", f"    • {env_var}"))
-                        lines.append(("", "\n"))
-                return lines
-
-            if not model:
-                lines.append(("class:tui.warning", "  No model selected."))
-                return lines
-
-            lines.append(("class:tui.label", f"  {provider.name} - {model.name}"))
-            lines.append(("", "\n\n"))
-
-            # BIG WARNING for models without tool calling
-            if not model.tool_call:
-                lines.append(("class:tui.warning", "  ⚠️  NO TOOL CALLING SUPPORT"))
-                lines.append(("", "\n"))
-                lines.append(
-                    ("class:tui.warning", "  This model cannot use tools (file ops,")
-                )
-                lines.append(("", "\n"))
-                lines.append(
-                    ("class:tui.warning", "  shell commands, etc). It will be very")
-                )
-                lines.append(("", "\n"))
-                lines.append(("class:tui.warning", "  limited for coding tasks!"))
-                lines.append(("", "\n\n"))
-
-            # Capabilities
-            lines.append(("class:tui.label", "  Capabilities:"))
-            lines.append(("", "\n"))
-
-            capabilities = [
-                ("Vision", model.has_vision),
-                ("Tool Calling", model.tool_call),
-                ("Reasoning", model.reasoning),
-                ("Temperature", model.temperature),
-                ("Structured Output", model.structured_output),
-                ("Attachments", model.attachment),
-            ]
-
-            for cap_name, has_cap in capabilities:
-                if has_cap:
-                    lines.append(("class:tui.success", f"    ✓ {cap_name}"))
-                else:
-                    lines.append(("class:tui.muted", f"    ✗ {cap_name}"))
-                lines.append(("", "\n"))
-
-            # Pricing
-            lines.append(("", "\n"))
-            lines.append(("class:tui.label", "  Pricing:"))
-            lines.append(("", "\n"))
-
-            if model.cost_input is not None or model.cost_output is not None:
-                if model.cost_input is not None:
-                    lines.append(
-                        (
-                            "class:tui.muted",
-                            f"    Input: ${model.cost_input:.6f}/token",
-                        )
-                    )
-                    lines.append(("", "\n"))
-                if model.cost_output is not None:
-                    lines.append(
-                        (
-                            "class:tui.muted",
-                            f"    Output: ${model.cost_output:.6f}/token",
-                        )
-                    )
-                    lines.append(("", "\n"))
-                if model.cost_cache_read is not None:
-                    lines.append(
-                        (
-                            "class:tui.muted",
-                            f"    Cache Read: ${model.cost_cache_read:.6f}/token",
-                        )
-                    )
-                    lines.append(("", "\n"))
-            else:
-                lines.append(("class:tui.muted", "    Pricing not available"))
-                lines.append(("", "\n"))
-
-            # Limits
-            lines.append(("", "\n"))
-            lines.append(("class:tui.label", "  Limits:"))
-            lines.append(("", "\n"))
-
-            if model.context_length > 0:
-                lines.append(
-                    (
-                        "class:tui.muted",
-                        f"    Context: {model.context_length:,} tokens",
-                    )
-                )
-                lines.append(("", "\n"))
-            if model.max_output > 0:
-                lines.append(
-                    (
-                        "class:tui.muted",
-                        f"    Max Output: {model.max_output:,} tokens",
-                    )
-                )
-                lines.append(("", "\n"))
-
-            # Modalities
-            if model.input_modalities or model.output_modalities:
-                lines.append(("", "\n"))
-                lines.append(("class:tui.label", "  Modalities:"))
-                lines.append(("", "\n"))
-
-                if model.input_modalities:
-                    lines.append(
-                        (
-                            "class:tui.muted",
-                            f"    Input: {', '.join(model.input_modalities)}",
-                        )
-                    )
-                    lines.append(("", "\n"))
-                if model.output_modalities:
-                    lines.append(
-                        (
-                            "class:tui.muted",
-                            f"    Output: {', '.join(model.output_modalities)}",
-                        )
-                    )
-                    lines.append(("", "\n"))
-
-            # Metadata
-            lines.append(("", "\n"))
-            lines.append(("class:tui.label", "  Metadata:"))
-            lines.append(("", "\n"))
-
-            lines.append(("class:tui.muted", f"    Model ID: {model.model_id}"))
-            lines.append(("", "\n"))
-            lines.append(("class:tui.muted", f"    Full ID: {model.full_id}"))
-            lines.append(("", "\n"))
-
-            if model.knowledge:
-                lines.append(("class:tui.muted", f"    Knowledge: {model.knowledge}"))
-                lines.append(("", "\n"))
-
-            if model.release_date:
-                lines.append(("class:tui.muted", f"    Released: {model.release_date}"))
-                lines.append(("", "\n"))
-
-            lines.append(("class:tui.muted", f"    Open Weights: {model.open_weights}"))
-            lines.append(("", "\n"))
-
-        return lines
-
-    def _add_model_to_extra_config(
-        self, model: ModelInfo, provider: ProviderInfo
-    ) -> bool:
-        """Add a model to the extra_models.json configuration file.
-
-        The extra_models.json format is a dictionary where:
-        - Keys are user-friendly model names (e.g., "provider-model-name")
-        - Values contain type, name, custom_endpoint (if needed), and context_length
-
-        Uses :func:`code_puppy.atomic_json.mutate_json` for a bounded,
-        locked, atomically-written read-modify-write -- this file is also
-        touched by the ollama-setup and aws_bedrock/azure_foundry plugins,
-        so an unlocked write here could lose one of those concurrent updates.
-        """
-        model_key = f"{provider.id}-{model.model_id}".replace("/", "-").replace(
-            ":", "-"
-        )
-        already_present = False
-
-        def _mutate(current):
-            nonlocal already_present
-            if not isinstance(current, dict):
-                raise _ExtraModelsNotADict()
-            if model_key in current:
-                already_present = True
-                return current
-            current[model_key] = self._build_model_config(model, provider)
-            return current
-
-        try:
-            atomic_json.mutate_json(EXTRA_MODELS_FILE, _mutate, default={})
-        except _ExtraModelsNotADict:
-            emit_error(t("model_menu.extra_models.invalid_format"))
-            return False
-        except atomic_json.JsonFileCorrupt as e:
-            emit_error(t("model_menu.extra_models.parse_error", error=e))
-            return False
-        except Exception as e:
-            emit_error(t("model_menu.extra_models.add_error", error=e))
-            return False
-
-        if already_present:
-            emit_info(t("model_menu.extra_models.already_exists", model_key=model_key))
-        else:
-            emit_info(t("model_menu.extra_models.added", model_key=model_key))
-        return True
-
-    def _build_model_config(self, model: ModelInfo, provider: ProviderInfo) -> dict:
-        """Build a Code Puppy compatible model configuration.
-
-        Format matches models.json structure:
-        {
-            "type": "openai" | "anthropic" | "gemini" | "custom_openai" | etc.,
-            "name": "actual-model-id",
-            "custom_endpoint": {"url": "...", "api_key": "$ENV_VAR"},  # if needed
-            "context_length": 200000
-        }
-        """
-        # Map provider IDs to Code Puppy types
-        type_mapping = {
-            "openai": "openai",
-            "anthropic": "anthropic",
-            "google": "gemini",
-            "google-vertex": "gemini",
-            "mistral": "custom_openai",
-            "groq": "custom_openai",
-            "together-ai": "custom_openai",
-            "fireworks": "custom_openai",
-            "deepseek": "custom_openai",
-            "openrouter": "custom_openai",
-            "cerebras": "cerebras",
-            "cohere": "custom_openai",
-            "perplexity": "custom_openai",
-            "minimax": "custom_anthropic",
-        }
-
-        # Determine the model type
-        model_type = type_mapping.get(provider.id, "custom_openai")
-
-        # Special case: kimi-for-coding provider uses "kimi-for-coding" as the model name
-        # instead of the model_id from models.dev (which is "kimi-k2-thinking")
-        if provider.id == "kimi-for-coding":
-            model_name = "kimi-for-coding"
-        else:
-            model_name = model.model_id
-
-        config: dict = {
-            "type": model_type,
-            "provider": derive_provider_identity(provider),
-            "name": model_name,
-        }
-
-        # Add custom endpoint for non-standard providers
-        if model_type == "custom_openai":
-            # Get the API URL - prefer provider.api, fall back to hardcoded endpoints
-            api_url = provider.api
-            if not api_url or api_url == "N/A":
-                api_url = PROVIDER_ENDPOINTS.get(provider.id)
-
-            if api_url:
-                # Determine the API key environment variable
-                api_key_env = f"${provider.env[0]}" if provider.env else "$API_KEY"
-                config["custom_endpoint"] = {"url": api_url, "api_key": api_key_env}
-
-        # Special handling for minimax: uses custom_anthropic but needs custom_endpoint
-        # and the URL needs /v1 stripped (comes as https://api.minimax.io/anthropic/v1)
-        if provider.id == "minimax" and provider.api:
-            api_url = provider.api
-            # Strip /v1 suffix if present
-            if api_url.endswith("/v1"):
-                api_url = api_url[:-3]
+def create_custom_model_info(
+    provider_id: str, model_name: str, context_length: int = 128000
+) -> ModelInfo:
+    """ModelInfo for a model not listed in models.dev (assume sane defaults)."""
+    return ModelInfo(
+        provider_id=provider_id,
+        model_id=model_name,
+        name=model_name,
+        tool_call=True,  # Assume true for usability
+        temperature=True,
+        context_length=context_length,
+        max_output=min(16384, context_length // 4),
+        input_modalities=["text"],
+        output_modalities=["text"],
+    )
+
+
+def build_model_config(model: ModelInfo, provider: ProviderInfo) -> dict:
+    """Build a Code Puppy compatible model configuration."""
+    type_mapping = {
+        "openai": "openai",
+        "anthropic": "anthropic",
+        "google": "gemini",
+        "google-vertex": "gemini",
+        "mistral": "custom_openai",
+        "groq": "custom_openai",
+        "together-ai": "custom_openai",
+        "fireworks": "custom_openai",
+        "deepseek": "custom_openai",
+        "openrouter": "custom_openai",
+        "cerebras": "cerebras",
+        "cohere": "custom_openai",
+        "perplexity": "custom_openai",
+        "minimax": "custom_anthropic",
+    }
+    model_type = type_mapping.get(provider.id, "custom_openai")
+
+    # Special case: kimi-for-coding uses a fixed model name.
+    model_name = (
+        "kimi-for-coding" if provider.id == "kimi-for-coding" else model.model_id
+    )
+
+    config: dict = {
+        "type": model_type,
+        "provider": derive_provider_identity(provider),
+        "name": model_name,
+    }
+
+    if model_type == "custom_openai":
+        api_url = provider.api
+        if not api_url or api_url == "N/A":
+            api_url = PROVIDER_ENDPOINTS.get(provider.id)
+        if api_url:
             api_key_env = f"${provider.env[0]}" if provider.env else "$API_KEY"
             config["custom_endpoint"] = {"url": api_url, "api_key": api_key_env}
 
-        # Add context length if available
-        if model.context_length and model.context_length > 0:
-            config["context_length"] = model.context_length
+    # minimax: custom_anthropic but needs custom_endpoint with /v1 stripped.
+    if provider.id == "minimax" and provider.api:
+        api_url = provider.api
+        if api_url.endswith("/v1"):
+            api_url = api_url[:-3]
+        api_key_env = f"${provider.env[0]}" if provider.env else "$API_KEY"
+        config["custom_endpoint"] = {"url": api_url, "api_key": api_key_env}
 
-        # Add supported settings based on model type
-        if model_type == "anthropic":
+    if model.context_length and model.context_length > 0:
+        config["context_length"] = model.context_length
+
+    if model_type == "anthropic":
+        config["supported_settings"] = [
+            "temperature",
+            "extended_thinking",
+            "budget_tokens",
+        ]
+    elif model_type == "openai" and "gpt-5" in model.model_id:
+        if "codex" in model.model_id:
+            config["supported_settings"] = ["temperature", "top_p", "reasoning_effort"]
+        else:
             config["supported_settings"] = [
                 "temperature",
-                "extended_thinking",
-                "budget_tokens",
+                "top_p",
+                "reasoning_effort",
+                "verbosity",
             ]
-        elif model_type == "openai":
-            # Share OpenAI effort capabilities with config and settings menus.
-            # Empty means fixed effort; None means an unrecognized model.
-            from code_puppy.model_utils import get_openai_reasoning_effort_choices
+    elif model_type == "openai":
+        # Share OpenAI effort capabilities with config and settings menus.
+        # Empty means fixed effort; None means an unrecognized model.
+        from code_puppy.model_utils import get_openai_reasoning_effort_choices
 
-            effort_choices = get_openai_reasoning_effort_choices(model.model_id)
-            if effort_choices:
-                config["supported_settings"] = [
-                    "temperature",
-                    "top_p",
-                    "reasoning_effort",
-                ]
-                # Verbosity is a GPT-5-family Responses/Chat option; codex
-                # variants and o-series models don't support it.
-                if "gpt-5" in model.model_id and "codex" not in model.model_id:
-                    config["supported_settings"].append("verbosity")
-            else:
-                config["supported_settings"] = ["temperature", "seed", "top_p"]
+        effort_choices = get_openai_reasoning_effort_choices(model.model_id)
+        if effort_choices:
+            config["supported_settings"] = [
+                "temperature",
+                "top_p",
+                "reasoning_effort",
+            ]
+            # Verbosity is a GPT-5-family Responses/Chat option; codex
+            # variants and o-series models don't support it.
+            if "gpt-5" in model.model_id and "codex" not in model.model_id:
+                config["supported_settings"].append("verbosity")
         else:
-            # Default settings for most models
             config["supported_settings"] = ["temperature", "seed", "top_p"]
+    else:
+        # Default settings for most models
+        config["supported_settings"] = ["temperature", "seed", "top_p"]
 
-        return config
+    return config
 
-    def update_display(self):
-        """Update the display based on current state."""
-        if self.view_mode == "providers":
-            self.menu_control.text = self._render_provider_list()
-        else:
-            self.menu_control.text = self._render_model_list()
 
-        self.preview_control.text = self._render_model_details()
+def add_model_to_extra_config(model: ModelInfo, provider: ProviderInfo) -> bool:
+    """Add a model to extra_models.json (locked, atomic read-modify-write)."""
+    model_key = f"{provider.id}-{model.model_id}".replace("/", "-").replace(":", "-")
+    already_present = False
 
-    def _enter_provider(self):
-        """Enter the selected provider to view its models."""
-        provider = self._get_current_provider()
-        if not provider or not self.registry:
-            return
+    def _mutate(current):
+        nonlocal already_present
+        if not isinstance(current, dict):
+            raise _ExtraModelsNotADict()
+        if model_key in current:
+            already_present = True
+            return current
+        current[model_key] = build_model_config(model, provider)
+        return current
 
-        self.current_provider = provider
-        self.current_models = self.registry.get_models(provider.id)
-        self.view_mode = "models"
-        self.model_filter = ""
-        self.selected_model_idx = 0
-        self.current_page = get_page_for_index(self.selected_model_idx, PAGE_SIZE)
-        self.update_display()
+    try:
+        atomic_json.mutate_json(EXTRA_MODELS_FILE, _mutate, default={})
+    except _ExtraModelsNotADict:
+        emit_error(t("model_menu.extra_models.invalid_format"))
+        return False
+    except atomic_json.JsonFileCorrupt as e:
+        emit_error(t("model_menu.extra_models.parse_error", error=e))
+        return False
+    except Exception as e:
+        emit_error(t("model_menu.extra_models.add_error", error=e))
+        return False
 
-    def _go_back_to_providers(self):
-        """Go back to providers view."""
-        self.view_mode = "providers"
-        self.current_provider = None
-        self.current_models = []
-        self.model_filter = ""
-        self.selected_model_idx = 0
-        self.current_page = get_page_for_index(self.selected_provider_idx, PAGE_SIZE)
-        self.update_display()
+    if already_present:
+        emit_info(t("model_menu.extra_models.already_exists", model_key=model_key))
+    else:
+        emit_info(t("model_menu.extra_models.added", model_key=model_key))
+    return True
 
-    def _add_current_model(self):
-        """Add the currently selected model to extra_models.json."""
-        provider = self.current_provider
 
-        if not provider:
-            return
+def missing_env_vars(provider: ProviderInfo) -> List[str]:
+    """Required env vars for ``provider`` that are not currently set."""
+    return [env_var for env_var in provider.env if not os.environ.get(env_var)]
 
-        # Block unsupported providers
-        if provider.id in UNSUPPORTED_PROVIDERS:
-            self.result = "unsupported"
-            return
 
-        # Check if custom model option is selected
-        if self._is_custom_model_selected():
-            self.is_custom_model_selected = True
-            self.pending_provider = provider
-            self.result = (
-                "pending_custom_model"  # Signal to prompt for custom model name
-            )
-            return
+from code_puppy.command_line.add_model_details import (  # noqa: E402
+    custom_model_details,
+    model_details,
+    provider_details,
+)
 
-        model = self._get_current_model()
-        if model:
-            # Store model/provider for credential prompting after TUI exits
-            self.pending_model = model
-            self.pending_provider = provider
-            self.result = "pending_credentials"  # Signal to prompt for credentials
 
-    def _try_add_current_model(self) -> bool:
-        """Attempt to add the current model selection and report success."""
-        if self.view_mode != "models" or self._get_total_items() <= 0:
-            return False
+# -- menus -------------------------------------------------------------------
 
-        self._add_current_model()
-        return self.result is not None
 
-    def _get_missing_env_vars(self, provider: ProviderInfo) -> List[str]:
-        """Check which required env vars are missing for a provider."""
-        missing = []
-        for env_var in provider.env:
-            if not os.environ.get(env_var):
-                missing.append(env_var)
-        return missing
+def _edit_credentials_key(builder):
+    """Bind Ctrl+E to exit the menu with an edit-credentials sentinel."""
+    from termflow.tui import MenuItem
+    from termflow.tui.menu import MenuResult
 
-    def _prompt_for_credentials(self, provider: ProviderInfo) -> bool:
-        """Prompt user for missing credentials and save them.
+    def handler(_menu, item):
+        return MenuResult(item=MenuItem("", value=(_EDIT_CREDENTIALS, item.value)))
 
-        Returns:
-            True if all credentials were provided (or none needed), False if user cancelled
-        """
-        missing_vars = self._get_missing_env_vars(provider)
+    builder.on_key("ctrl-e", handler)
+    return builder
 
-        if not missing_vars:
-            emit_info(t("model_menu.credentials.all_set", provider=provider.name))
-            return True
 
-        emit_info(t("model_menu.credentials.required_header", provider=provider.name))
+def build_provider_menu(providers: List[ProviderInfo], **overrides):
+    """Searchable provider list with a details preview pane."""
+    from termflow.tui import MenuBuilder, MenuItem
 
-        for env_var in missing_vars:
-            # Show helpful hints based on common env var patterns
-            hint = self._get_env_var_hint(env_var)
-            if hint:
-                emit_info(f"  {hint}")
+    from code_puppy.command_line.tui_style import themed
 
-            try:
-                # Use safe_input for cross-platform compatibility (Windows fix)
-                value = safe_input(f"  Enter {env_var} (or press Enter to skip): ")
+    items = [
+        MenuItem(f"{p.name} ({p.model_count})", value=p, description=p.id)
+        for p in providers
+    ]
+    builder = themed(
+        MenuBuilder("Add Model - Providers")
+        .items(items)
+        .searchable()
+        .list_width(36)
+        .alt_screen(False)
+        .preview(lambda item: provider_details(item.value))
+        .footer_hint("type filter - Enter open - Ctrl+E credentials - Esc cancel")
+    )
+    _edit_credentials_key(builder)
+    for name, value in overrides.items():
+        getattr(builder, name)(value)
+    return builder.build()
 
-                if not value:
-                    emit_warning(t("model_menu.credentials.skipped", env_var=env_var))
-                    continue
 
-                # Save to config
-                set_config_value(env_var, value)
-                # Also set in current environment so it's immediately available
-                os.environ[env_var] = value
-                emit_info(t("model_menu.credentials.saved_to_config", env_var=env_var))
+def build_models_menu(provider: ProviderInfo, models: List[ModelInfo], **overrides):
+    """Searchable model list for one provider, custom-model entry last."""
+    from termflow.tui import MenuBuilder, MenuItem
 
-            except (KeyboardInterrupt, EOFError):
-                emit_info("")  # Clean newline
-                emit_warning(t("model_menu.credentials.input_cancelled"))
-                return False
+    from code_puppy.command_line.tui_style import themed
 
+    def preview(item):
+        if item.value == _CUSTOM_MODEL_VALUE:
+            return custom_model_details(provider)
+        return model_details(item.value, provider)
+
+    items = [MenuItem(m.name, value=m, description=m.model_id) for m in models]
+    items.append(MenuItem("+ Custom model...", value=_CUSTOM_MODEL_VALUE))
+    builder = themed(
+        MenuBuilder(f"Add Model - {provider.name}")
+        .items(items)
+        .searchable()
+        .list_width(36)
+        .alt_screen(False)
+        .preview(preview)
+        .footer_hint("type filter - Enter add - Ctrl+E credentials - Esc back")
+    )
+    _edit_credentials_key(builder)
+    for name, value in overrides.items():
+        getattr(builder, name)(value)
+    return builder.build()
+
+
+# -- TextInput flows ---------------------------------------------------------
+
+
+def _text_input(title: str, **kwargs):
+    from termflow.tui import TextInputBuilder
+
+    from code_puppy.command_line.tui_style import menu_style
+
+    builder = TextInputBuilder(title).alt_screen(False)
+    style = menu_style()
+    if style is not None:
+        builder.style(style)
+    for name, value in kwargs.items():
+        getattr(builder, name)(value)
+    return builder
+
+
+def prompt_for_credentials(provider: ProviderInfo, **overrides) -> bool:
+    """Prompt for each missing credential. Empty skips; Esc cancels all.
+
+    Saves via config + os.environ so the key is immediately usable.
+    """
+    missing = missing_env_vars(provider)
+    if not missing:
+        emit_info(t("model_menu.credentials.all_set", provider=provider.name))
         return True
-
-    def _edit_provider_credentials(self, provider: ProviderInfo) -> bool:
-        """Prompt user to edit any credential for a provider (not just missing ones).
-
-        Returns:
-            True if credentials were saved or no edit needed, False if user cancelled.
-        """
-        if not provider.env:
-            return True
-
-        emit_info(t("model_menu.credentials.edit_header", provider=provider.name))
-        for env_var in provider.env:
-            status = credential_display(env_var)
-            hint = credential_hint(env_var)
-            emit_info(
-                t("model_menu.credentials.edit_status", env_var=env_var, status=status)
+    for env_var in missing:
+        result = (
+            _text_input(
+                f"{provider.name}: {env_var}",
+                prompt=f"{env_var}: ",
+                placeholder=ENV_VAR_HINTS.get(env_var, "leave empty to skip"),
+                mask="*",
+                footer_hint="Enter save (empty skips) - Esc cancel",
+                **overrides,
             )
-            if hint:
-                emit_info(f"    {hint}")
-
-        emit_info(t("model_menu.credentials.edit_skip_hint"))
-        for env_var in provider.env:
-            try:
-                value = safe_input(f"  {env_var}: ")
-                if value:
-                    save_credential(env_var, value)
-                    emit_info(t("model_menu.credentials.edit_saved", env_var=env_var))
-            except (KeyboardInterrupt, EOFError):
-                emit_info("")  # Clean newline
-                emit_warning(t("model_menu.credentials.edit_cancelled"))
-                return False
-        return True
-
-    def _create_custom_model_info(
-        self, model_name: str, context_length: int = 128000
-    ) -> ModelInfo:
-        """Create a ModelInfo object for a custom model.
-
-        Since we don't know the model's capabilities, we assume reasonable defaults.
-        """
-        provider_id = self.pending_provider.id if self.pending_provider else "custom"
-        return ModelInfo(
-            provider_id=provider_id,
-            model_id=model_name,
-            name=model_name,
-            tool_call=True,  # Assume true for usability
-            temperature=True,
-            context_length=context_length,
-            max_output=min(
-                16384, context_length // 4
-            ),  # Reasonable default based on context
-            input_modalities=["text"],
-            output_modalities=["text"],
+            .build()
+            .run()
         )
-
-    def _prompt_for_custom_model(self) -> Optional[tuple[str, int]]:
-        """Prompt user for custom model details.
-
-        Returns:
-            Tuple of (model_name, context_length) if provided, None if cancelled
-        """
-        provider = self.pending_provider
-        if not provider:
-            return None
-
-        emit_info(t("model_menu.custom_model.header", provider=provider.name))
-        emit_info(t("model_menu.custom_model.id_hint"))
-        emit_info(t("model_menu.custom_model.id_examples"))
-
-        try:
-            model_name = safe_input("  Model ID: ")
-
-            if not model_name:
-                emit_warning(t("model_menu.custom_model.no_name"))
-                return None
-
-            # Ask for context size
-            emit_info(t("model_menu.custom_model.context_hint"))
-            emit_info(t("model_menu.custom_model.context_examples"))
-
-            context_input = safe_input("  Context size [128000]: ")
-
-            if not context_input:
-                context_length = 128000  # Default
-            else:
-                # Handle k/K suffix (e.g., "128k" -> 128000)
-                context_input_lower = context_input.lower().replace(",", "")
-                if context_input_lower.endswith("k"):
-                    try:
-                        context_length = int(float(context_input_lower[:-1]) * 1000)
-                    except ValueError:
-                        emit_warning(t("model_menu.custom_model.invalid_context"))
-                        context_length = 128000
-                elif context_input_lower.endswith("m"):
-                    try:
-                        context_length = int(float(context_input_lower[:-1]) * 1000000)
-                    except ValueError:
-                        emit_warning(t("model_menu.custom_model.invalid_context"))
-                        context_length = 128000
-                else:
-                    try:
-                        context_length = int(context_input)
-                    except ValueError:
-                        emit_warning(t("model_menu.custom_model.invalid_context"))
-                        context_length = 128000
-
-            return (model_name, context_length)
-
-        except (KeyboardInterrupt, EOFError):
-            emit_info("")  # Clean newline
-            emit_warning(t("model_menu.custom_model.input_cancelled"))
-            return None
-
-    def _get_env_var_hint(self, env_var: str) -> str:
-        """Get a helpful hint for common environment variables."""
-        hints = {
-            "OPENAI_API_KEY": "💡 Get your API key from https://platform.openai.com/api-keys",
-            "ANTHROPIC_API_KEY": "💡 Get your API key from https://console.anthropic.com/",
-            "GEMINI_API_KEY": "💡 Get your API key from https://aistudio.google.com/apikey",
-            "GOOGLE_API_KEY": "💡 Get your API key from https://aistudio.google.com/apikey",
-            "AZURE_API_KEY": "💡 Get your API key from Azure Portal > Your OpenAI Resource > Keys",
-            "AZURE_RESOURCE_NAME": "💡 Your Azure OpenAI resource name (not the full URL)",
-            "GROQ_API_KEY": "💡 Get your API key from https://console.groq.com/keys",
-            "MISTRAL_API_KEY": "💡 Get your API key from https://console.mistral.ai/",
-            "COHERE_API_KEY": "💡 Get your API key from https://dashboard.cohere.com/api-keys",
-            "DEEPSEEK_API_KEY": "💡 Get your API key from https://platform.deepseek.com/",
-            "TOGETHER_API_KEY": "💡 Get your API key from https://api.together.xyz/settings/api-keys",
-            "FIREWORKS_API_KEY": "💡 Get your API key from https://fireworks.ai/api-keys",
-            "OPENROUTER_API_KEY": "💡 Get your API key from https://openrouter.ai/keys",
-            "PERPLEXITY_API_KEY": "💡 Get your API key from https://www.perplexity.ai/settings/api",
-            "CEREBRAS_API_KEY": "💡 Get your API key from https://cloud.cerebras.ai/",
-            "HUGGINGFACE_API_KEY": "💡 Get your API key from https://huggingface.co/settings/tokens",
-            "XAI_API_KEY": "💡 Get your API key from https://console.x.ai/",
-        }
-        return hints.get(env_var, "")
-
-    def run(self) -> bool:
-        """Run the interactive model browser (synchronous).
-
-        Returns:
-            True if a model was added, False otherwise
-        """
-        if not self.registry or not self.providers:
-            emit_warning(t("model_menu.browser.no_data"))
+        if result.cancelled:
+            emit_warning(t("model_menu.credentials.input_cancelled"))
             return False
+        if not result.value:
+            emit_warning(t("model_menu.credentials.skipped", env_var=env_var))
+            continue
+        set_config_value(env_var, result.value)
+        os.environ[env_var] = result.value
+        emit_info(t("model_menu.credentials.saved_to_config", env_var=env_var))
+    return True
 
-        # Build UI
-        self.menu_control = FormattedTextControl(text="")
-        self.preview_control = FormattedTextControl(text="")
 
-        menu_window = Window(
-            content=self.menu_control, wrap_lines=True, width=Dimension(weight=30)
+def edit_provider_credentials(provider: ProviderInfo, **overrides) -> bool:
+    """Edit any credential for a provider (not just missing ones)."""
+    if not provider.env:
+        return True
+    for env_var in provider.env:
+        result = (
+            _text_input(
+                f"{provider.name}: {env_var} ({credential_display(env_var)})",
+                prompt=f"{env_var}: ",
+                placeholder=ENV_VAR_HINTS.get(env_var, "leave empty to keep current"),
+                mask="*",
+                footer_hint="Enter save (empty keeps current) - Esc cancel",
+                **overrides,
+            )
+            .build()
+            .run()
         )
-        preview_window = Window(
-            content=self.preview_control, wrap_lines=True, width=Dimension(weight=70)
+        if result.cancelled:
+            emit_warning(t("model_menu.credentials.edit_cancelled"))
+            return False
+        if result.value:
+            save_credential(env_var, result.value)
+            emit_info(t("model_menu.credentials.edit_saved", env_var=env_var))
+    return True
+
+
+def prompt_for_custom_model(
+    provider: ProviderInfo, **overrides
+) -> Optional[Tuple[str, int]]:
+    """Prompt for a custom model id + context size. None when cancelled."""
+    name_result = (
+        _text_input(
+            f"Custom model for {provider.name}",
+            prompt="Model ID: ",
+            placeholder="e.g. my-org/my-model",
+            validator=lambda text: None if text.strip() else "a model id is required",
+            **overrides,
         )
+        .build()
+        .run()
+    )
+    if name_result.cancelled or not name_result.value:
+        emit_warning(t("model_menu.custom_model.no_name"))
+        return None
 
-        menu_frame = Frame(menu_window, width=Dimension(weight=30), title="Browse")
-        preview_frame = Frame(
-            preview_window, width=Dimension(weight=70), title="Details"
+    context_result = (
+        _text_input(
+            "Context window size",
+            prompt="Context size: ",
+            placeholder="128000 (also accepts 128k / 1m)",
+            validator=lambda text: (
+                None if parse_context_size(text) is not None else "not a number"
+            ),
+            **overrides,
         )
+        .build()
+        .run()
+    )
+    if context_result.cancelled:
+        emit_warning(t("model_menu.custom_model.input_cancelled"))
+        return None
+    context_length = parse_context_size(context_result.value or "")
+    return (name_result.value.strip(), context_length or 128000)
 
-        root_container = VSplit([menu_frame, preview_frame])
 
-        # Key bindings
-        kb = KeyBindings()
+def confirm_no_tool_call(model: ModelInfo, **overrides) -> bool:
+    """Explicit opt-in for models without tool calling."""
+    from termflow.tui import MenuBuilder, MenuItem
 
-        @kb.add("up")
-        @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
-        def _(event):
-            if self.view_mode == "providers":
-                if self.selected_provider_idx > 0:
-                    self.selected_provider_idx -= 1
-                    self._ensure_selection_visible()
-            else:  # models view
-                if self.selected_model_idx > 0:
-                    self.selected_model_idx -= 1
-                    self._ensure_selection_visible()
-            self.update_display()
+    from code_puppy.command_line.tui_style import themed
 
-        @kb.add("down")
-        @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
-        def _(event):
-            if self.view_mode == "providers":
-                if self.selected_provider_idx < len(self._filtered_providers()) - 1:
-                    self.selected_provider_idx += 1
-                    self._ensure_selection_visible()
-            else:  # models view - include custom model option at the end
-                max_index = self._get_total_items() - 1
-                if self.selected_model_idx < max_index:
-                    self.selected_model_idx += 1
-                    self._ensure_selection_visible()
-            self.update_display()
+    builder = themed(
+        MenuBuilder(f"{model.name} has NO tool calling - add anyway?")
+        .items(
+            [
+                MenuItem("No - pick something else", value=False),
+                MenuItem("Yes - add it regardless", value=True),
+            ]
+        )
+        .alt_screen(False)
+        .footer_hint("Enter confirm - Esc cancel")
+    )
+    for name, value in overrides.items():
+        getattr(builder, name)(value)
+    result = builder.build().run()
+    return bool(result.item and result.item.value is True and not result.cancelled)
 
-        @kb.add("left")
-        def _(event):
-            """Previous page."""
-            self._go_to_previous_page()
-            self.update_display()
 
-        @kb.add("right")
-        def _(event):
-            """Next page."""
-            self._go_to_next_page()
-            self.update_display()
+# -- orchestration -----------------------------------------------------------
 
-        @kb.add("enter")
-        def _(event):
-            if self.view_mode == "providers":
-                self._enter_provider()
-            elif self.view_mode == "models":
-                # Enter adds the model when viewing models
-                if self._try_add_current_model():
-                    event.app.exit()
 
-        @kb.add("escape")
-        def _(event):
-            if self.view_mode == "models":
-                self._go_back_to_providers()
+def _finalize_add(model: ModelInfo, provider: ProviderInfo, prompt_creds) -> bool:
+    if not prompt_creds(provider):
+        return False
+    return add_model_to_extra_config(model, provider)
 
-        @kb.add("c-e")
-        def _(event):
-            """Edit credentials for the current provider."""
-            if self.view_mode == "providers":
-                provider = self._get_current_provider()
-            else:
-                provider = self._get_current_provider_from_model()
-            if provider and provider.env:
-                self.pending_credentials_edit = provider
-                event.app.exit()
 
-        @kb.add("backspace")
-        def _(event):
-            if self._delete_filter_char():
-                self.update_display()
-                return
-            if self.view_mode == "models":
-                self._go_back_to_providers()
+def run_add_model_flow(
+    registry: Optional[ModelsDevRegistry] = None,
+    provider_menu_factory: Callable = build_provider_menu,
+    models_menu_factory: Callable = build_models_menu,
+    custom_model_prompt: Callable = prompt_for_custom_model,
+    credentials_prompt: Callable = prompt_for_credentials,
+    credentials_editor: Callable = edit_provider_credentials,
+    tool_call_confirm: Callable = confirm_no_tool_call,
+) -> bool:
+    """The provider -> model -> credentials flow. Returns True when added.
 
-        @kb.add("c-u")
-        def _(event):
-            if self._clear_active_filter():
-                self.update_display()
-
-        @kb.add("<any>")
-        def _(event):
-            if not event.data or not event.data.isprintable():
-                return
-            self._append_filter_char(event.data)
-            self.update_display()
-
-        @kb.add("c-c")
-        def _(event):
-            event.app.exit()
-
-        layout = Layout(root_container)
-
-        set_awaiting_user_input(True)
-
+    Collaborators are injectable so tests can script every stage.
+    """
+    if registry is None:
         try:
-            while True:
-                # Enter alternate screen buffer for this session
-                sys.stdout.write("\033[?1049h")  # Enter alternate buffer
-                sys.stdout.write("\033[2J\033[H")  # Clear and home
-                sys.stdout.flush()
-                time.sleep(0.05)
+            registry = ModelsDevRegistry()
+        except FileNotFoundError as e:
+            emit_error(t("model_menu.registry.unavailable", error=e))
+            return False
+        except Exception as e:
+            emit_error(t("model_menu.registry.load_error", error=e))
+            return False
+    providers = registry.get_providers()
+    if not providers:
+        emit_error(t("model_menu.registry.no_providers"))
+        return False
 
-                # Initial display
-                self.update_display()
-                sys.stdout.write("\033[2J\033[H")  # Clear screen within current buffer
-                sys.stdout.flush()
+    while True:
+        result = provider_menu_factory(providers).run()
+        if result.cancelled or result.item is None:
+            return False
+        if isinstance(result.item.value, tuple):
+            _, provider = result.item.value
+            if provider.env and not credentials_editor(provider):
+                return False
+            continue
+        provider = result.item.value
 
-                # Create a fresh Application each iteration — reusing a
-                # prompt_toolkit Application after exit() is unreliable
-                app = Application(
-                    layout=layout,
-                    key_bindings=kb,
-                    full_screen=False,
-                    mouse_support=False,
-                    style=on_prompt_toolkit_style(),
-                )
-
-                # Run application in a background thread to avoid event loop conflicts
-                app.run(in_thread=True)
-
-                # Exit alternate screen buffer
-                sys.stdout.write("\033[?1049l")  # Exit alternate buffer
-                sys.stdout.flush()
-
-                # Handle credential editing
-                if self.pending_credentials_edit:
-                    provider = self.pending_credentials_edit
-                    self.pending_credentials_edit = None
-                    self._edit_provider_credentials(provider)
-                    continue  # Restart the application
-
-                # Exit the loop for normal results
+        back_to_providers = False
+        while True:
+            models = registry.get_models(provider.id)
+            model_result = models_menu_factory(provider, models).run()
+            if model_result.cancelled or model_result.item is None:
+                back_to_providers = True
                 break
-        finally:
-            # Reset awaiting input flag
-            set_awaiting_user_input(False)
+            if isinstance(model_result.item.value, tuple):
+                _, creds_provider = model_result.item.value
+                if creds_provider.env and not credentials_editor(creds_provider):
+                    return False
+                continue
 
-        # Clear exit message (unless we're about to prompt for more input)
-        if self.result not in ("pending_credentials", "pending_custom_model"):
-            emit_info(t("model_menu.browser.exited"))
-
-        # Handle unsupported provider
-        if self.result == "unsupported" and self.current_provider:
-            reason = UNSUPPORTED_PROVIDERS.get(
-                self.current_provider.id, "Not supported"
-            )
-            emit_error(
-                t(
-                    "model_menu.browser.unsupported_provider",
-                    provider=self.current_provider.name,
-                    reason=reason,
-                )
-            )
-            return False
-
-        # Handle custom model flow after TUI exits
-        if self.result == "pending_custom_model" and self.pending_provider:
-            # Prompt for custom model details (name and context size)
-            custom_model_result = self._prompt_for_custom_model()
-            if not custom_model_result:
-                return False
-
-            model_name, context_length = custom_model_result
-
-            # Create a ModelInfo for the custom model
-            self.pending_model = self._create_custom_model_info(
-                model_name, context_length
-            )
-
-            # Prompt for any missing credentials
-            if self._prompt_for_credentials(self.pending_provider):
-                # Now add the model to config
-                if self._add_model_to_extra_config(
-                    self.pending_model, self.pending_provider
-                ):
-                    self.result = "added"
-                    return True
-            return False
-
-        # Handle pending credential flow after TUI exits
-        if (
-            self.result == "pending_credentials"
-            and self.pending_model
-            and self.pending_provider
-        ):
-            # Warn about non-tool-calling models
-            if not self.pending_model.tool_call:
-                emit_warning(
+            if provider.id in UNSUPPORTED_PROVIDERS:
+                emit_error(
                     t(
-                        "model_menu.browser.no_tool_call_warning",
-                        model=self.pending_model.name,
+                        "model_menu.browser.unsupported_provider",
+                        provider=provider.name,
+                        reason=UNSUPPORTED_PROVIDERS[provider.id],
                     )
                 )
-                try:
-                    confirm = safe_input(
-                        "\n  Are you sure you want to add this model? (y/N): "
-                    ).lower()
-                    if confirm not in ("y", "yes"):
-                        emit_info(t("model_menu.browser.add_cancelled"))
-                        return False
-                except (KeyboardInterrupt, EOFError):
-                    emit_info("")
+                return False
+
+            if model_result.item.value == _CUSTOM_MODEL_VALUE:
+                custom = custom_model_prompt(provider)
+                if not custom:
                     return False
+                model = create_custom_model_info(provider.id, *custom)
+                return _finalize_add(model, provider, credentials_prompt)
 
-            # Prompt for any missing credentials
-            if self._prompt_for_credentials(self.pending_provider):
-                # Now add the model to config
-                if self._add_model_to_extra_config(
-                    self.pending_model, self.pending_provider
-                ):
-                    self.result = "added"
-                    return True
-            return False
+            model = model_result.item.value
+            if not model.tool_call and not tool_call_confirm(model):
+                emit_info(t("model_menu.browser.add_cancelled"))
+                return False
+            return _finalize_add(model, provider, credentials_prompt)
 
-        return self.result == "added"
+        if back_to_providers:
+            continue  # reopen the provider list
 
 
 def interactive_model_picker() -> bool:
-    """Show interactive terminal UI to browse and add models.
+    """Show the interactive model browser. True when a model was added."""
+    from code_puppy.command_line.menu_session import menu_session
 
-    Returns:
-        True if a model was added, False otherwise
-    """
-    menu = AddModelMenu()
-    return menu.run()
+    set_awaiting_user_input(True)
+    try:
+        with menu_session():
+            added = run_add_model_flow()
+    finally:
+        set_awaiting_user_input(False)
+    if added:
+        return True
+    emit_info(t("model_menu.browser.exited"))
+    return False

@@ -33,6 +33,11 @@ TOOL_PREFIX = "cp_"
 
 CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
 
+# The Claude Code OAuth endpoint fingerprints this exact string as the FIRST
+# system block; requests that lead with anything else get rejected. Mirrors
+# CLAUDE_CODE_INSTRUCTIONS in the claude_code_oauth plugin's prompt_handler.
+CLAUDE_CODE_SYSTEM_PROMPT = "You are Claude Code, Anthropic's official CLI for Claude."
+
 
 def _model_requires_thinking_summary(model_name):
     if not model_name:
@@ -232,6 +237,48 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
         return json.dumps(data).encode("utf-8")
 
     @staticmethod
+    def _ensure_claude_code_system_prompt(body: bytes) -> bytes | None:
+        """Guarantee the first system block is the Claude Code instruction.
+
+        The main agent path already leads with it (the claude_code_oauth
+        plugin's ``prepare_model_prompt`` hook), but internally-built agents
+        — e.g. pydantic-ai-harness's ``SummarizingCompaction`` summarizer —
+        ship their own instructions and never pass through that hook. The
+        OAuth endpoint fingerprints the first system block, so enforce the
+        invariant here, the one choke point every claude-code request
+        crosses. A pre-existing system prompt is demoted to the second
+        block, never dropped. Returns None when the body is already fine.
+        """
+        try:
+            data = json.loads(body.decode("utf-8"))
+        except Exception:
+            return None
+        if not isinstance(data, dict):
+            return None
+        system = data.get("system")
+        if isinstance(system, str):
+            if system.startswith(CLAUDE_CODE_SYSTEM_PROMPT):
+                return None
+            blocks: list[Any] = [{"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT}]
+            if system:
+                blocks.append({"type": "text", "text": system})
+            data["system"] = blocks
+        elif isinstance(system, list):
+            first = system[0] if system else None
+            text = first.get("text") if isinstance(first, dict) else None
+            if isinstance(text, str) and text.startswith(CLAUDE_CODE_SYSTEM_PROMPT):
+                return None
+            data["system"] = [
+                {"type": "text", "text": CLAUDE_CODE_SYSTEM_PROMPT},
+                *system,
+            ]
+        elif system is None:
+            data["system"] = CLAUDE_CODE_SYSTEM_PROMPT
+        else:
+            return None
+        return json.dumps(data).encode("utf-8")
+
+    @staticmethod
     def _enforce_thinking_display_summary_body(body: bytes) -> bytes | None:
         """Return a rewritten body when summarized thinking is required."""
         try:
@@ -322,6 +369,10 @@ class ClaudeCacheAsyncClient(httpx.AsyncClient):
                     prefixed_body = self._prefix_tool_names(body_bytes)
                     if prefixed_body is not None:
                         body_bytes = prefixed_body
+                        body_modified = True
+                    system_body = self._ensure_claude_code_system_prompt(body_bytes)
+                    if system_body is not None:
+                        body_bytes = system_body
                         body_modified = True
                 if body_bytes:
                     summarized_body = self._enforce_thinking_display_summary_body(

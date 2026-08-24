@@ -102,6 +102,35 @@ async def test_persistent_ctrl_d_quits(monkeypatch, renderer):
 
 
 @pytest.mark.asyncio
+async def test_startup_tab_hint_is_a_bold_text_object(monkeypatch, renderer):
+    """The SYSTEM renderer escapes Rich markup in plain strings, so bold
+    markup inside the i18n string would print as literal brackets. Only a
+    Text object with style='bold' bypasses that branch.
+    """
+    from rich.text import Text
+
+    stopped = _drive_interactive(monkeypatch, ["/exit"])
+    system_messages = []
+    with (
+        patch("code_puppy.messaging.emit_info", lambda msg, **k: None),
+        patch("code_puppy.messaging.emit_success", lambda msg, **k: None),
+        patch(
+            "code_puppy.messaging.emit_system_message",
+            lambda msg, **k: system_messages.append(msg),
+        ),
+    ):
+        await asyncio.wait_for(
+            cli_runner.interactive_mode(renderer, initial_command=None), 10.0
+        )
+
+    tab_hints = [m for m in system_messages if isinstance(m, Text)]
+    assert len(tab_hints) >= 1
+    assert any("Press Tab for help" in hint.plain for hint in tab_hints)
+    assert any(hint.style == "bold" for hint in tab_hints)
+    assert stopped
+
+
+@pytest.mark.asyncio
 async def test_persistent_path_skips_task_banner(monkeypatch, renderer):
     _drive_interactive(monkeypatch, ["/exit"])
     infos = []

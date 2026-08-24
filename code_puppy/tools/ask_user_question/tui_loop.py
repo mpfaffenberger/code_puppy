@@ -1,478 +1,262 @@
-"""TUI loop and keyboard handlers for ask_user_question.
+"""Termflow event loop for the ask_user_question TUI.
 
-This module contains the main TUI application loop and all keyboard bindings.
-Separated from terminal_ui.py to keep files under 600 lines.
+Split-panel layout (question headers left, current question right) painted
+with the shared Rich-markup renderers, driven by a plain ``read_key`` loop.
+Follows the headless-widget recipe: ``key_source`` / ``output`` / ``size`` /
+``use_alt_screen`` are injectable so tests drive the widget with scripted
+keys and a StringIO -- no tty, no prompt_toolkit.
+
+Timeouts ride the resize poll: ``read_key(timeout=...)`` returns ``""``
+every tick, which doubles as the inactivity-countdown heartbeat.
 """
 
 from __future__ import annotations
 
-import asyncio
-import shutil
-import sys
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Optional, TextIO
 
-from prompt_toolkit import Application
-from prompt_toolkit.application import run_in_terminal
-from prompt_toolkit.formatted_text import ANSI, FormattedText
-from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
-from prompt_toolkit.keys import Keys
-from prompt_toolkit.layout import Layout, VSplit, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.layout.dimension import Dimension
-from prompt_toolkit.output import create_output
-from prompt_toolkit.output.color_depth import ColorDepth
-from prompt_toolkit.widgets import Frame
-
-from .constants import (
-    ARROW_DOWN,
-    ARROW_LEFT,
-    ARROW_RIGHT,
-    ARROW_UP,
-    CHECK_MARK,
-    CURSOR_TRIANGLE,
-)
-from .renderers import render_question_panel
-from .theme import get_rich_colors, get_tui_colors
+from .constants import CLEAR_AND_HOME, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN
+from .renderers import render_header_panel, render_question_panel
+from .theme import get_rich_colors
 
 if TYPE_CHECKING:
     from .models import QuestionAnswer
     from .terminal_ui import QuestionUIState
 
 
-def _get_prompt_toolkit_style():
-    """Lazy import of ``on_prompt_toolkit_style``.
-
-    ``tui_loop`` is loaded lazily from inside a ``with`` block on a worker
-    thread during exception recovery (see ``terminal_ui.interactive_question_picker``).
-    If the main thread is concurrently (re-)initialising ``code_puppy.callbacks``
-    via a plugin hook, a module-level ``from code_puppy.callbacks import
-    on_prompt_toolkit_style`` can observe a partially-initialised module and
-    raise ``ImportError``. Deferring the lookup to call time avoids the race.
-    """
-    from code_puppy.callbacks import on_prompt_toolkit_style
-
-    return on_prompt_toolkit_style()
-
-
-def _wait_for_keypress() -> None:
-    """Block until any key is pressed, reading directly from the terminal.
-
-    On Unix: switches to raw mode so a single keypress returns immediately.
-    On Windows: uses msvcrt.getch() which already reads a single key.
-    Called inside run_in_terminal's cooked-mode context.
-    """
-    try:
-        # Windows
-        import msvcrt
-
-        msvcrt.getch()
-    except ImportError:
-        # Unix / macOS
-        import select
-        import termios
-        import tty
-
-        fd = sys.__stdin__.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            ch = sys.__stdin__.read(1)
-            # Arrow/F-keys send multi-byte escape sequences (e.g. \x1b[A).
-            # Drain trailing bytes so they don't leak into prompt_toolkit.
-            if ch == "\x1b":
-                while select.select([sys.__stdin__], [], [], 0.01)[0]:
-                    sys.__stdin__.read(1)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-
-@dataclass(slots=True)
+@dataclass
 class TUIResult:
-    """Result holder for the TUI interaction."""
+    """Outcome flags accumulated while the loop runs."""
 
-    cancelled: bool = False
     confirmed: bool = False
+    cancelled: bool = False
+    timed_out: bool = False
+
+
+class QuestionTUI:
+    """The interactive question widget on termflow primitives."""
+
+    def __init__(
+        self,
+        state: "QuestionUIState",
+        *,
+        key_source: Optional[Callable[[], str]] = None,
+        output: Optional[TextIO] = None,
+        size: Optional[Callable[[], tuple[int, int]]] = None,
+        use_alt_screen: bool = True,
+    ) -> None:
+        import sys
+
+        from termflow.tui.keys import read_key
+        from termflow.tui.menu import RESIZE_POLL_S
+        from termflow.tui.terminal import terminal_size
+
+        self._state = state
+        self._read_key = key_source or (lambda: read_key(timeout=RESIZE_POLL_S))
+        self._output = output if output is not None else sys.__stdout__
+        self._size = size or terminal_size
+        self._use_alt_screen = use_alt_screen
+        self._colors = get_rich_colors()
+        self._result = TUIResult()
+        self._last_size: tuple[int, int] | None = None
+        self._last_remaining: int | None = None
+
+    # -- painting ------------------------------------------------------------
+
+    def _panel_lines(self, ansi: str) -> list[str]:
+        return ansi.rstrip("\n").split("\n")
+
+    def _paint(self) -> None:
+        from termflow.tui.layout import collapsed, split_frame, truncate
+
+        width, height = self._size()
+        self._last_size = (width, height)
+        self._last_remaining = self._state.get_time_remaining()
+
+        left_width = self._state.get_left_panel_width()
+        right_width = width - 1 if collapsed(width) else max(20, width - left_width - 3)
+        right = self._panel_lines(
+            render_question_panel(
+                self._state, colors=self._colors, available_width=right_width
+            )
+        )
+        left = self._panel_lines(
+            render_header_panel(self._state, colors=self._colors, width=left_width)
+        )
+        body = split_frame(
+            left,
+            right,
+            width=width,
+            list_width=left_width,
+            focus="right",
+        )
+        frame = [truncate(line, width - 1) for line in body[: max(1, height - 1)]]
+        self._output.write(CLEAR_AND_HOME + "\r\n".join(frame))
+        self._output.flush()
+
+    # -- key handling --------------------------------------------------------
+
+    def _handle_text_key(self, key: str) -> bool:
+        """Keys while typing an 'Other' answer. True exits the loop."""
+        from termflow.tui.keys import Key
+
+        state = self._state
+        if key == Key.ENTER:
+            state.commit_other_text()
+        elif key == Key.ESCAPE:
+            state.entering_other_text = False
+            state.other_text_buffer = ""
+        elif key == Key.BACKSPACE:
+            state.other_text_buffer = state.other_text_buffer[:-1]
+        elif key == "ctrl-s":
+            state.commit_other_text()
+            self._result.confirmed = True
+            return True
+        elif key == "ctrl-c":
+            self._result.cancelled = True
+            return True
+        elif len(key) == 1 and key.isprintable():
+            state.other_text_buffer += key
+        return False
+
+    def _handle_enter(self) -> bool:
+        """Select + advance; double-Enter on the last question submits."""
+        state = self._state
+        if state.is_other_option(state.current_cursor):
+            state.enter_other_text_mode()
+            return False
+        is_last = state.current_question_index == len(state.questions) - 1
+        cursor_on_selected = state.is_option_selected(state.current_cursor)
+        if not state.current_question.multi_select:
+            state.select_current_option()
+        if not is_last:
+            state.next_question()
+        elif cursor_on_selected:
+            self._result.confirmed = True
+            return True
+        return False
+
+    def _handle_space(self) -> None:
+        state = self._state
+        if state.is_other_option(state.current_cursor):
+            state.enter_other_text_mode()
+        elif state.current_question.multi_select:
+            state.toggle_current_option()
+        else:
+            state.select_current_option()
+
+    def _handle_key(self, key: str) -> bool:
+        """Dispatch one key. True exits the loop."""
+        from termflow.tui.keys import Key
+
+        state = self._state
+        state.reset_activity_timer()
+
+        if state.entering_other_text:
+            return self._handle_text_key(key)
+        if key == "ctrl-c" or key == Key.ESCAPE:
+            self._result.cancelled = True
+            return True
+        if key == "ctrl-s":
+            self._result.confirmed = True
+            return True
+        if state.show_help:
+            # Any key closes the help overlay.
+            state.show_help = False
+            return False
+        if key in (Key.UP, "k"):
+            state.move_cursor_up()
+        elif key in (Key.DOWN, "j"):
+            state.move_cursor_down()
+        elif key in (Key.LEFT, "h"):
+            state.prev_question()
+        elif key in (Key.RIGHT, "l"):
+            state.next_question()
+        elif key == "g":
+            state.jump_to_first()
+        elif key == "G":
+            state.jump_to_last()
+        elif key == "a":
+            state.select_all_options()
+        elif key == "n":
+            state.select_no_options()
+        elif key == "?":
+            state.show_help = True
+        elif key == " ":
+            self._handle_space()
+        elif key == Key.ENTER:
+            return self._handle_enter()
+        elif key == Key.TAB:
+            self._peek()
+        return False
+
+    def _peek(self) -> None:
+        """Drop out of the alt screen so the transcript shows through."""
+        if not self._use_alt_screen:
+            return
+        from termflow.tui.keys import read_key
+
+        self._output.write(EXIT_ALT_SCREEN)
+        self._output.write(
+            "\r\n  \033[2mPress any key to return to questions...\033[0m\r\n"
+        )
+        self._output.flush()
+        read_key()  # block until any real key
+        self._output.write(ENTER_ALT_SCREEN)
+        self._output.flush()
+        self._state.reset_activity_timer()
+
+    # -- loop ----------------------------------------------------------------
+
+    def _loop(self) -> None:
+        self._paint()
+        while True:
+            key = self._read_key()
+            if key == "":
+                # Poll tick: timeout countdown + resize detection.
+                if self._state.is_timed_out():
+                    self._result.timed_out = True
+                    return
+                if self._size() != self._last_size:
+                    self._paint()
+                elif (
+                    self._state.should_show_timeout_warning()
+                    and self._state.get_time_remaining() != self._last_remaining
+                ):
+                    self._paint()
+                continue
+            if self._handle_key(key):
+                return
+            self._paint()
+
+    def run(self) -> tuple[list["QuestionAnswer"], bool, bool]:
+        """Run the widget. Returns (answers, cancelled, timed_out)."""
+        if self._use_alt_screen:
+            from termflow.tui.terminal import alt_screen, raw_mode
+
+            with raw_mode(), alt_screen(self._output):
+                self._loop()
+        else:
+            self._loop()
+
+        if self._result.timed_out:
+            return ([], False, True)
+        if self._result.cancelled or not self._result.confirmed:
+            return ([], True, False)
+        return (self._state.build_answers(), False, False)
 
 
 async def run_question_tui(
-    state: QuestionUIState,
-) -> tuple[list[QuestionAnswer], bool, bool]:
-    """Run the main question TUI loop.
+    state: "QuestionUIState",
+) -> tuple[list["QuestionAnswer"], bool, bool]:
+    """Async entry point: run the widget without blocking the event loop.
 
-    Returns:
-        Tuple of (answers, cancelled, timed_out)
+    Suspends the run UI for the duration -- the full-screen widget needs the
+    scroll region reset AND stdin freed, or the listener eats keystrokes.
     """
-    result = TUIResult()
-    timed_out = False
-    kb = KeyBindings()
+    import asyncio
 
-    # --- Factory for dual-mode handlers (vim keys that type in text mode) ---
-    def make_dual_mode_handler(
-        char: str, action: Callable[[], None]
-    ) -> Callable[[KeyPressEvent], None]:
-        """Create handler that types char in text mode, calls action otherwise."""
-
-        def handler(event: KeyPressEvent) -> None:
-            state.reset_activity_timer()
-            if state.entering_other_text:
-                state.other_text_buffer += char
-            else:
-                action()
-            event.app.invalidate()
-
-        return handler
-
-    # --- Factory for arrow key navigation (don't type in text mode) ---
-    def make_arrow_handler(
-        action: Callable[[], None],
-    ) -> Callable[[KeyPressEvent], None]:
-        """Create handler that only fires when not in text input mode."""
-
-        def handler(event: KeyPressEvent) -> None:
-            state.reset_activity_timer()
-            if not state.entering_other_text:
-                action()
-                event.app.invalidate()
-
-        return handler
-
-    kb.add("up")(make_arrow_handler(state.move_cursor_up))
-    kb.add("down")(make_arrow_handler(state.move_cursor_down))
-    kb.add("left")(make_arrow_handler(state.prev_question))
-    kb.add("right")(make_arrow_handler(state.next_question))
-
-    # --- Vim-style navigation (types letter in text mode) ---
-    kb.add("k")(make_dual_mode_handler("k", state.move_cursor_up))
-    kb.add("j")(make_dual_mode_handler("j", state.move_cursor_down))
-    kb.add("h")(make_dual_mode_handler("h", state.prev_question))
-    kb.add("l")(make_dual_mode_handler("l", state.next_question))
-    kb.add("g")(make_dual_mode_handler("g", state.jump_to_first))
-    kb.add("G")(make_dual_mode_handler("G", state.jump_to_last))
-
-    # --- Selection controls (also dual-mode) ---
-    def _toggle_help() -> None:
-        state.show_help = not state.show_help
-
-    kb.add("a")(make_dual_mode_handler("a", state.select_all_options))
-    kb.add("n")(make_dual_mode_handler("n", state.select_no_options))
-    kb.add("?")(make_dual_mode_handler("?", _toggle_help))
-
-    @kb.add("space")
-    def toggle_option(event: KeyPressEvent) -> None:
-        """Toggle/select the current option.
-
-        For multi-select: toggles the checkbox
-        For single-select: selects the radio button (without advancing)
-        """
-        state.reset_activity_timer()
-        if state.entering_other_text:
-            state.other_text_buffer += " "
-            event.app.invalidate()
-            return
-
-        # Check if current option is "Other"
-        if state.is_other_option(state.current_cursor):
-            state.enter_other_text_mode()
-            event.app.invalidate()
-            return
-
-        if state.current_question.multi_select:
-            # Toggle checkbox
-            state.toggle_current_option()
-        else:
-            # Select radio button (doesn't advance)
-            state.select_current_option()
-        event.app.invalidate()
-
-    @kb.add("enter")
-    def advance_question(event: KeyPressEvent) -> None:
-        """Select current option and advance, or submit if confirming selection.
-
-        Behavior:
-        - Selects the current option (for single-select) or enters Other mode
-        - Advances to next question if not on last
-        - On last question: only submits if cursor is on an already-selected option
-          (i.e., user is confirming their choice by pressing Enter on it again)
-        """
-        state.reset_activity_timer()
-        if state.entering_other_text:
-            # Confirm the "Other" text using centralized method
-            state.commit_other_text()
-            event.app.invalidate()
-            return
-
-        # Check if current option is "Other"
-        if state.is_other_option(state.current_cursor):
-            state.enter_other_text_mode()
-            event.app.invalidate()
-            return
-
-        is_last_question = state.current_question_index == len(state.questions) - 1
-        cursor_is_on_selected = state.is_option_selected(state.current_cursor)
-
-        # For single-select, select the current option when pressing Enter
-        if not state.current_question.multi_select:
-            state.select_current_option()
-
-        # Advance to next question if not on the last one
-        if not is_last_question:
-            state.next_question()
-            event.app.invalidate()
-        else:
-            # Last question: submit only if the cursor was already on the option
-            # (confirming) — prevents accidental submit while browsing.
-            if cursor_is_on_selected:
-                result.confirmed = True
-                event.app.exit()
-            else:
-                # Just selected a new option, update display but don't submit
-                # User needs to press Enter again to confirm
-                event.app.invalidate()
-
-    @kb.add("c-s")
-    def submit_all(event: KeyPressEvent) -> None:
-        """Ctrl+S submits all answers immediately from any question."""
-        state.reset_activity_timer()
-        # If entering other text, save it first before submitting
-        if state.entering_other_text:
-            state.commit_other_text()
-        result.confirmed = True
-        event.app.exit()
-
-    @kb.add("escape")
-    def cancel(event: KeyPressEvent) -> None:
-        state.reset_activity_timer()
-        if state.entering_other_text:
-            state.entering_other_text = False
-            state.other_text_buffer = ""
-            event.app.invalidate()
-            return
-        result.cancelled = True
-        event.app.exit()
-
-    @kb.add("c-c")
-    def ctrl_c_cancel(event: KeyPressEvent) -> None:
-        result.cancelled = True
-        event.app.exit()
-
-    @kb.add("tab")
-    def toggle_peek(event: KeyPressEvent) -> None:
-        """Peek behind the TUI to see terminal output.
-
-        Uses prompt_toolkit's run_in_terminal to properly suspend rendering,
-        exit alt screen, wait for a keypress, then restore everything with
-        a full repaint. This prevents resize events from clobbering the
-        main screen during peek and ensures borders render correctly on return.
-        """
-        state.reset_activity_timer()
-
-        def _peek() -> None:
-            sys.__stdout__.write(
-                "\n  \033[2mPress any key to return to questions...\033[0m\n"
-            )
-            sys.__stdout__.flush()
-            _wait_for_keypress()
-            state.reset_activity_timer()
-
-        run_in_terminal(_peek, in_executor=True)
-
-    @kb.add("<any>")
-    def handle_text_input(event: KeyPressEvent) -> None:
-        state.reset_activity_timer()
-        if state.entering_other_text:
-            char = event.data
-            if char and len(char) == 1 and ord(char) >= 32:
-                state.other_text_buffer += char
-                event.app.invalidate()
-
-    @kb.add(Keys.BracketedPaste)
-    def handle_paste(event: KeyPressEvent) -> None:
-        """Support clipboard paste into the 'Other' text buffer.
-
-        The terminal delivers the whole pasted payload in ``event.data`` when
-        bracketed paste is enabled (prompt_toolkit's ``Application`` turns
-        this on by default). We only accept paste while the user is typing
-        into the 'Other' option -- pasting outside text-entry mode would be
-        meaningless and is silently ignored.
-
-        Control characters are stripped so a stray newline / tab from the
-        clipboard cannot submit the form or break the layout. Newlines and
-        tabs are collapsed to a single space to keep the single-line input
-        readable.
-        """
-        state.reset_activity_timer()
-        if not state.entering_other_text:
-            return
-        pasted = event.data or ""
-        if not pasted:
-            return
-        cleaned_chars: list[str] = []
-        for ch in pasted:
-            if ch in ("\n", "\r", "\t"):
-                cleaned_chars.append(" ")
-            elif ch.isprintable():
-                cleaned_chars.append(ch)
-        cleaned = "".join(cleaned_chars)
-        if cleaned:
-            state.other_text_buffer += cleaned
-            event.app.invalidate()
-
-    @kb.add("backspace")
-    def handle_backspace(event: KeyPressEvent) -> None:
-        if state.entering_other_text and state.other_text_buffer:
-            state.other_text_buffer = state.other_text_buffer[:-1]
-            event.app.invalidate()
-
-    # --- Panel rendering ---
-    # Cache colors once per session to avoid repeated config lookups
-    tui_colors = get_tui_colors()
-    rich_colors = get_rich_colors()
-
-    def get_left_panel_text() -> FormattedText:
-        """Generate the left panel with question headers."""
-        pad = "  "
-        lines: list[tuple[str, str]] = [
-            ("", pad),
-            (tui_colors.header_bold, "Questions"),
-            ("", "\n\n"),
-        ]
-
-        for i, question in enumerate(state.questions):
-            is_current = i == state.current_question_index
-            is_answered = state.is_question_answered(i)
-            cursor = f"{CURSOR_TRIANGLE} " if is_current else "  "
-            status = f"{CHECK_MARK} " if is_answered else "  "
-
-            # Determine styles based on state
-            cursor_style = (
-                tui_colors.cursor_active if is_current else tui_colors.cursor_inactive
-            )
-            content_style = (
-                tui_colors.selected_check
-                if is_answered
-                else tui_colors.cursor_active
-                if is_current
-                else tui_colors.text_dim
-            )
-
-            lines.append(("", pad))
-            if is_answered:
-                # Answered: cursor and status+header use different styles
-                lines.append((cursor_style, cursor))
-                lines.append((content_style, status + question.header))
-            else:
-                # Not answered: cursor+status+header all use same style
-                lines.append((content_style, cursor + status + question.header))
-            lines.append(("", "\n"))
-
-        # Footer with keyboard shortcuts
-        lines.extend(
-            [
-                ("", "\n"),
-                ("", pad),
-                (tui_colors.help_key, f"{ARROW_LEFT}{ARROW_RIGHT}"),
-                (tui_colors.help_text, " Switch question"),
-                ("", "\n"),
-                ("", pad),
-                (tui_colors.help_key, f"{ARROW_UP}{ARROW_DOWN}"),
-                (tui_colors.help_text, " Navigate options"),
-                ("", "\n"),
-                ("", "\n"),
-                ("", pad),
-                (tui_colors.help_key, "Ctrl+S"),
-                (tui_colors.help_text, " Submit"),
-                ("", "\n"),
-                ("", pad),
-                (tui_colors.help_key, "Tab"),
-                (tui_colors.help_text, " Peek behind"),
-            ]
-        )
-
-        return FormattedText(lines)
-
-    def get_right_panel_text() -> ANSI:
-        """Generate the right panel with current question and options."""
-        # Calculate available width: terminal minus left panel, minus frame borders (4 chars)
-        term_width = shutil.get_terminal_size().columns
-        available = term_width - left_panel_width - 4
-        return render_question_panel(
-            state, colors=rich_colors, available_width=available
-        )
-
-    # --- Layout ---
-    # Calculate dynamic left panel width based on longest header
-    left_panel_width = state.get_left_panel_width()
-
-    left_panel = Window(
-        content=FormattedTextControl(lambda: get_left_panel_text()),
-        width=Dimension(preferred=left_panel_width, max=left_panel_width),
-    )
-
-    right_panel = Window(
-        content=FormattedTextControl(lambda: get_right_panel_text()),
-        wrap_lines=True,
-        # Right panel takes remaining space
-    )
-
-    root_container = VSplit(
-        [
-            Frame(left_panel, title=""),
-            Frame(right_panel, title=""),
-        ]
-    )
-
-    layout = Layout(root_container)
-
-    # Create output that writes to the real terminal, bypassing any stdout capture
-    output = create_output(stdout=sys.__stdout__)
-
-    app = Application(
-        layout=layout,
-        key_bindings=kb,
-        full_screen=True,
-        mouse_support=False,
-        color_depth=ColorDepth.DEPTH_24_BIT,
-        output=output,
-        style=_get_prompt_toolkit_style(),
-    )
-
-    # Timeout checker background task
-    async def timeout_checker() -> None:
-        nonlocal timed_out
-        while True:
-            await asyncio.sleep(1)
-            if state.is_timed_out():
-                timed_out = True
-                app.exit()
-                return
-            app.invalidate()
-
-    timeout_task = asyncio.create_task(timeout_checker())
-    app_exception: BaseException | None = None
-
-    # Suspend the whole run UI: full-screen prompt_toolkit needs the scroll
-    # region reset AND stdin freed, or the listener eats keystrokes/CPR replies.
     from code_puppy.messaging.run_ui import suspended_run_ui
 
-    try:
-        with suspended_run_ui():
-            await app.run_async()
-    except BaseException as e:
-        app_exception = e
-    finally:
-        timeout_task.cancel()
-        # Use asyncio.gather with return_exceptions to avoid race conditions
-        await asyncio.gather(timeout_task, return_exceptions=True)
-
-    # Re-raise any exception from app.run_async() after cleanup
-    if app_exception is not None:
-        raise app_exception
-
-    if timed_out:
-        return ([], False, True)
-
-    if result.cancelled:
-        return ([], True, False)
-
-    return (state.build_answers(), False, False)
+    with suspended_run_ui():
+        return await asyncio.to_thread(QuestionTUI(state).run)

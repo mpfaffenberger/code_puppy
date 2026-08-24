@@ -97,6 +97,7 @@ approval. With `fail_closed=True` its exception is reported as a block instead. 
 | `load_model_descriptions` | Inject description overlays | `() -> dict[str, str]` |
 | `get_model_system_prompt` | Per-model prompt | `(model_name, default_prompt, user_prompt) -> dict \| None` |
 | `stream_event` | Response streaming | `(event_type, event_data, agent_session_id=None) -> None` |
+| `transform_model_messages` | Before each model request, after history processing | `(agent_name, messages) -> None` — mutate the final `list[ModelMessage]` in place |
 | `pre_mcp_autostart` | Before bound MCP servers auto-start | `(agent_name, server_names) -> None` (refresh tokens / mint creds here) |
 
 Full list + rarely-used hooks: see `code_puppy/callbacks.py` source.
@@ -175,4 +176,3 @@ quickstart). Rules for new user-facing output (PUP-473):
 5. **Return `None` from commands you don't own**
 6. **Always run linters - `ruff check --fix`, `ruff format .`
 7. **NEVER ALLOW A CLAUDE CO-AUTHOR COMMIT**
-

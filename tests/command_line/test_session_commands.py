@@ -592,3 +592,15 @@ class TestHandleClearCommand:
         ):
             assert self._run() is True
             mock_reset.assert_called_once_with()
+
+    def test_clear_description_documents_the_bare_word_shortcut(self):
+        """The overlay renders the registry description verbatim, so the
+        bare-word `clear` shortcut has to be mentioned there or it's
+        undiscoverable."""
+        import code_puppy.command_line.session_commands  # noqa: F401
+        from code_puppy.command_line.command_registry import get_command
+
+        cmd = get_command("clear")
+        assert cmd is not None
+        assert "clear" in cmd.description.lower()
+        assert "bare word" in cmd.description.lower()
