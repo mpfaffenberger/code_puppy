@@ -8,6 +8,7 @@ import os
 from typing import Dict, Optional
 
 from code_puppy.command_line.utils import safe_input
+from code_puppy.i18n import t
 from code_puppy.messaging import emit_info, emit_success, emit_warning
 
 # Helpful hints for common environment variables
@@ -47,8 +48,8 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
 
     from .utils import find_server_id_by_name
 
-    emit_info(f"\n📦 Installing: {server.display_name}\n")
-    emit_info(f"   {server.description}\n")
+    emit_info(t("mcp.catalog.installing", display_name=server.display_name))
+    emit_info(t("mcp.catalog.description", description=server.description))
 
     # Get custom name
     default_name = server.name
@@ -57,20 +58,20 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
         server_name = name_input if name_input else default_name
     except (KeyboardInterrupt, EOFError):
         emit_info("")
-        emit_warning("Installation cancelled")
+        emit_warning(t("mcp.catalog.cancelled"))
         return None
 
     # Check if server already exists
     existing = find_server_id_by_name(manager, server_name)
     if existing:
         try:
-            override = safe_input(f"  Server '{server_name}' exists. Override? [y/N]: ")
+            override = safe_input(t("mcp.catalog.override_prompt", server_name=server_name))
             if not override.lower().startswith("y"):
-                emit_warning("Installation cancelled")
+                emit_warning(t("mcp.catalog.cancelled"))
                 return None
         except (KeyboardInterrupt, EOFError):
             emit_info("")
-            emit_warning("Installation cancelled")
+            emit_warning(t("mcp.catalog.cancelled"))
             return None
 
     env_vars = {}
@@ -79,17 +80,17 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
     # Collect environment variables
     required_env_vars = server.get_environment_vars()
     if required_env_vars:
-        emit_info("\n  🔑 Environment Variables:")
+        emit_info(t("mcp.catalog.environment_header"))
         for var in required_env_vars:
             current_value = os.environ.get(var, "")
             if current_value:
-                emit_info(f"     ✓ {var}: Already set")
+                emit_info(t("mcp.catalog.env_already_set", var=var))
                 env_vars[var] = current_value
             else:
                 try:
                     hint = get_env_var_hint(var)
                     if hint:
-                        emit_info(f"     {hint}")
+                        emit_info(hint)
                     value = safe_input(f"     Enter {var}: ")
                     if value:
                         env_vars[var] = value
@@ -98,13 +99,13 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
                         os.environ[var] = value
                 except (KeyboardInterrupt, EOFError):
                     emit_info("")
-                    emit_warning("Installation cancelled")
+                    emit_warning(t("mcp.catalog.cancelled"))
                     return None
 
     # Collect command line arguments
     required_cmd_args = server.get_command_line_args()
     if required_cmd_args:
-        emit_info("\n  ⚙️ Configuration:")
+        emit_info(t("mcp.catalog.configuration_header"))
         for arg_config in required_cmd_args:
             name = arg_config.get("name", "")
             prompt_text = arg_config.get("prompt", name)
@@ -124,11 +125,11 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
                 elif default:
                     cmd_args[name] = default
                 elif required:
-                    emit_warning(f"Required value '{name}' not provided")
+                    emit_warning(t("mcp.catalog.required_missing", name=name))
                     return None
             except (KeyboardInterrupt, EOFError):
                 emit_info("")
-                emit_warning("Installation cancelled")
+                emit_warning(t("mcp.catalog.cancelled"))
                 return None
 
     return {
@@ -160,16 +161,16 @@ def install_catalog_server(manager, server, config: Dict) -> bool:
     # Generate a group ID for messages
     group_id = f"mcp-install-{uuid.uuid4().hex[:8]}"
 
-    emit_info(f"\n  📦 Installing {server.display_name} as '{server_name}'...")
+    emit_info(t("mcp.catalog.installing_as", display_name=server.display_name, server_name=server_name))
 
     success = install_server_from_catalog(
         manager, server, server_name, env_vars, cmd_args, group_id
     )
 
     if success:
-        emit_success(f"\n  ✅ Successfully installed '{server_name}'!")
-        emit_info(f"  Use '/mcp start {server_name}' to start the server.\n")
+        emit_success(t("mcp.catalog.installed", server_name=server_name))
+        emit_info(t("mcp.catalog.start_hint", server_name=server_name))
     else:
-        emit_warning("\n  ❌ Installation failed.\n")
+        emit_warning(t("mcp.catalog.install_failed"))
 
     return success

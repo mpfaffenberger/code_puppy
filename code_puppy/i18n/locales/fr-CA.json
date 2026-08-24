@@ -227,5 +227,17 @@
   "model_menu.browser.exited": "✓ Navigateur de modèles fermé",
   "model_menu.browser.unsupported_provider": "Impossible d'ajouter un modèle depuis {provider} : {reason}",
   "model_menu.browser.no_tool_call_warning": "⚠️  {model} ne prend PAS en charge l'appel d'outils.\n   Ce modèle ne pourra pas modifier des fichiers, exécuter des commandes ou utiliser d'outils.\n   Il sera très limité pour les tâches de programmation.",
-  "model_menu.browser.add_cancelled": "Ajout de modèle annulé."
+  "model_menu.browser.add_cancelled": "Ajout de modèle annulé.",
+  "mcp.catalog.installing": "\n Installation : {display_name}\n",
+  "mcp.catalog.description": "   {description}\n",
+  "mcp.catalog.cancelled": "Installation annulée",
+  "mcp.catalog.override_prompt": "  Le serveur « {server_name} » existe déjà. Le remplacer? [o/N] : ",
+  "mcp.catalog.environment_header": "\n   Variables d’environnement :",
+  "mcp.catalog.env_already_set": "      {var} : déjà définie",
+  "mcp.catalog.required_missing": "La valeur requise « {name} » n’a pas été fournie",
+  "mcp.catalog.configuration_header": "\n   Configuration :",
+  "mcp.catalog.installing_as": "\n   Installation de {display_name} sous le nom « {server_name} »...",
+  "mcp.catalog.installed": "\n   « {server_name} » installé avec succès!",
+  "mcp.catalog.start_hint": "  Utilisez « /mcp start {server_name} » pour démarrer le serveur.\n",
+  "mcp.catalog.install_failed": "\n   Échec de l’installation.\n"
 }

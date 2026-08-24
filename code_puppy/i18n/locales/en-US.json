@@ -349,5 +349,17 @@
   "model_menu.browser.unsupported_provider": "Cannot add model from {provider}: {reason}",
   "model_menu.browser.no_tool_call_warning": "⚠️  {model} does NOT support tool calling!\n   This model won't be able to edit files, run commands, or use any tools.\n   It will be very limited for coding tasks.",
   "model_menu.browser.add_cancelled": "Model addition cancelled.",
-  "cli.autosave.tui_required": "Interactive session browsing needs a terminal. Use -r NAME to resume a session by name."
+  "cli.autosave.tui_required": "Interactive session browsing needs a terminal. Use -r NAME to resume a session by name.",
+  "mcp.catalog.installing": "\n  📦 Installing: {display_name}\n",
+  "mcp.catalog.description": "   {description}\n",
+  "mcp.catalog.cancelled": "Installation cancelled",
+  "mcp.catalog.override_prompt": "  Server '{server_name}' exists. Override? [y/N]: ",
+  "mcp.catalog.environment_header": "\n  🔑 Environment Variables:",
+  "mcp.catalog.env_already_set": "      {var}: Already set",
+  "mcp.catalog.required_missing": "Required value '{name}' not provided",
+  "mcp.catalog.configuration_header": "\n  ⚙ Configuration:",
+  "mcp.catalog.installing_as": "\n  📦 Installing {display_name} as '{server_name}'...",
+  "mcp.catalog.installed": "\n  ✅ Successfully installed '{server_name}'!",
+  "mcp.catalog.start_hint": "  Use '/mcp start {server_name}' to start the server.\n",
+  "mcp.catalog.install_failed": "\n  ❌ Installation failed.\n"
 }
