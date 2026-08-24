@@ -670,7 +670,9 @@ def test_render_version_check_current(renderer, console):
     )
     renderer._render_version_check(msg)
     out = output(console)
-    assert "latest" in out
+    # Up to date is quiet now (no news is good news) -- see
+    # rich_renderer._render_version_check.
+    assert out == ""
 
 
 # =========================================================================
