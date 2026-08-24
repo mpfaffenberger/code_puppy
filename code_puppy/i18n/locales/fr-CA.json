@@ -227,5 +227,17 @@
   "model_menu.browser.exited": "✓ Navigateur de modèles fermé",
   "model_menu.browser.unsupported_provider": "Impossible d'ajouter un modèle depuis {provider} : {reason}",
   "model_menu.browser.no_tool_call_warning": "⚠️  {model} ne prend PAS en charge l'appel d'outils.\n   Ce modèle ne pourra pas modifier des fichiers, exécuter des commandes ou utiliser d'outils.\n   Il sera très limité pour les tâches de programmation.",
-  "model_menu.browser.add_cancelled": "Ajout de modèle annulé."
+  "model_menu.browser.add_cancelled": "Ajout de modèle annulé.",
+  "tools.common.approval.noninteractive": "Approbation de « {title} » refusée : l'entrée standard n'est pas interactive.",
+  "tools.common.approval.preview": "Aperçu des modifications :",
+  "tools.common.approval.prompt": "Que souhaitez-vous faire ?",
+  "tools.common.approval.approve": "Approuver",
+  "tools.common.approval.reject": "Refuser",
+  "tools.common.approval.reject_feedback": "Refuser avec commentaires (dites à {puppy_name} quoi modifier)",
+  "tools.common.approval.tell": "Dites à {puppy_name} quoi modifier :",
+  "tools.common.approval.cancelled": "Annulé par l’utilisateur",
+  "tools.common.approval.rejected_feedback": "Refusé avec commentaires!",
+  "tools.common.approval.telling_feedback": "Message à {puppy_name} : « {feedback} »",
+  "tools.common.approval.rejected": "Refusé.",
+  "tools.common.approval.approved": "Approuvé!"
 }
