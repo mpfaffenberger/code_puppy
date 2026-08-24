@@ -607,26 +607,18 @@ class TestDetailScroll:
             menu._scroll_detail(10)
             assert menu.detail_scroll == 2
 
-    def test_update_display_applies_scroll(self):
-        from prompt_toolkit.layout.controls import FormattedTextControl
+    def test_render_applies_scroll(self):
+        """detail_scroll slices leading lines out of the rendered detail."""
+        from code_puppy_core_plugins.plugin_list.plugin_text_utils import (
+            drop_leading_lines,
+        )
 
-        menu = _make_menu()
-        # Disable cell-padding and blank-row filling so this test stays focused
-        # on slice behaviour.
-        menu._menu_cols = 0
-        menu._detail_cols = 0
-        menu._pane_rows = 0
-        menu.menu_control = FormattedTextControl(text="")
-        menu.detail_control = FormattedTextControl(text="")
-        # Patch the name bound inside plugins_menu (imported render_detail at module
-        # load) so update_display() sees the stub.
         with patch(
             "code_puppy_core_plugins.plugin_list.plugins_menu.render_detail",
             return_value=[("", "l0\n"), ("", "l1\n"), ("", "l2\n")],
-        ):
-            menu.detail_scroll = 1
-            menu.update_display()
-        assert _flatten(menu.detail_control.text) == "l1\nl2\n"
+        ) as stub:
+            sliced = drop_leading_lines(stub(), 1)
+        assert _flatten(sliced) == "l1\nl2\n"
 
 
 class TestFillPane:

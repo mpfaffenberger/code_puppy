@@ -3,7 +3,7 @@ import sys
 from unittest.mock import patch
 
 import pytest
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Document
 
 from code_puppy.command_line.completers import (
     AgentCompleter,

@@ -465,7 +465,7 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
-    { name = "code-puppy-core-plugins", specifier = ">=0.0.20" },
+    { name = "code-puppy-core-plugins", specifier = ">=0.0.26" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "json-repair", specifier = ">=0.46.2" },
@@ -505,16 +505,15 @@ dev = [
 
 [[package]]
 name = "code-puppy-core-plugins"
-version = "0.0.20"
+version = "0.0.26"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
-    { name = "prompt-toolkit" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fe/dd/cd2506c00a50c213cf1f0a7747b91357fa4f193f2ad8031b00650d60f6c1/code_puppy_core_plugins-0.0.20.tar.gz", hash = "sha256:815be98ef49952c8d3e1c007bfb642835c7df38f136b15888b0b473e44883714", size = 538855, upload-time = "2026-08-24T20:15:13.932Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/43/e1395a837183431c30df0631f01b4ff3327cc64b51bba191038524cfb8a1/code_puppy_core_plugins-0.0.26.tar.gz", hash = "sha256:0aa276357ad480bb1611fd0c13b1b57cf099518cef68a4dc0f1d3093512a672a", size = 533537, upload-time = "2026-08-24T22:52:20.495Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/19/71/f24ed772a663525f58f7d78f2931505f311e2532026d11ff8e7ad6602403/code_puppy_core_plugins-0.0.20-py3-none-any.whl", hash = "sha256:a3e0c4c0618626964503929c0e29c656fdca701bfca84c1ef2fee75029dd9eec", size = 726759, upload-time = "2026-08-24T20:15:12.631Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/48/974a8d0e29ce32b83131e84b7fe759cb829836c367c87d165dfe332e22e3/code_puppy_core_plugins-0.0.26-py3-none-any.whl", hash = "sha256:8609a157c526be5b209e309f2f6e263d45ab9b40165ef8442c8c4c5882d5040f", size = 720237, upload-time = "2026-08-24T22:52:19.253Z" },
 ]
 
 [[package]]
@@ -1614,18 +1613,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3", size = 69412, upload-time = "2025-05-15T12:30:07.975Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
-]
-
-[[package]]
-name = "prompt-toolkit"
-version = "3.0.53"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "wcwidth" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/7d/ea/39b988c938f75cb75d7045b5c69f8bfed47ee2152c8837fb403de29d6fb8/prompt_toolkit-3.0.53.tar.gz", hash = "sha256:9ec8a0ad96d5c56148b3f914aa79c1564c3fde5d2e6b876e7bc327e353cf8fa6", size = 435492, upload-time = "2026-07-26T20:56:14.758Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/54/6f/84908cad2d6aa5144abcf7b42709fe4fdb459bc640ec7ac5786e7693dabc/prompt_toolkit-3.0.53-py3-none-any.whl", hash = "sha256:01c0891d7f9237d5e339f7d3e42cdae80b7534abb1c7c0e3352efba6231492f2", size = 392288, upload-time = "2026-07-26T20:56:12.512Z" },
 ]
 
 [[package]]

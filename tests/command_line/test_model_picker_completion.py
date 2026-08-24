@@ -3,7 +3,7 @@
 from unittest.mock import call, patch
 
 import pytest
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Document
 
 from code_puppy.command_line.model_picker_completion import ModelSelectionMenu
 

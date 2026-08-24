@@ -169,7 +169,7 @@ def test_core_commands_shlex_fallback():
 
 def test_file_path_completion_permission_error():
     """Cover lines 72-73: exception handling."""
-    from prompt_toolkit.document import Document
+    from termflow.tui.completion import Document
 
     from code_puppy.command_line.file_path_completion import FilePathCompleter
 
