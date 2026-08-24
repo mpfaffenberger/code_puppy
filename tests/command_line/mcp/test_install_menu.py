@@ -112,7 +112,9 @@ class TestDetails:
 class TestMenus:
     def test_categories_menu_returns_selection(self):
         menu = im.build_categories_menu(
-            FakeCatalog(), [im.CUSTOM_SERVER_CATEGORY, "Storage"], **keys("down", "enter")
+            FakeCatalog(),
+            [im.CUSTOM_SERVER_CATEGORY, "Storage"],
+            **keys("down", "enter"),
         )
         assert menu.run().item.value == "Storage"
 
@@ -129,7 +131,9 @@ class TestBrowseFlow:
         result = im.run_browse_flow(
             catalog,
             [im.CUSTOM_SERVER_CATEGORY, "Storage"],
-            categories_menu_factory=scripted(im.build_categories_menu, [["down", "enter"]]),
+            categories_menu_factory=scripted(
+                im.build_categories_menu, [["down", "enter"]]
+            ),
             servers_menu_factory=scripted(im.build_servers_menu, [["enter"]]),
         )
         assert result is server
@@ -188,7 +192,9 @@ class TestRunMcpInstallMenu:
             patch.object(
                 im, "prompt_for_server_config", return_value={"name": "files"}
             ) as mock_prompt,
-            patch.object(im, "install_catalog_server", return_value=True) as mock_install,
+            patch.object(
+                im, "install_catalog_server", return_value=True
+            ) as mock_install,
             patch.object(im, "_reload_mcp_servers") as mock_reload,
             self._session(),
         ):

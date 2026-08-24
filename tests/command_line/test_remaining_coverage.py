@@ -206,7 +206,7 @@ def test_load_context_completion_exception():
 
 def test_sanitize_for_encoding_unicode_error():
     """Cover lines 81-83: UnicodeEncodeError fallback in _sanitize_for_encoding."""
-    from code_puppy.command_line.prompt_toolkit_completion import (
+    from code_puppy.command_line.completers import (
         _sanitize_for_encoding,
     )
 

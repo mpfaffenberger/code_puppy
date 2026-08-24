@@ -298,7 +298,7 @@ class TestInstallPromptPatch:
     def test_idempotent(self):
         """Calling install_prompt_patch() twice must not double-wrap."""
         from code_puppy_core_plugins.statusline import prompt_patch
-        import code_puppy.command_line.prompt_toolkit_completion as ptc
+        import code_puppy.command_line.prompt_toolkit_completion as ptc  # plugin patches the shim
 
         # Clean slate
         if hasattr(ptc, prompt_patch._PATCH_ATTR):
@@ -322,7 +322,7 @@ class TestInstallPromptPatch:
     def test_patch_replaces_function(self):
         """After install, get_prompt_with_active_model should be a new callable."""
         from code_puppy_core_plugins.statusline import prompt_patch
-        import code_puppy.command_line.prompt_toolkit_completion as ptc
+        import code_puppy.command_line.prompt_toolkit_completion as ptc  # plugin patches the shim
 
         if hasattr(ptc, prompt_patch._PATCH_ATTR):
             delattr(ptc, prompt_patch._PATCH_ATTR)

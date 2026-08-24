@@ -371,7 +371,7 @@ async def main():
     )
 
     if disable_windows_ctrl_c():
-        # Keep the clamp sticky across terminal resets / prompt_toolkit mode restores.
+        # Keep the clamp sticky across terminal resets / console mode restores.
         set_keep_ctrl_c_disabled(True)
 
     # Load API keys from puppy.cfg into environment variables
@@ -618,7 +618,7 @@ async def main():
 def _use_persistent_prompt() -> bool:
     """Should the REPL use the persistent bottom-bar prompt (Phase A)?
 
-    False (→ classic prompt_toolkit path) when:
+    False (-> classic plain-input path) when:
       * rollback flag: env CODE_PUPPY_CLASSIC_PROMPT=1 or config
         ``classic_prompt`` truthy — protects the eyeball-testing period;
       * CODE_PUPPY_NO_TUI=1 (tests / pexpect harnesses);
@@ -666,7 +666,7 @@ def _persistent_prompt_parts() -> tuple:
     in-band escapes, so colors can't ride inside the string itself).
     """
     try:
-        from code_puppy.command_line.prompt_toolkit_completion import (
+        from code_puppy.command_line.completers import (
             PROMPT_STYLES,
             get_prompt_with_active_model,
         )
@@ -820,35 +820,6 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
             emit_error(t("cli.initial_command.error", error=str(e)))
 
-    # Check if prompt_toolkit is installed
-    try:
-        from code_puppy.command_line.prompt_toolkit_completion import (
-            get_input_with_combined_completion,
-            get_prompt_with_active_model,
-        )
-    except ImportError:
-        from code_puppy.messaging import emit_warning
-
-        emit_warning(t("cli.prompt_toolkit.installing"))
-        try:
-            import subprocess
-
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "--quiet", "prompt_toolkit"]
-            )
-            from code_puppy.messaging import emit_success
-
-            emit_success(t("cli.prompt_toolkit.installed"))
-            from code_puppy.command_line.prompt_toolkit_completion import (
-                get_input_with_combined_completion,
-                get_prompt_with_active_model,
-            )
-        except Exception as e:
-            from code_puppy.messaging import emit_error, emit_warning
-
-            emit_error(t("cli.prompt_toolkit.install_error", error=e))
-            emit_warning(t("cli.prompt_toolkit.fallback"))
-
     # Autosave loading is now manual - use /autosave_load command
 
     record_terminal_session(get_current_session_name(), overwrite=False)
@@ -926,47 +897,27 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     # doubled every line's noise. Text() so bracket-y input renders as-is.
                     emit_info(_prompt_echo_text(task))
             else:
-                # Use prompt_toolkit for enhanced input with path completion
-                try:
-                    # Windows-specific: Reset terminal state before prompting
-                    reset_windows_terminal_ansi()
+                # Classic (non-TTY / rollback) prompt: plain blocking input.
+                # No completion here -- the persistent bottom-bar editor is
+                # the featured path; this branch exists for pipes, CI, and
+                # the CODE_PUPPY_CLASSIC_PROMPT escape hatch.
+                reset_windows_terminal_ansi()
+                task = input(">>> ")
+                from code_puppy.messaging.editor_history import HistoryStore
 
-                    # Use the async version of get_input_with_combined_completion
-                    task = await get_input_with_combined_completion(
-                        get_prompt_with_active_model(),
-                        history_file=COMMAND_HISTORY_FILE,
-                    )
-
-                    # Windows: re-clamp raw-Ctrl+C mode after prompt_toolkit
-                    # (prompt_toolkit restores console mode on exit)
-                    try:
-                        from code_puppy.terminal_utils import ensure_ctrl_c_disabled
-
-                        ensure_ctrl_c_disabled()
-                    except ImportError:
-                        pass
-                except ImportError:
-                    # Fall back to basic input if prompt_toolkit is not available
-                    task = input(">>> ")
+                HistoryStore(COMMAND_HISTORY_FILE).append(task)
 
         except (KeyboardInterrupt, asyncio.CancelledError) as cancel_exc:
             # Ctrl+C: cancel input and continue. Reset terminal state on Windows
             # so it doesn't become unresponsive.
             reset_windows_terminal_full()
             from code_puppy.callbacks import on_interactive_turn_cancel
-            from code_puppy.command_line.prompt_toolkit_completion import (
-                pop_non_ctrl_c_cancel,
-            )
             from code_puppy.messaging import emit_success, emit_warning
             from code_puppy.messaging.run_ui import DOUBLE_CTRL_C_WINDOW_S
 
-            # Double Ctrl+C at the idle prompt quits like Ctrl+D. Escape and
-            # Ctrl+X raise the same KeyboardInterrupt but mark themselves, so
-            # mashing Escape can never exit; CancelledError never counts.
-            was_plain_ctrl_c = (
-                isinstance(cancel_exc, KeyboardInterrupt)
-                and not pop_non_ctrl_c_cancel()
-            )
+            # Double Ctrl+C at the idle prompt quits like Ctrl+D.
+            # CancelledError never counts.
+            was_plain_ctrl_c = isinstance(cancel_exc, KeyboardInterrupt)
             now = time.monotonic()
             if was_plain_ctrl_c and now - last_idle_ctrl_c <= DOUBLE_CTRL_C_WINDOW_S:
                 emit_success("\n" + t("cli.goodbye_ctrld"))

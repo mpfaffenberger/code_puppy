@@ -421,7 +421,6 @@ dependencies = [
     { name = "packaging" },
     { name = "pillow" },
     { name = "playwright", marker = "sys_platform != 'android'" },
-    { name = "prompt-toolkit" },
     { name = "pydantic" },
     { name = "pydantic-ai-harness" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
@@ -466,7 +465,7 @@ requires-dist = [
     { name = "azure-identity", specifier = ">=1.15.0" },
     { name = "boto3", specifier = ">=1.43.9" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0" },
-    { name = "code-puppy-core-plugins", specifier = ">=0.0.12" },
+    { name = "code-puppy-core-plugins", specifier = ">=0.0.20" },
     { name = "dbos", marker = "extra == 'durable'", specifier = ">=2.11.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.24.1" },
     { name = "json-repair", specifier = ">=0.46.2" },
@@ -477,7 +476,6 @@ requires-dist = [
     { name = "packaging", specifier = ">=24.0" },
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "playwright", marker = "sys_platform != 'android'", specifier = ">=1.40.0" },
-    { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pydantic", specifier = ">=2.4.0" },
     { name = "pydantic-ai-harness", specifier = "==0.23.0" },
     { name = "pydantic-ai-slim", extras = ["openai", "anthropic", "mcp"], specifier = "==2.31.0" },
@@ -490,7 +488,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.28.0" },
     { name = "rich", specifier = ">=13.4.2" },
     { name = "ripgrep", marker = "sys_platform != 'android'", specifier = "==14.1.0" },
-    { name = "termflow-md", specifier = ">=0.8.0" },
+    { name = "termflow-md", specifier = ">=0.9.0" },
     { name = "typer", specifier = ">=0.12.0" },
 ]
 provides-extras = ["bedrock", "durable", "computer-use"]
@@ -507,15 +505,16 @@ dev = [
 
 [[package]]
 name = "code-puppy-core-plugins"
-version = "0.0.18"
+version = "0.0.20"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
+    { name = "prompt-toolkit" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "mcp", "openai"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/11/c3/9855454955fc42dc3c291d26cc0e80677b8f466cc6baef663d8bec7668b6/code_puppy_core_plugins-0.0.18.tar.gz", hash = "sha256:3ca58587551375ec171cbedb330d92641dd762eb0b6b610a66fe8383fd7d43fb", size = 538824, upload-time = "2026-08-23T17:34:32.547Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fe/dd/cd2506c00a50c213cf1f0a7747b91357fa4f193f2ad8031b00650d60f6c1/code_puppy_core_plugins-0.0.20.tar.gz", hash = "sha256:815be98ef49952c8d3e1c007bfb642835c7df38f136b15888b0b473e44883714", size = 538855, upload-time = "2026-08-24T20:15:13.932Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1e/08/8fe22419e6d72ffc9eb05013dd704312b50da85d2152171c6f9dcb400097/code_puppy_core_plugins-0.0.18-py3-none-any.whl", hash = "sha256:3f64f11b04e64c7caf9150264f3c964793422cff15aad56f4ec23efab0637d40", size = 726744, upload-time = "2026-08-23T17:34:30.88Z" },
+    { url = "https://files.pythonhosted.org/packages/19/71/f24ed772a663525f58f7d78f2931505f311e2532026d11ff8e7ad6602403/code_puppy_core_plugins-0.0.20-py3-none-any.whl", hash = "sha256:a3e0c4c0618626964503929c0e29c656fdca701bfca84c1ef2fee75029dd9eec", size = 726759, upload-time = "2026-08-24T20:15:12.631Z" },
 ]
 
 [[package]]
@@ -1619,14 +1618,14 @@ wheels = [
 
 [[package]]
 name = "prompt-toolkit"
-version = "3.0.52"
+version = "3.0.53"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a1/96/06e01a7b38dce6fe1db213e061a4602dd6032a8a97ef6c1a862537732421/prompt_toolkit-3.0.52.tar.gz", hash = "sha256:28cde192929c8e7321de85de1ddbe736f1375148b02f2e17edd840042b1be855", size = 434198, upload-time = "2025-08-27T15:24:02.057Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/ea/39b988c938f75cb75d7045b5c69f8bfed47ee2152c8837fb403de29d6fb8/prompt_toolkit-3.0.53.tar.gz", hash = "sha256:9ec8a0ad96d5c56148b3f914aa79c1564c3fde5d2e6b876e7bc327e353cf8fa6", size = 435492, upload-time = "2026-07-26T20:56:14.758Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/84/03/0d3ce49e2505ae70cf43bc5bb3033955d2fc9f932163e84dc0779cc47f48/prompt_toolkit-3.0.52-py3-none-any.whl", hash = "sha256:9aac639a3bbd33284347de5ad8d68ecc044b91a762dc39b7c21095fcd6a19955", size = 391431, upload-time = "2025-08-27T15:23:59.498Z" },
+    { url = "https://files.pythonhosted.org/packages/54/6f/84908cad2d6aa5144abcf7b42709fe4fdb459bc640ec7ac5786e7693dabc/prompt_toolkit-3.0.53-py3-none-any.whl", hash = "sha256:01c0891d7f9237d5e339f7d3e42cdae80b7534abb1c7c0e3352efba6231492f2", size = 392288, upload-time = "2026-07-26T20:56:12.512Z" },
 ]
 
 [[package]]
@@ -2771,15 +2770,15 @@ wheels = [
 
 [[package]]
 name = "termflow-md"
-version = "0.8.0"
+version = "0.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pygments" },
     { name = "wcwidth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/79/f4/ca931b517b573b08464b334aa6a12ab695c211995ff95ebdf3f69a498131/termflow_md-0.8.0.tar.gz", hash = "sha256:295cd7ee3c66f3f63066da4d9909c453454076afbb20a07c6b877169d4bd103e", size = 159351, upload-time = "2026-08-24T19:02:35.055Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0b/f3/6135aea241a2f5e33066adf7e7d21bccf4930be6fa4f7f182f742becd970/termflow_md-0.9.0.tar.gz", hash = "sha256:32b70994f3d03a3e9af1479d8d4c3b5fbb0ede35aabe529e437ff6effc9c1d3a", size = 161428, upload-time = "2026-08-24T20:12:57.26Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0d/a8/388be7a2a5095fb983bc1ddecf1cc1551e1e09c254ad6681e6a27c0006ba/termflow_md-0.8.0-py3-none-any.whl", hash = "sha256:989089e8b2b2b0185313ee5b8d9712d68b9c427ff3ad9716700dcbf307db50dd", size = 93646, upload-time = "2026-08-24T19:02:33.755Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/2f/f0cfb710bed5c604b937131bb58267aef7002ec88efa0fa377bd183e050c/termflow_md-0.9.0-py3-none-any.whl", hash = "sha256:8bea0e4e21faf54a6af3107546a798f4c0b5c64938640bff4f39f326892c3531", size = 95300, upload-time = "2026-08-24T20:12:56.091Z" },
 ]
 
 [[package]]

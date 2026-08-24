@@ -129,9 +129,7 @@ def category_details(catalog, category: str) -> str:
     popular = [server for server in servers if server.popular]
     if popular:
         lines += ["", _ansi(s.head, "Popular:")]
-        lines += [
-            _ansi(s.grey, f"  - {server.display_name}") for server in popular[:5]
-        ]
+        lines += [_ansi(s.grey, f"  - {server.display_name}") for server in popular[:5]]
     return "\n".join(lines)
 
 
@@ -180,7 +178,11 @@ def server_details(server) -> str:
             _ansi(s.grey, f"  {', '.join(required_tools)}"),
         ]
     if server.example_usage:
-        lines += ["", _ansi(s.head, "Example:"), _ansi(s.grey, f"  {server.example_usage}")]
+        lines += [
+            "",
+            _ansi(s.head, "Example:"),
+            _ansi(s.grey, f"  {server.example_usage}"),
+        ]
     return "\n".join(lines)
 
 
@@ -194,9 +196,7 @@ def build_categories_menu(catalog, categories: List[str], **overrides):
 
     from code_puppy.command_line.tui_style import themed
 
-    items = [
-        MenuItem(f"{get_category_icon(c)} {c}", value=c) for c in categories
-    ]
+    items = [MenuItem(f"{get_category_icon(c)} {c}", value=c) for c in categories]
     builder = themed(
         MenuBuilder("Install MCP Server - Categories")
         .items(items)

@@ -488,7 +488,6 @@ class TestFormWidgets:
 
         form = CustomServerForm(MagicMock())
         form.json_config = "{}"
-        keys = list('{"command": "x"}'.replace("{}", "")) or []
         # Clear the initial compact text, then type fresh JSON.
         script = ["ctrl-u"] + list('{"command":"x"}') + ["enter"]
         run_json_fallback_editor(form, **_keys(*script))
@@ -524,7 +523,9 @@ class TestRunFormFlow:
         scripts = iter(menu_scripts)
 
         def factory(f, initial_index=0, **kw):
-            return build_form_menu(f, initial_index=initial_index, **_keys(*next(scripts)))
+            return build_form_menu(
+                f, initial_index=initial_index, **_keys(*next(scripts))
+            )
 
         return run_form_flow(form, menu_factory=factory, **kwargs)
 
@@ -596,9 +597,7 @@ class TestRunCustomServerForm:
         mgr = MagicMock()
         with (
             patch.object(csf, "run_form_flow", return_value=True) as mock_flow,
-            patch(
-                "code_puppy.command_line.menu_session.menu_session"
-            ) as mock_session,
+            patch("code_puppy.command_line.menu_session.menu_session") as mock_session,
             patch(
                 "code_puppy.command_line.mcp_binding_menu.prompt_bind_after_install_sync",
                 create=True,  # only the async variant exists; the call site
@@ -622,4 +621,3 @@ class TestRunCustomServerForm:
             mock_session.return_value.__enter__ = lambda s: None
             mock_session.return_value.__exit__ = lambda s, *a: False
             assert csf.run_custom_server_form(MagicMock()) is False
-

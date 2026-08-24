@@ -1,16 +1,12 @@
 """History support for the persistent raw editor (Phase B, feature 1).
 
-Shares the SAME history file (``COMMAND_HISTORY_FILE``) and format as the
-classic prompt_toolkit path, so both prompts see one another's entries:
+Uses ``COMMAND_HISTORY_FILE`` in prompt_toolkit's FileHistory format
+(kept for backwards compatibility with existing history files):
 
     # <timestamp comment>
     +<line 1 of entry>
     +<line 2 of entry>      (multiline entries = consecutive '+' lines)
     <blank line between entries>
-
-We reuse ``SafeFileHistory`` (command_line — sanctioned import-only reuse)
-when available; a tiny format-compatible fallback covers exotic import
-failures.
 """
 
 from __future__ import annotations
@@ -25,7 +21,12 @@ logger = logging.getLogger(__name__)
 
 
 class HistoryStore:
-    """Read/append the shared prompt_toolkit-format history file."""
+    """Read/append the FileHistory-format history file.
+
+    The on-disk format matches prompt_toolkit's ``FileHistory`` exactly
+    (timestamp comments + ``+``-prefixed lines) so existing history
+    files keep working across the migration.
+    """
 
     def __init__(self, path: Optional[str] = None) -> None:
         if path is None:
@@ -36,13 +37,9 @@ class HistoryStore:
         self._lock = threading.Lock()
 
     def load(self) -> List[str]:
-        """Return entries oldest → newest. Never raises."""
+        """Return entries oldest -> newest. Never raises."""
         with self._lock:
             try:
-                history = self._safe_file_history()
-                if history is not None:
-                    # load_history_strings() yields newest-first.
-                    return list(reversed(list(history.load_history_strings())))
                 return self._load_fallback()
             except Exception:
                 logger.debug("history load failed", exc_info=True)
@@ -54,10 +51,6 @@ class HistoryStore:
             return
         with self._lock:
             try:
-                history = self._safe_file_history()
-                if history is not None:
-                    history.store_string(text)
-                    return
                 self._append_fallback(text)
             except Exception:
                 logger.debug("history append failed", exc_info=True)
@@ -65,17 +58,6 @@ class HistoryStore:
     # ------------------------------------------------------------------
     # Backends
     # ------------------------------------------------------------------
-
-    def _safe_file_history(self):
-        """The classic path's SafeFileHistory (exact format + encoding fixes)."""
-        try:
-            from code_puppy.command_line.prompt_toolkit_completion import (
-                SafeFileHistory,
-            )
-
-            return SafeFileHistory(self._path)
-        except ImportError:
-            return None
 
     def _load_fallback(self) -> List[str]:
         """Minimal FileHistory-format reader (mirror of prompt_toolkit's)."""

@@ -294,14 +294,10 @@ def build_form_menu(form: CustomServerForm, initial_index: int = 0, **overrides)
 
     json_status = "valid" if form._validate_json() else "INVALID"
     items = [
-        MenuItem(
-            f"Server Name: {form.server_name or '(not set)'}", value=_FIELD_NAME
-        ),
+        MenuItem(f"Server Name: {form.server_name or '(not set)'}", value=_FIELD_NAME),
         MenuItem(f"Server Type: {form._get_current_type()}", value=_FIELD_TYPE),
         MenuItem(f"JSON Configuration ({json_status})", value=_FIELD_JSON),
-        MenuItem(
-            f"Load example for {form._get_current_type()}", value=_ACTION_EXAMPLE
-        ),
+        MenuItem(f"Load example for {form._get_current_type()}", value=_ACTION_EXAMPLE),
         MenuItem("Save & Install", value=_ACTION_SAVE),
         MenuItem("Cancel", value=_ACTION_CANCEL),
     ]
@@ -414,7 +410,11 @@ def run_json_fallback_editor(form: CustomServerForm, **overrides) -> None:
             return f"Invalid JSON: {e.msg}"
         return None
 
-    compact = json.dumps(json.loads(form.json_config)) if _parses(form.json_config) else form.json_config
+    compact = (
+        json.dumps(json.loads(form.json_config))
+        if _parses(form.json_config)
+        else form.json_config
+    )
     builder = (
         TextInputBuilder("JSON Configuration (single line)")
         .prompt("JSON: ")
@@ -456,7 +456,14 @@ def run_form_flow(
 ) -> bool:
     """The field-edit loop. True when a server was installed."""
     cursor = 0
-    field_order = [_FIELD_NAME, _FIELD_TYPE, _FIELD_JSON, _ACTION_EXAMPLE, _ACTION_SAVE, _ACTION_CANCEL]
+    field_order = [
+        _FIELD_NAME,
+        _FIELD_TYPE,
+        _FIELD_JSON,
+        _ACTION_EXAMPLE,
+        _ACTION_SAVE,
+        _ACTION_CANCEL,
+    ]
     while True:
         result = menu_factory(form, initial_index=cursor).run()
         if result.cancelled or result.item is None:

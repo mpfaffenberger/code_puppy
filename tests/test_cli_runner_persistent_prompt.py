@@ -159,12 +159,12 @@ async def test_persistent_start_failure_degrades_to_classic(monkeypatch, rendere
     monkeypatch.setattr(cli_runner, "print_truecolor_warning", lambda console: None)
     monkeypatch.setattr(cli_runner, "record_terminal_session", lambda *a, **k: None)
 
-    async def fake_classic_input(*a, **k):
+    def fake_classic_input(*a, **k):
         return "/exit"
 
     with (
         patch(
-            "code_puppy.command_line.prompt_toolkit_completion.get_input_with_combined_completion",
+            "builtins.input",
             fake_classic_input,
         ),
         patch("code_puppy.messaging.emit_info", lambda msg, **k: None),
