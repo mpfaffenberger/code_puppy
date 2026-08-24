@@ -545,7 +545,6 @@ def _build_gpt_5_6_invoke_agent_guard_text() -> str:
         "\n\n## Sub-Agent Delegation (GPT-5.6)\n"
         "Use `invoke_agent` only for focused work that benefits from separate "
         "context or specialized tools. Handle work directly when you can. "
-        "Never invoke `planning-agent`. "
         f"Hard cap: as a GPT-5.6 caller you may only invoke a sub-agent while "
         f"the resulting chain depth stays at or below {limit} "
         f"(main agent = depth 0). Do not attempt deeper chains.\n"
