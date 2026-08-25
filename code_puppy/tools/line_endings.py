@@ -95,6 +95,38 @@ def _local_style(text: str, start: int, end: int) -> str:
     return LF
 
 
+def split_lines(text: str, *, keepends: bool = False) -> list[str]:
+    """Split ``text`` into lines using only CRLF/CR/LF as terminators.
+
+    Deliberately narrower than ``str.splitlines()``, which also breaks on
+    form feed, vertical tab, ``\\x1c``-``\\x1e``, ``\\u2028``, and
+    ``\\u2029`` -- characters that occur in ordinary source/text files
+    without meaning "new line" there. Every caller that needs to agree on
+    line numbers (e.g. the Anthropic editor's ``view``/``insert``
+    commands, which hand a line number computed by one back to the other)
+    must use this instead of ``str.splitlines()`` so they can never
+    disagree about what a line is.
+    """
+    lines: list[str] = []
+    start = 0
+    index = 0
+    length = len(text)
+    while index < length:
+        if text.startswith(CRLF, index):
+            term_end = index + 2
+        elif text[index] == CR or text[index] == LF:
+            term_end = index + 1
+        else:
+            index += 1
+            continue
+        lines.append(text[start:term_end] if keepends else text[start:index])
+        start = term_end
+        index = term_end
+    if start < length:
+        lines.append(text[start:length])
+    return lines
+
+
 def find_logical_matches(haystack: str, pattern: str) -> tuple[PatternMatch, ...]:
     """Find every logical match, including overlaps and mixed-EOL equivalents.
 

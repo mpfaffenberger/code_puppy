@@ -70,6 +70,35 @@ def test_view_range_out_of_bounds_is_rejected(tmp_path):
     assert result["total_lines"] == 2
 
 
+def test_view_range_with_non_integer_elements_is_rejected(tmp_path):
+    """Regression: a non-integer view_range element (e.g. a model sending
+    strings) used to raise an unhandled TypeError from the `<`/`>`
+    comparisons below instead of a typed, retryable error."""
+    p = tmp_path / "f.txt"
+    p.write_text("one\ntwo\n")
+
+    result = _run(
+        dispatch_editor_command(None, "view", str(p), view_range=["a", "b"])
+    )
+
+    assert result["error"] == "invalid_view_range"
+
+
+def test_view_directory_listing_is_bounded(tmp_path):
+    """Regression: an unbounded directory listing (e.g. node_modules) could
+    dump thousands of entries straight into context, defeating the same
+    token budget the file-view branch already enforces."""
+    for i in range(1500):
+        (tmp_path / f"f{i}.txt").touch()
+
+    result = _run(dispatch_editor_command(None, "view", str(tmp_path)))
+
+    assert result["is_directory"] is True
+    assert result["total_entries"] == 1500
+    assert len(result["entries"]) < result["total_entries"]
+    assert result["truncated"] is True
+
+
 def test_view_missing_file_reports_not_found(tmp_path):
     p = tmp_path / "missing.txt"
     result = _run(dispatch_editor_command(None, "view", str(p)))
@@ -305,6 +334,66 @@ def test_insert_empty_new_str_is_a_no_op_and_pushes_no_undo_entry(tmp_path):
     }
     assert p.read_text() == original
     mock_capture.assert_not_called()
+
+
+def test_insert_empty_new_str_on_file_without_trailing_newline_is_a_true_no_op(
+    tmp_path,
+):
+    """Regression: the no-op check used to run AFTER a terminator was
+    already appended to the file's last line (to prep for an insertion that
+    then never happened), so an empty insert against a file lacking a
+    trailing newline silently added one and reported success."""
+    p = tmp_path / "f.txt"
+    p.write_bytes(b"one\ntwo")  # no trailing newline
+
+    with patch("code_puppy.undo_manager.UndoManager.capture_change") as mock_capture:
+        result = _run(
+            dispatch_editor_command(None, "insert", str(p), insert_line=2, new_str="")
+        )
+
+    assert result == {
+        "success": False,
+        "path": str(p),
+        "changed": False,
+        "message": "No change: the inserted text was empty.",
+    }
+    assert p.read_bytes() == b"one\ntwo"
+    mock_capture.assert_not_called()
+
+
+def test_insert_line_non_integer_is_rejected(tmp_path):
+    p = tmp_path / "f.txt"
+    original = "one\ntwo\n"
+    p.write_text(original)
+
+    result = _run(
+        dispatch_editor_command(None, "insert", str(p), insert_line="1", new_str="x")
+    )
+
+    assert result["error"] == "invalid_insert_line"
+    assert p.read_text() == original
+
+
+def test_view_and_insert_agree_on_line_numbers_across_form_feed(tmp_path):
+    """Regression: `view` used to number lines with str.splitlines(), which
+    also breaks on form feed/vertical tab/U+2028/U+2029 -- characters
+    `insert` does not treat as line boundaries. A line number read from
+    `view` and handed back to `insert` could then land mid-record. Using a
+    form-feed byte (not a line break for either command post-fix) as the
+    probe: both must agree there are 2 lines, and inserting after line 1
+    must not split the form-feed-joined first line."""
+    p = tmp_path / "f.txt"
+    p.write_bytes(b"alpha\x0cbeta\ngamma\n")
+
+    view_result = _run(dispatch_editor_command(None, "view", str(p)))
+    assert view_result["total_lines"] == 2
+
+    insert_result = _run(
+        dispatch_editor_command(None, "insert", str(p), insert_line=1, new_str="X")
+    )
+
+    assert insert_result["success"] is True
+    assert p.read_bytes() == b"alpha\x0cbeta\nX\ngamma\n"
 
 
 def test_view_sanitizes_invalid_utf8_instead_of_leaking_a_surrogate(tmp_path):

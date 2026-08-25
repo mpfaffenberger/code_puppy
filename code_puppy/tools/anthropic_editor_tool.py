@@ -32,7 +32,7 @@ from code_puppy.tools.file_modifications import (
     replace_in_file_async,
     write_to_file_async,
 )
-from code_puppy.tools.line_endings import detect_dominant, to_style
+from code_puppy.tools.line_endings import detect_dominant, split_lines, to_style
 
 # Claude's older ``text_editor_20241022`` tool had an ``undo_edit`` command;
 # the versions this façade targets (2025-04-29 / 2025-07-28) do not -- see
@@ -45,6 +45,10 @@ _SUPPORTED_COMMANDS = frozenset({"view", "str_replace", "create", "insert"})
 # Reuse the same file-size guard the portable read_file tool applies, so
 # `view` can't dump an unbounded file into context either.
 _MAX_VIEW_TOKENS = 10_000
+
+# Same intent for the directory-listing branch of `view`, which has no
+# equivalent token-based guard of its own to piggyback on.
+_MAX_VIEW_ENTRIES = 1_000
 
 
 def _unsupported_command_error(command: str) -> Dict[str, Any]:
@@ -187,7 +191,22 @@ def _view_file(path: str, view_range: Optional[List[int]]) -> Dict[str, Any]:
         except OSError as exc:
             return {"error": f"Failed to list directory '{file_path}': {exc}"}
         names = sorted((f"{e.name}/" if e.is_dir else e.name) for e in entries)
-        return {"path": file_path, "is_directory": True, "entries": names}
+        # Same intent as _MAX_VIEW_TOKENS below: an unbounded directory
+        # listing (e.g. node_modules, .git) would blow past the very
+        # context budget the file-view branch already enforces.
+        truncated = len(names) > _MAX_VIEW_ENTRIES
+        result: Dict[str, Any] = {
+            "path": file_path,
+            "is_directory": True,
+            "entries": names[:_MAX_VIEW_ENTRIES],
+            "total_entries": len(names),
+        }
+        if truncated:
+            result["truncated"] = True
+        return result
+
+    if not fs_access.is_file(file_path):
+        return {"error": "not_a_regular_file", "path": file_path}
 
     try:
         content = fs_access.read_text(file_path)
@@ -195,15 +214,17 @@ def _view_file(path: str, view_range: Optional[List[int]]) -> Dict[str, Any]:
         return {"error": f"Failed to read file '{file_path}': {exc}"}
 
     content = _sanitize_surrogates(content)
-    lines = content.splitlines()
+    lines = split_lines(content)
     total_lines = len(lines)
     start, end = 1, total_lines
 
     if view_range is not None:
-        if len(view_range) != 2:
+        if len(view_range) != 2 or not all(
+            isinstance(v, int) and not isinstance(v, bool) for v in view_range
+        ):
             return {
                 "error": "invalid_view_range",
-                "message": "view_range must be exactly [start_line, end_line].",
+                "message": "view_range must be exactly [start_line, end_line], both integers.",
             }
         start, end = view_range
         if end == -1:
@@ -295,8 +316,15 @@ async def _insert_into_file(
         return {"error": f"Failed to read file '{file_path}': {exc}"}
 
     original = _sanitize_surrogates(original)
-    lines = original.splitlines(keepends=True) if original else []
+    lines = split_lines(original, keepends=True) if original else []
     line_count = len(lines)
+
+    if not isinstance(insert_line, int) or isinstance(insert_line, bool):
+        return {
+            "error": "invalid_insert_line",
+            "path": file_path,
+            "message": f"insert_line must be an integer; got {insert_line!r}.",
+        }
 
     if insert_line < 0 or insert_line > line_count:
         return {
@@ -311,7 +339,22 @@ async def _insert_into_file(
 
     style = detect_dominant(original) if original else "\n"
     inserted = to_style(new_str, style)
-    if inserted and not inserted.endswith(style):
+
+    if not inserted:
+        # An empty new_str (after style conversion, which never turns a
+        # non-empty string empty) is a genuine no-op. Return here, BEFORE
+        # touching `lines`, so nothing below mutates the file's last line
+        # just to attach a terminator to text we are not actually going to
+        # insert -- that previously produced a false "changed: true" write
+        # on any file whose last line lacked a trailing newline.
+        return {
+            "success": False,
+            "path": file_path,
+            "changed": False,
+            "message": "No change: the inserted text was empty.",
+        }
+
+    if not inserted.endswith(style):
         inserted += style
 
     # If we're inserting after the current last line and that line is
@@ -320,20 +363,7 @@ async def _insert_into_file(
     if insert_line == line_count and lines and not lines[-1].endswith(("\n", "\r")):
         lines[-1] = lines[-1] + style
 
-    new_lines = lines[:insert_line] + [inserted] + lines[insert_line:]
-    new_content = "".join(new_lines)
-
-    if new_content == original:
-        # An empty new_str (after style conversion) is a genuine no-op --
-        # report it as such rather than pushing a write/undo entry for a
-        # byte-identical file (the same no-op contract _replace_in_file
-        # honors; see file_modifications.py).
-        return {
-            "success": False,
-            "path": file_path,
-            "changed": False,
-            "message": "No change: the inserted text was empty.",
-        }
+    new_content = "".join(lines[:insert_line] + [inserted] + lines[insert_line:])
 
     group_id = generate_group_id("str_replace_based_edit_tool", path)
     result = await write_to_file_async(

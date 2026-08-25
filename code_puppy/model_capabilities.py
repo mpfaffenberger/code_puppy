@@ -89,8 +89,10 @@ def get_anthropic_native_editor_enabled() -> bool:
 
     Off by default -- per the Phase 3 plan and acceptance criteria, the
     native path must not become the default at merge. Set
-    ``enable_anthropic_native_editor = true`` in config (or the matching env
-    var Code Puppy already maps onto config values) to turn it on.
+    ``enable_anthropic_native_editor = true`` in config to turn it on.
+    ``get_value``/``get_truthy_bool_value`` read only the config file today
+    (no environment-variable fallback exists for this or any other flag),
+    so there is no separate env-var knob to document here.
     """
     return get_truthy_bool_value("enable_anthropic_native_editor", False)
 
