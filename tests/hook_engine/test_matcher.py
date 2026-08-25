@@ -41,6 +41,14 @@ _MATCH_CASES = [
     ("Edit && .py || Bash", "Edit", {"file_path": "app.py"}, True),
     ("Edit && .py || Bash", "Bash", {}, True),
     ("Edit && .py || Bash", "Edit", {"file_path": "app.js"}, False),
+    # Anthropic native-editor facade tool: without an alias entry, hooks
+    # written against Edit/Write/replace_in_file/create_file silently stop
+    # firing when an agent runs the native-editor profile, since the wire
+    # tool name (str_replace_based_edit_tool) shares nothing textually with
+    # any of those names. See hook_engine/aliases.py's
+    # ANTHROPIC_NATIVE_EDITOR_ALIASES for the mapping this exercises.
+    ("Edit", "str_replace_based_edit_tool", {"path": "app.py"}, True),
+    ("replace_in_file", "str_replace_based_edit_tool", {"path": "app.py"}, True),
 ]
 
 

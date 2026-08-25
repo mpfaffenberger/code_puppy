@@ -305,8 +305,9 @@ def register_tools_for_agent(
         # direct-Anthropic-route requirement -- see model_capabilities.py's
         # module docstring: this decision must never be discoverable by
         # simply asking for the tool.
-        if tool_name == NATIVE_EDITOR_TOOL_NAME and not supports_anthropic_native_editor(
-            model_name
+        if (
+            tool_name == NATIVE_EDITOR_TOOL_NAME
+            and not supports_anthropic_native_editor(model_name)
         ):
             emit_warning(
                 f"Warning: '{tool_name}' requires the Anthropic native editor "

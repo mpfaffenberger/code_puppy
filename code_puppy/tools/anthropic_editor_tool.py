@@ -176,7 +176,21 @@ async def dispatch_editor_command(
         # here (the two always agree). The existence check has the same
         # narrow TOCTOU window as `_write_to_file`'s own equivalent check;
         # accepted for the same reason.
-        already_existed = fs_access.exists(resolve_path(path))
+        resolved_path = resolve_path(path)
+        if fs_access.exists(resolved_path) and fs_access.is_dir(resolved_path):
+            # `_write_to_file` has no directory guard of its own -- without
+            # this check the write attempt falls through to a bare
+            # `except Exception` and leaks a raw `[Errno 21] Is a
+            # directory: ...` string, violating this module's own
+            # "fail loudly and specifically" contract (see module
+            # docstring). `view`/`insert` already guard this; `create`
+            # didn't.
+            return {
+                "error": "not_a_regular_file",
+                "path": resolved_path,
+                "message": f"Cannot create a file at '{resolved_path}': it is a directory.",
+            }
+        already_existed = fs_access.exists(resolved_path)
         group_id = generate_group_id("str_replace_based_edit_tool", path)
         result = await write_to_file_async(
             context,

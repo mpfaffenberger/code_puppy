@@ -241,6 +241,20 @@ def test_create_missing_file_text_is_a_typed_error(tmp_path):
     }
 
 
+def test_create_over_a_directory_is_a_typed_error_not_a_raw_errno(tmp_path):
+    """`view`/`insert` already guard against operating on a directory;
+    `create` fell through to `_write_to_file`'s bare `except Exception` and
+    leaked a raw `[Errno 21] Is a directory: ...` string, violating this
+    module's own \"fail loudly and specifically\" contract."""
+    d = tmp_path / "a_directory"
+    d.mkdir()
+
+    result = _run(dispatch_editor_command(None, "create", str(d), file_text="hi\n"))
+
+    assert result["error"] == "not_a_regular_file"
+    assert d.is_dir()
+
+
 def test_create_overwrites_an_existing_file_unlike_portable_create_file(tmp_path):
     """Deliberate spec conformance: Anthropic's `create` always overwrites,
     unlike the portable create_file tool's default refuse-if-exists."""
@@ -264,9 +278,7 @@ def test_create_of_a_brand_new_file_reports_the_diff_operation_as_create(tmp_pat
     whether the file already existed, not hardcoded True."""
     p = tmp_path / "brand_new.txt"
 
-    with patch(
-        "code_puppy.tools.file_modifications._emit_diff_message"
-    ) as mock_emit:
+    with patch("code_puppy.tools.file_modifications._emit_diff_message") as mock_emit:
         result = _run(dispatch_editor_command(None, "create", str(p), file_text="hi\n"))
 
     assert result["success"] is True
@@ -280,9 +292,7 @@ def test_create_over_an_existing_file_still_reports_the_diff_operation_as_modify
     p = tmp_path / "existing.txt"
     p.write_text("old\n")
 
-    with patch(
-        "code_puppy.tools.file_modifications._emit_diff_message"
-    ) as mock_emit:
+    with patch("code_puppy.tools.file_modifications._emit_diff_message") as mock_emit:
         result = _run(
             dispatch_editor_command(None, "create", str(p), file_text="new\n")
         )

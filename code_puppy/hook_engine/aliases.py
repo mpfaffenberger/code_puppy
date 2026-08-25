@@ -57,6 +57,26 @@ CLAUDE_CODE_ALIASES: Dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
+# Anthropic native text-editor facade (Phase 3 of the
+# anthropic-editor-adapter plan). ``str_replace_based_edit_tool`` is a
+# single tool name multiplexing four commands (view/str_replace/create/
+# insert) behind one ``command`` argument -- unlike every other entry in
+# this file, it has no clean 1:1 provider-tool -> internal-tool mapping.
+# Without an entry here, existing hooks written against "Edit"/"Write"/
+# "replace_in_file"/"create_file" silently stop firing the moment an agent
+# is switched onto the native-editor profile -- a policy/audit hook going
+# dark with no error is worse than one that never existed. Mapped to
+# "replace_in_file" (the closest single canonical mutation tool) so those
+# matchers keep firing; the known tradeoff is that a hook scoped only to
+# mutations will also match the tool's read-only "view" command, since the
+# matcher only ever sees the tool name, not which command was invoked.
+# ---------------------------------------------------------------------------
+ANTHROPIC_NATIVE_EDITOR_ALIASES: Dict[str, str] = {
+    "str_replace_based_edit_tool": "replace_in_file",
+}
+
+
+# ---------------------------------------------------------------------------
 # Gemini  (Google)
 # TODO: populate once Gemini MCP tool names are verified.
 # Run `gemini mcp serve` (or equivalent) and inspect the tools/list response,
@@ -92,6 +112,7 @@ SWARM_ALIASES: Dict[str, str] = {
 # ---------------------------------------------------------------------------
 PROVIDER_ALIASES: Dict[str, Dict[str, str]] = {
     "claude": CLAUDE_CODE_ALIASES,
+    "anthropic_native_editor": ANTHROPIC_NATIVE_EDITOR_ALIASES,
     "gemini": GEMINI_ALIASES,  # placeholder — empty until populated
     "codex": CODEX_ALIASES,  # placeholder — empty until populated
     "swarm": SWARM_ALIASES,  # placeholder — empty until populated
