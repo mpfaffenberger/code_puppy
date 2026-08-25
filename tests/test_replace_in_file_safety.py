@@ -72,7 +72,9 @@ def test_record_change_not_called_on_guaranteed_failure(tmp_path):
     missing = tmp_path / "does_not_exist.txt"
 
     with patch("code_puppy.undo_manager.UndoManager.record_change") as mock_record:
-        result = _replace_in_file(None, str(missing), [{"old_str": "a", "new_str": "b"}])
+        result = _replace_in_file(
+            None, str(missing), [{"old_str": "a", "new_str": "b"}]
+        )
 
     assert result["error"] == f"File '{missing}' does not exist."
     mock_record.assert_not_called()
@@ -112,7 +114,9 @@ def test_noop_replacement_returns_changed_false_without_recording_undo(tmp_path)
     p = _write(tmp_path, "f4.txt", original)
 
     with patch("code_puppy.undo_manager.UndoManager.record_change") as mock_record:
-        result = _replace_in_file(None, str(p), [{"old_str": "hello", "new_str": "hello"}])
+        result = _replace_in_file(
+            None, str(p), [{"old_str": "hello", "new_str": "hello"}]
+        )
 
     assert "error" not in result
     assert result["success"] is False
@@ -129,7 +133,9 @@ def test_zero_exact_matches_fails_closed_without_writing(tmp_path):
     original = "aaaa\nbbbb\ncccc\n"
     p = _write(tmp_path, "f5.txt", original)
 
-    result = _replace_in_file(None, str(p), [{"old_str": "zzzzzzzzzzz", "new_str": "q"}])
+    result = _replace_in_file(
+        None, str(p), [{"old_str": "zzzzzzzzzzz", "new_str": "q"}]
+    )
 
     assert result["error"] == "match_not_found"
     assert result["match_count"] == 0
@@ -210,7 +216,12 @@ def test_crlf_file_matches_model_supplied_lf_pattern(tmp_path):
     result = _replace_in_file(
         None,
         str(p),
-        [{"old_str": "def foo():\n    return 1", "new_str": "def foo():\n    return 99"}],
+        [
+            {
+                "old_str": "def foo():\n    return 1",
+                "new_str": "def foo():\n    return 99",
+            }
+        ],
     )
 
     assert result["success"] is True

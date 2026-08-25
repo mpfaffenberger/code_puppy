@@ -42,7 +42,13 @@ def test_native_editor_replaces_overlapping_tools_when_capability_active():
 
 def test_delete_tools_are_never_hidden_even_when_native_editor_active():
     calls = _registered_names(
-        ["read_file", "replace_in_file", "create_file", "delete_snippet", "delete_file"],
+        [
+            "read_file",
+            "replace_in_file",
+            "create_file",
+            "delete_snippet",
+            "delete_file",
+        ],
         capability=True,
     )
     assert "delete_snippet" in calls
