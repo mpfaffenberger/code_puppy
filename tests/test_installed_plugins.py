@@ -50,6 +50,28 @@ def test_installed_plugin_failures_are_isolated(caplog):
     assert "broken" in caplog.text
 
 
+def test_shell_safety_loads_at_default_medium():
+    events = []
+    points = [FakeEntryPoint("shell_safety", lambda: events.append("loaded"))]
+    with (
+        patch.object(plugins, "entry_points", return_value=points),
+        patch("code_puppy.config.get_safety_permission_level", return_value="medium"),
+    ):
+        assert plugins._load_installed_plugins() == ["shell_safety"]
+    assert events == ["loaded"]
+
+
+def test_shell_safety_skipped_at_high():
+    events = []
+    points = [FakeEntryPoint("shell_safety", lambda: events.append("loaded"))]
+    with (
+        patch.object(plugins, "entry_points", return_value=points),
+        patch("code_puppy.config.get_safety_permission_level", return_value="high"),
+    ):
+        assert plugins._load_installed_plugins() == []
+    assert events == []
+
+
 def test_legacy_loader_skips_installed_duplicate(tmp_path):
     duplicate = tmp_path / "duplicate"
     duplicate.mkdir()

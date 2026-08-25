@@ -14,6 +14,7 @@ import difflib
 import json
 import os
 import traceback
+from pathlib import Path
 from code_puppy.undo_manager import UndoManager
 import warnings
 from typing import Annotated, Any, Dict, List, Union
@@ -43,6 +44,36 @@ from code_puppy.tools.file_permission_state import (
     get_last_user_feedback,
     was_diff_already_shown,
 )
+
+
+def _is_user_plugin_tree_path(file_path: str) -> bool:
+    """True if *file_path* is inside ``~/.code_puppy/plugins``.
+
+    That tree is imported at the next process start with no trust ceremony.
+    File tools must not plant ``register_callbacks.py`` there.
+    """
+    from code_puppy.plugins import USER_PLUGINS_DIR
+
+    try:
+        resolved = Path(resolve_path(file_path)).resolve()
+        root = Path(USER_PLUGINS_DIR).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return resolved == root or root in resolved.parents
+
+
+def _refuse_user_plugin_tree(file_path: str) -> Dict[str, Any] | None:
+    if not _is_user_plugin_tree_path(file_path):
+        return None
+    return {
+        "success": False,
+        "path": file_path,
+        "message": (
+            "Refused: file tools cannot modify ~/.code_puppy/plugins. "
+            "That directory is imported at startup."
+        ),
+        "changed": False,
+    }
 
 
 def _permission_denied(permission_results: List[Any]) -> bool:
@@ -424,6 +455,9 @@ def _write_to_file(
 def delete_snippet_from_file(
     context: RunContext, file_path: str, snippet: str, message_group: str | None = None
 ) -> Dict[str, Any]:
+    refused = _refuse_user_plugin_tree(file_path)
+    if refused is not None:
+        return refused
     # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
 
@@ -452,6 +486,9 @@ def write_to_file(
     overwrite: bool,
     message_group: str | None = None,
 ) -> Dict[str, Any]:
+    refused = _refuse_user_plugin_tree(path)
+    if refused is not None:
+        return refused
     # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
 
@@ -481,6 +518,9 @@ def replace_in_file(
     replacements: List[Dict[str, str]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
+    refused = _refuse_user_plugin_tree(path)
+    if refused is not None:
+        return refused
     # Use the plugin system for permission handling with operation data
     from code_puppy.callbacks import on_file_permission
 
@@ -504,6 +544,9 @@ async def delete_snippet_from_file_async(
     context: RunContext, file_path: str, snippet: str, message_group: str | None = None
 ) -> Dict[str, Any]:
     """Async permission-aware variant of ``delete_snippet_from_file``."""
+    refused = _refuse_user_plugin_tree(file_path)
+    if refused is not None:
+        return refused
     from code_puppy.callbacks import on_file_permission_async
 
     operation_data = {"snippet": snippet}
@@ -530,6 +573,9 @@ async def write_to_file_async(
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     """Async permission-aware variant of ``write_to_file``."""
+    refused = _refuse_user_plugin_tree(path)
+    if refused is not None:
+        return refused
     from code_puppy.callbacks import on_file_permission_async
 
     operation_data = {"content": content, "overwrite": overwrite}
@@ -556,6 +602,9 @@ async def replace_in_file_async(
     message_group: str | None = None,
 ) -> Dict[str, Any]:
     """Async permission-aware variant of ``replace_in_file``."""
+    refused = _refuse_user_plugin_tree(path)
+    if refused is not None:
+        return refused
     from code_puppy.callbacks import on_file_permission_async
 
     operation_data = {"replacements": replacements}
@@ -726,6 +775,9 @@ async def _edit_file_async(
 def _delete_file(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
+    refused = _refuse_user_plugin_tree(file_path)
+    if refused is not None:
+        return refused
     UndoManager().record_change(file_path, "delete_file")
     file_path = resolve_path(file_path)
 
@@ -786,6 +838,9 @@ async def _delete_file_async(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
     """Async permission-aware variant of ``_delete_file``."""
+    refused = _refuse_user_plugin_tree(file_path)
+    if refused is not None:
+        return refused
     file_path = resolve_path(file_path)
 
     from code_puppy.callbacks import on_file_permission_async
