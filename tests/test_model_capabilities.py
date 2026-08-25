@@ -99,6 +99,29 @@ def test_get_model_config_uses_provided_config_without_reloading(monkeypatch):
     }
 
 
+def test_get_model_config_falls_back_to_cached_loader_when_no_config_given(
+    monkeypatch,
+):
+    """The real production call path -- register_tools_for_agent calling
+    supports_anthropic_native_editor(model_name) with NO explicit config --
+    goes through _model_config_cache/_load_models_config, not the
+    provided-config short-circuit the test above covers. Every other test in
+    this module passes ``_MODELS_CONFIG`` explicitly and so never exercises
+    this branch at all."""
+    from code_puppy import model_capabilities
+
+    model_capabilities._model_config_cache.clear()
+    monkeypatch.setattr(
+        model_capabilities, "_load_models_config", lambda: dict(_MODELS_CONFIG)
+    )
+    try:
+        resolved = get_model_config("claude-direct")
+        assert resolved == {"type": "anthropic", "name": "claude-direct"}
+        assert is_direct_anthropic_route(resolved) is True
+    finally:
+        model_capabilities._model_config_cache.clear()
+
+
 def test_get_model_config_returns_none_for_unknown_or_missing_name():
     assert get_model_config("does-not-exist", _MODELS_CONFIG) is None
     assert get_model_config(None, _MODELS_CONFIG) is None

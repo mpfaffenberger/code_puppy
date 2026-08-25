@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic_ai import RunContext
 
-from code_puppy.callbacks import on_edit_file
+from code_puppy.callbacks import on_edit_file, on_file_permission_async
 from code_puppy.messaging import FileContentMessage, get_message_bus
 from code_puppy.tools import fs_access
 from code_puppy.tools.common import generate_group_id, resolve_path
@@ -29,6 +29,10 @@ from code_puppy.tools.file_modifications import (
     ContentPayload,
     Replacement,
     ReplacementsPayload,
+    _create_rejection_response,
+    _emit_diff_message,
+    _permission_denied,
+    _write_to_file,
     replace_in_file_async,
     write_to_file_async,
 )
@@ -299,11 +303,17 @@ async def _insert_into_file(
     """Insert ``new_str`` after ``insert_line`` (0 = start of file).
 
     No generic-tool equivalent exists to delegate to, so this computes the
-    resulting full-file content itself and then hands the actual write off
-    to ``write_to_file_async`` -- the same permission-check, undo-capture,
-    and diff-emission path every other mutation uses. (The permission audit
-    label reads "write" rather than "insert" as a result; the operation data
-    still carries the real inserted text.)
+    resulting full-file content itself from a snapshot read at the top of
+    this function. Unlike str_replace/create -- whose engine functions run
+    permission check then read/validate/write as one call, so there is
+    nothing to go stale -- insert's snapshot is taken *before* the
+    permission prompt, and a human approval pause can be arbitrarily long.
+    So after approval, and before writing, this re-reads the file and
+    refuses to proceed if it no longer matches the snapshot the approved
+    preview was built from, rather than silently splicing into content the
+    approver never actually saw. (The permission audit label reads "write"
+    rather than "insert" as a result; the operation data still carries the
+    real inserted text.)
     """
     file_path = resolve_path(path)
 
@@ -366,10 +376,48 @@ async def _insert_into_file(
     new_content = "".join(lines[:insert_line] + [inserted] + lines[insert_line:])
 
     group_id = generate_group_id("str_replace_based_edit_tool", path)
-    result = await write_to_file_async(
-        context, path, new_content, overwrite=True, message_group=group_id
+    permission_results = await on_file_permission_async(
+        context,
+        file_path,
+        "write",
+        None,
+        group_id,
+        {"content": new_content, "overwrite": True},
     )
-    result.pop("diff", None)
+    if _permission_denied(permission_results):
+        return _create_rejection_response(file_path)
+
+    # Close the approval-wait race described in this function's docstring:
+    # re-read now and compare byte-for-byte against the snapshot the
+    # approved preview above was computed from. Any difference means the
+    # file moved out from under us; fail closed rather than overwrite
+    # content the approver never saw (the same "never silently guess"
+    # philosophy the Phase 2 exact-match engine applies to ambiguous text
+    # matches, applied here to a stale file snapshot instead).
+    try:
+        current = _sanitize_surrogates(fs_access.read_text(file_path))
+    except OSError as exc:
+        return {
+            "error": f"Failed to read file '{file_path}': {exc}",
+            "path": file_path,
+        }
+    if current != original:
+        return {
+            "error": "concurrent_modification",
+            "path": file_path,
+            "message": (
+                "The file changed after permission was requested and "
+                "before the insert was applied; view the file again and "
+                "retry with an up-to-date insert_line."
+            ),
+        }
+
+    result = _write_to_file(
+        context, file_path, new_content, overwrite=True, message_group=group_id
+    )
+    diff = result.pop("diff", "")
+    if diff:
+        _emit_diff_message(file_path, "modify", diff, new_content=new_content)
     payload = ContentPayload(file_path=file_path, content=new_content, overwrite=True)
     return _apply_edit_callback(context, result, payload)
 

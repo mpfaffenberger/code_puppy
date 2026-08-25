@@ -9,15 +9,26 @@ than re-proving the underlying engine's full contract.
 """
 
 import asyncio
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from code_puppy.callbacks import clear_callbacks, register_callback
 from code_puppy.tools.anthropic_editor_tool import dispatch_editor_command
 
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+@pytest.fixture(autouse=True)
+def _clear_file_permission_callbacks():
+    """No test in this module relies on a permission callback surviving
+    past its own test; guard against order-dependent leakage the way
+    ``tests/test_file_permissions.py`` does for the same global registry."""
+    clear_callbacks("file_permission")
+    yield
+    clear_callbacks("file_permission")
 
 
 def test_create_then_view_round_trips_line_numbered_content(tmp_path):
@@ -77,9 +88,7 @@ def test_view_range_with_non_integer_elements_is_rejected(tmp_path):
     p = tmp_path / "f.txt"
     p.write_text("one\ntwo\n")
 
-    result = _run(
-        dispatch_editor_command(None, "view", str(p), view_range=["a", "b"])
-    )
+    result = _run(dispatch_editor_command(None, "view", str(p), view_range=["a", "b"]))
 
     assert result["error"] == "invalid_view_range"
 
@@ -280,6 +289,69 @@ def test_insert_into_empty_file_at_line_zero(tmp_path):
 
     assert result["success"] is True
     assert p.read_text() == "only\n"
+
+
+def test_insert_permission_denied_leaves_file_untouched(tmp_path):
+    p = tmp_path / "f.txt"
+    original = "one\ntwo\n"
+    p.write_text(original)
+
+    def deny(
+        context,
+        file_path,
+        operation,
+        preview=None,
+        message_group=None,
+        operation_data=None,
+    ):
+        return False
+
+    register_callback("file_permission", deny)
+
+    result = _run(
+        dispatch_editor_command(
+            MagicMock(), "insert", str(p), insert_line=1, new_str="X"
+        )
+    )
+
+    assert result["success"] is False
+    assert result["user_rejection"] is True
+    assert p.read_text() == original
+
+
+def test_insert_detects_concurrent_modification_during_permission_wait(tmp_path):
+    """Regression: insert computes its spliced content from a snapshot read
+    BEFORE the (possibly slow, human-in-the-loop) permission prompt. If the
+    file changes while approval is pending, writing the stale splice would
+    silently discard whatever changed it -- exactly the "wrong successful
+    edit" class of bug this plan exists to eliminate. Simulate that race by
+    mutating the file from inside the permission callback itself."""
+    p = tmp_path / "f.txt"
+    p.write_text("one\ntwo\n")
+
+    def approve_but_mutate_first(
+        context,
+        file_path,
+        operation,
+        preview=None,
+        message_group=None,
+        operation_data=None,
+    ):
+        p.write_text("one\ntwo\nCONCURRENTLY ADDED\n")
+        return True
+
+    register_callback("file_permission", approve_but_mutate_first)
+
+    result = _run(
+        dispatch_editor_command(
+            MagicMock(), "insert", str(p), insert_line=1, new_str="X"
+        )
+    )
+
+    assert result["error"] == "concurrent_modification"
+    # The concurrent write must survive untouched -- not be clobbered by the
+    # stale insert going through anyway.
+    assert p.read_text() == "one\ntwo\nCONCURRENTLY ADDED\n"
 
 
 def test_insert_out_of_range_line_is_rejected_without_writing(tmp_path):
