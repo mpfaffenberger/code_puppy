@@ -108,6 +108,57 @@ def test_view_directory_listing_is_bounded(tmp_path):
     assert result["truncated"] is True
 
 
+def test_view_directory_listing_hides_ignore_pattern_entries(tmp_path):
+    """Regression: `view` on a directory must not see more than `list_files`
+    does -- `view` swaps IN for `list_files`'s directory-listing capability
+    (see the swap gate in tools/__init__.py), so a raw unfiltered
+    `fs_access.list_dir()` would let a model discover `.env`/`.git`/
+    `node_modules` purely by switching from `list_files` to `view`."""
+    (tmp_path / "visible.txt").touch()
+    (tmp_path / ".env").touch()
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "config").touch()
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "pkg.json").touch()
+
+    result = _run(dispatch_editor_command(None, "view", str(tmp_path)))
+
+    assert result["is_directory"] is True
+    assert result["entries"] == ["visible.txt"]
+    assert ".env" not in result["entries"]
+    assert ".git/" not in result["entries"]
+    assert "node_modules/" not in result["entries"]
+
+
+def test_view_directory_listing_emits_file_listing_message(tmp_path):
+    """Regression: a directory `view` used to emit nothing to the message
+    bus, unlike the file-content branch (which emits FileContentMessage).
+    Combined with `NATIVE_EDITOR_TOOL_NAME` being in run_stats'
+    `_TOOLS_WITH_RENDERER`, that made a directory listing the model acted
+    on completely invisible to the user in high-output mode."""
+    (tmp_path / "visible.txt").write_text("hi")
+    (tmp_path / "sub").mkdir()
+
+    captured = []
+    mock_bus = MagicMock()
+    mock_bus.emit = lambda msg: captured.append(msg)
+
+    with patch(
+        "code_puppy.tools.anthropic_editor_tool.get_message_bus",
+        return_value=mock_bus,
+    ):
+        result = _run(dispatch_editor_command(None, "view", str(tmp_path)))
+
+    assert result["is_directory"] is True
+    from code_puppy.messaging import FileListingMessage
+
+    listing_msgs = [m for m in captured if isinstance(m, FileListingMessage)]
+    assert len(listing_msgs) == 1
+    assert listing_msgs[0].recursive is False
+    assert listing_msgs[0].file_count == 1
+    assert listing_msgs[0].dir_count == 1
+
+
 def test_view_missing_file_reports_not_found(tmp_path):
     p = tmp_path / "missing.txt"
     result = _run(dispatch_editor_command(None, "view", str(p)))

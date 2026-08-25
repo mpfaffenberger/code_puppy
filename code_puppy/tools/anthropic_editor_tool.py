@@ -17,14 +17,25 @@ errors, not silent no-ops.
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional
 
 from pydantic_ai import RunContext
 
 from code_puppy.callbacks import on_edit_file, on_file_permission_async
-from code_puppy.messaging import FileContentMessage, get_message_bus
+from code_puppy.messaging import (
+    FileContentMessage,
+    FileEntry,
+    FileListingMessage,
+    get_message_bus,
+)
 from code_puppy.tools import fs_access
-from code_puppy.tools.common import generate_group_id, resolve_path
+from code_puppy.tools.common import (
+    generate_group_id,
+    resolve_path,
+    should_ignore_dir_path,
+    should_ignore_path,
+)
 from code_puppy.tools.file_modifications import (
     ContentPayload,
     Replacement,
@@ -232,7 +243,21 @@ def _view_file(path: str, view_range: Optional[List[int]]) -> Dict[str, Any]:
             # _read_file already takes on its own backend-read path in
             # file_operations.py.
             return {"error": f"Failed to list directory '{file_path}': {exc}"}
-        names = sorted((f"{e.name}/" if e.is_dir else e.name) for e in entries)
+        # `view` is `list_files`'s native-editor equivalent (see the swap
+        # gate in tools/__init__.py), so it must not be able to see more
+        # than list_files does -- without this filter, view on a directory
+        # freely enumerated .git/, node_modules/, and .env, all of which
+        # list_files's default (recursive) call hides via DIR_IGNORE_PATTERNS.
+        # Filtered by full path, matching should_ignore_path/
+        # should_ignore_dir_path's own contract.
+        visible = [
+            e
+            for e in entries
+            if not (should_ignore_dir_path if e.is_dir else should_ignore_path)(
+                os.path.join(file_path, e.name)
+            )
+        ]
+        names = sorted((f"{e.name}/" if e.is_dir else e.name) for e in visible)
         # Same intent as _MAX_VIEW_TOKENS below: an unbounded directory
         # listing (e.g. node_modules, .git) would blow past the very
         # context budget the file-view branch already enforces.
@@ -245,6 +270,30 @@ def _view_file(path: str, view_range: Optional[List[int]]) -> Dict[str, Any]:
         }
         if truncated:
             result["truncated"] = True
+
+        # Matches the file branch below: without this, a directory `view`
+        # is invisible to the user/run_stats (NATIVE_EDITOR_TOOL_NAME is in
+        # run_stats._TOOLS_WITH_RENDERER, which suppresses the fallback body
+        # render on the assumption a message bus event already showed it).
+        listed = visible[:_MAX_VIEW_ENTRIES]
+        get_message_bus().emit(
+            FileListingMessage(
+                directory=file_path,
+                files=[
+                    FileEntry(
+                        path=e.name,
+                        type="dir" if e.is_dir else "file",
+                        size=0 if e.is_dir else e.size,
+                        depth=0,
+                    )
+                    for e in listed
+                ],
+                recursive=False,
+                total_size=sum(e.size for e in listed if not e.is_dir),
+                dir_count=sum(1 for e in listed if e.is_dir),
+                file_count=sum(1 for e in listed if not e.is_dir),
+            )
+        )
         return result
 
     if not fs_access.is_file(file_path):

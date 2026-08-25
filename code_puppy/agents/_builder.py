@@ -757,7 +757,15 @@ def build_tool_probe_for_agent(agent: Any) -> Optional[Any]:
             toolsets=[],
         )
         register_tools_for_agent(
-            probe, agent.get_available_tools(), model_name=resolved_model_name
+            probe,
+            agent.get_available_tools(),
+            model_name=resolved_model_name,
+            # Thread the same fresh `models_config` used to resolve the
+            # model above, so this probe can't briefly disagree with the
+            # real agent build about the Anthropic-native-editor capability
+            # decision (see register_tools_for_agent's own docstring on why
+            # this parameter exists).
+            models_config=models_config,
         )
     except Exception:
         return None

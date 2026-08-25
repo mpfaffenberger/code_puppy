@@ -160,3 +160,42 @@ def test_explicit_models_config_is_forwarded_to_the_capability_check():
     assert mock_supports.called
     for call in mock_supports.call_args_list:
         assert call.args == ("claude-direct", sentinel_config)
+
+
+def test_capability_check_evaluated_exactly_once_per_registration_call():
+    """Regression: supports_anthropic_native_editor() re-reads the live
+    feature flag on every call (never cached), so evaluating it twice
+    within one register_tools_for_agent() pass -- once for the swap
+    trigger, once for the defense-in-depth re-check that fires when the
+    tool is also named explicitly -- could observe two different answers
+    if config changed mid-call. Demonstrated with a side effect that flips
+    its answer on a second call: under the old double-evaluation code this
+    left the agent with NEITHER the portable mutation tools (removed by
+    the swap) NOR the native editor (rejected by the now-stale re-check).
+    """
+    mock_agent = MagicMock()
+    calls: list[str] = []
+    fake_registry = {
+        name: (lambda agent, n=name: calls.append(n)) for name in TOOL_REGISTRY
+    }
+    answers = iter([True, False])
+    with (
+        patch.dict("code_puppy.tools.TOOL_REGISTRY", fake_registry, clear=True),
+        patch(
+            "code_puppy.tools.supports_anthropic_native_editor",
+            side_effect=lambda *a, **k: next(answers),
+        ) as mock_supports,
+    ):
+        register_tools_for_agent(
+            mock_agent,
+            [
+                "read_file",
+                "replace_in_file",
+                "create_file",
+                "list_files",
+                "str_replace_based_edit_tool",
+            ],
+            model_name="claude-direct",
+        )
+    assert mock_supports.call_count == 1
+    assert sorted(calls) == sorted(["list_files", "str_replace_based_edit_tool"])

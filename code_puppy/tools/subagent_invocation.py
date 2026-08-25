@@ -477,7 +477,14 @@ async def _invoke_agent_impl(
             from code_puppy.tools import register_tools_for_agent
 
             register_tools_for_agent(
-                temp_agent, agent_tools, model_name=effective_model_name
+                temp_agent,
+                agent_tools,
+                model_name=effective_model_name,
+                # `models_config` was already loaded fresh above to resolve
+                # the model itself; threading it through here closes the
+                # same two-source-of-truth window fixed for the main agent
+                # builder (register_tools_for_agent's docstring explains why).
+                models_config=models_config,
             )
 
             # Allow plugins to wrap the agent (e.g. DBOS durable-exec wrapper).

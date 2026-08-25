@@ -261,6 +261,17 @@ def register_tools_for_agent(
                 seen.add(tool_name)
     tool_names = expanded_tools
 
+    # Computed once and reused below: `supports_anthropic_native_editor()`
+    # re-reads the live feature flag (never cached) each call, so evaluating
+    # it twice in this one synchronous pass (once for the swap trigger, once
+    # for the defense-in-depth re-check further down) could theoretically
+    # observe two different answers if config changes mid-call. One snapshot
+    # keeps both checks consistent with each other, not just individually
+    # correct.
+    native_editor_supported = supports_anthropic_native_editor(
+        model_name, models_config
+    )
+
     # Anthropic native editor swap (Phase 3): trigger only when the agent's
     # own tool list already carries the FULL portable mutation surface the
     # native editor collectively replaces (create_file AND replace_in_file --
@@ -286,7 +297,7 @@ def register_tools_for_agent(
         "read_file" in tool_names
         and "list_files" in tool_names
         and has_full_native_editor_mutation_surface(tool_names)
-        and supports_anthropic_native_editor(model_name, models_config)
+        and native_editor_supported
     ):
         tool_names = [
             name for name in tool_names if name not in OVERLAPPING_PORTABLE_TOOLS
@@ -320,10 +331,7 @@ def register_tools_for_agent(
         # direct-Anthropic-route requirement -- see model_capabilities.py's
         # module docstring: this decision must never be discoverable by
         # simply asking for the tool.
-        if (
-            tool_name == NATIVE_EDITOR_TOOL_NAME
-            and not supports_anthropic_native_editor(model_name, models_config)
-        ):
+        if tool_name == NATIVE_EDITOR_TOOL_NAME and not native_editor_supported:
             emit_warning(
                 f"Warning: '{tool_name}' requires the Anthropic native editor "
                 "capability (feature flag + direct-Anthropic model route); "
