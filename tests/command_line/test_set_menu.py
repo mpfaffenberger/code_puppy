@@ -55,6 +55,17 @@ def test_dbos_effective_value_uses_plugin_capability():
     capability.assert_called_once_with("dbos_durable_exec")
 
 
+def test_anthropic_native_editor_is_discoverable_and_off_by_default():
+    """Regression: the Phase 3 native-editor flag was wired into
+    model_capabilities.py/config.py's /set autocompletion but had no entry
+    in the curated /set picker, so a user browsing Features would never
+    find it. It must resolve through the real getter and read as False
+    with no config override present."""
+    setting = find_setting("enable_anthropic_native_editor")
+    assert setting.type_hint == "bool"
+    assert setting.effective_getter() is False
+
+
 # ---------------------------------------------------------------------------
 # apply_setting validation
 # ---------------------------------------------------------------------------

@@ -22,6 +22,7 @@ from code_puppy.command_line.set_menu_shims import (
     get_goal_max_iterations_effective,
     get_max_pause_seconds_effective,
 )
+from code_puppy.model_capabilities import get_anthropic_native_editor_enabled
 from code_puppy.config import (
     get_allow_recursion,
     get_auto_save_session,
@@ -307,6 +308,21 @@ _FEATURES = SettingsCategory(
             description="Allow agents to dynamically create custom tools at runtime.",
             type_hint="bool",
             effective_getter=get_universal_constructor_enabled,
+        ),
+        Setting(
+            key="enable_anthropic_native_editor",
+            display_name="Anthropic Native Editor",
+            description=(
+                "Opt-in: swap the portable read_file/replace_in_file/"
+                "create_file tools for Anthropic's client-executed "
+                "text-editor tool on direct-Anthropic routes only (not "
+                "OpenAI-compatible gateways). Off by default; Phase 4 of "
+                "the anthropic-editor-adapter plan decides the eventual "
+                "default. delete_snippet/delete_file stay available either "
+                "way."
+            ),
+            type_hint="bool",
+            effective_getter=get_anthropic_native_editor_enabled,
         ),
         Setting(
             key="enable_dbos",

@@ -10,6 +10,13 @@ or silently stop declaring some other tool correctly.
 
 from unittest.mock import patch
 
+from pydantic_ai import Agent
+from pydantic_ai.messages import (
+    ModelMessagesTypeAdapter,
+    ToolCallPart,
+    ToolReturnPart,
+)
+from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import ToolDefinition
 
 from code_puppy.anthropic_native_editor_model import AnthropicNativeEditorModel
@@ -17,6 +24,7 @@ from code_puppy.model_capabilities import (
     NATIVE_EDITOR_TOOL_NAME,
     NATIVE_EDITOR_TOOL_TYPE,
 )
+from code_puppy.tools.anthropic_editor_tool import register_str_replace_based_edit_tool
 
 
 def _make_model() -> AnthropicNativeEditorModel:
@@ -94,3 +102,48 @@ def test_no_message_history_or_serialization_method_is_overridden():
         if callable(value) and not name.startswith("__")
     }
     assert set(own_members) == {"_map_tool_definition"}
+
+
+def test_native_editor_history_replays_cleanly_through_a_non_anthropic_model():
+    """Verification (not the sole safeguard -- see the plan's `History and
+    model switching` section) for the highest-risk claim in this plan: a
+    native-editor tool call/result surviving a mid-session model switch
+    without producing a hard 400 on the next provider.
+
+    The prior test proves *why* this should hold (no history-shaping
+    override exists). This test proves it end-to-end using the exact
+    mechanism `session_storage.py` relies on for every save/load regardless
+    of provider (`ModelMessagesTypeAdapter`): run the real tool through a
+    plain, non-Anthropic pydantic-ai model, then round-trip the resulting
+    history through that adapter and assert it comes back byte-for-byte
+    identical, made only of ordinary ToolCallPart/ToolReturnPart -- never an
+    Anthropic-specific block type a different provider's mapper could choke
+    on.
+    """
+    agent = Agent(TestModel(call_tools=[NATIVE_EDITOR_TOOL_NAME]))
+    register_str_replace_based_edit_tool(agent)
+
+    result = agent.run_sync("call the editor tool")
+    messages = result.all_messages()
+
+    tool_call_parts = [
+        p for m in messages for p in m.parts if isinstance(p, ToolCallPart)
+    ]
+    tool_return_parts = [
+        p for m in messages for p in m.parts if isinstance(p, ToolReturnPart)
+    ]
+    assert tool_call_parts and all(
+        type(p) is ToolCallPart and p.tool_name == NATIVE_EDITOR_TOOL_NAME
+        for p in tool_call_parts
+    )
+    assert tool_return_parts and all(
+        type(p) is ToolReturnPart and p.tool_name == NATIVE_EDITOR_TOOL_NAME
+        for p in tool_return_parts
+    )
+    # The dispatcher's result is a plain JSON-shaped dict, not some
+    # Anthropic-only content block.
+    assert all(isinstance(p.content, dict) for p in tool_return_parts)
+
+    dumped = ModelMessagesTypeAdapter.dump_python(messages)
+    restored = ModelMessagesTypeAdapter.validate_python(dumped)
+    assert restored == messages
