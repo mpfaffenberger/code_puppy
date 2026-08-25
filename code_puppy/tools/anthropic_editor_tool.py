@@ -319,6 +319,27 @@ def _view_file(path: str, view_range: Optional[List[int]]) -> Dict[str, Any]:
         f"{idx:6d}\t{line}" for idx, line in enumerate(selected, start=start)
     )
 
+    # Backstop against per-line gutter overhead: the `f"{idx:6d}\t"` gutter
+    # adds a fixed 7 chars/line on top of raw content, which is invisible to
+    # the raw-content check above when lines are short -- thousands of
+    # short/blank lines can pass the raw budget by a wide margin yet still
+    # explode once every line gets its own gutter (e.g. 40,000 blank lines
+    # is ~10 KB raw but ~280 KB numbered). Bounded at 2x the raw budget
+    # rather than a hard line-count limit: generous enough that the
+    # narrow-line regression test above (5,000 one-char lines) still
+    # succeeds, but it puts an absolute ceiling on what actually reaches
+    # the model regardless of how that size was reached.
+    if len(numbered) // 4 > _MAX_VIEW_TOKENS * 2:
+        return {
+            "error": "content_too_large",
+            "path": file_path,
+            "total_lines": total_lines,
+            "message": (
+                "The requested range is too large to view in one call; "
+                "narrow view_range and retry."
+            ),
+        }
+
     # Matches read_file's UI contract: the raw (unnumbered) slice goes to
     # the message bus for display/telemetry; the line-numbered rendering
     # below is what actually goes back to the model. Without this, `view`
@@ -427,6 +448,12 @@ async def _insert_into_file(
         lines[-1] = lines[-1] + style
 
     new_content = "".join(lines[:insert_line] + [inserted] + lines[insert_line:])
+    # Built once and reused across every remaining return in this function
+    # (success, rejection, or race-detected) so the callback below always
+    # sees what was actually attempted -- matching str_replace/create,
+    # whose single engine call routes every outcome (not just success)
+    # through the same callback with the same payload shape.
+    payload = ContentPayload(file_path=file_path, content=new_content, overwrite=True)
 
     group_id = generate_group_id("str_replace_based_edit_tool", path)
     permission_results = await on_file_permission_async(
@@ -438,7 +465,9 @@ async def _insert_into_file(
         {"content": new_content, "overwrite": True},
     )
     if _permission_denied(permission_results):
-        return _create_rejection_response(file_path)
+        return _apply_edit_callback(
+            context, _create_rejection_response(file_path), payload
+        )
 
     # Close the approval-wait race described in this function's docstring:
     # re-read now and compare byte-for-byte against the snapshot the
@@ -456,15 +485,19 @@ async def _insert_into_file(
             "path": file_path,
         }
     if current != original:
-        return {
-            "error": "concurrent_modification",
-            "path": file_path,
-            "message": (
-                "The file changed after permission was requested and "
-                "before the insert was applied; view the file again and "
-                "retry with an up-to-date insert_line."
-            ),
-        }
+        return _apply_edit_callback(
+            context,
+            {
+                "error": "concurrent_modification",
+                "path": file_path,
+                "message": (
+                    "The file changed after permission was requested and "
+                    "before the insert was applied; view the file again and "
+                    "retry with an up-to-date insert_line."
+                ),
+            },
+            payload,
+        )
 
     result = _write_to_file(
         context, file_path, new_content, overwrite=True, message_group=group_id
@@ -472,7 +505,6 @@ async def _insert_into_file(
     diff = result.pop("diff", "")
     if diff:
         _emit_diff_message(file_path, "modify", diff, new_content=new_content)
-    payload = ContentPayload(file_path=file_path, content=new_content, overwrite=True)
     return _apply_edit_callback(context, result, payload)
 
 

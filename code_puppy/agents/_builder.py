@@ -688,6 +688,7 @@ def build_pydantic_agent(
         agent_tools,
         model_name=resolved_model_name,
         agent_name=logical_agent_name,
+        models_config=models_config,
     )
 
     existing_tool_names: Set[str] = set(getattr(probe_agent, "_tools", {}) or {})
@@ -703,6 +704,7 @@ def build_pydantic_agent(
         agent_tools,
         model_name=resolved_model_name,
         agent_name=logical_agent_name,
+        models_config=models_config,
     )
 
     agent.cur_model = model

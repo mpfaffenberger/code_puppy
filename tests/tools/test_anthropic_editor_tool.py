@@ -355,15 +355,24 @@ def test_insert_permission_denied_leaves_file_untouched(tmp_path):
 
     register_callback("file_permission", deny)
 
-    result = _run(
-        dispatch_editor_command(
-            MagicMock(), "insert", str(p), insert_line=1, new_str="X"
+    with patch(
+        "code_puppy.tools.anthropic_editor_tool.on_edit_file", return_value=None
+    ) as mock_hook:
+        result = _run(
+            dispatch_editor_command(
+                MagicMock(), "insert", str(p), insert_line=1, new_str="X"
+            )
         )
-    )
 
     assert result["success"] is False
     assert result["user_rejection"] is True
     assert p.read_text() == original
+    # Regression: a denied insert used to return before on_edit_file ever
+    # ran, unlike str_replace/create (whose engine calls always route
+    # through it) -- a plugin doing rejection-detail enrichment would
+    # silently never see a rejected insert.
+    mock_hook.assert_called_once()
+    assert mock_hook.call_args.args[1] is result
 
 
 def test_insert_detects_concurrent_modification_during_permission_wait(tmp_path):
@@ -389,16 +398,22 @@ def test_insert_detects_concurrent_modification_during_permission_wait(tmp_path)
 
     register_callback("file_permission", approve_but_mutate_first)
 
-    result = _run(
-        dispatch_editor_command(
-            MagicMock(), "insert", str(p), insert_line=1, new_str="X"
+    with patch(
+        "code_puppy.tools.anthropic_editor_tool.on_edit_file", return_value=None
+    ) as mock_hook:
+        result = _run(
+            dispatch_editor_command(
+                MagicMock(), "insert", str(p), insert_line=1, new_str="X"
+            )
         )
-    )
 
     assert result["error"] == "concurrent_modification"
     # The concurrent write must survive untouched -- not be clobbered by the
     # stale insert going through anyway.
     assert p.read_text() == "one\ntwo\nCONCURRENTLY ADDED\n"
+    # Same on_edit_file parity as the permission-denied case above.
+    mock_hook.assert_called_once()
+    assert mock_hook.call_args.args[1] is result
 
 
 def test_insert_out_of_range_line_is_rejected_without_writing(tmp_path):
@@ -751,3 +766,20 @@ def test_view_oversized_file_is_still_readable_via_a_narrowed_range(tmp_path):
     assert "error" not in result
     assert result["start_line"] == 1
     assert result["end_line"] == 50
+
+
+def test_view_rejects_pathological_blank_line_gutter_blowup(tmp_path):
+    """Regression: the raw-content budget alone is blind to per-line gutter
+    overhead. 40,000 blank lines is ~39KB raw (comfortably under the 10k-
+    token raw budget) but the ``f"{idx:6d}\\t"`` gutter on every one of
+    those lines balloons the actual model-facing payload to roughly
+    320KB/~80k tokens -- 8x the intended limit -- if only the raw slice is
+    measured. The backstop on the numbered rendering must catch this even
+    though the raw check alone would wave it through."""
+    p = tmp_path / "blank.txt"
+    p.write_text("\n" * 40_000)
+
+    result = _run(dispatch_editor_command(None, "view", str(p)))
+
+    assert result["error"] == "content_too_large"
+    assert result["total_lines"] == 40_000

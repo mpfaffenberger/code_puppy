@@ -195,6 +195,7 @@ def register_tools_for_agent(
     tool_names: list[str],
     model_name: str | None = None,
     agent_name: str | None = None,
+    models_config: dict | None = None,
 ):
     """Register specific tools for an agent based on tool names.
 
@@ -207,6 +208,14 @@ def register_tools_for_agent(
         agent_name: Optional logical agent name (e.g. ``"code-puppy"``).
             Passed to the ``register_agent_tools`` callback so plugins can
             advertise tools per-agent if they want.
+        models_config: Optional pre-loaded model config, threaded through to
+            ``supports_anthropic_native_editor``. Without this, that check
+            falls back to its own independently-TTL-cached config load,
+            which can very briefly disagree with the fresh config a caller
+            (e.g. the agent builder) already used to pick the model class
+            itself -- passing the same config both places removes that
+            two-source-of-truth window entirely. Purely additive: callers
+            that have no config handy keep the prior cached-lookup behavior.
     """
     from code_puppy.config import get_universal_constructor_enabled
 
@@ -268,10 +277,16 @@ def register_tools_for_agent(
     # read_file (unusual, but not impossible for a deliberately write-only
     # JSON agent) must not gain `view`'s brand-new read capability just by
     # having both mutation tools -- gate on read_file's presence too.
+    # Same reasoning applies to `list_files`: `view` on a directory path
+    # returns a directory listing, which is `list_files`'s equivalent
+    # capability, not read_file's -- an agent with the full mutation
+    # surface and read_file but no list_files must not gain directory
+    # discovery purely as a side effect of the swap.
     if (
         "read_file" in tool_names
+        and "list_files" in tool_names
         and has_full_native_editor_mutation_surface(tool_names)
-        and supports_anthropic_native_editor(model_name)
+        and supports_anthropic_native_editor(model_name, models_config)
     ):
         tool_names = [
             name for name in tool_names if name not in OVERLAPPING_PORTABLE_TOOLS
@@ -307,7 +322,7 @@ def register_tools_for_agent(
         # simply asking for the tool.
         if (
             tool_name == NATIVE_EDITOR_TOOL_NAME
-            and not supports_anthropic_native_editor(model_name)
+            and not supports_anthropic_native_editor(model_name, models_config)
         ):
             emit_warning(
                 f"Warning: '{tool_name}' requires the Anthropic native editor "

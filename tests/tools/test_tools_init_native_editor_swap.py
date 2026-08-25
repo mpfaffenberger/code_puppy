@@ -34,10 +34,12 @@ def _registered_names(tool_names, model_name="claude-direct", capability=True):
 
 def test_native_editor_replaces_overlapping_tools_when_capability_active():
     calls = _registered_names(
-        ["read_file", "replace_in_file", "create_file", "delete_snippet"],
+        ["read_file", "replace_in_file", "create_file", "list_files", "delete_snippet"],
         capability=True,
     )
-    assert sorted(calls) == sorted(["delete_snippet", "str_replace_based_edit_tool"])
+    assert sorted(calls) == sorted(
+        ["list_files", "delete_snippet", "str_replace_based_edit_tool"]
+    )
 
 
 def test_delete_tools_are_never_hidden_even_when_native_editor_active():
@@ -46,6 +48,7 @@ def test_delete_tools_are_never_hidden_even_when_native_editor_active():
             "read_file",
             "replace_in_file",
             "create_file",
+            "list_files",
             "delete_snippet",
             "delete_file",
         ],
@@ -117,3 +120,43 @@ def test_full_mutation_surface_without_read_file_does_not_gain_view_access():
     calls = _registered_names(tool_names, capability=True)
     assert sorted(calls) == sorted(tool_names)
     assert "str_replace_based_edit_tool" not in calls
+
+
+def test_full_mutation_and_read_surface_without_list_files_does_not_gain_directory_view():
+    """Regression: an agent with the full read+write surface (read_file,
+    create_file, replace_in_file) but no list_files must not be swapped --
+    `view` on a directory path returns a directory listing, which is
+    list_files's equivalent capability, not read_file's. Gaining it as a
+    side effect of the swap would be a least-privilege violation identical
+    in kind to the read_file-less case above."""
+    tool_names = ["read_file", "replace_in_file", "create_file", "delete_snippet"]
+    calls = _registered_names(tool_names, capability=True)
+    assert sorted(calls) == sorted(tool_names)
+    assert "str_replace_based_edit_tool" not in calls
+
+
+def test_explicit_models_config_is_forwarded_to_the_capability_check():
+    """Regression: register_tools_for_agent's own callers may have already
+    loaded a fresh models config (e.g. the agent builder, right before
+    picking the model class from that same config). Without threading it
+    through here too, this call would fall back to a separately-TTL-cached
+    config load that can very briefly disagree with the fresh one -- a
+    real (if narrow) window for the model class and the registered tool
+    set to be decided from two different configs. Asserted via the actual
+    call arguments, not just behavior, so a future refactor that silently
+    drops the parameter is caught even if it doesn't happen to flip any
+    single test's capability outcome."""
+    mock_agent = MagicMock()
+    sentinel_config = {"claude-direct": {"type": "anthropic"}}
+    with patch(
+        "code_puppy.tools.supports_anthropic_native_editor", return_value=False
+    ) as mock_supports:
+        register_tools_for_agent(
+            mock_agent,
+            ["read_file", "replace_in_file", "create_file", "list_files"],
+            model_name="claude-direct",
+            models_config=sentinel_config,
+        )
+    assert mock_supports.called
+    for call in mock_supports.call_args_list:
+        assert call.args == ("claude-direct", sentinel_config)
