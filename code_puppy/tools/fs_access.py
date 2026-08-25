@@ -103,7 +103,9 @@ def read_text(
     backend = get_filesystem_backend()
     if backend is not None:
         return backend.read_text_file(path, line=line, limit=limit)
-    with open(path, "r", encoding="utf-8", errors="surrogateescape") as f:
+    with open(
+        path, "r", encoding="utf-8", errors="surrogateescape", newline=""
+    ) as f:
         if line is None or limit is None:
             return f.read()
         # 1-based line slice, mirroring the backend contract.
@@ -129,7 +131,7 @@ def write_text(path: str, content: str) -> None:
     if backend is not None:
         backend.write_text_file(path, content)
         return
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(content)
 
 

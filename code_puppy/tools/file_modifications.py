@@ -37,6 +37,7 @@ from code_puppy.tools.common import (
     resolve_path,
     write_project_file,
 )
+from code_puppy.tools.line_endings import resolve_pattern, to_style
 from code_puppy.tools.file_permission_state import (
     clear_diff_shown_flag,
     clear_user_feedback,
@@ -221,7 +222,6 @@ def _delete_snippet_from_file(
     snippet: str,
     message_group: str | None = None,
 ) -> Dict[str, Any]:
-    UndoManager().record_change(file_path, "delete_snippet")
     file_path = resolve_path(file_path)
     diff_text = ""
     try:
@@ -235,12 +235,15 @@ def _delete_snippet_from_file(
             )
         except (UnicodeEncodeError, UnicodeDecodeError):
             pass
-        if snippet not in original:
+        # Reconcile the model's \n-terminated snippet against the file's
+        # actual line endings (see tools/line_endings.py).
+        effective_snippet, snippet_count, _style = resolve_pattern(original, snippet)
+        if not snippet_count:
             return {
                 "error": f"Snippet not found in file '{file_path}'.",
                 "diff": diff_text,
             }
-        modified = original.replace(snippet, "", 1)
+        modified = original.replace(effective_snippet, "", 1)
         from code_puppy.config import get_diff_context_lines
 
         diff_text = "".join(
@@ -252,6 +255,7 @@ def _delete_snippet_from_file(
                 n=get_diff_context_lines(),
             )
         )
+        UndoManager().record_change(file_path, "delete_snippet")
         write_project_file(file_path, modified)
         return {
             "success": True,
@@ -264,98 +268,178 @@ def _delete_snippet_from_file(
         return {"error": str(exc), "diff": diff_text}
 
 
+def _bounded_suggestion(
+    haystack_lines: List[str],
+    needle: str,
+    max_lines: int = 6,
+    max_chars: int = 400,
+) -> Dict[str, Any] | None:
+    """Build a whole-line-aligned, size-bounded, line-numbered hint of nearby
+    text for a failed exact match. Never used to select a mutation target --
+    read-only diagnostic output only. Bounding to whole lines (never a
+    mid-line truncation) means a model can copy this text into an exact
+    retry without the suggestion itself guaranteeing a second failure.
+    """
+    if not haystack_lines:
+        return None
+    loc, score = _find_best_window(haystack_lines, needle)
+    if loc is not None:
+        start, end = loc
+    else:
+        start, end = 0, min(len(haystack_lines), max(1, len(needle.splitlines()) or 1))
+    if end - start > max_lines:
+        end = start + max_lines
+    end = min(end, len(haystack_lines))
+    numbered = [f"{i + 1}: {haystack_lines[i]}" for i in range(start, end)]
+    text = "\n".join(numbered)
+    if len(text) > max_chars:
+        text = text[:max_chars].rstrip() + " \u2026(truncated)"
+    return {
+        "suggested_current_text": text,
+        "jw_score": score,
+        "start_line": start + 1,
+        "end_line": end,
+    }
+
+
 def _replace_in_file(
     context: RunContext | None,
     path: str,
     replacements: List[Dict[str, str]],
     message_group: str | None = None,
 ) -> Dict[str, Any]:
-    UndoManager().record_change(path, "replace_in_file")
-    """Robust replacement engine with explicit edge‑case reporting."""
+    """Strict exact-match replacement engine.
+
+    Contract: an empty ``old_str`` is rejected outright, zero exact matches
+    and multiple (ambiguous) exact matches both fail closed without writing,
+    fuzzy matching is used only to build a bounded suggestion for a failed
+    match (never to select a mutation target), and every replacement in the
+    batch is validated in memory before a single atomic write. Undo is
+    recorded once, only immediately before that write actually happens --
+    never on a validation failure or a no-op.
+    """
     file_path = resolve_path(path)
-    diff_text = ""
+
+    if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
+        return {"error": f"File '{file_path}' does not exist.", "diff": ""}
+
     try:
-        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
-            return {"error": f"File '{file_path}' does not exist.", "diff": diff_text}
-
         original = fs_access.read_text(file_path)
+    except OSError as exc:
+        return {"error": f"Failed to read file '{file_path}': {exc}", "diff": ""}
 
-        # Sanitize any surrogate characters from reading
-        try:
-            original = original.encode("utf-8", errors="surrogatepass").decode(
-                "utf-8", errors="replace"
-            )
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
+    # Sanitize any surrogate characters from reading
+    try:
+        original = original.encode("utf-8", errors="surrogatepass").decode(
+            "utf-8", errors="replace"
+        )
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
 
-        modified = original
-        for rep in replacements:
-            old_snippet = rep.get("old_str", "")
-            new_snippet = rep.get("new_str", "")
+    modified = original
+    for rep in replacements:
+        old_snippet = rep.get("old_str", "")
+        new_snippet = rep.get("new_str", "")
 
-            if old_snippet and old_snippet in modified:
-                modified = modified.replace(old_snippet, new_snippet, 1)
-                continue
-
-            had_trailing_newline = modified.endswith("\n")
-            orig_lines = modified.splitlines()
-            loc, score = _find_best_window(orig_lines, old_snippet)
-
-            if score < 0.95 or loc is None:
-                return {
-                    "error": "No suitable match in file (JW < 0.95)",
-                    "jw_score": score,
-                    "received": old_snippet,
-                    "diff": "",
-                }
-
-            start, end = loc
-            prefix = "\n".join(orig_lines[:start])
-            suffix = "\n".join(orig_lines[end:])
-            parts = []
-            if prefix:
-                parts.append(prefix)
-            parts.append(new_snippet.rstrip("\n"))
-            if suffix:
-                parts.append(suffix)
-            modified = "\n".join(parts)
-            if had_trailing_newline and not modified.endswith("\n"):
-                modified += "\n"
-
-        if modified == original:
-            emit_warning(
-                "No changes to apply – proposed content is identical.",
-                message_group=message_group,
-            )
+        if old_snippet == "":
             return {
-                "success": False,
+                "error": "empty_old_str",
                 "path": file_path,
-                "message": "No changes to apply.",
-                "changed": False,
+                "message": "old_str must not be empty; an empty pattern is not a valid replacement target.",
                 "diff": "",
             }
 
-        from code_puppy.config import get_diff_context_lines
+        # Models emit \n even when the file uses \r\n; reconcile the pattern
+        # to the file's actual bytes instead of rewriting the file's endings.
+        effective_old, match_count, style = resolve_pattern(modified, old_snippet)
 
-        diff_text = "".join(
-            difflib.unified_diff(
-                original.splitlines(keepends=True),
-                modified.splitlines(keepends=True),
-                fromfile=f"a/{os.path.basename(file_path)}",
-                tofile=f"b/{os.path.basename(file_path)}",
-                n=get_diff_context_lines(),
-            )
-        )
-        write_project_file(file_path, modified)
+        if match_count == 1:
+            # Convert the replacement to the surrounding style so the edit
+            # doesn't leave a mixed-terminator island behind.
+            effective_new = to_style(new_snippet, style)
+            modified = modified.replace(effective_old, effective_new, 1)
+            continue
+
+        if match_count == 0:
+            suggestion = _bounded_suggestion(modified.splitlines(), old_snippet)
+            result: Dict[str, Any] = {
+                "error": "match_not_found",
+                "path": file_path,
+                "match_count": 0,
+                "received": old_snippet,
+                "diff": "",
+            }
+            if suggestion is not None:
+                result.update(suggestion)
+            return result
+
+        # match_count > 1: ambiguous, do not guess which occurrence was meant.
         return {
-            "success": True,
+            "error": "ambiguous_match",
             "path": file_path,
-            "message": "Replacements applied.",
-            "changed": True,
+            "match_count": match_count,
+            "message": (
+                f"'old_str' matched {match_count} locations; make it unique "
+                "(e.g. include more surrounding context) before retrying."
+            ),
+            "received": old_snippet,
+            "diff": "",
+        }
+
+    if modified == original:
+        emit_warning(
+            "No changes to apply – proposed content is identical.",
+            message_group=message_group,
+        )
+        return {
+            "success": False,
+            "path": file_path,
+            "message": "No changes to apply.",
+            "changed": False,
+            "diff": "",
+        }
+
+    from code_puppy.config import get_diff_context_lines
+
+    diff_text = "".join(
+        difflib.unified_diff(
+            original.splitlines(keepends=True),
+            modified.splitlines(keepends=True),
+            fromfile=f"a/{os.path.basename(file_path)}",
+            tofile=f"b/{os.path.basename(file_path)}",
+            n=get_diff_context_lines(),
+        )
+    )
+
+    # Snapshot pre-write state for undo now that every replacement has been
+    # validated -- record_change reads current on-disk content, so it must
+    # run immediately before the write, never after (after the write it
+    # would snapshot the NEW content, turning undo into a no-op).
+    UndoManager().record_change(path, "replace_in_file")
+    try:
+        write_project_file(file_path, modified)
+    except OSError as exc:
+        UndoManager().pop_change()
+        return {
+            "error": f"Failed to write file '{file_path}': {exc}",
             "diff": diff_text,
         }
-    except Exception as exc:
-        return {"error": str(exc), "diff": diff_text}
+    except Exception as exc:  # pragma: no cover - genuinely unexpected write failure
+        UndoManager().pop_change()
+        _log_error(
+            f"Unexpected error writing '{file_path}' during replace_in_file",
+            exc,
+            message_group=message_group,
+        )
+        return {"error": f"Unexpected write failure: {exc}", "diff": diff_text}
+
+    return {
+        "success": True,
+        "path": file_path,
+        "message": "Replacements applied.",
+        "changed": True,
+        "diff": diff_text,
+    }
 
 
 def _write_to_file(
@@ -365,7 +449,6 @@ def _write_to_file(
     overwrite: bool = False,
     message_group: str | None = None,
 ) -> Dict[str, Any]:
-    UndoManager().record_change(path, "write_to_file")
     file_path = resolve_path(path)
 
     try:
@@ -405,6 +488,10 @@ def _write_to_file(
         # Create local dirs only for local writes; a FS backend (e.g. ACP host)
         # manages its own topology.
         fs_access.make_dirs(os.path.dirname(file_path) or ".")
+        # Snapshot pre-write state (None if the file doesn't exist yet, so
+        # undo knows to delete rather than restore) immediately before the
+        # write -- never after, which would snapshot the new content instead.
+        UndoManager().record_change(path, "write_to_file")
         write_project_file(file_path, content)
 
         action = "overwritten" if exists else "created"
@@ -575,7 +662,6 @@ async def replace_in_file_async(
 def _edit_file(
     context: RunContext, payload: EditFilePayload, group_id: str | None = None
 ) -> Dict[str, Any]:
-    UndoManager().record_change(payload.file_path, "edit_file")
     """
     High-level implementation of the *edit_file* behaviour.
 
@@ -726,7 +812,6 @@ async def _edit_file_async(
 def _delete_file(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
-    UndoManager().record_change(file_path, "delete_file")
     file_path = resolve_path(file_path)
 
     # Use the plugin system for permission handling with operation data
@@ -764,6 +849,9 @@ def _delete_file(
                     n=get_diff_context_lines(),
                 )
             )
+            # Snapshot BEFORE deleting -- once the file is gone, its content
+            # cannot be recovered for undo to restore.
+            UndoManager().record_change(file_path, "delete_file")
             fs_access.delete_file(file_path)
             res = {
                 "success": True,

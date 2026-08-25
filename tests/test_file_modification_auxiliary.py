@@ -13,11 +13,18 @@ def test_replace_in_file_missing_file(tmp_path):
 
 
 def test_replace_in_file_multiple_replacements(tmp_path):
+    """Multiple, distinct, unambiguous replacements in one call all apply.
+
+    Uses unique old_str values -- under the strict exact-match contract a
+    non-unique old_str (e.g. "bar" appearing twice) is deliberately rejected
+    as an ambiguous_match rather than silently replacing the first hit; that
+    behavior is covered separately in test_replace_in_file_safety.py.
+    """
     path = tmp_path / "multi.txt"
-    path.write_text("foo bar baz bar foo")
+    path.write_text("foo bar baz qux foo")
     reps = [
-        {"old_str": "bar", "new_str": "dog"},
-        {"old_str": "foo", "new_str": "biscuit"},
+        {"old_str": "bar baz", "new_str": "dog"},
+        {"old_str": "qux", "new_str": "biscuit"},
     ]
     res = file_modifications._replace_in_file(None, str(path), reps)
     assert res["success"]

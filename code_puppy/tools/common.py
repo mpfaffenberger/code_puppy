@@ -1220,7 +1220,7 @@ def atomic_write_text(
 
     fd, tmp = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", encoding=encoding) as f:
+        with os.fdopen(fd, "w", encoding=encoding, newline="") as f:
             f.write(content)
             f.flush()
             os.fsync(f.fileno())
