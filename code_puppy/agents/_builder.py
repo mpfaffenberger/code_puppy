@@ -19,6 +19,7 @@ from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agents._compaction import make_history_processor
+from code_puppy.agents._interrupt_notes import InterruptedSubagentNotes
 from code_puppy.agents._model_message_transform import build_model_message_transform
 from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents._output_limits import (
@@ -656,17 +657,20 @@ def build_pydantic_agent(
             output_type=output_type,
             retries=3,
             toolsets=toolsets,
-            # Order matters: compaction first (may trim history to fit
-            # context), THEN steer injection (a fresh steer must not be
-            # compacted away). ProcessHistory capabilities apply in
-            # registration order (replaces the deprecated
-            # `history_processors=` kwarg, removed in pydantic-ai v2).
-            # ToolOutputLimits reduces oversized tool returns on a different
-            # hook (after_tool_execute), so its position is inert; the
-            # response clamp runs before_model_request after both history
-            # processors. The plugin transform wraps the final model request.
+            # Order matters: interrupted-sub-agent notes land first (so
+            # compaction sees them exactly as it saw the old eager history
+            # append), compaction next (may trim history to fit context),
+            # THEN steer injection (a fresh steer must not be compacted
+            # away). ProcessHistory capabilities apply in registration order
+            # (replaces the deprecated `history_processors=` kwarg, removed
+            # in pydantic-ai v2). ToolOutputLimits reduces oversized tool
+            # returns on a different hook (after_tool_execute), so its
+            # position is inert; the response clamp runs before_model_request
+            # after both history processors. The plugin transform wraps the
+            # final model request.
             capabilities=[
                 *build_tool_output_limits(),
+                InterruptedSubagentNotes(),
                 ProcessHistory(history_processor),
                 ProcessHistory(steer_processor),
                 build_response_clamp(),

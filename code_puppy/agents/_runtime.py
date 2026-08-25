@@ -76,9 +76,13 @@ from code_puppy.agents._non_streaming_render import (
     render_result_without_streaming,
     should_render_fallback,
 )
+from code_puppy.agents._interrupt_notes import (
+    build_interrupt_note_observation,
+    install_interrupt_note_observation,
+    mirror_uninjected,
+)
 from code_puppy.agents._run_signals import (
     drain_pause_state_on_cancel,
-    inject_interrupted_subagent_notes,
     make_schedule_cancel,
     prepare_queued_steer_injection,
     reset_pause_state_at_run_start,
@@ -673,11 +677,15 @@ async def _run_with_mcp_impl(
     # touching anything: without this, a leftover steer queue would silently
     # poison this run. NEVER from a nested run — the "stale" steers it would
     # drain are the OUTER run's live ones.
+    # Surface any sub-agent interrupted since the last run so the model knows
+    # the delegation was stopped and where to resume it. The records are
+    # drained here (same timing as the old eager history-append) but the notes
+    # are delivered by the InterruptedSubagentNotes capability at the turn's
+    # first model request; see ``_interrupt_notes``.
+    note_observation = None
     if not is_nested_run:
         reset_pause_state_at_run_start()
-        # Surface any sub-agent interrupted since the last run so the model
-        # knows the delegation was stopped and where to resume it.
-        inject_interrupted_subagent_notes(agent)
+        note_observation = build_interrupt_note_observation(agent)
 
     prompt = _sanitize_prompt(prompt)
     group_id = str(uuid.uuid4())
@@ -716,6 +724,10 @@ async def _run_with_mcp_impl(
 
     prompt = _should_prepend_system_prompt(agent, prompt)
     prompt_payload = _build_prompt_payload(prompt, attachments, link_attachments)
+    if note_observation is not None:
+        # Anchor the note splice: the capability inserts the notes right
+        # before the ModelRequest carrying this payload.
+        note_observation.turn_prompt = prompt_payload
 
     async def _do_run(prompt_to_use: Any) -> Any:
         """Run the agent once, then honour any plugin ``retry`` requests."""
@@ -932,6 +944,10 @@ async def _run_with_mcp_impl(
             from code_puppy.observability import clear_agent_context
 
             clear_agent_context(group_id)
+            # Mirror notes the capability never delivered (cancel/crash before
+            # the first model request) BEFORE pruning, so drained records
+            # still surface next turn -- exactly what the eager append gave.
+            mirror_uninjected(note_observation)
             agent._message_history = _history.prune_interrupted_tool_calls(
                 agent._message_history
             )
@@ -965,7 +981,11 @@ async def _run_with_mcp_impl(
         # MCP trouble must never block the agent run itself.
         pass
 
-    agent_task = asyncio.create_task(run_agent_task())
+    # Install around create_task so the task's context snapshot carries the
+    # observation into every model request of the turn (nested sub-agent
+    # installs shadow; a ``None`` observation is a no-op).
+    with install_interrupt_note_observation(note_observation):
+        agent_task = asyncio.create_task(run_agent_task())
 
     loop = asyncio.get_running_loop()
 
