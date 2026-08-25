@@ -27,6 +27,27 @@ def test_update_patch_applies_context_and_replacement(tmp_path: Path):
     assert changes[0].new_content == "one\nTWO\nthree\n"
 
 
+def test_update_patch_accepts_open_code_end_of_file_marker(tmp_path: Path):
+    target = tmp_path / "app.py"
+    target.write_text("one\ntwo\n")
+
+    changes = parse_patch(
+        """wrapper text
+*** Begin Patch
+*** Update File: app.py
+@@
+ one
+-two
++TWO
+*** End of File
+*** End Patch
+trailing text""",
+        base_dir=str(tmp_path),
+    )
+
+    assert changes[0].new_content == "one\nTWO\n"
+
+
 def test_patch_supports_add_delete_and_move(tmp_path: Path):
     old = tmp_path / "old.txt"
     old.write_text("old\n")

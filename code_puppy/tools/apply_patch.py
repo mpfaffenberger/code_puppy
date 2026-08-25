@@ -90,7 +90,7 @@ def _parse_chunks(lines: Sequence[str], path: str) -> list[_Chunk]:
             flush()
             saw_hunk = True
             continue
-        if line == r"\ No newline at end of file":
+        if line in (r"\ No newline at end of file", "*** End of File"):
             continue
         if not line:
             raise PatchError(f"invalid empty patch line in update for {path}")
@@ -114,9 +114,22 @@ def _parse_chunks(lines: Sequence[str], path: str) -> list[_Chunk]:
 
 def _split_patch(patch_text: str) -> list[tuple[str, str, list[str], str | None]]:
     normalized = patch_text.replace("\r\n", "\n").replace("\r", "\n").strip("\n")
-    lines = normalized.split("\n")
-    if len(lines) < 2 or lines[0] != "*** Begin Patch" or lines[-1] != "*** End Patch":
+    raw_lines = normalized.split("\n")
+    try:
+        begin = next(i for i, line in enumerate(raw_lines) if line.strip() == "*** Begin Patch")
+        end = next(
+            i
+            for i, line in enumerate(raw_lines)
+            if i > begin and line.strip() == "*** End Patch"
+        )
+    except StopIteration as exc:
         raise PatchError("patch must begin with '*** Begin Patch' and end with '*** End Patch'")
+    lines = raw_lines[begin : end + 1]
+
+    def is_file_boundary(line: str) -> bool:
+        return line.startswith(
+            ("*** Add File: ", "*** Delete File: ", "*** Update File: ", "*** End Patch")
+        )
 
     entries: list[tuple[str, str, list[str], str | None]] = []
     index = 1
@@ -126,7 +139,7 @@ def _split_patch(patch_text: str) -> list[tuple[str, str, list[str], str | None]
             path = header.removeprefix("*** Add File: ")
             body: list[str] = []
             index += 1
-            while index < len(lines) - 1 and not lines[index].startswith("*** "):
+            while index < len(lines) - 1 and not is_file_boundary(lines[index]):
                 body.append(lines[index])
                 index += 1
             entries.append(("add", path, body, None))
@@ -141,7 +154,7 @@ def _split_patch(patch_text: str) -> list[tuple[str, str, list[str], str | None]
             if index < len(lines) - 1 and lines[index].startswith("*** Move to: "):
                 move_to = lines[index].removeprefix("*** Move to: ")
                 index += 1
-            while index < len(lines) - 1 and not lines[index].startswith("*** "):
+            while index < len(lines) - 1 and not is_file_boundary(lines[index]):
                 body.append(lines[index])
                 index += 1
             entries.append(("update", path, body, move_to))
