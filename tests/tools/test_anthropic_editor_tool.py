@@ -679,3 +679,75 @@ def test_registered_tool_never_crashes_the_agent_run_on_unexpected_exception():
     assert result["error"] == "str_replace_based_edit_tool failed: boom"
     assert result["command"] == "view"
     assert result["path"] == "/tmp/whatever"
+
+
+def test_view_size_budget_matches_read_file_and_ignores_the_line_number_gutter(
+    tmp_path,
+):
+    """Regression: the content_too_large guard used to measure the
+    LINE-NUMBERED rendering, not the file content. The ``f"{idx:6d}\\t"``
+    gutter adds a fixed 7 chars per line, so on narrow-line files it
+    dominated the estimate and made ``view`` reject files that portable
+    ``read_file`` accepts.
+
+    5,000 one-char lines = 10,000 bytes = 2,500 tokens (well under the
+    shared 10k budget) but 40,000 chars once numbered -- which tripped
+    the old check. Because the native-editor profile REPLACES read_file,
+    that left the model with no way at all to read a perfectly ordinary
+    file, so this is a capability regression rather than a cosmetic one.
+
+    Pinned against ``_read_file`` directly so the two limits can't drift
+    apart silently: if either budget changes, this fails.
+    """
+    from code_puppy.tools.file_operations import _read_file
+
+    p = tmp_path / "narrow.txt"
+    p.write_text("x\n" * 5000)
+
+    assert _read_file(None, str(p)).error is None, (
+        "precondition: portable read_file must accept this file"
+    )
+
+    result = _run(dispatch_editor_command(None, "view", str(p)))
+
+    assert "error" not in result, f"view rejected a file read_file accepts: {result}"
+    assert result["total_lines"] == 5000
+    # The gutter is still applied to what the model actually receives.
+    assert result["content"].startswith("     1\tx\n     2\tx")
+
+
+def test_view_still_rejects_genuinely_oversized_content(tmp_path):
+    """The budget fix must not disarm the guard: real oversized content
+    (over the same 10k-token limit read_file enforces) is still refused,
+    and the error carries total_lines so the model can pick a range."""
+    from code_puppy.tools.file_operations import _read_file
+
+    p = tmp_path / "big.txt"
+    p.write_text(("x" * 79 + "\n") * 2000)  # 160KB -> ~40k tokens
+
+    assert _read_file(None, str(p)).error is not None, (
+        "precondition: portable read_file must reject this file too"
+    )
+
+    result = _run(dispatch_editor_command(None, "view", str(p)))
+
+    assert result["error"] == "content_too_large"
+    assert result["total_lines"] == 2000
+
+
+def test_view_oversized_file_is_still_readable_via_a_narrowed_range(tmp_path):
+    """The recovery path the content_too_large message advertises must
+    actually work -- otherwise an oversized file is permanently
+    unreadable under the native profile (which has no read_file)."""
+    p = tmp_path / "big.txt"
+    p.write_text(("x" * 79 + "\n") * 2000)
+
+    assert _run(dispatch_editor_command(None, "view", str(p)))["error"] == (
+        "content_too_large"
+    )
+
+    result = _run(dispatch_editor_command(None, "view", str(p), view_range=[1, 50]))
+
+    assert "error" not in result
+    assert result["start_line"] == 1
+    assert result["end_line"] == 50

@@ -67,9 +67,23 @@ CLAUDE_CODE_ALIASES: Dict[str, str] = {
 # is switched onto the native-editor profile -- a policy/audit hook going
 # dark with no error is worse than one that never existed. Mapped to
 # "replace_in_file" (the closest single canonical mutation tool) so those
-# matchers keep firing; the known tradeoff is that a hook scoped only to
-# mutations will also match the tool's read-only "view" command, since the
-# matcher only ever sees the tool name, not which command was invoked.
+# matchers keep firing.
+#
+# This mapping is deliberately 1:1 and CANNOT simply be widened to also
+# list create_file/read_file. ``_build_lookup`` groups by internal name and
+# unions every provider name that maps to it, so a second mapping would
+# transitively merge the create_file and replace_in_file groups -- making
+# ``matches("Write", "Edit")`` return True and collapsing two distinct
+# hook scopes into one. (The symmetry invariant in tests/hook_engine/
+# test_aliases.py catches exactly this.) Widening it properly needs a
+# command-aware matcher, not a bigger alias table.
+#
+# Two known gaps follow from the 1:1 choice, both accepted for now:
+#   * Hooks scoped only to mutations ALSO fire for the read-only "view"
+#     command -- the matcher sees only the tool name, never ``command``.
+#   * Hooks scoped exclusively to "Write"/"create_file" do NOT fire for
+#     this tool's "create" command. Scope such hooks to "Edit"/
+#     "replace_in_file" as well when running the native-editor profile.
 # ---------------------------------------------------------------------------
 ANTHROPIC_NATIVE_EDITOR_ALIASES: Dict[str, str] = {
     "str_replace_based_edit_tool": "replace_in_file",

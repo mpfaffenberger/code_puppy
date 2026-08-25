@@ -291,19 +291,33 @@ def _view_file(path: str, view_range: Optional[List[int]]) -> Dict[str, Any]:
         start, end = 0, 0
 
     selected = lines[start - 1 : end] if total_lines else []
-    numbered = "\n".join(
-        f"{idx:6d}\t{line}" for idx, line in enumerate(selected, start=start)
-    )
+    raw_selected = "\n".join(selected)
 
-    if len(numbered) // 4 > _MAX_VIEW_TOKENS:
+    # Budget against the RAW slice, not the line-numbered rendering. The
+    # `f"{idx:6d}\t"` gutter adds a fixed 7 characters per line, which on
+    # narrow-line files dominates the measurement: a 5,000-line file of
+    # one-character lines is 10 KB of real content (2.5k tokens, which
+    # portable `read_file` accepts) but 40 KB once numbered, so the old
+    # check rejected it as `content_too_large`. That made `view` refuse
+    # files `read_file` happily returns -- and since the native-editor
+    # profile REPLACES read_file, that was a hard capability regression
+    # with no fallback tool to reach for. Measuring the raw slice keeps
+    # the two tools' limits equivalent (same 10k-token budget over the
+    # same bytes), which is exactly the parity the swap assumes.
+    if len(raw_selected) // 4 > _MAX_VIEW_TOKENS:
         return {
             "error": "content_too_large",
             "path": file_path,
+            "total_lines": total_lines,
             "message": (
                 "The requested range is too large to view in one call; "
                 "narrow view_range and retry."
             ),
         }
+
+    numbered = "\n".join(
+        f"{idx:6d}\t{line}" for idx, line in enumerate(selected, start=start)
+    )
 
     # Matches read_file's UI contract: the raw (unnumbered) slice goes to
     # the message bus for display/telemetry; the line-numbered rendering
@@ -313,7 +327,6 @@ def _view_file(path: str, view_range: Optional[List[int]]) -> Dict[str, Any]:
     # FileContentMessage requires num_lines >= 1, so an empty file (or the
     # unranged whole-file case, which read_file's own contract also reports
     # as start_line=None) must fall back to None rather than 0.
-    raw_selected = "\n".join(selected)
     get_message_bus().emit(
         FileContentMessage(
             path=file_path,

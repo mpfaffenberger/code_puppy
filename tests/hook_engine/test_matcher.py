@@ -81,3 +81,24 @@ class TestExtractFilePath:
         # file_path takes priority over path
         result = _extract_file_path({"file_path": "a.py", "path": "b.py"})
         assert result == "a.py"
+
+
+def test_distinct_alias_groups_stay_disjoint():
+    """Guard rail for the obvious 'fix' to the native-editor alias gap.
+
+    ``str_replace_based_edit_tool`` multiplexes view/str_replace/create/
+    insert, so it's tempting to widen ANTHROPIC_NATIVE_EDITOR_ALIASES to
+    map it to create_file and read_file as well. That silently breaks
+    unrelated hooks: ``_build_lookup`` groups by internal name and unions
+    every provider name mapping to it, so a second mapping transitively
+    merges the Edit and Write groups and ``matches("Write", "Edit")``
+    starts returning True -- a hook scoped to file creation would begin
+    firing on every in-place edit.
+
+    Asserted through the public matcher (not the lookup internals) because
+    the cross-group bleed is what actually harms users.
+    """
+    assert not matches("Write", "Edit", {"file_path": "a.py"})
+    assert not matches("create_file", "replace_in_file", {"file_path": "a.py"})
+    assert not matches("Read", "Edit", {"file_path": "a.py"})
+    assert not matches("read_file", "replace_in_file", {"file_path": "a.py"})
