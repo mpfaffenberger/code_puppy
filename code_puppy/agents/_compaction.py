@@ -1,14 +1,23 @@
-"""Message history compaction (truncation + summarization).
+"""Message history compaction — delegated to pydantic-ai-harness.
 
-Replaces the old ``message_history_processor`` / ``message_history_accumulator``
-pair from ``BaseAgent``. All logic here is free-function; the one stateful
-entry point is ``make_history_processor(agent)`` which returns a closure that
-pydantic-ai wires in as its ``history_processors`` callback.
+Code Puppy used to carry ~600 lines of hand-rolled compaction: protected-split
+safety, role-alternation repair for Anthropic, same-role merging, framing
+requests, a dedicated summarization sub-agent with its own thread pool... All
+of that now lives in ``pydantic_ai_harness.compaction``, whose strategies
+preserve tool-call/tool-return pairing and provider ordering for us.
 
-The delayed-compaction globals and the retry-after-tool-calls plumbing from
-the original god-class are **gone**. If compaction can't run safely right now
-(pending tool calls + summarization strategy), we just skip it this cycle and
-let the next ``history_processor`` invocation handle it.
+What remains here is the Code Puppy-specific glue:
+
+  * ``build_compaction_strategy`` — config → ``FallbackCompaction`` wiring
+    (summarize first, slide the window when summarization fails);
+  * the trigger check (``compaction_threshold * model context length``,
+    both from ``config.py``), reusing the same token estimates that feed
+    the spinner context badge;
+  * ``make_history_processor`` — the closure owning the agent's message
+    accumulator, dedup hashes, and post-compaction hygiene.
+
+Manual ``/compact`` and ``/truncate`` drive the same strategies through the
+harness's ``compact_now`` (see ``run_compaction_sync``).
 """
 
 from __future__ import annotations
@@ -16,20 +25,25 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, Callable, List, Optional, Set, Tuple
 
-from pydantic_ai.messages import (
-    ModelMessage,
-    ModelRequest,
-    ModelResponse,
-    ThinkingPart,
-    UserPromptPart,
+from pydantic_ai.exceptions import (
+    FallbackExceptionGroup,
+    ModelAPIError,
+    UsageLimitExceeded,
+)
+from pydantic_ai.messages import ModelMessage, ModelResponse, ThinkingPart
+from pydantic_ai.models import Model
+from pydantic_ai.tools import RunContext
+from pydantic_ai.usage import RunUsage
+from pydantic_ai_harness.compaction import (
+    FallbackCompaction,
+    SlidingWindowCompaction,
+    SummarizingCompaction,
+    compact_now,
 )
 
 from code_puppy.agents._history import (
     estimate_tokens_for_message,
-    filter_huge_messages,
-    has_pending_tool_calls,
     hash_message,
-    prune_interrupted_tool_calls,
     sanitize_tool_call_ids,
 )
 from code_puppy.callbacks import (
@@ -39,254 +53,128 @@ from code_puppy.callbacks import (
 from code_puppy.config import (
     get_compaction_strategy,
     get_compaction_threshold,
+    get_model_context_length,
     get_protected_token_count,
+    get_summarization_model_name,
 )
-from code_puppy.messaging import emit_error, emit_info, emit_success, emit_warning
+from code_puppy.messaging import emit_error, emit_success, emit_warning
 from code_puppy.messaging.spinner import format_context_info, update_spinner_context
-from code_puppy.summarization_agent import SummarizationError, run_summarization_sync
 
-_SUMMARIZATION_INSTRUCTIONS = (
-    "The input will be a log of Agentic AI steps that have been taken"
-    " as well as user queries, etc. Summarize the contents of these steps."
-    " The high level details should remain but the bulk of the content from tool-call"
-    " responses should be compacted and summarized. For example if you see a tool-call"
-    " reading a file, and the file contents are large, then in your summary you might just"
-    " write: * used read_file on space_invaders.cpp - contents removed."
-    "\n Make sure your result is a bulleted list of all steps and interactions."
-    "\n\nNOTE: This summary represents older conversation history. "
-    "Recent messages are preserved separately."
-)
+# ---------------------------------------------------------------------------
+# Strategy construction
+# ---------------------------------------------------------------------------
 
 
-def _find_safe_split_index(messages: List[ModelMessage], initial_split_idx: int) -> int:
-    """Adjust split index so we never sever a tool_call from its tool_return."""
-    if initial_split_idx <= 1:
-        return initial_split_idx
+def _summarizer_model() -> Model:
+    """Resolve the configured summarization model through the model factory.
 
-    protected_tool_return_ids: Set[str] = set()
-    for msg in messages[initial_split_idx:]:
-        for part in getattr(msg, "parts", []) or []:
-            if getattr(part, "part_kind", None) == "tool-return":
-                tcid = getattr(part, "tool_call_id", None)
-                if tcid:
-                    protected_tool_return_ids.add(tcid)
-
-    if not protected_tool_return_ids:
-        return initial_split_idx
-
-    adjusted_idx = initial_split_idx
-    # Walk backwards; never cross the system message at index 0.
-    for i in range(initial_split_idx - 1, 0, -1):
-        msg = messages[i]
-        has_match = False
-        for part in getattr(msg, "parts", []) or []:
-            if getattr(part, "part_kind", None) == "tool-call":
-                tcid = getattr(part, "tool_call_id", None)
-                if tcid and tcid in protected_tool_return_ids:
-                    has_match = True
-                    break
-        if has_match:
-            adjusted_idx = i
-        else:
-            # Tool calls and their returns are adjacent — first miss ends it.
-            break
-
-    return adjusted_idx
-
-
-def split_for_protected_summarization(
-    messages: List[ModelMessage],
-    protected_tokens: int,
-    model_name: Optional[str] = None,
-) -> Tuple[List[ModelMessage], List[ModelMessage]]:
-    """Split messages into (to_summarize, protected) groups.
-
-    The system message (index 0) is always protected. Starting from the most
-    recent message, we accumulate messages into the protected zone until we
-    hit ``protected_tokens``. Everything in-between becomes summarization
-    fodder. The split point is adjusted to keep tool_call/tool_return pairs
-    together.
+    Honors the ``summarization_model`` config key (falling back to the global
+    model), so custom endpoints in ``models.json`` / ``extra_models.json``
+    keep working — a bare model-name string would only resolve through
+    pydantic-ai's provider registry.
     """
-    if len(messages) <= 1:
-        return [], messages
+    from code_puppy.model_factory import ModelFactory
 
-    system_message = messages[0]
-    system_tokens = estimate_tokens_for_message(system_message, model_name)
-
-    protected_messages: List[ModelMessage] = []
-    running_tokens = system_tokens
-
-    for i in range(len(messages) - 1, 0, -1):
-        msg_tokens = estimate_tokens_for_message(messages[i], model_name)
-        if running_tokens + msg_tokens > protected_tokens:
-            break
-        protected_messages.append(messages[i])
-        running_tokens += msg_tokens
-
-    protected_messages.reverse()
-    protected_messages.insert(0, system_message)
-
-    protected_start_idx = max(1, len(messages) - (len(protected_messages) - 1))
-    protected_start_idx = _find_safe_split_index(messages, protected_start_idx)
-    messages_to_summarize = messages[1:protected_start_idx]
-
-    emit_info(
-        f"🔒 Protecting {len(protected_messages)} recent messages "
-        f"({running_tokens} tokens, limit: {protected_tokens})"
-    )
-    emit_info(f"📝 Summarizing {len(messages_to_summarize)} older messages")
-
-    return messages_to_summarize, protected_messages
-
-
-def truncate(
-    messages: List[ModelMessage],
-    protected_tokens: int,
-    model_name: Optional[str] = None,
-) -> List[ModelMessage]:
-    """Drop middle messages, keeping system prompt, optional thinking, and recent tail."""
-    import queue
-
-    if not messages:
-        return messages
-
-    emit_info("Truncating message history to manage token usage")
-    result: List[ModelMessage] = [messages[0]]
-
-    # Preserve the 2nd message if it's an extended-thinking context.
-    skip_second = False
-    if len(messages) > 1:
-        second_msg = messages[1]
-        if any(isinstance(part, ThinkingPart) for part in second_msg.parts):
-            result.append(second_msg)
-            skip_second = True
-
-    start_idx = 2 if skip_second else 1
-    messages_to_scan = messages[start_idx:]
-
-    num_tokens = 0
-    stack: "queue.LifoQueue[ModelMessage]" = queue.LifoQueue()
-    for msg in reversed(messages_to_scan):
-        num_tokens += estimate_tokens_for_message(msg, model_name)
-        if num_tokens > protected_tokens:
-            break
-        stack.put(msg)
-
-    while not stack.empty():
-        result.append(stack.get())
-
-    return prune_interrupted_tool_calls(result)
-
-
-def _run_summarization_core(
-    messages: List[ModelMessage],
-    protected_tokens: int,
-    with_protection: bool,
-    model_name: Optional[str],
-) -> Tuple[List[ModelMessage], List[ModelMessage]]:
-    """Inner summarization that propagates exceptions to the caller.
-
-    Returns ``(compacted_messages, summarized_source_messages)`` or raises
-    on summarization-agent failure. Use :func:`summarize` if you want the
-    swallow-and-return-original behavior, or call this directly when you want
-    to handle failure yourself (e.g. fall back to truncation).
-    """
-    if not messages:
-        return [], []
-
-    if with_protection:
-        messages_to_summarize, protected_messages = split_for_protected_summarization(
-            messages, protected_tokens, model_name
-        )
-    else:
-        messages_to_summarize = messages[1:]
-        protected_messages = messages[:1]
-
-    system_message = messages[0]
-
-    if not messages_to_summarize:
-        return prune_interrupted_tool_calls(messages), []
-
-    pruned = prune_interrupted_tool_calls(messages_to_summarize)
-    if not pruned:
-        return prune_interrupted_tool_calls(messages), []
-
-    summary_text = run_summarization_sync(
-        _SUMMARIZATION_INSTRUCTIONS, message_history=pruned
+    return ModelFactory.get_model(
+        get_summarization_model_name(), ModelFactory.load_config()
     )
 
-    # Splice ONLY the summary output into context — not the summarization
-    # run's request/response envelope (which would drag the prompt + full
-    # history right back into the window we just tried to shrink).
-    new_messages: List[ModelMessage] = [
-        ModelRequest(parts=[UserPromptPart(content=str(summary_text))])
-    ]
 
-    compacted: List[ModelMessage] = [system_message] + list(new_messages)
-    compacted.extend(msg for msg in protected_messages if msg is not system_message)
-    return prune_interrupted_tool_calls(compacted), messages_to_summarize
+def build_compaction_strategy(
+    protected_tokens: Optional[int] = None,
+) -> FallbackCompaction:
+    """Build the ``FallbackCompaction`` chain from Code Puppy config.
 
+    First wave is ``SummarizingCompaction`` (skipped entirely when the
+    configured strategy is ``truncation``); the fallback is a deterministic
+    ``SlidingWindowCompaction``. Both keep ``protected_token_count`` tokens
+    of recent tail and trigger at ``compaction_threshold * model context
+    length`` — though the trigger is only load-bearing for constructor
+    validation, since the chain is always driven directly (by
+    :func:`compact` in-run, or ``compact_now`` for ``/compact``) where the
+    harness does not consult it.
 
-def _log_summarization_failure(error: Exception, fallback_note: str = "") -> None:
-    """Single source of truth for summarization-failure user messaging."""
-    error_type = type(error).__name__
-    emit_error(f"Compaction failed: [{error_type}] {error}")
-    if isinstance(error, SummarizationError) and error.original_error:
-        underlying = type(error.original_error).__name__
-        suffix = f" {fallback_note}" if fallback_note else ""
-        emit_warning(f"💡 Underlying error was {underlying}.{suffix}")
-    elif fallback_note:
-        emit_warning(fallback_note)
-
-
-def summarize(
-    messages: List[ModelMessage],
-    protected_tokens: int,
-    with_protection: bool = True,
-    model_name: Optional[str] = None,
-) -> Tuple[List[ModelMessage], List[ModelMessage]]:
-    """Summarize older messages, preserving the protected recent tail.
-
-    Returns ``(compacted_messages, summarized_source_messages)``. On failure
-    we log a warning and return ``(messages, [])`` so the run continues.
+    The summarizer chain adds ``UsageLimitExceeded`` to ``fallback_on`` so
+    truncation still saves the run (see pydantic-ai-harness#528).
     """
+    protected = (
+        get_protected_token_count() if protected_tokens is None else protected_tokens
+    )
+    threshold_tokens = int(get_compaction_threshold() * get_model_context_length())
+    sliding = SlidingWindowCompaction(
+        max_tokens=threshold_tokens, keep_tokens=protected
+    )
+    if get_compaction_strategy() == "truncation":
+        return FallbackCompaction(fallback_chain=[sliding])
+
     try:
-        return _run_summarization_core(
-            messages, protected_tokens, with_protection, model_name
+        summarizer = SummarizingCompaction(
+            model=_summarizer_model(),
+            max_tokens=threshold_tokens,
+            keep_tokens=protected,
         )
     except Exception as e:
-        _log_summarization_failure(
-            e,
-            "Consider using '/set compaction_strategy=truncation' as a fallback.",
+        emit_warning(
+            f"Summarization model unavailable ({type(e).__name__}: {e}); "
+            "compacting with the sliding-window fallback only."
         )
-        return messages, []
+        return FallbackCompaction(fallback_chain=[sliding])
+    return FallbackCompaction(
+        fallback_chain=[summarizer, sliding],
+        fallback_on=(ModelAPIError, FallbackExceptionGroup, UsageLimitExceeded),
+    )
 
 
-def _truncate_with_dropped(
-    filtered: List[ModelMessage],
-    protected_tokens: int,
-    model_name: Optional[str],
-) -> Tuple[List[ModelMessage], List[ModelMessage]]:
-    """Truncate ``filtered`` and compute which messages got dropped.
+def resolve_agent_model(agent: Any) -> Model:
+    """Return the agent's live pydantic-ai model, building one if needed.
 
-    Shared by the truncation strategy and the summarization-failure fallback
-    so both paths agree on what counts as 'dropped' for hash bookkeeping.
+    ``compact_now`` needs a real ``Model`` (or provider-resolvable string);
+    Code Puppy model names only resolve through ``ModelFactory``, so a bare
+    ``get_model_name()`` string won't do.
     """
-    result_messages = truncate(filtered, protected_tokens, model_name)
-    result_hashes = {hash_message(m) for m in result_messages}
-    dropped = [m for m in filtered if hash_message(m) not in result_hashes]
-    return result_messages, dropped
+    model = getattr(agent, "cur_model", None)
+    if model is not None:
+        return model
+    from code_puppy.model_factory import ModelFactory
+
+    return ModelFactory.get_model(agent.get_model_name(), ModelFactory.load_config())
 
 
-def compact(
+def run_compaction_sync(strategy: Any, messages: List[ModelMessage], *, model: Model):
+    """Drive ``compact_now`` from a sync command handler (no run active).
+
+    Uses ``asyncio.run`` directly when no loop is running; otherwise hops to
+    a one-shot worker thread so we never block or re-enter the UI loop.
+    """
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _run():
+        return asyncio.run(compact_now(strategy, list(messages), model=model))
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return _run()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(_run).result()
+
+
+# ---------------------------------------------------------------------------
+# In-run compaction
+# ---------------------------------------------------------------------------
+
+
+async def compact(
     agent: Any,
     messages: List[ModelMessage],
     model_max: int,
     context_overhead: int,
+    ctx: RunContext[Any],
     *,
     force: bool = False,
 ) -> Tuple[List[ModelMessage], List[ModelMessage]]:
-    """Unified compaction entrypoint. Replaces ``message_history_processor``.
+    """Unified in-run compaction entrypoint.
 
     Args:
         agent: The owning agent. Used to resolve the active model name so
@@ -294,14 +182,16 @@ def compact(
         messages: Current message history (already accumulated by the caller).
         model_max: Effective model context window in tokens.
         context_overhead: Estimated overhead for system prompt + tool schemas.
+        ctx: The live pydantic-ai ``RunContext`` — passing it through means
+            the summarizer's usage folds into the run's accounting.
         force: Compact regardless of the configured context threshold. Used by
             mid-run ``/compact`` at the next safe model-call boundary.
 
     Returns:
-        ``(new_messages, dropped_messages_for_hash_tracking)``.
+        ``(new_messages, dropped_messages_for_hash_tracking)``. On any
+        compaction failure the original messages come back untouched — the
+        run must always survive a failed compaction.
     """
-    # Resolve model name once so all downstream estimators apply the same
-    # per-model calibration multiplier.
     model_name: Optional[str] = None
     if agent is not None:
         try:
@@ -313,89 +203,61 @@ def compact(
     total_tokens = message_tokens + context_overhead
     proportion_used = total_tokens / model_max if model_max else 0.0
 
-    context_summary = format_context_info(total_tokens, model_max, proportion_used)
-    update_spinner_context(context_summary)
+    update_spinner_context(
+        format_context_info(total_tokens, model_max, proportion_used)
+    )
 
-    threshold = get_compaction_threshold()
-    if not force and proportion_used <= threshold:
+    if not force and proportion_used <= get_compaction_threshold():
         return messages, []
-
-    strategy = get_compaction_strategy()
 
     # Fire pre_compact hooks so Claude Code-style PreCompact hooks (and any
     # other plugins) can observe / log compactions. Result is advisory.
     try:
-        import asyncio
-
         from code_puppy.callbacks import on_pre_compact
 
         agent_name = getattr(agent, "name", "unknown") if agent else "unknown"
-        coro = on_pre_compact(agent_name, strategy, len(messages), total_tokens)
-        try:
-            asyncio.get_running_loop()
-            # Inside running loop — schedule but don't await (compact() is sync).
-            asyncio.ensure_future(coro)
-        except RuntimeError:
-            asyncio.run(coro)
+        await on_pre_compact(
+            agent_name, get_compaction_strategy(), len(messages), total_tokens
+        )
     except Exception:
         # Hooks must never break compaction.
         pass
 
-    protected_tokens = get_protected_token_count()
-    filtered = filter_huge_messages(messages, model_name)
-
-    # filter_huge_messages() already runs prune_interrupted_tool_calls(),
-    # so by this point any orphaned tool_call / tool_return pairs (from
-    # cancelled runs, Ctrl-C interrupts, etc.) have been stripped out. The
-    # check below only trips on a genuine mid-execution state, which
-    # shouldn't happen when the history_processor is invoked — but we keep
-    # it as a defensive safety net.
-    #
-    # Previously this check ran on the raw `messages` list, which meant a
-    # single orphaned tool_call (e.g., from one cancelled command weeks ago)
-    # would defer summarization forever, letting history grow unbounded.
-    if strategy == "summarization" and has_pending_tool_calls(filtered):
-        emit_warning(
-            "⚠️  Summarization deferred: pending tool call(s) detected "
-            "after pruning orphans. Will retry on next invocation.",
-            message_group="token_context_status",
-        )
+    # Oversized-payload guarding is no longer done here: ToolOutputLimits
+    # bounds tool returns at production time and ClampOversizedMessages
+    # clamps runaway response parts at request time (see _output_limits.py),
+    # both wired as pure capabilities in _builder.py.
+    try:
+        strategy = build_compaction_strategy()
+        # pydantic-ai-harness#528: shared usage + default request_limit=50 kills
+        # the summary past 50 parent requests. Detach the ledger, fold it back.
+        summary_usage = RunUsage()
+        strategy_ctx = dataclasses.replace(ctx, usage=summary_usage)
+        try:
+            result = await strategy.compact(list(messages), strategy_ctx)
+        finally:
+            ctx.usage.incr(summary_usage)
+    except Exception as e:
+        emit_error(f"Compaction failed: [{type(e).__name__}] {e}")
         return messages, []
 
-    if strategy == "truncation":
-        result_messages, summarized_messages = _truncate_with_dropped(
-            filtered, protected_tokens, model_name
-        )
-    else:
-        # Route through the public summarize() so error handling, logging,
-        # and any future instrumentation stay in one place (DRY).
-        result_messages, summarized_messages = summarize(
-            filtered, protected_tokens, True, model_name
-        )
-        # If summarization failed gracefully (returned original messages
-        # with nothing dropped), fall back to truncation for this cycle.
-        # The user's strategy preference is preserved for the next cycle.
-        if not summarized_messages:
-            emit_warning(
-                "↪️  Summarization produced no compaction; "
-                "falling back to truncation for this cycle.",
-                message_group="token_context_status",
-            )
-            result_messages, summarized_messages = _truncate_with_dropped(
-                filtered, protected_tokens, model_name
-            )
+    result_hashes = {hash_message(m) for m in result}
+    dropped = [m for m in messages if hash_message(m) not in result_hashes]
 
-    final_token_count = sum(
-        estimate_tokens_for_message(m, model_name) for m in result_messages
+    final_token_count = sum(estimate_tokens_for_message(m, model_name) for m in result)
+    update_spinner_context(
+        format_context_info(
+            final_token_count,
+            model_max,
+            final_token_count / model_max if model_max else 0.0,
+        )
     )
-    final_summary = format_context_info(
-        final_token_count,
-        model_max,
-        final_token_count / model_max if model_max else 0.0,
-    )
-    update_spinner_context(final_summary)
+    return result, dropped
 
-    return result_messages, summarized_messages
+
+# ---------------------------------------------------------------------------
+# History-processor closure
+# ---------------------------------------------------------------------------
 
 
 def _strip_empty_thinking_parts(
@@ -429,20 +291,20 @@ def _strip_empty_thinking_parts(
     return cleaned, filtered_count
 
 
-def make_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
-    """Build the pydantic-ai ``history_processors`` callback for ``agent``.
+def make_history_processor(agent: Any) -> Callable[..., Any]:
+    """Build the pydantic-ai history-processor callback for ``agent``.
 
-    The returned closure:
+    The returned async closure:
       1. Fires ``on_message_history_processor_start``.
       2. Merges any incoming messages not already in ``agent._message_history``
          (preserving the last-message regardless of compacted-hash collisions).
-      3. Runs ``compact(...)`` if we're over threshold.
+      3. Runs ``compact(...)`` if we're over threshold (or ``/compact`` forced).
       4. Records dropped-message hashes in ``agent._compacted_message_hashes``.
       5. Strips empty ThinkingParts.
       6. Trims trailing ModelResponse messages so history ends with a ModelRequest.
       7. Fires ``on_message_history_processor_end``.
 
-    Agent contract (Phase 3 will enforce on ``BaseAgent``):
+    Agent contract:
       - ``agent._message_history: list``
       - ``agent._compacted_message_hashes: set``
       - ``agent._get_model_context_length() -> int``
@@ -450,12 +312,14 @@ def make_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
       - ``agent.name`` / ``agent.session_id`` (optional)
     """
 
-    def history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
-        # pydantic-ai picks 1-arg vs 2-arg processor by inspecting the first
-        # parameter's type annotation (must be ``RunContext`` for 2-arg form).
-        # We don't need ctx, so we use the 1-arg form.
+    async def history_processor(
+        ctx: RunContext[Any], messages: List[ModelMessage]
+    ) -> List[ModelMessage]:
+        # The RunContext-annotated first parameter opts us into pydantic-ai's
+        # 2-arg processor calling convention; the live ctx is handed straight
+        # to the harness strategies so summary-call usage lands on the run.
         history: List[ModelMessage] = agent._message_history
-        compacted_hashes: Set[int] = agent._compacted_message_hashes
+        compacted_hashes: Set[str] = agent._compacted_message_hashes
 
         on_message_history_processor_start(
             agent_name=getattr(agent, "name", None),
@@ -471,22 +335,21 @@ def make_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
             h = hash_message(msg)
             if h in existing_hashes:
                 continue
-            # Always keep the last (newest) message, even if its hash collides
-            # with a previously compacted one — short prompts like "yes"/"1"
-            # can collide and get silently dropped otherwise.
+            # Always keep the newest message even on hash collision — short
+            # prompts like "yes"/"1" can collide and get silently dropped.
             if i == last_idx or h not in compacted_hashes:
                 history.append(msg)
                 messages_added += 1
 
         from code_puppy.messaging.pause_controller import get_pause_controller
 
-        pause_controller = get_pause_controller()
-        force_compaction = pause_controller.take_compaction_request()
-        new_history, dropped = compact(
+        force_compaction = get_pause_controller().take_compaction_request()
+        new_history, dropped = await compact(
             agent,
             history,
             agent._get_model_context_length(),
             agent._estimate_context_overhead(),
+            ctx,
             force=force_compaction,
         )
         if force_compaction:
@@ -503,11 +366,9 @@ def make_history_processor(agent: Any) -> Callable[..., List[ModelMessage]]:
         while cleaned and isinstance(cleaned[-1], ModelResponse):
             cleaned.pop()
 
-        # Sanitize tool_call_ids that don't match Anthropic's required pattern.
-        # When switching from providers like Kimi (which may emit IDs with
-        # dots, colons, etc.) to Claude, those stale IDs cause a 400 from
-        # the Anthropic API.  This step is cheap and no-op when all IDs
-        # already conform.
+        # Sanitize tool_call_ids that don't match Anthropic's pattern: stale IDs
+        # from Kimi-style providers (dots/colons) cause a 400 after switching to
+        # Claude. Cheap no-op when all IDs already conform.
         cleaned = sanitize_tool_call_ids(cleaned)
 
         agent._message_history = cleaned

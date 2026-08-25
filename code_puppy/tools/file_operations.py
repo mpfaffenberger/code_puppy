@@ -49,11 +49,21 @@ class MatchInfo(BaseModel):
     file_path: str | None
     line_number: int | None
     line_content: str | None
+    # True for -A/-B/-C context lines, which are displayed but excluded from
+    # the 50-match budget and the reported match/file counts.
+    is_context: bool = False
 
 
 class GrepOutput(BaseModel):
     matches: List[MatchInfo]
     error: str | None = None
+
+
+# Upper bound on -A/-B/-C context rows returned alongside the (up to 50)
+# matches, so a wide context value can't grow the result without limit.
+# Context never evicts a real match: once this budget is full we keep scanning
+# for matches and simply stop collecting further context.
+_MAX_GREP_CONTEXT_ROWS = 200
 
 
 def is_likely_home_directory(directory):
@@ -209,6 +219,10 @@ def _list_files(
     import sys
 
     results = []
+    # Synthesized parent directories already added to ``results``. Membership is
+    # checked once per path component of every file, so this has to be O(1);
+    # rescanning ``results`` made the loop O(n^2) and hung large listings.
+    seen_dir_paths = set()
     directory = resolve_path(directory)
 
     # Plain text output for LLM consumption
@@ -231,9 +245,8 @@ def _list_files(
             )
             recursive = False
 
-    # When a filesystem backend is installed it owns the whole FS surface, so
-    # we compose the listing from it (fs_access.walk / list_dir) instead of
-    # shelling out to the local ripgrep -- keeping every operation coherent.
+    # With a FS backend installed it owns the whole FS surface — compose the
+    # listing from it (fs_access.walk / list_dir) instead of local ripgrep.
     from code_puppy.tools.io_backends import get_filesystem_backend
 
     _use_backend = get_filesystem_backend() is not None
@@ -345,10 +358,8 @@ def _list_files(
                             for i in range(len(path_parts)):
                                 partial_path = os.sep.join(path_parts[: i + 1])
                                 # Check if we already added this directory
-                                if not any(
-                                    f.path == partial_path and f.type == "directory"
-                                    for f in results
-                                ):
+                                if partial_path not in seen_dir_paths:
+                                    seen_dir_paths.add(partial_path)
                                     results.append(
                                         ListedFile(
                                             path=partial_path,
@@ -361,7 +372,12 @@ def _list_files(
                                         )
                                     )
 
-                    # Add the entry (file or directory)
+                    # Directories only land here via a TOCTOU race (rg lists files
+                    # only); dedupe against seen_dir_paths like synthesized parents.
+                    if entry_type == "directory":
+                        if file_path in seen_dir_paths:
+                            continue
+                        seen_dir_paths.add(file_path)
                     results.append(
                         ListedFile(
                             path=file_path,
@@ -438,35 +454,6 @@ def _list_files(
         else:
             return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
 
-    def get_file_icon(file_path):
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext in [".py", ".pyw"]:
-            return "\U0001f40d"
-        elif ext in [".js", ".jsx", ".ts", ".tsx"]:
-            return "\U0001f4dc"
-        elif ext in [".html", ".htm", ".xml"]:
-            return "\U0001f310"
-        elif ext in [".css", ".scss", ".sass"]:
-            return "\U0001f3a8"
-        elif ext in [".md", ".markdown", ".rst"]:
-            return "\U0001f4dd"
-        elif ext in [".json", ".yaml", ".yml", ".toml"]:
-            return "\u2699\ufe0f"
-        elif ext in [".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp"]:
-            return "\U0001f5bc\ufe0f"
-        elif ext in [".mp3", ".wav", ".ogg", ".flac"]:
-            return "\U0001f3b5"
-        elif ext in [".mp4", ".avi", ".mov", ".webm"]:
-            return "\U0001f3ac"
-        elif ext in [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"]:
-            return "\U0001f4c4"
-        elif ext in [".zip", ".tar", ".gz", ".rar", ".7z"]:
-            return "\U0001f4e6"
-        elif ext in [".exe", ".dll", ".so", ".dylib"]:
-            return "\u26a1"
-        else:
-            return "\U0001f4c4"
-
     # Count items in results
     dir_count = sum(1 for item in results if item.type == "directory")
     file_count = sum(1 for item in results if item.type == "file")
@@ -536,10 +523,8 @@ def _read_file(
 ) -> ReadFileOutput:
     file_path = resolve_path(file_path)
 
-    # When a filesystem backend is installed (e.g. an editor host), read
-    # through it so we see unsaved buffers and the host's view of the file.
-    # The backend owns existence/permission semantics, so we skip the local
-    # disk checks on this path.
+    # With a FS backend (e.g. editor host), read through it to see unsaved
+    # buffers; it owns existence/permission semantics — skip local checks.
     from code_puppy.tools.io_backends import get_filesystem_backend
 
     backend = get_filesystem_backend()
@@ -550,9 +535,8 @@ def _read_file(
         if num_lines is not None and num_lines < 1:
             error_msg = "num_lines must be >= 1"
             return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
-        # Push the slice down to the host (ACP fs/read supports line+limit) so a
-        # chunked read doesn't drag the whole file across the wire. Matches the
-        # local path: only slice when BOTH bounds are given.
+        # Push line+limit down to the host (ACP fs/read) so chunked reads don't
+        # drag the whole file across; slice only when BOTH bounds are given.
         want_slice = start_line is not None and num_lines is not None
         try:
             if want_slice:
@@ -576,9 +560,8 @@ def _read_file(
         error_msg = f"{file_path} is not a file"
         return ReadFileOutput(content=error_msg, num_tokens=0, error=error_msg)
     try:
-        # Use errors="surrogateescape" to handle files with invalid UTF-8 sequences
-        # This is common on Windows when files contain emojis or were created by
-        # applications that don't properly encode Unicode
+        # errors="surrogateescape" handles invalid UTF-8 (common on Windows when
+        # files contain emojis or were written by non-UTF-8 apps).
         with open(file_path, "r", encoding="utf-8", errors="surrogateescape") as f:
             if start_line is not None and start_line < 1:
                 error_msg = "start_line must be >= 1 (1-based indexing)"
@@ -689,10 +672,8 @@ def _sanitize_string(text: str) -> str:
         )
 
 
-# Ripgrep flags that change the output away from per-match JSON events.
-# _grep parses `--json` "match" events; with any of these flags ripgrep
-# emits none, so the tool would silently report zero matches. Reject them
-# loudly instead.
+# Ripgrep flags that suppress per-match JSON events (which _grep parses);
+# with these the tool would silently report zero matches — reject loudly.
 _INCOMPATIBLE_RG_FLAGS = frozenset(
     {
         "-l",
@@ -744,6 +725,72 @@ def _tokenize_flag_string(search_string: str) -> list[str] | None:
         return None
 
 
+# Flags the local ripgrep path forwards. Only content/context flags the tool
+# understands are allowed through; anything else -- including flags that run a
+# command per file (``--pre``) or read patterns from a file (``-f``) -- is
+# rejected so an unexpected flag can't reshape the ripgrep invocation.
+_SUPPORTED_RG_FLAGS = frozenset(
+    {
+        "-i",
+        "--ignore-case",
+        "-s",
+        "--case-sensitive",
+        "-w",
+        "--word-regexp",
+        "-F",
+        "--fixed-strings",
+        "-e",
+        "--regexp",
+        "-t",
+        "--type",
+        "-A",
+        "--after-context",
+        "-B",
+        "--before-context",
+        "-C",
+        "--context",
+        "-g",
+        "--glob",
+        "-v",
+        "--invert-match",
+        "-n",
+        "--line-number",
+        "-o",
+        "--only-matching",
+        "-S",
+        "--smart-case",
+        "--trim",
+        "-U",
+        "--multiline",
+        "--multiline-dotall",
+    }
+)
+
+# Supported flags whose following token is their value. That value is forwarded
+# verbatim and never checked against the flag allowlist, so patterns and globs
+# may themselves begin with ``-`` (e.g. ``-e '->foo'``).
+_RG_FLAGS_WITH_VALUE = frozenset(
+    {
+        "-e",
+        "--regexp",
+        "-t",
+        "--type",
+        "-A",
+        "--after-context",
+        "-B",
+        "--before-context",
+        "-C",
+        "--context",
+        "-g",
+        "--glob",
+    }
+)
+
+_SUPPORTED_RG_FLAGS_HINT = (
+    "-i, -s, -w, -F, -e, -t/--type, -A, -B, -C, -g, -v, -S, -o, -U"
+)
+
+
 def _build_grep_args(search_string: str) -> tuple[list[str], str | None]:
     """Convert ``search_string`` into ripgrep arguments, identically on all OSes.
 
@@ -759,8 +806,11 @@ def _build_grep_args(search_string: str) -> tuple[list[str], str | None]:
       Windows paths (``\\b``, ``C:\\Users``) are never mangled; quotes
       group words and one surrounding pair is stripped per token.
 
-    Returns ``(args, error)``. ``error`` is set when an unsupported
-    output-format flag is requested.
+    In flag mode only the flags in :data:`_SUPPORTED_RG_FLAGS` are forwarded;
+    any other flag is rejected with an ``error`` string.
+
+    Returns ``(args, error)``. ``error`` is set when an unsupported flag is
+    requested.
     """
     if not search_string.startswith("-"):
         return ["-e", search_string], None
@@ -771,21 +821,79 @@ def _build_grep_args(search_string: str) -> tuple[list[str], str | None]:
         # treat the whole string as a literal pattern.
         return ["-e", search_string], None
 
-    for token in tokens:
-        flag = token.split("=", 1)[0]
-        if flag in _INCOMPATIBLE_RG_FLAGS:
+    result: list[str] = []
+    has_pattern = False
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if not token.startswith("-"):
+            result.append(token)
+            has_pattern = True
+            index += 1
+            continue
+
+        # Cluster expansion fires only in flag position, so a value token
+        # (consumed below) never reaches here to be split apart.
+        pieces, expandable = _expand_short_flag_cluster(token)
+        if not expandable:
+            pieces = [token]
+        flag = pieces[0].split("=", 1)[0]
+        if flag not in _SUPPORTED_RG_FLAGS:
             return [], (
-                f"ripgrep flag '{flag}' is not supported: this tool parses "
-                "per-match JSON output, and that flag changes the output "
-                "format (it would silently return zero matches). Use a plain "
-                "pattern, or content flags like -i, -w, -F, --type instead."
+                f"grep flag '{flag}' is not supported. Supported flags: "
+                f"{_SUPPORTED_RG_FLAGS_HINT}. Use a plain pattern for "
+                "anything else."
             )
-    return tokens, None
+        if flag in ("-e", "--regexp"):
+            has_pattern = True
+        result.extend(pieces)
+        # A value-taking flag with no inline value (``=VALUE`` or a ``-C3``
+        # cluster) takes the next token as its value, forwarded verbatim so a
+        # pattern/glob beginning with ``-`` is neither split nor rejected.
+        if flag in _RG_FLAGS_WITH_VALUE and len(pieces) == 1 and "=" not in token:
+            index += 1
+            if index >= len(tokens):
+                return [], (
+                    f"grep flag '{flag}' needs a value. Supported flags: "
+                    f"{_SUPPORTED_RG_FLAGS_HINT}."
+                )
+            result.append(tokens[index])
+        index += 1
+    if not has_pattern:
+        # Match the backend path (_build_backend_matcher), which errors here
+        # instead of letting rg swallow the target directory as the pattern.
+        return [], "no search pattern provided"
+    return result, None
 
 
-# ripgrep --type name -> file extensions, for the backend grep path. Covers the
-# common types; unknown types raise a clear error rather than silently matching
-# nothing (ripgrep itself owns the full list on the local path).
+def _expand_short_flag_cluster(token: str) -> tuple[list[str], bool]:
+    """Split clustered short flags the way ripgrep itself does.
+
+    ``-iw`` becomes ``["-i", "-w"]``; a value-taking short flag consumes the
+    rest of the token as its value, so ``-C3`` becomes ``["-C", "3"]`` and
+    ``-tpy`` becomes ``["-t", "py"]``. Returns ``(tokens, False)`` when the
+    token is not a cluster of supported short flags (long options, values,
+    patterns), leaving the caller to handle it verbatim.
+    """
+    if (
+        len(token) > 2
+        and token.startswith("-")
+        and not token.startswith("--")
+        and "=" not in token
+    ):
+        chars = token[1:]
+        if f"-{chars[0]}" in _RG_FLAGS_WITH_VALUE:
+            return [f"-{chars[0]}", chars[1:]], True
+        if all(
+            f"-{char}" in _SUPPORTED_RG_FLAGS and f"-{char}" not in _RG_FLAGS_WITH_VALUE
+            for char in chars
+        ):
+            return [f"-{char}" for char in chars], True
+    return [token], False
+
+
+# ripgrep --type name → extensions for the backend grep path; unknown types
+# error loudly (ripgrep owns the full list on the local path).
 _RG_TYPE_EXTS: dict[str, set[str]] = {
     "py": {".py", ".pyi", ".pyw"},
     "js": {".js", ".jsx", ".mjs", ".cjs", ".vue"},
@@ -812,7 +920,7 @@ _RG_TYPE_EXTS: dict[str, set[str]] = {
     "sql": {".sql"},
 }
 
-_BACKEND_GREP_SUPPORTED = "-i, -s, -w, -F, --type/-t, -e, or a plain pattern"
+_BACKEND_GREP_SUPPORTED = "-i, -s, -S, -w, -F, -v, --type/-t, -e, or a plain pattern"
 
 
 def _build_backend_matcher(
@@ -840,70 +948,106 @@ def _build_backend_matcher(
     exts: set[str] | None = None
     pattern: str | None = None
 
+    invert = False
+    smart_case = False
     if not search_string.startswith("-"):
         pattern = search_string
     else:
-        tokens = _tokenize_flag_string(search_string)
-        if tokens is None:
+        raw_tokens = _tokenize_flag_string(search_string)
+        if raw_tokens is None:
             pattern = search_string  # unmatched quote -> treat as literal
         else:
             i = 0
-            while i < len(tokens):
-                tok = tokens[i]
-                key, eq, inline = tok.partition("=")
+            while i < len(raw_tokens):
+                token = raw_tokens[i]
+                if not token.startswith("-"):
+                    pattern = token  # positional -> the pattern
+                    i += 1
+                    continue
 
-                def _value() -> str | None:
-                    nonlocal i
-                    if eq:
-                        return inline
-                    if i + 1 < len(tokens):
-                        i += 1
-                        return tokens[i]
-                    return None
+                # Cluster expansion fires only in flag position; a value pulled
+                # from the next raw token below stays verbatim, unexpanded.
+                pieces, expandable = _expand_short_flag_cluster(token)
+                if not expandable:
+                    pieces = [token]
+                j = 0
+                while j < len(pieces):
+                    tok = pieces[j]
+                    key, eq, inline = tok.partition("=")
 
-                if key in _INCOMPATIBLE_RG_FLAGS:
-                    return (
-                        None,
-                        None,
-                        (
-                            f"ripgrep flag '{key}' changes output format and is not "
-                            f"supported by backend grep. Supported: {_BACKEND_GREP_SUPPORTED}."
-                        ),
-                    )
-                if key in ("-i", "--ignore-case"):
-                    flags |= re.IGNORECASE
-                elif key in ("-s", "--case-sensitive"):
-                    flags &= ~re.IGNORECASE
-                elif key in ("-w", "--word-regexp"):
-                    word = True
-                elif key in ("-F", "--fixed-strings"):
-                    fixed = True
-                elif key in ("-t", "--type"):
-                    name = _value()
-                    mapped = _RG_TYPE_EXTS.get(name or "")
-                    if mapped is None:
+                    def _value() -> str | None:
+                        nonlocal i, j
+                        if eq:
+                            return inline
+                        if j + 1 < len(pieces):
+                            j += 1
+                            return pieces[j]
+                        if i + 1 < len(raw_tokens):
+                            i += 1
+                            return raw_tokens[i]
+                        return None
+
+                    if (
+                        key in ("-t", "--type", "-e", "--regexp")
+                        and not eq
+                        and j + 1 >= len(pieces)
+                        and i + 1 >= len(raw_tokens)
+                    ):
                         return (
                             None,
                             None,
                             (
-                                f"--type '{name}' is not supported by backend grep "
-                                f"(known: {', '.join(sorted(_RG_TYPE_EXTS))})"
+                                f"grep flag '{key}' needs a value. "
+                                f"Supported: {_BACKEND_GREP_SUPPORTED}."
                             ),
                         )
-                    exts = (exts or set()) | mapped
-                elif key in ("-e", "--regexp"):
-                    pattern = _value()
-                elif key.startswith("-"):
-                    return (
-                        None,
-                        None,
-                        (
-                            f"grep flag '{key}' is not supported by backend grep. "
-                            f"Supported: {_BACKEND_GREP_SUPPORTED}."
-                        ),
-                    )
-                else:
-                    pattern = tok  # positional -> the pattern
+
+                    if key in _INCOMPATIBLE_RG_FLAGS:
+                        return (
+                            None,
+                            None,
+                            (
+                                f"ripgrep flag '{key}' changes output format and is not "
+                                f"supported by backend grep. Supported: {_BACKEND_GREP_SUPPORTED}."
+                            ),
+                        )
+                    if key in ("-i", "--ignore-case"):
+                        flags |= re.IGNORECASE
+                    elif key in ("-s", "--case-sensitive"):
+                        flags &= ~re.IGNORECASE
+                    elif key in ("-v", "--invert-match"):
+                        invert = True
+                    elif key in ("-S", "--smart-case"):
+                        smart_case = True
+                    elif key in ("-w", "--word-regexp"):
+                        word = True
+                    elif key in ("-F", "--fixed-strings"):
+                        fixed = True
+                    elif key in ("-t", "--type"):
+                        name = _value()
+                        mapped = _RG_TYPE_EXTS.get(name or "")
+                        if mapped is None:
+                            return (
+                                None,
+                                None,
+                                (
+                                    f"--type '{name}' is not supported by backend grep "
+                                    f"(known: {', '.join(sorted(_RG_TYPE_EXTS))})"
+                                ),
+                            )
+                        exts = (exts or set()) | mapped
+                    elif key in ("-e", "--regexp"):
+                        pattern = _value()
+                    else:
+                        return (
+                            None,
+                            None,
+                            (
+                                f"grep flag '{key}' is not supported by backend grep. "
+                                f"Supported: {_BACKEND_GREP_SUPPORTED}."
+                            ),
+                        )
+                    j += 1
                 i += 1
 
     if not pattern:
@@ -912,6 +1056,12 @@ def _build_backend_matcher(
         pattern = re.escape(pattern)
     if word:
         pattern = r"\b(?:" + pattern + r")\b"
+    if smart_case and not any(char.isupper() for char in pattern):
+        flags |= re.IGNORECASE
+    if invert:
+        # A line matches the inverted search when no position starts a
+        # match of the original pattern (whole-line negative lookahead).
+        pattern = r"^(?:(?!" + pattern + r").)*$"
     try:
         return re.compile(pattern, flags), exts, None
     except re.error as exc:
@@ -939,12 +1089,14 @@ def _emit_grep_result(
         )
         for m in matches
     ]
-    unique_files = len(set(m.file_path for m in matches)) if matches else 0
+    # Context lines (-A/-B/-C) are shown but never counted as hits.
+    real_matches = [m for m in matches if not m.is_context]
+    unique_files = len(set(m.file_path for m in real_matches)) if real_matches else 0
     grep_result_msg = GrepResultMessage(
         search_term=search_string,
         directory=directory,
         matches=grep_matches,
-        total_matches=len(matches),
+        total_matches=len(real_matches),
         files_searched=unique_files,
         verbose=get_grep_output_verbose(),
     )
@@ -967,9 +1119,8 @@ def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
     """
     from code_puppy.tools.common import should_ignore_dir_path, should_ignore_path
 
-    # Report a missing/non-directory target as an error, matching the local
-    # ripgrep path (rather than silently returning zero matches for a typo'd
-    # directory). ``walk`` itself tolerates a bad root by yielding nothing.
+    # Missing/non-directory target = error (matches local ripgrep, not silent
+    # zero matches); ``walk`` itself tolerates a bad root.
     if not fs_access.is_dir(directory):
         error_msg = (
             f"Error: Directory '{directory}' does not exist"
@@ -1015,6 +1166,16 @@ def _grep_via_backend(directory: str, search_string: str) -> "GrepOutput":
     return _emit_grep_result(search_string, directory, matches, None)
 
 
+def _carries_type_filter(rg_args: list[str]) -> bool:
+    """True when the forwarded ripgrep args already select file types."""
+    return any(
+        token in ("-t", "--type")
+        or token.startswith("--type=")
+        or token.startswith("-t=")
+        for token in rg_args
+    )
+
+
 def _grep(context: RunContext, search_string: str, directory: str = ".") -> GrepOutput:
     import json
     import os
@@ -1040,13 +1201,8 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
     # Create a temporary ignore file with our ignore patterns
     ignore_file = None
     try:
-        # Use ripgrep to search for the string
-        # Use absolute path to ensure it works from any directory
-        # --json for structured output
-        # --max-count 50 to limit results
-        # --max-filesize 5M to avoid huge files (increased from 1M)
-        # --type=all to search across all recognized text file types
-        # --ignore-file to obey our ignore list
+        # ripgrep: absolute path, --json output, --max-count 50, --max-filesize 5M,
+        # --type=all, --ignore-file for our ignore list.
 
         # Find ripgrep executable - first check system PATH, then virtual environment
         rg_path = shutil.which("rg")
@@ -1073,15 +1229,11 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
         if args_error is not None:
             return GrepOutput(matches=[], error=args_error)
 
-        cmd = [
-            rg_path,
-            "--json",
-            "--max-count",
-            "50",
-            "--max-filesize",
-            "5M",
-            "--type=all",
-        ]
+        cmd = [rg_path, "--json", "--max-count", "50", "--max-filesize", "5M"]
+        # rg's type filters are additive, so the default all-types selection
+        # must not dilute an explicit -t/--type from the search string.
+        if not _carries_type_filter(rg_args):
+            cmd.append("--type=all")
 
         # Add ignore patterns to the command via a temporary file
         from code_puppy.tools.common import DIR_IGNORE_PATTERNS
@@ -1117,13 +1269,18 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
             return GrepOutput(matches=[], error=error_message)
 
         # Parse the JSON output from ripgrep
+        real_match_count = 0
+        context_row_count = 0
         for line in result.stdout.strip().split("\n"):
             if not line:
                 continue
             try:
                 match_data = json.loads(line)
-                # Only process match events, not context or summary
-                if match_data.get("type") == "match":
+                # Process match and context events (-A/-B/-C context lines
+                # carry the same path/lines/line_number shape); skip begin,
+                # end, and summary bookkeeping events.
+                event_type = match_data.get("type")
+                if event_type in ("match", "context"):
                     data = match_data.get("data", {})
                     path_data = data.get("path", {})
                     file_path = (
@@ -1138,16 +1295,28 @@ def _grep(context: RunContext, search_string: str, directory: str = ".") -> Grep
                     if len(line_content.strip()) > 512:
                         line_content = line_content.strip()[0:512]
                     if file_path and line_number:
+                        is_context = event_type == "context"
                         # Sanitize content to handle any remaining encoding issues
                         match_info = MatchInfo(
                             file_path=_sanitize_string(file_path),
                             line_number=line_number,
                             line_content=_sanitize_string(line_content.strip()),
+                            is_context=is_context,
                         )
+                        # Context rides along without consuming the 50-match
+                        # budget, but is itself capped so a wide -A/-B/-C can't
+                        # grow the result without bound. Real matches are never
+                        # evicted: once the context budget is full we keep
+                        # scanning for matches and just drop further context.
+                        if is_context:
+                            if context_row_count >= _MAX_GREP_CONTEXT_ROWS:
+                                continue
+                            context_row_count += 1
                         matches.append(match_info)
-                        # Limit to 50 matches total, same as original implementation
-                        if len(matches) >= 50:
-                            break
+                        if not is_context:
+                            real_match_count += 1
+                            if real_match_count >= 50:
+                                break
             except json.JSONDecodeError:
                 # Skip lines that aren't valid JSON
                 continue
@@ -1192,9 +1361,8 @@ def register_list_files(agent):
         if warning:
             result.error = warning
 
-        # Context guard: if the listing is too chonky to dump straight into
-        # the agent's context window, spill it to a temp file and hand the
-        # agent a pointer instead. Keeps token usage sane on huge repos.
+        # Oversized listing → spill to a temp file and hand the agent a pointer
+        # (keeps token usage sane on huge repos).
         _LIST_FILES_CONTEXT_LIMIT = 20_000
         if len(result.content) > _LIST_FILES_CONTEXT_LIMIT:
             from tempfile import NamedTemporaryFile, gettempdir
@@ -1258,7 +1426,9 @@ def register_grep(agent):
         or 'foo|bar baz' work as-is, on every OS).
 
         To pass ripgrep flags, start the string with a flag and quote the
-        pattern, e.g.: -i --type py 'def \\w+_handler'
+        pattern, e.g.: -i --type py 'def \\w+_handler'. Supported flags:
+        -i, -s, -w, -F, -e, -t/--type, -A, -B, -C, -g, -v, -S, -o, -U
+        (long forms and clustered shorts like -iw or -C3 work too).
 
         Output-format flags (-l, -c, --files, --count, --json, -q) are not
         supported and return an error. To search for a pattern that itself

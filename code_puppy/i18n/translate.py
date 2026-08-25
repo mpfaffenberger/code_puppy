@@ -26,14 +26,12 @@ from .locale import DEFAULT_LOCALE, detect_locale, normalize_locale
 from .plurals import plural_category
 from .pseudo import is_pseudo_locale, pseudolocalize
 
-# Safe interpolation grammar. We intentionally do NOT use str.format/format_map
-# on catalog strings: catalogs are untrusted input (add_catalog_dir is the
-# plugin/community/private-fork seam), and str.format honors attribute/index
-# access in the *template* (e.g. {x.__class__.__globals__}) plus format specs
-# (e.g. {n:99999999} memory bombs). This grammar matches ONLY {{ / }} escapes
-# and {identifier} fields -- no dots, no indexing, no format specs, no
-# conversions -- so a malicious or careless translation can neither reach
-# object internals nor blow up rendering.
+# Safe interpolation grammar. NOT str.format/format_map: catalogs are
+# untrusted (add_catalog_dir is the plugin/community seam), and str.format
+# honors attr/index access in templates ({x.__class__.__globals__}) plus
+# format-spec memory bombs ({n:99999999}). Matches only {{/}} escapes and
+# {identifier} fields — no dots, indexing, specs, or conversions — so a
+# translation can neither reach object internals nor blow up rendering.
 _FIELD_RE = re.compile(r"\{\{|\}\}|\{(\w+)\}")
 
 
@@ -71,9 +69,8 @@ class Translator:
         self._default = normalize_locale(default_locale) or DEFAULT_LOCALE
         self._lock = threading.RLock()
         self._locale = normalize_locale(locale) or self._default
-        # True once the locale has been set explicitly (set_locale /
-        # use_detected_locale). Lets ensure_detected() seed exactly once from
-        # env+config without clobbering a later runtime override.
+        # Set once the locale was chosen explicitly (set_locale / detected) —
+        # lets ensure_detected() seed once without clobbering a later override.
         self._explicit = locale is not None
 
     # -- locale management -------------------------------------------------

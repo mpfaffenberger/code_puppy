@@ -5,7 +5,7 @@ Targeted tests to reach 100% on specific missed lines.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from importlib.metadata import PackageNotFoundError
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -78,73 +78,6 @@ class TestCodePuppyAgentTools:
 
 
 # =============================================================================
-# summarization_agent.py gaps
-# =============================================================================
-
-
-class TestSummarizationGaps:
-    def test_ensure_thread_pool_recreates_after_shutdown(self):
-        """Cover lines 38-40: pool._shutdown check."""
-        import code_puppy.summarization_agent as mod
-
-        pool = ThreadPoolExecutor(max_workers=1)
-        pool.shutdown(wait=False)
-        mod._thread_pool = pool
-
-        new_pool = mod._ensure_thread_pool()
-        assert new_pool is not pool
-        assert not new_pool._shutdown
-
-    def test_summarization_error_with_original(self):
-        """Cover lines 66-67: SummarizationError.__init__."""
-        from code_puppy.summarization_agent import SummarizationError
-
-        orig = ValueError("boom")
-        err = SummarizationError("wrapper", original_error=orig)
-        assert err.original_error is orig
-        assert "wrapper" in str(err)
-
-    def test_run_summarization_sync_agent_init_failure(self):
-        """Cover the except branch when get_summarization_agent raises."""
-        from code_puppy.summarization_agent import (
-            SummarizationError,
-            run_summarization_sync,
-        )
-
-        with patch(
-            "code_puppy.summarization_agent.get_summarization_agent",
-            side_effect=RuntimeError("no model"),
-        ):
-            with pytest.raises(SummarizationError, match="Failed to initialize"):
-                run_summarization_sync("prompt", [])
-
-    def test_run_summarization_sync_llm_failure(self):
-        """Cover lines 88-105: the _run_in_thread path and LLM error wrapping."""
-        from code_puppy.summarization_agent import (
-            SummarizationError,
-            run_summarization_sync,
-        )
-
-        mock_agent = MagicMock()
-        mock_agent.run = MagicMock(side_effect=RuntimeError("LLM down"))
-
-        with (
-            patch(
-                "code_puppy.summarization_agent.get_summarization_agent",
-                return_value=mock_agent,
-            ),
-            patch(
-                "code_puppy.summarization_agent.get_summarization_model_name",
-                return_value="test",
-            ),
-            patch("code_puppy.model_utils.prepare_prompt_for_model") as mock_prep,
-        ):
-            mock_prep.return_value = MagicMock(user_prompt="p", instructions="i")
-            with pytest.raises(SummarizationError, match="LLM call failed"):
-                run_summarization_sync("summarize", [])
-
-
-# =============================================================================
 # display.py line 39 – subagent early return
 # =============================================================================
 
@@ -170,8 +103,10 @@ class TestDisplaySubagentSkip:
 
 class TestInitVersionFallback:
     def test_version_fallback_on_exception(self):
-        """Cover lines 8-10: exception branch."""
-        with patch("importlib.metadata.version", side_effect=Exception("nope")):
+        """The Code Puppy version keeps its development fallback on lookup errors."""
+        with patch(
+            "importlib.metadata.version", side_effect=Exception("nope")
+        ) as mock_version:
             # Re-exec the module code
             import importlib
 
@@ -179,16 +114,83 @@ class TestInitVersionFallback:
 
             importlib.reload(code_puppy)
             assert code_puppy.__version__ == "0.0.0-dev"
+            mock_version.assert_called_once_with("code-puppy")
 
     def test_version_fallback_on_empty(self):
-        """Cover the empty-string branch."""
-        with patch("importlib.metadata.version", return_value=""):
+        """The Code Puppy version keeps its development fallback when empty."""
+        with patch("importlib.metadata.version", return_value="") as mock_version:
             import importlib
 
             import code_puppy
 
             importlib.reload(code_puppy)
             assert code_puppy.__version__ == "0.0.0-dev"
+            mock_version.assert_called_once_with("code-puppy")
+
+    @pytest.mark.parametrize("metadata_version", ["0.0.2", "  1.2.3rc1+build.5  "])
+    def test_core_plugins_version_uses_installed_distribution_metadata(
+        self, metadata_version
+    ):
+        import code_puppy
+
+        with patch(
+            "importlib.metadata.version", return_value=metadata_version
+        ) as mock_version:
+            assert code_puppy.get_core_plugins_version() == metadata_version.strip()
+
+        mock_version.assert_called_once_with("code-puppy-core-plugins")
+
+    @pytest.mark.parametrize(
+        "metadata_version",
+        [
+            "",
+            "   ",
+            None,
+            object(),
+            "not-a-version",
+            "1.2.3\nInjected second line",
+            "\x1b[2J",
+        ],
+    )
+    def test_core_plugins_version_rejects_empty_or_malformed_metadata(
+        self, metadata_version
+    ):
+        import code_puppy
+
+        with patch("importlib.metadata.version", return_value=metadata_version):
+            assert code_puppy.get_core_plugins_version() is None
+
+    def test_core_plugins_version_handles_normalization_failure(self):
+        import code_puppy
+
+        class BrokenVersion(str):
+            def strip(self):
+                raise RuntimeError("broken metadata")
+
+        with patch("importlib.metadata.version", return_value=BrokenVersion("1.2.3")):
+            assert code_puppy.get_core_plugins_version() is None
+
+    def test_core_plugins_version_handles_missing_distribution(self):
+        import code_puppy
+
+        with patch(
+            "importlib.metadata.version",
+            side_effect=PackageNotFoundError("code-puppy-core-plugins"),
+        ):
+            assert code_puppy.get_core_plugins_version() is None
+
+    @pytest.mark.parametrize("metadata_version", [" 1.2.3 ", object()])
+    def test_code_puppy_version_preserves_truthy_metadata(self, metadata_version):
+        import importlib
+
+        import code_puppy
+
+        try:
+            with patch("importlib.metadata.version", return_value=metadata_version):
+                importlib.reload(code_puppy)
+                assert code_puppy.__version__ is metadata_version
+        finally:
+            importlib.reload(code_puppy)
 
 
 # =============================================================================

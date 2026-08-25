@@ -4,8 +4,10 @@ Targets all uncovered lines to reach 100% coverage.
 """
 
 import asyncio
+from contextlib import nullcontext
+from io import StringIO
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from rich.text import Text
@@ -188,155 +190,68 @@ class TestShouldIgnoreDirPath:
 
 
 # ---------------------------------------------------------------------------
-# Syntax highlighting helpers
+# termflow diff adapters (rendering itself is termflow's job, and tested there)
 # ---------------------------------------------------------------------------
 
 
-class TestGetLexerForExtension:
-    def test_python_extension(self):
-        from code_puppy.tools.common import _get_lexer_for_extension
+class TestTermflowDiffAdapters:
+    def test_renderer_uses_explicit_colors(self):
+        from code_puppy.tools.common import _termflow_diff_renderer
 
-        lexer = _get_lexer_for_extension(".py")
-        assert lexer is not None
+        renderer = _termflow_diff_renderer("#002200", "#220000")
+        assert renderer.theme.addition == "#002200"
+        assert renderer.theme.deletion == "#220000"
 
-    def test_without_dot(self):
-        from code_puppy.tools.common import _get_lexer_for_extension
+    def test_renderer_defaults_come_from_config(self):
+        from code_puppy.tools.common import _termflow_diff_renderer
 
-        lexer = _get_lexer_for_extension("py")
-        assert lexer is not None
-
-    def test_uppercase_extension(self):
-        from code_puppy.tools.common import _get_lexer_for_extension
-
-        lexer = _get_lexer_for_extension(".PY")
-        assert lexer is not None
-
-    def test_unknown_extension_returns_text_lexer(self):
-        from code_puppy.tools.common import _get_lexer_for_extension
-
-        lexer = _get_lexer_for_extension(".xyz_unknown")
-        assert lexer is not None
-
-    def test_no_pygments(self):
-        import code_puppy.tools.common as mod
-
-        orig = mod.PYGMENTS_AVAILABLE
-        try:
-            mod.PYGMENTS_AVAILABLE = False
-            result = mod._get_lexer_for_extension(".py")
-            assert result is None
-        finally:
-            mod.PYGMENTS_AVAILABLE = orig
-
-    def test_get_lexer_by_name_exception(self):
-        """Test fallback to TextLexer when get_lexer_by_name fails."""
-        from code_puppy.tools.common import PYGMENTS_AVAILABLE, _get_lexer_for_extension
-
-        if not PYGMENTS_AVAILABLE:
-            pytest.skip("Pygments not available")
-        with patch(
-            "code_puppy.tools.common.get_lexer_by_name",
-            side_effect=Exception("no lexer"),
+        with (
+            patch(
+                "code_puppy.config.get_diff_addition_color",
+                return_value="#0a0b0c",
+            ),
+            patch(
+                "code_puppy.config.get_diff_deletion_color",
+                return_value="#0d0e0f",
+            ),
         ):
-            result = _get_lexer_for_extension(".py")
-            assert result is not None  # Should return TextLexer
+            renderer = _termflow_diff_renderer()
+        assert renderer.theme.addition == "#0a0b0c"
+        assert renderer.theme.deletion == "#0d0e0f"
+
+    def test_highlighter_flows_through_theme_callback(self):
+        from code_puppy.tools.common import _termflow_diff_renderer
+
+        sentinel = object()
+        with patch(
+            "code_puppy.callbacks.on_termflow_highlighter",
+            return_value=sentinel,
+        ):
+            renderer = _termflow_diff_renderer("#002200", "#220000")
+        assert renderer.highlighter is sentinel
 
 
-class TestGetTokenColor:
-    def test_returns_default_for_unknown(self):
-        from code_puppy.tools.common import _get_token_color
+class TestStreamDiffAnsiLines:
+    def test_yields_lines_without_headers(self):
+        from code_puppy.tools.common import stream_diff_ansi_lines
 
-        # Some random token type
-        color = _get_token_color("SomeUnknownTokenType")
-        assert color == "#cccccc"
+        diff = "--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-old\n+new"
+        lines = list(stream_diff_ansi_lines(diff, "#002200", "#220000"))
+        assert len(lines) == 2  # headers skipped, one line per change
+        assert not any(line.endswith("\n") for line in lines)
 
-    def test_no_pygments(self):
-        import code_puppy.tools.common as mod
+    def test_backgrounds_present(self):
+        from code_puppy.tools.common import stream_diff_ansi_lines
 
-        orig = mod.PYGMENTS_AVAILABLE
-        try:
-            mod.PYGMENTS_AVAILABLE = False
-            color = mod._get_token_color("anything")
-            assert color == "#cccccc"
-        finally:
-            mod.PYGMENTS_AVAILABLE = orig
+        lines = list(stream_diff_ansi_lines("-old\n+new", "#002200", "#220000"))
+        joined = "".join(lines)
+        assert "\x1b[48;2;0;34;0m" in joined
+        assert "\x1b[48;2;34;0;0m" in joined
 
-    def test_keyword_token(self):
-        from code_puppy.tools.common import PYGMENTS_AVAILABLE, _get_token_color
+    def test_empty_diff_yields_nothing(self):
+        from code_puppy.tools.common import stream_diff_ansi_lines
 
-        if PYGMENTS_AVAILABLE:
-            from pygments.token import Token
-
-            color = _get_token_color(Token.Keyword)
-            assert color != "#cccccc"  # Should match a specific color
-
-
-class TestHighlightCodeLine:
-    def test_no_pygments(self):
-        import code_puppy.tools.common as mod
-
-        orig = mod.PYGMENTS_AVAILABLE
-        try:
-            mod.PYGMENTS_AVAILABLE = False
-            result = mod._highlight_code_line("print('hello')", None, None)
-            assert isinstance(result, Text)
-            # With bg_color
-            result2 = mod._highlight_code_line("code", "#112233", None)
-            assert isinstance(result2, Text)
-        finally:
-            mod.PYGMENTS_AVAILABLE = orig
-
-    def test_with_pygments_no_bg(self):
-        from code_puppy.tools.common import (
-            PYGMENTS_AVAILABLE,
-            _get_lexer_for_extension,
-            _highlight_code_line,
-        )
-
-        if not PYGMENTS_AVAILABLE:
-            pytest.skip("Pygments not available")
-        lexer = _get_lexer_for_extension(".py")
-        result = _highlight_code_line("x = 1", None, lexer)
-        assert isinstance(result, Text)
-
-    def test_with_pygments_with_bg(self):
-        from code_puppy.tools.common import (
-            PYGMENTS_AVAILABLE,
-            _get_lexer_for_extension,
-            _highlight_code_line,
-        )
-
-        if not PYGMENTS_AVAILABLE:
-            pytest.skip("Pygments not available")
-        lexer = _get_lexer_for_extension(".py")
-        result = _highlight_code_line("x = 1", "#112233", lexer)
-        assert isinstance(result, Text)
-
-    def test_with_lexer_none(self):
-        from code_puppy.tools.common import _highlight_code_line
-
-        result = _highlight_code_line("code", "#112233", None)
-        assert isinstance(result, Text)
-
-
-class TestExtractFileExtensionFromDiff:
-    def test_with_python_file(self):
-        from code_puppy.tools.common import _extract_file_extension_from_diff
-
-        diff = "--- a/foo.py\n+++ b/foo.py\n@@ -1 +1 @@\n-old\n+new"
-        assert _extract_file_extension_from_diff(diff) == ".py"
-
-    def test_with_js_file(self):
-        from code_puppy.tools.common import _extract_file_extension_from_diff
-
-        diff = "--- a/src/app.js\n+++ b/src/app.js"
-        assert _extract_file_extension_from_diff(diff) == ".js"
-
-    def test_no_extension_found(self):
-        from code_puppy.tools.common import _extract_file_extension_from_diff
-
-        diff = "some random text\nno diff headers here"
-        assert _extract_file_extension_from_diff(diff) == ".txt"
+        assert list(stream_diff_ansi_lines("")) == []
 
 
 # ---------------------------------------------------------------------------
@@ -391,61 +306,6 @@ class TestBrightenHex:
 
 
 # ---------------------------------------------------------------------------
-# _format_diff_with_syntax_highlighting
-# ---------------------------------------------------------------------------
-
-
-class TestFormatDiffWithSyntaxHighlighting:
-    def test_basic_diff(self):
-        from code_puppy.tools.common import _format_diff_with_syntax_highlighting
-
-        diff = "--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-old\n+new\n context"
-        result = _format_diff_with_syntax_highlighting(diff, "#002200", "#220000")
-        assert isinstance(result, Text)
-
-    def test_empty_lines(self):
-        from code_puppy.tools.common import _format_diff_with_syntax_highlighting
-
-        diff = "-removed\n\n+added"
-        result = _format_diff_with_syntax_highlighting(diff, "#002200", "#220000")
-        assert isinstance(result, Text)
-
-    def test_no_pygments(self):
-        import code_puppy.tools.common as mod
-
-        orig = mod.PYGMENTS_AVAILABLE
-        try:
-            mod.PYGMENTS_AVAILABLE = False
-            result = mod._format_diff_with_syntax_highlighting(
-                "diff text", "#002200", "#220000"
-            )
-            assert isinstance(result, Text)
-        finally:
-            mod.PYGMENTS_AVAILABLE = orig
-
-    def test_trailing_newline(self):
-        from code_puppy.tools.common import _format_diff_with_syntax_highlighting
-
-        diff = "-old\n+new\n"  # trailing newline
-        result = _format_diff_with_syntax_highlighting(diff, "#002200", "#220000")
-        assert isinstance(result, Text)
-
-    def test_context_line_no_space_prefix(self):
-        from code_puppy.tools.common import _format_diff_with_syntax_highlighting
-
-        diff = "plain context line"
-        result = _format_diff_with_syntax_highlighting(diff, "#002200", "#220000")
-        assert isinstance(result, Text)
-
-    def test_skip_diff_headers(self):
-        from code_puppy.tools.common import _format_diff_with_syntax_highlighting
-
-        diff = "diff --git a/f b/f\nindex abc..def\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new"
-        result = _format_diff_with_syntax_highlighting(diff, "#002200", "#220000")
-        assert isinstance(result, Text)
-
-
-# ---------------------------------------------------------------------------
 # format_diff_with_colors
 # ---------------------------------------------------------------------------
 
@@ -471,19 +331,6 @@ class TestFormatDiffWithColors:
         diff = "--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-old\n+new"
         result = format_diff_with_colors(diff)
         assert isinstance(result, Text)
-
-    def test_no_pygments_warning(self):
-        import code_puppy.tools.common as mod
-
-        orig = mod.PYGMENTS_AVAILABLE
-        try:
-            mod.PYGMENTS_AVAILABLE = False
-            with patch.object(mod, "emit_warning") as mock_warn:
-                result = mod.format_diff_with_colors("-old\n+new")
-                mock_warn.assert_called_once()
-                assert isinstance(result, Text)
-        finally:
-            mod.PYGMENTS_AVAILABLE = orig
 
 
 # ---------------------------------------------------------------------------
@@ -545,113 +392,87 @@ class TestGenerateGroupId:
 
 
 # ---------------------------------------------------------------------------
-# arrow_select_async (mock Application)
+# arrow_select / arrow_select_async (headless termflow drives)
 # ---------------------------------------------------------------------------
+
+
+def _drive_selector(choices, keys, preview_callback=None):
+    """Build the inline selector and drive it with scripted keys."""
+    from code_puppy.tools.common import _build_arrow_select_menu
+
+    script = iter(keys)
+    out = StringIO()
+    menu = _build_arrow_select_menu(
+        "Pick:",
+        choices,
+        preview_callback,
+        key_source=lambda: next(script),
+        output=out,
+        size=lambda: (80, 24),
+    )
+    return menu.run(), out.getvalue()
 
 
 class TestArrowSelectAsync:
-    def test_selector_uses_semantic_literal_fragments(self):
-        from code_puppy.tools.common import _format_selector
+    def test_scripted_selection_returns_choice(self):
+        result, raw = _drive_selector(["choice1", "choice2"], ["down", "enter"])
+        assert result.item.value == "choice2"
+        assert "choice1" in raw
 
-        fragments = list(
-            _format_selector(
-                "Pick <b>literally</b>",
-                ["one & only", "two"],
-                0,
-                preview_callback=lambda _: "preview <dim>literally</dim>",
-            )
+    def test_ctrl_n_and_ctrl_p_move_the_cursor(self):
+        result, _ = _drive_selector(
+            ["a", "b", "c"], ["ctrl-n", "ctrl-n", "ctrl-p", "enter"]
         )
-        styles = {style for style, _ in fragments}
-        text = "".join(text for _, text in fragments)
+        assert result.item.value == "b"
 
-        assert {
-            "class:tui.header",
-            "class:tui.selected",
-            "class:tui.body",
-            "class:tui.border",
-            "class:tui.muted",
-            "class:tui.help",
-            "class:tui.help-key",
-        } <= styles
-        assert "<b>literally</b>" in text
-        assert "one & only" in text
-        assert "<dim>literally</dim>" in text
+    def test_renders_inline_not_fullscreen(self):
+        _, raw = _drive_selector(["a"], ["escape"])
+        assert "\x1b[H" not in raw  # no cursor-home: transcript survives
+        assert "\x1b[?1049" not in raw  # no alt screen
 
-    @pytest.mark.asyncio
-    async def test_basic_selection(self):
-        # Mock the Application to immediately return first choice
-        with patch("code_puppy.tools.common.Application") as MockApp:
-            app_instance = MagicMock()
-            MockApp.return_value = app_instance
+    def test_preview_callback_receives_index(self):
+        seen = []
 
-            async def fake_run_async():
-                # Simulate selecting first choice (index 0)
-                pass
+        def preview(index):
+            seen.append(index)
+            return f"Preview {index}"
 
-            app_instance.run_async = fake_run_async
+        _, raw = _drive_selector(["a", "b"], ["down", "escape"], preview)
+        assert "Preview 0" in raw and "Preview 1" in raw
+        assert 0 in seen and 1 in seen
 
-            # We need to simulate the accept keybinding being triggered
-            # The simplest approach: patch at a higher level
-            with patch("code_puppy.tools.common.arrow_select_async") as mock_sel:
-                mock_sel.return_value = "choice1"
-                result = await mock_sel("Pick:", ["choice1", "choice2"])
-                assert result == "choice1"
+    def test_preview_with_empty_text(self):
+        result, _ = _drive_selector(["a"], ["enter"], lambda i: "")
+        assert result.item.value == "a"
 
     @pytest.mark.asyncio
-    async def test_cancel_raises_keyboard_interrupt(self):
-        from code_puppy.tools.common import arrow_select_async
+    async def test_async_wrapper_selects_and_cancels(self):
+        from code_puppy.tools import common
 
-        with patch("code_puppy.tools.common.Application") as MockApp:
-            app_instance = MagicMock()
-            MockApp.return_value = app_instance
+        def scripted_menu(keys):
+            def build(message, choices, preview_callback=None, **overrides):
+                script = iter(keys)
+                overrides.setdefault("key_source", lambda: next(script))
+                overrides.setdefault("output", StringIO())
+                overrides.setdefault("size", lambda: (80, 24))
+                return _original_build(message, choices, preview_callback, **overrides)
 
-            async def fake_run_async():
-                pass  # result stays None -> KeyboardInterrupt
+            return build
 
-            app_instance.run_async = fake_run_async
-
-            with pytest.raises(KeyboardInterrupt):
-                await arrow_select_async("Pick:", ["a", "b"])
-
-    @pytest.mark.asyncio
-    async def test_with_preview_callback(self):
-        from code_puppy.tools.common import arrow_select_async
-
-        with patch("code_puppy.tools.common.Application") as MockApp:
-            app_instance = MagicMock()
-            MockApp.return_value = app_instance
-
-            async def fake_run_async():
-                pass  # result stays None
-
-            app_instance.run_async = fake_run_async
-
-            with pytest.raises(KeyboardInterrupt):
-                await arrow_select_async(
-                    "Pick:", ["a", "b"], preview_callback=lambda i: f"Preview {i}"
-                )
-
-    @pytest.mark.asyncio
-    async def test_preview_with_empty_text(self):
-        """Test preview_callback returning empty string."""
-        from code_puppy.tools.common import arrow_select_async
-
-        with patch("code_puppy.tools.common.Application") as MockApp:
-            app_instance = MagicMock()
-            MockApp.return_value = app_instance
-
-            async def fake_run_async():
-                pass
-
-            app_instance.run_async = fake_run_async
-
-            with pytest.raises(KeyboardInterrupt):
-                await arrow_select_async("Pick:", ["a"], preview_callback=lambda i: "")
-
-
-# ---------------------------------------------------------------------------
-# arrow_select (sync) - test error in async context
-# ---------------------------------------------------------------------------
+        _original_build = common._build_arrow_select_menu
+        with patch(
+            "code_puppy.agents._key_listeners.suspended_key_listener",
+            nullcontext,
+        ):
+            with patch.object(
+                common, "_build_arrow_select_menu", scripted_menu(["enter"])
+            ):
+                assert await common.arrow_select_async("Pick:", ["a", "b"]) == "a"
+            with patch.object(
+                common, "_build_arrow_select_menu", scripted_menu(["escape"])
+            ):
+                with pytest.raises(KeyboardInterrupt):
+                    await common.arrow_select_async("Pick:", ["a", "b"])
 
 
 class TestArrowSelect:
@@ -665,16 +486,32 @@ class TestArrowSelect:
 
         asyncio.run(_inner())
 
-    def test_cancel_raises_keyboard_interrupt(self):
-        from code_puppy.tools.common import arrow_select
+    def test_sync_selection_and_cancel(self):
+        from code_puppy.tools import common
 
-        with patch("code_puppy.tools.common.Application") as MockApp:
-            app_instance = MagicMock()
-            MockApp.return_value = app_instance
-            app_instance.run = MagicMock()  # result stays None
+        _original_build = common._build_arrow_select_menu
 
-            with pytest.raises(KeyboardInterrupt):
-                arrow_select("Pick:", ["a", "b"])
+        def scripted(keys):
+            def build(message, choices, preview_callback=None, **overrides):
+                script = iter(keys)
+                overrides.setdefault("key_source", lambda: next(script))
+                overrides.setdefault("output", StringIO())
+                overrides.setdefault("size", lambda: (80, 24))
+                return _original_build(message, choices, preview_callback, **overrides)
+
+            return build
+
+        with patch(
+            "code_puppy.agents._key_listeners.suspended_key_listener",
+            nullcontext,
+        ):
+            with patch.object(
+                common, "_build_arrow_select_menu", scripted(["down", "enter"])
+            ):
+                assert common.arrow_select("Pick:", ["a", "b"]) == "b"
+            with patch.object(common, "_build_arrow_select_menu", scripted(["escape"])):
+                with pytest.raises(KeyboardInterrupt):
+                    common.arrow_select("Pick:", ["a", "b"])
 
 
 # ---------------------------------------------------------------------------
@@ -1034,16 +871,9 @@ class TestIgnorePatterns:
 
 
 class TestModuleConstants:
-    def test_extension_to_lexer_name(self):
-        from code_puppy.tools.common import EXTENSION_TO_LEXER_NAME
+    def test_brighten_hex_reexported_from_termflow(self):
+        from termflow.diff import brighten_hex as termflow_brighten_hex
 
-        assert ".py" in EXTENSION_TO_LEXER_NAME
-        assert EXTENSION_TO_LEXER_NAME[".py"] == "python"
+        from code_puppy.tools.common import brighten_hex
 
-    def test_token_colors_dict(self):
-        from code_puppy.tools.common import PYGMENTS_AVAILABLE, TOKEN_COLORS
-
-        if PYGMENTS_AVAILABLE:
-            assert len(TOKEN_COLORS) > 0
-        else:
-            assert TOKEN_COLORS == {}
+        assert brighten_hex is termflow_brighten_hex

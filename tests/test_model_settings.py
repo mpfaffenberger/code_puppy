@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 import code_puppy.config as cp_config
 
 
@@ -45,20 +47,18 @@ class TestPerModelSettings:
             "model_settings_gpt_5_temperature", ""
         )
 
-    def test_sanitize_model_name_handles_dots(self):
-        """Model names with dots should be sanitized."""
-        result = cp_config._sanitize_model_name_for_key("gpt-5.1")
-        assert result == "gpt_5_1"
-
-    def test_sanitize_model_name_handles_dashes(self):
-        """Model names with dashes should be sanitized."""
-        result = cp_config._sanitize_model_name_for_key("zai-glm-5.1-api")
-        assert result == "zai_glm_5_1_api"
-
-    def test_sanitize_model_name_handles_slashes(self):
-        """Model names with slashes should be sanitized."""
-        result = cp_config._sanitize_model_name_for_key("provider/model-name")
-        assert result == "provider_model_name"
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("gpt-5.1", "gpt_5_1"),
+            ("zai-glm-5.1-api", "zai_glm_5_1_api"),
+            ("provider/model-name", "provider_model_name"),
+        ],
+    )
+    def test_sanitize_model_name(self, name, expected):
+        """Model names should be sanitized into config keys."""
+        result = cp_config._sanitize_model_name_for_key(name)
+        assert result == expected
 
 
 class TestEffectiveTemperature:

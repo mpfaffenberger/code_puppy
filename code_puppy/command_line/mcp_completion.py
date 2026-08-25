@@ -1,8 +1,7 @@
 import logging
 from typing import Iterable
 
-from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Completer, Completion, Document
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -155,9 +154,9 @@ class MCPCompleter(Completer):
                             )
                     return
 
-        # If we only have one part and haven't returned above, show subcommand completions
-        # This includes cases like '/mcp start' where they might want 'start-all'
-        # But NOT when there's a space after the subcommand (which indicates they want arguments)
+        # Single part not returned above → show subcommand completions
+        # ('/mcp start' → 'start-all'), but NOT after a trailing space
+        # (that indicates the user wants arguments).
         if len(parts) == 1 and not text.endswith(" "):
             partial_subcommand = parts[0]
             for subcommand, description in sorted(self.all_subcommands.items()):

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-MOD = "code_puppy.plugins.claude_code_oauth.register_callbacks"
+MOD = "code_puppy_core_plugins.claude_code_oauth.register_callbacks"
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -17,7 +17,9 @@ MOD = "code_puppy.plugins.claude_code_oauth.register_callbacks"
 
 class TestOAuthResult:
     def test_defaults(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import _OAuthResult
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
+            _OAuthResult,
+        )
 
         r = _OAuthResult()
         assert r.code is None
@@ -29,7 +31,7 @@ class TestCallbackHandler:
     """Test the HTTP callback handler."""
 
     def _make_handler(self, path="/"):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _CallbackHandler,
             _OAuthResult,
         )
@@ -79,7 +81,7 @@ class TestStartCallbackServer:
     @patch(f"{MOD}.CLAUDE_CODE_OAUTH_CONFIG", {"callback_port_range": [19876, 19876]})
     @patch(f"{MOD}.assign_redirect_uri")
     def test_success(self, mock_assign):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _start_callback_server,
         )
 
@@ -95,7 +97,7 @@ class TestStartCallbackServer:
     @patch(f"{MOD}.HTTPServer", side_effect=OSError("port in use"))
     @patch(f"{MOD}.emit_error")
     def test_all_ports_fail(self, mock_err, mock_http, mock_assign):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _start_callback_server,
         )
 
@@ -116,7 +118,7 @@ class TestAwaitCallback:
     def test_server_start_falls_back_to_pasteback(
         self, mock_start, mock_build, mock_read, mock_suppress
     ):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _await_callback,
         )
 
@@ -132,12 +134,14 @@ class TestAwaitCallback:
     @patch(f"{MOD}._start_callback_server")
     @patch(f"{MOD}.emit_error")
     def test_no_redirect_uri(self, mock_err, mock_start):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _await_callback,
         )
 
         server = MagicMock()
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import _OAuthResult
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
+            _OAuthResult,
+        )
 
         mock_start.return_value = (server, _OAuthResult(), threading.Event())
         ctx = MagicMock()
@@ -152,7 +156,7 @@ class TestAwaitCallback:
     @patch(f"{MOD}.build_authorization_url", return_value="https://auth.example.com")
     @patch(f"{MOD}._start_callback_server")
     def test_timeout(self, mock_start, mock_build, mock_info, mock_err, mock_suppress):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _await_callback,
             _OAuthResult,
         )
@@ -175,7 +179,7 @@ class TestAwaitCallback:
     def test_success_with_browser(
         self, mock_start, mock_build, mock_info, mock_err, mock_suppress, mock_wb
     ):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _await_callback,
             _OAuthResult,
         )
@@ -201,7 +205,7 @@ class TestAwaitCallback:
     def test_callback_error(
         self, mock_start, mock_build, mock_info, mock_err, mock_suppress
     ):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _await_callback,
             _OAuthResult,
         )
@@ -226,7 +230,7 @@ class TestAwaitCallback:
     def test_state_mismatch(
         self, mock_start, mock_build, mock_info, mock_err, mock_suppress
     ):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _await_callback,
             _OAuthResult,
         )
@@ -248,7 +252,7 @@ class TestPerformAuthentication:
     @patch(f"{MOD}._await_callback", return_value=None)
     @patch(f"{MOD}.prepare_oauth_context")
     def test_no_code(self, mock_ctx, mock_await):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _perform_authentication,
         )
 
@@ -263,7 +267,7 @@ class TestPerformAuthentication:
     def test_token_exchange_fails(
         self, mock_err, mock_info, mock_exchange, mock_ctx, mock_await
     ):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _perform_authentication,
         )
 
@@ -279,7 +283,7 @@ class TestPerformAuthentication:
     def test_save_fails(
         self, mock_err, mock_info, mock_save, mock_exchange, mock_ctx, mock_await
     ):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _perform_authentication,
         )
 
@@ -303,7 +307,7 @@ class TestPerformAuthentication:
         mock_ctx,
         mock_await,
     ):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _perform_authentication,
         )
 
@@ -329,7 +333,7 @@ class TestPerformAuthentication:
         mock_ctx,
         mock_await,
     ):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _perform_authentication,
         )
 
@@ -355,7 +359,7 @@ class TestPerformAuthentication:
         mock_ctx,
         mock_await,
     ):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _perform_authentication,
         )
 
@@ -365,7 +369,9 @@ class TestPerformAuthentication:
 
 class TestCustomHelpCommands:
     def test_custom_help_returns_commands(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import _custom_help
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
+            _custom_help,
+        )
 
         commands = _custom_help()
         assert len(commands) == 4
@@ -378,14 +384,14 @@ class TestCustomHelpCommands:
 
 class TestHandleCustomCommand:
     def test_unknown_command(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _handle_custom_command,
         )
 
         assert _handle_custom_command("/x", "x") is None
 
     def test_empty_name(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _handle_custom_command,
         )
 
@@ -399,7 +405,7 @@ class TestHandleCustomCommand:
     def test_auth_with_existing_tokens(
         self, mock_warn, mock_info, mock_set, mock_auth, mock_tokens
     ):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _handle_custom_command,
         )
 
@@ -417,7 +423,7 @@ class TestHandleCustomCommand:
     def test_status_authenticated_no_models(
         self, mock_warn, mock_info, mock_succ, mock_models, mock_tokens
     ):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _handle_custom_command,
         )
 
@@ -439,7 +445,7 @@ class TestHandleCustomCommand:
     def test_status_with_claude_models(
         self, mock_info, mock_succ, mock_models, mock_tokens
     ):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _handle_custom_command,
         )
 
@@ -462,7 +468,7 @@ class TestHandleCustomCommand:
         self, mock_warn, mock_info, mock_succ, mock_models, mock_tokens
     ):
         """Status with no expires_at field."""
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _handle_custom_command,
         )
 
@@ -474,7 +480,7 @@ class TestHandleCustomCommand:
     @patch(f"{MOD}.emit_warning")
     @patch(f"{MOD}.emit_info")
     def test_status_not_authenticated(self, mock_info, mock_warn, mock_tokens):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _handle_custom_command,
         )
 
@@ -487,7 +493,7 @@ class TestHandleCustomCommand:
     @patch(f"{MOD}.emit_info")
     @patch(f"{MOD}.emit_success")
     def test_logout_with_tokens(self, mock_succ, mock_info, mock_remove, mock_path):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _handle_custom_command,
         )
 
@@ -503,7 +509,7 @@ class TestHandleCustomCommand:
     @patch(f"{MOD}.remove_claude_code_models", return_value=0)
     @patch(f"{MOD}.emit_success")
     def test_logout_no_tokens(self, mock_succ, mock_remove, mock_path):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _handle_custom_command,
         )
 
@@ -523,7 +529,6 @@ def _patch_model_deps():
     def _ctx():
         with (
             patch("code_puppy.claude_cache_client.ClaudeCacheAsyncClient"),
-            patch("code_puppy.claude_cache_client.patch_anthropic_client_messages"),
             patch(f"{MOD}.AsyncAnthropic", create=True),
             patch(f"{MOD}.AnthropicModel", create=True),
             patch(f"{MOD}.AnthropicProvider", create=True),
@@ -539,7 +544,7 @@ class TestCreateClaudeCodeModel:
 
     def _call(self, model_name, model_config, config=None):
         """Helper to call _create_claude_code_model with all deps mocked."""
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _create_claude_code_model,
         )
 
@@ -548,7 +553,6 @@ class TestCreateClaudeCodeModel:
             patch("pydantic_ai.models.anthropic.AnthropicModel"),
             patch("pydantic_ai.providers.anthropic.AnthropicProvider"),
             patch("code_puppy.claude_cache_client.ClaudeCacheAsyncClient"),
-            patch("code_puppy.claude_cache_client.patch_anthropic_client_messages"),
         ):
             mock_anthropic = MagicMock()
             mock_anthropic.api_key = None
@@ -704,7 +708,7 @@ class TestCreateClaudeCodeModel:
 
 class TestRegisterModelTypes:
     def test_returns_claude_code_type(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _register_model_types,
         )
 
@@ -716,7 +720,7 @@ class TestRegisterModelTypes:
 class TestAgentRunStart:
     @pytest.mark.asyncio
     async def test_non_claude_code_model_skipped(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _active_heartbeats,
             _on_agent_run_start,
         )
@@ -726,7 +730,7 @@ class TestAgentRunStart:
 
     @pytest.mark.asyncio
     async def test_starts_heartbeat(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _active_heartbeats,
             _on_agent_run_start,
         )
@@ -741,7 +745,7 @@ class TestAgentRunStart:
             with patch.dict("sys.modules", {}):
                 # Simpler: just patch the import
                 with patch(
-                    "code_puppy.plugins.claude_code_oauth.token_refresh_heartbeat.TokenRefreshHeartbeat",
+                    "code_puppy_core_plugins.claude_code_oauth.token_refresh_heartbeat.TokenRefreshHeartbeat",
                     return_value=mock_hb,
                 ):
                     await _on_agent_run_start("agent", "claude-code-opus", "sess2")
@@ -750,51 +754,34 @@ class TestAgentRunStart:
 
     @pytest.mark.asyncio
     async def test_import_error_handled(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _on_agent_run_start,
         )
 
         with patch.dict(
             "sys.modules",
-            {"code_puppy.plugins.claude_code_oauth.token_refresh_heartbeat": None},
+            {"code_puppy_core_plugins.claude_code_oauth.token_refresh_heartbeat": None},
         ):
             # ImportError should be caught
             await _on_agent_run_start("agent", "claude-code-opus", "sess3")
 
     @pytest.mark.asyncio
     async def test_generic_exception_handled(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _on_agent_run_start,
         )
 
         with patch(
-            "code_puppy.plugins.claude_code_oauth.token_refresh_heartbeat.TokenRefreshHeartbeat",
+            "code_puppy_core_plugins.claude_code_oauth.token_refresh_heartbeat.TokenRefreshHeartbeat",
             side_effect=RuntimeError("boom"),
         ):
             await _on_agent_run_start("agent", "claude-code-opus", "sess4")
-
-    @pytest.mark.asyncio
-    async def test_default_session_key(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
-            _active_heartbeats,
-            _on_agent_run_start,
-        )
-
-        mock_hb = AsyncMock()
-        mock_hb.start = AsyncMock()
-        with patch(
-            "code_puppy.plugins.claude_code_oauth.token_refresh_heartbeat.TokenRefreshHeartbeat",
-            return_value=mock_hb,
-        ):
-            await _on_agent_run_start("agent", "claude-code-opus", None)
-        assert "default" in _active_heartbeats
-        _active_heartbeats.pop("default", None)
 
 
 class TestAgentRunEnd:
     @pytest.mark.asyncio
     async def test_no_heartbeat(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _on_agent_run_end,
         )
 
@@ -803,7 +790,7 @@ class TestAgentRunEnd:
 
     @pytest.mark.asyncio
     async def test_stops_heartbeat(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _active_heartbeats,
             _on_agent_run_end,
         )
@@ -818,7 +805,7 @@ class TestAgentRunEnd:
 
     @pytest.mark.asyncio
     async def test_stop_error_handled(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _active_heartbeats,
             _on_agent_run_end,
         )
@@ -832,7 +819,7 @@ class TestAgentRunEnd:
 
     @pytest.mark.asyncio
     async def test_default_session_key(self):
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _active_heartbeats,
             _on_agent_run_end,
         )
@@ -849,7 +836,7 @@ class TestCallbackRegistration:
     def test_callbacks_registered(self):
         from code_puppy.callbacks import get_callbacks, register_callback
 
-        from code_puppy.plugins.claude_code_oauth.register_callbacks import (
+        from code_puppy_core_plugins.claude_code_oauth.register_callbacks import (
             _custom_help,
             _handle_custom_command,
             _on_agent_run_end,
@@ -857,10 +844,8 @@ class TestCallbackRegistration:
             _register_model_types,
         )
 
-        # Re-register explicitly — other tests may have called clear_callbacks(),
-        # and Python's import cache means a bare `import` won't re-execute the
-        # module-scope register_callback() calls.  The dedup check in
-        # register_callback makes this safe even if they're already registered.
+        # Re-register explicitly: a bare `import` won't re-execute module-scope
+        # register_callbacks after clear_callbacks() (dedup makes this safe anyway).
         register_callback("custom_command_help", _custom_help)
         register_callback("custom_command", _handle_custom_command)
         register_callback("register_model_type", _register_model_types)

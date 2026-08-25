@@ -1,21 +1,22 @@
-"""Tests for code_puppy.agents._compaction.
+"""Tests for code_puppy.agents._compaction (pydantic-ai-harness backed).
 
 Covers:
-- truncate() — deterministic, offline
-- split_for_protected_summarization() — pure splitting logic
-- compact() — unified entrypoint with both strategies + deferral paths
-- make_history_processor() — the pydantic-ai history_processors closure,
-  including the 1-arg calling convention regression test
+- build_compaction_strategy() — config → FallbackCompaction wiring
+- compact() — trigger math, force path, fallback + failure resilience,
+  dropped-hash bookkeeping
+- run_compaction_sync() — the sync bridge driving compact_now for /compact
+- make_history_processor() — the pydantic-ai processor closure, including
+  the ctx-taking calling-convention regression test
 """
 
 from __future__ import annotations
 
-from typing import List
+from typing import Any, List
 from unittest.mock import patch
 
-from pydantic_ai.models import ModelRequestParameters
-from pydantic_ai.models.openai import OpenAIResponsesModel
-from pydantic_ai.providers.openai import OpenAIProvider
+import pytest
+from opentelemetry.trace import NoOpTracer
+from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -26,14 +27,22 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
+from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.models.test import TestModel
+from pydantic_ai.tools import RunContext
+from pydantic_ai.usage import RunUsage
+from pydantic_ai_harness.compaction import (
+    FallbackCompaction,
+    SlidingWindowCompaction,
+    SummarizingCompaction,
+)
 
 from code_puppy.agents import _compaction
 from code_puppy.agents._compaction import (
+    build_compaction_strategy,
     compact,
     make_history_processor,
-    split_for_protected_summarization,
-    summarize,
-    truncate,
+    run_compaction_sync,
 )
 
 # ---------- Test fixtures & helpers ------------------------------------------
@@ -84,6 +93,48 @@ def _build_long_history(
     return msgs
 
 
+def _ctx(model: Any = None, usage: RunUsage | None = None) -> RunContext[Any]:
+    """A minimal RunContext, mirroring the one compact_now fabricates."""
+    return RunContext[Any](
+        deps=None,
+        model=model if model is not None else TestModel(),
+        usage=usage if usage is not None else RunUsage(),
+        tracer=NoOpTracer(),
+    )
+
+
+def _summary_model(marker: str = "SUMMARY") -> FunctionModel:
+    def _fn(messages: List[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content=marker)])
+
+    return FunctionModel(_fn)
+
+
+def _exploding_model() -> FunctionModel:
+    def _fn(messages: List[ModelMessage], info: AgentInfo) -> ModelResponse:
+        raise ModelHTTPError(
+            status_code=500, model_name="exploding", body="summarizer exploded"
+        )
+
+    return FunctionModel(_fn)
+
+
+def _orphan_tool_ids(messages: List[ModelMessage]) -> tuple[set, set]:
+    calls = {
+        p.tool_call_id
+        for m in messages
+        for p in m.parts
+        if getattr(p, "part_kind", "") == "tool-call"
+    }
+    rets = {
+        p.tool_call_id
+        for m in messages
+        for p in m.parts
+        if getattr(p, "part_kind", "") == "tool-return"
+    }
+    return calls - rets, rets - calls
+
+
 class _FakeAgent:
     """Minimal agent stub satisfying the make_history_processor contract."""
 
@@ -107,526 +158,432 @@ class _FakeAgent:
         return self._overhead
 
 
-# ---------- truncate() -------------------------------------------------------
+# ---------- build_compaction_strategy() --------------------------------------
 
 
-class TestTruncate:
-    def test_empty_input_returns_empty(self):
-        assert truncate([], protected_tokens=1000) == []
+class TestBuildCompactionStrategy:
+    def test_truncation_config_builds_sliding_only_chain(self):
+        with patch.multiple(
+            _compaction,
+            get_compaction_strategy=lambda: "truncation",
+            get_protected_token_count=lambda: 1234,
+            get_compaction_threshold=lambda: 0.85,
+            get_model_context_length=lambda: 100_000,
+        ):
+            strategy = build_compaction_strategy()
 
-    def test_single_message_returns_single(self):
-        msgs = [_sys_msg()]
-        result = truncate(msgs, protected_tokens=1000)
-        assert result == msgs
+        assert isinstance(strategy, FallbackCompaction)
+        assert len(strategy.fallback_chain) == 1
+        (sliding,) = strategy.fallback_chain
+        assert isinstance(sliding, SlidingWindowCompaction)
+        assert sliding.keep_tokens == 1234
+        assert sliding.max_tokens == 85_000
 
-    def test_preserves_system_message(self):
-        msgs = _build_long_history(n_turns=20)
-        result = truncate(msgs, protected_tokens=500)
-        assert result[0] is msgs[0], "system message must be the first element"
+    def test_summarization_config_builds_two_wave_chain(self):
+        with patch.multiple(
+            _compaction,
+            get_compaction_strategy=lambda: "summarization",
+            get_protected_token_count=lambda: 2000,
+            get_compaction_threshold=lambda: 0.5,
+            get_model_context_length=lambda: 200_000,
+            _summarizer_model=lambda: TestModel(),
+        ):
+            strategy = build_compaction_strategy()
 
-    def test_preserves_thinking_context_at_index_1(self):
-        sys_msg = _sys_msg()
-        thinking_msg = ModelResponse(parts=[ThinkingPart(content="deep thoughts")])
-        tail = [_user_msg(f"q {i}") for i in range(10)]
-        msgs = [sys_msg, thinking_msg] + tail
-        result = truncate(msgs, protected_tokens=200)
-        assert result[0] is sys_msg
-        assert result[1] is thinking_msg
+        assert isinstance(strategy, FallbackCompaction)
+        summarizer, sliding = strategy.fallback_chain
+        assert isinstance(summarizer, SummarizingCompaction)
+        assert isinstance(sliding, SlidingWindowCompaction)
+        assert summarizer.keep_tokens == 2000
+        assert sliding.keep_tokens == 2000
+        assert summarizer.max_tokens == 100_000
+        # pydantic-ai-harness#528: UsageLimitExceeded must trigger fallback so
+        # truncation still saves runs past pydantic-ai's default request cap.
+        assert UsageLimitExceeded in strategy.fallback_on
 
-    def test_truncates_middle_respecting_token_budget(self):
-        msgs = _build_long_history(n_turns=20)
-        result = truncate(msgs, protected_tokens=800)
-        # Must be strictly shorter than input
-        assert len(result) < len(msgs)
-        # Must keep the system message
-        assert result[0] is msgs[0]
-        # Must include the last few messages
-        assert result[-1] is msgs[-1]
+    def test_unavailable_summarizer_model_degrades_to_sliding_only(self):
+        def _boom():
+            raise RuntimeError("no such model")
 
-    def test_prunes_interrupted_tool_calls_on_boundary(self):
-        """If truncate lands mid-pair, pruning should drop the orphan."""
-        sys_msg = _sys_msg()
-        # Create a history where the truncation boundary would isolate a tool_call
-        # without its matching tool_return.
-        msgs = [sys_msg]
-        for i in range(10):
-            msgs.append(_user_msg(f"q{i}: " + "x" * 500))
-            msgs.append(_tool_call("read_file", {}, f"call_{i}"))
-            msgs.append(_tool_return("read_file", "data", f"call_{i}"))
-            msgs.append(_assistant_text(f"done {i}"))
+        with patch.multiple(
+            _compaction,
+            get_compaction_strategy=lambda: "summarization",
+            get_protected_token_count=lambda: 2000,
+            get_compaction_threshold=lambda: 0.5,
+            get_model_context_length=lambda: 200_000,
+            _summarizer_model=_boom,
+        ):
+            strategy = build_compaction_strategy()
 
-        result = truncate(msgs, protected_tokens=1000)
+        assert len(strategy.fallback_chain) == 1
+        assert isinstance(strategy.fallback_chain[0], SlidingWindowCompaction)
 
-        # Verify no orphan tool_calls/returns remain
-        call_ids = set()
-        return_ids = set()
-        for msg in result:
-            for part in msg.parts:
-                cid = getattr(part, "tool_call_id", None)
-                if not cid:
-                    continue
-                if part.part_kind == "tool-call":
-                    call_ids.add(cid)
-                elif part.part_kind == "tool-return":
-                    return_ids.add(cid)
-        assert call_ids == return_ids, (
-            f"orphan tool ids detected: only-calls={call_ids - return_ids}, "
-            f"only-returns={return_ids - call_ids}"
-        )
-
-
-# ---------- split_for_protected_summarization() ------------------------------
-
-
-class TestSplitForProtectedSummarization:
-    def test_single_message_protected(self):
-        msgs = [_sys_msg()]
-        to_sum, protected = split_for_protected_summarization(
-            msgs, protected_tokens=1000
-        )
-        assert to_sum == []
-        assert protected == msgs
-
-    def test_system_always_protected(self):
-        msgs = _build_long_history(n_turns=10)
-        to_sum, protected = split_for_protected_summarization(
-            msgs, protected_tokens=500
-        )
-        assert protected[0] is msgs[0], "system message must head the protected group"
-
-    def test_protected_tail_ordering_preserved(self):
-        msgs = _build_long_history(n_turns=10)
-        _, protected = split_for_protected_summarization(msgs, protected_tokens=800)
-        # Skip system msg at index 0; the rest must be a contiguous tail in order
-        tail = protected[1:]
-        assert tail == msgs[-len(tail) :], (
-            "protected tail must be in chronological order"
-        )
-
-    def test_split_keeps_tool_pairs_together(self):
-        """If a tool_return lands in the protected zone, its call must too."""
-        sys_msg = _sys_msg()
-        msgs = [sys_msg]
-        # Pad with lots of text to force the split near a tool pair
-        for i in range(5):
-            msgs.append(_user_msg(f"q{i}: " + "x" * 400))
-            msgs.append(_assistant_text("ok " + "y" * 400))
-        # Final turn with a tool call/return pair
-        msgs.append(_user_msg("do a thing"))
-        msgs.append(_tool_call("read_file", {}, "final_call"))
-        msgs.append(_tool_return("read_file", "data", "final_call"))
-        msgs.append(_assistant_text("answered"))
-
-        _, protected = split_for_protected_summarization(msgs, protected_tokens=300)
-
-        # Collect ids in protected zone
-        call_ids = set()
-        return_ids = set()
-        for msg in protected:
-            for part in msg.parts:
-                cid = getattr(part, "tool_call_id", None)
-                if not cid:
-                    continue
-                if part.part_kind == "tool-call":
-                    call_ids.add(cid)
-                elif part.part_kind == "tool-return":
-                    return_ids.add(cid)
-        # If final_call's return is protected, its call must be too
-        if "final_call" in return_ids:
-            assert "final_call" in call_ids, (
-                "tool_return pulled into protected zone without its matching tool_call"
-            )
+    def test_explicit_protected_tokens_override(self):
+        with patch.multiple(
+            _compaction,
+            get_compaction_strategy=lambda: "truncation",
+            get_compaction_threshold=lambda: 0.85,
+            get_model_context_length=lambda: 100_000,
+        ):
+            strategy = build_compaction_strategy(protected_tokens=777)
+        assert strategy.fallback_chain[0].keep_tokens == 777
 
 
 # ---------- compact() --------------------------------------------------------
 
 
 class TestCompact:
-    def test_under_threshold_is_noop(self):
+    async def test_under_threshold_is_noop(self):
         msgs = _build_long_history(n_turns=2)
         with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
-            new_msgs, dropped = compact(
-                agent=None, messages=msgs, model_max=1_000_000, context_overhead=0
+            new_msgs, dropped = await compact(
+                agent=None,
+                messages=msgs,
+                model_max=1_000_000,
+                context_overhead=0,
+                ctx=_ctx(),
             )
         assert new_msgs is msgs, "under threshold must return the input unchanged"
         assert dropped == []
 
-    def test_force_bypasses_threshold(self):
+    async def test_force_bypasses_threshold(self):
         msgs = _build_long_history(n_turns=20)
         with patch.multiple(
             _compaction,
             get_compaction_threshold=lambda: 0.95,
             get_compaction_strategy=lambda: "truncation",
             get_protected_token_count=lambda: 500,
+            get_model_context_length=lambda: 1_000_000,
         ):
-            new_msgs, dropped = compact(
+            new_msgs, dropped = await compact(
                 agent=None,
                 messages=msgs,
                 model_max=1_000_000,
                 context_overhead=0,
+                ctx=_ctx(),
                 force=True,
             )
 
         assert len(new_msgs) < len(msgs)
         assert dropped
 
-    def test_over_threshold_truncation_strategy(self):
+    async def test_over_threshold_truncation_strategy(self):
         msgs = _build_long_history(n_turns=20)
         with patch.multiple(
             _compaction,
             get_compaction_threshold=lambda: 0.1,
             get_compaction_strategy=lambda: "truncation",
             get_protected_token_count=lambda: 500,
+            get_model_context_length=lambda: 10_000,
         ):
-            new_msgs, dropped = compact(
-                agent=None, messages=msgs, model_max=10_000, context_overhead=0
+            new_msgs, dropped = await compact(
+                agent=None,
+                messages=msgs,
+                model_max=10_000,
+                context_overhead=0,
+                ctx=_ctx(),
             )
         assert len(new_msgs) < len(msgs)
         assert len(dropped) > 0
-        # System message preserved
-        assert new_msgs[0] is msgs[0]
+        # The opening user turn survives (SlidingWindowCompaction preserves it).
+        assert new_msgs[0].parts[0].content == msgs[0].parts[0].content
+        # No severed tool pairs.
+        orphan_calls, orphan_returns = _orphan_tool_ids(new_msgs)
+        assert not orphan_calls and not orphan_returns
 
-    def test_orphan_tool_calls_do_not_block_summarization(self):
-        """REGRESSION: orphaned tool_calls (from cancelled runs) must NOT cause
-        summarization to be deferred indefinitely.
-
-        Before the fix, `has_pending_tool_calls()` ran on the raw message list,
-        so a single unmatched tool_call left over from a Ctrl-C would permanently
-        disable compaction. Now the check runs *after* orphan-pruning, so stale
-        unmatched calls are silently cleaned up and summarization proceeds.
-
-        The user-visible symptom was "Summarization deferred: pending tool
-        call(s) detected" firing on every turn, with history growing unbounded.
-        """
-        # Build a huge history with a permanent orphan tool_call at the start —
-        # the kind of thing that lives in a long-running session after a
-        # cancelled command.
+    async def test_summarization_path_invokes_summarizer(self):
+        """compact() routes to SummarizingCompaction; its output lands in
+        history and dropped messages are recorded for hash tracking."""
         msgs = _build_long_history(n_turns=20)
-        # Inject an orphan tool_call after the system message (no matching return)
+
+        with patch.multiple(
+            _compaction,
+            get_compaction_threshold=lambda: 0.01,
+            get_compaction_strategy=lambda: "summarization",
+            get_protected_token_count=lambda: 500,
+            get_model_context_length=lambda: 10_000,
+            _summarizer_model=lambda: _summary_model("HARNESS_SUMMARY"),
+        ):
+            new_msgs, dropped = await compact(
+                agent=None,
+                messages=msgs,
+                model_max=10_000,
+                context_overhead=0,
+                ctx=_ctx(),
+            )
+
+        assert len(new_msgs) < len(msgs)
+        assert any(
+            "HARNESS_SUMMARY" in str(getattr(p, "content", ""))
+            for m in new_msgs
+            for p in m.parts
+        ), "summarizer output missing from result"
+        assert len(dropped) > 0
+
+    async def test_summarization_failure_falls_back_to_sliding_window(self):
+        """If the summary model call fails with an API error, FallbackCompaction
+        must advance to SlidingWindowCompaction rather than leaving history
+        unbounded — the whole reason the chain exists."""
+        msgs = _build_long_history(n_turns=20)
+
+        with patch.multiple(
+            _compaction,
+            get_compaction_threshold=lambda: 0.01,
+            get_compaction_strategy=lambda: "summarization",
+            get_protected_token_count=lambda: 500,
+            get_model_context_length=lambda: 10_000,
+            _summarizer_model=_exploding_model,
+        ):
+            new_msgs, dropped = await compact(
+                agent=None,
+                messages=msgs,
+                model_max=10_000,
+                context_overhead=0,
+                ctx=_ctx(),
+            )
+
+        assert len(new_msgs) < len(msgs), (
+            "Sliding-window fallback should have shrunk the history"
+        )
+        assert len(dropped) > 0, "dropped messages must be recorded for hash tracking"
+        orphan_calls, orphan_returns = _orphan_tool_ids(new_msgs)
+        assert not orphan_calls and not orphan_returns
+
+    async def test_summarization_succeeds_past_default_request_cap(self):
+        """REGRESSION (harness#528): summarization must survive >50 parent
+        requests via the detached ledger, and still bill the parent."""
+        msgs = _build_long_history(n_turns=20)
+        parent_usage = RunUsage(requests=60)
+
+        with patch.multiple(
+            _compaction,
+            get_compaction_threshold=lambda: 0.01,
+            get_compaction_strategy=lambda: "summarization",
+            get_protected_token_count=lambda: 500,
+            get_model_context_length=lambda: 10_000,
+            _summarizer_model=lambda: _summary_model("HARNESS_SUMMARY"),
+        ):
+            new_msgs, dropped = await compact(
+                agent=None,
+                messages=msgs,
+                model_max=10_000,
+                context_overhead=0,
+                ctx=_ctx(usage=parent_usage),
+            )
+
+        assert len(new_msgs) < len(msgs)
+        assert any(
+            "HARNESS_SUMMARY" in str(getattr(p, "content", ""))
+            for m in new_msgs
+            for p in m.parts
+        ), "summary call must not be rejected by the parent's request count"
+        assert parent_usage.requests == 61, (
+            "the summary request must fold back into the parent's accounting"
+        )
+        assert len(dropped) > 0
+        orphan_calls, orphan_returns = _orphan_tool_ids(new_msgs)
+        assert not orphan_calls and not orphan_returns
+
+    async def test_unexpected_strategy_error_returns_input_unchanged(self):
+        """A non-API failure must never kill the run: compact() eats it and
+        returns the original history for this cycle."""
+        msgs = _build_long_history(n_turns=20)
+
+        class _Broken:
+            async def compact(self, messages, ctx):
+                raise RuntimeError("programming error in strategy")
+
+        with patch.multiple(
+            _compaction,
+            get_compaction_threshold=lambda: 0.01,
+            get_compaction_strategy=lambda: "truncation",
+            get_protected_token_count=lambda: 500,
+            get_model_context_length=lambda: 10_000,
+            build_compaction_strategy=lambda *a, **kw: _Broken(),
+        ):
+            new_msgs, dropped = await compact(
+                agent=None,
+                messages=msgs,
+                model_max=10_000,
+                context_overhead=0,
+                ctx=_ctx(),
+            )
+
+        assert new_msgs is msgs
+        assert dropped == []
+
+    async def test_orphan_tool_calls_are_pruned_not_blocking(self):
+        """REGRESSION: an orphaned tool_call from a cancelled run must neither
+        block compaction nor leak into the compacted output."""
+        msgs = _build_long_history(n_turns=20)
         orphan = _tool_call("read_file", {"path": "/cancelled.txt"}, "orphan_ctrl_c")
         msgs = [msgs[0], orphan] + msgs[1:]
 
         with patch.multiple(
             _compaction,
             get_compaction_threshold=lambda: 0.01,
-            get_compaction_strategy=lambda: "summarization",
+            get_compaction_strategy=lambda: "truncation",
             get_protected_token_count=lambda: 500,
-            run_summarization_sync=lambda instructions, message_history: "SUMMARY",
+            get_model_context_length=lambda: 10_000,
         ):
-            new_msgs, dropped = compact(
-                agent=None, messages=msgs, model_max=10_000, context_overhead=0
-            )
-
-        # Must NOT be deferred — summarization should have run
-        assert len(new_msgs) < len(msgs), (
-            "Summarization was deferred due to stale orphan tool_call — "
-            "the bug is back. Check has_pending_tool_calls() ordering."
-        )
-        assert any(
-            getattr(p, "content", None) == "SUMMARY" for m in new_msgs for p in m.parts
-        ), "summarizer output missing from result"
-        # The orphan tool_call should be gone (pruned)
-        for m in new_msgs:
-            for p in m.parts:
-                assert getattr(p, "tool_call_id", None) != "orphan_ctrl_c", (
-                    "orphan tool_call leaked into compacted output"
-                )
-
-    def test_summarization_defers_only_on_truly_pending_post_prune(self):
-        """Edge case: if `filter_huge_messages` leaves an orphan (shouldn't
-        happen in practice but defensive), deferral should still fire."""
-        import code_puppy.agents._compaction as cm
-
-        sys_msg = _sys_msg()
-        msgs = [sys_msg, _user_msg("q"), _tool_call("read_file", {}, "live_orphan")]
-
-        # Force filter_huge_messages to return the messages unchanged (simulating
-        # a hypothetical bug where pruning doesnt run). Then the deferral
-        # safety net should kick in.
-        with patch.multiple(
-            cm,
-            get_compaction_threshold=lambda: 0.001,
-            get_compaction_strategy=lambda: "summarization",
-            get_protected_token_count=lambda: 500,
-            filter_huge_messages=lambda m, *_args, **_kwargs: m,  # bypass the prune
-        ):
-            new_msgs, dropped = compact(
-                agent=None, messages=msgs, model_max=100, context_overhead=0
-            )
-        assert new_msgs is msgs, "safety-net deferral must return input unchanged"
-        assert dropped == []
-
-    def test_summarization_path_invokes_summarizer(self):
-        """Verify compact() routes to summarize() and gets reasonable result."""
-        msgs = _build_long_history(n_turns=20)
-
-        with patch.multiple(
-            _compaction,
-            get_compaction_threshold=lambda: 0.01,
-            get_compaction_strategy=lambda: "summarization",
-            get_protected_token_count=lambda: 500,
-            run_summarization_sync=lambda instructions, message_history: "SUMMARY",
-        ):
-            new_msgs, dropped = compact(
-                agent=None, messages=msgs, model_max=10_000, context_overhead=0
+            new_msgs, dropped = await compact(
+                agent=None,
+                messages=msgs,
+                model_max=10_000,
+                context_overhead=0,
+                ctx=_ctx(),
             )
 
         assert len(new_msgs) < len(msgs)
-        assert new_msgs[0] is msgs[0], "system msg preserved"
-        # The injected summary should appear in the result
-        assert any(
-            getattr(p, "content", None) == "SUMMARY" for m in new_msgs for p in m.parts
+        orphan_calls, orphan_returns = _orphan_tool_ids(new_msgs)
+        assert not orphan_calls and not orphan_returns
+
+
+# ---------- run_compaction_sync() --------------------------------------------
+
+
+class TestRunCompactionSync:
+    def test_runs_without_a_running_loop(self):
+        msgs = _build_long_history(n_turns=10)
+        out = run_compaction_sync(
+            SlidingWindowCompaction(max_messages=1, keep_tokens=500),
+            msgs,
+            model=TestModel(),
         )
-        assert len(dropped) > 0
+        assert len(out) < len(msgs)
 
-    def test_summarization_failure_falls_back_to_truncation(self):
-        """If the summarization agent blows up, compact() must fall back to
-        truncation rather than returning history unchanged (which would let
-        the context window keep growing)."""
-        msgs = _build_long_history(n_turns=20)
-
-        def _boom(instructions, message_history):
-            raise RuntimeError("summarizer model exploded")
-
-        with patch.multiple(
-            _compaction,
-            get_compaction_threshold=lambda: 0.01,
-            get_compaction_strategy=lambda: "summarization",
-            get_protected_token_count=lambda: 500,
-            run_summarization_sync=_boom,
-        ):
-            new_msgs, dropped = compact(
-                agent=None, messages=msgs, model_max=10_000, context_overhead=0
-            )
-
-        # Truncation actually compacted things — history shrank, drops recorded.
-        assert len(new_msgs) < len(msgs), (
-            "Fallback truncation should have shrunk the history"
+    async def test_runs_from_inside_a_running_loop(self):
+        """Command handlers may fire while the UI loop is live — the bridge
+        must hop to a worker thread rather than deadlock."""
+        msgs = _build_long_history(n_turns=10)
+        out = run_compaction_sync(
+            SlidingWindowCompaction(max_messages=1, keep_tokens=500),
+            msgs,
+            model=TestModel(),
         )
-        assert new_msgs[0] is msgs[0], "system msg preserved on fallback"
-        assert len(dropped) > 0, "dropped messages must be recorded for hash tracking"
+        assert len(out) < len(msgs)
 
-    def test_summarization_failure_preserves_strategy_setting(self):
-        """The fallback should be one-shot — the user's configured strategy is
-        not silently mutated. (Sanity check: we never call set_compaction_strategy.)"""
-        msgs = _build_long_history(n_turns=20)
-        with patch.multiple(
-            _compaction,
-            get_compaction_threshold=lambda: 0.01,
-            get_compaction_strategy=lambda: "summarization",
-            get_protected_token_count=lambda: 500,
-            run_summarization_sync=lambda *a, **kw: (_ for _ in ()).throw(
-                RuntimeError("nope")
-            ),
-        ):
-            # Just make sure it doesn't raise — config-mutation is a non-event
-            # because we never import any setter in _compaction.py.
-            compact(agent=None, messages=msgs, model_max=10_000, context_overhead=0)
+    def test_input_list_is_not_mutated(self):
+        msgs = _build_long_history(n_turns=10)
+        snapshot = list(msgs)
+        run_compaction_sync(
+            SlidingWindowCompaction(max_messages=1, keep_tokens=500),
+            msgs,
+            model=TestModel(),
+        )
+        assert msgs == snapshot
 
 
 # ---------- make_history_processor() -----------------------------------------
 
 
 class TestMakeHistoryProcessor:
-    """Critical: pydantic-ai calls this with a 1-arg signature. Regression
-    coverage for the bug fixed after Phase 4."""
+    def test_closure_takes_run_context(self):
+        """REGRESSION: pydantic-ai picks the 2-arg calling convention off the
+        first parameter's RunContext annotation. The closure must opt in so
+        the live ctx reaches the harness strategies."""
+        from pydantic_ai._utils import takes_run_context
 
-    def test_closure_signature_is_one_arg(self):
-        """REGRESSION: pydantic-ai's _takes_ctx() inspects the first param's
-        type annotation. If it's not RunContext, processor is called with only
-        messages. Our closure must have exactly 1 param."""
-        import inspect
+        processor = make_history_processor(_FakeAgent())
+        assert takes_run_context(processor)
 
-        agent = _FakeAgent()
-        processor = make_history_processor(agent)
-        sig = inspect.signature(processor)
-        assert list(sig.parameters.keys()) == ["messages"], (
-            f"history_processor must be 1-arg (messages only) for pydantic-ai "
-            f"compatibility. Got: {list(sig.parameters.keys())}"
-        )
+    async def test_merges_new_messages_into_agent_history(self):
+        agent = _FakeAgent(model_max=1_000_000)
+        m1, m2, m3 = _user_msg("hello"), _assistant_text("hi there"), _user_msg("more")
+        with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
+            result = await make_history_processor(agent)(_ctx(), [m1, m2, m3])
+        assert m1 in agent._message_history
+        assert m2 in agent._message_history
+        assert m3 in agent._message_history
+        assert result == agent._message_history
 
-    def test_callable_with_single_messages_arg(self):
-        """Smoke test: must not raise when called pydantic-ai style."""
-        agent = _FakeAgent()
-        processor = make_history_processor(agent)
-        # Should not raise
-        result = processor([])
-        assert result == []
+    async def test_dedupes_by_hash(self):
+        agent = _FakeAgent(model_max=1_000_000)
+        m1 = _user_msg("hello")
+        agent._message_history = [m1]
+        with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
+            await make_history_processor(agent)(_ctx(), [_user_msg("hello")])
+        assert len(agent._message_history) == 1
 
-    def test_merges_new_messages_into_agent_history(self):
-        agent = _FakeAgent()
-        agent._message_history = [_sys_msg()]
-        processor = make_history_processor(agent)
-
-        # Note: end with a ModelRequest so the trailing-ModelResponse stripper
-        # doesn't eat the assistant message.
-        incoming = [
-            _sys_msg(),
-            _user_msg("hello"),
-            _assistant_text("hi"),
-            _user_msg("follow up"),
-        ]
-        result = processor(incoming)
-
-        # The new messages (user + assistant + follow-up) should have been merged
-        assert len(result) == 4
-        assert agent._message_history is result or agent._message_history == result
-        # Must end with a ModelRequest (Anthropic prefill requirement)
-        assert isinstance(result[-1], ModelRequest)
-
-    def test_dedupes_by_hash(self):
-        """Messages already in history (by hash) should not be re-appended."""
-        agent = _FakeAgent()
-        sys_msg = _sys_msg()
-        user_msg = _user_msg("hello")
-        agent._message_history = [sys_msg, user_msg]
-
-        processor = make_history_processor(agent)
-        # Pass the same messages in again
-        result = processor([sys_msg, user_msg])
-        assert len(result) == 2, "duplicate messages must not be re-appended"
-
-    def test_last_message_preserved_even_on_hash_collision(self):
-        """Short repeated prompts like 'yes' collide with compacted hashes.
-        The last message must always survive."""
-        agent = _FakeAgent()
-        sys_msg = _sys_msg()
-        yes_msg = _user_msg("yes")
-
-        # Pretend "yes" was compacted previously
+    async def test_last_message_preserved_even_on_compacted_hash_collision(self):
+        """A short prompt whose hash was recorded as compacted must still be
+        appended when it is the newest incoming message."""
+        agent = _FakeAgent(model_max=1_000_000)
         from code_puppy.agents._history import hash_message
 
-        agent._message_history = [sys_msg]
-        agent._compacted_message_hashes = {hash_message(yes_msg)}
+        newest = _user_msg("yes")
+        agent._compacted_message_hashes.add(hash_message(newest))
+        with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
+            await make_history_processor(agent)(_ctx(), [_user_msg("yes")])
+        assert len(agent._message_history) == 1
 
-        processor = make_history_processor(agent)
-        result = processor([sys_msg, yes_msg])
+    async def test_strips_trailing_model_responses(self):
+        agent = _FakeAgent(model_max=1_000_000)
+        msgs = [_user_msg("q"), _assistant_text("a"), _assistant_text("trailing")]
+        with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
+            result = await make_history_processor(agent)(_ctx(), msgs)
+        assert isinstance(result[-1], ModelRequest)
 
-        # Even though yes_msg's hash is in compacted_hashes, it's the last
-        # message and must be preserved.
-        assert yes_msg in result, "last message must survive hash collision"
-
-    def test_strips_trailing_model_responses(self):
-        """History must end with ModelRequest (Anthropic prefill requirement)."""
-        agent = _FakeAgent()
-        processor = make_history_processor(agent)
-
-        msgs = [
-            _sys_msg(),
-            _user_msg("q"),
-            _assistant_text("a1"),
-            _assistant_text("a2"),  # Trailing ModelResponse
-        ]
-        result = processor(msgs)
-
-        assert len(result) > 0
-        assert isinstance(result[-1], ModelRequest), (
-            f"history must end with ModelRequest, got {type(result[-1]).__name__}"
-        )
-
-    def test_strips_empty_thinking_parts(self):
-        agent = _FakeAgent()
-        processor = make_history_processor(agent)
-
+    async def test_strips_empty_thinking_parts(self):
+        agent = _FakeAgent(model_max=1_000_000)
         empty_thinking = ModelResponse(parts=[ThinkingPart(content="")])
-        msgs = [_sys_msg(), empty_thinking, _user_msg("q")]
-        result = processor(msgs)
+        msgs = [_user_msg("q"), empty_thinking, _user_msg("q2")]
+        with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
+            result = await make_history_processor(agent)(_ctx(), msgs)
+        assert empty_thinking not in result
 
-        # Empty-thinking-only message should be filtered out
-        for msg in result:
-            if len(msg.parts) == 1 and isinstance(msg.parts[0], ThinkingPart):
-                assert msg.parts[0].content, (
-                    "empty ThinkingPart should have been stripped"
-                )
-
-    def test_triggers_compaction_over_threshold(self):
-        """When over threshold, the processor must call compact() and shrink history."""
-        agent = _FakeAgent(model_max=5_000, overhead=100)
-        processor = make_history_processor(agent)
-
-        big_msgs = _build_long_history(n_turns=20)
-
+    async def test_triggers_compaction_over_threshold(self):
+        agent = _FakeAgent(model_max=10_000, overhead=0)
+        msgs = _build_long_history(n_turns=20)
         with patch.multiple(
             _compaction,
             get_compaction_threshold=lambda: 0.1,
             get_compaction_strategy=lambda: "truncation",
-            get_protected_token_count=lambda: 300,
+            get_protected_token_count=lambda: 500,
+            get_model_context_length=lambda: 10_000,
         ):
-            result = processor(big_msgs)
-
-        assert len(result) < len(big_msgs), (
-            "over-threshold processor call must compact history"
-        )
-        assert result[0] is big_msgs[0], "system message preserved through compaction"
-
-    def test_noop_under_threshold(self):
-        agent = _FakeAgent(model_max=1_000_000, overhead=0)
-        processor = make_history_processor(agent)
-
-        msgs = _build_long_history(n_turns=2)
-
-        with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
-            result = processor(msgs)
-
-        # Under threshold: all messages preserved (modulo ModelResponse trimming)
-        assert (
-            len(result) >= len(msgs) - 1
-        )  # at most 1 stripped (trailing ModelResponse)
-
-
-# ---------- summarize() ------------------------------------------------------
-
-
-class TestSummarize:
-    def test_empty_input_returns_empty(self):
-        assert summarize([], protected_tokens=1000) == ([], [])
-
-    def test_no_messages_to_summarize(self):
-        """If only system message fits, nothing to summarize."""
-        msgs = [_sys_msg()]
-        result, dropped = summarize(msgs, protected_tokens=10_000)
-        assert len(result) == 1
-        assert dropped == []
-
-    def test_summarization_failure_returns_original(self):
-        """If summarization agent blows up, return original messages unchanged."""
-        msgs = _build_long_history(n_turns=10)
-
-        def _boom(instructions, message_history):
-            raise RuntimeError("model is on fire")
-
-        with patch.object(_compaction, "run_summarization_sync", _boom):
-            result, dropped = summarize(msgs, protected_tokens=500)
-
-        assert result == msgs, "failure must return original messages unchanged"
-        assert dropped == []
-
-    async def test_non_list_output_is_wrapped(self):
-        """If summarizer returns a string, it should be wrapped into a message."""
-        msgs = _build_long_history(n_turns=10)
-
-        with patch.object(
-            _compaction,
-            "run_summarization_sync",
-            return_value="summary as string",
-        ):
-            result, dropped = summarize(msgs, protected_tokens=500)
-
-        # Must still compact; string got wrapped into a valid request part.
+            result = await make_history_processor(agent)(_ctx(), msgs)
         assert len(result) < len(msgs)
-        assert result[0] is msgs[0]  # system preserved
-        summary_request = result[1]
-        assert isinstance(summary_request, ModelRequest)
-        assert len(summary_request.parts) == 1
-        assert isinstance(summary_request.parts[0], UserPromptPart)
-        assert summary_request.parts[0].content == "summary as string"
+        assert agent._compacted_message_hashes, "dropped hashes must be recorded"
 
-        # Exercise the provider mapper that previously raised assert_never()
-        # for TextPart inside a ModelRequest. No API request is made.
-        model = OpenAIResponsesModel("gpt-5", provider=OpenAIProvider(api_key="test"))
-        _, mapped = await model._map_messages(
-            result,
-            {},
-            ModelRequestParameters(),
+    async def test_noop_under_threshold(self):
+        agent = _FakeAgent(model_max=1_000_000)
+        # End on a user turn so the trailing-ModelResponse trim is a no-op.
+        msgs = _build_long_history(n_turns=3) + [_user_msg("latest")]
+        with patch.object(_compaction, "get_compaction_threshold", return_value=0.95):
+            result = await make_history_processor(agent)(_ctx(), msgs)
+        assert len(result) == len(msgs)
+        assert not agent._compacted_message_hashes
+
+
+# ---------- FallbackCompaction wiring sanity ---------------------------------
+
+
+class TestFallbackChainIntegration:
+    async def test_fallback_chain_end_to_end(self):
+        """Exploding summarizer + healthy sliding window: the chain must land
+        on the window and still respect pairing + first-message retention."""
+        msgs = _build_long_history(n_turns=20)
+        strategy = FallbackCompaction(
+            fallback_chain=[
+                SummarizingCompaction(
+                    model=_exploding_model(), max_tokens=1, keep_tokens=500
+                ),
+                SlidingWindowCompaction(max_tokens=1, keep_tokens=500),
+            ]
         )
-        assert mapped[1] == {"role": "user", "content": "summary as string"}
+        out = await strategy.compact(list(msgs), _ctx())
+        assert len(out) < len(msgs)
+        orphan_calls, orphan_returns = _orphan_tool_ids(out)
+        assert not orphan_calls and not orphan_returns
+
+    async def test_fallback_chain_reraises_when_all_fail(self):
+        strategy = FallbackCompaction(
+            fallback_chain=[
+                SummarizingCompaction(
+                    model=_exploding_model(), max_tokens=1, keep_tokens=500
+                ),
+            ]
+        )
+        with pytest.raises(ModelHTTPError):
+            await strategy.compact(_build_long_history(n_turns=20), _ctx())

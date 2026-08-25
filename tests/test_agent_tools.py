@@ -7,7 +7,12 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart
+from pydantic_ai.messages import (
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+)
 
 from code_puppy.tools.agent_tools import (
     _generate_session_hash_suffix,
@@ -84,13 +89,13 @@ class TestAgentTools:
         from unittest.mock import patch
 
         from code_puppy import callbacks
-        from code_puppy.plugins.file_permission_handler.register_callbacks import (
+        from code_puppy_core_plugins.file_permission_handler.register_callbacks import (
             get_file_permission_prompt_additions,
         )
 
         # Mock yolo mode to be False so we can test prompt additions
         with patch(
-            "code_puppy.plugins.file_permission_handler.register_callbacks.get_yolo_mode",
+            "code_puppy_core_plugins.file_permission_handler.register_callbacks.get_yolo_mode",
             return_value=False,
         ):
             # Register the file permission callback (normally done at startup)
@@ -223,19 +228,21 @@ class TestSessionIdValidation:
         with pytest.raises(ValueError, match="must be kebab-case"):
             _validate_session_id("MY-SESSION")
 
-    def test_invalid_underscores(self):
-        """Test that underscores are rejected."""
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("my_session")
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("my-session_name")
-
-    def test_invalid_spaces(self):
-        """Test that spaces are rejected."""
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("my session")
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("session name")
+    @pytest.mark.parametrize(
+        "bad_names",
+        [
+            ["my_session", "my-session_name"],
+            ["my session", "session name"],
+            ["my--session", "session--name"],
+            ["-session", "-my-session"],
+            ["session-", "my-session-"],
+        ],
+    )
+    def test_invalid_session_ids(self, bad_names):
+        """Test that non-kebab-case ids are rejected."""
+        for name in bad_names:
+            with pytest.raises(ValueError, match="must be kebab-case"):
+                _validate_session_id(name)
 
     def test_invalid_special_characters(self):
         """Test that special characters are rejected."""
@@ -247,27 +254,6 @@ class TestSessionIdValidation:
             _validate_session_id("session.name")
         with pytest.raises(ValueError, match="must be kebab-case"):
             _validate_session_id("session#1")
-
-    def test_invalid_double_hyphens(self):
-        """Test that double hyphens are rejected."""
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("my--session")
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("session--name")
-
-    def test_invalid_leading_hyphen(self):
-        """Test that leading hyphens are rejected."""
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("-session")
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("-my-session")
-
-    def test_invalid_trailing_hyphen(self):
-        """Test that trailing hyphens are rejected."""
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("session-")
-        with pytest.raises(ValueError, match="must be kebab-case"):
-            _validate_session_id("my-session-")
 
     def test_invalid_empty_string(self):
         """Test that empty strings are rejected."""
@@ -306,11 +292,16 @@ class TestSessionSaveLoad:
 
     @pytest.fixture
     def mock_messages(self):
-        """Create mock ModelMessage objects for testing."""
+        """Create schema-valid ModelMessage objects for testing.
+
+        Requests carry ``UserPromptPart`` (``TextPart`` is a response-only
+        part; the old pickle format tolerated the mismatch, the JSON
+        envelope round-trips through the real message schema).
+        """
         return [
-            ModelRequest(parts=[TextPart(content="Hello, can you help?")]),
+            ModelRequest(parts=[UserPromptPart(content="Hello, can you help?")]),
             ModelResponse(parts=[TextPart(content="Sure, I can help!")]),
-            ModelRequest(parts=[TextPart(content="What is 2+2?")]),
+            ModelRequest(parts=[UserPromptPart(content="What is 2+2?")]),
             ModelResponse(parts=[TextPart(content="2+2 equals 4.")]),
         ]
 
@@ -374,8 +365,8 @@ class TestSessionSaveLoad:
             with pytest.raises(ValueError, match="must be kebab-case"):
                 _load_session_history("Invalid_Session")
 
-    def test_save_creates_pkl_and_txt_files(self, temp_session_dir, mock_messages):
-        """Test that save creates both .pkl and .txt files."""
+    def test_save_creates_json_and_txt_files(self, temp_session_dir, mock_messages):
+        """Test that save creates both .json and .txt files."""
         session_id = "test-session"
         agent_name = "test-agent"
         initial_prompt = "Test prompt"
@@ -392,9 +383,9 @@ class TestSessionSaveLoad:
             )
 
             # Check that both files exist
-            pkl_file = temp_session_dir / f"{session_id}.pkl"
+            json_file = temp_session_dir / f"{session_id}.json"
             txt_file = temp_session_dir / f"{session_id}.txt"
-            assert pkl_file.exists()
+            assert json_file.exists()
             assert txt_file.exists()
 
     def test_txt_file_contains_readable_metadata(self, temp_session_dir, mock_messages):
@@ -606,9 +597,9 @@ class TestSessionIntegration:
 
     @pytest.fixture
     def mock_messages(self):
-        """Create mock ModelMessage objects for testing."""
+        """Create schema-valid ModelMessage objects for testing."""
         return [
-            ModelRequest(parts=[TextPart(content="Hello")]),
+            ModelRequest(parts=[UserPromptPart(content="Hello")]),
             ModelResponse(parts=[TextPart(content="Hi there!")]),
         ]
 

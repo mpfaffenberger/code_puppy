@@ -2,7 +2,9 @@
 
 from unittest.mock import MagicMock, patch
 
-from prompt_toolkit.document import Document
+import pytest
+
+from termflow.tui.completion import Document
 
 from code_puppy.command_line.mcp_completion import MCPCompleter, load_server_names
 
@@ -39,19 +41,17 @@ class TestMCPCompleter:
     def test_trigger_no_space(self):
         assert self._get_completions("/mcp") == []
 
-    def test_show_all_subcommands(self):
-        result = self._get_completions("/mcp ")
+    @pytest.mark.parametrize(
+        ("doc", "extra"),
+        [("/mcp ", "install"), ("/mcp st", "stop")],
+        ids=["show_all_subcommands", "partial_subcommand"],
+    )
+    def test_subcommand_completions(self, doc, extra):
+        result = self._get_completions(doc)
         names = [c.text for c in result]
         assert "start" in names
-        assert "install" in names
+        assert extra in names
         # "list" is intentionally not offered: bare /mcp already does that.
-        assert "list" not in names
-
-    def test_partial_subcommand(self):
-        result = self._get_completions("/mcp st")
-        names = [c.text for c in result]
-        assert "start" in names
-        assert "stop" in names
         assert "list" not in names
 
     @patch.object(

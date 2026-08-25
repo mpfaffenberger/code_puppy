@@ -1,7 +1,8 @@
 # Contributing to Code Puppy
 
-> **Golden rule:** nearly all new functionality should be a **plugin** under `code_puppy/plugins/`
-> that hooks into core via `code_puppy/callbacks.py`. Don't edit `code_puppy/command_line/`.
+> **Golden rule:** nearly all new functionality should be a **plugin** in the
+> `code_puppy_core_plugins` repository that hooks into core via
+> `code_puppy/callbacks.py`. Don't edit `code_puppy/command_line/`.
 
 ## How Plugins Work
 
@@ -9,7 +10,7 @@ Plugins are discovered from three tiers, loaded in order:
 
 | Tier | Location | When to use |
 |------|----------|-------------|
-| **Builtin** | `code_puppy/plugins/<name>/register_callbacks.py` | Core functionality shipped with Code Puppy |
+| **Builtin** | `code_puppy_core_plugins/<name>/register_callbacks.py` | Official package discovered via Python entry points |
 | **User** | `~/.code_puppy/plugins/<name>/register_callbacks.py` | Personal plugins, applied to every project |
 | **Project** | `<CWD>/.code_puppy/plugins/<name>/register_callbacks.py` | Repo-specific plugins, shared with your team via git |
 
@@ -62,6 +63,12 @@ and skills (`<CWD>/.code_puppy/skills/`).
 
 `register_callback("<hook>", func)` — deduplicated, async hooks accept sync or async functions.
 
+`register_callback("<hook>", func, fail_closed=True)` — for security callbacks on `pre_tool_call`
+and `run_shell_command` only. Error isolation normally reports a crashed callback as `None`, and
+both of those consumers read `None` as "no objection", so a guard that raises currently reads as
+approval. With `fail_closed=True` its exception is reported as a block instead. Defaults to
+`False`; the flag is rejected on other hooks, whose consumers would misread a block result.
+
 | Hook | When | Signature |
 |------|------|-----------|
 | `startup` | App boot | `() -> None` |
@@ -69,6 +76,7 @@ and skills (`<CWD>/.code_puppy/skills/`).
 | `invoke_agent` | Sub-agent invoked | `(*args, **kwargs) -> None` |
 | `agent_exception` | Unhandled agent error | `(exception, *args, **kwargs) -> None` |
 | `agent_run_start` | Before agent task | `(agent_name, model_name, session_id=None) -> None` |
+| `model_select` | Select a model for one run | `(*, agent_name, current_model, prompt, messages, session_id=None) -> str \| None` — first non-empty result wins |
 | `agent_run_end` | After agent run | `(agent_name, model_name, session_id=None, success=True, error=None, response_text=None, metadata=None) -> None` |
 | `load_prompt` | System prompt assembly | `() -> str \| None` |
 | `run_shell_command` | Before shell exec | `(context, command, cwd=None, timeout=60) -> dict \| None` (return `{"blocked": True}` to block, `{"rewrite": "<new cmd>"}` to transparently transform) |
@@ -88,7 +96,9 @@ and skills (`<CWD>/.code_puppy/skills/`).
 | `load_models_config` | Inject models | `() -> dict` |
 | `load_model_descriptions` | Inject description overlays | `() -> dict[str, str]` |
 | `get_model_system_prompt` | Per-model prompt | `(model_name, default_prompt, user_prompt) -> dict \| None` |
+| `provider_credential_flow` | `/add_model` hit a missing credential | `(*, provider_id, env_var) -> bool \| None` — save the credential (config + env) and return `True` to skip manual entry; short-circuits on first `True` |
 | `stream_event` | Response streaming | `(event_type, event_data, agent_session_id=None) -> None` |
+| `transform_model_messages` | Before each model request, after history processing | `(agent_name, messages) -> None` — mutate the final `list[ModelMessage]` in place |
 | `pre_mcp_autostart` | Before bound MCP servers auto-start | `(agent_name, server_names) -> None` (refresh tokens / mint creds here) |
 
 Full list + rarely-used hooks: see `code_puppy/callbacks.py` source.
@@ -167,4 +177,3 @@ quickstart). Rules for new user-facing output (PUP-473):
 5. **Return `None` from commands you don't own**
 6. **Always run linters - `ruff check --fix`, `ruff format .`
 7. **NEVER ALLOW A CLAUDE CO-AUTHOR COMMIT**
-

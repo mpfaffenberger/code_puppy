@@ -43,9 +43,8 @@ from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-# Trust store lives user-side so a repository can never self-trust. We hardcode
-# ``~/.code_puppy`` to match ``plugins/trust.py`` — the whole trust subsystem is
-# deliberately anchored to the legacy home dir, not the XDG config dir.
+# Trust store lives user-side so a repo can never self-trust. Hardcoded to
+# ``~/.code_puppy`` to match plugins/trust.py (legacy home dir, not XDG).
 TRUST_STORE_FILE = Path.home() / ".code_puppy" / "trusted_mcp.json"
 
 # Project-local MCP config path, relative to the current working directory.

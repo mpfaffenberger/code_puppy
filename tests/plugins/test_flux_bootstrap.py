@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from code_puppy.plugins.flux_bootstrap import installer
+from code_puppy_core_plugins.flux_bootstrap import installer
 
 
 @pytest.fixture
@@ -22,9 +22,8 @@ def test_bundled_payload_present():
     assert "commands/flux/rebase.md" in files
     assert "commands/flux/status.md" in files
     assert "scripts/flux_status.py" in files
-    # The stock OSS payload must ship ONLY namespaced flux commands -- no loose
-    # top-level commands that could shadow a user's own same-named globals on a
-    # fresh install (see test_fresh_install_preserves_preexisting_user_command).
+    # Ship ONLY namespaced flux commands - no loose top-level ones that could shadow a
+    # user's same-named globals on a fresh install (see test_fresh_install_preserves_...).
     assert "commands/hello-world.md" not in files
     assert "commands/smoke-test.md" not in files
     assert all(
@@ -183,15 +182,13 @@ def test_first_run_lifecycle_makes_flux_dispatchable_without_restart(config_dir:
     bootstrap ``startup`` callback, then an assertion that the command is
     dispatchable -- with no manual reload in the test.
     """
-    from code_puppy.plugins.customizable_commands import register_callbacks as cc
-    from code_puppy.plugins.flux_bootstrap import register_callbacks as flux_rc
+    from code_puppy_core_plugins.customizable_commands import register_callbacks as cc
+    from code_puppy_core_plugins.flux_bootstrap import register_callbacks as flux_rc
 
     commands_dir = config_dir / "commands"
 
-    # Snapshot + restore the module-level cache so we don't leak into other
-    # tests. IMPORTANT: other test modules import these dicts *by reference*, so
-    # we must restore them in place (clear + update) rather than rebind -- a
-    # rebind would leave those modules pointing at the polluted originals.
+    # Snapshot/restore the module-level cache in place (clear + update), never rebind:
+    # other modules import these dicts *by reference* and would keep the originals.
     saved_commands = dict(cc._custom_commands)
     saved_descriptions = dict(cc._command_descriptions)
     saved_exec = dict(cc._command_exec_directives)

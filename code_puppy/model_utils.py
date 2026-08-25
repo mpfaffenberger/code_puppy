@@ -75,14 +75,8 @@ def prepare_prompt_for_model(
                 is_claude_code=bool(result.get("is_claude_code", False)),
             )
 
-    # 2) Fall back to the legacy per-model system-prompt hook. Two flavours
-    #    of plugin live here:
-    #      * "taker-over" plugins return ``handled=True`` — first one wins
-    #        outright, exactly like ``prepare_model_prompt``.
-    #      * "augmenter" plugins (e.g. agent_skills) return ``handled=False``
-    #        with mutated ``instructions`` / ``user_prompt``. We thread those
-    #        mutations forward so the caller actually sees them, instead of
-    #        silently dropping every augmentation on the floor.
+    # 2) Legacy per-model hook: "taker-over" plugins return handled=True (first
+    #    wins); "augmenters" (e.g. agent_skills) mutate prompts — thread those through.
     augmented_instructions = system_prompt
     augmented_user_prompt = user_prompt
     for result in callbacks.on_get_model_system_prompt(
@@ -119,7 +113,7 @@ def _matches_model_tag(candidate: str, tag: str) -> bool:
     ``claude-4-5-sonnet`` both look like a hypothetical ``5-sonnet`` model.
     That is cute, but wrong: those are Sonnet 3.5 and Sonnet 4.5 respectively,
     NOT Sonnet 5. Treat tags as alphanumeric-delimited segments and reject
-    any ``X-5-sonnet`` / ``X.5-sonnet`` (or ``-fable``) shape where ``X`` is
+    any ``X-5-sonnet`` / ``X.5-sonnet`` (or ``-opus`` / ``-fable``) shape where ``X`` is
     any leading major-version digit.
     """
     start = 0
@@ -132,7 +126,7 @@ def _matches_model_tag(candidate: str, tag: str) -> bool:
         left_is_boundary = index == 0 or not candidate[index - 1].isalnum()
         right_is_boundary = end == len(candidate) or not candidate[end].isalnum()
         old_minor_version_shape = (
-            tag in {"5-sonnet", "5-fable"}
+            tag in {"5-sonnet", "5-opus", "5-fable"}
             and index >= 2
             and candidate[index - 1] in "-."
             and candidate[index - 2].isdigit()
@@ -171,6 +165,8 @@ _ADAPTIVE_TAGS: tuple[str, ...] = (
     "4-6-sonnet",
     "sonnet-5",
     "5-sonnet",
+    "opus-5",
+    "5-opus",
     "fable-5",
     "5-fable",
 )
@@ -182,9 +178,46 @@ _SUMMARY_TAGS: tuple[str, ...] = (
     "4-8-opus",
     "sonnet-5",
     "5-sonnet",
+    "opus-5",
+    "5-opus",
     "fable-5",
     "5-fable",
 )
+
+
+def anthropic_disallows_sampling_settings(
+    model_name: str, actual_model_id: str | None = None
+) -> bool:
+    """Return whether an Anthropic model rejects sampling params entirely.
+
+    Some newer Claude models (e.g. Fable 5, Sonnet 5) reject ``temperature``,
+    ``top_p``, and ``top_k`` at the API level. pydantic-ai records this on the
+    model profile as ``anthropic_disallows_sampling_settings`` and warns (then
+    drops) any such settings we send. We consult the same profile so we never
+    put those settings in the request in the first place.
+
+    Args:
+        model_name: The model alias/key from models.json (e.g. ``"fable"``).
+        actual_model_id: The real API model ID from config (e.g.
+            ``"claude-fable-5"``). This is what pydantic-ai profiles at
+            runtime, so it is checked too.
+    """
+    try:
+        from pydantic_ai.profiles.anthropic import anthropic_model_profile
+    except ImportError:  # pragma: no cover - pydantic-ai is a hard dep
+        return False
+
+    candidates = {model_name}
+    if actual_model_id:
+        candidates.add(actual_model_id)
+    for candidate in candidates:
+        try:
+            profile = anthropic_model_profile(candidate)
+        except Exception:  # pragma: no cover - defensive against API drift
+            continue
+        if profile and profile.get("anthropic_disallows_sampling_settings", False):
+            return True
+    return False
 
 
 def supports_adaptive_thinking(
@@ -192,7 +225,7 @@ def supports_adaptive_thinking(
 ) -> bool:
     """Return whether a model supports adaptive extended-thinking.
 
-    Opus 4-6/4-7/4-8, Sonnet 4-6, Sonnet 5, and Fable 5 accept (and require)
+    Opus 4-6/4-7/4-8, Sonnet 4-6, Sonnet 5, Opus 5, and Fable 5 accept (and require)
     ``thinking={"type": "adaptive"}`` at the wire level. Every other Claude
     variant wants the classic ``type: "enabled"`` shape.
 
@@ -209,8 +242,8 @@ def get_default_extended_thinking(
 ) -> str:
     """Return the default extended_thinking mode for an Anthropic model.
 
-    Opus 4-6, Opus 4-7, Opus 4-8, Sonnet 4-6, Sonnet 5, and Fable 5 models
-    default to ``"adaptive"`` thinking; all other Anthropic models default to
+    Opus 4-6, Opus 4-7, Opus 4-8, Sonnet 4-6, Sonnet 5, Opus 5, and Fable 5
+    models default to ``"adaptive"`` thinking; all other Anthropic models default to
     ``"enabled"``.
 
     Args:
@@ -231,7 +264,7 @@ def should_use_anthropic_thinking_summary(
 ) -> bool:
     """Return whether Anthropic adaptive thinking should request summary display.
 
-    Anthropic's newer Opus 4.7+, Opus 4.8, Sonnet 5, and Fable 5 models accept
+    Anthropic's newer Opus 4.7+, Opus 4.8, Sonnet 5, Opus 5, and Fable 5 models accept
     ``display: \"summarized\"`` alongside ``thinking={"type": "adaptive"}`` to
     surface a condensed reasoning trace instead of the full block.
     """
@@ -253,7 +286,7 @@ def resolve_anthropic_thinking_payload(
       (with ``budget_tokens``) or ``type: "disabled"``. Sending ``"adaptive"``
       yields the reporter's error:
       ``Input tag 'adaptive' does not match any of the expected tags: 'disabled', 'enabled'``.
-    * **Adaptive** (Opus 4.6/4.7/4.8, Sonnet 4.6, Sonnet 5, Fable 5): the
+    * **Adaptive** (Opus 4.6/4.7/4.8, Sonnet 4.6, Sonnet 5, Opus 5, Fable 5): the
       opposite — rejects ``type: "enabled"`` with
       ``"thinking.type.enabled" is not supported for this model. Use adaptive."``.
       These models want ``type: "adaptive"`` and optionally ``display: "summarized"``.

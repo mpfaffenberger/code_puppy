@@ -9,9 +9,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_puppy.plugins.wiggum import judge_config, register_callbacks
-from code_puppy.plugins.wiggum.judge import GoalJudgement
-from code_puppy.plugins.wiggum.judge_config import JudgeConfig
+from code_puppy_core_plugins.wiggum import judge_config, register_callbacks
+from code_puppy_core_plugins.wiggum.judge import GoalJudgement
+from code_puppy_core_plugins.wiggum.judge_config import JudgeConfig
 
 
 @pytest.fixture
@@ -239,7 +239,7 @@ async def test_remediation_notes_format(isolated_judges):
 @pytest.mark.asyncio
 async def test_turn_end_feeds_remediation_notes_to_next_iteration(isolated_judges):
     """When goal is incomplete, the next iteration's prompt must include the notes."""
-    from code_puppy.plugins.wiggum import state
+    from code_puppy_core_plugins.wiggum import state
 
     state.start("fix the bug", mode="goal")
 
@@ -271,7 +271,7 @@ async def test_turn_end_feeds_remediation_notes_to_next_iteration(isolated_judge
 
 @pytest.mark.asyncio
 async def test_turn_end_stops_loop_on_full_success(isolated_judges):
-    from code_puppy.plugins.wiggum import state
+    from code_puppy_core_plugins.wiggum import state
 
     state.start("ship it", mode="goal")
 
@@ -481,7 +481,7 @@ async def test_final_complete_banner_omits_notes_body(isolated_judges):
     notes block again into the final '✅ GOAL COMPLETE!' banner was the
     'output shown twice' bug.
     """
-    from code_puppy.plugins.wiggum import state
+    from code_puppy_core_plugins.wiggum import state
 
     state.start("say hi", mode="goal")
     judge_config.add_judge(JudgeConfig(name="judy", model="m"))
@@ -529,7 +529,7 @@ async def test_judge_runs_inside_subagent_context(isolated_judges):
     This is what suppresses the judge's tool-call banners and intermediate
     chatter (read_file, grep, agent reasoning, etc.) in the goal-loop UI.
     """
-    from code_puppy.plugins.wiggum import judge as judge_module
+    from code_puppy_core_plugins.wiggum import judge as judge_module
     from code_puppy.tools.subagent_context import is_subagent
 
     judge_config.add_judge(JudgeConfig(name="checker", model="fake-model"))
@@ -537,9 +537,8 @@ async def test_judge_runs_inside_subagent_context(isolated_judges):
     saw_subagent_flag: list[bool] = []
 
     async def fake_run(_user_prompt, **_kwargs):
-        # When the real judge_agent.run() executes, is_subagent() should be True.
-        # Accept arbitrary kwargs (e.g. usage_limits) so this stub keeps
-        # working as judge_goal grows new pydantic_ai run options.
+        # Stub: when real judge_agent.run() executes, is_subagent() is True; accept
+        # arbitrary kwargs so the stub survives new pydantic_ai run options.
         saw_subagent_flag.append(is_subagent())
 
         class _R:
@@ -733,7 +732,7 @@ async def test_turn_end_swallows_cancellation_and_stops_goal_mode(isolated_judge
     """Same regression at the higher level: _on_interactive_turn_end must
     catch cancellation, stop goal mode, and return None (no continuation).
     """
-    from code_puppy.plugins.wiggum import state
+    from code_puppy_core_plugins.wiggum import state
 
     state.start("do a thing", mode="goal")
     judge_config.add_judge(JudgeConfig(name="slow", model="m"))

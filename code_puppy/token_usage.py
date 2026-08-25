@@ -47,10 +47,8 @@ __all__ = [
     "RED_CIRCLE",
 ]
 
-# Thresholds (fractions of context window). Match the visual indicator buckets:
-#   <30% green, 30–<65% yellow, ≥65% red.
-# Boundaries are exclusive on the upper end: e.g. exactly 0.30 → yellow,
-# exactly 0.65 → red. Keep ``_format_usage_report`` legend in sync.
+# Thresholds (fractions of context window), matching visual buckets <30% green,
+# 30–<65% yellow, ≥65% red; upper bounds exclusive. Keep _format_usage_report in sync.
 GREEN_THRESHOLD = 0.30
 YELLOW_THRESHOLD = 0.65
 
@@ -58,9 +56,8 @@ GREEN_CIRCLE = "🟢"
 YELLOW_CIRCLE = "🟡"
 RED_CIRCLE = "🔴"
 
-# Classic char/token heuristic used throughout. Kept here as a private
-# constant so /context's numbers don't drift if the core estimator is
-# patched at runtime by the token_ratio_learner plugin.
+# Classic char/token heuristic, kept private so /context's numbers don't drift
+# if the core estimator is patched at runtime (token_ratio_learner plugin).
 _CHARS_PER_TOKEN = 2.5
 
 
@@ -176,21 +173,15 @@ def _raw_tokens_for_mcp_servers(mcp_servers: Optional[List[Any]]) -> int:
     if not mcp_servers:
         return 0
 
+    from code_puppy.mcp_.toolset_utils import iter_cached_tool_defs
+
     total = 0
     for server in mcp_servers:
-        cached = getattr(server, "_cached_tools", None)
-        if not cached:
-            continue
-        prefix = getattr(server, "tool_prefix", None) or ""
-        for mcp_tool in cached:
-            name = getattr(mcp_tool, "name", "") or ""
-            full_name = f"{prefix}_{name}" if prefix else name
+        for full_name, description, schema in iter_cached_tool_defs(server):
             if full_name:
                 total += _raw_estimate_tokens(full_name)
-            description = getattr(mcp_tool, "description", "") or ""
             if description:
                 total += _raw_estimate_tokens(description)
-            schema = getattr(mcp_tool, "inputSchema", None)
             if schema:
                 try:
                     total += _raw_estimate_tokens(json.dumps(schema, sort_keys=True))
@@ -284,21 +275,15 @@ def _live_mcp_servers_for(agent):
 def _kennel_memory_block() -> str:
     """Return the kennel's current recall block, or an empty string.
 
-    We call the kennel retriever directly — same code path the prompt
+    Goes through the neutral provider seam — same code path the prompt
     assembly uses on ``load_prompt`` — so the token count we report here
     matches the block actually shipped to the model. Returns ``""`` when
     the kennel plugin isn't installed, is disabled, or has nothing to
     surface this turn.
     """
-    try:
-        from code_puppy.plugins.puppy_kennel.retriever import build_recall_block
-    except Exception:
-        return ""
-    try:
-        block = build_recall_block()
-    except Exception:
-        return ""
-    return block or ""
+    from code_puppy.kennel_provider import get_kennel_recall_block
+
+    return get_kennel_recall_block()
 
 
 def _agent_tools(agent):
@@ -333,21 +318,16 @@ def compute_overhead_breakdown(agent) -> OverheadBreakdown:
     """
     from code_puppy.agents._builder import load_puppy_rules
 
-    # System prompt (resolved for the active model). NB: this already
-    # includes any ``load_prompt`` plugin fragments — most notably the
-    # kennel memory block — so we'll carve those out below to avoid
-    # double-counting.
+    # Resolved system prompt already includes load_prompt plugin fragments
+    # (notably kennel memory) — carve those out below to avoid double-counting.
     try:
         resolved = _resolved_system_prompt(agent)
         system_tokens = _raw_estimate_tokens(resolved)
     except Exception:
         system_tokens = 0
 
-    # Kennel memory block — carved out of the system prompt so it gets
-    # its own line in /context. Clamp the subtraction to zero in the
-    # paranoid case where the resolved prompt somehow doesn't contain the
-    # block (e.g. agent overrode get_system_prompt without calling
-    # ``on_load_prompt``).
+    # Carve kennel memory out of the system prompt (own line in /context),
+    # clamped to zero if the resolved prompt lacks it (get_system_prompt override).
     try:
         kennel_tokens = _raw_estimate_tokens(_kennel_memory_block())
     except Exception:

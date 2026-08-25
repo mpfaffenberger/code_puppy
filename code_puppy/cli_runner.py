@@ -10,6 +10,8 @@ apply_all_patches()
 
 import argparse
 import asyncio
+import time
+import json
 import os
 import signal
 import sys
@@ -18,7 +20,7 @@ from pathlib import Path
 
 from rich.console import Console
 
-from code_puppy import __version__, callbacks, plugins
+from code_puppy import __version__, callbacks, get_core_plugins_version, plugins
 from code_puppy.agents import get_current_agent
 from code_puppy.i18n import t
 from code_puppy.command_line.attachments import (
@@ -38,10 +40,10 @@ from code_puppy.config import (
 from code_puppy.http_utils import find_available_port
 from code_puppy.keymap import (
     KeymapError,
-    get_cancel_agent_display_name,
     validate_cancel_agent_key,
 )
 from code_puppy.messaging import emit_info
+from code_puppy.platform_utils import startup_banner_text
 from code_puppy.terminal_utils import (
     print_truecolor_warning,
     reset_unix_terminal,
@@ -51,6 +53,13 @@ from code_puppy.terminal_utils import (
 from code_puppy.version_checker import default_version_mismatch_behavior
 
 plugins.load_plugin_callbacks()
+
+_HEADLESS_AUTONOMY_PROMPT = """\
+This is an unattended, non-interactive run. Never ask for confirmation, approval,
+clarification, or manual verification, including through tools or MCP servers. Use
+reasonable defaults, proceed autonomously, and validate with the tools available to
+you. State any assumptions or optional manual checks only in the final response.\
+"""
 
 
 def _render_turn_exception(exc: Exception) -> None:
@@ -166,6 +175,17 @@ async def main():
         help="Execute a single prompt and exit (no interactive mode)",
     )
     parser.add_argument(
+        "--disable-ask-user-question",
+        action="store_true",
+        help="Disable only the interactive ask_user_question tool",
+    )
+    parser.add_argument(
+        "--usage-file",
+        type=Path,
+        metavar="PATH",
+        help="Write aggregate headless model usage as JSON",
+    )
+    parser.add_argument(
         "--agent",
         "-a",
         type=str,
@@ -182,7 +202,18 @@ async def main():
         "-r",
         type=str,
         metavar="PATH",
-        help="Resume a saved session from a .pkl file (e.g. ~/.code_puppy/contexts/foo.pkl)",
+        help=(
+            "Resume a saved session by name or file path "
+            "(.json envelope; legacy .pkl files migrate automatically)"
+        ),
+    )
+    parser.add_argument(
+        "--cwd",
+        action="store_true",
+        help=(
+            "With --resume, only list/consider sessions scoped to the current "
+            "working directory (opt-in; default shows all sessions unfiltered)"
+        ),
     )
     parser.add_argument(
         "--quick-resume",
@@ -197,19 +228,32 @@ async def main():
         ),
     )
     parser.add_argument(
+        "--port-base",
+        type=str,
+        default=None,
+        metavar="PORT",
+        help=(
+            "Starting port for the local HTTP server (searches PORT..PORT+920). "
+            "Bump this if 8090 collides with another local dev server. "
+            "Falls back to $CODE_PUPPY_PORT_BASE or 'port_base' in puppy.cfg (default 8090). "
+            "Invalid values are warned about and ignored -- next source in the "
+            "precedence chain is used instead of crashing."
+        ),
+    )
+    parser.add_argument(
         "command", nargs="*", help="Run a single command (deprecated, use -p instead)"
     )
 
-    # Let plugins contribute their own top-level CLI arguments. Plugins are
-    # already loaded at import time, so every register_cli_args callback is
-    # registered before the parser is built. Duplicate option strings raise
-    # here = fail fast.
+    # Plugins add CLI args via on_register_cli_args (loaded at import time);
+    # duplicate option strings raise here = fail fast.
     callbacks.on_register_cli_args(parser)
 
     args = parser.parse_args()
+    if args.disable_ask_user_question:
+        os.environ["CODE_PUPPY_DISABLE_ASK_USER_QUESTION"] = "1"
 
-    # Give plugins a chance to act on parsed args and short-circuit startup.
-    # The first result dict with handled=True wins, exiting with its exit_code.
+    # Plugins may act on parsed args and short-circuit startup; first dict
+    # with handled=True wins (exits with its exit_code).
     for result in callbacks.on_handle_cli_args(args):
         if isinstance(result, dict) and result.get("handled"):
             return result.get("exit_code", 0)
@@ -237,26 +281,29 @@ async def main():
     initialize_command_history_file()
     from code_puppy.messaging import emit_error, emit_system_message
 
-    # Show the awesome Code Puppy logo when entering interactive mode
-    # This happens when: no -p flag (prompt-only mode) is used
-    # The logo should appear for both `code-puppy` and `code-puppy -i`
+    # Show the logo on entering interactive mode (no -p flag; covers
+    # both `code-puppy` and `code-puppy -i`).
     if not args.prompt:
         try:
             import pyfiglet
 
+            # Width-aware banner: full CODE PUPPY when it fits, PUP when
+            # the terminal is too narrow (phones, tight splits).
+            banner_columns = display_console.width
             intro_lines = pyfiglet.figlet_format(
-                "CODE PUPPY", font="ansi_shadow"
+                startup_banner_text(banner_columns), font="ansi_shadow"
             ).split("\n")
 
             # Simple blue to green gradient (top to bottom)
             gradient_colors = ["bright_blue", "bright_cyan", "bright_green"]
             display_console.print("\n")
 
+            # Left-justified on purpose -- the full-screen splash handles
+            # the centered spectacle; this banner tops the scrollback.
             lines = []
-            # Apply gradient line by line
             for line_num, line in enumerate(intro_lines):
                 if line.strip():
-                    # Use line position to determine color (top blue, middle cyan, bottom green)
+                    # Top=blue, middle=cyan, bottom=green by line position
                     color_idx = min(line_num // 2, len(gradient_colors) - 1)
                     color = gradient_colors[color_idx]
                     lines.append(f"[{color}]{line}[/{color}]")
@@ -267,16 +314,30 @@ async def main():
         except ImportError:
             emit_system_message(t("cli.loading"))
 
-        # Truecolor warning moved to interactive_mode() so it prints LAST
-        # after all the help stuff - max visibility for the ugly red box!
+        # Powered-by tagline under the big banner (prints even without pyfiglet).
+        display_console.print(
+            f"[dim]{t('cli.banner.powered_by')}[/dim] "
+            "[link=https://github.com/pydantic/pydantic-ai-harness]"
+            "[cyan]https://github.com/pydantic/pydantic-ai-harness[/cyan][/link]"
+        )
+        display_console.print(
+            f"[dim]{t('cli.banner.observability_pitch')}[/dim] "
+            "[link=https://pydantic.dev/logfire]"
+            "[cyan]https://pydantic.dev/logfire[/cyan][/link]\n"
+        )
 
-    available_port = find_available_port()
+        # Truecolor warning moved to interactive_mode() so it prints last — max visibility.
+
+    from code_puppy.config import PORT_PROBE_WIDTH, resolve_port_base
+
+    port_base = resolve_port_base(cli_value=args.port_base)
+    port_end = port_base + PORT_PROBE_WIDTH
+    available_port = find_available_port(start_port=port_base, end_port=port_end)
     if available_port is None:
-        emit_error(t("cli.error.no_ports"))
+        emit_error(t("cli.error.no_ports", port_base=port_base, port_end=port_end))
         return
 
-    # Early model setting if specified via command line
-    # This happens before ensure_config_exists() to ensure config is set up correctly
+    # Set model early (before ensure_config_exists) so config is set up correctly.
     early_model = None
     if args.model:
         early_model = args.model.strip()
@@ -285,6 +346,13 @@ async def main():
         set_model_name(early_model)
 
     ensure_config_exists()
+
+    # Opt-in Logfire observability — a no-op unless enable_logfire (or
+    # CODE_PUPPY_ENABLE_LOGFIRE) is set. Must run before agents spin up so
+    # pydantic-ai instrumentation catches every run.
+    from code_puppy.observability import configure_logfire
+
+    configure_logfire()
 
     # Validate cancel_agent_key configuration early
     try:
@@ -295,22 +363,15 @@ async def main():
         emit_error(str(e))
         sys.exit(1)
 
-    # Windows: run the console in raw-Ctrl+C mode for the whole session.
-    # Stripping ENABLE_PROCESSED_INPUT means the console never turns Ctrl+C
-    # into a console-wide CTRL_C_EVENT — which would also hit wrapper
-    # launchers (uvx.exe, pipx shims) and kill them, wrecking the terminal.
-    # Instead Ctrl+C arrives as a plain \x03 byte that the key listener /
-    # line editor handle like any other keystroke (clear typed input, or
-    # cancel if configured). No launcher detection needed — this is just
-    # how a raw-mode TUI should own the terminal. No-op on non-Windows.
+    # Windows: raw Ctrl+C all session — no console-wide CTRL_C_EVENT (kills
+    # wrapper launchers); Ctrl+C arrives as \x03, handled like any keystroke.
     from code_puppy.terminal_utils import (
         disable_windows_ctrl_c,
         set_keep_ctrl_c_disabled,
     )
 
     if disable_windows_ctrl_c():
-        # Keep the clamp sticky: terminal resets and prompt_toolkit
-        # sessions restore console modes; re-clamp instead of regressing.
+        # Keep the clamp sticky across terminal resets / console mode restores.
         set_keep_ctrl_c_disabled(True)
 
     # Load API keys from puppy.cfg into environment variables
@@ -387,11 +448,16 @@ async def main():
         else:
             default_version_mismatch_behavior(current_version)
 
-    # One-shot sweep of legacy ~/.code_puppy/contexts/ into the unified
-    # autosaves/ store. Idempotent via a sentinel; safe to call every
-    # startup. MUST run before any plugin startup callback can read
-    # AUTOSAVE_DIR (otherwise a plugin could miss freshly-swept files)
-    # and before the resume block below resolves -r NAME.
+    core_plugins_version = get_core_plugins_version()
+    if core_plugins_version is None:
+        core_plugins_message = t("version.core_plugins_unknown")
+    else:
+        core_plugins_message = t("version.core_plugins", version=core_plugins_version)
+    emit_system_message(core_plugins_message)
+
+    # One-shot sweep of legacy ~/.code_puppy/contexts/ into autosaves/ (idempotent
+    # via sentinel). Must run before plugin startup callbacks read AUTOSAVE_DIR and
+    # before the -r resume block resolves.
     try:
         from code_puppy.session_migration import sweep_contexts_to_autosaves
 
@@ -400,16 +466,24 @@ async def main():
         # Sweep failure must never block startup -- it logs internally.
         pass
 
+    # One-time format migration: legacy pickle sessions -> versioned JSON
+    # envelopes (idempotent via marker file). Runs after the location sweep so
+    # freshly-moved contexts/ files are migrated in the same boot.
+    try:
+        from code_puppy.session_format_migration import sweep_legacy_pickle_sessions
+
+        sweep_legacy_pickle_sessions()
+    except Exception:
+        # Never block startup; failures are logged/warned internally.
+        pass
+
     await callbacks.on_startup()
 
-    # Resolve --quick-resume [PATH] into --resume so the resume machinery below
-    # loads the most recent session for that canonical (git-root + branch) scope.
+    # Resolve --quick-resume into --resume for the canonical (git-root + branch) scope.
     apply_quick_resume(args)
 
-    # Holds the resolved (normalised) session name when -r/--resume is in
-    # effect, so save-back paths can persist into the same file the resolver
-    # opened — not the raw user input (which might be ``foo.pkl`` or an
-    # absolute path that the resolver normalised to a bare slug).
+    # Resolved (normalised) session name under -r/--resume so save-back writes the
+    # same file the resolver opened — not the raw ``foo.pkl`` / absolute-path input.
     resolved_resume_session: str | None = None
 
     if args.resume:
@@ -420,16 +494,20 @@ async def main():
             ResumeTargetError,
             resolve_or_create_resume_target,
         )
-        from code_puppy.session_storage import list_sessions, load_session
+        from code_puppy.session_storage import (
+            compute_scope_key,
+            list_sessions,
+            load_session,
+        )
 
         resume_target = args.resume
         sessions_dir = Path(AUTOSAVE_DIR)
+        # Opt-in via --cwd: only offer sessions scoped to the current directory.
+        # Default (flag absent) keeps the unfiltered listing byte-for-byte.
+        resume_scope_key = compute_scope_key(Path.cwd()) if args.cwd else None
 
-        # Lazy-create is symmetric across modes: both headless and
-        # interactive accept ``-r missing-name`` and materialise an
-        # empty session. The typo-guard concern is preserved by the
-        # visible ``Created new session: NAME`` info line plus the
-        # empty ``message_count: 0`` initial state.
+        # Both headless and interactive accept ``-r missing-name`` (empty session);
+        # typos still surface via the visible ``Created new session: NAME`` line.
         try:
             session_name, session_dir, lazy_created = resolve_or_create_resume_target(
                 resume_target,
@@ -440,7 +518,7 @@ async def main():
             emit_error(resolve_exc.message)
             if resolve_exc.hint:
                 emit_info(resolve_exc.hint)
-            available = list_sessions(sessions_dir)
+            available = list_sessions(sessions_dir, scope_key=resume_scope_key)
             if available:
                 emit_info(
                     t(
@@ -450,8 +528,7 @@ async def main():
                 )
             sys.exit(1)
 
-        # When lazy-create fired, announce it so scripts and users can
-        # distinguish first-run creation from a normal resume.
+        # Announce lazy-create so scripts/users can tell it from a normal resume.
         if lazy_created:
             emit_info(t("cli.resume.created", session=session_name))
 
@@ -461,16 +538,9 @@ async def main():
             agent.set_message_history(history)
             total_tokens = sum(agent.estimate_tokens_for_message(m) for m in history)
 
-            # Pin the singleton so periodic autosave AND headless save-back
-            # both update this named file in place. Replaces the old
-            # rotate_autosave_id() call, which under unification would
-            # actively undo the named-session wiring we want.
-            #
-            # Note: even when the user resumed via an absolute path
-            # (resolver branches 1 or 3), we pin the *stem* and let
-            # subsequent writes land in AUTOSAVE_DIR. That keeps cross-mode
-            # resume by name consistent; users who passed a one-off path
-            # can copy the resulting AUTOSAVE_DIR file back if they care.
+            # Pin the singleton so periodic autosave AND headless save-back update
+            # this named file (replaces rotate_autosave_id()). Note: absolute-path
+            # resumes pin the stem — writes land in AUTOSAVE_DIR for cross-mode consistency.
             pin_current_session_name(session_name)
 
             # Record the resolved name for the headless save-back path below.
@@ -485,6 +555,18 @@ async def main():
                         session=session_name,
                     )
                 )
+                # Re-render recent history on interactive resume (matching /load and
+                # the autosave picker): -r loaded history but left a blank screen.
+                # Skipped headless/non-TTY; honors resume_message_count; best-effort.
+                if not args.prompt and sys.stdout.isatty():
+                    try:
+                        from code_puppy.command_line.autosave_menu import (
+                            display_resumed_history,
+                        )
+
+                        display_resumed_history(history)
+                    except Exception:
+                        pass
         except Exception as e:
             emit_error(t("cli.resume.failed", target=resume_target, error=e))
             sys.exit(1)
@@ -507,14 +589,14 @@ async def main():
                 initial_command,
                 message_renderer,
                 session_name=resolved_resume_session,
+                usage_file=args.usage_file,
             )
         else:
             # Default to interactive mode (no args = same as -i)
             await interactive_mode(message_renderer, initial_command=initial_command)
     finally:
-        # Persistent prompt teardown FIRST (restores scroll region +
-        # cursor + key listener) so the renderer stops on a sane screen.
-        # Idempotent no-op when the persistent UI never started.
+        # Tear down the persistent prompt first (restores scroll region, cursor,
+        # key listener) so the renderer stops on a sane screen. Idempotent.
         try:
             from code_puppy.messaging.run_ui import stop_persistent_ui
 
@@ -525,8 +607,7 @@ async def main():
             message_renderer.stop()
         if bus_renderer:
             bus_renderer.stop()
-        # session_end fires BEFORE shutdown so plugins can react to the
-        # session ending while the bus / agent state is still coherent.
+        # session_end fires before shutdown so plugins react while bus state is coherent.
         try:
             await callbacks.on_session_end()
         except Exception:
@@ -537,7 +618,7 @@ async def main():
 def _use_persistent_prompt() -> bool:
     """Should the REPL use the persistent bottom-bar prompt (Phase A)?
 
-    False (→ classic prompt_toolkit path) when:
+    False (-> classic plain-input path) when:
       * rollback flag: env CODE_PUPPY_CLASSIC_PROMPT=1 or config
         ``classic_prompt`` truthy — protects the eyeball-testing period;
       * CODE_PUPPY_NO_TUI=1 (tests / pexpect harnesses);
@@ -564,9 +645,8 @@ def _use_persistent_prompt() -> bool:
             return False
     except Exception:
         return False
-    # Raw-VT gate: enable + verify Windows VT processing up front (no-op
-    # True on POSIX). Unconfirmed VT -> classic prompt, which also keeps
-    # the bar inactive so the spinner/panel tickers never start.
+    # Raw-VT gate: verify Windows VT processing up front (no-op on POSIX);
+    # unconfirmed VT → classic prompt (bar never starts, no spinner tickers).
     try:
         from code_puppy.terminal_utils import ensure_windows_vt_processing
 
@@ -586,7 +666,7 @@ def _persistent_prompt_parts() -> tuple:
     in-band escapes, so colors can't ride inside the string itself).
     """
     try:
-        from code_puppy.command_line.prompt_toolkit_completion import (
+        from code_puppy.command_line.completers import (
             PROMPT_STYLES,
             get_prompt_with_active_model,
         )
@@ -631,42 +711,31 @@ def _interactive_sigint_guard(_sig, _frame):
     any gap is swallowed instead of killing the process. The per-run and
     per-shell handlers still own cancellation while they're active.
     """
-    # Nothing is running that owns cancellation (otherwise their handler would
-    # be installed instead of this one). Swallow the signal so a fast repeat
-    # tap can't escape to main_entry and exit the process.
-    #
-    # Windows: a SIGINT reaching Python AT ALL means the console mode
-    # regressed (something re-enabled processed input — with the clamp
-    # active ^C arrives as a raw \x03 instead). Each such event also
-    # leaks console-wide: it kills wrapper launchers (uvx.exe) and wakes
-    # the parent shell into fighting us for stdin. Re-clamp immediately
-    # — the key listener's 1s-cadence heal also covers this, but the
-    # signal is a free, instant tripwire. No-op on POSIX/healthy consoles.
+    # No cancel-owner is active, so swallow the signal — a fast repeat tap can't
+    # escape to main_entry and exit. Windows: any SIGINT reaching Python means
+    # console mode regressed; re-clamp (it kills wrapper launchers otherwise).
     try:
         from code_puppy.terminal_utils import ensure_ctrl_c_disabled
 
         ensure_ctrl_c_disabled()
     except Exception:
         pass
-    #
-    # Persistent prompt: Ctrl+C with text in the buffer clears it (classic
-    # readline feel); with an empty buffer it stays a no-op (Ctrl+D is
-    # quit). Ctrl+C is a pure keybinding — while a raw-mode reader owns
-    # stdin it arrives as \x03 and never lands here; this guard only sees
-    # out-of-band SIGINTs (kill -INT, cooked-mode gaps) and, mid-run, only
-    # owns them when the cancel key is remapped — buffer-first clearing
-    # applies there too; cancellation stays with the key listener.
+    # Persistent prompt: Ctrl+C clears the buffer (readline feel; Ctrl+D
+    # quits), and a second idle Ctrl+C within DOUBLE_CTRL_C_WINDOW_S quits
+    # like Ctrl+D. Only out-of-band SIGINTs land here — raw \x03 goes to the
+    # key listener, which also owns mid-run cancel (remapped key ->
+    # buffer-first clearing).
     try:
         from code_puppy.messaging.run_ui import (
             absorb_ctrl_c_if_composing,
-            clear_idle_buffer,
             is_run_active,
+            note_idle_ctrl_c,
         )
 
         if is_run_active():
             absorb_ctrl_c_if_composing()
         else:
-            clear_idle_buffer()
+            note_idle_ctrl_c()
     except Exception:
         pass
     return
@@ -677,26 +746,18 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     from code_puppy.command_line.command_handler import handle_command
 
     display_console = message_renderer.console
+    from rich.text import Text
+
     from code_puppy.messaging import emit_info, emit_system_message
 
-    emit_system_message(t("cli.help.exit"))
-    emit_system_message(t("cli.help.clear"))
-    emit_system_message(t("cli.help.commands"))
-    emit_system_message(t("cli.help.completion"))
-    emit_system_message(t("cli.help.paste_images"))
-    import platform
-
-    if platform.system() == "Darwin":
-        emit_system_message(t("cli.help.macos_paste"))
-    cancel_key = get_cancel_agent_display_name()
-    emit_system_message(t("cli.help.cancel_key", cancel_key=cancel_key))
-    emit_system_message(t("cli.help.editor_shortcuts"))
-    emit_system_message(t("cli.help.autosave_load"))
-    emit_system_message(t("cli.help.diff"))
-    emit_system_message(t("cli.help.tutorial"))
-    emit_system_message(t("cli.help.shell_passthrough"))
+    # Pass a Text object (not a plain str): the SYSTEM renderer escapes Rich
+    # markup in plain strings before printing (see renderers.py), so inline
+    # "[bold]...[/bold]" in the i18n string would show up as literal
+    # brackets. A Text object bypasses that string branch entirely and
+    # renders as one line, actually bold.
+    emit_system_message(Text(t("cli.help.press_tab"), style="bold"))
     # Print truecolor warning LAST so it's the most visible thing on startup
-    # Big ugly red box should be impossible to miss! 🔴
+    # Big ugly red box should be impossible to miss!
     print_truecolor_warning(display_console)
 
     # Shell pass-through for initial_command: !<cmd> bypasses the agent
@@ -737,8 +798,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             if response is not None:
                 agent_response = response.output
 
-                # Update the agent's message history with the complete conversation
-                # including the final assistant response
+                # Update agent history with the complete conversation (incl. final response).
                 if hasattr(response, "all_messages"):
                     agent.set_message_history(list(response.all_messages()))
 
@@ -760,62 +820,27 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
             emit_error(t("cli.initial_command.error", error=str(e)))
 
-    # Check if prompt_toolkit is installed
-    try:
-        from code_puppy.command_line.prompt_toolkit_completion import (
-            get_input_with_combined_completion,
-            get_prompt_with_active_model,
-        )
-    except ImportError:
-        from code_puppy.messaging import emit_warning
-
-        emit_warning(t("cli.prompt_toolkit.installing"))
-        try:
-            import subprocess
-
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "--quiet", "prompt_toolkit"]
-            )
-            from code_puppy.messaging import emit_success
-
-            emit_success(t("cli.prompt_toolkit.installed"))
-            from code_puppy.command_line.prompt_toolkit_completion import (
-                get_input_with_combined_completion,
-                get_prompt_with_active_model,
-            )
-        except Exception as e:
-            from code_puppy.messaging import emit_error, emit_warning
-
-            emit_error(t("cli.prompt_toolkit.install_error", error=e))
-            emit_warning(t("cli.prompt_toolkit.fallback"))
-
     # Autosave loading is now manual - use /autosave_load command
 
     record_terminal_session(get_current_session_name(), overwrite=False)
     # Track the current agent task for cancellation on quit
     current_agent_task = None
+    # Classic prompt: timestamp of the last idle Ctrl+C, for the
+    # double-tap-to-quit gesture (persistent mode tracks its own in run_ui).
+    last_idle_ctrl_c = 0.0
 
-    # Install a session-wide baseline SIGINT guard for the lifetime of the
-    # REPL. Ctrl+C is a *cancel* gesture here (Ctrl+D quits), and the per-run
-    # / per-shell handlers own cancellation while they're active, saving and
-    # restoring whatever handler preceded them. Without this baseline, the
-    # restored handler in the gap between those windows is Python's default,
-    # which raises KeyboardInterrupt -- so a fast Ctrl+C double-tap can slip
-    # through the unwind after the first cancel and exit the whole process.
-    # We deliberately do NOT restore the previous handler: when this loop
-    # exits the program is shutting down, so SIGINT ownership for the REPL's
-    # whole life belongs here. Best effort -- signal.signal is main-thread only.
+    # Baseline SIGINT guard for the REPL's whole life: Ctrl+C = cancel (Ctrl+D
+    # quits); without it, a fast double-tap in the handler gap raises
+    # KeyboardInterrupt and exits the process. Deliberately never restored.
     try:
         signal.signal(signal.SIGINT, _interactive_sigint_guard)
     except (ValueError, OSError):
         pass
 
     # ------------------------------------------------------------------
-    # Persistent-prompt mode (Phase A): the bottom-bar editor is THE
-    # prompt — idle AND running. The input line stays pinned; output
-    # scrolls above it; no prompt swap between turns. Classic
-    # prompt_toolkit path remains intact behind the rollback flag /
-    # non-TTY auto-degrade (see _use_persistent_prompt).
+    # Persistent-prompt mode: the bottom-bar editor is THE prompt (idle AND
+    # running) — pinned input row, output scrolls above. Classic path behind
+    # rollback flag / non-TTY auto-degrade (see _use_persistent_prompt).
     # ------------------------------------------------------------------
     persistent_prompt = False
     if _use_persistent_prompt():
@@ -852,10 +877,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 # Model/agent may have changed since last turn.
                 prompt_prefix, prompt_prefix_sgrs = _persistent_prompt_parts()
                 set_idle_prompt_prefix(prompt_prefix, prompt_prefix_sgrs)
-                # Idle + queued prompts (added via /queue, or a cancelled
-                # run's leftovers): consume the oldest as this turn instead
-                # of waiting for input. Runs added mid-run normally drain
-                # inside _runtime's between-turns loop and never get here.
+                # Idle + queued prompts (/queue or cancelled-run leftovers): consume
+                # the oldest now; mid-run steers drain in _runtime's loop instead.
                 from code_puppy.messaging.pause_controller import (
                     get_pause_controller as _get_pc,
                 )
@@ -869,44 +892,44 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                     # Raises EOFError on Ctrl+D-with-empty-buffer, which the
                     # existing quit branch below handles.
                     task = await wait_for_idle_submission()
-                    # Echo into the transcript: the editor clears its row
-                    # on submit, so scrollback needs the record of what was
-                    # asked. JUST the user's text (bold, '> ' marker) --
-                    # repeating the whole prompt chrome doubled every
-                    # line's noise. Text() (not markup) so bracket-y input
-                    # renders as-is.
+                    # Echo the user's text (bold, '> ') into scrollback — the editor
+                    # clears its row on submit, and repainting the full prompt chrome
+                    # doubled every line's noise. Text() so bracket-y input renders as-is.
                     emit_info(_prompt_echo_text(task))
             else:
-                # Use prompt_toolkit for enhanced input with path completion
-                try:
-                    # Windows-specific: Reset terminal state before prompting
-                    reset_windows_terminal_ansi()
+                # Classic (non-TTY / rollback) prompt: plain blocking input.
+                # No completion here -- the persistent bottom-bar editor is
+                # the featured path; this branch exists for pipes, CI, and
+                # the CODE_PUPPY_CLASSIC_PROMPT escape hatch.
+                reset_windows_terminal_ansi()
+                task = input(">>> ")
+                from code_puppy.messaging.editor_history import HistoryStore
 
-                    # Use the async version of get_input_with_combined_completion
-                    task = await get_input_with_combined_completion(
-                        get_prompt_with_active_model(),
-                        history_file=COMMAND_HISTORY_FILE,
-                    )
+                HistoryStore(COMMAND_HISTORY_FILE).append(task)
 
-                    # Windows: re-clamp raw-Ctrl+C mode after prompt_toolkit
-                    # (prompt_toolkit restores console mode on exit)
-                    try:
-                        from code_puppy.terminal_utils import ensure_ctrl_c_disabled
-
-                        ensure_ctrl_c_disabled()
-                    except ImportError:
-                        pass
-                except ImportError:
-                    # Fall back to basic input if prompt_toolkit is not available
-                    task = input(">>> ")
-
-        except (KeyboardInterrupt, asyncio.CancelledError):
-            # Handle Ctrl+C - cancel input and continue
-            # Windows-specific: Reset terminal state after interrupt to prevent
-            # the terminal from becoming unresponsive (can't type characters)
+        except (KeyboardInterrupt, asyncio.CancelledError) as cancel_exc:
+            # Ctrl+C: cancel input and continue. Reset terminal state on Windows
+            # so it doesn't become unresponsive.
             reset_windows_terminal_full()
             from code_puppy.callbacks import on_interactive_turn_cancel
-            from code_puppy.messaging import emit_warning
+            from code_puppy.messaging import emit_success, emit_warning
+            from code_puppy.messaging.run_ui import DOUBLE_CTRL_C_WINDOW_S
+
+            # Double Ctrl+C at the idle prompt quits like Ctrl+D.
+            # CancelledError never counts.
+            was_plain_ctrl_c = isinstance(cancel_exc, KeyboardInterrupt)
+            now = time.monotonic()
+            if was_plain_ctrl_c and now - last_idle_ctrl_c <= DOUBLE_CTRL_C_WINDOW_S:
+                emit_success("\n" + t("cli.goodbye_ctrld"))
+                if current_agent_task and not current_agent_task.done():
+                    emit_info(t("cli.agent.cancelling"))
+                    current_agent_task.cancel()
+                    try:
+                        await current_agent_task
+                    except asyncio.CancelledError:
+                        pass  # Expected when cancelling
+                break
+            last_idle_ctrl_c = now if was_plain_ctrl_c else 0.0
 
             await on_interactive_turn_cancel("", reason="Ctrl+C")
             emit_warning("\n" + t("cli.input.cancelled"))
@@ -964,9 +987,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             # The renderer is stopped in the finally block of main().
             break
 
-        # Backward-compat: bare `clear` (no slash) is rewritten to `/clear`
-        # so the registered handler in session_commands is the single source
-        # of truth. The slash form is dispatched normally below.
+        # Backward-compat: bare `clear` → `/clear` so session_commands' handler
+        # stays the single source of truth.
         if task.strip().lower() == "clear":
             task = "/clear"
 
@@ -977,9 +999,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
         # Handle / commands based on cleaned prompt (after stripping attachments)
         if cleaned_for_commands.startswith("/"):
             try:
-                # Commands may open prompt_toolkit menus: with the
-                # persistent prompt the bar is up even at idle, so release
-                # the terminal for the duration (no-op in classic mode).
+                # Commands may open menus; release the bar for the duration
+                # (no-op in classic mode).
                 from code_puppy.messaging.run_ui import suspended_run_ui
 
                 with suspended_run_ui():
@@ -1022,10 +1043,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 emit_success,
                                 emit_warning,
                             )
-                            from code_puppy.session_storage import (
-                                load_session,
-                                restore_autosave_interactively,
-                            )
+                            from code_puppy.session_storage import load_session
 
                             from code_puppy.messaging.run_ui import (
                                 suspended_run_ui,
@@ -1052,7 +1070,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                                 agent.estimate_tokens_for_message(msg)
                                 for msg in history
                             )
-                            session_path = base_dir / f"{chosen_session}.pkl"
+                            session_path = base_dir / f"{chosen_session}.json"
 
                             emit_success(
                                 t(
@@ -1070,8 +1088,12 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
                             display_resumed_history(history)
                         else:
-                            # Fall back to old text-based picker for tests/non-TTY environments
-                            await restore_autosave_interactively(Path(AUTOSAVE_DIR))
+                            # No TTY, no picker: the old text-prompt fallback
+                            # was an interactive prompt in a non-interactive
+                            # environment. Point at the explicit flag instead.
+                            from code_puppy.messaging import emit_warning
+
+                            emit_warning(t("cli.autosave.tui_required"))
 
                     except Exception as e:
                         from code_puppy.messaging import emit_error
@@ -1131,18 +1153,15 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )
                 get_message_bus().emit(response_msg)
 
-                # Update the agent's message history with the complete conversation
-                # including the final assistant response. The history_processors callback
-                # may not capture the final message, so we use result.all_messages()
-                # to ensure the autosave includes the complete conversation.
+                # Update history with the complete conversation — history_processors
+                # may miss the final message, so use result.all_messages().
                 if hasattr(result, "all_messages"):
                     current_agent.set_message_history(list(result.all_messages()))
 
                 turn_result = result
                 turn_success = True
 
-                # Ensure console output is flushed before next prompt
-                # This fixes the issue where prompt doesn't appear after agent response
+                # Flush so the next prompt isn't swallowed behind the agent response.
                 if hasattr(display_console.file, "flush"):
                     display_console.file.flush()
 
@@ -1151,11 +1170,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
                 )  # Brief pause to ensure all messages are rendered
 
             except KeyboardInterrupt:
-                # Defense-in-depth: even with the session SIGINT guard, a
-                # bare KeyboardInterrupt during the unwind of a fast Ctrl+C
-                # double-tap must NOT escape to main_entry (that exits the
-                # whole process). Treat it as a turn cancel and keep the REPL
-                # alive -- Ctrl+D is the only way out.
+                # Defense-in-depth: a bare KeyboardInterrupt mid-unwind must not
+                # escape to main_entry — treat as turn cancel (Ctrl+D exits only).
                 if current_agent_task is not None and not current_agent_task.done():
                     current_agent_task.cancel()
                 from code_puppy.callbacks import on_interactive_turn_cancel
@@ -1270,9 +1286,8 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             except ImportError:
                 pass
 
-    # REPL over (exit/quit/Ctrl+D broke the loop): tear the persistent
-    # prompt down here; main()'s finally is the belt-and-braces for
-    # exception paths.
+    # REPL over: tear down the persistent prompt here; main()'s finally is the
+    # belt-and-braces for exception paths.
     if persistent_prompt:
         try:
             from code_puppy.messaging.run_ui import stop_persistent_ui
@@ -1335,9 +1350,8 @@ async def run_prompt_with_attachments(
     attachments = resolved.attachments
     link_attachments = resolved.link_attachments
 
-    # IMPORTANT: Set the shared console for streaming output so every
-    # stream (markdown, thinking, tool token lines) writes through the
-    # same console — output scrolls inside the bottom bar's scroll region.
+    # IMPORTANT: shared console for all streams (markdown/thinking/tool tokens)
+    # so output scrolls inside the bottom bar's scroll region.
     from code_puppy.agents.event_stream_handler import set_streaming_console
 
     set_streaming_console(display_console)
@@ -1360,10 +1374,8 @@ async def run_prompt_with_attachments(
             return None, agent_task
 
     if use_run_ui:
-        # Interactive run: bottom bar (scroll region + status + live prompt
-        # via RunningLineEditor) stays up while the agent works. run_ui()
-        # is idempotent + exception-safe and silently no-ops on non-TTY
-        # stdout, so cancel/exception paths always restore the terminal.
+        # Interactive run: bottom bar stays up while the agent works. run_ui() is
+        # idempotent + exception-safe (no-ops on non-TTY), restoring the terminal.
         from code_puppy.messaging.run_ui import run_ui
 
         with run_ui():
@@ -1371,11 +1383,33 @@ async def run_prompt_with_attachments(
     return await _await_agent()
 
 
+def _write_usage_file(path: Path, usage) -> None:
+    """Atomically serialize authoritative model usage for automation clients."""
+    cost = getattr(usage, "cost", None)
+    payload = {
+        "input_tokens": getattr(usage, "input_tokens", 0),
+        "output_tokens": getattr(usage, "output_tokens", 0),
+        "cache_read_tokens": getattr(usage, "cache_read_tokens", 0),
+        "cache_write_tokens": getattr(usage, "cache_write_tokens", 0),
+        "requests": getattr(usage, "requests", 0),
+        "tool_calls": getattr(usage, "tool_calls", 0),
+        "cost_usd": float(cost) if cost is not None else None,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(json.dumps(payload, indent=2) + "\n")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 async def execute_single_prompt(
     prompt: str,
     message_renderer,
     *,
     session_name: str | None = None,
+    usage_file: Path | None = None,
 ) -> None:
     """Execute one headless ``-p`` prompt, dispatching commands and autosaving.
 
@@ -1408,9 +1442,8 @@ async def execute_single_prompt(
     from code_puppy.messaging.messages import AgentResponseMessage
     from code_puppy.session_lifecycle import persist_named_session
 
-    # Match interactive mode: detect commands after stripping prompt
-    # attachments, let handled commands finish without an agent run, and
-    # allow command-provided replacement text to reach the agent.
+    # Match interactive: strip attachments, run handled commands without an
+    # agent run, let command-provided replacement text reach the agent.
     command_prompt = (parse_prompt_attachments(prompt).prompt or "").strip()
     if command_prompt.startswith("/"):
         try:
@@ -1435,18 +1468,22 @@ async def execute_single_prompt(
         agent = get_current_agent()
         # Headless -p mode: no run UI (no bottom bar, no line editor) —
         # output must stay plain for pipes/CI even when stdout is a TTY.
-        result, _agent_task = await run_prompt_with_attachments(
-            agent,
-            prompt,
-            display_console=message_renderer.console,
-            use_run_ui=False,
-        )
+        with agent.temporary_system_prompt_addition(_HEADLESS_AUTONOMY_PROMPT):
+            result, _agent_task = await run_prompt_with_attachments(
+                agent,
+                prompt,
+                display_console=message_renderer.console,
+                use_run_ui=False,
+            )
         if result is None:
             return
 
         get_message_bus().emit(
             AgentResponseMessage(content=result.output, is_markdown=True)
         )
+        if usage_file is not None:
+            usage = result.usage
+            _write_usage_file(usage_file, usage() if callable(usage) else usage)
 
         # The runtime result includes the final assistant response that the
         # incremental history can otherwise miss.
@@ -1466,10 +1503,8 @@ async def execute_single_prompt(
                 base_dir=Path(AUTOSAVE_DIR),
                 auto_saved=True,
             )
-            # Point quick-resume at the just-saved session so both
-            # auto-generated and ``-r NAME`` headless saves are discoverable
-            # by ``--quick-resume``.  Only written on success; any exception
-            # from persist_named_session above skips this block entirely.
+            # Point quick-resume at this session (auto and -r NAME saves). Only
+            # on success — persist_named_session exceptions skip this block.
             record_quick_resume_sessions(effective_session_name)
         except Exception as save_error:
             # The response has already been emitted; a persistence failure
@@ -1502,9 +1537,8 @@ def main_entry():
     """Entry point for the installed CLI tool."""
     _force_utf8_stdio()
     try:
-        # Capture main()'s return value so handle_cli_args plugins (and the
-        # normal return-0 path) actually influence the process exit status.
-        # main() may return None (treated as 0) or an int exit code.
+        # Capture main()'s return so plugins / normal paths set the exit status
+        # (None → 0 or an int exit code).
         rc = asyncio.run(main())
     except KeyboardInterrupt:
         # Note: Using sys.stderr for crash output - messaging system may not be available

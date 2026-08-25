@@ -194,52 +194,45 @@ class TestModelInfo:
         )
         assert model.supports_capability("nonexistent") is False
 
-    def test_model_validation_empty_provider_id(self):
-        """Test validation fails with empty provider_id."""
-        with pytest.raises(ValueError, match="Provider ID cannot be empty"):
-            ModelInfo(
-                provider_id="",
-                model_id="claude-3",
-                name="Claude 3",
-            )
-
-    def test_model_validation_empty_model_id(self):
-        """Test validation fails with empty model_id."""
-        with pytest.raises(ValueError, match="Model ID cannot be empty"):
-            ModelInfo(
-                provider_id="anthropic",
-                model_id="",
-                name="Claude 3",
-            )
-
-    def test_model_validation_empty_name(self):
-        """Test validation fails with empty name."""
-        with pytest.raises(ValueError, match="Model name cannot be empty"):
-            ModelInfo(
-                provider_id="anthropic",
-                model_id="claude-3",
-                name="",
-            )
-
-    def test_model_validation_negative_context_length(self):
-        """Test validation fails with negative context_length."""
-        with pytest.raises(ValueError, match="Context length cannot be negative"):
-            ModelInfo(
-                provider_id="anthropic",
-                model_id="claude-3",
-                name="Claude 3",
-                context_length=-100,
-            )
-
-    def test_model_validation_negative_max_output(self):
-        """Test validation fails with negative max_output."""
-        with pytest.raises(ValueError, match="Max output cannot be negative"):
-            ModelInfo(
-                provider_id="anthropic",
-                model_id="claude-3",
-                name="Claude 3",
-                max_output=-50,
-            )
+    @pytest.mark.parametrize(
+        "kwargs,match",
+        [
+            (
+                {"provider_id": "", "model_id": "claude-3", "name": "Claude 3"},
+                "Provider ID cannot be empty",
+            ),
+            (
+                {"provider_id": "anthropic", "model_id": "", "name": "Claude 3"},
+                "Model ID cannot be empty",
+            ),
+            (
+                {"provider_id": "anthropic", "model_id": "claude-3", "name": ""},
+                "Model name cannot be empty",
+            ),
+            (
+                {
+                    "provider_id": "anthropic",
+                    "model_id": "claude-3",
+                    "name": "Claude 3",
+                    "context_length": -100,
+                },
+                "Context length cannot be negative",
+            ),
+            (
+                {
+                    "provider_id": "anthropic",
+                    "model_id": "claude-3",
+                    "name": "Claude 3",
+                    "max_output": -50,
+                },
+                "Max output cannot be negative",
+            ),
+        ],
+    )
+    def test_model_validation_rejects_invalid(self, kwargs, match):
+        """Validation fails for empty ids/names and negative limits."""
+        with pytest.raises(ValueError, match=match):
+            ModelInfo(**kwargs)
 
     def test_model_with_all_capabilities(self):
         """Test model with all capabilities enabled."""

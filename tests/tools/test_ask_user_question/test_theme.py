@@ -1,164 +1,54 @@
-"""Tests for ask_user_question theme module."""
+"""Tests for ask-user-question theme callback integration."""
 
-from unittest.mock import patch
-
-from code_puppy.tools.ask_user_question.theme import (
-    RichColors,
-    TUIColors,
-    _apply_config_overrides,
-    _get_config_value,
-    get_rich_colors,
-    get_tui_colors,
-)
+from code_puppy.tools.ask_user_question.theme import RichColors, get_rich_colors
 
 
-class TestTUIColors:
-    """Tests for TUIColors defaults."""
+def test_rich_colors_use_muted_role_from_termflow_palette(monkeypatch):
+    class FakeStyle:
+        grey = "#93a1a1"
 
-    def test_defaults(self):
-        c = TUIColors()
-        assert c.header_bold == "class:tui.header"
-        assert c.header_dim == "class:tui.help"
-        assert c.cursor_active == "class:tui.success"
-        assert c.cursor_inactive == "class:tui.body"
-        assert c.selected == "class:tui.selected"
-        assert c.selected_check == "class:tui.success"
-        assert c.text_normal == "class:tui.body"
-        assert c.text_dim == "class:tui.muted"
-        assert c.text_warning == "class:tui.warning"
-        assert c.help_key == "class:tui.help-key"
-        assert c.help_text == "class:tui.help"
-        assert c.error == "class:tui.error"
-        assert all(style.startswith("class:tui.") for style in c)
+    monkeypatch.setattr(
+        "code_puppy.command_line.tui_style.menu_style",
+        lambda: FakeStyle(),
+    )
+
+    colors = get_rich_colors()
+
+    assert colors.progress == "#93a1a1 italic"
+    assert colors.question_hint == "#93a1a1 italic"
+    assert colors.description == "#93a1a1 italic"
+    assert colors.input_hint == "#93a1a1 italic"
+    assert colors.help_close == "#93a1a1 italic"
 
 
-class TestRichColors:
-    """Tests for RichColors defaults."""
+def test_rich_colors_preserve_named_color(monkeypatch):
+    class FakeStyle:
+        grey = "ansired"
 
-    def test_defaults(self):
-        c = RichColors()
-        assert c.header == "bold cyan"
-        assert c.progress == "italic"
-        assert c.cursor == "green bold"
-        assert c.selected == "cyan"
-        assert c.description == "italic"
-        assert c.input_label == "bold yellow"
-        assert c.input_text == "green"
-        assert c.input_hint == "italic"
-        assert c.help_border == "bold cyan"
-        assert c.help_title == "bold cyan"
-        assert c.help_section == "bold"
-        assert c.help_key == "green"
-        assert c.help_close == "italic"
-        assert c.timeout_warning == "bold yellow"
+    monkeypatch.setattr(
+        "code_puppy.command_line.tui_style.menu_style",
+        lambda: FakeStyle(),
+    )
+
+    assert get_rich_colors().progress == "ansired italic"
 
 
-class TestGetConfigValue:
-    """Tests for _get_config_value."""
+def test_rich_colors_preserve_defaults_for_empty_grey(monkeypatch):
+    class FakeStyle:
+        grey = ""
 
-    def test_import_error_returns_none(self):
-        import code_puppy.tools.ask_user_question.theme as theme_mod
+    monkeypatch.setattr(
+        "code_puppy.command_line.tui_style.menu_style",
+        lambda: FakeStyle(),
+    )
 
-        # Reset cached getter
-        old = theme_mod._config_getter
-        theme_mod._config_getter = None
-        try:
-            with patch.dict("sys.modules", {"code_puppy.config": None}):
-                # Force re-import failure
-                theme_mod._config_getter = None
-                result = _get_config_value("anything")
-                assert result is None
-        finally:
-            theme_mod._config_getter = old
-
-    def test_uses_config_get_value(self):
-        import code_puppy.tools.ask_user_question.theme as theme_mod
-
-        old = theme_mod._config_getter
-        theme_mod._config_getter = None
-        try:
-
-            def mock_get(key):
-                return f"val_{key}"
-
-            with patch("code_puppy.tools.ask_user_question.theme._config_getter", None):
-                with patch("code_puppy.config.get_value", mock_get):
-                    theme_mod._config_getter = None
-                    result = _get_config_value("test_key")
-                    assert result == "val_test_key"
-        finally:
-            theme_mod._config_getter = old
+    assert get_rich_colors() == RichColors()
 
 
-class TestApplyConfigOverrides:
-    """Tests for _apply_config_overrides."""
+def test_rich_colors_preserve_defaults_without_plugin_style(monkeypatch):
+    monkeypatch.setattr(
+        "code_puppy.command_line.tui_style.menu_style",
+        lambda: None,
+    )
 
-    def test_no_overrides_returns_default(self):
-        default = TUIColors()
-        with patch(
-            "code_puppy.tools.ask_user_question.theme._get_config_value",
-            return_value=None,
-        ):
-            result = _apply_config_overrides(default, {"header_bold": "some_key"})
-        assert result is default
-
-    def test_with_overrides(self):
-        default = TUIColors()
-        with patch(
-            "code_puppy.tools.ask_user_question.theme._get_config_value",
-            return_value="red bold",
-        ):
-            result = _apply_config_overrides(default, {"header_bold": "some_key"})
-        assert result.header_bold == "red bold"
-        assert result.cursor_active == default.cursor_active  # unchanged
-
-    def test_empty_string_not_applied(self):
-        """Empty string is falsy, so it should not override."""
-        default = TUIColors()
-        with patch(
-            "code_puppy.tools.ask_user_question.theme._get_config_value",
-            return_value="",
-        ):
-            result = _apply_config_overrides(default, {"header_bold": "key"})
-        assert result is default
-
-
-class TestGetTuiColors:
-    def test_returns_tui_colors(self):
-        with patch(
-            "code_puppy.tools.ask_user_question.theme._get_config_value",
-            return_value=None,
-        ):
-            result = get_tui_colors()
-        assert isinstance(result, TUIColors)
-
-    def test_legacy_overrides_do_not_bypass_shared_theme(self):
-        with patch(
-            "code_puppy.tools.ask_user_question.theme._get_config_value",
-            return_value="magenta",
-        ) as get_config:
-            result = get_tui_colors()
-
-        assert result == TUIColors()
-        get_config.assert_not_called()
-
-
-class TestGetRichColors:
-    def test_returns_rich_colors(self):
-        with patch(
-            "code_puppy.tools.ask_user_question.theme._get_config_value",
-            return_value=None,
-        ):
-            result = get_rich_colors()
-        assert isinstance(result, RichColors)
-
-    def test_uses_shared_muted_color_in_rich_panel(self):
-        with patch(
-            "code_puppy.plugins.theme.prompt_toolkit_theme.get_style_rules",
-            return_value={"tui.muted": "fg:#586e75"},
-        ):
-            result = get_rich_colors()
-
-        assert result.description == "#586e75 italic"
-        assert result.progress == "#586e75 italic"
-        assert result.header == RichColors().header
+    assert get_rich_colors() == RichColors()

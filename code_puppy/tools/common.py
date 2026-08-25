@@ -8,33 +8,28 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Callable, Optional, Tuple
+from typing import Callable, Iterator, Optional, Tuple
 
-from prompt_toolkit import Application
-from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Layout, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
 from rapidfuzz.distance import JaroWinkler
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.text import Text
-from code_puppy.callbacks import on_prompt_toolkit_style
+
+# Diff rendering is owned by termflow; this module only adapts it to
+# Code Puppy's config colors, theme hooks, and Rich consoles.
+from termflow.diff import DiffRenderer, DiffStream, DiffTheme
+from termflow.diff import brighten_hex as brighten_hex  # re-export (public API)
+from termflow.syntax import Highlighter as TermflowHighlighter
+
+from code_puppy.tools.file_permission_state import set_diff_already_shown
 
 # =============================================================================
 # Approval queueing locks
 # =============================================================================
-#
-# When multiple parallel tool calls request user approval simultaneously
-# (e.g. four ``rm -rf`` shell commands fired in parallel, or several
-# destructive file ops), we MUST serialize the prompts -- the user can
-# only answer one at a time, and prompt_toolkit can only own stdin once.
-#
-# These module-level locks turn ``get_user_approval`` /
-# ``get_user_approval_async`` into queues: callers wait their turn
-# instead of being silently auto-rejected. The async lock is created
-# lazily so it binds to whatever event loop is actually running.
+# Parallel tool calls must serialize approval prompts (one answer at a time;
+# the inline selector owns stdin once). These locks queue callers; the async lock
+# is created lazily to bind to the running event loop.
 
 _APPROVAL_SYNC_LOCK = threading.Lock()
 _APPROVAL_ASYNC_LOCK: Optional[asyncio.Lock] = None
@@ -80,19 +75,10 @@ def _deny_noninteractive_approval(title: str) -> tuple[bool, None]:
 # =============================================================================
 # Pluggable approval backend
 # =============================================================================
-#
-# By default, user approval is collected via an interactive stdin prompt
-# (see ``get_user_approval`` / ``get_user_approval_async``). Frontends that
-# have no stdin to prompt on -- a GUI, a web UI, or an editor speaking the
-# Agent Client Protocol -- would otherwise fail closed (auto-deny) via
-# ``_deny_noninteractive_approval`` above.
-#
-# An embedder can instead register an approval *backend*: a callable that
-# renders the request in its own UI and returns the user's decision. When a
-# backend is registered it takes precedence over the stdin prompt in BOTH the
-# sync and async approval paths. The backend is a plain synchronous callable
-# (an async backend would have to bridge two event loops); the async path
-# runs it in a worker thread so it never blocks the running loop.
+# Frontends without stdin (GUI/web/ACP editor) would otherwise fail closed.
+# An embedder registers a sync ``ApprovalBackend`` callable, which takes
+# precedence over stdin in BOTH sync and async paths (async runs it in a
+# worker thread to avoid bridging event loops).
 
 ApprovalBackend = Callable[[str, str, Optional[str]], Tuple[bool, Optional[str]]]
 _APPROVAL_BACKEND: Optional[ApprovalBackend] = None
@@ -123,17 +109,9 @@ def _approval_message_text(content) -> str:
 # =============================================================================
 # Active working directory (async-safe base for relative path resolution)
 # =============================================================================
-#
-# Tools resolve relative paths against a base directory. By default that base is
-# the process CWD (``os.getcwd()``). An embedder that runs Code Puppy against a
-# workspace it did not ``cd`` into -- e.g. an editor speaking the Agent Client
-# Protocol, where each session carries its own ``cwd`` -- can override the base
-# *without mutating process-global state* (``os.chdir`` would corrupt the SDK's
-# own I/O, subprocesses, and any concurrent session).
-#
-# This uses a ``ContextVar`` so the override is isolated per asyncio task and
-# propagates into sync tools (pydantic-ai runs them via anyio ``to_thread``,
-# which copies the context to the worker thread). ``None`` means "use os.getcwd".
+# Default base is os.getcwd(); embedders (ACP editor sessions carry their own
+# cwd) can override WITHOUT os.chdir (would corrupt SDK I/O + concurrent
+# sessions). ContextVar isolates per task and propagates to to_thread workers.
 
 _WORKING_DIR: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
     "code_puppy_working_dir", default=None
@@ -171,15 +149,6 @@ def resolve_path(file_path: str) -> str:
         return os.path.abspath(expanded)
     return os.path.abspath(os.path.join(get_working_directory(), expanded))
 
-
-# Syntax highlighting imports for "syntax" diff mode
-try:
-    from pygments.lexers import TextLexer, get_lexer_by_name
-    from pygments.token import Token
-
-    PYGMENTS_AVAILABLE = True
-except ImportError:
-    PYGMENTS_AVAILABLE = False
 
 # Import our queue-based console system
 try:
@@ -250,9 +219,8 @@ def should_suppress_browser() -> bool:
 
 # -------------------
 # Shared ignore patterns/helpers
-# Split into directory vs file patterns so tools can choose appropriately
-# - list_files should ignore only directories (still show binary files inside non-ignored dirs)
-# - grep should ignore both directories and files (avoid grepping binaries)
+# Directory vs file patterns: list_files ignores dirs only; grep ignores both
+# (to avoid binary files).
 # -------------------
 DIR_IGNORE_PATTERNS = [
     # Version control
@@ -646,281 +614,53 @@ def should_ignore_dir_path(path: str) -> bool:
 
 
 # ============================================================================
-# SYNTAX HIGHLIGHTING FOR DIFFS ("syntax" mode)
+# DIFF RENDERING (owned and operated by termflow; adapters only)
 # ============================================================================
 
-# Monokai color scheme - because we have taste 🎨
-TOKEN_COLORS = (
-    {
-        Token.Keyword: "#f92672" if PYGMENTS_AVAILABLE else "magenta",
-        Token.Name.Builtin: "#66d9ef" if PYGMENTS_AVAILABLE else "cyan",
-        Token.Name.Function: "#a6e22e" if PYGMENTS_AVAILABLE else "green",
-        Token.String: "#e6db74" if PYGMENTS_AVAILABLE else "yellow",
-        Token.Number: "#ae81ff" if PYGMENTS_AVAILABLE else "magenta",
-        Token.Comment: "#75715e" if PYGMENTS_AVAILABLE else "bright_black",
-        Token.Operator: "#f92672" if PYGMENTS_AVAILABLE else "magenta",
-    }
-    if PYGMENTS_AVAILABLE
-    else {}
-)
 
-EXTENSION_TO_LEXER_NAME = {
-    ".py": "python",
-    ".js": "javascript",
-    ".jsx": "jsx",
-    ".ts": "typescript",
-    ".tsx": "tsx",
-    ".java": "java",
-    ".c": "c",
-    ".h": "c",
-    ".cpp": "cpp",
-    ".hpp": "cpp",
-    ".cc": "cpp",
-    ".cxx": "cpp",
-    ".cs": "csharp",
-    ".rs": "rust",
-    ".go": "go",
-    ".rb": "ruby",
-    ".php": "php",
-    ".html": "html",
-    ".htm": "html",
-    ".css": "css",
-    ".scss": "scss",
-    ".json": "json",
-    ".yaml": "yaml",
-    ".yml": "yaml",
-    ".md": "markdown",
-    ".sh": "bash",
-    ".bash": "bash",
-    ".sql": "sql",
-    ".txt": "text",
-}
+def _termflow_diff_renderer(
+    addition_color: str | None = None,
+    deletion_color: str | None = None,
+) -> DiffRenderer:
+    """Build termflow's diff renderer wired to Code Puppy's theming.
 
-
-def _get_lexer_for_extension(extension: str):
-    """Get the appropriate Pygments lexer for a file extension.
-
-    Args:
-        extension: File extension (with or without leading dot)
-
-    Returns:
-        A Pygments lexer instance or None if Pygments not available
+    The highlighter flows through the ``termflow_highlighter`` callback so
+    themed highlighters (including their ``diff_line_tints``) keep working;
+    colors default to the user's configured diff preferences.
     """
-    if not PYGMENTS_AVAILABLE:
-        return None
-
-    # Normalize extension to have leading dot and be lowercase
-    if not extension.startswith("."):
-        extension = f".{extension}"
-    extension = extension.lower()
-
-    lexer_name = EXTENSION_TO_LEXER_NAME.get(extension, "text")
-
-    try:
-        return get_lexer_by_name(lexer_name)
-    except Exception:
-        # Fallback to plain text if lexer not found
-        return TextLexer()
-
-
-def _get_token_color(token_type) -> str:
-    """Get color for a token type from our Monokai scheme.
-
-    Args:
-        token_type: Pygments token type
-
-    Returns:
-        Hex color string or color name
-    """
-    if not PYGMENTS_AVAILABLE:
-        return "#cccccc"
-
-    for ttype, color in TOKEN_COLORS.items():
-        if token_type in ttype:
-            return color
-    return "#cccccc"  # Default light-grey for unmatched tokens
-
-
-def _highlight_code_line(
-    code: str, bg_color: str | None, lexer, line_type: str = "context"
-) -> Text:
-    """Highlight code using TermFlow's theme-aware highlighter."""
-    if not PYGMENTS_AVAILABLE or lexer is None:
-        return Text(code, style=f"on {bg_color}" if bg_color else None)
-
     from code_puppy.callbacks import on_termflow_highlighter
-    from termflow.syntax import Highlighter
+    from code_puppy.config import (
+        get_diff_addition_color,
+        get_diff_deletion_color,
+    )
 
-    highlighter = on_termflow_highlighter(Highlighter())
-    language = (getattr(lexer, "aliases", None) or ["text"])[0]
-    text = Text.from_ansi(highlighter.highlight_line(code, language))
-
-    # Themes may provide subtle per-diff-line RGB shifts. Keeping this metadata
-    # on the themed highlighter avoids hard-coding theme knowledge in tools.
-    tint = getattr(highlighter, "diff_line_tints", {}).get(line_type)
-    if tint:
-        from rich.style import Style
-        from rich.text import Span
-
-        for index, span in enumerate(text.spans):
-            style = span.style
-            color = getattr(style, "color", None)
-            triplet = color.get_truecolor() if color else None
-            if triplet:
-                shifted = tuple(
-                    max(0, min(255, channel + delta))
-                    for channel, delta in zip(triplet, tint, strict=True)
-                )
-                text.spans[index] = Span(
-                    span.start, span.end, style + Style(color=f"rgb{shifted}")
-                )
-
-    if bg_color:
-        # Applying only a background preserves each token's themed foreground.
-        text.stylize(f"on {bg_color}")
-    return text
+    theme = DiffTheme(
+        addition=addition_color or get_diff_addition_color(),
+        deletion=deletion_color or get_diff_deletion_color(),
+    )
+    highlighter = on_termflow_highlighter(TermflowHighlighter())
+    return DiffRenderer(highlighter=highlighter, theme=theme)
 
 
-def _extract_file_extension_from_diff(diff_text: str) -> str:
-    """Extract file extension from diff headers.
-
-    Args:
-        diff_text: Unified diff text
-
-    Returns:
-        File extension (e.g., '.py') or '.txt' as fallback
-    """
-    import re
-
-    # Look for +++ b/filename.ext or --- a/filename.ext headers
-    pattern = r"^(?:\+\+\+|---) [ab]/.*?(\.[a-zA-Z0-9]+)$"
-
-    for line in diff_text.split("\n")[:10]:  # Check first 10 lines
-        match = re.search(pattern, line)
-        if match:
-            return match.group(1)
-
-    return ".txt"  # Fallback to plain text
-
-
-# ============================================================================
-# COLOR PAIR OPTIMIZATION (for "highlighted" mode)
-# ============================================================================
-
-
-def brighten_hex(hex_color: str, factor: float) -> str:
-    """
-    Darken a hex color by multiplying each RGB channel by `factor`.
-    factor=1.0 -> no change
-    factor=0.0 -> black
-    factor=0.18 -> good for diff backgrounds (recommended)
-    """
-    hex_color = hex_color.lstrip("#")
-    if len(hex_color) != 6:
-        raise ValueError(f"Expected #RRGGBB, got {hex_color!r}")
-
-    r = int(hex_color[0:2], 16)
-    g = int(hex_color[2:4], 16)
-    b = int(hex_color[4:6], 16)
-
-    r = max(0, min(255, int(r * (1 + factor))))
-    g = max(0, min(255, int(g * (1 + factor))))
-    b = max(0, min(255, int(b * (1 + factor))))
-
-    return f"#{r:02x}{g:02x}{b:02x}"
-
-
-def _format_diff_with_syntax_highlighting(
+def stream_diff_ansi_lines(
     diff_text: str,
     addition_color: str | None = None,
     deletion_color: str | None = None,
-) -> Text:
-    """Format a diff with theme-aware syntax highlighting via TermFlow.
+) -> Iterator[str]:
+    """Yield rendered ANSI diff lines incrementally via termflow's DiffStream.
 
-    This renders diffs with:
-    - Theme-aware syntax highlighting for code tokens
-    - Colored backgrounds for context/added/removed lines
-    - Optional custom colors for additions/deletions
-
-    Args:
-        diff_text: Raw unified diff text
-        addition_color: Optional custom color for added lines (default: green)
-        deletion_color: Optional custom color for deleted lines (default: red)
-
-    Returns:
-        Rich Text object with syntax highlighting (can be passed to emit_info)
+    Consumers can paint large diffs progressively instead of blocking on a
+    fully rendered block. Yielded lines carry no trailing newline; headers
+    are skipped (the banner already names the file).
     """
-    if not PYGMENTS_AVAILABLE:
-        return Text(diff_text)
-
-    # Extract file extension from diff headers
-    extension = _extract_file_extension_from_diff(diff_text)
-    lexer = _get_lexer_for_extension(extension)
-
-    # Generate background colors from foreground colors
-    add_fg = brighten_hex(addition_color, 0.6)
-    del_fg = brighten_hex(deletion_color, 0.6)
-
-    # Background colors for different line types
-    # Context lines have no background (None) for clean, minimal diffs
-    bg_colors = {
-        "removed": deletion_color,
-        "added": addition_color,
-        "context": None,  # No background for unchanged lines
-    }
-
-    lines = diff_text.split("\n")
-    # Remove trailing empty line if it exists (from trailing \n in diff)
-    if lines and lines[-1] == "":
-        lines = lines[:-1]
-    result = Text()
-
-    for i, line in enumerate(lines):
-        if not line:
-            # Empty line - just add a newline if not the last line
-            if i < len(lines) - 1:
-                result.append("\n")
-            continue
-
-        # Skip diff headers - they're redundant noise since we show the filename in the banner
-        if line.startswith(("---", "+++", "@@", "diff ", "index ")):
-            continue
-        else:
-            # Determine line type and extract code content
-            if line.startswith("-"):
-                line_type = "removed"
-                code = line[1:]  # Remove the '-' prefix
-                marker_style = f"bold {del_fg} on {bg_colors[line_type]}"
-                prefix = "- "
-            elif line.startswith("+"):
-                line_type = "added"
-                code = line[1:]  # Remove the '+' prefix
-                marker_style = f"bold {add_fg} on {bg_colors[line_type]}"
-                prefix = "+ "
-            else:
-                line_type = "context"
-                code = line[1:] if line.startswith(" ") else line
-                # Context lines have no background - clean and minimal
-                marker_style = ""  # No special styling for context markers
-                prefix = "  "
-
-            # Add the marker prefix
-            if marker_style:  # Only apply style if we have one
-                result.append(prefix, style=marker_style)
-            else:
-                result.append(prefix)
-
-            # Add syntax-highlighted code
-            highlighted = _highlight_code_line(
-                code, bg_colors[line_type], lexer, line_type
-            )
-            result.append_text(highlighted)
-
-        # Add newline after each line except the last
-        if i < len(lines) - 1:
-            result.append("\n")
-
-    return result
+    stream = DiffStream(_termflow_diff_renderer(addition_color, deletion_color))
+    for raw_line in diff_text.splitlines(keepends=True):
+        rendered = stream.feed(raw_line)
+        if rendered:
+            yield rendered.rstrip("\n")
+    tail = stream.close()
+    if tail:
+        yield tail
 
 
 def format_diff_with_colors(
@@ -928,10 +668,12 @@ def format_diff_with_colors(
     addition_color: str | None = None,
     deletion_color: str | None = None,
 ) -> Text:
-    """Format diff text with beautiful syntax highlighting.
+    """Format diff text with termflow's theme-aware diff renderer.
 
-    This is the canonical diff formatting function used across the codebase.
-    It applies user-configurable colors and TermFlow's theme-aware syntax highlighting.
+    This is the canonical block-mode diff formatting function used across
+    the codebase. Parsing, syntax highlighting, backgrounds, and theme
+    tints are all termflow's job; this adapter only supplies Code Puppy's
+    configured colors and converts the ANSI result to Rich Text.
 
     Colors default to the effective theme-aware/user-configured preferences.
     Callers rendering a preview may pass colors directly, avoiding config
@@ -945,83 +687,59 @@ def format_diff_with_colors(
     Returns:
         Rich Text object with syntax highlighting
     """
-    from code_puppy.config import (
-        get_diff_addition_color,
-        get_diff_deletion_color,
-    )
-
     if not diff_text or not diff_text.strip():
         return Text("-- no diff available --", style="dim")
 
-    addition_base_color = addition_color or get_diff_addition_color()
-    deletion_base_color = deletion_color or get_diff_deletion_color()
-
-    # Always use beautiful syntax highlighting!
-    if not PYGMENTS_AVAILABLE:
-        emit_warning("Pygments not available, diffs will look plain")
-        # Return plain text as fallback
-        return Text(diff_text)
-
-    # Return Text object with custom colors - emit_info handles this correctly
-    return _format_diff_with_syntax_highlighting(
-        diff_text,
-        addition_color=addition_base_color,
-        deletion_color=deletion_base_color,
-    )
+    renderer = _termflow_diff_renderer(addition_color, deletion_color)
+    return Text.from_ansi(renderer.render(diff_text))
 
 
-def _format_selector(
+def _build_arrow_select_menu(
     message: str,
     choices: list[str],
-    selected_index: int,
     preview_callback: Optional[Callable[[int], str]] = None,
-) -> FormattedText:
-    """Build shared selector content from semantic, literal-text fragments."""
-    import textwrap
+    **overrides,
+):
+    """Build the inline termflow selector behind ``arrow_select*``.
 
-    fragments: list[tuple[str, str]] = [
-        ("class:tui.header", message),
-        ("", "\n\n"),
-    ]
-    for index, choice in enumerate(choices):
-        style = "class:tui.selected" if index == selected_index else "class:tui.body"
-        marker = "\u276f " if index == selected_index else "  "
-        fragments.extend([(style, marker + choice), ("", "\n")])
-    fragments.append(("", "\n"))
+    ``overrides`` map onto :class:`termflow.tui.MenuBuilder` setters so
+    tests inject ``key_source``/``output``/``size`` -- the standard
+    headless-menu recipe.
+    """
+    from termflow.tui import MenuBuilder, MenuItem
 
-    preview_text = preview_callback(selected_index) if preview_callback else ""
-    if preview_text:
-        box_width = 60
-        fragments.extend(
-            [
-                (
-                    "class:tui.border",
-                    "┌─ Preview " + "─" * (box_width - 10) + "┐\n",
-                )
-            ]
-        )
-        wrapped_lines = textwrap.wrap(preview_text, width=box_width - 2) or [""]
-        for wrapped_line in wrapped_lines:
-            fragments.append(
-                ("class:tui.muted", f"│ {wrapped_line.ljust(box_width - 2)} │\n")
-            )
-        fragments.extend(
-            [
-                ("class:tui.border", "└" + "─" * box_width + "┘\n"),
-                ("", "\n"),
-            ]
-        )
+    from code_puppy.command_line.tui_style import themed
 
-    fragments.extend(
-        [
-            ("class:tui.help", "("),
-            ("class:tui.help-key", "↑↓ or Ctrl+P/N"),
-            ("class:tui.help", " to select, "),
-            ("class:tui.help-key", "Enter"),
-            ("class:tui.help", " to confirm)"),
-        ]
-    )
-    return FormattedText(fragments)
+    items = [MenuItem(choice, value=choice) for choice in choices]
+    builder = themed(MenuBuilder(message).items(items).inline())
+    if preview_callback is not None:
+
+        def render_preview(item) -> str:
+            try:
+                return preview_callback(items.index(item)) or ""
+            except Exception:
+                return ""
+
+        builder.preview(render_preview)
+
+    def move(delta: int):
+        def handler(menu, _item):
+            menu._move_cursor(menu._filtered(), delta)
+            return None
+
+        return handler
+
+    builder.on_key("ctrl-p", move(-1)).on_key("ctrl-n", move(1))
+    for name, value in overrides.items():
+        getattr(builder, name)(value)
+    return builder.build()
+
+
+def _selected_value(result) -> str:
+    """Map a MenuResult to the arrow_select contract."""
+    if result.cancelled or result.item is None:
+        raise KeyboardInterrupt()
+    return result.item.value
 
 
 async def arrow_select_async(
@@ -1029,171 +747,55 @@ async def arrow_select_async(
     choices: list[str],
     preview_callback: Optional[Callable[[int], str]] = None,
 ) -> str:
-    """Async version: Show an arrow-key navigable selector with optional preview.
+    """Arrow-key selector rendered inline below the transcript.
 
     Args:
         message: The prompt message to display
         choices: List of choice strings
-        preview_callback: Optional callback that takes the selected index and returns
-                         preview text to display below the choices
+        preview_callback: Optional callback taking the selected index and
+            returning preview text to display below the choices
 
     Returns:
         The selected choice string
 
     Raises:
-        KeyboardInterrupt: If user cancels with Ctrl-C
+        KeyboardInterrupt: If the user cancels (Ctrl-C or Esc)
     """
-    selected_index = [0]  # Mutable container for selected index
-    result = [None]  # Mutable container for result
-
-    def get_formatted_text() -> FormattedText:
-        """Generate semantic formatted text for display."""
-        return _format_selector(
-            message, choices, selected_index[0], preview_callback=preview_callback
-        )
-
-    # Key bindings
-    kb = KeyBindings()
-
-    @kb.add("up")
-    @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
-    def move_up(event):
-        selected_index[0] = (selected_index[0] - 1) % len(choices)
-        event.app.invalidate()  # Force redraw to update preview
-
-    @kb.add("down")
-    @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
-    def move_down(event):
-        selected_index[0] = (selected_index[0] + 1) % len(choices)
-        event.app.invalidate()  # Force redraw to update preview
-
-    @kb.add("enter")
-    def accept(event):
-        result[0] = choices[selected_index[0]]
-        event.app.exit()
-
-    @kb.add("c-c")  # Ctrl-C
-    def cancel(event):
-        result[0] = None
-        event.app.exit()
-
-    # Layout
-    control = FormattedTextControl(get_formatted_text)
-    layout = Layout(Window(content=control))
-
-    # Application
-    app = Application(
-        layout=layout,
-        key_bindings=kb,
-        full_screen=False,
-        style=on_prompt_toolkit_style(),
-    )
-
-    # Flush output before prompt_toolkit takes control
+    menu = _build_arrow_select_menu(message, choices, preview_callback)
     sys.stdout.flush()
     sys.stderr.flush()
-
-    # Suspend the background key listener so prompt_toolkit has
-    # exclusive ownership of stdin -- otherwise CPR replies get eaten
-    # and arrow keys behave erratically (two readers, one stdin).
+    # Suspend the background key listener so the menu owns stdin.
     from code_puppy.agents._key_listeners import suspended_key_listener
 
     with suspended_key_listener():
-        # Run the app asynchronously
-        await app.run_async()
-
-    if result[0] is None:
-        raise KeyboardInterrupt()
-
-    return result[0]
+        result = await asyncio.to_thread(menu.run)
+    return _selected_value(result)
 
 
 def arrow_select(message: str, choices: list[str]) -> str:
-    """Show an arrow-key navigable selector (synchronous version).
-
-    Args:
-        message: The prompt message to display
-        choices: List of choice strings
-
-    Returns:
-        The selected choice string
+    """Synchronous arrow-key selector (inline).
 
     Raises:
-        KeyboardInterrupt: If user cancels with Ctrl-C
+        KeyboardInterrupt: If the user cancels (Ctrl-C or Esc)
+        RuntimeError: If called from a running event loop -- use
+            :func:`arrow_select_async` there.
     """
-
-    selected_index = [0]  # Mutable container for selected index
-    result = [None]  # Mutable container for result
-
-    def get_formatted_text() -> FormattedText:
-        """Generate semantic formatted text for display."""
-        return _format_selector(message, choices, selected_index[0])
-
-    # Key bindings
-    kb = KeyBindings()
-
-    @kb.add("up")
-    @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
-    def move_up(event):
-        selected_index[0] = (selected_index[0] - 1) % len(choices)
-        event.app.invalidate()  # Force redraw to update preview
-
-    @kb.add("down")
-    @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
-    def move_down(event):
-        selected_index[0] = (selected_index[0] + 1) % len(choices)
-        event.app.invalidate()  # Force redraw to update preview
-
-    @kb.add("enter")
-    def accept(event):
-        result[0] = choices[selected_index[0]]
-        event.app.exit()
-
-    @kb.add("c-c")  # Ctrl-C
-    def cancel(event):
-        result[0] = None
-        event.app.exit()
-
-    # Layout
-    control = FormattedTextControl(get_formatted_text)
-    layout = Layout(Window(content=control))
-
-    # Application
-    app = Application(
-        layout=layout,
-        key_bindings=kb,
-        full_screen=False,
-        style=on_prompt_toolkit_style(),
-    )
-
-    # Flush output before prompt_toolkit takes control
-    sys.stdout.flush()
-    sys.stderr.flush()
-
-    # Check if we're already in an async context
     try:
         asyncio.get_running_loop()
-        # We're in an async context - can't use app.run()
-        # Caller should use arrow_select_async instead
+    except RuntimeError:
+        pass  # no loop: safe to run synchronously
+    else:
         raise RuntimeError(
             "arrow_select() called from async context. Use arrow_select_async() instead."
         )
-    except RuntimeError as e:
-        if "no running event loop" in str(e).lower():
-            # No event loop, safe to use app.run() -- but first suspend
-            # the background key listener so prompt_toolkit owns stdin.
-            from code_puppy.agents._key_listeners import suspended_key_listener
+    menu = _build_arrow_select_menu(message, choices)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    from code_puppy.agents._key_listeners import suspended_key_listener
 
-            with suspended_key_listener():
-                app.run()
-        else:
-            # Re-raise if it's our error message
-            raise
-
-    if result[0] is None:
-        raise KeyboardInterrupt()
-
-    return result[0]
+    with suspended_key_listener():
+        result = menu.run()
+    return _selected_value(result)
 
 
 def get_user_approval(
@@ -1276,15 +878,9 @@ def _get_user_approval_impl(
 
         panel_content.append(preview_text)
 
-        # Mark that we showed a diff preview
-        try:
-            from code_puppy.plugins.file_permission_handler.register_callbacks import (
-                set_diff_already_shown,
-            )
-
-            set_diff_already_shown(True)
-        except ImportError:
-            pass
+        # Mark that we showed a diff preview (no-op when no permission
+        # provider is registered, i.e. the file-permission plugin is absent).
+        set_diff_already_shown(True)
 
     # Create panel
     panel = Panel(
@@ -1294,10 +890,8 @@ def _get_user_approval_impl(
         padding=(1, 2),
     )
 
-    # This approval prompt takes over the terminal: suspend the run UI
-    # (bottom-bar scroll region + key-listener stdin ownership) so the
-    # panel and arrow selector render on a normal full-height screen.
-    # Exception-safe: __exit__ runs in the finally block below.
+    # Approval prompt takes over the terminal: suspend the run UI (scroll
+    # region + stdin ownership) so the panel renders full-height. Exception-safe.
     from code_puppy.messaging.run_ui import suspended_run_ui
 
     set_awaiting_user_input(True)
@@ -1475,15 +1069,9 @@ async def _get_user_approval_async_impl(
 
         panel_content.append(preview_text)
 
-        # Mark that we showed a diff preview
-        try:
-            from code_puppy.plugins.file_permission_handler.register_callbacks import (
-                set_diff_already_shown,
-            )
-
-            set_diff_already_shown(True)
-        except ImportError:
-            pass
+        # Mark that we showed a diff preview (no-op when no permission
+        # provider is registered, i.e. the file-permission plugin is absent).
+        set_diff_already_shown(True)
 
     # Create panel
     panel = Panel(
@@ -1493,10 +1081,8 @@ async def _get_user_approval_async_impl(
         padding=(1, 2),
     )
 
-    # This approval prompt takes over the terminal: suspend the run UI
-    # (bottom-bar scroll region + key-listener stdin ownership) so the
-    # panel and arrow selector render on a normal full-height screen.
-    # Exception-safe: __exit__ runs in the finally block below.
+    # Approval prompt takes over the terminal: suspend the run UI (scroll
+    # region + stdin ownership) so the panel renders full-height. Exception-safe.
     from code_puppy.messaging.run_ui import suspended_run_ui
 
     set_awaiting_user_input(True)
@@ -1540,10 +1126,8 @@ async def _get_user_approval_async_impl(
             confirmed = False
             emit_info("")
             emit_info(f"Tell {puppy_name} what to change:")
-            # Rich's Prompt.ask reads stdin -- suspend the key listener
-            # so it doesn't fight us for keystrokes. Without this, the
-            # key-listener thread eats roughly half the user's keypresses
-            # and the feedback box appears "broken."
+            # Prompt.ask reads stdin — suspend the key listener or it eats
+            # roughly half the keystrokes (feedback box looks "broken").
             from code_puppy.agents._key_listeners import suspended_key_listener
 
             with suspended_key_listener():

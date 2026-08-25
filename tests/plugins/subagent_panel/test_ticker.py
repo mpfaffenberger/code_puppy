@@ -11,8 +11,8 @@ import time
 
 import pytest
 
-from code_puppy.plugins.subagent_panel import register_callbacks as rc
-from code_puppy.plugins.subagent_panel import state
+from code_puppy_core_plugins.subagent_panel import register_callbacks as rc
+from code_puppy_core_plugins.subagent_panel import state
 
 
 class FakeBar:
@@ -29,9 +29,8 @@ def clean_state(monkeypatch):
     rc._stop_ticker()
     rc._push_state["t"] = 0.0
     rc._push_state["count"] = -1
-    # Fast ticks so tests don't sleep for real seconds. The production
-    # 1 Hz tick clears the 0.1s same-shape throttle by design; the fast
-    # test ticks would NOT, so shrink the throttle proportionally.
+    # Fast ticks avoid real sleeps; the production 1 Hz tick outlasts the same-shape
+    # throttle but test ticks wouldn't, so shrink the throttle proportionally.
     monkeypatch.setattr(rc, "_TICK_INTERVAL_S", 0.01)
     monkeypatch.setattr(rc, "_PUSH_MIN_INTERVAL", 0.0)
     yield

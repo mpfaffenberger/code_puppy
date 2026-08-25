@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 from rich.text import Text
 
+from code_puppy.i18n import t
 from code_puppy.mcp_.manager import ServerConfig, get_mcp_manager
 from code_puppy.messaging import (
     emit_error,
@@ -43,12 +44,12 @@ def prompt_ask(
 
         # Handle choices validation
         if choices and response.strip() and response.strip() not in choices:
-            emit_error(f"Invalid choice. Must be one of: {', '.join(choices)}")
+            emit_error(t("mcp.wizard.invalid_choice", choices=", ".join(choices)))
             return None
 
         return response.strip() if response.strip() else None
     except Exception as e:
-        emit_error(f"Input error: {e}")
+        emit_error(t("mcp.wizard.input_error", error=e))
         return None
 
 
@@ -69,7 +70,7 @@ def confirm_ask(prompt_text: str, default: bool = True) -> bool:
         else:
             return default
     except Exception as e:
-        emit_error(f"Input error: {e}")
+        emit_error(t("mcp.wizard.input_error", error=e))
         return default
 
 
@@ -94,7 +95,7 @@ class MCPConfigWizard:
 
             group_id = str(uuid.uuid4())
 
-        emit_info("🧙 MCP Server Configuration Wizard", message_group=group_id)
+        emit_info(t("mcp.wizard.header"), message_group=group_id)
 
         # Step 1: Server name
         name = self.prompt_server_name(group_id)
@@ -146,7 +147,7 @@ class MCPConfigWizard:
             # Validate name
             if not self.validate_name(name):
                 emit_error(
-                    "Name must be alphanumeric with hyphens/underscores only",
+                    t("mcp.wizard.name.invalid"),
                     message_group=group_id,
                 )
                 continue
@@ -154,35 +155,52 @@ class MCPConfigWizard:
             # Check uniqueness
             existing = self.manager.registry.get_by_name(name)
             if existing:
-                emit_error(f"Server '{name}' already exists", message_group=group_id)
+                emit_error(
+                    t("mcp.wizard.name.exists", name=name), message_group=group_id
+                )
                 continue
 
             return name
 
     def prompt_server_type(self, group_id: str = None) -> Optional[str]:
-        """Prompt for server type."""
-        emit_info("\nServer types:", message_group=group_id)
-        emit_info(
-            "  sse   - Server-Sent Events (HTTP streaming)", message_group=group_id
-        )
-        emit_info("  http  - HTTP/REST API", message_group=group_id)
-        emit_info("  stdio - Local command (subprocess)", message_group=group_id)
+        """Prompt for server type.
 
+        Validation is done in this loop (rather than delegating to
+        ``prompt_ask(choices=...)``) so we can distinguish two cases:
+
+        * ``prompt_ask`` returns ``None`` -> the input layer raised (EOF /
+          Ctrl-D / stream closed). Treat as user cancel and abort the wizard.
+        * ``prompt_ask`` returns a string that isn't a valid choice -> the
+          user typed a typo. Emit the invalid-choice error and re-prompt
+          instead of tearing the wizard down.
+        """
+        emit_info(t("mcp.wizard.type.header"), message_group=group_id)
+        emit_info(t("mcp.wizard.type.sse"), message_group=group_id)
+        emit_info(t("mcp.wizard.type.http"), message_group=group_id)
+        emit_info(t("mcp.wizard.type.stdio"), message_group=group_id)
+
+        valid_choices = ["sse", "http", "stdio"]
         while True:
             server_type = prompt_ask(
-                "Select server type", choices=["sse", "http", "stdio"], default="stdio"
+                f"Select server type ({'/'.join(valid_choices)})",
+                default="stdio",
             )
 
-            if server_type in ["sse", "http", "stdio"]:
+            if server_type is None:
+                # EOF / input exception -> cancel the wizard.
+                return None
+
+            if server_type in valid_choices:
                 return server_type
 
             emit_error(
-                "Invalid type. Choose: sse, http, or stdio", message_group=group_id
+                t("mcp.wizard.invalid_choice", choices=", ".join(valid_choices)),
+                message_group=group_id,
             )
 
     def prompt_sse_config(self, group_id: str = None) -> Optional[Dict]:
         """Prompt for SSE server configuration."""
-        emit_info("Configuring SSE server", message_group=group_id)
+        emit_info(t("mcp.wizard.sse.header"), message_group=group_id)
 
         # URL
         url = self.prompt_url("SSE", group_id)
@@ -208,7 +226,7 @@ class MCPConfigWizard:
 
     def prompt_http_config(self, group_id: str = None) -> Optional[Dict]:
         """Prompt for HTTP server configuration."""
-        emit_info("Configuring HTTP server", message_group=group_id)
+        emit_info(t("mcp.wizard.http.header"), message_group=group_id)
 
         # URL
         url = self.prompt_url("HTTP", group_id)
@@ -234,14 +252,11 @@ class MCPConfigWizard:
 
     def prompt_stdio_config(self, group_id: str = None) -> Optional[Dict]:
         """Prompt for Stdio server configuration."""
-        emit_info("Configuring Stdio server", message_group=group_id)
-        emit_info("Examples:", message_group=group_id)
-        emit_info(
-            "  • npx -y @modelcontextprotocol/server-filesystem /path",
-            message_group=group_id,
-        )
-        emit_info("  • python mcp_server.py", message_group=group_id)
-        emit_info("  • node server.js", message_group=group_id)
+        emit_info(t("mcp.wizard.stdio.header"), message_group=group_id)
+        emit_info(t("mcp.wizard.stdio.examples_header"), message_group=group_id)
+        emit_info(t("mcp.wizard.stdio.example_npx"), message_group=group_id)
+        emit_info(t("mcp.wizard.stdio.example_python"), message_group=group_id)
+        emit_info(t("mcp.wizard.stdio.example_node"), message_group=group_id)
 
         # Command
         command = prompt_ask("Enter command", default=None)
@@ -271,7 +286,8 @@ class MCPConfigWizard:
                 config["cwd"] = os.path.expanduser(cwd)
             else:
                 emit_warning(
-                    f"Directory '{cwd}' not found, ignoring", message_group=group_id
+                    t("mcp.wizard.stdio.dir_not_found", path=cwd),
+                    message_group=group_id,
                 )
 
         # Environment variables (optional)
@@ -302,15 +318,13 @@ class MCPConfigWizard:
             if self.validate_url(url):
                 return url
 
-            emit_error(
-                "Invalid URL. Must be http:// or https://", message_group=group_id
-            )
+            emit_error(t("mcp.wizard.url.invalid"), message_group=group_id)
 
     def prompt_headers(self, group_id: str = None) -> Dict[str, str]:
         """Prompt for HTTP headers."""
         headers = {}
-        emit_info("Enter headers (format: Name: Value)", message_group=group_id)
-        emit_info("Press Enter with empty name to finish", message_group=group_id)
+        emit_info(t("mcp.wizard.headers.header"), message_group=group_id)
+        emit_info(t("mcp.wizard.done_hint"), message_group=group_id)
 
         while True:
             name = prompt_ask("Header name", default="")
@@ -328,8 +342,8 @@ class MCPConfigWizard:
     def prompt_env_vars(self, group_id: str = None) -> Dict[str, str]:
         """Prompt for environment variables."""
         env = {}
-        emit_info("Enter environment variables", message_group=group_id)
-        emit_info("Press Enter with empty name to finish", message_group=group_id)
+        emit_info(t("mcp.wizard.env.header"), message_group=group_id)
+        emit_info(t("mcp.wizard.done_hint"), message_group=group_id)
 
         while True:
             name = prompt_ask("Variable name", default="")
@@ -379,7 +393,7 @@ class MCPConfigWizard:
         Returns:
             True if connection successful, False otherwise
         """
-        emit_info("Testing connection...", message_group=group_id)
+        emit_info(t("mcp.wizard.test.connecting"), message_group=group_id)
 
         try:
             # Try to create the server instance
@@ -393,34 +407,49 @@ class MCPConfigWizard:
                 # Try to get the pydantic server (this validates config)
                 server = managed.get_pydantic_server()
                 if server:
-                    emit_success("✓ Configuration valid", message_group=group_id)
+                    emit_success(t("mcp.wizard.test.ok"), message_group=group_id)
                     return True
 
-            emit_error("✗ Failed to create server instance", message_group=group_id)
+            emit_error(t("mcp.wizard.test.instance_failed"), message_group=group_id)
             return False
 
         except Exception as e:
-            emit_error(f"✗ Configuration error: {e}", message_group=group_id)
+            emit_error(
+                t("mcp.wizard.test.config_error", error=e), message_group=group_id
+            )
             return False
 
     def prompt_confirmation(self, config: ServerConfig, group_id: str = None) -> bool:
         """Show summary and ask for confirmation."""
-        emit_info("Configuration Summary:", message_group=group_id)
-        emit_info(f"  Name: {config.name}", message_group=group_id)
-        emit_info(f"  Type: {config.type}", message_group=group_id)
+        emit_info(t("mcp.wizard.summary.header"), message_group=group_id)
+        emit_info(
+            t("mcp.wizard.summary.name", name=config.name), message_group=group_id
+        )
+        emit_info(
+            t("mcp.wizard.summary.type", server_type=config.type),
+            message_group=group_id,
+        )
 
         if config.type in ["sse", "http"]:
-            emit_info(f"  URL: {config.config.get('url')}", message_group=group_id)
+            emit_info(
+                t("mcp.wizard.summary.url", url=config.config.get("url")),
+                message_group=group_id,
+            )
         elif config.type == "stdio":
             emit_info(
-                f"  Command: {config.config.get('command')}", message_group=group_id
+                t("mcp.wizard.summary.command", command=config.config.get("command")),
+                message_group=group_id,
             )
             args = config.config.get("args", [])
             if args:
-                emit_info(f"  Arguments: {' '.join(args)}", message_group=group_id)
+                emit_info(
+                    t("mcp.wizard.summary.args", args=" ".join(args)),
+                    message_group=group_id,
+                )
 
         emit_info(
-            f"  Timeout: {config.config.get('timeout', 30)}s", message_group=group_id
+            t("mcp.wizard.summary.timeout", timeout=config.config.get("timeout", 30)),
+            message_group=group_id,
         )
 
         # Test connection if requested
@@ -456,13 +485,13 @@ def run_add_wizard(group_id: str = None) -> bool:
             server_id = manager.register_server(config)
 
             emit_success(
-                f"\n✅ Server '{config.name}' added successfully!",
+                t("mcp.wizard.added", name=config.name),
                 message_group=group_id,
             )
-            emit_info(f"Server ID: {server_id}", message_group=group_id)
-            emit_info("Use '/mcp list' to see all servers", message_group=group_id)
+            emit_info(t("mcp.wizard.server_id", id=server_id), message_group=group_id)
+            emit_info(t("mcp.wizard.hint_list"), message_group=group_id)
             emit_info(
-                f"Use '/mcp start {config.name}' to start the server",
+                t("mcp.wizard.hint_start", name=config.name),
                 message_group=group_id,
             )
 
@@ -493,15 +522,15 @@ def run_add_wizard(group_id: str = None) -> bool:
 
             emit_info(
                 Text.from_markup(
-                    f"[dim]Configuration saved to {MCP_SERVERS_FILE}[/dim]"
+                    f"[dim]{t('mcp.wizard.saved', path=MCP_SERVERS_FILE)}[/dim]"
                 ),
                 message_group=group_id,
             )
             return True
 
         except Exception as e:
-            emit_error(f"Failed to add server: {e}", message_group=group_id)
+            emit_error(t("mcp.wizard.add_failed", error=e), message_group=group_id)
             return False
     else:
-        emit_warning("Configuration cancelled", message_group=group_id)
+        emit_warning(t("mcp.wizard.cancelled"), message_group=group_id)
         return False

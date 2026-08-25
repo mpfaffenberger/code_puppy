@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 class TestGetCommandsHelp:
     def test_lazy_import(self):
@@ -126,12 +128,17 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="truncation",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=50),
-            patch("code_puppy.agents._compaction.truncate", return_value=["m3"]),
+            patch("code_puppy.agents._compaction.build_compaction_strategy"),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=["m3"],
+            ) as rcs,
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success") as ms,
         ):
             assert self._run() is True
+            rcs.assert_called_once()
             ms.assert_called_once()
             assert "truncation" in ms.call_args[0][0]
 
@@ -139,7 +146,6 @@ class TestHandleCompactCommand:
         agent = MagicMock()
         agent.get_message_history.return_value = ["m1", "m2"]
         agent.estimate_tokens_for_message.return_value = 100
-        agent.summarize_messages.return_value = (["summary"], ["m1"])
         with (
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
@@ -149,7 +155,12 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="summarization",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=50),
+            patch("code_puppy.agents._compaction.build_compaction_strategy"),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=["summary", "m2"],
+            ),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success") as ms,
         ):
@@ -160,7 +171,6 @@ class TestHandleCompactCommand:
         agent = MagicMock()
         agent.get_message_history.return_value = ["m1"]
         agent.estimate_tokens_for_message.return_value = 100
-        agent.summarize_messages.return_value = ([], [])
         with (
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
@@ -170,7 +180,12 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="summarization",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=50),
+            patch("code_puppy.agents._compaction.build_compaction_strategy"),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=[],
+            ),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_error") as me,
         ):
@@ -193,7 +208,6 @@ class TestHandleCompactCommand:
         agent = MagicMock()
         agent.get_message_history.return_value = ["m1"]
         agent.estimate_tokens_for_message.return_value = 0
-        agent.summarize_messages.return_value = (["s"], [])
         with (
             patch(
                 "code_puppy.agents.agent_manager.get_current_agent",
@@ -203,7 +217,12 @@ class TestHandleCompactCommand:
                 "code_puppy.config.get_compaction_strategy",
                 return_value="summarization",
             ),
-            patch("code_puppy.config.get_protected_token_count", return_value=0),
+            patch("code_puppy.agents._compaction.build_compaction_strategy"),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=["s"],
+            ),
             patch("code_puppy.messaging.emit_info"),
             patch("code_puppy.messaging.emit_success"),
         ):
@@ -216,17 +235,14 @@ class TestHandleTruncateCommand:
 
         return handle_truncate_command(cmd)
 
-    def test_missing_arg(self):
+    @pytest.mark.parametrize(
+        "cmd",
+        ["/truncate", "/truncate abc", "/truncate -1", "/truncate 1 2"],
+        ids=["missing_arg", "invalid_n", "negative_n", "too_many_args"],
+    )
+    def test_invalid_args_return_true(self, cmd):
         with patch("code_puppy.messaging.emit_error"):
-            assert self._run("/truncate") is True
-
-    def test_invalid_n(self):
-        with patch("code_puppy.messaging.emit_error"):
-            assert self._run("/truncate abc") is True
-
-    def test_negative_n(self):
-        with patch("code_puppy.messaging.emit_error"):
-            assert self._run("/truncate -1") is True
+            assert self._run(cmd) is True
 
     def test_no_history(self):
         agent = MagicMock()
@@ -260,9 +276,16 @@ class TestHandleTruncateCommand:
                 "code_puppy.agents.agent_manager.get_current_agent",
                 return_value=agent,
             ),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=["sys", "c", "d"],
+            ) as rcs,
             patch("code_puppy.messaging.emit_success"),
         ):
             assert self._run("/truncate 3") is True
+            # The sliding window is asked for N-1 recent messages (+ first).
+            assert rcs.call_args[0][0].keep_messages == 2
             hist = agent.set_message_history.call_args[0][0]
             assert len(hist) == 3
             assert hist[0] == "sys"
@@ -275,14 +298,16 @@ class TestHandleTruncateCommand:
                 "code_puppy.agents.agent_manager.get_current_agent",
                 return_value=agent,
             ),
+            patch("code_puppy.agents._compaction.resolve_agent_model"),
+            patch(
+                "code_puppy.agents._compaction.run_compaction_sync",
+                return_value=["sys"],
+            ) as rcs,
             patch("code_puppy.messaging.emit_success"),
         ):
             assert self._run("/truncate 1") is True
+            assert rcs.call_args[0][0].keep_messages == 1
             assert agent.set_message_history.call_args[0][0] == ["sys"]
-
-    def test_too_many_args(self):
-        with patch("code_puppy.messaging.emit_error"):
-            assert self._run("/truncate 1 2") is True
 
 
 class TestHandleAutosaveLoadCommand:
@@ -390,7 +415,12 @@ class TestHandleLoadContextCommand:
         with patch("code_puppy.messaging.emit_warning"):
             assert self._run("/load_context") is True
 
-    def test_file_not_found_with_available(self):
+    @pytest.mark.parametrize(
+        "sessions,called",
+        [(["s1"], True), ([], False)],
+        ids=["with_available", "no_available"],
+    )
+    def test_file_not_found(self, sessions, called):
         with (
             patch(
                 "code_puppy.command_line.session_commands.load_session",
@@ -398,29 +428,16 @@ class TestHandleLoadContextCommand:
             ),
             patch(
                 "code_puppy.command_line.session_commands.list_sessions",
-                return_value=["s1"],
+                return_value=sessions,
             ),
             patch("code_puppy.messaging.emit_error"),
             patch("code_puppy.messaging.emit_info") as mi,
         ):
             assert self._run("/load_context missing") is True
-            mi.assert_called_once()
-
-    def test_file_not_found_no_available(self):
-        with (
-            patch(
-                "code_puppy.command_line.session_commands.load_session",
-                side_effect=FileNotFoundError(),
-            ),
-            patch(
-                "code_puppy.command_line.session_commands.list_sessions",
-                return_value=[],
-            ),
-            patch("code_puppy.messaging.emit_error"),
-            patch("code_puppy.messaging.emit_info") as mi,
-        ):
-            assert self._run("/load_context missing") is True
-            mi.assert_not_called()
+            if called:
+                mi.assert_called_once()
+            else:
+                mi.assert_not_called()
 
     def test_generic_exception(self):
         with (
@@ -546,3 +563,44 @@ class TestHandleClearCommand:
 
         names = {c.name for c in get_unique_commands()}
         assert "clear" in names
+
+    def test_clear_resets_model_fallback_warnings(self):
+        """A fresh conversation should re-arm any silenced pinned-model
+        fallback warning rather than leaving it suppressed forever."""
+        agent = MagicMock()
+        clipboard = MagicMock()
+        clipboard.get_pending_count.return_value = 0
+        with (
+            patch(
+                "code_puppy.agents.agent_manager.get_current_agent",
+                return_value=agent,
+            ),
+            patch(
+                "code_puppy.command_line.clipboard.get_clipboard_manager",
+                return_value=clipboard,
+            ),
+            patch(
+                "code_puppy.config.finalize_autosave_session",
+                return_value="sid",
+            ),
+            patch("code_puppy.messaging.emit_warning"),
+            patch("code_puppy.messaging.emit_system_message"),
+            patch("code_puppy.messaging.emit_info"),
+            patch(
+                "code_puppy.agents._builder.reset_model_fallback_warnings"
+            ) as mock_reset,
+        ):
+            assert self._run() is True
+            mock_reset.assert_called_once_with()
+
+    def test_clear_description_documents_the_bare_word_shortcut(self):
+        """The overlay renders the registry description verbatim, so the
+        bare-word `clear` shortcut has to be mentioned there or it's
+        undiscoverable."""
+        import code_puppy.command_line.session_commands  # noqa: F401
+        from code_puppy.command_line.command_registry import get_command
+
+        cmd = get_command("clear")
+        assert cmd is not None
+        assert "clear" in cmd.description.lower()
+        assert "bare word" in cmd.description.lower()

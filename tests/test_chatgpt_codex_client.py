@@ -202,32 +202,15 @@ class TestInjectCodexFields:
         assert data["reasoning"]["effort"] == "high"  # Preserved
         assert data["reasoning"]["summary"] == "detailed"  # Preserved
 
-    def test_remove_max_output_tokens(self):
-        """Test that max_output_tokens is removed."""
-        body = json.dumps({"model": "gpt-4", "max_output_tokens": 1000}).encode()
+    @pytest.mark.parametrize("field", ["max_output_tokens", "max_tokens", "verbosity"])
+    def test_remove_unsupported_params(self, field):
+        """Test that unsupported params (max_output_tokens/max_tokens/verbosity) are removed."""
+        body = json.dumps({"model": "gpt-4", field: 1000}).encode()
         result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
 
         assert result is not None
         data = json.loads(result)
-        assert "max_output_tokens" not in data
-
-    def test_remove_max_tokens(self):
-        """Test that max_tokens is removed."""
-        body = json.dumps({"model": "gpt-4", "max_tokens": 2000}).encode()
-        result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-
-        assert result is not None
-        data = json.loads(result)
-        assert "max_tokens" not in data
-
-    def test_remove_verbosity(self):
-        """Test that verbosity is removed."""
-        body = json.dumps({"model": "gpt-4", "verbosity": "detailed"}).encode()
-        result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-
-        assert result is not None
-        data = json.loads(result)
-        assert "verbosity" not in data
+        assert field not in data
 
     def test_remove_all_unsupported_params(self):
         """Test that all unsupported params are removed together."""
@@ -249,17 +232,9 @@ class TestInjectCodexFields:
         assert "verbosity" not in data
         assert data["temperature"] == 0.7  # Preserved
 
-    def test_invalid_json_returns_none(self):
-        """Test that invalid JSON returns (None, False)."""
-        body = b"not valid json"
-        result, forced_stream = ChatGPTCodexAsyncClient._inject_codex_fields(body)
-
-        assert result is None
-        assert forced_stream is False
-
-    def test_non_dict_json_returns_none(self):
-        """Test that non-dict JSON returns (None, False)."""
-        body = b'["an", "array"]'
+    @pytest.mark.parametrize("body", [b"not valid json", b'["an", "array"]'])
+    def test_invalid_or_non_dict_json_returns_none(self, body):
+        """Test that invalid/non-dict JSON returns (None, False)."""
         result, forced_stream = ChatGPTCodexAsyncClient._inject_codex_fields(body)
 
         assert result is None
@@ -382,15 +357,33 @@ class TestConvertStreamToResponse:
         assert body["id"] == "resp_abc123"
 
     @pytest.mark.asyncio
-    async def test_skip_empty_lines(self):
-        """Test that empty lines are skipped."""
-        sse_lines = [
-            "",
-            "   ",
-            'data: {"type": "response.output_text.delta", "delta": "Hi"}',
-            "",
-            "data: [DONE]",
-        ]
+    @pytest.mark.parametrize(
+        ("sse_lines", "expected_text"),
+        [
+            (
+                [
+                    "",
+                    "   ",
+                    'data: {"type": "response.output_text.delta", "delta": "Hi"}',
+                    "",
+                    "data: [DONE]",
+                ],
+                "Hi",
+            ),
+            (
+                [
+                    "event: message",
+                    "id: 123",
+                    'data: {"type": "response.output_text.delta", "delta": "Test"}',
+                    ": comment line",
+                    "data: [DONE]",
+                ],
+                "Test",
+            ),
+        ],
+    )
+    async def test_skip_noise_lines(self, sse_lines, expected_text):
+        """Test that empty and non-data lines are skipped."""
 
         async def mock_aiter_lines():
             for line in sse_lines:
@@ -406,34 +399,7 @@ class TestConvertStreamToResponse:
         result = await client._convert_stream_to_response(mock_response)
 
         body = json.loads(result.content)
-        assert body["output"][0]["content"][0]["text"] == "Hi"
-
-    @pytest.mark.asyncio
-    async def test_skip_non_data_lines(self):
-        """Test that non-data lines (like event: or id:) are skipped."""
-        sse_lines = [
-            "event: message",
-            "id: 123",
-            'data: {"type": "response.output_text.delta", "delta": "Test"}',
-            ": comment line",
-            "data: [DONE]",
-        ]
-
-        async def mock_aiter_lines():
-            for line in sse_lines:
-                yield line
-
-        mock_response = Mock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.headers = {}
-        mock_response.aiter_lines = mock_aiter_lines
-        mock_response.request = Mock()
-
-        client = ChatGPTCodexAsyncClient()
-        result = await client._convert_stream_to_response(mock_response)
-
-        body = json.loads(result.content)
-        assert body["output"][0]["content"][0]["text"] == "Test"
+        assert body["output"][0]["content"][0]["text"] == expected_text
 
     @pytest.mark.asyncio
     async def test_handle_json_decode_errors(self):
@@ -787,9 +753,8 @@ class TestCreateCodexAsyncClient:
 
     def test_creates_client_with_custom_verify_path(self):
         """Test that factory accepts verify as string (cert path)."""
-        # Just verify the function accepts the parameter without error
-        # The actual SSL context creation happens on first request
-        # Using verify=False to avoid file not found errors
+        # Only verify the param is accepted — SSL context builds on first request
+        # (verify=False avoids file-not-found errors).
         client = create_codex_async_client(verify=False)
 
         assert isinstance(client, ChatGPTCodexAsyncClient)
@@ -808,27 +773,10 @@ class TestCreateCodexAsyncClient:
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
-    def test_inject_fields_with_empty_bytes(self):
-        """Test injection with empty bytes."""
-        result, forced = ChatGPTCodexAsyncClient._inject_codex_fields(b"")
-        assert result is None
-        assert forced is False
-
-    def test_inject_fields_with_null_json(self):
-        """Test injection with JSON null."""
-        result, forced = ChatGPTCodexAsyncClient._inject_codex_fields(b"null")
-        assert result is None
-        assert forced is False
-
-    def test_inject_fields_with_number_json(self):
-        """Test injection with JSON number."""
-        result, forced = ChatGPTCodexAsyncClient._inject_codex_fields(b"42")
-        assert result is None
-        assert forced is False
-
-    def test_inject_fields_with_string_json(self):
-        """Test injection with JSON string."""
-        result, forced = ChatGPTCodexAsyncClient._inject_codex_fields(b'"hello"')
+    @pytest.mark.parametrize("payload", [b"", b"null", b"42", b'"hello"'])
+    def test_inject_fields_with_invalid_or_scalar_json(self, payload):
+        """Injection with empty/scalar JSON payloads is a no-op."""
+        result, forced = ChatGPTCodexAsyncClient._inject_codex_fields(payload)
         assert result is None
         assert forced is False
 

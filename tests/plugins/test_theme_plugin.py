@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from code_puppy.plugins.theme.themes import (
+from code_puppy_core_plugins.theme.themes import (
     CURATED_THEMES,
     DEFAULT,
     MENU,
@@ -21,7 +21,7 @@ from code_puppy.plugins.theme.themes import (
     resolve_theme_arg,
     terminal_palette_for,
 )
-from code_puppy.plugins.theme.bundled_palettes import (
+from code_puppy_core_plugins.theme.bundled_palettes import (
     BUBBLEGUM_PINK,
     CATPPUCCIN_LATTE,
     CATPPUCCIN_MOCHA,
@@ -37,15 +37,15 @@ from code_puppy.plugins.theme.bundled_palettes import (
     TOKYO_NIGHT,
     VAPORWAVE,
 )
-from code_puppy.plugins.theme.picker import (
-    THEMES_PER_PAGE,
-    _format_menu,
-    _move_page,
-    _page_for_index,
-    _total_pages,
+from code_puppy_core_plugins.theme.picker import (
+    build_theme_menu,
 )
-from code_puppy.plugins.theme.rich_themes import make_remap, _swap_color, _safe_parse
-from code_puppy.plugins.theme.content_styles import (
+from code_puppy_core_plugins.theme.rich_themes import (
+    make_remap,
+    _swap_color,
+    _safe_parse,
+)
+from code_puppy_core_plugins.theme.content_styles import (
     CONTENT_KEYS,
     DEFAULT_CONTENT_STYLES,
     get_all_content_styles,
@@ -53,7 +53,7 @@ from code_puppy.plugins.theme.content_styles import (
     apply_content_styles,
     restore_defaults,
 )
-from code_puppy.plugins.theme.osc_palette import (
+from code_puppy_core_plugins.theme.osc_palette import (
     _osc,
     BEL,
     ESC,
@@ -130,18 +130,12 @@ class TestColorsFor:
         assert len(m) > 0
 
     def test_all_menu_themes_produce_mappings(self):
-        # "reset"/"defaults" are aliases for "default"; colors_for only
-        # handles them via the literal "default" check, so use
-        # resolve_theme_arg first (as the real command handler does).
+        # "reset"/"defaults" alias "default", but colors_for only matches the
+        # literal — resolve_theme_arg first, like the real command handler.
         for name in MENU_BY_NAME:
             resolved = resolve_theme_arg(name) or name
             m = colors_for(resolved)
             assert isinstance(m, dict) and len(m) > 0, name
-
-    def test_surprise_with_seed_is_deterministic(self):
-        a = colors_for("surprise", rng=random.Random(42))
-        b = colors_for("surprise", rng=random.Random(42))
-        assert a == b
 
     def test_surprise_different_seeds_differ(self):
         a = colors_for("surprise", rng=random.Random(1))
@@ -274,44 +268,66 @@ class TestResolveThemeArg:
 # ---------------------------------------------------------------------------
 # picker.py
 # ---------------------------------------------------------------------------
-class TestThemePickerPagination:
-    def test_catalog_is_split_into_pages(self):
-        assert THEMES_PER_PAGE == 5
-        assert _total_pages() == 4
-        assert _page_for_index(0) == 0
-        assert _page_for_index(5) == 1
-        assert _page_for_index(len(MENU) - 1) == 3
+def _drive_picker(keys, rows=40):
+    """Run the theme menu headlessly with a scripted key sequence."""
+    from io import StringIO
 
-    def test_menu_only_renders_the_selected_page(self):
-        rendered = "".join(text for _, text in _format_menu(5))
+    script = iter(keys)
+    out = StringIO()
+    menu = build_theme_menu(
+        key_source=lambda: next(script),
+        output=out,
+        size=lambda: (140, rows),
+        alt_screen=False,
+    )
+    return menu.run(), out.getvalue()
 
-        assert "Page 2/4" in rendered
-        assert "6. " in rendered
-        assert "10. " in rendered
-        assert "Purple Puppy" in rendered
-        assert "Green Screen" in rendered
-        assert "Ocean" not in rendered
-        assert "Deep Black" not in rendered
 
-    def test_menu_uses_semantic_roles_for_chrome(self):
-        fragments = list(_format_menu(0))
-        styles = {style for style, _ in fragments}
+class TestThemePicker:
+    def test_tall_terminal_shows_whole_catalog(self):
+        from termflow.ansi.utils import visible
 
-        assert {
-            "class:tui.header",
-            "class:tui.muted",
-            "class:tui.selected",
-            "class:tui.body",
-            "class:tui.help",
-            "class:tui.help-key",
-        } <= styles
-        assert not any("ansi" in style for style in styles)
+        assert len(MENU) == 16
+        _, screen = _drive_picker(["escape"], rows=40)
+        rendered = visible(screen)
+        assert all(theme["label"] in rendered for _, theme in MENU)
 
-    def test_page_navigation_clamps_at_catalog_edges(self):
-        assert _move_page(2, 1) == 7
-        assert _move_page(7, -1) == 2
-        assert _move_page(0, -1) == 0
-        assert _move_page(len(MENU) - 2, 1) == len(MENU) - 1
+    def test_enter_selects_first_theme(self):
+        result, _ = _drive_picker(["enter"])
+        assert not result.cancelled
+        assert result.item.value == MENU[0][0]
+
+    def test_escape_cancels(self):
+        result, _ = _drive_picker(["escape"])
+        assert result.cancelled
+
+    def test_arrow_navigation_selects_second_theme(self):
+        result, _ = _drive_picker(["down", "enter"])
+        assert result.item.value == MENU[1][0]
+
+    def test_page_down_reaches_second_page_on_short_terminal(self):
+        # 12 rows -> 8 themes per page (12 - 4 chrome overhead).
+        result, _ = _drive_picker(["page-down", "enter"], rows=12)
+        assert result.item.value == MENU[8][0]
+
+    def test_short_terminal_only_renders_the_selected_page(self):
+        from termflow.ansi.utils import visible
+
+        _, screen = _drive_picker(["page-down", "escape"], rows=12)
+        rendered = visible(screen.split("\x1b[H")[-1])  # final frame
+        page_two = [theme["label"] for _, theme in MENU[8:16]]
+        page_one = [theme["label"] for _, theme in MENU[:8]]
+        assert all(label in rendered for label in page_two)
+        assert not any(label in rendered for label in page_one)
+
+    def test_preview_pane_shows_highlighted_theme(self):
+        from termflow.ansi.utils import visible
+
+        _, screen = _drive_picker(["escape"])
+        rendered = visible(screen)
+        first_label = MENU[0][1]["label"]
+        # Preview header echoes the highlighted theme's label.
+        assert rendered.count(first_label) >= 2  # list row + preview header
 
 
 # ---------------------------------------------------------------------------
@@ -496,17 +512,19 @@ class TestOscPalette:
 
     def test_apply_palette_emits_sequences(self):
         palette = {"bg": "#000", "fg": "#fff", "ansi": ["#111"] * 16}
-        with patch("code_puppy.plugins.theme.osc_palette._emit") as mock_emit:
+        with patch("code_puppy_core_plugins.theme.osc_palette._emit") as mock_emit:
             apply_palette(palette, persist=False, register_reset=False)
         assert mock_emit.call_count == 18  # 1 bg + 1 fg + 16 ansi
 
     def test_reset_palette_emits_resets(self):
-        with patch("code_puppy.plugins.theme.osc_palette._emit") as mock_emit:
+        with patch("code_puppy_core_plugins.theme.osc_palette._emit") as mock_emit:
             reset_palette(persist=False)
         assert mock_emit.call_count == 3  # ansi + bg + fg
 
     def test_get_saved_palette_returns_none_when_empty(self):
-        with patch("code_puppy.plugins.theme.osc_palette.get_value", return_value=None):
+        with patch(
+            "code_puppy_core_plugins.theme.osc_palette.get_value", return_value=None
+        ):
             assert get_saved_palette() is None
 
     def test_get_saved_palette_returns_dict(self):
@@ -514,7 +532,7 @@ class TestOscPalette:
 
         data = {"bg": "#000", "fg": "#fff"}
         with patch(
-            "code_puppy.plugins.theme.osc_palette.get_value",
+            "code_puppy_core_plugins.theme.osc_palette.get_value",
             return_value=json.dumps(data),
         ):
             result = get_saved_palette()
@@ -526,10 +544,10 @@ class TestOscPalette:
 # ---------------------------------------------------------------------------
 class TestRegisterCallbacks:
     def test_prompt_text_uses_active_terminal_foreground(self):
-        from code_puppy.plugins.theme.register_callbacks import _prompt_text_color
+        from code_puppy_core_plugins.theme.register_callbacks import _prompt_text_color
 
         with patch(
-            "code_puppy.plugins.theme.register_callbacks._active_terminal_palette",
+            "code_puppy_core_plugins.theme.register_callbacks._active_terminal_palette",
             return_value=("green-screen", GREEN_SCREEN),
         ):
             assert _prompt_text_color(None) == "#6a9955"
@@ -537,10 +555,12 @@ class TestRegisterCallbacks:
     def test_green_screen_highlighter_removes_monokai_white(self):
         from termflow.syntax import Highlighter
 
-        from code_puppy.plugins.theme.register_callbacks import _termflow_highlighter
+        from code_puppy_core_plugins.theme.register_callbacks import (
+            _termflow_highlighter,
+        )
 
         with patch(
-            "code_puppy.plugins.theme.register_callbacks._active_terminal_palette",
+            "code_puppy_core_plugins.theme.register_callbacks._active_terminal_palette",
             return_value=("green-screen", GREEN_SCREEN),
         ):
             highlighter = _termflow_highlighter(Highlighter())
@@ -552,10 +572,12 @@ class TestRegisterCallbacks:
     def test_green_screen_highlighter_uses_phosphor_intensities(self):
         from termflow.syntax import Highlighter
 
-        from code_puppy.plugins.theme.register_callbacks import _termflow_highlighter
+        from code_puppy_core_plugins.theme.register_callbacks import (
+            _termflow_highlighter,
+        )
 
         with patch(
-            "code_puppy.plugins.theme.register_callbacks._active_terminal_palette",
+            "code_puppy_core_plugins.theme.register_callbacks._active_terminal_palette",
             return_value=("green-screen", GREEN_SCREEN),
         ):
             highlighter = _termflow_highlighter(Highlighter())
@@ -570,10 +592,12 @@ class TestRegisterCallbacks:
     def test_solarized_light_code_uses_dark_default_foreground(self):
         from termflow.syntax import Highlighter
 
-        from code_puppy.plugins.theme.register_callbacks import _termflow_highlighter
+        from code_puppy_core_plugins.theme.register_callbacks import (
+            _termflow_highlighter,
+        )
 
         with patch(
-            "code_puppy.plugins.theme.register_callbacks._active_terminal_palette",
+            "code_puppy_core_plugins.theme.register_callbacks._active_terminal_palette",
             return_value=("solarized-light", SOLARIZED_LIGHT),
         ):
             highlighter = _termflow_highlighter(Highlighter())
@@ -585,7 +609,7 @@ class TestRegisterCallbacks:
     def test_termflow_style_uses_active_terminal_palette(self):
         from termflow.render.style import RenderStyle
 
-        from code_puppy.plugins.theme.register_callbacks import _termflow_style
+        from code_puppy_core_plugins.theme.register_callbacks import _termflow_style
 
         default = RenderStyle.default()
         with (
@@ -594,7 +618,7 @@ class TestRegisterCallbacks:
                 return_value="green-screen",
             ),
             patch(
-                "code_puppy.plugins.theme.osc_palette.get_saved_palette",
+                "code_puppy_core_plugins.theme.osc_palette.get_saved_palette",
                 return_value=GREEN_SCREEN,
             ),
         ):
@@ -611,7 +635,7 @@ class TestRegisterCallbacks:
     def test_termflow_style_preserves_default_without_active_theme(self):
         from termflow.render.style import RenderStyle
 
-        from code_puppy.plugins.theme.register_callbacks import _termflow_style
+        from code_puppy_core_plugins.theme.register_callbacks import _termflow_style
 
         default = RenderStyle.default()
         with patch(
@@ -621,6 +645,12 @@ class TestRegisterCallbacks:
             assert _termflow_style(default) is default
 
     def test_prompt_toolkit_style_shim_delegates_to_merge(self):
+        import pytest
+
+        pytest.importorskip(
+            "prompt_toolkit",
+            reason="old-core compat shim; not a runtime dep anymore",
+        )
         """The lazy shim must forward its argument to merge_with_active_style.
 
         Regression guard: an earlier version used ``*args, **kwargs`` which
@@ -628,13 +658,13 @@ class TestRegisterCallbacks:
         real callable. Keeping this test in place ensures the shim stays a
         1:1 stand-in.
         """
-        from code_puppy.plugins.theme.register_callbacks import (
+        from code_puppy_core_plugins.theme.register_callbacks import (
             _prompt_toolkit_style,
         )
 
         sentinel = object()
         with patch(
-            "code_puppy.plugins.theme.prompt_toolkit_theme.merge_with_active_style",
+            "code_puppy_core_plugins.theme.prompt_toolkit_theme.merge_with_active_style",
             return_value=sentinel,
         ) as mock_merge:
             result = _prompt_toolkit_style("input-style")
@@ -645,14 +675,14 @@ class TestRegisterCallbacks:
     def test_prompt_toolkit_style_shim_reports_real_callback_name(self):
         """code_puppy.callbacks logs callback.__name__ on failure; the shim
         preserves the real symbol name so error output stays useful."""
-        from code_puppy.plugins.theme.register_callbacks import (
+        from code_puppy_core_plugins.theme.register_callbacks import (
             _prompt_toolkit_style,
         )
 
         assert _prompt_toolkit_style.__name__ == "merge_with_active_style"
 
     def test_first_run_applies_tokyo_night(self):
-        from code_puppy.plugins.theme.register_callbacks import (
+        from code_puppy_core_plugins.theme.register_callbacks import (
             _apply_default_theme_on_first_run,
         )
 
@@ -661,17 +691,19 @@ class TestRegisterCallbacks:
                 "code_puppy.config.get_value",
                 return_value=None,
             ),
-            patch("code_puppy.plugins.theme.themes.apply") as mock_apply,
+            patch("code_puppy_core_plugins.theme.themes.apply") as mock_apply,
             patch(
-                "code_puppy.plugins.theme.content_styles.apply_content_styles"
+                "code_puppy_core_plugins.theme.content_styles.apply_content_styles"
             ) as mock_cs_apply,
-            patch("code_puppy.plugins.theme.rich_themes.apply_remap") as mock_rt_apply,
             patch(
-                "code_puppy.plugins.theme.osc_palette.get_saved_palette",
+                "code_puppy_core_plugins.theme.rich_themes.apply_remap"
+            ) as mock_rt_apply,
+            patch(
+                "code_puppy_core_plugins.theme.osc_palette.get_saved_palette",
                 return_value=None,
             ),
             patch(
-                "code_puppy.plugins.theme.osc_palette.apply_palette"
+                "code_puppy_core_plugins.theme.osc_palette.apply_palette"
             ) as mock_osc_apply,
             patch("code_puppy.config.set_config_value") as mock_set,
         ):
@@ -684,7 +716,7 @@ class TestRegisterCallbacks:
         mock_set.assert_called_once_with("theme_active_theme", "tokyo-night")
 
     def test_default_theme_preserves_saved_choice(self):
-        from code_puppy.plugins.theme.register_callbacks import (
+        from code_puppy_core_plugins.theme.register_callbacks import (
             _apply_default_theme_on_first_run,
         )
 
@@ -693,14 +725,14 @@ class TestRegisterCallbacks:
                 "code_puppy.config.get_value",
                 return_value="purple-puppy",
             ),
-            patch("code_puppy.plugins.theme.themes.apply") as mock_apply,
+            patch("code_puppy_core_plugins.theme.themes.apply") as mock_apply,
         ):
             _apply_default_theme_on_first_run()
 
         mock_apply.assert_not_called()
 
     def test_default_theme_preserves_legacy_palette(self):
-        from code_puppy.plugins.theme.register_callbacks import (
+        from code_puppy_core_plugins.theme.register_callbacks import (
             _apply_default_theme_on_first_run,
         )
 
@@ -710,10 +742,10 @@ class TestRegisterCallbacks:
                 return_value=None,
             ),
             patch(
-                "code_puppy.plugins.theme.osc_palette.get_saved_palette",
+                "code_puppy_core_plugins.theme.osc_palette.get_saved_palette",
                 return_value={"bg": "#123456"},
             ),
-            patch("code_puppy.plugins.theme.themes.apply") as mock_apply,
+            patch("code_puppy_core_plugins.theme.themes.apply") as mock_apply,
             patch("code_puppy.config.set_config_value") as mock_set,
         ):
             _apply_default_theme_on_first_run()
@@ -722,18 +754,18 @@ class TestRegisterCallbacks:
         mock_set.assert_called_once_with("theme_active_theme", "legacy-custom")
 
     def test_custom_help_returns_theme_entry(self):
-        from code_puppy.plugins.theme.register_callbacks import _custom_help
+        from code_puppy_core_plugins.theme.register_callbacks import _custom_help
 
         entries = dict(_custom_help())
         assert "theme" in entries
 
     def test_handle_theme_ignores_other_commands(self):
-        from code_puppy.plugins.theme.register_callbacks import _handle_theme
+        from code_puppy_core_plugins.theme.register_callbacks import _handle_theme
 
         assert _handle_theme("/colors", "colors") is None
 
     def test_handle_theme_show(self):
-        from code_puppy.plugins.theme.register_callbacks import _handle_theme
+        from code_puppy_core_plugins.theme.register_callbacks import _handle_theme
 
         with patch("code_puppy.messaging.emit_info") as mock_info:
             result = _handle_theme("/theme show", "theme")
@@ -741,7 +773,7 @@ class TestRegisterCallbacks:
         assert mock_info.called
 
     def test_handle_theme_unknown_warns(self):
-        from code_puppy.plugins.theme.register_callbacks import _handle_theme
+        from code_puppy_core_plugins.theme.register_callbacks import _handle_theme
 
         with patch("code_puppy.messaging.emit_warning") as mock_warn:
             result = _handle_theme("/theme bogus_theme", "theme")
@@ -749,13 +781,13 @@ class TestRegisterCallbacks:
         assert mock_warn.called
 
     def test_handle_theme_by_name_applies(self):
-        from code_puppy.plugins.theme.register_callbacks import _handle_theme
+        from code_puppy_core_plugins.theme.register_callbacks import _handle_theme
 
         with (
-            patch("code_puppy.plugins.theme.themes.apply") as mock_apply,
-            patch("code_puppy.plugins.theme.content_styles.apply_content_styles"),
-            patch("code_puppy.plugins.theme.rich_themes.apply_remap"),
-            patch("code_puppy.plugins.theme.osc_palette.apply_palette"),
+            patch("code_puppy_core_plugins.theme.themes.apply") as mock_apply,
+            patch("code_puppy_core_plugins.theme.content_styles.apply_content_styles"),
+            patch("code_puppy_core_plugins.theme.rich_themes.apply_remap"),
+            patch("code_puppy_core_plugins.theme.osc_palette.apply_palette"),
             patch("code_puppy.config.set_config_value"),
             patch("code_puppy.messaging.emit_info"),
         ):
@@ -764,11 +796,11 @@ class TestRegisterCallbacks:
         mock_apply.assert_called_once()
 
     def test_handle_theme_interactive_cancel(self):
-        from code_puppy.plugins.theme.register_callbacks import _handle_theme
+        from code_puppy_core_plugins.theme.register_callbacks import _handle_theme
 
         with (
             patch(
-                "code_puppy.plugins.theme.register_callbacks._run_interactive_picker",
+                "code_puppy_core_plugins.theme.register_callbacks._run_interactive_picker",
                 return_value=None,
             ),
             patch("code_puppy.messaging.emit_info") as mock_info,

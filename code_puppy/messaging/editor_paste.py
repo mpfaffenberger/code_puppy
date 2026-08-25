@@ -69,10 +69,8 @@ def classify_paste(payload: str) -> Tuple[str, str]:
     if payload and payload.strip():
         return ("text", _normalize(payload))
 
-    # No meaningful text — try capturing a clipboard image directly
-    # (Windows image paste sends an empty bracketed paste). ONE clipboard
-    # read: a separate "has image?" probe would double the (slow,
-    # osascript-backed on macOS) round-trip.
+    # Empty paste → try a clipboard image capture (Windows image paste sends an
+    # empty bracketed paste). One read only — probing twice doubles the slow macOS round-trip.
     try:
         from code_puppy.command_line.clipboard import (
             capture_clipboard_image_to_pending,

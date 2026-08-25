@@ -75,6 +75,44 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 uvx code-puppy
 ```
 
+#### Android (Termux)
+
+Android support uses Termux's native build toolchain because many Python packages
+do not publish Android wheels. Install the required system packages first:
+
+```bash
+pkg update
+pkg install python rust ripgrep libjpeg-turbo git
+python -m pip install pipx
+pipx ensurepath
+export PATH="$HOME/.local/bin:$PATH"  # Makes pipx apps available immediately
+```
+
+`ripgrep` provides the native `rg` executable used for file discovery.
+`libjpeg-turbo` provides the headers Pillow needs when pip builds it from source.
+The first run may spend 10–20 minutes compiling packages such as
+`pydantic-core` and `cryptography`; later runs reuse pipx's cached environment for
+up to 14 days.
+
+Run the released package:
+
+```bash
+pipx run code-puppy
+```
+
+To run a source checkout instead, use an editable persistent installation:
+
+```bash
+git clone https://github.com/mpfaffenberger/code_puppy.git
+cd code_puppy
+pipx install --editable .
+code-puppy
+```
+
+After a `git pull`, Python source changes are available immediately. Run
+`pipx reinstall code-puppy` only when project dependencies change.
+Playwright-backed browser tools are not installed on Android.
+
 #### Optional: DBOS durable execution
 
 Code Puppy ships with an optional [DBOS](https://github.com/dbos-inc/dbos-transact-py)-backed
@@ -95,6 +133,22 @@ to check, `/dbos off` to disable.
 [📋 View the full changelog on Kittylog](https://kittylog.app/c/mpfaffenberger/code_puppy)
 
 ## Usage
+
+### Meta Muse OAuth
+
+Code Puppy can use the same Meta account login as Muse Code. If Muse is already
+logged in, its credential at `~/.config/muse/auth.json` is detected automatically.
+You can also authenticate directly from Code Puppy:
+
+```text
+/meta-auth       # approve a device code with your Meta account
+/meta-status     # show the credential source and available Muse models
+/meta-logout     # remove only Code Puppy's saved Meta credential
+```
+
+Meta models are registered with a `meta-` prefix, including
+`meta-muse-spark-1.2-contributor` and `meta-muse-spark-1.2`. `META_API_KEY`
+remains supported and takes precedence over saved OAuth credentials.
 
 ### Adding Models from models.dev 🆕
 
@@ -276,6 +330,26 @@ Use `custom_openai` for OpenAI-compatible Chat Completions endpoints. If an endp
     "name": "gpt-5.5",
     "custom_endpoint": {
       "url": "https://proxy.example.com/v1",
+      "api_key": "$API_KEY"
+    }
+  }
+}
+```
+
+## Multiple System Messages
+
+Custom OpenAI-compatible endpoints (`custom_openai`, `openrouter`, `cerebras`, and Zhipu `zai_coding`/`zai_api`) default to merging consecutive leading `system` messages into one. Strict backends (SGLang, some vLLM deployments) reject more than one leading system message — this surfaces after auto-compact, which inserts a compaction-summary system message alongside the agent's own system instructions, as a `400: System message must be at the beginning.`
+
+The merge is harmless for endpoints that *do* support multiple system messages. If you know your endpoint handles them, opt out per model with `"supports_multiple_system_messages": true` (a JSON boolean):
+
+```json
+{
+  "my_model": {
+    "type": "custom_openai",
+    "name": "qwen3-sglang",
+    "supports_multiple_system_messages": true,
+    "custom_endpoint": {
+      "url": "http://localhost:30000/v1",
       "api_key": "$API_KEY"
     }
   }

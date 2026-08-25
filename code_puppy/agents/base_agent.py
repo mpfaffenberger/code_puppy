@@ -25,7 +25,6 @@ from code_puppy.agents._builder import (
     build_tool_probe_for_agent,
     reload_mcp_servers,
 )
-from code_puppy.agents._compaction import summarize
 from code_puppy.agents._history import (
     estimate_context_overhead,
     estimate_tokens_for_message,
@@ -35,7 +34,6 @@ from code_puppy.agents._runtime import run_with_mcp, should_retry_streaming
 from code_puppy.config import (
     get_agent_pinned_model,
     get_global_model_name,
-    get_protected_token_count,
 )
 from code_puppy.model_factory import ModelFactory
 
@@ -69,17 +67,22 @@ class BaseAgent(ABC):
     def __init__(self) -> None:
         self.id: str = str(uuid.uuid4())
         self._message_history: List[Any] = []
-        self._compacted_message_hashes: Set[int] = set()
+        self._compacted_message_hashes: Set[str] = set()
         self._code_generation_agent: Any = None
         self._last_model_name: Optional[str] = None
         self._runtime_model_name_override: Optional[str] = None
+        self._runtime_system_prompt_additions: List[str] = []
+        # Model chosen by a ``model_select`` hook for the current run. Slots
+        # below an explicit runtime override but above pinned/JSON/global, and
+        # is reset at the start of every run (see resolve_run_model_selection),
+        # so it never leaks across turns.
+        self._auto_model_override: Optional[str] = None
         self._puppy_rules: Optional[str] = None
         self._mcp_servers: List[Any] = []
         self.cur_model: Optional[pydantic_ai.models.Model] = None
         self.pydantic_agent: Any = None
-        # Cached probe agent used to count tool overhead before the real
-        # pydantic agent has been built. Keyed implicitly by ``_last_model_name``
-        # so model swaps invalidate it via ``_probe_model_name``.
+        # Cached probe agent for tool-overhead counting before the real build;
+        # keyed by ``_last_model_name`` so model swaps invalidate it.
         self._tool_probe_agent: Any = None
         self._probe_model_name: Optional[str] = None
 
@@ -127,6 +130,14 @@ class BaseAgent(ABC):
         """
         self._runtime_model_name_override = model_name
 
+    def get_auto_model_override(self) -> Optional[str]:
+        """Return the model chosen by a ``model_select`` hook for this run."""
+        return self._auto_model_override
+
+    def set_auto_model_override(self, model_name: Optional[str]) -> None:
+        """Set the ``model_select``-chosen model for this run (not persisted)."""
+        self._auto_model_override = model_name
+
     @contextmanager
     def temporary_model_name_override(
         self, model_name: Optional[str]
@@ -139,10 +150,26 @@ class BaseAgent(ABC):
         finally:
             self.set_runtime_model_name_override(previous_model_name)
 
+    @contextmanager
+    def temporary_system_prompt_addition(self, prompt: str) -> Iterator[None]:
+        """Append a system instruction for the duration of one scoped run."""
+        self._runtime_system_prompt_additions.append(prompt)
+        try:
+            yield
+        finally:
+            popped = self._runtime_system_prompt_additions.pop()
+            if popped != prompt:
+                raise RuntimeError(
+                    "Runtime system prompt additions exited out of order"
+                )
+
     def get_model_name(self) -> Optional[str]:
         override = self.get_runtime_model_name_override()
         if override:
             return override
+        auto = self.get_auto_model_override()
+        if auto:
+            return auto
         pinned = get_agent_pinned_model(self.name)
         return pinned if pinned else get_global_model_name()
 
@@ -175,6 +202,8 @@ class BaseAgent(ABC):
         prompt_additions = callbacks.on_load_prompt()
         if prompt_additions:
             prompt += "\n" + "\n".join(prompt_additions)
+        if self._runtime_system_prompt_additions:
+            prompt += "\n" + "\n".join(self._runtime_system_prompt_additions)
         return prompt + self.get_identity_prompt()
 
     # ---- Message history (plain dict-level access) ------------------------
@@ -195,7 +224,7 @@ class BaseAgent(ABC):
     def estimate_tokens_for_message(self, message: Any) -> int:
         return estimate_tokens_for_message(message, self.get_model_name())
 
-    def hash_message(self, message: Any) -> int:
+    def hash_message(self, message: Any) -> str:
         return hash_message(message)
 
     def _get_model_context_length(self) -> int:
@@ -254,19 +283,6 @@ class BaseAgent(ABC):
         return probe
 
     # ---- Orchestration (thin delegations) ---------------------------------
-    def summarize_messages(
-        self,
-        messages: List[Any],
-        with_protection: bool = True,
-    ) -> tuple[list, list]:
-        """Delegate to ``_compaction.summarize`` with config-derived protection."""
-        return summarize(
-            messages,
-            get_protected_token_count(),
-            with_protection=with_protection,
-            model_name=self.get_model_name(),
-        )
-
     def reload_code_generation_agent(self, message_group: Optional[str] = None) -> Any:
         return build_pydantic_agent(self, output_type=str, message_group=message_group)
 
@@ -275,9 +291,9 @@ class BaseAgent(ABC):
 
     # ---- MCP integration shims --------------------------------------------
     def update_mcp_tool_cache_sync(self) -> None:
-        """Best-effort warm of each MCP server's ``_cached_tools``.
+        """Best-effort warm of each MCP toolset's tool-definition cache.
 
-        Pydantic-ai caches MCP tool defs on each server after the first
+        Pydantic-ai caches MCP tool defs on each toolset after the first
         ``list_tools()`` call. We piggy-back on that cache for context-window
         overhead estimates (see ``_history._estimate_mcp_tool_tokens``).
 
@@ -301,12 +317,15 @@ class BaseAgent(ABC):
             return None
 
         async def _warm(server: Any) -> None:
+            from code_puppy.mcp_.toolset_utils import toolset_is_running, unwrap_toolset
+
             try:
-                if getattr(server, "_cached_tools", None):
+                leaf = unwrap_toolset(server)
+                if getattr(leaf, "_cached_tools", None):
                     return
-                if not getattr(server, "is_running", False):
+                if not toolset_is_running(leaf):
                     return
-                await server.list_tools()
+                await leaf.list_tools()
             except Exception:
                 # Cache stays empty; estimator handles that gracefully.
                 return

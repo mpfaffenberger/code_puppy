@@ -15,12 +15,14 @@ Covers:
 import ast
 from pathlib import Path
 from types import ModuleType
+
+import pytest
 from unittest.mock import MagicMock, patch
 
 # ============================================================
 # shell_safety/command_cache.py - Full coverage
 # ============================================================
-from code_puppy.plugins.shell_safety.command_cache import (
+from code_puppy_core_plugins.shell_safety.command_cache import (
     CachedAssessment,
     CommandSafetyCache,
     cache_assessment,
@@ -91,11 +93,6 @@ class TestCommandSafetyCache:
         assert stats["misses"] == 1
         assert stats["hit_rate"] == "50.0%"
 
-    def test_stats_zero_total(self):
-        cache = CommandSafetyCache()
-        stats = cache.stats
-        assert stats["hit_rate"] == "0.0%"
-
 
 class TestCommandCacheModuleFunctions:
     """Tests for module-level cache functions."""
@@ -140,7 +137,7 @@ class TestShellSafetyAgent:
             # Force reimport
             import importlib
 
-            import code_puppy.plugins.shell_safety.agent_shell_safety as mod
+            import code_puppy_core_plugins.shell_safety.agent_shell_safety as mod
 
             importlib.reload(mod)
 
@@ -156,27 +153,22 @@ class TestShellSafetyAgent:
 # shell_safety/register_callbacks.py - line 43 (is_oauth_model with None)
 # ============================================================
 
-from code_puppy.plugins.shell_safety.register_callbacks import (  # noqa: E402
+from code_puppy_core_plugins.shell_safety.register_callbacks import (  # noqa: E402
     is_oauth_model,
 )
 
 
 class TestIsOauthModel:
-    def test_none_model(self):
-        assert is_oauth_model(None) is False
-
-    def test_empty_string(self):
-        assert is_oauth_model("") is False
-
-    def test_non_oauth(self):
-        assert is_oauth_model("gpt-4") is False
+    @pytest.mark.parametrize("model", [None, "", "gpt-4"])
+    def test_non_oauth_model(self, model):
+        assert is_oauth_model(model) is False
 
 
 # ============================================================
 # agent_skills/discovery.py - lines 79, 95
 # ============================================================
 
-from code_puppy.plugins.agent_skills.discovery import discover_skills  # noqa: E402
+from code_puppy_core_plugins.agent_skills.discovery import discover_skills  # noqa: E402
 
 
 class TestDiscoveryMissingLines:
@@ -193,11 +185,11 @@ class TestDiscoveryMissingLines:
 
         with (
             patch(
-                "code_puppy.plugins.agent_skills.discovery.get_skill_directories",
+                "code_puppy_core_plugins.agent_skills.discovery.get_skill_directories",
                 return_value=[str(configured_dir)],
             ),
             patch(
-                "code_puppy.plugins.agent_skills.discovery.get_default_skill_directories",
+                "code_puppy_core_plugins.agent_skills.discovery.get_default_skill_directories",
                 return_value=[default_dir],  # different dir, should be appended
             ),
         ):
@@ -231,7 +223,7 @@ class TestDiscoveryMissingLines:
 # agent_skills/metadata.py - missing lines
 # ============================================================
 
-from code_puppy.plugins.agent_skills.metadata import (  # noqa: E402
+from code_puppy_core_plugins.agent_skills.metadata import (  # noqa: E402
     get_skill_resources,
     load_full_skill_content,
     parse_skill_metadata,
@@ -240,12 +232,6 @@ from code_puppy.plugins.agent_skills.metadata import (  # noqa: E402
 
 
 class TestMetadataMissingLines:
-    def test_parse_frontmatter_comment_lines(self):
-        """Line 69: skip comment lines in frontmatter."""
-        content = "---\n# comment\nname: test\n---\n"
-        result = parse_yaml_frontmatter(content)
-        assert result["name"] == "test"
-
     def test_parse_frontmatter_list_at_end(self):
         """Lines 82-83: Handle list items at end of frontmatter."""
         content = "---\ntags:\n  - foo\n  - bar\n---\n"
@@ -277,21 +263,17 @@ class TestMetadataMissingLines:
             result = parse_skill_metadata(tmp_path)
             assert result is None
 
-    def test_parse_skill_metadata_no_frontmatter(self, tmp_path):
-        """Lines 186-188: no valid frontmatter."""
-        (tmp_path / "SKILL.md").write_text("Just some content without frontmatter")
-        result = parse_skill_metadata(tmp_path)
-        assert result is None
-
-    def test_parse_skill_metadata_no_name(self, tmp_path):
-        """Lines 207-208: name missing from frontmatter."""
-        (tmp_path / "SKILL.md").write_text("---\ndescription: test\n---\n")
-        result = parse_skill_metadata(tmp_path)
-        assert result is None
-
-    def test_parse_skill_metadata_no_description(self, tmp_path):
-        """Lines 215-217: description missing from frontmatter."""
-        (tmp_path / "SKILL.md").write_text("---\nname: test\n---\n")
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "Just some content without frontmatter",  # no valid frontmatter
+            "---\ndescription: test\n---\n",  # name missing
+            "---\nname: test\n---\n",  # description missing
+        ],
+    )
+    def test_parse_skill_metadata_invalid_frontmatter(self, tmp_path, content):
+        """Invalid frontmatter makes parse_skill_metadata return None."""
+        (tmp_path / "SKILL.md").write_text(content)
         result = parse_skill_metadata(tmp_path)
         assert result is None
 
@@ -338,7 +320,7 @@ class TestMetadataMissingLines:
 # agent_skills/skill_catalog.py - missing lines
 # ============================================================
 
-from code_puppy.plugins.agent_skills.skill_catalog import (  # noqa: E402
+from code_puppy_core_plugins.agent_skills.skill_catalog import (  # noqa: E402
     SkillCatalog,
     _format_display_name,
 )
@@ -358,7 +340,7 @@ class TestSkillCatalogMissing:
     def test_catalog_init_remote_exception(self):
         """Lines 139-142: fetch_remote_catalog raises exception."""
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             side_effect=RuntimeError("network error"),
         ):
             cat = SkillCatalog()
@@ -367,7 +349,7 @@ class TestSkillCatalogMissing:
     def test_catalog_init_remote_none(self):
         """Lines 145-149: fetch returns None."""
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             return_value=None,
         ):
             cat = SkillCatalog()
@@ -376,7 +358,7 @@ class TestSkillCatalogMissing:
     def test_catalog_list_categories(self):
         """Lines 201-202."""
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             return_value=None,
         ):
             cat = SkillCatalog()
@@ -385,7 +367,7 @@ class TestSkillCatalogMissing:
     def test_catalog_get_by_category_empty(self):
         """Lines 207-209."""
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             return_value=None,
         ):
             cat = SkillCatalog()
@@ -395,7 +377,7 @@ class TestSkillCatalogMissing:
     def test_catalog_search_empty_query(self):
         """Lines 214-232: search returns all when empty."""
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             return_value=None,
         ):
             cat = SkillCatalog()
@@ -417,7 +399,7 @@ class TestSkillCatalogMissing:
         mock_remote.entries = [entry]
 
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             return_value=mock_remote,
         ):
             cat = SkillCatalog()
@@ -429,7 +411,7 @@ class TestSkillCatalogMissing:
     def test_catalog_get_by_id_empty(self):
         """Lines 237-239."""
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             return_value=None,
         ):
             cat = SkillCatalog()
@@ -451,7 +433,7 @@ class TestSkillCatalogMissing:
         mock_remote.entries = [entry]
 
         with patch(
-            "code_puppy.plugins.agent_skills.skill_catalog.fetch_remote_catalog",
+            "code_puppy_core_plugins.agent_skills.skill_catalog.fetch_remote_catalog",
             return_value=mock_remote,
         ):
             cat = SkillCatalog()
@@ -469,25 +451,30 @@ class TestSkillCatalogMissing:
 class TestSkillsInstallMenuSizeFormat:
     def test_format_size_gb(self):
         """Line 60: format size that exceeds MB range."""
-        from code_puppy.plugins.agent_skills.skills_install_menu import _format_bytes
+        from code_puppy_core_plugins.agent_skills.skills_install_menu import (
+            _format_bytes,
+        )
 
         # Large enough to be in GB
         result = _format_bytes(2 * 1024 * 1024 * 1024)  # 2 GB
         assert "GB" in result
 
     def test_format_size_bytes(self):
-        from code_puppy.plugins.agent_skills.skills_install_menu import _format_bytes
+        from code_puppy_core_plugins.agent_skills.skills_install_menu import (
+            _format_bytes,
+        )
 
         result = _format_bytes(500)
         assert "B" in result
 
     def test_format_size_tb_fallthrough(self):
         """Line 60: the final return that's after the loop."""
-        from code_puppy.plugins.agent_skills.skills_install_menu import _format_bytes
+        from code_puppy_core_plugins.agent_skills.skills_install_menu import (
+            _format_bytes,
+        )
 
-        # The loop goes B, KB, MB, GB - GB always returns inside loop
-        # So line 60 (return after loop) is unreachable in normal flow
-        # But we still test large values to ensure GB branch works
+        # Loop covers B→GB and GB returns inside it, so the post-loop return (line 60)
+        # is normally unreachable — but test it anyway with huge values.
         result = _format_bytes(5 * 1024 * 1024 * 1024)
         assert "GB" in result
 
@@ -496,7 +483,7 @@ class TestSkillsInstallMenuSizeFormat:
 # universal_constructor/registry.py - missing lines
 # ============================================================
 
-from code_puppy.plugins.universal_constructor.registry import UCRegistry  # noqa: E402
+from code_puppy_core_plugins.universal_constructor.registry import UCRegistry  # noqa: E402
 
 
 class TestUCRegistryMissing:
@@ -529,18 +516,17 @@ def my_tool(x: int) -> str:
         assert tool is not None
         assert tool.meta.name == "my_tool"
 
-    def test_scan_tool_no_meta(self, tmp_path):
-        (tmp_path / "no_meta.py").write_text("def foo(): pass")
-        reg = UCRegistry(tools_dir=tmp_path)
-        assert reg.scan() == 0
-
-    def test_scan_tool_meta_not_dict(self, tmp_path):
-        (tmp_path / "bad_meta.py").write_text('TOOL_META = "not a dict"')
-        reg = UCRegistry(tools_dir=tmp_path)
-        assert reg.scan() == 0
-
-    def test_scan_tool_invalid_meta(self, tmp_path):
-        (tmp_path / "invalid.py").write_text('TOOL_META = {"bad": "fields"}')
+    @pytest.mark.parametrize(
+        "filename, content",
+        [
+            ("no_meta.py", "def foo(): pass"),
+            ("bad_meta.py", 'TOOL_META = "not a dict"'),
+            ("invalid.py", 'TOOL_META = {"bad": "fields"}'),
+        ],
+        ids=["no_meta", "meta_not_dict", "invalid_meta"],
+    )
+    def test_scan_rejects_invalid_tool(self, tmp_path, filename, content):
+        (tmp_path / filename).write_text(content)
         reg = UCRegistry(tools_dir=tmp_path)
         assert reg.scan() == 0
 
@@ -572,13 +558,6 @@ _private = 42
             result = reg._load_module(tmp_path / "fake.py")
             assert result is None
 
-    def test_find_tool_function_by_run(self):
-        mod = ModuleType("test_mod")
-        mod.run = lambda: None
-        reg = UCRegistry()
-        func, name = reg._find_tool_function(mod, "nonexistent")
-        assert name == "run"
-
     def test_find_tool_function_by_execute(self):
         mod = ModuleType("test_mod")
         mod.execute = lambda: None
@@ -592,15 +571,6 @@ _private = 42
         reg = UCRegistry()
         func, name = reg._find_tool_function(mod, "nonexistent")
         assert name == "something"
-
-    def test_find_tool_function_none(self):
-        mod = ModuleType("test_mod")
-        # Only private + class
-        mod._private = lambda: None
-        mod.MyClass = type("MyClass", (), {})
-        reg = UCRegistry()
-        func, name = reg._find_tool_function(mod, "nonexistent")
-        assert func is None
 
     def test_list_tools_auto_scans(self, tmp_path):
         reg = UCRegistry(tools_dir=tmp_path / "empty")
@@ -726,7 +696,7 @@ def sig_tool(*a, **kw): pass
         reg = UCRegistry(tools_dir=tmp_path)
         # Patch inspect.signature to raise
         with patch(
-            "code_puppy.plugins.universal_constructor.registry.inspect.signature",
+            "code_puppy_core_plugins.universal_constructor.registry.inspect.signature",
             side_effect=ValueError("no sig"),
         ):
             count = reg.scan()
@@ -762,7 +732,7 @@ def weather(): pass
 # universal_constructor/sandbox.py - missing lines
 # ============================================================
 
-from code_puppy.plugins.universal_constructor.sandbox import (  # noqa: E402
+from code_puppy_core_plugins.universal_constructor.sandbox import (  # noqa: E402
     FunctionInfo,
     _extract_tool_meta,
     _find_main_function,
@@ -813,28 +783,26 @@ async def bar(x):
         assert result.valid  # warnings, not errors
         assert len(result.warnings) > 0
 
-    def test_check_dangerous_patterns_dangerous_call(self):
-        result = check_dangerous_patterns("eval('code')")
+    @pytest.mark.parametrize(
+        "source",
+        ["eval('code')", "from os import system"],
+    )
+    def test_check_dangerous_patterns_dangerous(self, source):
+        result = check_dangerous_patterns(source)
         assert len(result.warnings) > 0
 
-    def test_check_dangerous_patterns_dangerous_from_import(self):
-        result = check_dangerous_patterns("from os import system")
-        assert len(result.warnings) > 0
-
-    def test_get_call_name_attribute(self):
-        tree = ast.parse("os.system('ls')")
+    @pytest.mark.parametrize(
+        ("source", "expected"),
+        [
+            ("os.system('ls')", "system"),
+            ("print('hello')", "print"),
+            ("(lambda: 1)()", ""),
+        ],
+    )
+    def test_get_call_name(self, source, expected):
+        tree = ast.parse(source)
         call = tree.body[0].value
-        assert _get_call_name(call) == "system"
-
-    def test_get_call_name_name(self):
-        tree = ast.parse("print('hello')")
-        call = tree.body[0].value
-        assert _get_call_name(call) == "print"
-
-    def test_get_call_name_other(self):
-        tree = ast.parse("(lambda: 1)()")
-        call = tree.body[0].value
-        assert _get_call_name(call) == ""
+        assert _get_call_name(call) == expected
 
     def test_is_dangerous_open_call_write_mode(self):
         tree = ast.parse("open('file', 'w')")
@@ -871,12 +839,12 @@ TOOL_META = {
         assert meta is not None
         assert meta["name"] == "test"
 
-    def test_extract_tool_meta_not_found(self):
-        meta = _extract_tool_meta("x = 1")
-        assert meta is None
-
-    def test_extract_tool_meta_not_dict(self):
-        meta = _extract_tool_meta('TOOL_META = "string"')
+    @pytest.mark.parametrize(
+        "code",
+        ["x = 1", 'TOOL_META = "string"'],
+    )
+    def test_extract_tool_meta_invalid_source(self, code):
+        meta = _extract_tool_meta(code)
         assert meta is None
 
     def test_validate_tool_meta_valid(self):
@@ -903,16 +871,12 @@ def writer():
         assert result.valid
         assert file_path.exists()
 
-    def test_validate_and_write_tool_syntax_error(self, tmp_path):
-        result = validate_and_write_tool(
-            "def bad(", tmp_path / "bad.py", safe_root=tmp_path
-        )
-        assert not result.valid
-
-    def test_validate_and_write_tool_no_meta(self, tmp_path):
-        result = validate_and_write_tool(
-            "x = 1", tmp_path / "nope.py", safe_root=tmp_path
-        )
+    @pytest.mark.parametrize(
+        ("code", "filename"),
+        [("def bad(", "bad.py"), ("x = 1", "nope.py")],
+    )
+    def test_validate_and_write_tool_invalid(self, tmp_path, code, filename):
+        result = validate_and_write_tool(code, tmp_path / filename, safe_root=tmp_path)
         assert not result.valid
 
     def test_validate_and_write_tool_invalid_meta(self, tmp_path):

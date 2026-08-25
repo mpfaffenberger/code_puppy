@@ -4,6 +4,20 @@ from unittest.mock import MagicMock, patch
 
 
 class TestLoadPluginTools:
+    def test_no_plugin_does_not_expose_skill_tools(self):
+        from code_puppy.tools import TOOL_REGISTRY, _load_plugin_tools
+
+        names = ("activate_skill", "list_or_search_skills")
+        previous = {name: TOOL_REGISTRY.pop(name, None) for name in names}
+        try:
+            with patch("code_puppy.tools.on_register_tools", return_value=[]):
+                _load_plugin_tools()
+            assert all(name not in TOOL_REGISTRY for name in names)
+        finally:
+            TOOL_REGISTRY.update(
+                {name: func for name, func in previous.items() if func is not None}
+            )
+
     def test_loads_tools(self):
         from code_puppy.tools import TOOL_REGISTRY, _load_plugin_tools
 
@@ -178,7 +192,7 @@ class TestRegisterToolsForAgent:
 
 
 class TestRegisterUcToolWrapper:
-    @patch("code_puppy.plugins.universal_constructor.registry.get_registry")
+    @patch("code_puppy_core_plugins.universal_constructor.registry.get_registry")
     @patch("code_puppy.tools.emit_warning")
     def test_tool_not_found(self, mock_warn, mock_reg):
         from code_puppy.tools import _register_uc_tool_wrapper
@@ -187,7 +201,7 @@ class TestRegisterUcToolWrapper:
         _register_uc_tool_wrapper(MagicMock(), "bad")
         mock_warn.assert_called()
 
-    @patch("code_puppy.plugins.universal_constructor.registry.get_registry")
+    @patch("code_puppy_core_plugins.universal_constructor.registry.get_registry")
     @patch("code_puppy.tools.emit_warning")
     def test_func_not_found(self, mock_warn, mock_reg):
         from code_puppy.tools import _register_uc_tool_wrapper
@@ -200,7 +214,7 @@ class TestRegisterUcToolWrapper:
         _register_uc_tool_wrapper(MagicMock(), "t")
         mock_warn.assert_called()
 
-    @patch("code_puppy.plugins.universal_constructor.registry.get_registry")
+    @patch("code_puppy_core_plugins.universal_constructor.registry.get_registry")
     def test_success(self, mock_reg):
         from code_puppy.tools import _register_uc_tool_wrapper
 
@@ -218,7 +232,7 @@ class TestRegisterUcToolWrapper:
         agent.tool.assert_called_once()
 
     @patch(
-        "code_puppy.plugins.universal_constructor.registry.get_registry",
+        "code_puppy_core_plugins.universal_constructor.registry.get_registry",
         side_effect=Exception("boom"),
     )
     @patch("code_puppy.tools.emit_warning")
@@ -228,7 +242,7 @@ class TestRegisterUcToolWrapper:
         _register_uc_tool_wrapper(MagicMock(), "t")
         mock_warn.assert_called()
 
-    @patch("code_puppy.plugins.universal_constructor.registry.get_registry")
+    @patch("code_puppy_core_plugins.universal_constructor.registry.get_registry")
     @patch("code_puppy.tools.emit_warning")
     def test_register_fails(self, mock_warn, mock_reg):
         from code_puppy.tools import _register_uc_tool_wrapper

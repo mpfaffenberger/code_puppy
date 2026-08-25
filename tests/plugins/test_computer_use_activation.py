@@ -4,13 +4,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from code_puppy.plugins.computer_use.activation import (
+from code_puppy_core_plugins.computer_use.activation import (
     activate_application,
     activate_state,
 )
-from code_puppy.plugins.computer_use.backend_types import ComputerUseError
-from code_puppy.plugins.computer_use.geometry import CaptureGeometry, Rect
-from code_puppy.plugins.computer_use.state import AppState
+from code_puppy_core_plugins.computer_use.backend_types import ComputerUseError
+from code_puppy_core_plugins.computer_use.geometry import CaptureGeometry, Rect
+from code_puppy_core_plugins.computer_use.state import AppState
 
 
 class Application:
@@ -52,7 +52,7 @@ def test_activation_brings_state_process_to_front(monkeypatch):
         frontmostApplication=lambda: app,
     )
     monkeypatch.setattr(
-        "code_puppy.plugins.computer_use.activation._workspace",
+        "code_puppy_core_plugins.computer_use.activation._workspace",
         lambda: workspace,
     )
 
@@ -67,7 +67,7 @@ def test_activation_can_target_pid_before_state_exists(monkeypatch):
         frontmostApplication=lambda: app,
     )
     monkeypatch.setattr(
-        "code_puppy.plugins.computer_use.activation._workspace",
+        "code_puppy_core_plugins.computer_use.activation._workspace",
         lambda: workspace,
     )
 
@@ -81,7 +81,7 @@ def test_activation_rejects_missing_target(monkeypatch):
         frontmostApplication=lambda: None,
     )
     monkeypatch.setattr(
-        "code_puppy.plugins.computer_use.activation._workspace",
+        "code_puppy_core_plugins.computer_use.activation._workspace",
         lambda: workspace,
     )
     with pytest.raises(ComputerUseError, match="no longer running"):

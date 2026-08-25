@@ -19,10 +19,10 @@ import asyncio
 import pytest
 
 from code_puppy import config
-from code_puppy.plugins.destructive_command_guard import (
+from code_puppy_core_plugins.destructive_command_guard import (
     register_callbacks as dcg,
 )
-from code_puppy.plugins.force_push_guard import register_callbacks as fpg
+from code_puppy_core_plugins.force_push_guard import register_callbacks as fpg
 
 
 # ---------------------------------------------------------------------------

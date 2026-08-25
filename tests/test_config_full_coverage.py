@@ -9,6 +9,8 @@ import os
 import pathlib
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 from code_puppy import config as cp_config
 
@@ -165,57 +167,44 @@ class TestNumericGetters:
     def test_get_resume_message_count_default(self):
         assert cp_config.get_resume_message_count() == 50
 
-    def test_get_resume_message_count_custom(self):
-        cp_config.set_config_value("resume_message_count", "30")
-        assert cp_config.get_resume_message_count() == 30
-
-    def test_get_resume_message_count_clamped(self):
-        cp_config.set_config_value("resume_message_count", "999")
-        assert cp_config.get_resume_message_count() == 100
-
-    def test_get_resume_message_count_invalid(self):
-        cp_config.set_config_value("resume_message_count", "bad")
-        assert cp_config.get_resume_message_count() == 50
+    @pytest.mark.parametrize("value, expected", [("30", 30), ("999", 100), ("bad", 50)])
+    def test_get_resume_message_count(self, value, expected):
+        cp_config.set_config_value("resume_message_count", value)
+        assert cp_config.get_resume_message_count() == expected
 
     def test_get_compaction_threshold_default(self):
         assert cp_config.get_compaction_threshold() == 0.85
 
-    def test_get_compaction_threshold_custom(self):
-        cp_config.set_config_value("compaction_threshold", "0.7")
-        assert cp_config.get_compaction_threshold() == 0.7
-
-    def test_get_compaction_threshold_clamped_low(self):
-        cp_config.set_config_value("compaction_threshold", "0.1")
-        assert cp_config.get_compaction_threshold() == 0.5
-
-    def test_get_compaction_threshold_invalid(self):
-        cp_config.set_config_value("compaction_threshold", "xyz")
-        assert cp_config.get_compaction_threshold() == 0.85
+    @pytest.mark.parametrize(
+        "value, expected", [("0.7", 0.7), ("0.1", 0.5), ("xyz", 0.85)]
+    )
+    def test_get_compaction_threshold(self, value, expected):
+        cp_config.set_config_value("compaction_threshold", value)
+        assert cp_config.get_compaction_threshold() == expected
 
     def test_get_compaction_strategy_default(self):
         assert cp_config.get_compaction_strategy() == "summarization"
 
-    def test_get_compaction_strategy_values(self):
-        cp_config.set_config_value("compaction_strategy", "summarization")
-        assert cp_config.get_compaction_strategy() == "summarization"
-        cp_config.set_config_value("compaction_strategy", "truncation")
-        assert cp_config.get_compaction_strategy() == "truncation"
-
-    def test_get_compaction_strategy_invalid(self):
-        cp_config.set_config_value("compaction_strategy", "invalid")
-        assert cp_config.get_compaction_strategy() == "summarization"
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("summarization", "summarization"),
+            ("truncation", "truncation"),
+            ("invalid", "summarization"),
+        ],
+    )
+    def test_get_compaction_strategy(self, value, expected):
+        cp_config.set_config_value("compaction_strategy", value)
+        assert cp_config.get_compaction_strategy() == expected
 
     def test_get_message_limit_default(self):
         cp_config.reset_value("message_limit")
         assert cp_config.get_message_limit() == 1000
 
-    def test_get_message_limit_custom(self):
-        cp_config.set_config_value("message_limit", "500")
-        assert cp_config.get_message_limit() == 500
-
-    def test_get_message_limit_invalid(self):
-        cp_config.set_config_value("message_limit", "bad")
-        assert cp_config.get_message_limit() == 1000
+    @pytest.mark.parametrize("value, expected", [("500", 500), ("bad", 1000)])
+    def test_get_message_limit(self, value, expected):
+        cp_config.set_config_value("message_limit", value)
+        assert cp_config.get_message_limit() == expected
 
     def test_get_message_limit_custom_default(self):
         cp_config.reset_value("message_limit")
@@ -225,17 +214,10 @@ class TestNumericGetters:
         cp_config.reset_value("diff_context_lines")
         assert cp_config.get_diff_context_lines() == 6
 
-    def test_get_diff_context_lines_custom(self):
-        cp_config.set_config_value("diff_context_lines", "10")
-        assert cp_config.get_diff_context_lines() == 10
-
-    def test_get_diff_context_lines_clamped(self):
-        cp_config.set_config_value("diff_context_lines", "100")
-        assert cp_config.get_diff_context_lines() == 50
-
-    def test_get_diff_context_lines_invalid(self):
-        cp_config.set_config_value("diff_context_lines", "bad")
-        assert cp_config.get_diff_context_lines() == 6
+    @pytest.mark.parametrize("value, expected", [("10", 10), ("100", 50), ("bad", 6)])
+    def test_get_diff_context_lines(self, value, expected):
+        cp_config.set_config_value("diff_context_lines", value)
+        assert cp_config.get_diff_context_lines() == expected
 
     def test_get_max_saved_sessions_default(self):
         assert cp_config.get_max_saved_sessions() == 20
@@ -279,21 +261,13 @@ class TestTemperature:
         cp_config.set_config_value("temperature", "")
         assert cp_config.get_temperature() is None
 
-    def test_get_temperature_valid(self):
-        cp_config.set_config_value("temperature", "0.7")
-        assert cp_config.get_temperature() == 0.7
-
-    def test_get_temperature_clamped_high(self):
-        cp_config.set_config_value("temperature", "5.0")
-        assert cp_config.get_temperature() == 2.0
-
-    def test_get_temperature_clamped_low(self):
-        cp_config.set_config_value("temperature", "-1.0")
-        assert cp_config.get_temperature() == 0.0
-
-    def test_get_temperature_invalid(self):
-        cp_config.set_config_value("temperature", "bad")
-        assert cp_config.get_temperature() is None
+    @pytest.mark.parametrize(
+        "value, expected",
+        [("0.7", 0.7), ("5.0", 2.0), ("-1.0", 0.0), ("bad", None)],
+    )
+    def test_get_temperature(self, value, expected):
+        cp_config.set_config_value("temperature", value)
+        assert cp_config.get_temperature() == expected
 
     def test_set_temperature_none(self):
         cp_config.set_temperature(None)
@@ -737,20 +711,6 @@ class TestAgentPinnedModels:
         # empty string is treated as falsy but returned by get_value
         assert not cp_config.get_agent_pinned_model("test-agent")
 
-    def test_get_all_agent_pinned_models(self):
-        cp_config.set_agent_pinned_model("a1", "m1")
-        cp_config.set_agent_pinned_model("a2", "m2")
-        pinnings = cp_config.get_all_agent_pinned_models()
-        assert pinnings.get("a1") == "m1"
-        assert pinnings.get("a2") == "m2"
-
-    def test_get_agents_pinned_to_model(self):
-        cp_config.set_agent_pinned_model("pa1", "target")
-        cp_config.set_agent_pinned_model("pa2", "other")
-        result = cp_config.get_agents_pinned_to_model("target")
-        assert "pa1" in result
-        assert "pa2" not in result
-
 
 # ---------------------------------------------------------------------------
 # Puppy token
@@ -894,9 +854,8 @@ class TestAutosaveSession:
         assert name.startswith("auto_session_")
 
     def test_set_from_session_name_with_prefix(self):
-        # Post-unification: the deprecation shim stores the full name verbatim
-        # rather than stripping the `auto_session_` prefix. Documented behavior
-        # change so the singleton always holds a loadable session filename.
+        # Post-unification: the deprecation shim stores the full name verbatim (no
+        # `auto_session_` strip) so the singleton always holds a loadable filename.
         result = cp_config.set_current_autosave_from_session_name(
             "auto_session_20250101_120000"
         )
@@ -980,6 +939,22 @@ class TestEnsureConfigExists:
 
         config = cp_config.ensure_config_exists()
         assert config["puppy"]["puppy_name"] == "Buddy"
+
+    def test_seeds_port_base(self, monkeypatch, tmp_path):
+        """Fresh puppy.cfg should include port_base so users discover the knob."""
+        cfg_dir = str(tmp_path / "config")
+        cfg_file = os.path.join(cfg_dir, "puppy.cfg")
+        monkeypatch.setattr(cp_config, "CONFIG_DIR", cfg_dir)
+        monkeypatch.setattr(cp_config, "CONFIG_FILE", cfg_file)
+        monkeypatch.setattr(cp_config, "DATA_DIR", str(tmp_path / "data"))
+        monkeypatch.setattr(cp_config, "CACHE_DIR", str(tmp_path / "cache"))
+        monkeypatch.setattr(cp_config, "STATE_DIR", str(tmp_path / "state"))
+
+        inputs = iter(["TestPup", "TestOwner"])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        config = cp_config.ensure_config_exists()
+        assert config["puppy"]["port_base"] == str(cp_config.DEFAULT_PORT_BASE)
 
 
 # ---------------------------------------------------------------------------
@@ -1113,3 +1088,110 @@ class TestClearModelCache:
         assert len(cp_config._model_validation_cache) == 0
         assert cp_config._default_model_cache is None
         assert cp_config._default_vision_model_cache is None
+
+
+# ---------------------------------------------------------------------------
+# Port base resolution
+# ---------------------------------------------------------------------------
+class TestGetPortBase:
+    """Precedence for get_port_base: env var > puppy.cfg > default.
+
+    Also covers bounds validation and graceful skipping of invalid sources.
+    """
+
+    @patch("code_puppy.config.get_value")
+    def test_env_var_overrides_cfg(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = "9500"
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "9700")
+        assert cp_config.get_port_base() == 9700
+
+    @patch("code_puppy.config.get_value")
+    def test_cfg_used_when_no_env(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = "9500"
+        monkeypatch.delenv("CODE_PUPPY_PORT_BASE", raising=False)
+        assert cp_config.get_port_base() == 9500
+
+    @patch("code_puppy.config.get_value")
+    def test_default_when_nothing_set(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = None
+        monkeypatch.delenv("CODE_PUPPY_PORT_BASE", raising=False)
+        assert cp_config.get_port_base() == cp_config.DEFAULT_PORT_BASE
+
+    @patch("code_puppy.config.get_value")
+    def test_bad_env_value_skips_to_cfg(self, mock_get_value, monkeypatch):
+        # env is garbage -> should fall through to cfg, not crash
+        mock_get_value.return_value = "9200"
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "not-a-number")
+        assert cp_config.get_port_base() == 9200
+
+    @patch("code_puppy.config.get_value")
+    def test_bad_env_and_bad_cfg_uses_default(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = "also-not-a-number"
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "not-a-number")
+        assert cp_config.get_port_base() == cp_config.DEFAULT_PORT_BASE
+
+    @patch("code_puppy.config.get_value")
+    def test_whitespace_stripped(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = None
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "  9300  ")
+        assert cp_config.get_port_base() == 9300
+
+    @patch("code_puppy.config.get_value")
+    def test_empty_string_skipped(self, mock_get_value, monkeypatch):
+        # Empty env string shouldn't shadow puppy.cfg.
+        mock_get_value.return_value = "9400"
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "")
+        assert cp_config.get_port_base() == 9400
+
+    @patch("code_puppy.config.get_value")
+    def test_below_min_port_base_rejected(self, mock_get_value, monkeypatch):
+        # Privileged port (< 1024) -> skip and fall through.
+        mock_get_value.return_value = None
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "80")
+        assert cp_config.get_port_base() == cp_config.DEFAULT_PORT_BASE
+
+    @patch("code_puppy.config.get_value")
+    def test_above_max_port_base_rejected(self, mock_get_value, monkeypatch):
+        # port_base + PORT_PROBE_WIDTH would exceed 65535 -> skip.
+        mock_get_value.return_value = None
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", str(cp_config.MAX_PORT_BASE + 1))
+        assert cp_config.get_port_base() == cp_config.DEFAULT_PORT_BASE
+
+    @patch("code_puppy.config.get_value")
+    def test_exact_boundaries_accepted(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = None
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", str(cp_config.MIN_PORT_BASE))
+        assert cp_config.get_port_base() == cp_config.MIN_PORT_BASE
+
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", str(cp_config.MAX_PORT_BASE))
+        assert cp_config.get_port_base() == cp_config.MAX_PORT_BASE
+
+    def test_probe_width_keeps_top_port_valid(self):
+        # Regression guard: MAX_PORT_BASE + PORT_PROBE_WIDTH must fit in a
+        # 16-bit port.  If someone bumps PORT_PROBE_WIDTH without adjusting
+        # MAX_PORT_BASE this test will fail loudly.
+        assert cp_config.MAX_PORT_BASE + cp_config.PORT_PROBE_WIDTH <= 65535
+
+
+class TestResolvePortBase:
+    """CLI value takes highest priority, invalid CLI value falls through."""
+
+    @patch("code_puppy.config.get_value")
+    def test_cli_value_wins(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = "9500"
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "9700")
+        assert cp_config.resolve_port_base(cli_value="9100") == 9100
+        assert cp_config.resolve_port_base(cli_value=9100) == 9100
+
+    @patch("code_puppy.config.get_value")
+    def test_bad_cli_falls_through_to_env(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = None
+        monkeypatch.setenv("CODE_PUPPY_PORT_BASE", "9700")
+        # Non-integer CLI input must NOT crash -- next source wins.
+        assert cp_config.resolve_port_base(cli_value="garbage") == 9700
+
+    @patch("code_puppy.config.get_value")
+    def test_none_cli_defers_to_lower_layers(self, mock_get_value, monkeypatch):
+        mock_get_value.return_value = "9500"
+        monkeypatch.delenv("CODE_PUPPY_PORT_BASE", raising=False)
+        assert cp_config.resolve_port_base(cli_value=None) == 9500

@@ -10,7 +10,6 @@ import io
 import shutil
 from typing import TYPE_CHECKING
 
-from prompt_toolkit.formatted_text import ANSI
 from rich.console import Console
 from rich.markup import escape as rich_escape
 
@@ -23,6 +22,7 @@ from .constants import (
     BORDER_DOUBLE,
     CHECK_MARK,
     CURSOR_POINTER,
+    CURSOR_TRIANGLE,
     HELP_BORDER_WIDTH,
     MAX_READABLE_WIDTH,
     OTHER_OPTION_DESCRIPTION,
@@ -42,7 +42,7 @@ def render_question_panel(
     state: QuestionUIState,
     colors: RichColors | None = None,
     available_width: int | None = None,
-) -> ANSI:
+) -> str:
     """Render the right panel with the current question.
 
     Wraps the inner renderer in a guard so a Rich markup error in user-supplied
@@ -62,14 +62,14 @@ def render_question_panel(
             f"[render error: {type(exc).__name__}: {exc}]",
             markup=False,
         )
-        return ANSI(buffer.getvalue())
+        return buffer.getvalue()
 
 
 def _render_question_panel_unsafe(
     state: QuestionUIState,
     colors: RichColors | None,
     available_width: int | None,
-) -> ANSI:
+) -> str:
     """Actual rendering implementation. Caller wraps this in a guard."""
     if colors is None:
         colors = get_rich_colors()
@@ -100,10 +100,8 @@ def _render_question_panel_unsafe(
     total = len(state.questions)
     pad = PANEL_CONTENT_PADDING  # Left padding for visual alignment
 
-    # Escape all user-supplied strings before they hit Rich markup. Without this,
-    # a header like '/foo' becomes '[/foo]' which Rich parses as an unmatched
-    # closing tag and raises MarkupError on every redraw (doom-loop).
-    # We escape the whole bracketed-decoration so both '[' and ']' are literal.
+    # Escape user strings before Rich markup: '/foo' → '[/foo]' would raise
+    # MarkupError on every redraw (doom-loop). Escape whole bracketed decoration.
     safe_header_decoration = rich_escape(f"[{question.header}]")
     safe_question = rich_escape(question.question)
 
@@ -193,10 +191,10 @@ def _render_question_panel_unsafe(
         remaining = state.get_time_remaining()
         console.print()
         console.print(
-            f"{pad}[{colors.timeout_warning}]⚠ Timeout in {remaining}s - press any key to continue[/{colors.timeout_warning}]"
+            f"{pad}[{colors.timeout_warning}] Timeout in {remaining}s - press any key to continue[/{colors.timeout_warning}]"
         )
 
-    return ANSI(buffer.getvalue())
+    return buffer.getvalue()
 
 
 # Help overlay shortcut data: (section_name, [(primary_key, alt_key_or_None, description), ...])
@@ -236,7 +234,7 @@ _HELP_SECTIONS: list[tuple[str, list[tuple[str, str | None, str]]]] = [
 
 def _render_help_overlay(
     console: Console, buffer: io.StringIO, colors: RichColors
-) -> ANSI:
+) -> str:
     """Render the help overlay using data-driven approach."""
     pad = PANEL_CONTENT_PADDING
     border = colors.help_border
@@ -272,7 +270,64 @@ def _render_help_overlay(
     )
     console.print(border_line)
 
-    return ANSI(buffer.getvalue())
+    return buffer.getvalue()
+
+
+def render_header_panel(
+    state: QuestionUIState,
+    colors: RichColors | None = None,
+    width: int = 30,
+) -> str:
+    """Render the left panel: question headers with progress checkmarks."""
+    if colors is None:
+        colors = get_rich_colors()
+    buffer = io.StringIO()
+    console = Console(
+        file=buffer,
+        force_terminal=True,
+        width=max(width, 10),
+        legacy_windows=False,
+        color_system="truecolor",
+        no_color=False,
+    )
+    pad = PANEL_CONTENT_PADDING
+    console.print(f"{pad}[{colors.header}]Questions[/{colors.header}]")
+    console.print()
+    for i, question in enumerate(state.questions):
+        is_current = i == state.current_question_index
+        is_answered = state.is_question_answered(i)
+        cursor = f"{CURSOR_TRIANGLE} " if is_current else "  "
+        status = f"{CHECK_MARK} " if is_answered else "  "
+        header = rich_escape(question.header)
+        if is_answered:
+            style = colors.selected
+        elif is_current:
+            style = colors.cursor
+        else:
+            style = colors.description
+        if style:
+            console.print(f"{pad}{cursor}[{style}]{status}{header}[/{style}]")
+        else:
+            console.print(f"{pad}{cursor}{status}{header}")
+    console.print()
+    console.print(
+        f"{pad}[{colors.help_key}]{ARROW_LEFT}{ARROW_RIGHT}[/{colors.help_key}]"
+        f"[{colors.description}] Switch question[/{colors.description}]"
+    )
+    console.print(
+        f"{pad}[{colors.help_key}]{ARROW_UP}{ARROW_DOWN}[/{colors.help_key}]"
+        f"[{colors.description}] Navigate options[/{colors.description}]"
+    )
+    console.print()
+    console.print(
+        f"{pad}[{colors.help_key}]Ctrl+S[/{colors.help_key}]"
+        f"[{colors.description}] Submit[/{colors.description}]"
+    )
+    console.print(
+        f"{pad}[{colors.help_key}]Tab[/{colors.help_key}]"
+        f"[{colors.description}] Peek behind[/{colors.description}]"
+    )
+    return buffer.getvalue()
 
 
 def _render_option(

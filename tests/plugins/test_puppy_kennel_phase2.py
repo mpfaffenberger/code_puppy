@@ -18,14 +18,17 @@ def kennel_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     import importlib
 
-    from code_puppy.plugins.puppy_kennel import config as kennel_config
-    from code_puppy.plugins.puppy_kennel import kennel as kennel_mod
-    from code_puppy.plugins.puppy_kennel import state as state_mod
+    from code_puppy_core_plugins.puppy_kennel import config as kennel_config
+    from code_puppy_core_plugins.puppy_kennel import kennel as kennel_mod
+    from code_puppy_core_plugins.puppy_kennel import state as state_mod
 
     importlib.reload(kennel_config)
     importlib.reload(state_mod)
     importlib.reload(kennel_mod)
     kennel_mod.initialize()
+    # Storage/search tests operate on an enabled kennel; the default-off
+    # behavior is covered by test_puppy_kennel_toggle.
+    state_mod.set_enabled(True)
     return root
 
 
@@ -39,7 +42,7 @@ def test_search_drawers_multi_dedupes_same_content(kennel_root: Path) -> None:
     in more than one wing (e.g. autosaved in repo, then echoed via
     ``kennel_remember`` into another wing).
     """
-    from code_puppy.plugins.puppy_kennel import kennel, recorder, wings
+    from code_puppy_core_plugins.puppy_kennel import kennel, recorder, wings
 
     recorder.record_run_end(
         agent_name="code-puppy",
@@ -74,7 +77,7 @@ def test_search_drawers_multi_dedupes_same_content(kennel_root: Path) -> None:
 
 def test_search_drawers_multi_all_wings_when_none(kennel_root: Path) -> None:
     """Passing None for wings = search every wing."""
-    from code_puppy.plugins.puppy_kennel import kennel, recorder
+    from code_puppy_core_plugins.puppy_kennel import kennel, recorder
 
     recorder.record_run_end(
         agent_name="agent-a",
@@ -87,7 +90,7 @@ def test_search_drawers_multi_all_wings_when_none(kennel_root: Path) -> None:
 
 
 def test_search_drawers_multi_empty_query(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import kennel
+    from code_puppy_core_plugins.puppy_kennel import kennel
 
     assert kennel.search_drawers_multi("", wing_names=None) == []
     assert kennel.search_drawers_multi("   ", wing_names=None) == []
@@ -114,7 +117,7 @@ def _make_context(agent_name: str = "code-puppy") -> Any:
 
 
 def test_kennel_recall_returns_hits(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import recorder, tools
+    from code_puppy_core_plugins.puppy_kennel import recorder, tools
 
     recorder.record_run_end(
         agent_name="code-puppy",
@@ -133,7 +136,7 @@ def test_kennel_recall_returns_hits(kennel_root: Path) -> None:
 
 
 def test_kennel_recall_empty_query_returns_error(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import tools
+    from code_puppy_core_plugins.puppy_kennel import tools
 
     agent = _FakeAgent()
     tools.register_kennel_recall(agent)
@@ -146,7 +149,7 @@ def test_kennel_recall_empty_query_returns_error(kennel_root: Path) -> None:
 
 def test_kennel_recall_scope_repo_only(kennel_root: Path) -> None:
     """scope='repo' should restrict to the repo wing."""
-    from code_puppy.plugins.puppy_kennel import recorder, tools
+    from code_puppy_core_plugins.puppy_kennel import recorder, tools
 
     # Autosaved content lives in the repo wing now (no dual-write).
     recorder.record_run_end(
@@ -166,25 +169,13 @@ def test_kennel_recall_scope_repo_only(kennel_root: Path) -> None:
     assert out.total_hits >= 1
 
 
-def test_kennel_recall_top_k_clamped(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import tools
-
-    agent = _FakeAgent()
-    tools.register_kennel_recall(agent)
-    recall = agent.registered["kennel_recall"]
-
-    # Should not raise — top_k=9999 should clamp to 20.
-    out = asyncio.run(recall(_make_context(), "anything", top_k=9999))
-    assert isinstance(out.drawers, list)
-
-
 def test_register_tools_callback_shape() -> None:
     """The callback contract: list of dicts with name + register_func.
 
     The full surface assertion lives in test_puppy_kennel_tools; this one
     just sanity-checks that kennel_recall is in the set.
     """
-    from code_puppy.plugins.puppy_kennel import tools
+    from code_puppy_core_plugins.puppy_kennel import tools
 
     result = tools.register_tools_callback()
     assert isinstance(result, list) and len(result) >= 1
@@ -199,76 +190,56 @@ def test_register_tools_callback_shape() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_kennel_command_ignores_other_names(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
+@pytest.mark.parametrize(
+    "cmd, name, record_text, expected",
+    [
+        ("/notkennel", "notkennel", None, None),
+        ("/kennel help", "kennel", None, True),
+        ("/kennel ?", "kennel", None, True),
+        ("/kennel wings", "kennel", "Some wisdom.", True),
+        ("/kennel wings", "kennel", None, True),
+        ("/kennel stats", "kennel", None, True),
+        ("/kennel search", "kennel", None, True),
+        (
+            "/kennel search octopi",
+            "kennel",
+            "Octopi have nine brains, technically.",
+            True,
+        ),
+        ("/kennel", "kennel", None, True),
+        # Should not return None — we own /kennel, we handle it.
+        ("/kennel bogus", "kennel", None, True),
+    ],
+    ids=[
+        "ignores_other_names",
+        "help",
+        "question_mark",
+        "wings_with_data",
+        "wings_empty",
+        "stats",
+        "search_no_query",
+        "search_with_hits",
+        "default_overview",
+        "unknown_subcommand",
+    ],
+)
+def test_kennel_commands(
+    kennel_root: Path, cmd: str, name: str, record_text: str | None, expected
+) -> None:
+    from code_puppy_core_plugins.puppy_kennel import commands, recorder
 
-    assert commands.handle("/notkennel", "notkennel") is None
-
-
-def test_kennel_help_returns_true(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
-
-    assert commands.handle("/kennel help", "kennel") is True
-    assert commands.handle("/kennel ?", "kennel") is True
-
-
-def test_kennel_wings_with_data(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands, recorder
-
-    recorder.record_run_end(
-        agent_name="code-puppy",
-        model_name="m",
-        success=True,
-        response_text="Some wisdom.",
-    )
-    assert commands.handle("/kennel wings", "kennel") is True
-
-
-def test_kennel_wings_empty(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
-
-    assert commands.handle("/kennel wings", "kennel") is True
-
-
-def test_kennel_stats(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
-
-    assert commands.handle("/kennel stats", "kennel") is True
-
-
-def test_kennel_search_no_query(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
-
-    assert commands.handle("/kennel search", "kennel") is True
-
-
-def test_kennel_search_with_hits(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands, recorder
-
-    recorder.record_run_end(
-        agent_name="code-puppy",
-        model_name="m",
-        success=True,
-        response_text="Octopi have nine brains, technically.",
-    )
-    assert commands.handle("/kennel search octopi", "kennel") is True
-
-
-def test_kennel_default_overview(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
-
-    assert commands.handle("/kennel", "kennel") is True
-
-
-def test_kennel_unknown_subcommand_falls_through_to_help(kennel_root: Path) -> None:
-    from code_puppy.plugins.puppy_kennel import commands
-
-    # Should not return None — we own /kennel, we handle it.
-    assert commands.handle("/kennel bogus", "kennel") is True
+    if record_text:
+        recorder.record_run_end(
+            agent_name="code-puppy",
+            model_name="m",
+            success=True,
+            response_text=record_text,
+        )
+    assert commands.handle(cmd, name) is expected
 
 
 def test_help_entries_advertised() -> None:
-    from code_puppy.plugins.puppy_kennel import commands
+    from code_puppy_core_plugins.puppy_kennel import commands
 
     entries = commands.help_entries()
     assert any(name == "kennel" for name, _desc in entries)

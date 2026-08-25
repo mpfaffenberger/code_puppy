@@ -38,21 +38,19 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
     """
 
     def steer_history_processor(messages: List[ModelMessage]) -> List[ModelMessage]:
-        # Drain ONLY ``now``-mode steers. ``queue``-mode steers are owned
-        # by ``_runtime._do_run``'s between-turns loop; draining both here
-        # would double-inject them.
+        # Drain ONLY ``now``-mode steers; the between-turns loop in
+        # ``_runtime._do_run`` owns ``queue``-mode ones — draining both
+        # here would double-inject.
         pending = get_pause_controller().drain_pending_steer_now()
         if not pending:
             return messages
 
-        # CRITICAL: carry the in-effect instructions onto the injected
-        # request. pydantic-ai resolves the system prompt from the MOST
-        # RECENT ModelRequest (``Model._get_instructions``); injecting with
-        # ``instructions=None`` silently drops the system prompt for that
-        # model call. Most models just get one amnesiac turn — claude-code
-        # OAuth models hard-fail, because the endpoint fingerprints the
-        # "You are Claude Code..." system prompt and stealth-rejects
-        # requests without it as fake ``overloaded_error``s.
+        # CRITICAL: carry the in-effect instructions onto the injected request.
+        # pydantic-ai resolves the system prompt from the MOST RECENT
+        # ModelRequest; ``instructions=None`` silently drops it — most models
+        # get one amnesiac turn, claude-code OAuth models hard-fail (the
+        # endpoint fingerprints the "You are Claude Code..." prompt and
+        # stealth-rejects as fake ``overloaded_error``s).
         last_instructions = next(
             (
                 m.instructions
@@ -62,11 +60,9 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
             None,
         )
 
-        # Build one user message per steer (so each shows up as a discrete
-        # turn in the model's view of the conversation — clearer than
-        # concatenating them). Attachments (clipboard images, @file paths,
-        # URLs) are resolved just like the main prompt path — steering with
-        # a pasted screenshot Just Works.
+        # One user message per steer (each shows as a discrete turn — clearer
+        # than concatenating). Attachments resolve just like the main prompt
+        # path, so steering with a pasted screenshot Just Works.
         injected: List[ModelMessage] = []
         for steer_text in pending:
             content, preview_text = resolve_steer_content(steer_text)
@@ -81,14 +77,12 @@ def make_steer_history_processor(agent: Any) -> Callable[..., List[ModelMessage]
                 )
             )
 
-        # Append AFTER the existing messages. pydantic-ai passes this list
-        # to the model on this exact call, so the model's very next response
-        # will answer the steer.
+        # Append AFTER existing messages; pydantic-ai passes them on this
+        # exact call, so the very next response answers the steer.
         new_messages = list(messages) + injected
 
-        # Mirror into agent._message_history so the steer persists across
-        # the turn boundary (matches how the compaction processor mutates
-        # the field directly).
+        # Mirror into agent._message_history so the steer persists across the
+        # turn boundary (matches the compaction processor's direct mutation).
         if hasattr(agent, "_message_history"):
             agent._message_history = list(agent._message_history) + injected
 
