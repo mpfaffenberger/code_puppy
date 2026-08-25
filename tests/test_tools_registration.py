@@ -11,6 +11,7 @@ from code_puppy.tools import (
     has_extended_thinking_active,
     register_all_tools,
     register_tools_for_agent,
+    should_use_codex_patch,
 )
 
 
@@ -108,6 +109,55 @@ class TestToolRegistration:
 
         # Test passed if no exception was raised
         assert True
+
+    @pytest.mark.parametrize(
+        "model_name, expected",
+        [
+            ("codex-gpt-5.4", True),
+            ("chatgpt-gpt-5", True),
+            ("gpt-5", True),
+            ("claude-sonnet-4", False),
+            ("gpt-4o", False),
+        ],
+    )
+    def test_model_patch_capability(self, model_name, expected):
+        assert should_use_codex_patch(model_name) is expected
+
+    def test_codex_receives_only_apply_patch_for_file_mutations(self):
+        class CapturingAgent:
+            def __init__(self):
+                self.names = []
+
+            def tool(self, function):
+                self.names.append(function.__name__)
+                return function
+
+        agent = CapturingAgent()
+        register_tools_for_agent(
+            agent,
+            ["create_file", "replace_in_file", "delete_snippet", "delete_file"],
+            model_name="codex-gpt-5.4",
+        )
+
+        assert agent.names == ["apply_patch"]
+
+    def test_claude_receives_edit_alias_for_targeted_replacement(self):
+        class CapturingAgent:
+            def __init__(self):
+                self.names = []
+
+            def tool(self, function):
+                self.names.append(function.__name__)
+                return function
+
+        agent = CapturingAgent()
+        register_tools_for_agent(
+            agent,
+            ["replace_in_file"],
+            model_name="claude-sonnet-4",
+        )
+
+        assert agent.names == ["edit"]
 
 
 class TestRemovedReasoningToolBehavior:

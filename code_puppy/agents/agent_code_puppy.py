@@ -29,7 +29,7 @@ class CodePuppyAgent(BaseAgent):
             "read_file",
             "grep",
             "create_file",
-            "replace_in_file",
+            "edit",
             "delete_snippet",
             "delete_file",
             "agent_run_shell_command",
