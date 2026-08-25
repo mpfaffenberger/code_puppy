@@ -46,20 +46,59 @@ from code_puppy.tools.file_permission_state import (
 )
 
 
+def _split_existing(path: Path) -> tuple[Path, tuple[str, ...]]:
+    """Deepest existing ancestor of *path*, plus the missing trailing names."""
+    missing: list[str] = []
+    current = path
+    while True:
+        if current.exists():
+            return current.resolve(), tuple(reversed(missing))
+        parent = current.parent
+        if parent == current:
+            return current, tuple(reversed(missing))
+        missing.append(current.name)
+        current = parent
+
+
+def _casefold_has_prefix(parts: tuple[str, ...], prefix: tuple[str, ...]) -> bool:
+    if len(parts) < len(prefix):
+        return False
+    return all(a.casefold() == b.casefold() for a, b in zip(prefix, parts))
+
+
+def _is_inside_user_plugin_root(target: Path, root: Path) -> bool:
+    """Containment that survives APFS case-folding. ``Path.resolve`` does not."""
+    target_existing, target_rest = _split_existing(target)
+    root_existing, root_rest = _split_existing(root)
+
+    if os.path.samefile(target_existing, root_existing):
+        return _casefold_has_prefix(target_rest, root_rest)
+
+    current = target_existing
+    while True:
+        if os.path.samefile(current, root_existing):
+            return not root_rest
+        parent = current.parent
+        if parent == current:
+            return False
+        current = parent
+
+
 def _is_user_plugin_tree_path(file_path: str) -> bool:
     """True if *file_path* is inside ``~/.code_puppy/plugins``.
 
     That tree is imported at the next process start with no trust ceremony.
     File tools must not plant ``register_callbacks.py`` there.
+    Canonicalization errors fail closed (treated as inside).
     """
     from code_puppy.plugins import USER_PLUGINS_DIR
 
     try:
         resolved = Path(resolve_path(file_path)).resolve()
         root = Path(USER_PLUGINS_DIR).expanduser().resolve()
+        return _is_inside_user_plugin_root(resolved, root)
     except (OSError, RuntimeError, ValueError):
-        return False
-    return resolved == root or root in resolved.parents
+        return True
 
 
 def _refuse_user_plugin_tree(file_path: str) -> Dict[str, Any] | None:

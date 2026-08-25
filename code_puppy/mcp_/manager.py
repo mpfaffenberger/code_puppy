@@ -161,7 +161,7 @@ class MCPManager:
         try:
             from code_puppy.config import load_mcp_server_configs
 
-            configs = load_mcp_server_configs() or {}
+            configs = load_mcp_server_configs(raise_on_error=True) or {}
 
             synced_count = 0
             updated_count = 0
