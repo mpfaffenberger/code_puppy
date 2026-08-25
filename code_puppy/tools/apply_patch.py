@@ -254,10 +254,11 @@ def register_apply_patch(agent):
     @agent.tool
     async def apply_patch(
         context: RunContext,
-        patch_text: str,
+        patchText: str,
     ) -> Dict[str, Any]:
         group_id = generate_group_id("apply_patch", "multi-file")
         try:
+            patch_text = patchText
             changes = parse_patch(patch_text)
             for change in changes:
                 from code_puppy.callbacks import on_file_permission_async
