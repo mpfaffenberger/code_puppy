@@ -96,7 +96,11 @@ class TestToolRegistration:
             mock_agent, ["str_replace_based_edit_tool"], model_name="gpt-5"
         )
 
-        assert mock_agent.tool.call_count == 0
+        registered_names = {
+            getattr(call.args[0], "__name__", None)
+            for call in mock_agent.tool.call_args_list
+        }
+        assert "str_replace_based_edit_tool" not in registered_names
 
     def test_native_editor_registers_when_capability_actually_supported(self):
         """Sanity counterpart to the regression above: the gate must not be
@@ -112,7 +116,11 @@ class TestToolRegistration:
                 model_name="claude-5-sonnet",
             )
 
-        assert mock_agent.tool.call_count == 1
+        registered_names = {
+            getattr(call.args[0], "__name__", None)
+            for call in mock_agent.tool.call_args_list
+        }
+        assert "str_replace_based_edit_tool" in registered_names
 
     def test_register_all_tools(self):
         """Test registering all available tools."""

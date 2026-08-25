@@ -262,9 +262,16 @@ def register_tools_for_agent(
     # replace_in_file would gain the native `create` command's always-
     # overwrite whole-file write. Once triggered, the whole overlap set
     # (including read_file) is swapped together, since `view` is
-    # `read_file`'s native-editor equivalent.
-    if has_full_native_editor_mutation_surface(tool_names) and (
-        supports_anthropic_native_editor(model_name)
+    # `read_file`'s native-editor equivalent -- but that equivalence is only
+    # true, and only least-privilege-safe, for an agent that ALREADY has
+    # read_file. An agent configured with the full write surface but no
+    # read_file (unusual, but not impossible for a deliberately write-only
+    # JSON agent) must not gain `view`'s brand-new read capability just by
+    # having both mutation tools -- gate on read_file's presence too.
+    if (
+        "read_file" in tool_names
+        and has_full_native_editor_mutation_surface(tool_names)
+        and supports_anthropic_native_editor(model_name)
     ):
         tool_names = [
             name for name in tool_names if name not in OVERLAPPING_PORTABLE_TOOLS

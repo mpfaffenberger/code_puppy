@@ -1,10 +1,12 @@
 """``register_tools_for_agent`` swap-in behavior for the Anthropic native
 editor (Phase 3): when active, overlapping portable tools are replaced by
 the native tool ONLY for an agent that already carries the full portable
-mutation surface (create_file AND replace_in_file); delete tools are always
-preserved; and an agent that never requested the full surface never gains
-the native tool either -- see has_full_native_editor_mutation_surface in
-model_capabilities.py for why partial overlap must not trigger it.
+read+write surface (read_file AND create_file AND replace_in_file); delete
+tools are always preserved; and an agent that never requested the full
+surface never gains the native tool either -- see
+has_full_native_editor_mutation_surface in model_capabilities.py for why
+partial overlap must not trigger it, and the read_file requirement at the
+call site for why the mutation subset alone isn't sufficient either.
 """
 
 from unittest.mock import MagicMock, patch
@@ -40,7 +42,7 @@ def test_native_editor_replaces_overlapping_tools_when_capability_active():
 
 def test_delete_tools_are_never_hidden_even_when_native_editor_active():
     calls = _registered_names(
-        ["replace_in_file", "create_file", "delete_snippet", "delete_file"],
+        ["read_file", "replace_in_file", "create_file", "delete_snippet", "delete_file"],
         capability=True,
     )
     assert "delete_snippet" in calls
@@ -93,6 +95,19 @@ def test_replace_only_agent_does_not_gain_create_access():
     overwrite whole-file write, which it could never do before.
     """
     tool_names = ["read_file", "replace_in_file"]
+    calls = _registered_names(tool_names, capability=True)
+    assert sorted(calls) == sorted(tool_names)
+    assert "str_replace_based_edit_tool" not in calls
+
+
+def test_full_mutation_surface_without_read_file_does_not_gain_view_access():
+    """Regression: an agent with the full write surface (create_file AND
+    replace_in_file) but no read_file -- an unusual but legal, deliberately
+    write-only JSON agent config -- must not be swapped to the native
+    editor. `view` is a brand-new read capability that surface never had;
+    the swap must require read_file's presence too, not just the mutation
+    subset."""
+    tool_names = ["replace_in_file", "create_file", "delete_snippet"]
     calls = _registered_names(tool_names, capability=True)
     assert sorted(calls) == sorted(tool_names)
     assert "str_replace_based_edit_tool" not in calls
