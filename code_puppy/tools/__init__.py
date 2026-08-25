@@ -29,8 +29,17 @@ from code_puppy.tools.file_operations import (
     register_list_files,
     register_read_file,
 )
+from code_puppy.tools.anthropic_editor_tool import (
+    register_str_replace_based_edit_tool,
+)
 from code_puppy.tools.image_tools import register_load_image
 from code_puppy.tools.model_tools import register_list_available_models
+from code_puppy.model_capabilities import (
+    NATIVE_EDITOR_TOOL_NAME,
+    OVERLAPPING_PORTABLE_TOOLS,
+    has_full_native_editor_mutation_surface,
+    supports_anthropic_native_editor,
+)
 
 # Map of tool names to their individual registration functions
 TOOL_REGISTRY = {
@@ -49,6 +58,9 @@ TOOL_REGISTRY = {
     "replace_in_file": register_replace_in_file,
     "delete_snippet": register_delete_snippet,
     "delete_file": register_delete_file,
+    # Anthropic native client-executed text editor (Phase 3, opt-in via
+    # capability + feature flag -- see code_puppy/model_capabilities.py)
+    NATIVE_EDITOR_TOOL_NAME: register_str_replace_based_edit_tool,
     # Command Runner
     "agent_run_shell_command": register_agent_run_shell_command,
     "agent_share_your_reasoning": register_agent_share_your_reasoning,
@@ -239,6 +251,26 @@ def register_tools_for_agent(
                 expanded_tools.append(tool_name)
                 seen.add(tool_name)
     tool_names = expanded_tools
+
+    # Anthropic native editor swap (Phase 3): trigger only when the agent's
+    # own tool list already carries the FULL portable mutation surface the
+    # native editor collectively replaces (create_file AND replace_in_file --
+    # see has_full_native_editor_mutation_surface). Partial overlap must not
+    # trigger it: an agent with only create_file (e.g. agent_model_judge)
+    # would otherwise silently gain str_replace/insert access to arbitrary
+    # *existing* files it could never touch before, and an agent with only
+    # replace_in_file would gain the native `create` command's always-
+    # overwrite whole-file write. Once triggered, the whole overlap set
+    # (including read_file) is swapped together, since `view` is
+    # `read_file`'s native-editor equivalent.
+    if has_full_native_editor_mutation_surface(tool_names) and (
+        supports_anthropic_native_editor(model_name)
+    ):
+        tool_names = [
+            name for name in tool_names if name not in OVERLAPPING_PORTABLE_TOOLS
+        ]
+        if NATIVE_EDITOR_TOOL_NAME not in tool_names:
+            tool_names.append(NATIVE_EDITOR_TOOL_NAME)
 
     for tool_name in tool_names:
         # Handle UC tools (prefixed with "uc:")

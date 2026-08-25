@@ -499,6 +499,9 @@ def get_config_keys():
     default_keys.append("enable_streaming")
     # Opt-in Logfire observability (see code_puppy/observability.py)
     default_keys.append("enable_logfire")
+    # Opt-in Anthropic native client-executed text-editor tool (Phase 3,
+    # see code_puppy/model_capabilities.py); off by default.
+    default_keys.append("enable_anthropic_native_editor")
     # Add suppress directory listing key
     default_keys.append("suppress_directory_listing")
     # Add cancel agent key configuration

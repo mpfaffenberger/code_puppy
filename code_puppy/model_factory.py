@@ -26,6 +26,8 @@ from . import callbacks
 from .claude_cache_client import ClaudeCacheAsyncClient
 from .config import EXTRA_MODELS_FILE, get_value, get_yolo_mode
 from .http_utils import create_async_client, get_cert_bundle_path, get_http2
+from .anthropic_native_editor_model import AnthropicNativeEditorModel
+from .model_capabilities import supports_anthropic_native_editor
 from .provider_identity import (
     make_anthropic_provider,
     make_openai_provider,
@@ -55,6 +57,20 @@ def _load_plugin_model_providers():
 
 # Load plugin model providers at module initialization
 _load_plugin_model_providers()
+
+
+def _resolve_anthropic_model_class(
+    model_name: str, model_config: Dict[str, Any]
+) -> type:
+    """Pick the plain vs. native-editor Anthropic model class.
+
+    Decided once, up front, from known config (feature flag + declared
+    direct-Anthropic route) -- never by trying the native tool and falling
+    back after a provider rejection. See ``model_capabilities.py``.
+    """
+    if supports_anthropic_native_editor(model_name, {model_name: model_config}):
+        return AnthropicNativeEditorModel
+    return AnthropicModel
 
 
 # Anthropic beta header required for 1M context window support.
@@ -797,7 +813,12 @@ class ModelFactory:
             provider = make_anthropic_provider(
                 provider_identity, anthropic_client=anthropic_client
             )
-            return AnthropicModel(model_name=model_config["name"], provider=provider)
+            anthropic_model_cls = _resolve_anthropic_model_class(
+                model_name, model_config
+            )
+            return anthropic_model_cls(
+                model_name=model_config["name"], provider=provider
+            )
 
         elif model_type == "custom_anthropic":
             url, headers, verify, api_key, timeout = get_custom_config(model_config)

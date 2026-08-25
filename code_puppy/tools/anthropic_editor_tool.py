@@ -1,0 +1,382 @@
+"""Canonical command dispatch for Anthropic's native text-editor tool.
+
+Phase 3 of the Anthropic editor adapter plan
+(``.context/plan/anthropic-editor-adapter.md``). Maps the fixed
+``view``/``str_replace``/``create``/``insert`` command shape Claude was
+trained on directly onto the same hardened engine the portable
+``read_file``/``replace_in_file``/``create_file`` tools use --
+``str_replace`` and ``create`` are thin dispatches into the exact-match-safe,
+permission-checked, undo-tracked helpers in ``file_modifications.py`` (no
+duplicated safety logic); ``view`` and ``insert`` are the two commands with
+no existing generic-tool equivalent, implemented here.
+
+Every branch fails loudly and specifically: unknown commands, missing
+required fields, and out-of-range locations are all external-input parsing
+errors, not silent no-ops.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from pydantic_ai import RunContext
+
+from code_puppy.callbacks import on_edit_file
+from code_puppy.messaging import FileContentMessage, get_message_bus
+from code_puppy.tools import fs_access
+from code_puppy.tools.common import generate_group_id, resolve_path
+from code_puppy.tools.file_modifications import (
+    ContentPayload,
+    Replacement,
+    ReplacementsPayload,
+    replace_in_file_async,
+    write_to_file_async,
+)
+from code_puppy.tools.line_endings import detect_dominant, to_style
+
+# Claude's older ``text_editor_20241022`` tool had an ``undo_edit`` command;
+# the versions this façade targets (2025-04-29 / 2025-07-28) do not -- see
+# ``model_capabilities.py``'s module docstring for the verification. Rejected
+# by name, not silently ignored, in case a model trained on the older tool
+# still emits it.
+_UNSUPPORTED_COMMANDS = frozenset({"undo_edit"})
+_SUPPORTED_COMMANDS = frozenset({"view", "str_replace", "create", "insert"})
+
+# Reuse the same file-size guard the portable read_file tool applies, so
+# `view` can't dump an unbounded file into context either.
+_MAX_VIEW_TOKENS = 10_000
+
+
+def _unsupported_command_error(command: str) -> Dict[str, Any]:
+    if command in _UNSUPPORTED_COMMANDS:
+        return {
+            "error": "unsupported_command",
+            "command": command,
+            "message": (
+                f"'{command}' is not supported by this tool version. There is "
+                "no per-command undo stack; make a corrective str_replace or "
+                "create call instead, or use the shell/undo tooling."
+            ),
+        }
+    return {
+        "error": "unknown_command",
+        "command": command,
+        "supported_commands": sorted(_SUPPORTED_COMMANDS),
+        "message": f"Unknown command '{command}'. Supported: {sorted(_SUPPORTED_COMMANDS)}.",
+    }
+
+
+def _missing_field_error(command: str, field: str) -> Dict[str, Any]:
+    return {
+        "error": "missing_field",
+        "command": command,
+        "field": field,
+        "message": f"command '{command}' requires '{field}'.",
+    }
+
+
+def _sanitize_surrogates(text: str) -> str:
+    """Strip lone Unicode surrogates from file content read off disk.
+
+    Same technique ``_replace_in_file``/``_finalize_read_output`` already
+    apply (see ``file_modifications.py``/``file_operations.py``) -- a raw
+    non-UTF-8 byte survives ``fs_access.read_text`` as a surrogate
+    codepoint, which then raises an untyped ``UnicodeEncodeError`` deep
+    inside the eventual write/JSON-serialization path instead of failing
+    at this parsing boundary. Kept as its own tiny helper here (a third
+    copy) rather than added to ``tools/common.py``/``file_modifications.py``,
+    which the plan already flags as over the 600-line limit.
+    """
+    try:
+        return text.encode("utf-8", errors="surrogatepass").decode(
+            "utf-8", errors="replace"
+        )
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return "".join(
+            ch if not (0xD800 <= ord(ch) <= 0xDFFF) else "\ufffd" for ch in text
+        )
+
+
+def _apply_edit_callback(
+    context: RunContext, result: Dict[str, Any], payload: Any
+) -> Dict[str, Any]:
+    """Run the same ``on_edit_file`` enhancement hook the portable
+    ``create_file``/``replace_in_file`` tools fire after a write, so a
+    plugin listening for edit results (e.g. rejection-detail enrichment)
+    sees native-editor writes too -- native and portable edits share the
+    write engine but must not silently diverge in what fires afterward.
+    """
+    enhanced_results = on_edit_file(context, result, payload)
+    if enhanced_results:
+        for enhanced_result in enhanced_results:
+            if enhanced_result is not None:
+                return enhanced_result
+    return result
+
+
+async def dispatch_editor_command(
+    context: RunContext,
+    command: str,
+    path: str,
+    *,
+    old_str: Optional[str] = None,
+    new_str: Optional[str] = None,
+    file_text: Optional[str] = None,
+    insert_line: Optional[int] = None,
+    view_range: Optional[List[int]] = None,
+) -> Dict[str, Any]:
+    """Route one native-editor command to the canonical engine."""
+    if command == "view":
+        return _view_file(path, view_range)
+
+    if command == "str_replace":
+        if old_str is None:
+            return _missing_field_error(command, "old_str")
+        if new_str is None:
+            return _missing_field_error(command, "new_str")
+        group_id = generate_group_id("str_replace_based_edit_tool", path)
+        result = await replace_in_file_async(
+            context,
+            path,
+            [{"old_str": old_str, "new_str": new_str}],
+            message_group=group_id,
+        )
+        result.pop("diff", None)
+        payload = ReplacementsPayload(
+            file_path=path,
+            replacements=[Replacement(old_str=old_str, new_str=new_str)],
+        )
+        return _apply_edit_callback(context, result, payload)
+
+    if command == "create":
+        if file_text is None:
+            return _missing_field_error(command, "file_text")
+        # overwrite=True is deliberate spec conformance, not an oversight:
+        # Anthropic's documented `create` command always (over)writes the
+        # full file at `path`, unlike the portable `create_file` tool (which
+        # defaults to refusing an existing file). The permission gate below
+        # still applies, so an overwrite still requires approval.
+        group_id = generate_group_id("str_replace_based_edit_tool", path)
+        result = await write_to_file_async(
+            context, path, file_text, overwrite=True, message_group=group_id
+        )
+        result.pop("diff", None)
+        payload = ContentPayload(file_path=path, content=file_text, overwrite=True)
+        return _apply_edit_callback(context, result, payload)
+
+    if command == "insert":
+        if insert_line is None:
+            return _missing_field_error(command, "insert_line")
+        if new_str is None:
+            return _missing_field_error(command, "new_str")
+        return await _insert_into_file(context, path, insert_line, new_str)
+
+    return _unsupported_command_error(command)
+
+
+def _view_file(path: str, view_range: Optional[List[int]]) -> Dict[str, Any]:
+    """Read-only view, no permission gate (matches the portable read_file tool)."""
+    file_path = resolve_path(path)
+
+    if not fs_access.exists(file_path):
+        return {"error": "not_found", "path": file_path}
+
+    if fs_access.is_dir(file_path):
+        try:
+            entries = fs_access.list_dir(file_path)
+        except OSError as exc:
+            return {"error": f"Failed to list directory '{file_path}': {exc}"}
+        names = sorted((f"{e.name}/" if e.is_dir else e.name) for e in entries)
+        return {"path": file_path, "is_directory": True, "entries": names}
+
+    try:
+        content = fs_access.read_text(file_path)
+    except OSError as exc:
+        return {"error": f"Failed to read file '{file_path}': {exc}"}
+
+    content = _sanitize_surrogates(content)
+    lines = content.splitlines()
+    total_lines = len(lines)
+    start, end = 1, total_lines
+
+    if view_range is not None:
+        if len(view_range) != 2:
+            return {
+                "error": "invalid_view_range",
+                "message": "view_range must be exactly [start_line, end_line].",
+            }
+        start, end = view_range
+        if end == -1:
+            end = total_lines
+        if start < 1 or start > max(total_lines, 1) or end < start:
+            return {
+                "error": "invalid_view_range",
+                "path": file_path,
+                "total_lines": total_lines,
+                "message": f"view_range {view_range} is out of bounds for a {total_lines}-line file.",
+            }
+        end = min(end, total_lines)
+
+    if total_lines == 0:
+        # Degenerate case: an empty file has no valid non-zero line range.
+        # Normalize both the ranged and unranged paths to the same (0, 0)
+        # shape instead of leaving `end` at the range-validation fallout of
+        # 0 (view_range case) or `total_lines` (unranged case, also 0) --
+        # either way `start` must not stay at its 1-based default when
+        # there is nothing to number starting from line 1.
+        start, end = 0, 0
+
+    selected = lines[start - 1 : end] if total_lines else []
+    numbered = "\n".join(
+        f"{idx:6d}\t{line}" for idx, line in enumerate(selected, start=start)
+    )
+
+    if len(numbered) // 4 > _MAX_VIEW_TOKENS:
+        return {
+            "error": "content_too_large",
+            "path": file_path,
+            "message": (
+                "The requested range is too large to view in one call; "
+                "narrow view_range and retry."
+            ),
+        }
+
+    # Matches read_file's UI contract: the raw (unnumbered) slice goes to
+    # the message bus for display/telemetry; the line-numbered rendering
+    # below is what actually goes back to the model. Without this, `view`
+    # is invisible to the user/run_stats even though it is a real read.
+    # Metadata is only meaningful for a real ranged, non-empty selection --
+    # FileContentMessage requires num_lines >= 1, so an empty file (or the
+    # unranged whole-file case, which read_file's own contract also reports
+    # as start_line=None) must fall back to None rather than 0.
+    raw_selected = "\n".join(selected)
+    get_message_bus().emit(
+        FileContentMessage(
+            path=file_path,
+            content=raw_selected,
+            start_line=start if (view_range is not None and total_lines) else None,
+            num_lines=(end - start + 1)
+            if (view_range is not None and total_lines)
+            else None,
+            total_lines=total_lines,
+            num_tokens=len(numbered) // 4,
+        )
+    )
+
+    return {
+        "path": file_path,
+        "start_line": start,
+        "end_line": end,
+        "total_lines": total_lines,
+        "content": numbered,
+    }
+
+
+async def _insert_into_file(
+    context: RunContext, path: str, insert_line: int, new_str: str
+) -> Dict[str, Any]:
+    """Insert ``new_str`` after ``insert_line`` (0 = start of file).
+
+    No generic-tool equivalent exists to delegate to, so this computes the
+    resulting full-file content itself and then hands the actual write off
+    to ``write_to_file_async`` -- the same permission-check, undo-capture,
+    and diff-emission path every other mutation uses. (The permission audit
+    label reads "write" rather than "insert" as a result; the operation data
+    still carries the real inserted text.)
+    """
+    file_path = resolve_path(path)
+
+    if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
+        return {"error": "not_found", "path": file_path}
+
+    try:
+        original = fs_access.read_text(file_path)
+    except OSError as exc:
+        return {"error": f"Failed to read file '{file_path}': {exc}"}
+
+    original = _sanitize_surrogates(original)
+    lines = original.splitlines(keepends=True) if original else []
+    line_count = len(lines)
+
+    if insert_line < 0 or insert_line > line_count:
+        return {
+            "error": "invalid_insert_line",
+            "path": file_path,
+            "line_count": line_count,
+            "message": (
+                f"insert_line must be between 0 and {line_count} "
+                f"(the file's current line count); got {insert_line}."
+            ),
+        }
+
+    style = detect_dominant(original) if original else "\n"
+    inserted = to_style(new_str, style)
+    if inserted and not inserted.endswith(style):
+        inserted += style
+
+    # If we're inserting after the current last line and that line is
+    # missing its own terminator, add one so the insertion doesn't fuse onto
+    # the previous line's text.
+    if insert_line == line_count and lines and not lines[-1].endswith(("\n", "\r")):
+        lines[-1] = lines[-1] + style
+
+    new_lines = lines[:insert_line] + [inserted] + lines[insert_line:]
+    new_content = "".join(new_lines)
+
+    if new_content == original:
+        # An empty new_str (after style conversion) is a genuine no-op --
+        # report it as such rather than pushing a write/undo entry for a
+        # byte-identical file (the same no-op contract _replace_in_file
+        # honors; see file_modifications.py).
+        return {
+            "success": False,
+            "path": file_path,
+            "changed": False,
+            "message": "No change: the inserted text was empty.",
+        }
+
+    group_id = generate_group_id("str_replace_based_edit_tool", path)
+    result = await write_to_file_async(
+        context, path, new_content, overwrite=True, message_group=group_id
+    )
+    result.pop("diff", None)
+    payload = ContentPayload(file_path=file_path, content=new_content, overwrite=True)
+    return _apply_edit_callback(context, result, payload)
+
+
+def register_str_replace_based_edit_tool(agent) -> None:
+    """Register Anthropic's native text-editor tool on ``agent``.
+
+    Declared here as an ordinary pydantic-ai function tool; the wire-level
+    substitution that makes Anthropic treat it as the client-executed
+    editor (instead of a generic JSON-schema tool) happens in
+    ``AnthropicNativeEditorModel``, not here.
+    """
+
+    @agent.tool
+    async def str_replace_based_edit_tool(
+        context: RunContext,
+        command: str,
+        path: str,
+        old_str: Optional[str] = None,
+        new_str: Optional[str] = None,
+        file_text: Optional[str] = None,
+        insert_line: Optional[int] = None,
+        view_range: Optional[List[int]] = None,
+    ) -> Dict[str, Any]:
+        """Anthropic's native client-executed text-editor tool.
+
+        Commands: view (path, optional view_range=[start,end], -1=end of
+        file), str_replace (path, old_str, new_str), create (path,
+        file_text), insert (path, insert_line, new_str).
+        """
+        return await dispatch_editor_command(
+            context,
+            command,
+            path,
+            old_str=old_str,
+            new_str=new_str,
+            file_text=file_text,
+            insert_line=insert_line,
+            view_range=view_range,
+        )

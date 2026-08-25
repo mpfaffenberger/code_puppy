@@ -50,6 +50,7 @@ from pydantic_ai.messages import (
     ToolCallPartDelta,
 )
 
+from code_puppy.model_capabilities import NATIVE_EDITOR_TOOL_NAME
 from code_puppy.tools.subagent_context import is_subagent
 
 
@@ -335,6 +336,7 @@ _TOOLS_WITH_RENDERER = frozenset(
         "delete_file",
         "delete_snippet",
         "edit_file",
+        NATIVE_EDITOR_TOOL_NAME,
         "agent_run_shell_command",
         "ask_user_question",
         "activate_skill",
