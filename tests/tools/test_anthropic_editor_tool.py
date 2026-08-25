@@ -255,6 +255,43 @@ def test_create_overwrites_an_existing_file_unlike_portable_create_file(tmp_path
     assert p.read_text() == "new content\n"
 
 
+def test_create_of_a_brand_new_file_reports_the_diff_operation_as_create(tmp_path):
+    """Regression: native `create` always passed overwrite=True to
+    write_to_file_async for spec conformance (always (over)write), but that
+    function derives its diff-message operation label purely from that flag
+    ("modify" if overwrite else "create") -- so a brand-new file was being
+    reported to the UI as a "modify". overwrite must be derived from
+    whether the file already existed, not hardcoded True."""
+    p = tmp_path / "brand_new.txt"
+
+    with patch(
+        "code_puppy.tools.file_modifications._emit_diff_message"
+    ) as mock_emit:
+        result = _run(dispatch_editor_command(None, "create", str(p), file_text="hi\n"))
+
+    assert result["success"] is True
+    mock_emit.assert_called_once()
+    assert mock_emit.call_args.args[1] == "create"
+
+
+def test_create_over_an_existing_file_still_reports_the_diff_operation_as_modify(
+    tmp_path,
+):
+    p = tmp_path / "existing.txt"
+    p.write_text("old\n")
+
+    with patch(
+        "code_puppy.tools.file_modifications._emit_diff_message"
+    ) as mock_emit:
+        result = _run(
+            dispatch_editor_command(None, "create", str(p), file_text="new\n")
+        )
+
+    assert result["success"] is True
+    mock_emit.assert_called_once()
+    assert mock_emit.call_args.args[1] == "modify"
+
+
 @pytest.mark.parametrize(
     "insert_line,new_str,expected_lines",
     [
@@ -603,3 +640,32 @@ def test_on_edit_file_enhancement_result_overrides_the_returned_dict(tmp_path):
         )
 
     assert result == sentinel
+
+
+def test_registered_tool_never_crashes_the_agent_run_on_unexpected_exception():
+    """Regression: every portable file-modification tool wraps its whole
+    body in a last-line-of-defense try/except so a backend/plugin error
+    never crashes the agent run (see file_modifications.py). The registered
+    str_replace_based_edit_tool function had no equivalent guard."""
+    from code_puppy.tools.anthropic_editor_tool import (
+        register_str_replace_based_edit_tool,
+    )
+
+    captured = {}
+
+    class FakeAgent:
+        def tool(self, fn):
+            captured["fn"] = fn
+            return fn
+
+    register_str_replace_based_edit_tool(FakeAgent())
+
+    with patch(
+        "code_puppy.tools.anthropic_editor_tool.dispatch_editor_command",
+        side_effect=RuntimeError("boom"),
+    ):
+        result = _run(captured["fn"](MagicMock(), "view", "/tmp/whatever"))
+
+    assert result["error"] == "str_replace_based_edit_tool failed: boom"
+    assert result["command"] == "view"
+    assert result["path"] == "/tmp/whatever"

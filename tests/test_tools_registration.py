@@ -78,6 +78,42 @@ class TestToolRegistration:
             "invalid_tool" in str(call) for call in mock_agent.call_args_list
         )
 
+    def test_explicitly_requesting_native_editor_by_name_is_still_capability_gated(
+        self,
+    ):
+        """Regression: the swap block in register_tools_for_agent only ever
+        ADDS str_replace_based_edit_tool -- it never blocks a caller (a JSON
+        agent config, or a plugin's register_agent_tools extra) that names
+        the tool directly. Since it's an ordinary TOOL_REGISTRY entry, the
+        generic registration loop used to register it for ANY model
+        regardless of the feature flag or the direct-Anthropic-route
+        requirement, defeating the least-privilege gate documented in
+        model_capabilities.py. Must be blocked at the point of registration
+        too, not just at swap time."""
+        mock_agent = MagicMock()
+
+        register_tools_for_agent(
+            mock_agent, ["str_replace_based_edit_tool"], model_name="gpt-5"
+        )
+
+        assert mock_agent.tool.call_count == 0
+
+    def test_native_editor_registers_when_capability_actually_supported(self):
+        """Sanity counterpart to the regression above: the gate must not be
+        so strict it blocks a genuinely-eligible direct-Anthropic model."""
+        mock_agent = MagicMock()
+
+        with patch(
+            "code_puppy.tools.supports_anthropic_native_editor", return_value=True
+        ):
+            register_tools_for_agent(
+                mock_agent,
+                ["str_replace_based_edit_tool"],
+                model_name="claude-5-sonnet",
+            )
+
+        assert mock_agent.tool.call_count == 1
+
     def test_register_all_tools(self):
         """Test registering all available tools."""
         mock_agent = MagicMock()

@@ -290,6 +290,24 @@ def register_tools_for_agent(
             emit_warning(f"Warning: Unknown tool '{tool_name}' requested, skipping...")
             continue
 
+        # Defense in depth for the Anthropic native editor: the capability
+        # gate above only ever ADDS this tool, it never blocks an explicit
+        # request for it by name (e.g. a JSON agent config, or a plugin's
+        # register_agent_tools extra). Re-check the same predicate here so
+        # naming the tool directly can never bypass the feature flag or the
+        # direct-Anthropic-route requirement -- see model_capabilities.py's
+        # module docstring: this decision must never be discoverable by
+        # simply asking for the tool.
+        if tool_name == NATIVE_EDITOR_TOOL_NAME and not supports_anthropic_native_editor(
+            model_name
+        ):
+            emit_warning(
+                f"Warning: '{tool_name}' requires the Anthropic native editor "
+                "capability (feature flag + direct-Anthropic model route); "
+                "skipping..."
+            )
+            continue
+
         # Check if Universal Constructor is disabled
         if (
             tool_name == "universal_constructor"

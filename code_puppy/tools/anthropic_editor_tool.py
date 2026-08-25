@@ -31,6 +31,7 @@ from code_puppy.tools.file_modifications import (
     ReplacementsPayload,
     _create_rejection_response,
     _emit_diff_message,
+    _log_error,
     _permission_denied,
     _write_to_file,
     replace_in_file_async,
@@ -159,17 +160,35 @@ async def dispatch_editor_command(
     if command == "create":
         if file_text is None:
             return _missing_field_error(command, "file_text")
-        # overwrite=True is deliberate spec conformance, not an oversight:
         # Anthropic's documented `create` command always (over)writes the
         # full file at `path`, unlike the portable `create_file` tool (which
-        # defaults to refusing an existing file). The permission gate below
-        # still applies, so an overwrite still requires approval.
+        # defaults to refusing an existing file) -- deliberate spec
+        # conformance, not an oversight. The permission gate below still
+        # applies, so an overwrite still requires approval.
+        #
+        # `overwrite` is derived from whether the file already exists
+        # (rather than hardcoded True) purely so write_to_file_async's own
+        # `"modify" if overwrite else "create"` diff-operation label comes
+        # out correct -- a brand-new file must not be reported to the UI as
+        # a "modify". Behavior is unchanged either way: `create` always
+        # succeeds and always writes the full content, since `_write_to_file`
+        # only refuses on `exists and not overwrite`, which never happens
+        # here (the two always agree). The existence check has the same
+        # narrow TOCTOU window as `_write_to_file`'s own equivalent check;
+        # accepted for the same reason.
+        already_existed = fs_access.exists(resolve_path(path))
         group_id = generate_group_id("str_replace_based_edit_tool", path)
         result = await write_to_file_async(
-            context, path, file_text, overwrite=True, message_group=group_id
+            context,
+            path,
+            file_text,
+            overwrite=already_existed,
+            message_group=group_id,
         )
         result.pop("diff", None)
-        payload = ContentPayload(file_path=path, content=file_text, overwrite=True)
+        payload = ContentPayload(
+            file_path=path, content=file_text, overwrite=already_existed
+        )
         return _apply_edit_callback(context, result, payload)
 
     if command == "insert":
@@ -192,7 +211,12 @@ def _view_file(path: str, view_range: Optional[List[int]]) -> Dict[str, Any]:
     if fs_access.is_dir(file_path):
         try:
             entries = fs_access.list_dir(file_path)
-        except OSError as exc:
+        except Exception as exc:
+            # Broad on purpose: fs_access can be backed by a non-local
+            # FileSystemBackend (e.g. an ACP host) that raises whatever its
+            # transport raises, not just OSError -- matches the posture
+            # _read_file already takes on its own backend-read path in
+            # file_operations.py.
             return {"error": f"Failed to list directory '{file_path}': {exc}"}
         names = sorted((f"{e.name}/" if e.is_dir else e.name) for e in entries)
         # Same intent as _MAX_VIEW_TOKENS below: an unbounded directory
@@ -214,7 +238,8 @@ def _view_file(path: str, view_range: Optional[List[int]]) -> Dict[str, Any]:
 
     try:
         content = fs_access.read_text(file_path)
-    except OSError as exc:
+    except Exception as exc:
+        # Broad for the same reason as the directory-listing branch above.
         return {"error": f"Failed to read file '{file_path}': {exc}"}
 
     content = _sanitize_surrogates(content)
@@ -322,7 +347,8 @@ async def _insert_into_file(
 
     try:
         original = fs_access.read_text(file_path)
-    except OSError as exc:
+    except Exception as exc:
+        # Broad on purpose -- see the matching comment on _view_file's read.
         return {"error": f"Failed to read file '{file_path}': {exc}"}
 
     original = _sanitize_surrogates(original)
@@ -396,7 +422,8 @@ async def _insert_into_file(
     # matches, applied here to a stale file snapshot instead).
     try:
         current = _sanitize_surrogates(fs_access.read_text(file_path))
-    except OSError as exc:
+    except Exception as exc:
+        # Broad on purpose -- see the matching comment on _view_file's read.
         return {
             "error": f"Failed to read file '{file_path}': {exc}",
             "path": file_path,
@@ -448,13 +475,28 @@ def register_str_replace_based_edit_tool(agent) -> None:
         file), str_replace (path, old_str, new_str), create (path,
         file_text), insert (path, insert_line, new_str).
         """
-        return await dispatch_editor_command(
-            context,
-            command,
-            path,
-            old_str=old_str,
-            new_str=new_str,
-            file_text=file_text,
-            insert_line=insert_line,
-            view_range=view_range,
-        )
+        try:
+            return await dispatch_editor_command(
+                context,
+                command,
+                path,
+                old_str=old_str,
+                new_str=new_str,
+                file_text=file_text,
+                insert_line=insert_line,
+                view_range=view_range,
+            )
+        except Exception as exc:
+            # Last line of defense -- never let this tool crash the agent
+            # run, matching the try/except every portable file-modification
+            # tool wraps its own body in (see file_modifications.py).
+            _log_error(
+                "Unhandled exception in str_replace_based_edit_tool",
+                exc,
+                message_group=None,
+            )
+            return {
+                "error": f"str_replace_based_edit_tool failed: {exc}",
+                "command": command,
+                "path": path,
+            }
