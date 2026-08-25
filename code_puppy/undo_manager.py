@@ -22,7 +22,14 @@ class UndoManager:
         if not hasattr(self, "history"):
             self.history: List[FileChange] = []
 
-    def record_change(self, file_path: str, action: str):
+    def capture_change(self, file_path: str, action: str) -> FileChange:
+        """Snapshot pre-mutation state WITHOUT touching undo history.
+
+        Callers must pass the result to ``commit_change`` only after their
+        filesystem mutation actually succeeds. This keeps a failed mutation
+        from ever entering history, and avoids needing an LIFO ``pop_change``
+        rollback (which can drop a different, concurrently-succeeded edit).
+        """
         # Route via the fs facade + resolve_path so undo matches whatever
         # filesystem the tools wrote to (local disk or an installed backend).
         from code_puppy.tools import fs_access
@@ -35,11 +42,20 @@ class UndoManager:
                 original_content = fs_access.read_text(file_path)
             except Exception:
                 pass  # Ignore binary files or unreadable files for now
-        self.history.append(
-            FileChange(
-                file_path=file_path, original_content=original_content, action=action
-            )
+        return FileChange(
+            file_path=file_path, original_content=original_content, action=action
         )
+
+    def commit_change(self, change: FileChange) -> None:
+        """Publish a snapshot from ``capture_change`` after a successful mutation."""
+        self.history.append(change)
+
+    def record_change(self, file_path: str, action: str) -> None:
+        """Immediate capture+commit. Kept for callers with no failure path to
+        guard against; new mutation code should prefer capture_change/
+        commit_change so a failed write can never poison undo history.
+        """
+        self.commit_change(self.capture_change(file_path, action))
 
     def pop_change(self) -> Optional[FileChange]:
         if self.history:

@@ -37,7 +37,7 @@ from code_puppy.tools.common import (
     resolve_path,
     write_project_file,
 )
-from code_puppy.tools.line_endings import resolve_pattern, to_style
+from code_puppy.tools.line_endings import find_logical_matches, to_style
 from code_puppy.tools.file_permission_state import (
     clear_diff_shown_flag,
     clear_user_feedback,
@@ -236,14 +236,28 @@ def _delete_snippet_from_file(
         except (UnicodeEncodeError, UnicodeDecodeError):
             pass
         # Reconcile the model's \n-terminated snippet against the file's
-        # actual line endings (see tools/line_endings.py).
-        effective_snippet, snippet_count, _style = resolve_pattern(original, snippet)
-        if not snippet_count:
+        # actual line endings (see tools/line_endings.py). find_logical_matches
+        # aggregates every equivalent LF/CRLF/CR occurrence before we decide
+        # anything is unique.
+        matches = find_logical_matches(original, snippet)
+        if not matches:
             return {
                 "error": f"Snippet not found in file '{file_path}'.",
                 "diff": diff_text,
             }
-        modified = original.replace(effective_snippet, "", 1)
+        if len(matches) > 1:
+            return {
+                "error": "ambiguous_match",
+                "path": file_path,
+                "match_count": len(matches),
+                "message": (
+                    f"snippet matched {len(matches)} locations; make it unique "
+                    "before retrying."
+                ),
+                "diff": diff_text,
+            }
+        match = matches[0]
+        modified = original[: match.start] + original[match.end :]
         from code_puppy.config import get_diff_context_lines
 
         diff_text = "".join(
@@ -255,8 +269,9 @@ def _delete_snippet_from_file(
                 n=get_diff_context_lines(),
             )
         )
-        UndoManager().record_change(file_path, "delete_snippet")
+        pending_change = UndoManager().capture_change(file_path, "delete_snippet")
         write_project_file(file_path, modified)
+        UndoManager().commit_change(pending_change)
         return {
             "success": True,
             "path": file_path,
@@ -265,7 +280,7 @@ def _delete_snippet_from_file(
             "diff": diff_text,
         }
     except Exception as exc:
-        return {"error": str(exc), "diff": diff_text}
+        return {"error": str(exc), "diff": ""}
 
 
 def _bounded_suggestion(
@@ -351,13 +366,19 @@ def _replace_in_file(
 
         # Models emit \n even when the file uses \r\n; reconcile the pattern
         # to the file's actual bytes instead of rewriting the file's endings.
-        effective_old, match_count, style = resolve_pattern(modified, old_snippet)
+        # find_logical_matches aggregates every equivalent LF/CRLF/CR
+        # occurrence (and every overlapping one) before uniqueness is decided,
+        # so an ambiguous edit can never be silently narrowed to "the first
+        # one that happened to match verbatim".
+        matches = find_logical_matches(modified, old_snippet)
+        match_count = len(matches)
 
         if match_count == 1:
-            # Convert the replacement to the surrounding style so the edit
-            # doesn't leave a mixed-terminator island behind.
-            effective_new = to_style(new_snippet, style)
-            modified = modified.replace(effective_old, effective_new, 1)
+            match = matches[0]
+            # Convert the replacement to the matched span's own style so the
+            # edit doesn't leave a mixed-terminator island behind.
+            effective_new = to_style(new_snippet, match.style)
+            modified = modified[: match.start] + effective_new + modified[match.end :]
             continue
 
         if match_count == 0:
@@ -412,26 +433,26 @@ def _replace_in_file(
     )
 
     # Snapshot pre-write state for undo now that every replacement has been
-    # validated -- record_change reads current on-disk content, so it must
-    # run immediately before the write, never after (after the write it
-    # would snapshot the NEW content, turning undo into a no-op).
-    UndoManager().record_change(path, "replace_in_file")
+    # validated. capture_change reads current on-disk content but does NOT
+    # append to history yet -- it's only committed below once the write has
+    # actually succeeded, so a failed write can never poison undo history and
+    # no unsafe pop-the-most-recent-entry rollback is needed.
+    pending_change = UndoManager().capture_change(path, "replace_in_file")
     try:
         write_project_file(file_path, modified)
     except OSError as exc:
-        UndoManager().pop_change()
         return {
             "error": f"Failed to write file '{file_path}': {exc}",
-            "diff": diff_text,
+            "diff": "",
         }
     except Exception as exc:  # pragma: no cover - genuinely unexpected write failure
-        UndoManager().pop_change()
         _log_error(
             f"Unexpected error writing '{file_path}' during replace_in_file",
             exc,
             message_group=message_group,
         )
-        return {"error": f"Unexpected write failure: {exc}", "diff": diff_text}
+        return {"error": f"Unexpected write failure: {exc}", "diff": ""}
+    UndoManager().commit_change(pending_change)
 
     return {
         "success": True,
@@ -489,10 +510,12 @@ def _write_to_file(
         # manages its own topology.
         fs_access.make_dirs(os.path.dirname(file_path) or ".")
         # Snapshot pre-write state (None if the file doesn't exist yet, so
-        # undo knows to delete rather than restore) immediately before the
-        # write -- never after, which would snapshot the new content instead.
-        UndoManager().record_change(path, "write_to_file")
+        # undo knows to delete rather than restore). Committed only after the
+        # write below actually succeeds, so a failed write never poisons undo
+        # history with a phantom entry for a mutation that never happened.
+        pending_change = UndoManager().capture_change(path, "write_to_file")
         write_project_file(file_path, content)
+        UndoManager().commit_change(pending_change)
 
         action = "overwritten" if exists else "created"
         return {
@@ -809,6 +832,56 @@ async def _edit_file_async(
         }
 
 
+def _delete_file_after_permission(
+    file_path: str, message_group: str | None = None
+) -> Dict[str, Any]:
+    """Delete an already-permission-approved file, recording undo correctly.
+
+    Shared by both the sync and async delete tools so undo behavior (and any
+    future fix to it) can never drift between the two paths again.
+    """
+    try:
+        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
+            return {"error": f"File '{file_path}' does not exist.", "diff": ""}
+
+        original = fs_access.read_text(file_path)
+        # Sanitize any surrogate characters from reading
+        try:
+            original = original.encode("utf-8", errors="surrogatepass").decode(
+                "utf-8", errors="replace"
+            )
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+        from code_puppy.config import get_diff_context_lines
+
+        diff_text = "".join(
+            difflib.unified_diff(
+                original.splitlines(keepends=True),
+                [],
+                fromfile=f"a/{os.path.basename(file_path)}",
+                tofile=f"b/{os.path.basename(file_path)}",
+                n=get_diff_context_lines(),
+            )
+        )
+        # Snapshot BEFORE deleting -- once the file is gone, its content
+        # cannot be recovered for undo to restore. Committed only after the
+        # delete below actually succeeds, so a failed delete never poisons
+        # undo history with a phantom entry.
+        pending_change = UndoManager().capture_change(file_path, "delete_file")
+        fs_access.delete_file(file_path)
+        UndoManager().commit_change(pending_change)
+        return {
+            "success": True,
+            "path": file_path,
+            "message": f"File '{file_path}' deleted successfully.",
+            "changed": True,
+            "diff": diff_text,
+        }
+    except Exception as exc:
+        _log_error("Unhandled exception in delete_file", exc)
+        return {"error": str(exc), "diff": ""}
+
+
 def _delete_file(
     context: RunContext, file_path: str, message_group: str | None = None
 ) -> Dict[str, Any]:
@@ -826,44 +899,7 @@ def _delete_file(
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
-    try:
-        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
-            res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
-        else:
-            original = fs_access.read_text(file_path)
-            # Sanitize any surrogate characters from reading
-            try:
-                original = original.encode("utf-8", errors="surrogatepass").decode(
-                    "utf-8", errors="replace"
-                )
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
-            from code_puppy.config import get_diff_context_lines
-
-            diff_text = "".join(
-                difflib.unified_diff(
-                    original.splitlines(keepends=True),
-                    [],
-                    fromfile=f"a/{os.path.basename(file_path)}",
-                    tofile=f"b/{os.path.basename(file_path)}",
-                    n=get_diff_context_lines(),
-                )
-            )
-            # Snapshot BEFORE deleting -- once the file is gone, its content
-            # cannot be recovered for undo to restore.
-            UndoManager().record_change(file_path, "delete_file")
-            fs_access.delete_file(file_path)
-            res = {
-                "success": True,
-                "path": file_path,
-                "message": f"File '{file_path}' deleted successfully.",
-                "changed": True,
-                "diff": diff_text,
-            }
-    except Exception as exc:
-        _log_error("Unhandled exception in delete_file", exc)
-        res = {"error": str(exc), "diff": ""}
-
+    res = _delete_file_after_permission(file_path, message_group)
     diff = res.get("diff", "")
     if diff:
         _emit_diff_message(file_path, "delete", diff)
@@ -885,40 +921,7 @@ async def _delete_file_async(
     if _permission_denied(permission_results):
         return _create_rejection_response(file_path)
 
-    try:
-        if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
-            res = {"error": f"File '{file_path}' does not exist.", "diff": ""}
-        else:
-            original = fs_access.read_text(file_path)
-            try:
-                original = original.encode("utf-8", errors="surrogatepass").decode(
-                    "utf-8", errors="replace"
-                )
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
-            from code_puppy.config import get_diff_context_lines
-
-            diff_text = "".join(
-                difflib.unified_diff(
-                    original.splitlines(keepends=True),
-                    [],
-                    fromfile=f"a/{os.path.basename(file_path)}",
-                    tofile=f"b/{os.path.basename(file_path)}",
-                    n=get_diff_context_lines(),
-                )
-            )
-            fs_access.delete_file(file_path)
-            res = {
-                "success": True,
-                "path": file_path,
-                "message": f"File '{file_path}' deleted successfully.",
-                "changed": True,
-                "diff": diff_text,
-            }
-    except Exception as exc:
-        _log_error("Unhandled exception in delete_file", exc)
-        res = {"error": str(exc), "diff": ""}
-
+    res = _delete_file_after_permission(file_path, message_group)
     diff = res.get("diff", "")
     if diff:
         _emit_diff_message(file_path, "delete", diff)

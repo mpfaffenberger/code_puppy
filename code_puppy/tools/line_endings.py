@@ -1,41 +1,34 @@
-"""Line-ending reconciliation for the file-editing engine.
+"""Byte-faithful line-ending reconciliation for text edits.
 
-Why this exists
----------------
-``fs_access`` reads and writes files with ``newline=""`` so bytes round-trip
-faithfully -- a file's existing CRLF/LF/CR terminators are never silently
-rewritten just because the file was edited. That is correct at the I/O layer,
-but it pushes one problem up to the editing layer: **models always emit
-``\\n``** in an ``old_str``/snippet, even when the target file uses ``\\r\\n``.
-Matching a model-supplied ``\\n`` pattern against raw CRLF content fails on
-every multi-line edit.
-
-The strategy here is to translate the *pattern* into the *file's* line-ending
-style, rather than normalizing the whole file to the model's style. Every byte
-the model did not target stays untouched -- including in files with mixed
-terminators, which stay mixed everywhere except the edited region.
+The filesystem layer reads/writes with ``newline=""`` so untouched bytes are
+never normalized. Models, however, emit ``\\n`` regardless of a target file's
+terminators. Matching therefore happens against an LF-normalized *view* while
+every returned match maps back to exact offsets in the original text -- so
+ambiguity checks (including overlaps and cross-style duplicates) operate on
+the same logical matches that the mutation itself will use.
 """
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from dataclasses import dataclass
 
 CRLF = "\r\n"
 LF = "\n"
 CR = "\r"
 
-# CRLF must be probed before CR/LF so its two-character sequence isn't shadowed.
-_STYLES = (CRLF, LF, CR)
+
+@dataclass(frozen=True)
+class PatternMatch:
+    """One logical match, mapped to exact offsets in the original text."""
+
+    start: int
+    end: int
+    style: str
 
 
 def detect_dominant(text: str) -> str:
-    """Return the most common line terminator in ``text``.
-
-    Falls back to ``"\\n"`` when ``text`` has no terminators at all (empty or
-    single-line content), which makes every conversion below a no-op.
-    """
+    """Return the most common terminator, defaulting to LF for no-newline text."""
     crlf = text.count(CRLF)
-    # Each CRLF contains a CR and an LF; discount them from the solo tallies.
     cr_only = text.count(CR) - crlf
     lf_only = text.count(LF) - crlf
 
@@ -47,51 +40,94 @@ def detect_dominant(text: str) -> str:
 
 
 def to_lf(text: str) -> str:
-    """Normalize every terminator style in ``text`` to a bare ``\\n``."""
+    """Normalize every terminator style in ``text`` to LF."""
     return text.replace(CRLF, LF).replace(CR, LF)
 
 
 def to_style(text: str, style: str) -> str:
     """Rewrite every terminator in ``text`` to ``style``."""
     normalized = to_lf(text)
-    if style == LF:
-        return normalized
-    return normalized.replace(LF, style)
+    return normalized if style == LF else normalized.replace(LF, style)
 
 
-def resolve_pattern(haystack: str, pattern: str) -> Tuple[Optional[str], int, str]:
-    """Find the form of ``pattern`` that actually occurs in ``haystack``.
+def _normalized_view(text: str) -> tuple[str, list[int]]:
+    """Return an LF-normalized view plus a normalized->original offset map."""
+    normalized: list[str] = []
+    boundaries = [0]
+    index = 0
+    while index < len(text):
+        if text.startswith(CRLF, index):
+            normalized.append(LF)
+            index += 2
+        elif text[index] == CR:
+            normalized.append(LF)
+            index += 1
+        else:
+            normalized.append(text[index])
+            index += 1
+        boundaries.append(index)
+    return "".join(normalized), boundaries
 
-    Returns ``(effective_pattern, occurrence_count, style)``. ``style`` is the
-    terminator the matched form uses, so the caller can convert its
-    replacement text to match the surrounding file.
 
-    The pattern is tried verbatim first, so a caller that already supplied
-    exact bytes is never second-guessed. Then the file's dominant style, then
-    the remaining styles -- which is what makes mixed-terminator files work.
-    When nothing matches, returns ``(None, 0, <dominant style>)`` so the
-    caller can still report a sensible style in its error path.
+def _local_style(text: str, start: int, end: int) -> str:
+    """Style for a matched span: its own terminators, else its line's."""
+    matched = text[start:end]
+    if CR in matched or LF in matched:
+        return detect_dominant(matched)
+
+    index = end
+    while index < len(text):
+        if text.startswith(CRLF, index):
+            return CRLF
+        if text[index] == CR:
+            return CR
+        if text[index] == LF:
+            return LF
+        index += 1
+
+    index = start - 1
+    while index >= 0:
+        if text[index] == LF:
+            return CRLF if index > 0 and text[index - 1] == CR else LF
+        if text[index] == CR:
+            return CR
+        index -= 1
+    return LF
+
+
+def find_logical_matches(haystack: str, pattern: str) -> tuple[PatternMatch, ...]:
+    """Find every logical match, including overlaps and mixed-EOL equivalents.
+
+    Both strings are compared through LF-normalized views, so an ``old_str``
+    written with plain ``\\n`` matches a CRLF span, and two occurrences that
+    only differ by terminator style are both counted -- neither can be
+    silently treated as the unique target. The search advances one character
+    at a time so overlapping occurrences (e.g. ``"ana"`` in ``"banana"``) are
+    never undercounted by non-overlapping primitives like ``str.count``.
     """
-    dominant = detect_dominant(haystack)
+    if not pattern:
+        return ()
 
-    if pattern == "":
-        return None, 0, dominant
+    normalized_haystack, boundaries = _normalized_view(haystack)
+    normalized_pattern = to_lf(pattern)
+    if not normalized_pattern:
+        return ()
 
-    # Single-line patterns contain no terminators; no reconciliation applies.
-    if LF not in pattern and CR not in pattern:
-        return pattern, haystack.count(pattern), dominant
-
-    count = haystack.count(pattern)
-    if count:
-        return pattern, count, detect_dominant(pattern)
-
-    ordered = (dominant,) + tuple(s for s in _STYLES if s != dominant)
-    for style in ordered:
-        candidate = to_style(pattern, style)
-        if candidate == pattern:
-            continue  # already tried verbatim above
-        count = haystack.count(candidate)
-        if count:
-            return candidate, count, style
-
-    return None, 0, dominant
+    matches: list[PatternMatch] = []
+    cursor = 0
+    while True:
+        start = normalized_haystack.find(normalized_pattern, cursor)
+        if start < 0:
+            break
+        normalized_end = start + len(normalized_pattern)
+        original_start = boundaries[start]
+        original_end = boundaries[normalized_end]
+        matches.append(
+            PatternMatch(
+                start=original_start,
+                end=original_end,
+                style=_local_style(haystack, original_start, original_end),
+            )
+        )
+        cursor = start + 1
+    return tuple(matches)

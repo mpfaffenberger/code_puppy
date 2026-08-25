@@ -20,6 +20,7 @@ superseded by this file, which asserts the corrected, intended contract:
 from unittest.mock import patch
 
 from code_puppy.tools.file_modifications import _replace_in_file
+from code_puppy.undo_manager import UndoManager
 
 
 def _write(tmp_path, name, content):
@@ -78,15 +79,30 @@ def test_record_change_not_called_on_guaranteed_failure(tmp_path):
 
 
 def test_record_change_called_once_only_on_successful_write(tmp_path):
-    """Undo must be recorded exactly once, and only after a real write."""
+    """Undo must be captured once and committed once, only after a real write.
+
+    capture_change/commit_change (rather than the old one-shot record_change)
+    is what lets a failed write skip history entirely without an unsafe
+    pop-the-most-recent-entry rollback -- see UndoManager.capture_change.
+    """
     p = _write(tmp_path, "f3.txt", "hello world\n")
 
-    with patch("code_puppy.undo_manager.UndoManager.record_change") as mock_record:
+    with (
+        patch(
+            "code_puppy.undo_manager.UndoManager.capture_change",
+            wraps=UndoManager().capture_change,
+        ) as mock_capture,
+        patch(
+            "code_puppy.undo_manager.UndoManager.commit_change",
+            wraps=UndoManager().commit_change,
+        ) as mock_commit,
+    ):
         result = _replace_in_file(None, str(p), [{"old_str": "hello", "new_str": "hi"}])
 
     assert result["success"] is True
     assert result["changed"] is True
-    mock_record.assert_called_once_with(str(p), "replace_in_file")
+    mock_capture.assert_called_once_with(str(p), "replace_in_file")
+    mock_commit.assert_called_once()
 
 
 def test_noop_replacement_returns_changed_false_without_recording_undo(tmp_path):
