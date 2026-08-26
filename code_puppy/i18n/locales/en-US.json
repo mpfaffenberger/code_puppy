@@ -44,6 +44,8 @@
   "cli.agent.set_error": "Error setting agent: {error}",
   "cli.agent.cancelling": "Cancelling running agent task...",
   "cli.agent.task_cancelled": "Agent task cancelled",
+  "cli.agent.detached": "Run abandoned — it was stuck cancelling. Back at the prompt (the old run may still unwind in the background).",
+  "cli.agent.quit_cancel_timeout": "Agent task didn't finish cancelling within {seconds}s — exiting anyway.",
   "cli.resume.quick_searching": "🔍 Quick Resume selected - finding latest session for {scope}",
   "cli.resume.none_found": "No previous session found for this scope; starting fresh.",
   "cli.resume.available_sessions": "Available sessions: {sessions}",

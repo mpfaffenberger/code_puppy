@@ -741,6 +741,35 @@ def _interactive_sigint_guard(_sig, _frame):
     return
 
 
+#: How long the quit paths (double Ctrl+C / Ctrl+D / exit) wait for a
+#: lingering agent task to finish cancelling before abandoning it. A stuck
+#: unwind must never freeze the exit — process teardown reaps the zombie.
+_QUIT_CANCEL_TIMEOUT_S = 5.0
+
+
+async def _shutdown_agent_task(agent_task) -> None:
+    """Cancel a lingering agent task on quit, bounded by a timeout.
+
+    ``asyncio.wait`` (not ``wait_for``) on purpose: ``wait_for``'s timeout
+    path awaits the inner cancellation, which is exactly the await that can
+    wedge. ``wait`` just stops waiting.
+    """
+    from code_puppy.messaging import emit_warning
+
+    if agent_task is None or agent_task.done():
+        return
+    emit_info(t("cli.agent.cancelling"))
+    agent_task.cancel()
+    done, _ = await asyncio.wait({agent_task}, timeout=_QUIT_CANCEL_TIMEOUT_S)
+    if agent_task not in done:
+        emit_warning(t("cli.agent.quit_cancel_timeout", seconds=_QUIT_CANCEL_TIMEOUT_S))
+        return
+    try:
+        agent_task.result()
+    except BaseException:
+        pass  # Expected when cancelling — nothing to do with it on the way out.
+
+
 async def interactive_mode(message_renderer, initial_command: str = None) -> None:
     """Run the agent in interactive mode."""
     from code_puppy.command_line.command_handler import handle_command
@@ -921,13 +950,7 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
             now = time.monotonic()
             if was_plain_ctrl_c and now - last_idle_ctrl_c <= DOUBLE_CTRL_C_WINDOW_S:
                 emit_success("\n" + t("cli.goodbye_ctrld"))
-                if current_agent_task and not current_agent_task.done():
-                    emit_info(t("cli.agent.cancelling"))
-                    current_agent_task.cancel()
-                    try:
-                        await current_agent_task
-                    except asyncio.CancelledError:
-                        pass  # Expected when cancelling
+                await _shutdown_agent_task(current_agent_task)
                 break
             last_idle_ctrl_c = now if was_plain_ctrl_c else 0.0
 
@@ -940,14 +963,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
             emit_success("\n" + t("cli.goodbye_ctrld"))
 
-            # Cancel any running agent task for clean shutdown
-            if current_agent_task and not current_agent_task.done():
-                emit_info(t("cli.agent.cancelling"))
-                current_agent_task.cancel()
-                try:
-                    await current_agent_task
-                except asyncio.CancelledError:
-                    pass  # Expected when cancelling
+            # Cancel any running agent task for clean shutdown (bounded — a
+            # stuck unwind must not freeze Ctrl+D).
+            await _shutdown_agent_task(current_agent_task)
 
             break
 
@@ -975,14 +993,9 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
 
             emit_success(t("cli.goodbye"))
 
-            # Cancel any running agent task for clean shutdown
-            if current_agent_task and not current_agent_task.done():
-                emit_info(t("cli.agent.cancelling"))
-                current_agent_task.cancel()
-                try:
-                    await current_agent_task
-                except asyncio.CancelledError:
-                    pass  # Expected when cancelling
+            # Cancel any running agent task for clean shutdown (bounded — a
+            # stuck unwind must not freeze `exit`).
+            await _shutdown_agent_task(current_agent_task)
 
             # The renderer is stopped in the finally block of main().
             break
@@ -1365,13 +1378,44 @@ async def run_prompt_with_attachments(
         )
     )
 
+    # Escape hatch: a cancelled run can wedge mid-unwind (sub-agent/MCP
+    # cancel-scope teardown). Racing the task against a detach event keeps
+    # the REPL recoverable — repeated cancel gestures escalate to a detach
+    # (see _run_signals.make_schedule_cancel) and we abandon the zombie.
+    from code_puppy.agents._run_signals import (
+        clear_detach_event,
+        install_detach_event,
+    )
+
+    detach_event = asyncio.Event()
+    install_detach_event(detach_event)
+
     async def _await_agent():
+        detach_wait = asyncio.create_task(detach_event.wait())
         try:
-            result = await agent_task
-            return result, agent_task
-        except asyncio.CancelledError:
-            emit_info(t("cli.agent.task_cancelled"))
-            return None, agent_task
+            try:
+                done, _ = await asyncio.wait(
+                    {agent_task, detach_wait}, return_when=asyncio.FIRST_COMPLETED
+                )
+            except asyncio.CancelledError:
+                # The waiter itself was cancelled (shutdown teardown) — same
+                # contract as the old bare ``await agent_task`` path.
+                emit_info(t("cli.agent.task_cancelled"))
+                return None, agent_task
+            if agent_task not in done:
+                # Escalated cancel: abandon the stuck unwind, free the REPL.
+                emit_warning(t("cli.agent.detached"))
+                return None, agent_task
+            if agent_task.cancelled():
+                emit_info(t("cli.agent.task_cancelled"))
+                return None, agent_task
+            exc = agent_task.exception()
+            if exc is not None:
+                raise exc
+            return agent_task.result(), agent_task
+        finally:
+            detach_wait.cancel()
+            clear_detach_event()
 
     if use_run_ui:
         # Interactive run: bottom bar stays up while the agent works. run_ui() is
