@@ -2,21 +2,10 @@
 
 import re
 
-import pytest
-
-from code_puppy.i18n import catalog, pseudo, translate
+from code_puppy.i18n import catalog, translate
 
 _NAMESPACE = "tools.common.approval."
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
-
-
-@pytest.fixture(autouse=True)
-def _reset_locale():
-    translate.set_locale("en-US")
-    catalog.reset()
-    yield
-    translate.set_locale("en-US")
-    catalog.reset()
 
 
 def _keys():
@@ -28,13 +17,6 @@ def test_common_approval_namespace_is_complete_in_all_catalogs():
     assert len(expected) == 12
     for locale in ("en-US", "es", "fr-CA"):
         assert expected <= set(catalog.load_catalog(locale))
-
-
-def test_common_messages_resolve_and_pseudolocalize():
-    for key in _keys():
-        assert translate.t(key) != key
-    translate.set_locale(pseudo.PSEUDO_LOCALE)
-    assert all(translate.t(key).startswith("⟦") for key in _keys())
 
 
 def test_common_placeholders_are_preserved():

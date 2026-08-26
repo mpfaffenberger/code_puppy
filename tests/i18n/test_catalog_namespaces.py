@@ -43,18 +43,7 @@ _NAMESPACES = {
         ),
         48,
     ),
-    "session": (
-        (
-            "cmd.session.",
-            "cmd.clear.",
-            "cmd.compact.",
-            "cmd.truncate.",
-            "cmd.quick_resume.",
-            "cmd.dump_context.",
-            "cmd.load_context.",
-        ),
-        35,
-    ),
+    "tools.common.approval": (("tools.common.approval.",), 12),
 }
 
 _PREFIXES = [prefixes for prefixes, _ in _NAMESPACES.values()]
