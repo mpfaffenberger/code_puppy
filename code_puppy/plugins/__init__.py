@@ -117,6 +117,18 @@ def _install_project_plugin_finder() -> None:
 
 PLUGIN_ENTRY_POINT_GROUP = "code_puppy.plugins"
 
+# shell_safety implements the safety_permission_level threshold. Skip it only
+# when the user opted into high/critical autonomy; the default (medium) must
+# load it or the setting is a no-op.
+_SHELL_SAFETY_SKIP_LEVELS = frozenset({"high", "critical"})
+
+
+def _skip_shell_safety_plugin() -> bool:
+    from code_puppy.config import get_safety_permission_level
+
+    return get_safety_permission_level() in _SHELL_SAFETY_SKIP_LEVELS
+
+
 # Track if plugins have already been loaded to prevent duplicate registration
 _PLUGINS_LOADED = False
 
@@ -135,18 +147,13 @@ def _load_installed_plugins() -> list[str]:
     project plugins, but remain physically independent from the core package.
     Entry points are sorted for deterministic startup and test behavior.
     """
-    from code_puppy.config import get_safety_permission_level
-
     loaded: list[str] = []
     discovered = sorted(
         entry_points(group=PLUGIN_ENTRY_POINT_GROUP), key=lambda item: item.name
     )
     for entry_point in discovered:
         plugin_name = entry_point.name
-        if plugin_name == "shell_safety" and get_safety_permission_level() not in (
-            "none",
-            "low",
-        ):
+        if plugin_name == "shell_safety" and _skip_shell_safety_plugin():
             logger.debug("Skipping shell_safety plugin due to safety permission level")
             continue
         try:
@@ -191,14 +198,12 @@ def _load_builtin_plugins(
                 continue
 
             if callbacks_file.exists():
-                # Skip shell_safety plugin unless safety_permission_level is "low" or "none"
-                if plugin_name == "shell_safety":
-                    safety_level = get_safety_permission_level()
-                    if safety_level not in ("none", "low"):
-                        logger.debug(
-                            f"Skipping shell_safety plugin - safety_permission_level is '{safety_level}' (needs 'low' or 'none')"
-                        )
-                        continue
+                if plugin_name == "shell_safety" and _skip_shell_safety_plugin():
+                    logger.debug(
+                        "Skipping shell_safety plugin - safety_permission_level is %s",
+                        get_safety_permission_level(),
+                    )
+                    continue
 
                 try:
                     module_name = f"code_puppy.plugins.{plugin_name}.register_callbacks"

@@ -147,9 +147,59 @@ def _thinking_tags_profile(
     from code_puppy.model_utils import get_thinking_tags
 
     tags = get_thinking_tags(model_name, model_config)
-    if tags is None:
-        return None
-    return OpenAIModelProfile(thinking_tags=tags)
+    profile_kwargs: dict[str, Any] = {}
+    if tags is not None:
+        profile_kwargs["thinking_tags"] = tags
+
+    underlying_name = str(model_config.get("name", model_name)).lower()
+    if "gpt-5.6" in underlying_name:
+        profile_kwargs.update(
+            openai_responses_supports_reasoning_mode=True,
+            openai_responses_supports_reasoning_context=True,
+            openai_supports_encrypted_reasoning_content=True,
+        )
+
+    return OpenAIModelProfile(**profile_kwargs) if profile_kwargs else None
+
+
+def _strict_openai_profile(
+    model_name: str,
+    model_config: dict[str, Any],
+    *,
+    extra: OpenAIModelProfile | None = None,
+) -> OpenAIModelProfile:
+    """Build a profile for custom OpenAI-compatible endpoints (SGLang, vLLM, etc.).
+
+    Strict backends reject more than one leading system message with
+    ``System message must be at the beginning.`` After compaction the wire
+    format has two: the compaction summary ``SystemPromptPart`` and the
+    agent's per-turn ``instruction_parts``.  Setting
+    ``openai_chat_supports_multiple_system_messages=False`` makes
+    pydantic-ai's ``_merge_leading_system_messages`` concatenate them into
+    one, which every backend accepts.
+
+    Merging is harmless for endpoints that *do* support multiple system
+    messages (the content is identical, just joined with ``\n\n``), so the
+    safe default is ``False``.  Users who know their endpoint handles
+    multiple system messages can opt out with
+    ``"supports_multiple_system_messages": true`` in the model config.
+    """
+    base = _thinking_tags_profile(model_name, model_config) or {}
+    merged = OpenAIModelProfile(base)
+    if extra:
+        merged.update(extra)
+    # Config override trumps the safe default.  Fail fast on non-bool
+    # values: a JSON string "false" would silently invert the user's intent
+    # (it is truthy in Python, and we cannot ``bool()``-coerce because
+    # ``bool("false")`` is ``True``).
+    supports = model_config.get("supports_multiple_system_messages", False)
+    if not isinstance(supports, bool):
+        raise TypeError(
+            "supports_multiple_system_messages must be a JSON boolean "
+            f"(true/false), got {type(supports).__name__}: {supports!r}"
+        )
+    merged["openai_chat_supports_multiple_system_messages"] = supports
+    return merged
 
 
 def _merge_dotted_key(target: dict, dotted_key: str, value: Any) -> None:
@@ -331,7 +381,11 @@ def make_model_settings(
         # Plain OpenAIChatModelSettings without reasoning params.
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
-    elif "gpt-5" in model_name:
+    elif "gpt-5" in model_name or "gpt-5" in str(model_config.get("name", "")).lower():
+        # Match on the underlying model name as well as the config key:
+        # custom endpoint entries are often keyed by an alias (e.g.
+        # "luna-responses" -> name "gpt-5.6-luna") and would otherwise
+        # silently skip all reasoning configuration.
         # Normalize legacy effort values (minimal->none, ultra->max)
         _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
@@ -341,7 +395,13 @@ def make_model_settings(
         uses_responses_api = (
             model_type == "chatgpt_oauth"
             or model_type == "azure_foundry_openai"
-            or (model_type == "openai" and "codex" in model_name)
+            or (
+                model_type == "openai"
+                and (
+                    "codex" in model_name
+                    or "gpt-5.6" in str(model_config.get("name", "")).lower()
+                )
+            )
             or (
                 model_type in _CUSTOM_OPENAI_MODEL_TYPES
                 and _custom_openai_uses_responses_api(model_name, model_config)
@@ -357,28 +417,12 @@ def make_model_settings(
                     "verbosity", "medium"
                 )
 
-            underlying_name = str(model_config.get("name", "")).lower()
-            is_gpt_5_6 = "gpt-5.6" in model_name.lower() or "gpt-5.6" in underlying_name
-            if is_gpt_5_6:
-                # pydantic-ai 2.31.0 HAS openai_reasoning_mode/context settings,
-                # but they're gated on profile flags
-                # (openai_responses_supports_reasoning_{mode,context}) that
-                # custom-endpoint GPT-5.6 routes don't reliably carry — the
-                # fields would be silently dropped. extra_body delivers the
-                # full reasoning object unconditionally, so keep it (and pop
-                # effort/summary so pydantic-ai's partial doesn't clobber it).
-                reasoning = {
-                    "effort": model_settings_dict.pop("openai_reasoning_effort"),
-                    "summary": model_settings_dict.pop("openai_reasoning_summary"),
-                    "context": effective_settings.get("reasoning_context", "all_turns"),
-                    "mode": effective_settings.get("reasoning_mode", "standard"),
-                }
-                extra_body = dict(model_settings_dict.get("extra_body") or {})
-                extra_body["reasoning"] = reasoning
-                model_settings_dict["extra_body"] = extra_body
-                model_settings_dict.pop("reasoning_context", None)
-                model_settings_dict.pop("reasoning_mode", None)
-
+            model_settings_dict["openai_reasoning_context"] = effective_settings.get(
+                "reasoning_context", "all_turns"
+            )
+            model_settings_dict["openai_reasoning_mode"] = effective_settings.get(
+                "reasoning_mode", "standard"
+            )
             model_settings = OpenAIResponsesModelSettings(**model_settings_dict)
         else:
             # Chat Completions models don't support configurable reasoning summaries.
@@ -738,9 +782,14 @@ class ModelFactory:
                 provider=provider,
                 profile=_thinking_tags_profile(model_name, model_config),
             )
-            if "codex" in model_name:
+            if (
+                "codex" in model_name
+                or "gpt-5.6" in str(model_config.get("name", "")).lower()
+            ):
                 model = OpenAIResponsesModel(
-                    model_name=model_config["name"], provider=provider
+                    model_name=model_config["name"],
+                    provider=provider,
+                    profile=_thinking_tags_profile(model_name, model_config),
                 )
             return model
 
@@ -912,7 +961,7 @@ class ModelFactory:
             return OpenAIChatModel(
                 model_name=model_config["name"],
                 provider=provider,
-                profile=_thinking_tags_profile(model_name, model_config),
+                profile=_strict_openai_profile(model_name, model_config),
             )
         elif model_type == "zai_coding":
             api_key = get_api_key("ZAI_API_KEY")
@@ -929,6 +978,7 @@ class ModelFactory:
             return ZaiChatModel(
                 model_name=model_config["name"],
                 provider=provider,
+                profile=_strict_openai_profile(model_name, model_config),
             )
         elif model_type == "zai_api":
             api_key = get_api_key("ZAI_API_KEY")
@@ -945,6 +995,7 @@ class ModelFactory:
             return ZaiChatModel(
                 model_name=model_config["name"],
                 provider=provider,
+                profile=_strict_openai_profile(model_name, model_config),
             )
 
         elif model_type == "custom_gemini":
@@ -1002,8 +1053,14 @@ class ModelFactory:
 
             # Cerebras rejects mixed 'strict' tool values; disable strict defs so
             # pydantic-ai never sends that field (avoids wrong_api_format errors).
-            profile = OpenAIModelProfile(
-                openai_supports_strict_tool_definition=False,
+            # Route through _strict_openai_profile to apply the same safe
+            # system-message merge default and any configured thinking_tags
+            # (the latter was previously missed for Cerebras because the old
+            # bare profile skipped _thinking_tags_profile).
+            profile = _strict_openai_profile(
+                model_name,
+                model_config,
+                extra=OpenAIModelProfile(openai_supports_strict_tool_definition=False),
             )
 
             return OpenAIChatModel(
@@ -1044,7 +1101,7 @@ class ModelFactory:
             return OpenAIChatModel(
                 model_name=model_config["name"],
                 provider=provider,
-                profile=_thinking_tags_profile(model_name, model_config),
+                profile=_strict_openai_profile(model_name, model_config),
             )
 
         # NOTE: 'chatgpt_oauth' model type is now handled by the chatgpt_oauth plugin

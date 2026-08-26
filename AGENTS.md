@@ -76,6 +76,7 @@ approval. With `fail_closed=True` its exception is reported as a block instead. 
 | `invoke_agent` | Sub-agent invoked | `(*args, **kwargs) -> None` |
 | `agent_exception` | Unhandled agent error | `(exception, *args, **kwargs) -> None` |
 | `agent_run_start` | Before agent task | `(agent_name, model_name, session_id=None) -> None` |
+| `model_select` | Select a model for one run | `(*, agent_name, current_model, prompt, messages, session_id=None) -> str \| None` — first non-empty result wins |
 | `agent_run_end` | After agent run | `(agent_name, model_name, session_id=None, success=True, error=None, response_text=None, metadata=None) -> None` |
 | `load_prompt` | System prompt assembly | `() -> str \| None` |
 | `run_shell_command` | Before shell exec | `(context, command, cwd=None, timeout=60) -> dict \| None` (return `{"blocked": True}` to block, `{"rewrite": "<new cmd>"}` to transparently transform) |
@@ -95,7 +96,9 @@ approval. With `fail_closed=True` its exception is reported as a block instead. 
 | `load_models_config` | Inject models | `() -> dict` |
 | `load_model_descriptions` | Inject description overlays | `() -> dict[str, str]` |
 | `get_model_system_prompt` | Per-model prompt | `(model_name, default_prompt, user_prompt) -> dict \| None` |
+| `provider_credential_flow` | `/add_model` hit a missing credential | `(*, provider_id, env_var) -> bool \| None` — save the credential (config + env) and return `True` to skip manual entry; short-circuits on first `True` |
 | `stream_event` | Response streaming | `(event_type, event_data, agent_session_id=None) -> None` |
+| `transform_model_messages` | Before each model request, after history processing | `(agent_name, messages) -> None` — mutate the final `list[ModelMessage]` in place |
 | `pre_mcp_autostart` | Before bound MCP servers auto-start | `(agent_name, server_names) -> None` (refresh tokens / mint creds here) |
 
 Full list + rarely-used hooks: see `code_puppy/callbacks.py` source.
@@ -174,4 +177,3 @@ quickstart). Rules for new user-facing output (PUP-473):
 5. **Return `None` from commands you don't own**
 6. **Always run linters - `ruff check --fix`, `ruff format .`
 7. **NEVER ALLOW A CLAUDE CO-AUTHOR COMMIT**
-

@@ -7,20 +7,18 @@ Covers remaining uncovered lines across:
 - prompt_toolkit_completion.py (unicode fallback, __main__, keybindings)
 - command_handler.py (MarkdownCommandResult import fallback)
 - pin_command_completion.py (empty partial_model branch)
-- diff_menu.py (keybinding handlers)
 - config_commands.py (various branches)
-- colors_menu.py (keybinding handlers, preview functions)
 - add_model_menu.py (keybinding handlers)
 - model_settings_menu.py (keybinding handlers)
 - autosave_menu.py (keybinding handlers)
 - agent_menu.py (keybinding handlers, action flows)
-- uc_menu.py (keybinding handlers, highlight, delete)
+- uc_menu.py (helpers, highlight, delete)
 """
 
 import importlib
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, mock_open, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 
 def test_clipboard_binary_content_import_failure():
@@ -169,51 +167,9 @@ def test_core_commands_shlex_fallback():
         assert result is True
 
 
-def test_diff_menu_enter_empty_choices():
-    """Cover diff_menu line 568: enter handler when choices is empty."""
-    import asyncio
-
-    from prompt_toolkit.formatted_text import ANSI
-
-    from code_puppy.command_line.diff_menu import _split_panel_selector
-
-    on_change = MagicMock()
-    get_preview = MagicMock(return_value=ANSI("preview"))
-
-    with patch("code_puppy.command_line.diff_menu.Application") as mock_app_cls:
-        mock_app = AsyncMock()
-        mock_app_cls.return_value = mock_app
-
-        async def run_and_fire():
-            call = mock_app_cls.call_args
-            kb = call.kwargs.get("key_bindings") if call else None
-            if kb:
-                event = MagicMock()
-                for b in kb.bindings:
-                    for k in b.keys:
-                        kv = k.value if hasattr(k, "value") else str(k)
-                        if kv == "c-m":  # enter
-                            try:
-                                b.handler(event)
-                            except Exception:
-                                pass
-
-        mock_app.run_async = run_and_fire
-
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(
-                _split_panel_selector("Test", [], on_change, get_preview=get_preview)
-            )
-        except (Exception, KeyboardInterrupt):
-            pass
-        finally:
-            loop.close()
-
-
 def test_file_path_completion_permission_error():
     """Cover lines 72-73: exception handling."""
-    from prompt_toolkit.document import Document
+    from termflow.tui.completion import Document
 
     from code_puppy.command_line.file_path_completion import FilePathCompleter
 
@@ -250,7 +206,7 @@ def test_load_context_completion_exception():
 
 def test_sanitize_for_encoding_unicode_error():
     """Cover lines 81-83: UnicodeEncodeError fallback in _sanitize_for_encoding."""
-    from code_puppy.command_line.prompt_toolkit_completion import (
+    from code_puppy.command_line.completers import (
         _sanitize_for_encoding,
     )
 
@@ -331,42 +287,17 @@ def test_uc_menu_delete_tool_exception():
         assert result is False
 
 
-def test_uc_menu_highlight_python_line():
-    """Cover lines 498-530: _highlight_python_line."""
-    from code_puppy.command_line.uc_menu import _highlight_python_line
+def test_uc_menu_highlight_source_lines():
+    """Highlighting flows through the theme-aware termflow highlighter."""
+    from code_puppy.command_line.uc_menu import highlight_source_lines
 
-    # Comment
-    result = _highlight_python_line("# this is a comment")
-    assert len(result) > 0
-
-    # Triple-quote string
-    result = _highlight_python_line('    """docstring"""')
-    assert len(result) > 0
-
-    # Code with keywords
-    result = _highlight_python_line("def hello(x):")
-    assert len(result) > 0
-
-    # Code with numbers
-    result = _highlight_python_line("x = 42")
-    assert len(result) > 0
-
-    # Code with strings
-    result = _highlight_python_line('name = "world"')
-    assert len(result) > 0
-
-    # Single-quoted string
-    result = _highlight_python_line("name = 'world'")
-    assert len(result) > 0
-
-    # Empty line
-    result = _highlight_python_line("")
-    assert result == [("", "")]
+    lines = highlight_source_lines(["def hello(x):", "    return x + 1", ""])
+    assert len(lines) == 3
+    assert "hello" in lines[0]
 
 
-def test_uc_menu_render_preview_panel_with_author():
-    """Cover line 297: _render_preview_panel with author."""
-    from code_puppy.command_line.uc_menu import _render_preview_panel
+def test_uc_menu_tool_details_with_author():
+    from code_puppy.command_line.uc_menu import tool_details
     from code_puppy_core_plugins.universal_constructor.models import (
         ToolMeta,
         UCToolInfo,
@@ -386,11 +317,11 @@ def test_uc_menu_render_preview_panel_with_author():
         function_name="test",
         docstring="Detailed docstring here with info about the function.",
     )
-    result = _render_preview_panel(tool)
-    assert result is not None
+    details = tool_details(tool)
+    assert "Test Author" in details
+    assert "ENABLED" in details
 
-    result = _render_preview_panel(None)
-    assert result is not None
+    assert "No tool selected" in tool_details(None)
 
 
 def test_uc_menu_toggle_tool_meta_not_found():

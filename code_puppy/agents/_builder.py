@@ -19,6 +19,8 @@ from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
 from code_puppy.agents._compaction import make_history_processor
+from code_puppy.agents._model_message_transform import build_model_message_transform
+from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
 from code_puppy.agents._output_limits import (
     build_response_clamp,
     build_tool_output_limits,
@@ -529,8 +531,9 @@ def _build_gpt_5_6_invoke_agent_guard_text() -> str:
 
     Reading the limit at prompt-assembly time (rather than baking it into a
     module constant) guarantees the model-facing guidance and the runtime
-    enforcement in ``subagent_invocation._gpt_5_6_recursion_blocked`` can
-    never drift out of sync -- they both resolve to
+    enforcement (``subagent_invocation.recursion_guard_error``, applied by
+    the ``SubagentRecursionGuard`` capability and the in-tool guest
+    fallback) can never drift out of sync -- they all resolve to
     ``get_subagent_recursion_limit_gpt_5_6()``.
     """
     # Local import to avoid a top-level ``code_puppy.config`` cycle -- this
@@ -640,10 +643,18 @@ def build_pydantic_agent(
     )
     history_processor = make_history_processor(agent)
     steer_processor = make_steer_history_processor(agent)
+    logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
+    # Read before ``_new_pydantic_agent`` runs: the closure's capability list
+    # conditions the recursion guard on the agent's declared tool surface.
+    agent_tools = agent.get_available_tools()
 
     def _new_pydantic_agent(toolsets: List[Any]) -> PydanticAgent:
         return PydanticAgent(
             model=model,
+            # Explicit name: without it pydantic-ai infers one from the
+            # caller's frame variables, so observability spans read
+            # "invoke_agent pydantic_agent" instead of the logical agent name.
+            name=logical_agent_name,
             instructions=instructions,
             output_type=output_type,
             retries=3,
@@ -655,13 +666,19 @@ def build_pydantic_agent(
             # `history_processors=` kwarg, removed in pydantic-ai v2).
             # ToolOutputLimits reduces oversized tool returns on a different
             # hook (after_tool_execute), so its position is inert; the
-            # response clamp runs before_model_request and sits LAST so it
-            # sees the final, steer-injected history.
+            # response clamp runs before_model_request after both history
+            # processors. The plugin transform wraps the final model request.
             capabilities=[
                 *build_tool_output_limits(),
                 ProcessHistory(history_processor),
                 ProcessHistory(steer_processor),
                 build_response_clamp(),
+                build_model_message_transform(logical_agent_name),
+                # Sub-agent recursion guards on the wrap_tool_execute seam
+                # (denies invoke_agent calls past the depth caps before the
+                # tool body runs). Sole wrap_tool_execute implementer, so
+                # position is inert.
+                *build_subagent_recursion_guard(agent_tools),
             ],
             model_settings=model_settings,
         )
@@ -669,8 +686,6 @@ def build_pydantic_agent(
     # Pass 1: build with empty toolsets so we can see what pydantic-ai + our
     # tool registry actually produced, and filter MCP to avoid name clashes.
     probe_agent = _new_pydantic_agent(toolsets=[])
-    agent_tools = agent.get_available_tools()
-    logical_agent_name = getattr(agent, "name", None) or agent.__class__.__name__
     register_tools_for_agent(
         probe_agent,
         agent_tools,

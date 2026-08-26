@@ -336,6 +336,26 @@ Use `custom_openai` for OpenAI-compatible Chat Completions endpoints. If an endp
 }
 ```
 
+## Multiple System Messages
+
+Custom OpenAI-compatible endpoints (`custom_openai`, `openrouter`, `cerebras`, and Zhipu `zai_coding`/`zai_api`) default to merging consecutive leading `system` messages into one. Strict backends (SGLang, some vLLM deployments) reject more than one leading system message — this surfaces after auto-compact, which inserts a compaction-summary system message alongside the agent's own system instructions, as a `400: System message must be at the beginning.`
+
+The merge is harmless for endpoints that *do* support multiple system messages. If you know your endpoint handles them, opt out per model with `"supports_multiple_system_messages": true` (a JSON boolean):
+
+```json
+{
+  "my_model": {
+    "type": "custom_openai",
+    "name": "qwen3-sglang",
+    "supports_multiple_system_messages": true,
+    "custom_endpoint": {
+      "url": "http://localhost:30000/v1",
+      "api_key": "$API_KEY"
+    }
+  }
+}
+```
+
 ## Custom Model Timeouts
 
 For custom model endpoints (`custom_openai`, `custom_anthropic`, `custom_gemini`, `cerebras`), you can configure custom timeout values to handle slow or unreliable endpoints. The default timeout for these custom endpoint models is 180 seconds.
