@@ -361,5 +361,6 @@
   "mcp.catalog.installing_as": "\n  📦 Installing {display_name} as '{server_name}'...",
   "mcp.catalog.installed": "\n  ✅ Successfully installed '{server_name}'!",
   "mcp.catalog.start_hint": "  Use '/mcp start {server_name}' to start the server.\n",
+  "mcp.catalog.confirm_affirmative": "y",
   "mcp.catalog.install_failed": "\n  ❌ Installation failed.\n"
 }

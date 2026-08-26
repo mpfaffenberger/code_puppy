@@ -239,5 +239,6 @@
   "mcp.catalog.installing_as": "\n   Instalando {display_name} como '{server_name}'...",
   "mcp.catalog.installed": "\n   ¡'{server_name}' se instaló correctamente!",
   "mcp.catalog.start_hint": "  Usa '/mcp start {server_name}' para iniciar el servidor.\n",
-  "mcp.catalog.install_failed": "\n   La instalación falló.\n"
+  "mcp.catalog.install_failed": "\n   La instalación falló.\n",
+  "mcp.catalog.confirm_affirmative": "s"
 }

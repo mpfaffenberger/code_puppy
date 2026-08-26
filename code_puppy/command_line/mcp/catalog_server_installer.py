@@ -68,7 +68,8 @@ def prompt_for_server_config(manager, server) -> Optional[Dict]:
             override = safe_input(
                 t("mcp.catalog.override_prompt", server_name=server_name)
             )
-            if not override.lower().startswith("y"):
+            affirmative = t("mcp.catalog.confirm_affirmative").strip().lower()
+            if not override.lower().startswith(affirmative):
                 emit_warning(t("mcp.catalog.cancelled"))
                 return None
         except (KeyboardInterrupt, EOFError):
