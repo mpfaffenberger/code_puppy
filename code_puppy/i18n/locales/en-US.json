@@ -351,5 +351,11 @@
   "model_menu.browser.unsupported_provider": "Cannot add model from {provider}: {reason}",
   "model_menu.browser.no_tool_call_warning": "⚠️  {model} does NOT support tool calling!\n   This model won't be able to edit files, run commands, or use any tools.\n   It will be very limited for coding tasks.",
   "model_menu.browser.add_cancelled": "Model addition cancelled.",
-  "cli.autosave.tui_required": "Interactive session browsing needs a terminal. Use -r NAME to resume a session by name."
+  "cli.autosave.tui_required": "Interactive session browsing needs a terminal. Use -r NAME to resume a session by name.",
+  "agent.model_settings.unknown_key": "Unknown model_settings key {key!r}. Valid keys: {valid_keys}",
+  "agent.model_settings.number_type": "model_settings[{key!r}] must be a number (got {value!r})",
+  "agent.model_settings.minimum": "model_settings[{key!r}] must be >= {minimum} (got {value!r})",
+  "agent.model_settings.maximum": "model_settings[{key!r}] must be <= {maximum} (got {value!r})",
+  "agent.model_settings.choice": "model_settings[{key!r}] must be one of {choices} (got {value!r})",
+  "agent.model_settings.boolean_type": "model_settings[{key!r}] must be true or false (got {value!r})"
 }
