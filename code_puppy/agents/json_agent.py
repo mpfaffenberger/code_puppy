@@ -25,7 +25,7 @@ def model_settings_validation_errors(model_settings: Dict[str, Any]) -> List[str
     ``AgentCreatorAgent.validate_agent_json`` (collects errors for the
     create/edit flow) so the two validation paths can't drift apart.
     """
-    from code_puppy.command_line.model_settings_menu import SETTING_DEFINITIONS
+    from code_puppy.command_line.model_settings_defs import SETTING_DEFINITIONS
 
     errors: List[str] = []
     for key, value in model_settings.items():
