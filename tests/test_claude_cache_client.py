@@ -5,7 +5,7 @@ import json
 import time
 from unittest.mock import Mock, patch
 
-import httpx
+import httpx2 as httpx  # match claude_cache_client: anthropic >= 1.0 rides httpx2
 import pytest
 from anthropic import AsyncAnthropic
 

@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from unittest.mock import MagicMock
 
-import httpx
+import httpx2 as httpx  # match claude_cache_client: anthropic >= 1.0 rides httpx2
 import pytest
 
 from code_puppy import callbacks

@@ -17,7 +17,9 @@ import time
 from typing import Any, Callable, MutableMapping
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-import httpx
+# anthropic >= 1.0 requires `http_client` to be an `httpx2.AsyncClient`; the 2.x line
+# keeps the same client API, so the whole module rides it under the familiar name.
+import httpx2 as httpx
 
 logger = logging.getLogger(__name__)
 

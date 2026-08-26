@@ -2,7 +2,7 @@
 
 from unittest.mock import AsyncMock, Mock, patch
 
-import httpx
+import httpx2 as httpx  # match claude_cache_client: anthropic >= 1.0 rides httpx2
 import pytest
 
 from code_puppy.claude_cache_client import ClaudeCacheAsyncClient

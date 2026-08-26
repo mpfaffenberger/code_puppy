@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.capabilities import ProcessHistory
 
+from code_puppy.agents._code_mode import build_speculative_code_mode
 from code_puppy.agents._compaction import make_history_processor
 from code_puppy.agents._model_message_transform import build_model_message_transform
 from code_puppy.agents._subagent_recursion import build_subagent_recursion_guard
@@ -676,6 +677,12 @@ def build_pydantic_agent(
                 # tool body runs). Sole wrap_tool_execute implementer, so
                 # position is inert.
                 *build_subagent_recursion_guard(agent_tools),
+                # Speculative CodeMode folds the read-only file tools into a
+                # run_code sandbox and launches literal-argument calls while
+                # the snippet is still streaming (harness#699 dogfood). Its
+                # own ordering is declared outermost by the capability, so
+                # list position is inert.
+                *build_speculative_code_mode(agent_tools),
             ],
             model_settings=model_settings,
         )
