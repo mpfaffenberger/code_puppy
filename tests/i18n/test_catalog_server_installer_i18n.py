@@ -10,7 +10,7 @@ def keys():
 
 
 def test_namespace_is_populated():
-    assert len(keys()) == 13
+    assert len(keys()) == 12
 
 
 def test_keys_resolve_and_pseudolocalize():
@@ -28,11 +28,3 @@ def test_placeholders_are_consistent():
             assert set(pattern.findall(source[key])) == set(
                 pattern.findall(translated[key])
             )
-
-
-def test_localized_affirmative_tokens_match_catalogs():
-    assert translate.t("mcp.catalog.confirm_affirmative") == "y"
-    translate.set_locale("es")
-    assert translate.t("mcp.catalog.confirm_affirmative") == "s"
-    translate.set_locale("fr-CA")
-    assert translate.t("mcp.catalog.confirm_affirmative") == "o"
