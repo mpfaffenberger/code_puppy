@@ -313,9 +313,11 @@ def make_model_settings(
         # Plain OpenAIChatModelSettings without reasoning params.
         model_settings = OpenAIChatModelSettings(**model_settings_dict)
 
-    elif "gpt-5" in model_name or (
-        model_type == "openai" and "gpt-5" in str(model_config.get("name", "")).lower()
-    ):
+    elif "gpt-5" in model_name or "gpt-5" in str(model_config.get("name", "")).lower():
+        # Match on the underlying model name as well as the config key:
+        # custom endpoint entries are often keyed by an alias (e.g.
+        # "luna-responses" -> name "gpt-5.6-luna") and would otherwise
+        # silently skip all reasoning configuration.
         # Normalize legacy effort values (minimal->none, ultra->max)
         _EFFORT_ALIAS = {"minimal": "none", "ultra": "max"}
         effort = effective_settings.get("reasoning_effort", "medium")
@@ -712,7 +714,10 @@ class ModelFactory:
                 provider=provider,
                 profile=_thinking_tags_profile(model_name, model_config),
             )
-            if "codex" in model_name or "gpt-5.6" in model_config["name"].lower():
+            if (
+                "codex" in model_name
+                or "gpt-5.6" in str(model_config.get("name", "")).lower()
+            ):
                 model = OpenAIResponsesModel(
                     model_name=model_config["name"],
                     provider=provider,

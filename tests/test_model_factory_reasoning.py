@@ -47,3 +47,37 @@ def test_gpt56_alias_profile_enables_reasoning_fields():
     assert profile["openai_responses_supports_reasoning_mode"] is True
     assert profile["openai_responses_supports_reasoning_context"] is True
     assert profile["openai_supports_encrypted_reasoning_content"] is True
+
+
+def test_alias_keyed_custom_responses_model_gets_reasoning_settings():
+    """A config key without "gpt-5" must still match on the underlying name."""
+    config = {
+        "luna-responses": {
+            "type": "custom_openai_responses",
+            "name": "gpt-5.6-luna",
+            "context_length": 1_050_000,
+            "custom_endpoint": {
+                "url": "https://api.openai.com/v1",
+                "api_key": "$OPENAI_API_KEY",
+            },
+            "supported_settings": [
+                "temperature",
+                "top_p",
+                "reasoning_effort",
+                "verbosity",
+            ],
+        }
+    }
+    with (
+        patch.object(ModelFactory, "load_config", return_value=config),
+        patch(
+            "code_puppy.config.get_custom_model_settings",
+            return_value={},
+        ),
+    ):
+        settings = make_model_settings("luna-responses", max_tokens=4096)
+
+    assert settings["openai_reasoning_effort"] == "medium"
+    assert settings["openai_reasoning_summary"] == "auto"
+    assert settings["openai_reasoning_context"] == "all_turns"
+    assert settings["openai_reasoning_mode"] == "standard"
