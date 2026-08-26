@@ -866,6 +866,16 @@ async def interactive_mode(message_renderer, initial_command: str = None) -> Non
     except (ValueError, OSError):
         pass
 
+    # Field diagnostics: `kill -USR2 <pid>` dumps thread + asyncio-task
+    # stacks to ~/.code_puppy/stackdumps/ — the conviction kit for wedged
+    # cancellations (a frozen REPL can't be introspected any other way).
+    try:
+        from code_puppy.diagnostics import install_stack_dump_handler
+
+        install_stack_dump_handler(asyncio.get_running_loop())
+    except Exception:
+        pass  # diagnostics must never block the REPL
+
     # ------------------------------------------------------------------
     # Persistent-prompt mode: the bottom-bar editor is THE prompt (idle AND
     # running) — pinned input row, output scrolls above. Classic path behind
