@@ -976,7 +976,6 @@ def _delete_file(
     refused = _refuse_user_plugin_tree(file_path)
     if refused is not None:
         return refused
-    UndoManager().record_change(file_path, "delete_file")
     file_path = resolve_path(file_path)
 
     # Use the plugin system for permission handling with operation data

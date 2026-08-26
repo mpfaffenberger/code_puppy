@@ -44,6 +44,7 @@ from code_puppy.tools.file_modifications import (
     _emit_diff_message,
     _log_error,
     _permission_denied,
+    _refuse_user_plugin_tree,
     _write_to_file,
     replace_in_file_async,
     write_to_file_async,
@@ -438,6 +439,10 @@ async def _insert_into_file(
     real inserted text.)
     """
     file_path = resolve_path(path)
+
+    refused = _refuse_user_plugin_tree(path)
+    if refused is not None:
+        return refused
 
     if not fs_access.exists(file_path) or not fs_access.is_file(file_path):
         return {"error": "not_found", "path": file_path}
