@@ -134,6 +134,25 @@ def test_empty_catalog_does_not_reload_per_override_setting():
     assert three_override_calls == one_override_calls
 
 
+def test_failed_catalog_load_does_not_drop_supported_overrides():
+    """A failed catalog load must use the support-check fallback."""
+    with (
+        patch.object(
+            ModelFactory, "load_config", side_effect=OSError("catalog unavailable")
+        ),
+        patch("code_puppy.config.get_effective_model_settings", return_value={}),
+        patch("code_puppy.config.get_custom_model_settings", return_value={}),
+        patch("code_puppy.model_factory.get_yolo_mode", return_value=True),
+    ):
+        settings = make_model_settings(
+            "gpt-5-test",
+            max_tokens=4096,
+            overrides={"reasoning_effort": "high"},
+        )
+
+    assert settings["reasoning_effort"] == "high"
+
+
 def test_agent_settings_override_per_model_values_before_provider_translation():
     model_config = {
         "gpt-5-test": {

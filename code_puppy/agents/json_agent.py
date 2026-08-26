@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from code_puppy import atomic_json
+from code_puppy.i18n import t
 
 from .base_agent import BaseAgent
 
@@ -32,7 +33,11 @@ def model_settings_validation_errors(model_settings: Dict[str, Any]) -> List[str
         if definition is None:
             valid_keys = ", ".join(sorted(SETTING_DEFINITIONS))
             errors.append(
-                f"Unknown model_settings key {key!r}. Valid keys: {valid_keys}"
+                t(
+                    "agent.model_settings.unknown_key",
+                    key=key,
+                    valid_keys=valid_keys,
+                )
             )
             continue
 
@@ -40,29 +45,52 @@ def model_settings_validation_errors(model_settings: Dict[str, Any]) -> List[str
         if setting_type == "numeric":
             if not isinstance(value, (int, float)) or isinstance(value, bool):
                 errors.append(
-                    f"model_settings[{key!r}] must be a number (got {value!r})"
+                    t(
+                        "agent.model_settings.number_type",
+                        key=key,
+                        value=value,
+                    )
                 )
                 continue
             min_value = definition.get("min")
             max_value = definition.get("max")
             if min_value is not None and value < min_value:
                 errors.append(
-                    f"model_settings[{key!r}] must be >= {min_value} (got {value!r})"
+                    t(
+                        "agent.model_settings.minimum",
+                        key=key,
+                        minimum=min_value,
+                        value=value,
+                    )
                 )
             if max_value is not None and value > max_value:
                 errors.append(
-                    f"model_settings[{key!r}] must be <= {max_value} (got {value!r})"
+                    t(
+                        "agent.model_settings.maximum",
+                        key=key,
+                        maximum=max_value,
+                        value=value,
+                    )
                 )
         elif setting_type == "choice":
             choices = definition.get("choices", [])
             if value not in choices:
                 errors.append(
-                    f"model_settings[{key!r}] must be one of {choices} (got {value!r})"
+                    t(
+                        "agent.model_settings.choice",
+                        key=key,
+                        choices=choices,
+                        value=value,
+                    )
                 )
         elif setting_type == "boolean":
             if not isinstance(value, bool):
                 errors.append(
-                    f"model_settings[{key!r}] must be true or false (got {value!r})"
+                    t(
+                        "agent.model_settings.boolean_type",
+                        key=key,
+                        value=value,
+                    )
                 )
         # "custom" settings are a free-form dict of provider extra_body
         # params; no further shape is enforced here.
@@ -166,13 +194,7 @@ class JSONAgent(BaseAgent):
                 )
 
     def _validate_model_settings(self, model_settings: Dict[str, Any]) -> None:
-        """Validate model_settings keys and values against known definitions.
-
-        Catches typos and obviously-wrong values at agent load time instead
-        of letting an unknown key silently vanish (filtered out downstream by
-        ``model_supports_setting``) or a malformed value ride unfiltered into
-        the provider request.
-        """
+        """Validate model_settings keys and values against known definitions."""
         errors = model_settings_validation_errors(model_settings)
         if errors:
             raise ValueError(

@@ -227,5 +227,11 @@
   "model_menu.browser.exited": "✓ Se salió del navegador de modelos",
   "model_menu.browser.unsupported_provider": "No se puede agregar un modelo desde {provider}: {reason}",
   "model_menu.browser.no_tool_call_warning": "⚠️  {model} NO admite la llamada a herramientas.\n   Este modelo no podrá editar archivos, ejecutar comandos ni usar ninguna herramienta.\n   Será muy limitado para tareas de programación.",
-  "model_menu.browser.add_cancelled": "Adición de modelo cancelada."
+  "model_menu.browser.add_cancelled": "Adición de modelo cancelada.",
+  "agent.model_settings.unknown_key": "Clave de model_settings desconocida {key!r}. Claves válidas: {valid_keys}",
+  "agent.model_settings.number_type": "model_settings[{key!r}] debe ser un número (se obtuvo {value!r})",
+  "agent.model_settings.minimum": "model_settings[{key!r}] debe ser >= {minimum} (se obtuvo {value!r})",
+  "agent.model_settings.maximum": "model_settings[{key!r}] debe ser <= {maximum} (se obtuvo {value!r})",
+  "agent.model_settings.choice": "model_settings[{key!r}] debe ser uno de {choices} (se obtuvo {value!r})",
+  "agent.model_settings.boolean_type": "model_settings[{key!r}] debe ser verdadero o falso (se obtuvo {value!r})"
 }

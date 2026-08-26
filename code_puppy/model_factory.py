@@ -3,7 +3,7 @@ import logging
 import os
 import pathlib
 from collections.abc import Mapping
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import httpx
 from anthropic import AsyncAnthropic
@@ -203,7 +203,7 @@ def make_model_settings(
     model_settings_dict: dict = {}
 
     # Calculate max_tokens if not explicitly provided
-    models_config: dict[str, Any] = {}
+    models_config: Optional[dict[str, Any]] = None
     model_config: dict[str, Any] = {}
     if max_tokens is None:
         # Load model config to get context length
@@ -212,7 +212,10 @@ def make_model_settings(
             model_config = models_config.get(model_name, {})
             context_length = model_config.get("context_length", 128000)
         except Exception:
-            # Fallback if config loading fails (e.g., in CI environments)
+            # Preserve the failed-load sentinel so support checks can apply
+            # their backwards-compatible fallback instead of treating a
+            # failed load as a valid empty catalog.
+            models_config = None
             context_length = 128000
         # min 2048, 15% of context, max 65536
         max_tokens = max(2048, min(int(0.15 * context_length), 65536))
@@ -221,6 +224,7 @@ def make_model_settings(
             models_config = ModelFactory.load_config()
             model_config = models_config.get(model_name, {})
         except Exception:
+            models_config = None
             model_config = {}
 
     model_settings_dict["max_tokens"] = max_tokens
