@@ -14,15 +14,8 @@ Usage:
 
 import asyncio
 import os
-import sys
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, TextIO, Tuple
 
-from prompt_toolkit import Application
-from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import Layout, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.widgets import Frame
 from code_puppy.config import CONFIG_DIR
 
 from .onboarding_slides import (
@@ -34,7 +27,6 @@ from .onboarding_slides import (
     slide_use_cases,
     slide_welcome,
 )
-from code_puppy.callbacks import on_prompt_toolkit_style
 
 # ============================================================================
 # State Tracking
@@ -170,11 +162,35 @@ class OnboardingWizard:
 
 
 # ============================================================================
-# TUI Rendering
+# TUI Rendering (termflow)
 # ============================================================================
 
 
-def _get_slide_panel_content(wizard: OnboardingWizard) -> FormattedText:
+def _sgr_for(style_class: str) -> tuple[str, str]:
+    """Map a semantic ``class:tui.*`` name to (SGR prefix, SGR suffix)."""
+    from termflow.ansi.codes import BOLD_ON, DIM_ON, RESET
+    from termflow.ansi.color import fg_color
+    from termflow.render.style import RenderStyle
+
+    from code_puppy.command_line.tui_style import menu_style
+
+    s = menu_style() or RenderStyle.default()
+    name = style_class.removeprefix("class:tui.")
+    mapping = {
+        "title": f"{fg_color(s.bright)}{BOLD_ON}",
+        "header": f"{fg_color(s.bright)}{BOLD_ON}",
+        "selected": f"{fg_color(s.head)}{BOLD_ON}",
+        "success": fg_color(s.head),
+        "warning": fg_color(s.error),
+        "muted": f"{fg_color(s.grey)}{DIM_ON}",
+        "help": f"{fg_color(s.grey)}{DIM_ON}",
+        "help-key": f"{fg_color(s.head)}{BOLD_ON}",
+    }
+    prefix = mapping.get(name, "")
+    return (prefix, RESET if prefix else "")
+
+
+def _get_slide_panel_content(wizard: OnboardingWizard) -> SlideContent:
     """Generate semantically styled slide content for display."""
     progress = wizard.get_progress_indicator()
     content: SlideContent = [
@@ -185,7 +201,126 @@ def _get_slide_panel_content(wizard: OnboardingWizard) -> FormattedText:
         ),
     ]
     content.extend(wizard.get_slide_content())
-    return FormattedText(content)
+    return content
+
+
+def _fragments_to_lines(fragments: SlideContent) -> list[str]:
+    """Flatten (style, text) fragments into per-line ANSI strings.
+
+    Each fragment is colored piecewise per line so styling never bleeds
+    across the newline boundaries that repaints rely on.
+    """
+    lines: list[str] = [""]
+    for style_class, text in fragments:
+        prefix, suffix = _sgr_for(style_class)
+        for i, part in enumerate(text.split("\n")):
+            if i:
+                lines.append("")
+            if part:
+                lines[-1] += f"{prefix}{part}{suffix}"
+    return lines
+
+
+class OnboardingTUI:
+    """Slide-deck widget on termflow primitives (headless-testable)."""
+
+    def __init__(
+        self,
+        wizard: OnboardingWizard,
+        *,
+        key_source: Optional[Callable[[], str]] = None,
+        output: Optional[TextIO] = None,
+        size: Optional[Callable[[], tuple[int, int]]] = None,
+        use_alt_screen: bool = True,
+    ) -> None:
+        import sys
+
+        from termflow.tui.keys import read_key
+        from termflow.tui.menu import RESIZE_POLL_S
+        from termflow.tui.terminal import terminal_size
+
+        self._wizard = wizard
+        self._read_key = key_source or (lambda: read_key(timeout=RESIZE_POLL_S))
+        self._output = output if output is not None else sys.__stdout__
+        self._size = size or terminal_size
+        self._use_alt_screen = use_alt_screen
+
+    def _paint(self) -> None:
+        from termflow.ansi.codes import BOLD_ON, RESET
+        from termflow.ansi.color import fg_color
+        from termflow.render.style import RenderStyle
+        from termflow.tui.layout import truncate
+
+        from code_puppy.command_line.tui_style import menu_style
+
+        width, height = self._size()
+        width = max(10, width - 1)
+        s = menu_style() or RenderStyle.default()
+        lines = [
+            f"{fg_color(s.bright)}{BOLD_ON}Code Puppy Tutorial{RESET}",
+            "",
+            *_fragments_to_lines(_get_slide_panel_content(self._wizard)),
+        ]
+        frame = [truncate(line, width) for line in lines[: max(1, height)]]
+        payload = "\x1b[H" + "".join(f"{line}\x1b[K\r\n" for line in frame) + "\x1b[J"
+        self._output.write(payload)
+        self._output.flush()
+
+    def _advance_or_complete(self) -> bool:
+        """Shared Enter/right behavior. True when the wizard is done."""
+        wizard = self._wizard
+        if wizard.current_slide == wizard.TOTAL_SLIDES - 1:
+            wizard.result = "completed"
+            return True
+        wizard.next_slide()
+        return False
+
+    def _handle_key(self, key: str) -> bool:
+        """Dispatch one key. True exits the loop."""
+        from termflow.tui.keys import Key
+
+        wizard = self._wizard
+        if key in (Key.ESCAPE, "ctrl-c"):
+            wizard.result = "skipped"
+            return True
+        if key in (Key.RIGHT, "l"):
+            return self._advance_or_complete()
+        if key in (Key.LEFT, "h"):
+            wizard.prev_slide()
+        elif key in (Key.DOWN, "j", "ctrl-n"):
+            wizard.next_option()
+        elif key in (Key.UP, "k", "ctrl-p"):
+            wizard.prev_option()
+        elif key == Key.ENTER:
+            if wizard.get_options_for_slide():
+                wizard.handle_option_select()
+            return self._advance_or_complete()
+        return False
+
+    def _loop(self) -> None:
+        self._paint()
+        last_size = self._size()
+        while True:
+            key = self._read_key()
+            if key == "":
+                size = self._size()
+                if size != last_size:
+                    last_size = size
+                    self._paint()
+                continue
+            if self._handle_key(key):
+                return
+            self._paint()
+
+    def run(self) -> None:
+        """Run the wizard TUI; mutates the wizard's result state."""
+        if self._use_alt_screen:
+            from termflow.tui.terminal import alt_screen, raw_mode
+
+            with raw_mode(), alt_screen(self._output):
+                self._loop()
+        else:
+            self._loop()
 
 
 # ============================================================================
@@ -208,101 +343,16 @@ async def run_onboarding_wizard() -> Optional[str]:
     wizard = OnboardingWizard()
     set_awaiting_user_input(True)
 
-    # Enter alternate screen buffer
-    sys.stdout.write("\033[?1049h")  # Enter alternate buffer
-    sys.stdout.write("\033[2J\033[H")  # Clear and home
-    sys.stdout.flush()
-    await asyncio.sleep(0.1)
-
     try:
-        kb = KeyBindings()
-
-        @kb.add("right")
-        @kb.add("l")
-        def next_slide(event):
-            if wizard.current_slide == wizard.TOTAL_SLIDES - 1:
-                wizard.result = "completed"
-                wizard._should_exit = True
-                event.app.exit()
-            else:
-                wizard.next_slide()
-            event.app.invalidate()
-
-        @kb.add("left")
-        @kb.add("h")
-        def prev_slide(event):
-            wizard.prev_slide()
-            event.app.invalidate()
-
-        @kb.add("down")
-        @kb.add("j")
-        @kb.add("c-n")  # Ctrl+N = next (Emacs-style)
-        def next_option(event):
-            wizard.next_option()
-            event.app.invalidate()
-
-        @kb.add("up")
-        @kb.add("k")
-        @kb.add("c-p")  # Ctrl+P = previous (Emacs-style)
-        def prev_option(event):
-            wizard.prev_option()
-            event.app.invalidate()
-
-        @kb.add("enter")
-        def select_or_next(event):
-            options = wizard.get_options_for_slide()
-            if options:
-                wizard.handle_option_select()
-
-            if wizard.current_slide == wizard.TOTAL_SLIDES - 1:
-                wizard.result = "completed"
-                wizard._should_exit = True
-                event.app.exit()
-            else:
-                wizard.next_slide()
-            event.app.invalidate()
-
-        @kb.add("escape")
-        def skip_wizard(event):
-            wizard.result = "skipped"
-            wizard._should_exit = True
-            event.app.exit()
-
-        @kb.add("c-c")
-        def cancel_wizard(event):
-            wizard.result = "skipped"
-            wizard._should_exit = True
-            event.app.exit()
-
-        slide_panel = Window(
-            content=FormattedTextControl(lambda: _get_slide_panel_content(wizard))
-        )
-
-        root_container = Frame(slide_panel, title="🐶 Code Puppy Tutorial")
-        layout = Layout(root_container)
-
-        app = Application(
-            layout=layout,
-            key_bindings=kb,
-            full_screen=False,
-            mouse_support=False,
-            color_depth="DEPTH_24_BIT",
-            style=on_prompt_toolkit_style(),
-        )
-
-        sys.stdout.write("\033[2J\033[H")
-        sys.stdout.flush()
-
-        await app.run_async()
-
+        # The widget owns raw mode + the alt screen; run it off-loop so
+        # the blocking key reads never stall the event loop.
+        await asyncio.to_thread(OnboardingTUI(wizard).run)
     except KeyboardInterrupt:
         wizard.result = "skipped"
     except Exception:
         wizard.result = None
     finally:
         set_awaiting_user_input(False)
-        sys.stdout.write("\033[?1049l")
-        sys.stdout.flush()
 
     # Clear exit message
     from code_puppy.messaging import emit_info

@@ -180,6 +180,21 @@ class TestInjectCodexFields:
         assert result is not None
         data = json.loads(result)
         assert "reasoning" in data
+        assert data["reasoning"] == {
+            "effort": "medium",
+            "summary": "auto",
+        }
+
+    def test_preserve_explicit_reasoning_summary(self):
+        body = json.dumps(
+            {
+                "model": "gpt-5",
+                "reasoning": {"effort": "low", "summary": "auto"},
+            }
+        ).encode()
+        result, _ = ChatGPTCodexAsyncClient._inject_codex_fields(body)
+        data = json.loads(result)
+        assert data["reasoning"] == {"effort": "low", "summary": "auto"}
 
     def test_no_reasoning_for_gpt4(self):
         """Test that reasoning is NOT added for GPT-4 models."""
@@ -324,6 +339,46 @@ class TestConvertStreamToResponse:
         assert body["output"][0]["type"] == "function_call"
         assert body["output"][0]["name"] == "get_weather"
         assert body["output"][0]["call_id"] == "call_123"
+
+    @pytest.mark.asyncio
+    async def test_preserve_complete_reasoning_output_over_partial_envelope(self):
+        """Retain encrypted reasoning when response.completed is incomplete."""
+        reasoning = {
+            "type": "reasoning",
+            "id": "rs_123",
+            "encrypted_content": "opaque-reasoning-token",
+            "summary": [],
+        }
+        message = {
+            "type": "message",
+            "id": "msg_123",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "Hello"}],
+        }
+        sse_lines = [
+            f"data: {json.dumps({'type': 'response.output_item.done', 'item': reasoning})}",
+            f"data: {json.dumps({'type': 'response.output_item.done', 'item': message})}",
+            f"data: {json.dumps({'type': 'response.completed', 'response': {'id': 'resp_123', 'output': [message]}})}",
+            "data: [DONE]",
+        ]
+
+        async def mock_aiter_lines():
+            for line in sse_lines:
+                yield line
+
+        mock_response = Mock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_response.aiter_lines = mock_aiter_lines
+        mock_response.request = Mock()
+
+        result = await ChatGPTCodexAsyncClient()._convert_stream_to_response(
+            mock_response
+        )
+        output = json.loads(result.content)["output"]
+
+        assert output == [reasoning, message]
+        assert output[0]["encrypted_content"] == "opaque-reasoning-token"
 
     @pytest.mark.asyncio
     async def test_use_response_completed_data(self):
@@ -838,3 +893,45 @@ class TestEdgeCases:
         body = json.loads(result.content)
         # Only "Hello" should be collected (empty strings are falsy)
         assert body["output"][0]["content"][0]["text"] == "Hello"
+
+
+class TestMergeOutputItems:
+    """Merge semantics for envelope output vs streamed output_item.done."""
+
+    def _items(self):
+        reasoning = {"type": "reasoning", "id": "rs_1", "encrypted_content": "enc"}
+        message = {"type": "message", "id": "msg_1", "role": "assistant"}
+        return reasoning, message
+
+    def test_stream_wins_when_envelope_is_subset(self):
+        from code_puppy.chatgpt_codex_client import _merge_output_items
+
+        reasoning, message = self._items()
+        merged = _merge_output_items([message], [reasoning, message])
+        assert merged == [reasoning, message]
+
+    def test_empty_envelope_returns_stream(self):
+        from code_puppy.chatgpt_codex_client import _merge_output_items
+
+        reasoning, message = self._items()
+        merged = _merge_output_items([], [reasoning, message])
+        assert merged == [reasoning, message]
+
+    def test_dropped_stream_event_recovered_from_envelope(self):
+        from code_puppy.chatgpt_codex_client import _merge_output_items
+
+        reasoning, message = self._items()
+        extra = {"type": "function_call", "id": "fc_1", "call_id": "call_1"}
+        # The stream missed the function_call item; the envelope has it.
+        merged = _merge_output_items([message, extra], [reasoning, message])
+        assert merged == [reasoning, message, extra]
+
+    def test_streamed_twin_replaces_envelope_copy(self):
+        from code_puppy.chatgpt_codex_client import _merge_output_items
+
+        reasoning, message = self._items()
+        stale = {"type": "message", "id": "msg_1", "role": "assistant", "old": True}
+        extra = {"type": "function_call", "id": "fc_1", "call_id": "call_1"}
+        merged = _merge_output_items([stale, extra], [reasoning, message])
+        assert merged == [reasoning, message, extra]
+        assert "old" not in merged[1]

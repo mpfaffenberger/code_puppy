@@ -304,6 +304,126 @@ class TestCredentialFlows:
         mock_save.assert_not_called()
 
 
+class TestProviderCredentialFlowHook:
+    """The provider_credential_flow seam in prompt_for_credentials."""
+
+    def _keys(self, *keys):
+        script = iter(keys)
+        return {
+            "key_source": lambda: next(script),
+            "output": StringIO(),
+            "size": lambda: (90, 20),
+        }
+
+    def test_hook_handles_credential_skips_manual_prompt(self, monkeypatch):
+        monkeypatch.delenv("ACME_API_KEY", raising=False)
+
+        def fake_hook(*, provider_id, env_var):
+            assert provider_id == "acme"
+            assert env_var == "ACME_API_KEY"
+            monkeypatch.setenv(env_var, "oauth-minted")
+            return True
+
+        with patch("code_puppy.callbacks.on_provider_credential_flow", fake_hook):
+            # No keys scripted: reaching the TextInput would blow up the test.
+            assert amm.prompt_for_credentials(make_provider(), **self._keys()) is True
+
+    def test_hook_true_without_env_falls_back_to_manual(self, monkeypatch):
+        monkeypatch.delenv("ACME_API_KEY", raising=False)
+        with (
+            patch(
+                "code_puppy.callbacks.on_provider_credential_flow",
+                lambda **kw: True,  # lies: never actually sets the env var
+            ),
+            patch.object(amm, "set_config_value") as mock_set,
+        ):
+            ok = amm.prompt_for_credentials(
+                make_provider(), **self._keys("s", "k", "enter")
+            )
+        assert ok is True
+        mock_set.assert_called_once_with("ACME_API_KEY", "sk")
+        import os
+
+        assert os.environ.pop("ACME_API_KEY") == "sk"
+
+    def test_hook_deferring_falls_back_to_manual(self, monkeypatch):
+        monkeypatch.delenv("ACME_API_KEY", raising=False)
+        with (
+            patch(
+                "code_puppy.callbacks.on_provider_credential_flow",
+                lambda **kw: False,
+            ),
+            patch.object(amm, "set_config_value") as mock_set,
+        ):
+            ok = amm.prompt_for_credentials(
+                make_provider(), **self._keys("s", "k", "enter")
+            )
+        assert ok is True
+        mock_set.assert_called_once_with("ACME_API_KEY", "sk")
+        import os
+
+        assert os.environ.pop("ACME_API_KEY") == "sk"
+
+    def test_on_provider_credential_flow_short_circuits(self):
+        from code_puppy import callbacks
+
+        calls = []
+
+        def first(**kw):
+            calls.append("first")
+            return True
+
+        def second(**kw):
+            calls.append("second")
+            return True
+
+        callbacks.register_callback("provider_credential_flow", first)
+        callbacks.register_callback("provider_credential_flow", second)
+        try:
+            assert (
+                callbacks.on_provider_credential_flow(
+                    provider_id="acme", env_var="ACME_API_KEY"
+                )
+                is True
+            )
+            assert calls == ["first"]
+        finally:
+            callbacks.unregister_callback("provider_credential_flow", first)
+            callbacks.unregister_callback("provider_credential_flow", second)
+
+    def test_on_provider_credential_flow_isolates_errors(self):
+        from code_puppy import callbacks
+
+        def boom(**kw):
+            raise RuntimeError("kaboom")
+
+        def fine(**kw):
+            return True
+
+        callbacks.register_callback("provider_credential_flow", boom)
+        callbacks.register_callback("provider_credential_flow", fine)
+        try:
+            assert (
+                callbacks.on_provider_credential_flow(
+                    provider_id="acme", env_var="ACME_API_KEY"
+                )
+                is True
+            )
+        finally:
+            callbacks.unregister_callback("provider_credential_flow", boom)
+            callbacks.unregister_callback("provider_credential_flow", fine)
+
+    def test_on_provider_credential_flow_no_callbacks(self):
+        from code_puppy import callbacks
+
+        assert (
+            callbacks.on_provider_credential_flow(
+                provider_id="acme", env_var="ACME_API_KEY"
+            )
+            is False
+        )
+
+
 class TestCustomModelPrompt:
     def _keys(self, *keys):
         script = iter(keys)

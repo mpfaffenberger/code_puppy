@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from prompt_toolkit.document import Document
+from termflow.tui.completion import Document
 
 # ── skills_completion ───────────────────────────────────────────────────
 

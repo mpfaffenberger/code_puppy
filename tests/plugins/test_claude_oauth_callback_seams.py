@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from unittest.mock import MagicMock
 
-import httpx
+import httpx2
 import pytest
 
 from code_puppy import callbacks
@@ -331,11 +331,12 @@ async def test_real_send_awaits_async_oauth_providers_without_runtime_warning(
 
     async def fake_send(self, request, *args, **kwargs):
         captured["authorization"] = request.headers.get("Authorization")
-        return httpx.Response(200, request=request, json={})
+        return httpx2.Response(200, request=request, json={})
 
-    monkeypatch.setattr(httpx.AsyncClient, "send", fake_send)
+    # ClaudeCacheAsyncClient rides httpx2 (the anthropic>=1 SDK's client).
+    monkeypatch.setattr(httpx2.AsyncClient, "send", fake_send)
     client = ClaudeCacheAsyncClient(headers={"Authorization": "Bearer old-token"})
-    request = httpx.Request(
+    request = httpx2.Request(
         "GET",
         "https://api.anthropic.com/health",
         headers={"Authorization": "Bearer old-token"},

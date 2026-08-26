@@ -5,7 +5,7 @@ import json
 import time
 from unittest.mock import Mock, patch
 
-import httpx
+import httpx2
 import pytest
 from anthropic import AsyncAnthropic
 
@@ -114,7 +114,7 @@ class TestJWTAgeDetection:
         iat = time.time() - 7200
         token = _create_jwt(iat=iat)
 
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.anthropic.com/v1/messages",
             headers={"Authorization": f"Bearer {token}"},
@@ -129,7 +129,7 @@ class TestJWTAgeDetection:
         iat = time.time() - 1800
         token = _create_jwt(iat=iat)
 
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.anthropic.com/v1/messages",
             headers={"Authorization": f"Bearer {token}"},
@@ -144,7 +144,7 @@ class TestJWTAgeDetection:
         iat = time.time() - TOKEN_MAX_AGE_SECONDS
         token = _create_jwt(iat=iat)
 
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.anthropic.com/v1/messages",
             headers={"Authorization": f"Bearer {token}"},
@@ -157,7 +157,7 @@ class TestJWTAgeDetection:
         """Test bearer token extraction from headers."""
         client = ClaudeCacheAsyncClient()
 
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.anthropic.com/v1/messages",
             headers={"Authorization": "Bearer my_token_123"},
@@ -170,7 +170,7 @@ class TestJWTAgeDetection:
         """Test bearer token extraction when header is missing."""
         client = ClaudeCacheAsyncClient()
 
-        request = httpx.Request(
+        request = httpx2.Request(
             "POST",
             "https://api.anthropic.com/v1/messages",
         )
@@ -416,7 +416,7 @@ class TestUrlBetaParam:
 
     def test_add_beta_query_param(self):
         """Test that beta=true is added to URL."""
-        url = httpx.URL("https://api.anthropic.com/v1/messages")
+        url = httpx2.URL("https://api.anthropic.com/v1/messages")
 
         new_url = ClaudeCacheAsyncClient._add_beta_query_param(url)
 
@@ -424,7 +424,7 @@ class TestUrlBetaParam:
 
     def test_add_beta_query_param_preserves_existing(self):
         """Test that existing query params are preserved."""
-        url = httpx.URL("https://api.anthropic.com/v1/messages?foo=bar")
+        url = httpx2.URL("https://api.anthropic.com/v1/messages?foo=bar")
 
         new_url = ClaudeCacheAsyncClient._add_beta_query_param(url)
 
@@ -433,7 +433,7 @@ class TestUrlBetaParam:
 
     def test_add_beta_query_param_not_duplicated(self):
         """Test that beta param is not duplicated if already present."""
-        url = httpx.URL("https://api.anthropic.com/v1/messages?beta=true")
+        url = httpx2.URL("https://api.anthropic.com/v1/messages?beta=true")
 
         new_url = ClaudeCacheAsyncClient._add_beta_query_param(url)
 
@@ -457,14 +457,14 @@ class TestSendAppliesPrefixConditionally:
         async def fake_send(self, request, *args, **kwargs):
             captured["body"] = bytes(request.content)
             captured["url"] = str(request.url)
-            response = Mock(spec=httpx.Response)
+            response = Mock(spec=httpx2.Response)
             response.status_code = 200
             response.headers = {"content-type": "application/json"}
             response._content = b"{}"
             return response
 
         with (
-            patch.object(httpx.AsyncClient, "send", new=fake_send),
+            patch.object(httpx2.AsyncClient, "send", new=fake_send),
             patch.object(
                 ClaudeCacheAsyncClient,
                 "_check_stored_token_expiry",
@@ -475,7 +475,7 @@ class TestSendAppliesPrefixConditionally:
             client = ClaudeCacheAsyncClient(
                 headers={"Authorization": "Bearer some_token"}
             )
-            request = httpx.Request(
+            request = httpx2.Request(
                 "POST",
                 "https://api.anthropic.com/v1/messages",
                 headers={"Authorization": "Bearer some_token"},
@@ -508,14 +508,14 @@ class TestSendAppliesPrefixConditionally:
 
         async def fake_send(self, request, *args, **kwargs):
             captured["body"] = bytes(request.content)
-            response = Mock(spec=httpx.Response)
+            response = Mock(spec=httpx2.Response)
             response.status_code = 200
             response.headers = {"content-type": "application/json"}
             response._content = b"{}"
             return response
 
         with (
-            patch.object(httpx.AsyncClient, "send", new=fake_send),
+            patch.object(httpx2.AsyncClient, "send", new=fake_send),
             patch.object(
                 ClaudeCacheAsyncClient,
                 "_check_stored_token_expiry",
@@ -526,7 +526,7 @@ class TestSendAppliesPrefixConditionally:
                 headers={"Authorization": "Bearer some_token"},
                 apply_claude_code_prefix=True,
             )
-            request = httpx.Request(
+            request = httpx2.Request(
                 "POST",
                 "https://api.anthropic.com/v1/messages",
                 headers={"Authorization": "Bearer some_token"},
@@ -558,14 +558,14 @@ class TestSendAppliesPrefixConditionally:
 
         async def fake_send(self, request, *args, **kwargs):
             captured["body"] = bytes(request.content)
-            response = Mock(spec=httpx.Response)
+            response = Mock(spec=httpx2.Response)
             response.status_code = 200
             response.headers = {"content-type": "application/json"}
             response._content = b"{}"
             return response
 
         with (
-            patch.object(httpx.AsyncClient, "send", new=fake_send),
+            patch.object(httpx2.AsyncClient, "send", new=fake_send),
             patch.object(
                 ClaudeCacheAsyncClient,
                 "_check_stored_token_expiry",
@@ -576,7 +576,7 @@ class TestSendAppliesPrefixConditionally:
                 headers={"Authorization": "Bearer some_token"},
                 apply_claude_code_prefix=True,
             )
-            request = httpx.Request(
+            request = httpx2.Request(
                 "POST",
                 "https://api.anthropic.com/v1/messages",
                 headers={"Authorization": "Bearer some_token"},
@@ -602,14 +602,14 @@ class TestSendAppliesPrefixConditionally:
 
         async def fake_send(self, request, *args, **kwargs):
             captured["body"] = bytes(request.content)
-            response = Mock(spec=httpx.Response)
+            response = Mock(spec=httpx2.Response)
             response.status_code = 200
             response.headers = {"content-type": "application/json"}
             response._content = b"{}"
             return response
 
         with (
-            patch.object(httpx.AsyncClient, "send", new=fake_send),
+            patch.object(httpx2.AsyncClient, "send", new=fake_send),
             patch.object(
                 ClaudeCacheAsyncClient,
                 "_check_stored_token_expiry",
@@ -619,7 +619,7 @@ class TestSendAppliesPrefixConditionally:
             client = ClaudeCacheAsyncClient(
                 headers={"Authorization": "Bearer some_token"}
             )
-            request = httpx.Request(
+            request = httpx2.Request(
                 "POST",
                 "https://api.anthropic.com/v1/messages",
                 headers={"Authorization": "Bearer some_token"},

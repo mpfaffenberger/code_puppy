@@ -365,16 +365,34 @@ def _text_input(title: str, **kwargs):
     return builder
 
 
+def _plugin_credential_flow(provider: ProviderInfo, env_var: str) -> bool:
+    """Give plugins first crack at acquiring a missing credential.
+
+    A plugin (e.g. an OAuth flow that exchanges a code for an API key) saves
+    the credential itself and returns True via the ``provider_credential_flow``
+    hook. Trust but verify: the env var must actually be set afterwards,
+    otherwise we fall back to manual entry anyway.
+    """
+    from code_puppy.callbacks import on_provider_credential_flow
+
+    handled = on_provider_credential_flow(provider_id=provider.id, env_var=env_var)
+    return bool(handled and os.environ.get(env_var))
+
+
 def prompt_for_credentials(provider: ProviderInfo, **overrides) -> bool:
     """Prompt for each missing credential. Empty skips; Esc cancels all.
 
-    Saves via config + os.environ so the key is immediately usable.
+    Plugins get first crack via the ``provider_credential_flow`` hook (e.g.
+    browser OAuth); anything unhandled falls back to manual entry, which
+    saves via config + os.environ so the key is immediately usable.
     """
     missing = missing_env_vars(provider)
     if not missing:
         emit_info(t("model_menu.credentials.all_set", provider=provider.name))
         return True
     for env_var in missing:
+        if _plugin_credential_flow(provider, env_var):
+            continue
         result = (
             _text_input(
                 f"{provider.name}: {env_var}",

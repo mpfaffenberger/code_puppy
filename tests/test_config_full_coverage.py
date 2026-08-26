@@ -703,6 +703,14 @@ class TestMCPServerConfigs:
                 result = cp_config.load_mcp_server_configs()
                 assert result == {}
 
+    def test_bad_json_raise_on_error(self, tmp_path):
+        f = tmp_path / "mcp_servers.json"
+        f.write_text("not json")
+        with patch.object(cp_config, "MCP_SERVERS_FILE", str(f)):
+            with patch("code_puppy.messaging.message_queue.emit_error"):
+                with pytest.raises(json.JSONDecodeError):
+                    cp_config.load_mcp_server_configs(raise_on_error=True)
+
 
 # ---------------------------------------------------------------------------
 # Config keys
