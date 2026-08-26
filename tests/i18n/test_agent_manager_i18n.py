@@ -1,22 +1,11 @@
-"""Coverage for the agent manager's user-facing message extraction."""
+"""Catalog-level tests protect the agent manager's translation contract."""
 
 import re
-
-import pytest
 
 from code_puppy.i18n import catalog, pseudo, translate
 
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 _NAMESPACE = "agent_manager."
-
-
-@pytest.fixture(autouse=True)
-def _reset_locale():
-    translate.set_locale("en-US")
-    catalog.reset()
-    yield
-    translate.set_locale("en-US")
-    catalog.reset()
 
 
 def _keys(locale="en-US"):
@@ -45,6 +34,14 @@ def test_catalog_translations_preserve_placeholders():
         source = set(_PLACEHOLDER.findall(catalogs["en-US"][key]))
         assert source == set(_PLACEHOLDER.findall(catalogs["es"][key]))
         assert source == set(_PLACEHOLDER.findall(catalogs["fr-CA"][key]))
+
+
+def test_environment_selected_locale_resolves_message(monkeypatch):
+    monkeypatch.setenv("CODE_PUPPY_LOCALE", "es")
+    translate.use_detected_locale()
+    assert "Agente" in translate.t(
+        "agent_manager.clone.source_not_found", agent_name="agent-x"
+    )
 
 
 def test_dynamic_values_are_interpolated():

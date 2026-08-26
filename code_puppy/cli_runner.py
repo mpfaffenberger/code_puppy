@@ -22,7 +22,7 @@ from rich.console import Console
 
 from code_puppy import __version__, callbacks, get_core_plugins_version, plugins
 from code_puppy.agents import get_current_agent
-from code_puppy.i18n import t
+from code_puppy.i18n import t, use_detected_locale
 from code_puppy.command_line.attachments import (
     parse_prompt_attachments,
     resolve_user_prompt,
@@ -1582,9 +1582,17 @@ def _force_utf8_stdio():
             pass
 
 
+def _initialize_locale():
+    """Select the UI locale before any startup message is translated."""
+    from code_puppy.config import get_value
+
+    use_detected_locale(get_value("locale"))
+
+
 def main_entry():
     """Entry point for the installed CLI tool."""
     _force_utf8_stdio()
+    _initialize_locale()
     try:
         # Capture main()'s return so plugins / normal paths set the exit status
         # (None → 0 or an int exit code).
