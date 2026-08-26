@@ -39,7 +39,7 @@ def test_catalog_translations_preserve_placeholders():
 def test_environment_selected_locale_resolves_message(monkeypatch):
     monkeypatch.setenv("CODE_PUPPY_LOCALE", "es")
     translate.use_detected_locale()
-    assert "Agente" in translate.t(
+    assert "agente" in translate.t(
         "agent_manager.clone.source_not_found", agent_name="agent-x"
     )
 
